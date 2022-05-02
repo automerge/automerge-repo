@@ -31,7 +31,7 @@ function updateDoc(newDoc) {
     console.log(Automerge.decodeChange(Automerge.getLastLocalChange(newDoc)).ops)
     render(newDoc)
     // save(newDoc)
-    syncWithPeers(newDoc, peers)
+    syncWithPeers(newDoc)
 }
 
 function render(doc) {
@@ -92,18 +92,23 @@ const client = new Client({ userName: `user-${Math.round(Math.random()*1000)}`, 
   .join(docId)
   .addEventListener('peer.connect', (ev) => {
     const {documentId, userName, socket} = ev.detail
+    peerSockets[userName] = socket
     socket.binaryType = 'arraybuffer'
 
     // send a message
     let msg;
     [peers[userName], msg] = Automerge.generateSyncMessage(doc, peers[userName] || Automerge.initSyncState())
-    peerSockets[userName] = socket
     if (msg) {
       socket.send(msg.buffer)
     }
 
     // listen for messages
     socket.onmessage = (e) => {
+      
+      e.target.binaryType = 'arraybuffer';
+      console.log(typeof e.data, e.data)
+      if (typeof e.data === "string") { throw new Error("WTF")}
+
       const message = new Uint8Array(e.data)
       console.log(message)
       let nextState
@@ -114,15 +119,22 @@ const client = new Client({ userName: `user-${Math.round(Math.random()*1000)}`, 
       peers[userName] = nextState
         
       syncWithPeers(doc, peers)
+      render(doc)
     }
   })
 
-  function syncWithPeers(doc, peers) {
+  function syncWithPeers(doc) {
     // could do something nicer than this jank
     Object.entries(peers).forEach( ([peerName, syncState]) => {
-      let nextState, msg 
+      if (peerSockets[peerName].readyState !== WebSocket.OPEN) {
+        return
+      } 
+      let nextState, msg
       [nextState, msg] = Automerge.generateSyncMessage(doc, syncState)
       peers[peerName] = nextState
-      if (msg) { peerSockets[peerName].send(msg.buffer) }
+      if (msg) { 
+        const s = peerSockets[peerName]
+        s.send(msg.buffer) 
+      }
     })
   }
