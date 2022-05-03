@@ -1,10 +1,10 @@
 import Repo from './repo.js' 
 import storageInterface from "./storageInterface.js"
-import networkInterface from "./networkInterface.js"
+import NetworkInterface from "./networkInterface.js"
 
 // TODO: this interface is wrong. the URL shouldn't be passed into the Repo
 const url = "ws://localhost:8080"
-const repo = new Repo(storageInterface, networkInterface, url)
+const repo = new Repo(storageInterface, new NetworkInterface(url))
 
 const docId = "my-todo-list"
 

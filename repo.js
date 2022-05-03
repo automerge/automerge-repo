@@ -10,39 +10,39 @@ export default class Repo extends EventTarget {
 
   // I don't like how this network stuff isn't nicely segmented into its own tidy place.
   // There should be a separate "network" and "storage" component (storage would handle, for example, compaction)
-  syncWithPeers = (docId, doc) => {
+  syncWithPeers = (documentId, doc) => {
     Object.values(this.peers).forEach(({ connection, syncStates }) => {
       if (!connection.isOpen()) {
         return;
       }
       let msg;
-      let syncState = syncStates[docId];
+      let syncState = syncStates[documentId];
       [syncState, msg] = Automerge.generateSyncMessage(doc, syncState);
-      syncStates[docId] = syncState; // this is an object reference, so works as "expected"
+      syncStates[documentId] = syncState; // this is an object reference, so works as "expected"
       if (msg) {
         connection.send(msg);
       }
     });
   };
 
-  constructor(storage, network, url) {
+  constructor(storage, network) {
     super();
     this.storage = storage;
     this.network = network;
 
     // when we discover a peer for a document
     // we set up a syncState, then send an initial sync message to them
-    const onPeer = (peerId, docId, connection) => {
+    const onPeer = ({peerId, documentId, connection}) => {
       let syncState, msg;
       this.peers[peerId] = { connection, syncStates: {} };
 
       // Start sync by sending a first message.
       // TODO: load syncState from localStorage if available
       [syncState, msg] = Automerge.generateSyncMessage(
-        this.docs[docId],
+        this.docs[documentId],
         Automerge.initSyncState()
       );
-      this.peers[peerId].syncStates[docId] = syncState;
+      this.peers[peerId].syncStates[documentId] = syncState;
       if (msg) {
         connection.send(msg);
       }
@@ -50,50 +50,53 @@ export default class Repo extends EventTarget {
 
     // when we hear from a peer, we receive the syncMessage
     // and then see if we need to reply to them (or anyone else)
-    const onMessage = (peerId, docId, message) => {
-      let syncState = this.peers[peerId].syncStates[docId];
-      let doc = this.docs[docId];
+    const onMessage = ({peerId, documentId, message}) => {
+      let syncState = this.peers[peerId].syncStates[documentId];
+      let doc = this.docs[documentId];
       [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message);
-      this.peers[peerId].syncStates[docId] = syncState;
-      this.docs[docId] = doc;
-      this.syncWithPeers(docId, doc);
+      this.peers[peerId].syncStates[documentId] = syncState;
+      this.docs[documentId] = doc;
+      this.syncWithPeers(documentId, doc);
       this.dispatchEvent(
-        new CustomEvent("change", { detail: { docId, doc }, origin: "remote" })
+        new CustomEvent("change", { detail: { documentId, doc }, origin: "remote" })
       );
     };
 
-    const { join } = network(url, onPeer, onMessage);
-    this.join = join;
+    this.network.addEventListener('peer', (ev) => onPeer(ev.detail))
+    this.network.addEventListener('message', (ev) => onMessage(ev.detail))
   }
 
-  save(docId, doc) {
+  save(documentId, doc) {
     const binary = Automerge.save(doc);
-    this.storage.save(docId, binary);
+    this.storage.save(documentId, binary);
   }
 
-  change(docId, callback) {
-    const doc = Automerge.change(this.docs[docId], callback);
-    this.docs[docId] = doc;
-    this.save(docId, doc);
-    this.syncWithPeers(docId, doc);
+  change(documentId, callback) {
+    const doc = Automerge.change(this.docs[documentId], callback);
+    this.docs[documentId] = doc;
+    this.save(documentId, doc);
+    this.syncWithPeers(documentId, doc);
     this.dispatchEvent(
-      new CustomEvent("change", { detail: { docId, doc }, origin: "local" })
+      new CustomEvent("change", { detail: { documentId, doc }, origin: "local" })
     );
-    return this.docs[docId];
+    return this.docs[documentId];
   }
 
-  async load(docId) {
+  async load(documentId) {
     console.log(this, this.storage);
-    const binary = await this.storage.load(docId);
-    this.join(docId);
+    const binary = await this.storage.load(documentId);
     if (!binary) return null;
-    this.docs[docId] = Automerge.load(binary);
-    return this.docs[docId];
+    this.network.join(documentId);
+    this.docs[documentId] = Automerge.load(binary);
+    this.dispatchEvent(
+      new CustomEvent("change", { detail: { documentId, doc: this.docs[documentId] }, origin: "remote" })
+    );
+    return this.docs[documentId];
   }
 
-  create(docId) {
+  create(documentId) {
     // note, we don't save until the first change
-    this.docs[docId] = Automerge.init();
-    this.join(docId);
+    this.docs[documentId] = Automerge.init();
+    this.network.join(documentId);
   }
 }
