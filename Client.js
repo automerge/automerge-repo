@@ -4,8 +4,6 @@ const HEARTBEAT_INTERVAL = 55000; // 55 seconds
 
 const uuid = Crypto.randomUuid
 
-console.log("HELLO")
-
 /**
  * This is a client for `relay` that keeps track of all peers that the server connects you to, and
  * for each peer it keeps track of each documentId (aka discoveryKey, aka channel) that you're
@@ -58,7 +56,6 @@ export class Client extends EventTarget {
      * @param documentIds one or more document IDs that you're interested in
      */
     constructor({ userName = uuid(), url, documentIds = [], minRetryDelay = 10, backoffFactor = 1.5, maxRetryDelay = 30000, }) {
-        console.log("HELLO CONSTRUCT")
         super();
         this.log = console.log // debug(`lf:relay:client:${userName}`);
         this.log('version', version);

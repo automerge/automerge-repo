@@ -1,4 +1,7 @@
-import { newRepo, storageInterface, networkInterface } from './repo.js' 
+import Repo from './repo.js' 
+import storageInterface from "./storageInterface.js"
+import networkInterface from "./networkInterface.js"
+
 /* document data model as pseudo-typescript:
 
 interface TodoItem {
@@ -51,9 +54,9 @@ form.onsubmit = (ev) => {
 }
 
 const url = "ws://localhost:8080"
-const repo = newRepo(storageInterface, networkInterface, url)
+const repo = new Repo(storageInterface, networkInterface, url)
 
-let docId = "my-todo-list" // arbitrary name
+const docId = "my-todo-list"
 let doc = await repo.load(docId)
-if (!doc) { doc = Automerge.init() }
-render(doc)
+if (!doc) { doc = repo.create(docId) }
+repo.addEventListener('change', (ev) => render(ev.detail.doc))
