@@ -1,7 +1,7 @@
 /* eslint-disable import/extensions */
 import { Client } from './Client.js'
 
-class NetworkInterface extends EventTarget {
+class LocalFirstRelayNetworkInterface extends EventTarget {
   client
 
   constructor(url) {
@@ -23,7 +23,6 @@ class NetworkInterface extends EventTarget {
 
       // listen for messages
       socket.onmessage = (e) => {
-        console.log(e.data)
         const message = new Uint8Array(e.data)
         this.dispatchEvent(new CustomEvent('message', { detail: { peerId: userName, documentId, message } }))
       }
@@ -35,4 +34,4 @@ class NetworkInterface extends EventTarget {
   }
 }
 
-export default NetworkInterface
+export default LocalFirstRelayNetworkInterface

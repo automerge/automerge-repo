@@ -3,8 +3,8 @@
 /* eslint-disable no-use-before-define */
 /* eslint-disable no-shadow */
 import Repo from './repo.js'
-import storageInterface from './storageInterface.js'
-import NetworkInterface from './networkInterface.js'
+import storageInterface from './localforageInterface.js'
+import NetworkInterface from './localfirstrelaynetwork.js'
 
 // TODO: this interface is wrong. the URL shouldn't be passed into the Repo
 const url = 'ws://localhost:8080'

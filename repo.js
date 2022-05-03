@@ -14,12 +14,12 @@ export default class Repo extends EventTarget {
   // There should be a separate "network" and "storage" component
   // (storage would handle, for example, compaction)
   syncWithPeers = (documentId, doc) => {
-    Object.values(this.peers).forEach(({ connection, syncStates }) => {
+    Object.entries(this.peers).forEach(([peerId, { connection, syncStates }]) => {
       if (!connection.isOpen()) {
         return
       }
       const [syncState, msg] = Automerge.generateSyncMessage(doc, syncStates[documentId])
-      syncStates[documentId] = syncState // this is an object reference, so works as "expected"
+      this.peers[peerId].syncStates[documentId] = syncState
       if (msg) {
         connection.send(msg)
       }
@@ -51,33 +51,35 @@ export default class Repo extends EventTarget {
     // when we hear from a peer, we receive the syncMessage
     // and then see if we need to reply to them (or anyone else)
     const onMessage = ({ peerId, documentId, message }) => {
+      
       let syncState = this.peers[peerId].syncStates[documentId]
       let doc = this.docs[documentId];
+      
       [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
       this.peers[peerId].syncStates[documentId] = syncState
-      this.docs[documentId] = doc
-      this.syncWithPeers(documentId, doc)
+
+
       this.dispatchEvent(
-        new CustomEvent('change', { detail: { documentId, doc }, origin: 'remote' }),
+        new CustomEvent('change', { detail: { documentId, doc, origin: 'remote' }}),
       )
     }
 
     this.network.addEventListener('peer', (ev) => onPeer(ev.detail))
     this.network.addEventListener('message', (ev) => onMessage(ev.detail))
-  }
 
-  save(documentId, doc) {
-    const binary = Automerge.save(doc)
-    this.storage.save(documentId, binary)
+    const onChange = ({ documentId, doc }) => {
+      this.docs[documentId] = doc
+      const binary = Automerge.save(doc)
+      this.storage.save(documentId, binary)
+      this.syncWithPeers(documentId, doc)
+    }
+    this.addEventListener('change', (ev) => onChange(ev.detail))
   }
 
   change(documentId, callback) {
     const doc = Automerge.change(this.docs[documentId], callback)
-    this.docs[documentId] = doc
-    this.save(documentId, doc)
-    this.syncWithPeers(documentId, doc)
     this.dispatchEvent(
-      new CustomEvent('change', { detail: { documentId, doc }, origin: 'local' }),
+      new CustomEvent('change', { detail: { documentId, doc, origin: 'local' }}),
     )
     return this.docs[documentId]
   }
@@ -87,9 +89,10 @@ export default class Repo extends EventTarget {
     const binary = await this.storage.load(documentId)
     if (!binary) return null
     this.network.join(documentId)
-    this.docs[documentId] = Automerge.load(binary)
+    const doc = Automerge.load(binary)
+
     this.dispatchEvent(
-      new CustomEvent('change', { detail: { documentId, doc: this.docs[documentId] }, origin: 'remote' }),
+      new CustomEvent('change', { detail: { documentId, doc, origin: 'remote' }}),
     )
     return this.docs[documentId]
   }
