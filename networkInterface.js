@@ -1,3 +1,4 @@
+/* eslint-disable import/extensions */
 import { Client } from './Client.js'
 
 class NetworkInterface extends EventTarget {
