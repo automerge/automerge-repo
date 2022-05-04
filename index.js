@@ -3,21 +3,22 @@
 /* eslint-disable no-use-before-define */
 /* eslint-disable no-shadow */
 import Repo from './repo.js'
-import storageInterface from './localforageInterface.js'
+import StorageInterface from './localforageInterface.js'
 import NetworkInterface from './localfirstrelaynetwork.js'
 
 // TODO: this interface is wrong. the URL shouldn't be passed into the Repo
 const url = 'ws://localhost:8080'
-const repo = new Repo(storageInterface, new NetworkInterface(url))
+const repo = new Repo(StorageInterface(), new NetworkInterface(url))
 
-const docId = 'my-todo-list'
+let docId = window.location.hash.replace(/^#/, '') || 'my-todo-list'
 
 // this is an antipattern!
 // the client shouldn't invent the docId, because that's how we wind up with collisions
 let doc = await repo.load(docId)
 if (!doc) { doc = repo.create(docId) }
 // this is... okay. i don't like the whole ev.detail business but it's probably fine.
-repo.addEventListener('change', (ev) => render(ev.detail.doc))
+doc.addEventListener('change', (ev) => render(ev.detail.doc))
+render(doc.value()) // by the time we add the event listener, the event for loading the doc has already passed
 
 /* document data model as pseudo-typescript:
 
@@ -33,18 +34,16 @@ interface Document {
 */
 
 function addItem(text) {
-  doc = repo.change(docId, (doc) => {
+  doc.change((doc) => {
     if (!doc.items) doc.items = []
     doc.items.push({ text, done: false })
   })
-  render(doc)
 }
 
 function toggleItem(i) {
-  doc = repo.change(docId, (doc) => {
+  doc.change((doc) => {
     doc.items[i].done = !doc.items[i].done
   })
-  render(doc)
 }
 
 const form = document.querySelector('form')

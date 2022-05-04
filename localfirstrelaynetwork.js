@@ -32,6 +32,10 @@ class LocalFirstRelayNetworkInterface extends EventTarget {
   join(docId) {
     this.client.join(docId)
   }
+
+  leave(docId) {
+    throw new Error("todo")
+  }
 }
 
 export default LocalFirstRelayNetworkInterface
