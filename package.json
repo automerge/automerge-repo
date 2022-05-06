@@ -11,6 +11,8 @@
     "demo": "http-server"
   },
   "devDependencies": {
-    "eslint": "^8.14.0"
+    "eslint": "^8.14.0",
+    "eslint-config-airbnb": "^19.0.4",
+    "http-server": "^14.1.0"
   }
 }

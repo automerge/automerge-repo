@@ -69,3 +69,7 @@ There are a number of problems with the current design which I will briefly enum
   * storage is shared across all clients in a browser but we don't do anything to dedupe / make that cheaper
 
 In addition there are a bunch of obvious next Adapters to implement. I'd probably want to see a FileSystem store and a BroadcastChannel network. We'll need to support [0-N] storage & network adapters as well. Right now we're hardcoded to one of each.
+
+Oh, also this isn't really a library yet. Need to build an actual browser module and figure that out.
+
+Also, the upstream `@local-first-web/relay` repo doesn't actually support sending binary data over the wire correctly. I'm running a hacked up version and have vendored a hacked-up client into this repo. I should fix both of those problems as well.

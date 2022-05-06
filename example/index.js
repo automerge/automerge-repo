@@ -4,7 +4,7 @@
 /* eslint-disable no-shadow */
 import Repo from '../src/Repo.js'
 import StorageAdapter from '../src/storage/LocalForageStorageAdapter.js'
-import NetworkAdapter from '../src/network/LocalFirstRelayNetworkAdapter.js'
+import NetworkAdapter from '../src/network/BroadcastChannelNetworkAdapter.js'
 
 const repo = new Repo(StorageAdapter(), new NetworkAdapter('ws://localhost:8080'))
 
