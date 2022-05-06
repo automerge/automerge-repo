@@ -2,23 +2,20 @@
 /* eslint-disable import/extensions */
 /* eslint-disable no-use-before-define */
 /* eslint-disable no-shadow */
-import Repo from './repo.js'
-import StorageInterface from './localforageInterface.js'
-import NetworkInterface from './localfirstrelaynetwork.js'
+import Repo from '../src/Repo.js'
+import StorageAdapter from '../src/storage/LocalForageStorageAdapter.js'
+import NetworkAdapter from '../src/network/LocalFirstRelayNetworkAdapter.js'
 
-// TODO: this interface is wrong. the URL shouldn't be passed into the Repo
-const url = 'ws://localhost:8080'
-const repo = new Repo(StorageInterface(), new NetworkInterface(url))
-
-let docId = window.location.hash.replace(/^#/, '') || 'my-todo-list'
+const repo = new Repo(StorageAdapter(), new NetworkAdapter('ws://localhost:8080'))
 
 // this is an antipattern!
 // the client shouldn't invent the docId, because that's how we wind up with collisions
+let docId = window.location.hash.replace(/^#/, '') || 'my-todo-list'
 let doc = await repo.load(docId)
 if (!doc) { doc = repo.create(docId) }
 // this is... okay. i don't like the whole ev.detail business but it's probably fine.
-doc.addEventListener('change', (ev) => render(ev.detail.doc))
-render(doc.value()) // by the time we add the event listener, the event for loading the doc has already passed
+doc.addEventListener('change', (ev) => render(ev.detail))
+render({ doc: doc.value() }) // by the time we add the event listener, the event for loading the doc has already passed
 
 /* document data model as pseudo-typescript:
 
@@ -54,7 +51,7 @@ form.onsubmit = (ev) => {
   input.value = null
 }
 
-function render(doc) {
+function render({doc}) {
   if (!doc) { return }
   const list = document.querySelector('#todo-list')
   list.innerHTML = ''

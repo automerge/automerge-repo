@@ -1,7 +1,7 @@
 /* eslint-disable import/extensions */
-import { Client } from './Client.js'
+import { Client } from '../../vendor/Client.js'
 
-class LocalFirstRelayNetworkInterface extends EventTarget {
+class LocalFirstRelayNetworkAdapter extends EventTarget {
   client
 
   constructor(url) {
@@ -34,8 +34,8 @@ class LocalFirstRelayNetworkInterface extends EventTarget {
   }
 
   leave(docId) {
-    throw new Error("todo")
+    this.client.leave(docId)
   }
 }
 
-export default LocalFirstRelayNetworkInterface
+export default LocalFirstRelayNetworkAdapter
