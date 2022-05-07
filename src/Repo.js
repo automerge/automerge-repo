@@ -15,15 +15,17 @@ export default class Repo extends EventTarget {
     this.addEventListener('document', (e) => this.networkSubsystem.onDocument(e))
   }
   
-  create(documentId) {
+  create() {
+    const documentId = crypto.randomUUID()
     const doc = new RepoDoc(documentId, Automerge.init())
     this.docs[documentId] = doc
     this.dispatchEvent(new CustomEvent('document', { detail: { documentId, doc }}))
-    return doc
+    return [documentId, doc] // erm
   }
   
   async load(documentId) {
-    const doc = new RepoDoc(documentId, await this.storageSubsystem.load(documentId))
+    const automergeDoc = await this.storageSubsystem.load(documentId)
+    const doc = new RepoDoc(documentId, automergeDoc)
     this.docs[documentId] = doc
     this.dispatchEvent(new CustomEvent('document', { detail: { documentId, doc }}))
     return doc

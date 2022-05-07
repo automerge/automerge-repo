@@ -5,14 +5,20 @@
 import Repo from '../src/Repo.js'
 import StorageAdapter from '../src/storage/LocalForageStorageAdapter.js'
 import NetworkAdapter from '../src/network/BroadcastChannelNetworkAdapter.js'
+import '../vendor/localforage.js'
 
 const repo = new Repo(StorageAdapter(), new NetworkAdapter('ws://localhost:8080'))
 
-// this is an antipattern!
-// the client shouldn't invent the docId, because that's how we wind up with collisions
-let docId = window.location.hash.replace(/^#/, '') || 'my-todo-list'
-let doc = await repo.load(docId)
-if (!doc) { doc = repo.create(docId) }
+let docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
+let docId = await localforage.getItem("docId:"+docName)
+let doc
+if (!docId) { 
+  [docId, doc] = repo.create() 
+  localforage.setItem("docId:"+docName, docId)
+} else {
+  doc = await repo.load(docId)
+}
+
 // this is... okay. i don't like the whole ev.detail business but it's probably fine.
 doc.addEventListener('change', (ev) => render(ev.detail))
 render({ doc: doc.value() }) // by the time we add the event listener, the event for loading the doc has already passed

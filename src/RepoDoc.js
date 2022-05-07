@@ -3,7 +3,9 @@ export class RepoDoc extends EventTarget {
 
   constructor(documentId, doc) {
     super();
+    if (!documentId) { throw new Error("Need a document ID for this RepoDoc.")}
     this.documentId = documentId;
+    if (!doc) { throw new Error("Missing the automerge data for this RepoDoc.")}
     this.doc = doc;
   }
 
