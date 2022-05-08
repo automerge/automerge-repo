@@ -4,10 +4,14 @@
 /* eslint-disable no-shadow */
 import Repo from '../src/Repo.js'
 import StorageAdapter from '../src/storage/LocalForageStorageAdapter.js'
-import NetworkAdapter from '../src/network/BroadcastChannelNetworkAdapter.js'
+import BCNetworkAdapter from '../src/network/BroadcastChannelNetworkAdapter.js'
+import LFNetworkAdapter from '../src/network/LocalFirstRelayNetworkAdapter.js'
 import '../vendor/localforage.js'
 
-const repo = new Repo(StorageAdapter(), new NetworkAdapter('ws://localhost:8080'))
+const repo = new Repo(
+  StorageAdapter(), 
+  [new LFNetworkAdapter('ws://localhost:8080'),new BCNetworkAdapter()]
+)
 
 let docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
 let docId = await localforage.getItem("docId:"+docName)

@@ -2,17 +2,21 @@
 import { Client } from '../../vendor/Client.js'
 
 class LocalFirstRelayNetworkAdapter extends EventTarget {
+  url
   client
 
   constructor(url) {
     super()
-    const client = new Client({
-      userName: `user-${Math.round(Math.random() * 1000)}`,
-      url,
-    })
-    this.client = client
+    this.url = url
+  }
 
-    client.addEventListener('peer.connect', (ev) => {
+  connect(peerId) {
+    this.client = new Client({
+      userName: peerId,
+      url: this.url,
+    })
+    
+    this.client.addEventListener('peer.connect', (ev) => {
       const { documentId, userName, socket } = ev.detail
       socket.binaryType = 'arraybuffer'
       const connection = {

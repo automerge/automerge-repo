@@ -1,10 +1,13 @@
 class BroadcastChannelNetworkAdapter extends EventTarget {
   // we should probably pass this in and de-dupe connections hm.
-  clientId = `user-${Math.round(Math.random() * 1000)}`
   channels = {}
 
   constructor() {
     super()
+  }
+
+  connect(clientId) {
+    this.clientId = clientId
   }
 
   join(documentId) {
@@ -54,7 +57,7 @@ class BroadcastChannelNetworkAdapter extends EventTarget {
   }
 
   leave(docId) {
-    this.client.leave(docId)
+    // TODO
   }
 }
 

@@ -63,6 +63,7 @@ There are a number of problems with the current design which I will briefly enum
  * NetworkSubsystem
   * keeps its own set of document references, which is lame and unnecessary.
   * no way of discovering documents as a batch or requesting synchronization for multiple documents.
+  * handle disconnections -> try another protocol
   * clients don't have a consistent ID between implementations which will be necessary to support >1 at a time and coordinate those connections
   * one websocket per peer per document. seems expensive
   * syncstates aren't persisted... but neither are client-ids
