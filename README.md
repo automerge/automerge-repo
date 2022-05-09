@@ -58,15 +58,13 @@ There are a number of problems with the current design which I will briefly enum
  * Repo / RepoDoc
   * RepoDoc is a strange class that wraps an underlying Automerge doc. I don't think it's particularly inteligible when you should expect one vs. the underlying data.
   * The EventTarget interface doesn't work in node, and there's no way to send a "welcome" event to a new listener, leading to awkwardness for new subscribers.
-  * users shouldn't assign their own hard-coded names. With this model everyone on the same sync hub would collide and clobber each other's 'my-todo-list' object
-  * need to support [0-N] storage & network adapters instead of hardcoding to 1.
  * NetworkSubsystem
   * keeps its own set of document references, which is lame and unnecessary.
-  * no way of discovering documents as a batch or requesting synchronization for multiple documents.
   * handle disconnections -> try another protocol
-  * clients don't have a consistent ID between implementations which will be necessary to support >1 at a time and coordinate those connections
+  * clients don't have a consistent ID between implementations which will be necessary to support >1 at a time and coordinate those connections.. but multiple tabs
   * one websocket per peer per document. seems expensive
   * syncstates aren't persisted... but neither are client-ids
+  * look into whether .buffer is sending too much data -> .buffer is the whole underlying arraybuffer and we just some
  * StorageSubsystem
   * it's gonna get expensive to store whole files on every change
   * storage is shared across all clients in a browser but we don't do anything to dedupe / make that cheaper
@@ -75,3 +73,19 @@ There are a number of problems with the current design which I will briefly enum
 Oh, also this isn't really a library yet. Need to build an actual browser module and figure that out.
 
 Also, the upstream `@local-first-web/relay` repo doesn't actually support sending binary data over the wire correctly. I'm running a hacked up version and have vendored a hacked-up client into this repo. I should fix both of those problems as well.
+
+* Repo Design Problems
+ * sending cursors / ephemeral data
+ * we should decide what to sync with a peer based on the peer, not the docId
+ * no way of discovering documents as a batch or requesting synchronization for multiple documents.
+
+* SyncProtocol work
+ * multi-document syncprotocol
+ * non-peer-specific broadcast SyncMessages
+ * syncing large repos without having to do expensive loads into memory
+ * how to decide what documents to sync with a peer
+ * one-way sync support -> i want to receive but not send changes
+ * peer-oriented instead of document-oriented sync
+ * encrypt contents but not structure, allowing syncing with a semi-trusted peer instead of all the peers
+    * change.hash & change.deps but with a consistently salted hash?
+ * RLE encode block of changes
