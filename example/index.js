@@ -7,20 +7,32 @@ import StorageAdapter from '../src/storage/LocalForageStorageAdapter.js'
 import BCNetworkAdapter from '../src/network/BroadcastChannelNetworkAdapter.js'
 import LFNetworkAdapter from '../src/network/LocalFirstRelayNetworkAdapter.js'
 import '../vendor/localforage.js'
+import { NetworkSubsystem } from "../src/network/NetworkSubsystem.js"
+import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 
-const repo = new Repo(
-  StorageAdapter(), 
-  [new LFNetworkAdapter('ws://localhost:8080'),new BCNetworkAdapter()]
-)
+const repo = new Repo()
+
+const storageSubsystem = new StorageSubsystem(StorageAdapter())
+const networkSubsystem = new NetworkSubsystem([new LFNetworkAdapter('ws://localhost:8080'),new BCNetworkAdapter()])
+repo.addEventListener('document', (e) => storageSubsystem.onDocument(e))
+repo.addEventListener('document', (e) => networkSubsystem.onDocument(e))
+ 
 
 let docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
 let docId = await localforage.getItem("docId:"+docName)
 let doc
+
+repo.addEventListener('document', (ev) =>{
+  const { docId, document } = ev.detail
+
+})
+
 if (!docId) { 
   [docId, doc] = repo.create() 
   localforage.setItem("docId:"+docName, docId)
 } else {
-  doc = await repo.load(docId)
+  const automergeDoc = await storageSubsystem.load(docId)
+  doc = repo.load(docId, automergeDoc)
 }
 
 // this is... okay. i don't like the whole ev.detail business but it's probably fine.
