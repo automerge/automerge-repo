@@ -1,35 +1,51 @@
 /* eslint-disable no-param-reassign */
-/* eslint-disable import/extensions */
 /* eslint-disable no-use-before-define */
 /* eslint-disable no-shadow */
+import '../vendor/localforage.js'
+
 import Repo from '../src/Repo.js'
 import StorageAdapter from '../src/storage/LocalForageStorageAdapter.js'
 import BCNetworkAdapter from '../src/network/BroadcastChannelNetworkAdapter.js'
 import LFNetworkAdapter from '../src/network/LocalFirstRelayNetworkAdapter.js'
-import '../vendor/localforage.js'
-import { NetworkSubsystem } from "../src/network/NetworkSubsystem.js"
-import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
+
+import Network from '../src/network/Network.js'
+import DocSynchronizer from '../src/network/Synchronizer.js'
+import StorageSystem from '../src/storage/StorageSubsystem.js'
 
 const repo = new Repo()
 
-const storageSubsystem = new StorageSubsystem(StorageAdapter())
-const networkSubsystem = new NetworkSubsystem([new LFNetworkAdapter('ws://localhost:8080'),new BCNetworkAdapter()])
-repo.addEventListener('document', (e) => storageSubsystem.onDocument(e))
-repo.addEventListener('document', (e) => networkSubsystem.onDocument(e))
- 
+const storageSubsystem = new StorageSystem(StorageAdapter())
+// repo.addEventListener('document', (ev) => storageSubsystem.onDocument(ev))
 
-let docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
-let docId = await localforage.getItem("docId:"+docName)
-let doc
 
-repo.addEventListener('document', (ev) =>{
-  const { docId, document } = ev.detail
+const networkSubsystem = new Network([new LFNetworkAdapter('ws://localhost:8080'), new BCNetworkAdapter()])
 
+const syncPool = {}
+repo.addEventListener('document', (ev) => {
+  const { handle } = ev.detail
+  networkSubsystem.join(handle.documentId)
+  networkSubsystem.addEventListener('peer', (ev) => {
+    const { peer, channel: documentId } = ev.detail
+    const docSynchronizer = syncPool[documentId] || new DocSynchronizer(repo.get(documentId))
+    docSynchronizer.beginSync(peer)
+
+    networkSubsystem.addEventListener('message', (ev) => {
+      const { peer: messagePeer, channel, message } = ev.detail
+      // big oof
+      if (peer.id === messagePeer.id && channel === handle.documentId) {
+        docSynchronizer.onSyncMessage(peer, handle, message)
+      }
+    })
+  })
 })
 
-if (!docId) { 
-  [docId, doc] = repo.create() 
-  localforage.setItem("docId:"+docName, docId)
+const docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
+let docId = await localforage.getItem(`docId:${docName}`)
+let doc
+
+if (!docId) {
+  [docId, doc] = repo.create()
+  localforage.setItem(`docId:${docName}`, docId)
 } else {
   const automergeDoc = await storageSubsystem.load(docId)
   doc = repo.load(docId, automergeDoc)
@@ -73,7 +89,7 @@ form.onsubmit = (ev) => {
   input.value = null
 }
 
-function render({doc}) {
+function render({ doc }) {
   if (!doc) { return }
   const list = document.querySelector('#todo-list')
   list.innerHTML = ''

@@ -1,4 +1,4 @@
-export class StorageSubsystem {
+export default class StorageSubsystem {
   storageAdapter;
 
   constructor(storageAdapter) {

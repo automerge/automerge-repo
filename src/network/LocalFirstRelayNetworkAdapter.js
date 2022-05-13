@@ -1,4 +1,3 @@
-/* eslint-disable import/extensions */
 import { Client } from '../../vendor/Client.js'
 
 class LocalFirstRelayNetworkAdapter extends EventTarget {
@@ -10,25 +9,30 @@ class LocalFirstRelayNetworkAdapter extends EventTarget {
     this.url = url
   }
 
+  #announceConnection(channel, peerId, socket) {
+    // return a peer object
+    const connection = {
+      isOpen: () => socket.readyState === WebSocket.OPEN,
+      send: (msg) => socket.send(msg.buffer),
+    }
+    this.dispatchEvent(new CustomEvent('peer-candidate', { detail: { peerId, channel, connection } }))
+  }
+
   connect(peerId) {
     this.client = new Client({
       userName: peerId,
       url: this.url,
     })
-    
+
     this.client.addEventListener('peer.connect', (ev) => {
       const { documentId, userName, socket } = ev.detail
       socket.binaryType = 'arraybuffer'
-      const connection = {
-        isOpen: () => socket.readyState === WebSocket.OPEN,
-        send: (msg) => socket.send(msg.buffer),
-      }
-      this.dispatchEvent(new CustomEvent('peer', { detail: { peerId: userName, documentId, connection } }))
+      this.#announceConnection(documentId, userName, socket)
 
       // listen for messages
       socket.onmessage = (e) => {
         const message = new Uint8Array(e.data)
-        this.dispatchEvent(new CustomEvent('message', { detail: { peerId: userName, documentId, message } }))
+        this.dispatchEvent(new CustomEvent('message', { detail: { peerId: userName, channel: documentId, message } }))
       }
     })
   }
