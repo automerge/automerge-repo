@@ -4,10 +4,17 @@
 /* eslint-disable no-shadow */
 import '../vendor/localforage.js'
 
+// TODO:
+// end-to-end encryption (authenticating peers)
+// multiple documents
+// "drafts" of documents per upwelling (offers)
+// PSI -> sharing documents you have in common with a peer
+// "offers" so storage peers will save your stuff
+
 import Repo from '../src/Repo.js'
-import StorageAdapter from '../src/storage/LocalForageStorageAdapter.js'
-import BCNetworkAdapter from '../src/network/BroadcastChannelNetworkAdapter.js'
-import LFNetworkAdapter from '../src/network/LocalFirstRelayNetworkAdapter.js'
+import StorageAdapter from '../src/storage/interfaces/LocalForageStorageAdapter.js'
+import BCNetworkAdapter from '../src/network/interfaces/BroadcastChannelNetworkAdapter.js'
+import LFNetworkAdapter from '../src/network/interfaces/LocalFirstRelayNetworkAdapter.js'
 
 import Network from '../src/network/Network.js'
 import StorageSystem from '../src/storage/StorageSubsystem.js'
@@ -18,7 +25,7 @@ const repo = new Repo()
 const storageSubsystem = new StorageSystem(StorageAdapter())
 repo.addEventListener('document', (ev) => storageSubsystem.onDocument(ev))
 const networkSubsystem = new Network([new LFNetworkAdapter('ws://localhost:8080'), new BCNetworkAdapter()])
-const synchronzier = new CollectionSynchronizer(networkSubsystem, repo)
+const synchronizer = new CollectionSynchronizer(networkSubsystem, repo)
 
 const docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
 let docId = await localforage.getItem(`docId:${docName}`)
