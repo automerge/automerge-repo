@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 /* eslint-disable no-param-reassign */
 /* eslint-disable no-use-before-define */
 /* eslint-disable no-shadow */
@@ -9,35 +10,15 @@ import BCNetworkAdapter from '../src/network/BroadcastChannelNetworkAdapter.js'
 import LFNetworkAdapter from '../src/network/LocalFirstRelayNetworkAdapter.js'
 
 import Network from '../src/network/Network.js'
-import DocSynchronizer from '../src/network/Synchronizer.js'
 import StorageSystem from '../src/storage/StorageSubsystem.js'
+import CollectionSynchronizer from '../src/network/CollectionSynchronizer.js'
 
 const repo = new Repo()
 
 const storageSubsystem = new StorageSystem(StorageAdapter())
-// repo.addEventListener('document', (ev) => storageSubsystem.onDocument(ev))
-
-
+repo.addEventListener('document', (ev) => storageSubsystem.onDocument(ev))
 const networkSubsystem = new Network([new LFNetworkAdapter('ws://localhost:8080'), new BCNetworkAdapter()])
-
-const syncPool = {}
-repo.addEventListener('document', (ev) => {
-  const { handle } = ev.detail
-  networkSubsystem.join(handle.documentId)
-  networkSubsystem.addEventListener('peer', (ev) => {
-    const { peer, channel: documentId } = ev.detail
-    const docSynchronizer = syncPool[documentId] || new DocSynchronizer(repo.get(documentId))
-    docSynchronizer.beginSync(peer)
-
-    networkSubsystem.addEventListener('message', (ev) => {
-      const { peer: messagePeer, channel, message } = ev.detail
-      // big oof
-      if (peer.id === messagePeer.id && channel === handle.documentId) {
-        docSynchronizer.onSyncMessage(peer, handle, message)
-      }
-    })
-  })
-})
+const synchronzier = new CollectionSynchronizer(networkSubsystem, repo)
 
 const docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
 let docId = await localforage.getItem(`docId:${docName}`)
@@ -53,7 +34,8 @@ if (!docId) {
 
 // this is... okay. i don't like the whole ev.detail business but it's probably fine.
 doc.addEventListener('change', (ev) => render(ev.detail))
-render({ doc: doc.value() }) // by the time we add the event listener, the event for loading the doc has already passed
+render({ doc: doc.value() })
+// by the time we add the event listener, the event for loading the doc has already passed
 
 /* document data model as pseudo-typescript:
 
