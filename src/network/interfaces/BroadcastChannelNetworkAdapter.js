@@ -8,6 +8,7 @@ class BroadcastChannelNetworkAdapter extends EventTarget {
   #announceConnection(channel, peerId, broadcastChannel) {
     // return a peer object
     const connection = {
+      close: () => {}, /* not sure what it would mean to close this yet */
       isOpen: () => true,
       send: (msg) => {
         broadcastChannel.postMessage({

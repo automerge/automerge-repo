@@ -54,14 +54,19 @@ export default class AutomergeNetwork extends EventTarget {
     networkAdapter.addEventListener('peer-candidate', (ev) => {
       const { peerId, channel, connection } = ev.detail
 
-      if (!this.peers[peerId] || !this.peers[peerId].isOpen()) {
-        const { isOpen, send } = connection
-        this.peers[peerId] = new AutomergePeer(peerId, isOpen, send)
+      if (this.peers[peerId] && !this.peers[peerId].isOpen()) {
+        console.log('Discarding peer candidate. We already have a connection.')
+        return
       }
 
-      // TODO: this is where we should de-dupe peers & authenticate candidates
-      this.dispatchEvent(new CustomEvent('peer', { detail: { peer: this.peers[peerId], channel } }))
+      const { isOpen, send } = connection
+      const peer = new AutomergePeer(peerId, isOpen, send)
+
+      // TODO: this is where we should authenticate candidates
+      this.peers[peerId] = peer
+      this.dispatchEvent(new CustomEvent('peer', { detail: { peer, channel } }))
     })
+
     networkAdapter.addEventListener('message', (ev) => {
       const { peerId, channel, message } = ev.detail
       const peer = this.peers[peerId]

@@ -21,7 +21,7 @@ export default class DocHandle extends EventTarget {
     this.doc = doc
     const { documentId } = this
     this.dispatchEvent(
-      new CustomEvent('change', { detail: { documentId, doc, origin: 'remote' } }),
+      new CustomEvent('change', { detail: { documentId, doc } }),
     )
   }
 

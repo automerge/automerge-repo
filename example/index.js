@@ -4,12 +4,20 @@
 /* eslint-disable no-shadow */
 import '../vendor/localforage.js'
 
+/* The key interfaces here are peer & message
+ * The Network joins Channels which have Peers. Peers send messages.
+ * (This has been a hard decision -- do messages come from peers or channels?)
+ * Right now, messages are passed directly to a doc-decoder based on their channel ID.
+ * They should pass through a message parsing step.
+ */
+
 // TODO:
 // end-to-end encryption (authenticating peers)
 // multiple documents
 // "drafts" of documents per upwelling (offers)
 // PSI -> sharing documents you have in common with a peer
 // "offers" so storage peers will save your stuff
+// persistent share lists for storage peer
 
 import Repo from '../src/Repo.js'
 import StorageAdapter from '../src/storage/interfaces/LocalForageStorageAdapter.js'
@@ -18,14 +26,23 @@ import LFNetworkAdapter from '../src/network/interfaces/LocalFirstRelayNetworkAd
 
 import Network from '../src/network/Network.js'
 import StorageSystem from '../src/storage/StorageSubsystem.js'
-import CollectionSynchronizer from '../src/network/CollectionSynchronizer.js'
+import { ExplicitShareCollectionSynchronizer } from '../src/network/CollectionSynchronizer.js'
 
 const repo = new Repo()
 
 const storageSubsystem = new StorageSystem(StorageAdapter())
 repo.addEventListener('document', (ev) => storageSubsystem.onDocument(ev))
-const networkSubsystem = new Network([new LFNetworkAdapter('ws://localhost:8080'), new BCNetworkAdapter()])
-const synchronizer = new CollectionSynchronizer(networkSubsystem, repo)
+
+const networkSubsystem = new Network(
+  [new LFNetworkAdapter('ws://localhost:8080'), new BCNetworkAdapter()],
+)
+
+const synchronizer = new ExplicitShareCollectionSynchronizer()
+networkSubsystem.addEventListener('peer', (ev) => synchronizer.onPeer(ev, repo))
+repo.addEventListener('document', (ev) => {
+  networkSubsystem.join(ev.detail.handle.documentId)
+  synchronizer.onDocument(ev)
+})
 
 const docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
 let docId = await localforage.getItem(`docId:${docName}`)

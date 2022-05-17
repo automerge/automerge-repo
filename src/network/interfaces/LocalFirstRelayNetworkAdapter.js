@@ -1,4 +1,4 @@
-import { Client } from '../../vendor/Client.js'
+import { Client } from '../../../vendor/Client.js'
 
 class LocalFirstRelayNetworkAdapter extends EventTarget {
   url
@@ -12,6 +12,7 @@ class LocalFirstRelayNetworkAdapter extends EventTarget {
   #announceConnection(channel, peerId, socket) {
     // return a peer object
     const connection = {
+      close: () => socket.close(),
       isOpen: () => socket.readyState === WebSocket.OPEN,
       send: (msg) => socket.send(msg.buffer),
     }

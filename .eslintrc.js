@@ -15,4 +15,4 @@ module.exports = {
     'import/extensions': 0,
     'lines-between-class-members': 0,
   },
-};
+}

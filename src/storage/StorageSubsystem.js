@@ -1,3 +1,6 @@
+/* TODO: we probably want to be able to distinguish between
+ * incremental & compacted writes due to cost & frequency 
+ */
 export default class StorageSubsystem {
   storageAdapter
 
