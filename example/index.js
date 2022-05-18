@@ -28,38 +28,45 @@ import Network from '../src/network/Network.js'
 import StorageSystem from '../src/storage/StorageSubsystem.js'
 import { ExplicitShareCollectionSynchronizer } from '../src/network/CollectionSynchronizer.js'
 
-const repo = new Repo()
-
 const storageSubsystem = new StorageSystem(StorageAdapter())
+const repo = new Repo(storageSubsystem)
 repo.addEventListener('document', (ev) => storageSubsystem.onDocument(ev))
 
-const networkSubsystem = new Network(
+const network = new Network(
   [new LFNetworkAdapter('ws://localhost:8080'), new BCNetworkAdapter()],
 )
 
 const synchronizer = new ExplicitShareCollectionSynchronizer()
-networkSubsystem.addEventListener('peer', (ev) => synchronizer.onPeer(ev, repo))
+network.addEventListener('peer', (ev) => synchronizer.onPeer(ev, repo))
 repo.addEventListener('document', (ev) => {
-  networkSubsystem.join(ev.detail.handle.documentId)
+  console.log("joining", ev.detail.handle.documentId)
+  network.join(ev.detail.handle.documentId)
   synchronizer.onDocument(ev)
 })
 
-const docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
-let docId = await localforage.getItem(`docId:${docName}`)
-let doc
+let docId = window.location.hash.replace(/^#/, '')
+if (!docId) {
+  const docName = window.location.hash.replace(/^#/, '') || 'my-todo-list'
+  docId = await localforage.getItem(`docId:${docName}`)
+}
+let handle
 
 if (!docId) {
-  [docId, doc] = repo.create()
+  [docId, handle] = repo.create()
   localforage.setItem(`docId:${docName}`, docId)
 } else {
-  const automergeDoc = await storageSubsystem.load(docId)
-  doc = repo.load(docId, automergeDoc)
+  handle = await repo.loadOrRequest(docId)
 }
 
-// this is... okay. i don't like the whole ev.detail business but it's probably fine.
-doc.addEventListener('change', (ev) => render(ev.detail))
-render({ doc: doc.value() })
+// this is... gross. i don't like the whole ev.detail business but it's probably fine.
+handle.addEventListener('change', () => render({ handle }))
+// this is even worse and i guess is why everyone invents a framework
+repo.addEventListener('document', (ev) => {
+  ev.detail.handle.addEventListener('change', () => render({ handle }))
+})
+// this ugliness is because
 // by the time we add the event listener, the event for loading the doc has already passed
+render({ handle })
 
 /* document data model as pseudo-typescript:
 
@@ -75,15 +82,21 @@ interface Document {
 */
 
 function addItem(text) {
-  doc.change((doc) => {
+  // don't actually do this
+  const [id, itemDoc] = repo.create()
+  itemDoc.change((i) => {
+    i.text = text
+    i.done = false
+  })
+  handle.change((doc) => {
     if (!doc.items) doc.items = []
-    doc.items.push({ text, done: false })
+    doc.items.push(id)
   })
 }
 
 function toggleItem(i) {
-  doc.change((doc) => {
-    doc.items[i].done = !doc.items[i].done
+  repo.get(handle.value().items[i]).change((i) => {
+    i.done = !i.done
   })
 }
 
@@ -95,13 +108,17 @@ form.onsubmit = (ev) => {
   input.value = null
 }
 
-function render({ doc }) {
+async function render({ handle }) {
+  const doc = handle.value()
   if (!doc) { return }
   const list = document.querySelector('#todo-list')
   list.innerHTML = ''
   if (doc.items) {
-    doc.items.forEach((item, index) => {
+    doc.items.forEach(async (itemId, index) => {
       const itemEl = document.createElement('li')
+      const itemHandle = await repo.getOrLoadOrRequest(itemId)
+      const item = itemHandle.value()
+      if (!item) { itemEl.innerText = "BUG"; list.appendChild(itemEl); return }
       itemEl.innerText = item.text
       itemEl.style = item.done ? 'text-decoration: line-through' : ''
       itemEl.onclick = () => toggleItem(index)
