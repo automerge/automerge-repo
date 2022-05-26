@@ -1,8 +1,8 @@
 /* global localforage */
 import '../vendor/localforage.js'
-import makeRepo from './makeRepo.js'
+import BrowserRepo from '../src/BrowserRepo.js'
 
-const repo = makeRepo()
+const repo = BrowserRepo()
 
 async function getRootDocument() {
   let docId = window.location.hash.replace(/^#/, '')
