@@ -25,8 +25,16 @@ export default class DocHandle extends EventTarget {
   replace(doc) {
     this.#doc = doc
     const { documentId } = this
+    const latestChange = Automerge.getLastLocalChange(doc)
     this.dispatchEvent(
-      new CustomEvent('change', { detail: { handle: this, documentId, doc } }),
+      new CustomEvent('change', {
+        detail: {
+          handle: this,
+          documentId,
+          doc,
+          latestChange,
+        },
+      }),
     )
   }
 

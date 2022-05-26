@@ -49,6 +49,8 @@ export default class Repo extends EventTarget {
    * @returns DocHandle
    */
   async find(documentId) {
+    // TODO: we want a way to make sure we don't yield
+    //       intermediate document states during initial synchronization
     return this.handles[documentId] || this.load(documentId)
   }
 }
