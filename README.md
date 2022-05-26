@@ -16,7 +16,7 @@ if (!handle) { handle = repo.create(docId) }
 
 # get an event every time the document is changed either locally or remotely
 # the data is { handle: DocHandle }
-doc.addEventListener('change', (ev) => render(ev.detail.handle))
+doc.on('change', ({ handle }) => render(handle))
 
 # the current API is not great and you've already missed the first change notification by now
 # so you're going to have to call your first render() manually.
@@ -35,11 +35,11 @@ It makes use of two subsystems (storage and networking) to handle synchronizatio
 
 The interface for a Network Adapter is as follows:
 ```
-  interface LocalFirstRelayNetworkAdapter extends EventTarget {
+  interface LocalFirstRelayNetworkAdapter extends EventEmitter3 {
     join(docId) // to listen for new peers for a given document
   }
-  this.dispatchEvent('peer', new CustomEvent { detail: { peerId, documentId, connection }})
-  this.dispatchEvent('message', new CustomEvent { detail: { peerId, documentId, message /* a UInt8Array containing a SyncMessage */ }})
+  this.emit('peer', { peerId, documentId, connection }})
+  this.emit('message', { peerId, documentId, message /* a UInt8Array containing a SyncMessage */ }})
 
   The connection has two methods:
   interface RepoConnection {
@@ -53,7 +53,7 @@ The interface for a Network Adapter is as follows:
 There are a number of problems with the current design which I will briefly enumerate here:
  * Repo / RepoDoc
   * RepoDoc is a strange class that wraps an underlying Automerge doc. I don't think it's particularly inteligible when you should expect one vs. the underlying data.
-  * The EventTarget interface doesn't work in node, and there's no way to send a "welcome" event to a new listener, leading to awkwardness for new subscribers.
+  * The EventEmitter3 interface doesn't work in node, and there's no way to send a "welcome" event to a new listener, leading to awkwardness for new subscribers.
  * NetworkSubsystem
   * handle disconnections -> try another protocol
   * one websocket per peer per document. seems expensive

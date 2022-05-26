@@ -17,4 +17,10 @@ module.exports = {
     'no-param-reassign': 0,
     'no-use-before-define': 0,
   },
+  globals: {
+    Automerge: 'readonly',
+    localforage: 'readonly',
+    CBOR: 'readonly',
+    EventEmitter3: 'readonly',
+  },
 }

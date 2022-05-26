@@ -1,4 +1,3 @@
-/* global localforage */
 import '../vendor/localforage.js'
 import BrowserRepo from '../src/BrowserRepo.js'
 
@@ -23,8 +22,7 @@ async function getRootDocument() {
 /* wire up the re-render logic (this is my 10c react clone) */
 const rootHandle = await getRootDocument()
 const list = document.querySelector('#todo-list')
-rootHandle.addEventListener('change', (ev) => {
-  const { handle } = ev.detail
+rootHandle.on('change', ({ handle }) => {
   renderList(list, handle)
 })
 renderList(list, rootHandle)
@@ -78,8 +76,7 @@ async function renderList(location, listHandle) {
       location.appendChild(itemEl)
       const itemHandle = await repo.find(itemId)
       renderItem(itemEl, itemHandle)
-      itemHandle.addEventListener('change', (ev) => {
-        const { handle } = ev.detail
+      itemHandle.on('change', ({ handle }) => {
         renderItem(itemEl, handle)
       })
     })

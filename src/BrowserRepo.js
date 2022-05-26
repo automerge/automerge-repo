@@ -17,7 +17,7 @@ import DependencyCollectionSynchronizer from '../src/network/CollectionSynchroni
 export default function makeRepo() {
   const storageSubsystem = new StorageSystem(StorageAdapter())
   const repo = new Repo(storageSubsystem)
-  repo.addEventListener('document', (ev) => storageSubsystem.onDocument(ev))
+  repo.on('document', ({ handle }) => storageSubsystem.onDocument(handle))
 
   const network = new Network(
     [new LFNetworkAdapter('ws://localhost:8080'), new BCNetworkAdapter()],
@@ -25,14 +25,12 @@ export default function makeRepo() {
 
   // wire up the dependency synchronizer
   const synchronizer = new DependencyCollectionSynchronizer(repo)
-  network.addEventListener('peer', (ev) => synchronizer.addPeer(ev.detail.peerId))
-  repo.addEventListener('document', (ev) => synchronizer.addDocument(ev.detail.handle.documentId))
-  network.addEventListener('message', (ev) => {
-    const { peerId, message } = ev.detail
+  network.on('peer', ({ peerId }) => synchronizer.addPeer(peerId))
+  repo.on('document', ({ handle }) => synchronizer.addDocument(handle.documentId))
+  network.on('message', ({ peerId, message }) => {
     synchronizer.onSyncMessage(peerId, message)
   })
-  synchronizer.addEventListener('message', (ev) => {
-    const { peerId, message } = ev.detail
+  synchronizer.on('message', ({ peerId, message }) => {
     network.onMessage(peerId, message)
   })
 

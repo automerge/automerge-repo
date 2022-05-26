@@ -2,7 +2,6 @@
  * incremental & compacted writes due to cost & frequency -> give the option for two storage engines
  * we probably also want to have compaction callbacks. count / timeout / manual calls...
  */
-/* global Automerge */
 export default class StorageSubsystem {
   storageAdapter
 
@@ -63,10 +62,8 @@ export default class StorageSubsystem {
     return numQueued >= 3
   }
 
-  onDocument(e) {
-    const { handle } = e.detail
-    handle.addEventListener('change', (ev) => {
-      const { documentId, doc, latestChange } = ev.detail
+  onDocument(handle) {
+    handle.on('change', ({ documentId, doc, latestChange }) => {
       if (this.shouldCompact(documentId)) {
         this.saveTotal(documentId, doc)
       } else {

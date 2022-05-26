@@ -1,5 +1,3 @@
-/* global CBOR */
-
 import DocSynchronizer from './DocSynchronizer.js'
 import '../../vendor/cbor-x.js' // Creates CBOR object in global namespace. Uh. TODO.
 
@@ -7,7 +5,7 @@ import '../../vendor/cbor-x.js' // Creates CBOR object in global namespace. Uh. 
 // and subscribe to everything it offers us.
 // In the real world, we probably want to authenticate the peer somehow,
 // but we'll get to that later.
-export default class CollectionSynchronizer extends EventTarget {
+export default class CollectionSynchronizer extends EventEmitter3 {
   channel
   peers = []
   syncPool = {}
@@ -38,10 +36,9 @@ export default class CollectionSynchronizer extends EventTarget {
 
   initDocSynchronizer(handle) {
     const docSynchronizer = new DocSynchronizer(handle)
-    docSynchronizer.addEventListener('message', (ev) => {
-      const { peerId, documentId, message } = ev.detail
+    docSynchronizer.on('message', ({ peerId, documentId, message }) => {
       const newmsg = CBOR.encode({ documentId, message })
-      this.dispatchEvent(new CustomEvent('message', { detail: { peerId, message: newmsg } }))
+      this.emit('message', { peerId, message: newmsg })
     })
     return docSynchronizer
   }

@@ -2,8 +2,7 @@
  * Given a handle to an Automerge document,
  * receive & dispatch sync messages to bring it in-line with all other peers' versions.
  */
-/* global Automerge */
-export default class DocSynchronizer extends EventTarget {
+export default class DocSynchronizer extends EventEmitter3 {
   handle
   // we track this separately from syncStates because you might have more syncStates than peers
   peers = []
@@ -12,7 +11,7 @@ export default class DocSynchronizer extends EventTarget {
   constructor(handle) {
     super()
     this.handle = handle
-    handle.addEventListener('change', () => this.syncWithPeers())
+    handle.on('change', () => this.syncWithPeers())
   }
 
   async getDoc() {
@@ -46,7 +45,7 @@ export default class DocSynchronizer extends EventTarget {
     const [newSyncState, message] = Automerge.generateSyncMessage(doc, syncState)
     this.#setSyncState(peerId, newSyncState)
     if (message) {
-      this.dispatchEvent(new CustomEvent('message', { detail: { peerId, documentId, message } }))
+      this.emit('message', { peerId, documentId, message })
     }
   }
 

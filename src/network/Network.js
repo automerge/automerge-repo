@@ -1,4 +1,4 @@
-export default class AutomergeNetwork extends EventTarget {
+export default class AutomergeNetwork extends EventEmitter3 {
   networkAdapters = []
 
   peers = {}
@@ -19,21 +19,18 @@ export default class AutomergeNetwork extends EventTarget {
 
   addNetworkAdapter(networkAdapter) {
     networkAdapter.connect(this.peerId)
-    networkAdapter.addEventListener('peer-candidate', (ev) => {
-      const { peerId, channel, connection } = ev.detail
-
+    networkAdapter.on('peer-candidate', ({ peerId, channel, connection }) => {
       if (!this.peers[peerId] || !this.peers[peerId].isOpen()) {
         const { isOpen, send } = connection
         this.peers[peerId] = { peerId, isOpen, send }
       }
 
       // TODO: this is where we should authenticate candidates
-      this.dispatchEvent(new CustomEvent('peer', { detail: { peerId, channel } }))
+      this.emit('peer', { peerId, channel })
     })
 
-    networkAdapter.addEventListener('message', (ev) => {
-      const { peerId, channel, message } = ev.detail
-      this.dispatchEvent(new CustomEvent('message', { detail: { peerId, channel, message } }))
+    networkAdapter.on('message', ({ peerId, channel, message }) => {
+      this.emit('message', { peerId, channel, message })
     })
   }
 

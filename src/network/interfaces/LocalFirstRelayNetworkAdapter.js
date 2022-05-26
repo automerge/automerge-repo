@@ -1,6 +1,6 @@
 import { Client } from '../../../vendor/Client.js'
 
-class LocalFirstRelayNetworkAdapter extends EventTarget {
+class LocalFirstRelayNetworkAdapter extends EventEmitter3 {
   url
   client
 
@@ -22,7 +22,7 @@ class LocalFirstRelayNetworkAdapter extends EventTarget {
         socket.send(message)
       },
     }
-    this.dispatchEvent(new CustomEvent('peer-candidate', { detail: { peerId, channel, connection } }))
+    this.emit('peer-candidate', { peerId, channel, connection })
   }
 
   connect(peerId) {
@@ -39,7 +39,7 @@ class LocalFirstRelayNetworkAdapter extends EventTarget {
       // listen for messages
       socket.onmessage = (e) => {
         const message = new Uint8Array(e.data)
-        this.dispatchEvent(new CustomEvent('message', { detail: { peerId: userName, channel: documentId, message } }))
+        this.emit('message', { peerId: userName, channel: documentId, message })
       }
     })
   }

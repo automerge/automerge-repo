@@ -1,4 +1,4 @@
-class BroadcastChannelNetworkAdapter extends EventTarget {
+class BroadcastChannelNetworkAdapter extends EventEmitter3 {
   channels = {}
 
   connect(clientId) {
@@ -20,7 +20,7 @@ class BroadcastChannelNetworkAdapter extends EventTarget {
         })
       },
     }
-    this.dispatchEvent(new CustomEvent('peer-candidate', { detail: { peerId, channel, connection } }))
+    this.emit('peer-candidate', { peerId, channel, connection })
   }
 
   join(channel) {
@@ -42,7 +42,7 @@ class BroadcastChannelNetworkAdapter extends EventTarget {
           this.#announceConnection(channel, origin, broadcastChannel)
           break
         case 'message':
-          this.dispatchEvent(new CustomEvent('message', { detail: { peerId: origin, channel, message: new Uint8Array(message) } }))
+          this.emit('message', { peerId: origin, channel, message: new Uint8Array(message) })
           break
         default:
           throw new Error('unhandled message from network')

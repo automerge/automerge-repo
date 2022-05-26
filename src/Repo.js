@@ -1,7 +1,6 @@
 import DocHandle from './DocHandle.js'
-/* global Automerge */
 
-export default class Repo extends EventTarget {
+export default class Repo extends EventEmitter3 {
   handles = {}
   storageSubsystem
 
@@ -29,7 +28,7 @@ export default class Repo extends EventTarget {
   async load(documentId) {
     const handle = this.cacheHandle(documentId)
     handle.replace(await this.storageSubsystem.load(documentId) || Automerge.init())
-    this.dispatchEvent(new CustomEvent('document', { detail: { handle } }))
+    this.emit('document', { handle })
     return handle
   }
 
@@ -37,7 +36,7 @@ export default class Repo extends EventTarget {
     const documentId = crypto.randomUUID()
     const handle = this.cacheHandle(documentId)
     handle.replace(Automerge.init())
-    this.dispatchEvent(new CustomEvent('document', { detail: { handle } }))
+    this.emit('document', { handle })
     return handle
   }
 
