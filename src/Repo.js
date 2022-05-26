@@ -22,15 +22,11 @@ export default class Repo extends EventTarget {
     return handle
   }
 
+  /* this is janky, because it returns an empty (but editable) document
+   * before anything loads off the network.
+   * fixing this probably demands some work in automerge core.
+   */
   async load(documentId) {
-    const handle = this.cacheHandle(documentId)
-    handle.replace(await this.storageSubsystem.load(documentId))
-    this.dispatchEvent(new CustomEvent('document', { detail: { handle } }))
-    return handle
-  }
-
-  // this is idomatically super weird
-  async loadOrRequest(documentId) {
     const handle = this.cacheHandle(documentId)
     handle.replace(await this.storageSubsystem.load(documentId) || Automerge.init())
     this.dispatchEvent(new CustomEvent('document', { detail: { handle } }))
@@ -45,15 +41,14 @@ export default class Repo extends EventTarget {
     return handle
   }
 
-  get(documentId) {
-    return this.handles[documentId]
-  }
-
-  async getOrLoad(documentId) {
+  /**
+   * find() locates a document by id
+   * getting data from the local system but also by sending out a 'document'
+   * event which a CollectionSynchronizer would use to advertise interest to other peers
+   * @param {string} documentId
+   * @returns DocHandle
+   */
+  async find(documentId) {
     return this.handles[documentId] || this.load(documentId)
-  }
-
-  async getOrLoadOrRequest(documentId) {
-    return this.handles[documentId] || this.loadOrRequest(documentId)
   }
 }

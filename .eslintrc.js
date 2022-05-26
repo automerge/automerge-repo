@@ -14,5 +14,7 @@ module.exports = {
     semi: ['error', 'never'],
     'import/extensions': 0,
     'lines-between-class-members': 0,
+    'no-param-reassign': 0,
+    'no-use-before-define': 0,
   },
 }

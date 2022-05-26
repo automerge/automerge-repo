@@ -1,7 +1,4 @@
-/* eslint-disable no-undef */
-/* eslint-disable no-param-reassign */
-/* eslint-disable no-use-before-define */
-/* eslint-disable no-shadow */
+/* global localforage */
 import '../vendor/localforage.js'
 import makeRepo from './makeRepo.js'
 
@@ -16,36 +13,25 @@ async function getRootDocument() {
 
   if (!docId) {
     rootHandle = repo.create()
-    localforage.setItem('root', listHandle.documentId)
+    localforage.setItem('root', rootHandle.documentId)
   } else {
-    rootHandle = await repo.getOrLoadOrRequest(docId)
+    rootHandle = await repo.find(docId)
   }
   return rootHandle
 }
 
-const listHandle = await getRootDocument()
+/* wire up the re-render logic (this is my 10c react clone) */
+const rootHandle = await getRootDocument()
 const list = document.querySelector('#todo-list')
-listHandle.addEventListener('change', (ev) => {
+rootHandle.addEventListener('change', (ev) => {
   const { handle } = ev.detail
   renderList(list, handle)
 })
-renderList(list, listHandle)
+renderList(list, rootHandle)
 
-/* document data model as pseudo-typescript:
-
-interface TodoItem {
-    text: string;
-    done: boolean;
-}
-
-interface Document {
-    items: TodoItem[];
-}
-
-*/
-
-function addItem(text) {
-  // don't actually do this
+/* adding an item happens on a sub-document */
+function addItem(listHandle, text) {
+  // don't actually do this, this is way overkill
   const itemDoc = repo.create()
   itemDoc.change((i) => {
     i.text = text
@@ -67,11 +53,12 @@ const form = document.querySelector('form')
 const input = document.querySelector('#new-todo')
 form.onsubmit = (ev) => {
   ev.preventDefault()
-  addItem(input.value)
+  addItem(rootHandle, input.value)
   input.value = null
 }
 
-// need handle listener management :/
+// need handle listener management, we're gonna leak like a sinking boat here
+// but i'm going to leave it since this should be handled by react/vue/svelte instead
 async function renderItem(itemEl, itemHandle) {
   const item = await itemHandle.value()
   if (!item) { itemEl.innerText = '#MISSING'; return }
@@ -89,7 +76,7 @@ async function renderList(location, listHandle) {
       const itemEl = document.createElement('li')
       itemEl.innerText = `loading ${itemId}...`
       location.appendChild(itemEl)
-      const itemHandle = await repo.getOrLoadOrRequest(itemId)
+      const itemHandle = await repo.find(itemId)
       renderItem(itemEl, itemHandle)
       itemHandle.addEventListener('change', (ev) => {
         const { handle } = ev.detail

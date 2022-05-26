@@ -1,6 +1,11 @@
+/** DocSynchronizer
+ * Given a handle to an Automerge document,
+ * receive & dispatch sync messages to bring it in-line with all other peers' versions.
+ */
 /* global Automerge */
 export default class DocSynchronizer extends EventTarget {
   handle
+  // we track this separately from syncStates because you might have more syncStates than peers
   peers = []
   syncStates = {} // peer -> syncState
 
@@ -10,58 +15,64 @@ export default class DocSynchronizer extends EventTarget {
     handle.addEventListener('change', () => this.syncWithPeers())
   }
 
-  async beginSync(peerId) {
-    const { documentId } = this.handle
-    if (!this.syncStates[peerId]) {
-      // TODO: load syncState from localStorage if available
-      this.peers.push(peerId)
-      this.syncStates[peerId] = Automerge.initSyncState()
-    }
-
-    // Start sync by sending a first message.
-    // Both parties should do this.
-    const [syncState, message] = Automerge.generateSyncMessage(
-      await this.handle.value(),
-      this.syncStates[peerId],
-    )
-    this.syncStates[peerId] = syncState
-    if (message) {
-      this.dispatchEvent(new CustomEvent('message', { detail: { peerId, documentId, message } }))
-    }
+  async getDoc() {
+    const doc = await this.handle.value()
+    if (!doc) { throw new Error('getDoc called with no document') }
+    return doc
   }
 
-  endSync(peerId) {
-    this.peers.filter((p) => p !== peerId)
-    // TODO
+  setDoc(doc) {
+    if (!doc) { throw new Error('setDoc called with no document') }
+    // this will trigger a peer sync due to the change listener above
+    this.handle.replace(doc)
   }
 
-  async onSyncMessage(peerId, message) {
-    const { handle } = this
-    let doc = await handle.value()
-    if (!doc) { throw new Error('onSyncMessage called with no document') }
+  #getSyncState(peerId) {
     let syncState = this.syncStates[peerId]
-
     if (!syncState) {
       // TODO: load syncState from localStorage if available
       this.peers.push(peerId)
       syncState = Automerge.initSyncState()
     }
-
-    [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
-    this.syncStates[peerId] = syncState
-    handle.replace(doc)
-    // this will trigger a peer sync due to a change in doc contents
+    return syncState
   }
 
-  syncWithPeers() {
-    const { documentId, doc } = this.handle
+  #setSyncState(peerId, syncState) {
+    this.syncStates[peerId] = syncState
+  }
+
+  async #sendSyncMessage(peerId, documentId, doc) {
+    const syncState = this.#getSyncState(peerId)
+    const [newSyncState, message] = Automerge.generateSyncMessage(doc, syncState)
+    this.#setSyncState(peerId, newSyncState)
+    if (message) {
+      this.dispatchEvent(new CustomEvent('message', { detail: { peerId, documentId, message } }))
+    }
+  }
+
+  async beginSync(peerId) {
+    const { documentId } = this.handle
+    const doc = await this.getDoc()
+    this.#sendSyncMessage(peerId, documentId, doc)
+  }
+
+  endSync(peerId) {
+    this.peers.filter((p) => p !== peerId)
+  }
+
+  async onSyncMessage(peerId, message) {
+    let doc = await this.getDoc()
+    let syncState = this.#getSyncState(peerId);
+    [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
+    this.setDoc(doc)
+    this.#setSyncState(peerId, syncState)
+  }
+
+  async syncWithPeers() {
+    const { documentId } = this.handle
+    const doc = await this.getDoc()
     this.peers.forEach((peerId) => {
-      const syncState = this.syncStates[peerId]
-      const [newSyncState, message] = Automerge.generateSyncMessage(doc, syncState)
-      this.syncStates[peerId] = newSyncState
-      if (message) {
-        this.dispatchEvent(new CustomEvent('message', { detail: { peerId, documentId, message } }))
-      }
+      this.#sendSyncMessage(peerId, documentId, doc)
     })
   }
 }

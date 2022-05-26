@@ -1,44 +1,61 @@
-/* eslint-disable max-classes-per-file */
+/* global CBOR */
+
 import DocSynchronizer from './DocSynchronizer.js'
+import '../../vendor/cbor-x.js' // Creates CBOR object in global namespace. Uh. TODO.
 
-// This collection synchronizer shares any open docs
-// with anyone else who wants to listen to those docs.
-export default class ExplicitShareCollectionSynchronizer {
-  onPeer(ev, repo) {
-    const { peer, channel: documentId } = ev.detail
-    const docSynchronizer = this.syncPool[documentId] || new DocSynchronizer(repo.get(documentId))
-    docSynchronizer.beginSync(peer)
-    this.syncPool[documentId] = docSynchronizer
-
-    peer.addEventListener('message', (mev) => {
-      const { channel, message } = mev.detail
-      const handle = this.syncPool[channel]
-      if (handle) {
-        handle.onSyncMessage(peer, message)
-      } else {
-        // TODO: we should probably try to load or create the document someone's offering us
-        throw new Error("Received a sync message for a document we didn't register.\n"
-                      + "This hasn't been implemented yet.")
-      }
-    })
-  }
-
-  onOffer(ev, repo) {
-    const { peer, documentId } = ev.detail
-    if (!repo.get(documentId)) {
-      repo.create(documentId)
-      const docSynchronizer = new DocSynchronizer(repo.get(documentId))
-      docSynchronizer.beginSync(peer)
-      this.syncPool[documentId] = docSynchronizer
-    }
-  }
-
-  onDocument(ev) {
-    const { handle } = ev.detail
-    const { documentId } = handle
-    this.syncPool[documentId] = this.syncPool[documentId] || new DocSynchronizer(handle)
-  }
-
-  // TODO: this is wrong! need per-peer/docId sync state
+// When we get a peer for a channel, we want to offer it all the documents in this collection
+// and subscribe to everything it offers us.
+// In the real world, we probably want to authenticate the peer somehow,
+// but we'll get to that later.
+export default class CollectionSynchronizer extends EventTarget {
+  channel
+  peers = []
   syncPool = {}
+
+  constructor(repo) {
+    super()
+    this.repo = repo
+  }
+
+  async onSyncMessage(peerId, wrappedMessage) {
+    const contents = CBOR.decode(wrappedMessage)
+    const { documentId, message } = contents
+
+    // if we receive a sync message for a document we haven't got in memory,
+    // we'll need to register it with the repo and start synchronizing
+    const docSynchronizer = await this.fetchDocSynchronizer(documentId)
+    docSynchronizer.onSyncMessage(peerId, message)
+  }
+
+  async fetchDocSynchronizer(documentId) {
+    if (!this.syncPool[documentId]) {
+      const handle = await this.repo.find(documentId)
+      this.syncPool[documentId] = this.syncPool[documentId] || this.initDocSynchronizer(handle)
+    }
+    return this.syncPool[documentId]
+  }
+
+  initDocSynchronizer(handle) {
+    const docSynchronizer = new DocSynchronizer(handle)
+    docSynchronizer.addEventListener('message', (ev) => {
+      const { peerId, documentId, message } = ev.detail
+      const newmsg = CBOR.encode({ documentId, message })
+      this.dispatchEvent(new CustomEvent('message', { detail: { peerId, message: newmsg } }))
+    })
+    return docSynchronizer
+  }
+
+  async addDocument(documentId) {
+    const docSynchronizer = await this.fetchDocSynchronizer(documentId)
+    this.peers.forEach((peerId) => docSynchronizer.beginSync(peerId))
+  }
+
+  // need a removeDocument implementation
+
+  addPeer(peerId) {
+    this.peers.push(peerId)
+    Object.values(this.syncPool).forEach((docSynchronizer) => docSynchronizer.beginSync(peerId))
+  }
+
+  // need to handle vanishing peers somehow and deliberately removing them
 }

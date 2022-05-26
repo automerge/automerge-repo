@@ -1,5 +1,3 @@
-import AutomergePeer from './AutomergePeer.js'
-
 export default class AutomergeNetwork extends EventTarget {
   networkAdapters = []
 
@@ -7,11 +5,14 @@ export default class AutomergeNetwork extends EventTarget {
 
   constructor(networkAdapters) {
     super()
-    // hmmm... persist this?
-    this.peerId = `user-${Math.round(Math.random() * 1000)}`
+    // hmmm... persist this? how do tabs/processes allocate ownership?
+    this.peerId = `user-${Math.round(Math.random() * 100000)}`
     // this really ought to do some input checking
     // eslint-disable-next-line no-param-reassign
-    if (!Array.isArray(networkAdapters)) { networkAdapters = [networkAdapters] }
+    if (!Array.isArray(networkAdapters)) {
+      throw new Error('AutomergeNetwork takes an array of networkadapters')
+    }
+
     this.networkAdapters = networkAdapters
     networkAdapters.forEach((a) => this.addNetworkAdapter(a))
   }
@@ -23,7 +24,7 @@ export default class AutomergeNetwork extends EventTarget {
 
       if (!this.peers[peerId] || !this.peers[peerId].isOpen()) {
         const { isOpen, send } = connection
-        this.peers[peerId] = new AutomergePeer(peerId, isOpen, send)
+        this.peers[peerId] = { peerId, isOpen, send }
       }
 
       // TODO: this is where we should authenticate candidates
@@ -31,7 +32,6 @@ export default class AutomergeNetwork extends EventTarget {
     })
 
     networkAdapter.addEventListener('message', (ev) => {
-      // todo: filter out messages from handshakes
       const { peerId, channel, message } = ev.detail
       this.dispatchEvent(new CustomEvent('message', { detail: { peerId, channel, message } }))
     })

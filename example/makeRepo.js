@@ -1,13 +1,5 @@
-/* The key interfaces here are peer & message
- * The Network joins Channels which have Peers. Peers send messages.
- * (This has been a hard decision -- do messages come from peers or channels?)
- * Right now, messages are passed directly to a doc-decoder based on their channel ID.
- * They should pass through a message parsing step.
- */
-
 // TODO:
 // end-to-end encryption (authenticating peers)
-// multiple documents
 // "drafts" of documents per upwelling (offers)
 // PSI -> sharing documents you have in common with a peer
 // "offers" so storage peers will save your stuff
@@ -20,7 +12,7 @@ import LFNetworkAdapter from '../src/network/interfaces/LocalFirstRelayNetworkAd
 
 import Network from '../src/network/Network.js'
 import StorageSystem from '../src/storage/StorageSubsystem.js'
-import DependencyCollectionSynchronizer from '../src/network/DependencyCollectionSynchronizer.js'
+import DependencyCollectionSynchronizer from '../src/network/CollectionSynchronizer.js'
 
 export default function makeRepo() {
   const storageSubsystem = new StorageSystem(StorageAdapter())
