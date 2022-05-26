@@ -1,14 +1,13 @@
+/* global Automerge */
 export default class DocHandle extends EventTarget {
   doc
 
   documentId
 
-  constructor(documentId, doc) {
+  constructor(documentId) {
     super()
     if (!documentId) { throw new Error('Need a document ID for this RepoDoc.') }
     this.documentId = documentId
-    if (!doc) { throw new Error('Missing the automerge data for this RepoDoc.') }
-    this.doc = doc
   }
 
   // should i move this?
@@ -21,12 +20,19 @@ export default class DocHandle extends EventTarget {
     this.doc = doc
     const { documentId } = this
     this.dispatchEvent(
-      new CustomEvent('change', { detail: { documentId, doc } }),
+      new CustomEvent('change', { detail: { handle: this, documentId, doc } }),
     )
   }
 
   /* hmmmmmmmmmmm */
-  value() {
+  async value() {
+    if (!this.doc) {
+      await new Promise((resolve) => {
+        this.addEventListener('change', resolve, {
+          once: true,
+        })
+      })
+    }
     return this.doc
   }
 }

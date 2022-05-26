@@ -3,8 +3,7 @@ import DocSynchronizer from './DocSynchronizer.js'
 
 // This collection synchronizer shares any open docs
 // with anyone else who wants to listen to those docs.
-// eslint-disable-next-line import/prefer-default-export
-export class ExplicitShareCollectionSynchronizer {
+export default class ExplicitShareCollectionSynchronizer {
   onPeer(ev, repo) {
     const { peer, channel: documentId } = ev.detail
     const docSynchronizer = this.syncPool[documentId] || new DocSynchronizer(repo.get(documentId))

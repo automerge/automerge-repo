@@ -1,37 +1,4 @@
-/**
- * AutomergeNetwork
- * We use channels to group communication with peers.
- * All messages are from a peer and on a channel.
- * API:
- * join(channel): to be introduced to all peers active on that channel
- * on(peer): listen to receive notifications about new peers
- * leave(channel): does what you'd expect
- *
- * peers are:
- * {
- *   id: string,
- *   isOpen(): bool, // are we still connected?
- *   send(msg): transmit a message to a peer
- * }
- *
- * TODO: peer validation &c
- *
- */
-
-// eslint-disable-next-line max-classes-per-file
-class AutomergePeer extends EventTarget {
-  id
-  isOpen
-  send
-
-  constructor(id, isOpen, send) {
-    super()
-
-    this.id = id
-    this.isOpen = isOpen
-    this.send = send
-  }
-}
+import AutomergePeer from './AutomergePeer.js'
 
 export default class AutomergeNetwork extends EventTarget {
   networkAdapters = []
@@ -54,24 +21,25 @@ export default class AutomergeNetwork extends EventTarget {
     networkAdapter.addEventListener('peer-candidate', (ev) => {
       const { peerId, channel, connection } = ev.detail
 
-      if (this.peers[peerId] && !this.peers[peerId].isOpen()) {
-        console.log('Discarding peer candidate. We already have a connection.')
-        return
+      if (!this.peers[peerId] || !this.peers[peerId].isOpen()) {
+        const { isOpen, send } = connection
+        this.peers[peerId] = new AutomergePeer(peerId, isOpen, send)
       }
 
-      const { isOpen, send } = connection
-      const peer = new AutomergePeer(peerId, isOpen, send)
-
       // TODO: this is where we should authenticate candidates
-      this.peers[peerId] = peer
-      this.dispatchEvent(new CustomEvent('peer', { detail: { peer, channel } }))
+      this.dispatchEvent(new CustomEvent('peer', { detail: { peerId, channel } }))
     })
 
     networkAdapter.addEventListener('message', (ev) => {
+      // todo: filter out messages from handshakes
       const { peerId, channel, message } = ev.detail
-      const peer = this.peers[peerId]
-      peer.dispatchEvent(new CustomEvent('message', { detail: { channel, message } }))
+      this.dispatchEvent(new CustomEvent('message', { detail: { peerId, channel, message } }))
     })
+  }
+
+  onMessage(peerId, message) {
+    const peer = this.peers[peerId]
+    peer.send(message)
   }
 
   join(channel) {

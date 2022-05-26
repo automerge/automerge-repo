@@ -10,9 +10,13 @@ class BroadcastChannelNetworkAdapter extends EventTarget {
     const connection = {
       close: () => {}, /* not sure what it would mean to close this yet */
       isOpen: () => true,
-      send: (msg) => {
+      send: (uint8message) => {
+        const message = uint8message.buffer.slice(
+          uint8message.byteOffset,
+          uint8message.byteOffset + uint8message.byteLength,
+        )
         broadcastChannel.postMessage({
-          origin: this.clientId, destination: peerId, type: 'message', message: msg.buffer,
+          origin: this.clientId, destination: peerId, type: 'message', message,
         })
       },
     }
@@ -47,6 +51,7 @@ class BroadcastChannelNetworkAdapter extends EventTarget {
   }
 
   leave(docId) {
+    this.doSomething(docId)
     // TODO
   }
 }

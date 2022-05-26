@@ -14,7 +14,13 @@ class LocalFirstRelayNetworkAdapter extends EventTarget {
     const connection = {
       close: () => socket.close(),
       isOpen: () => socket.readyState === WebSocket.OPEN,
-      send: (msg) => socket.send(msg.buffer),
+      send: (uint8message) => {
+        const message = uint8message.buffer.slice(
+          uint8message.byteOffset,
+          uint8message.byteOffset + uint8message.byteLength,
+        )
+        socket.send(message)
+      },
     }
     this.dispatchEvent(new CustomEvent('peer-candidate', { detail: { peerId, channel, connection } }))
   }
