@@ -28,7 +28,7 @@ const uuid = Crypto.randomUuid
  *   })
  * ```
  */
-export class Client extends EventEmitter3 {
+export class Client extends EventTarget {
     userName;
     /** The base URL of the relay server */
     url;
