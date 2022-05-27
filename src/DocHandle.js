@@ -4,7 +4,7 @@
  * total repo access to everything which seems gratuitous to me.
  */
 import EventEmitter from 'eventemitter3'
-import Automerge from 'automerge'
+import * as Automerge from '../vendor/automerge-js/index.js'
 
 export default class DocHandle extends EventEmitter {
   #doc
