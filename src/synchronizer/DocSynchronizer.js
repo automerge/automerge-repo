@@ -3,7 +3,7 @@
  * receive & dispatch sync messages to bring it in-line with all other peers' versions.
  */
 import EventEmitter from 'eventemitter3'
-import Automerge from 'automerge'
+import * as Automerge from '../../vendor/automerge-js/index.js'
 
 export default class DocSynchronizer extends EventEmitter {
   handle
