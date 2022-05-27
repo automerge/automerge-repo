@@ -1,4 +1,6 @@
-class BroadcastChannelNetworkAdapter extends EventEmitter3 {
+import EventEmitter from 'eventemitter3'
+
+class BroadcastChannelNetworkAdapter extends EventEmitter {
   channels = {}
 
   connect(clientId) {

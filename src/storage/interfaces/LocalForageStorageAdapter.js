@@ -1,5 +1,6 @@
 // Saving & loading
 // How should we think about incremental save & load? Log + compaction? TBD.
+import localforage from 'localforage'
 
 function LocalForageAdapter() {
   return {

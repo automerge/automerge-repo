@@ -1,6 +1,8 @@
+import EventEmitter from 'eventemitter3'
+import Automerge from 'automerge'
 import DocHandle from './DocHandle.js'
 
-export default class Repo extends EventEmitter3 {
+export default class Repo extends EventEmitter {
   handles = {}
   storageSubsystem
 

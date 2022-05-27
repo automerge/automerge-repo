@@ -1,9 +1,15 @@
 <html>
     <body>
-        <script type="application/javascript" src="../vendor/automerge.min.js"></script>
-        <script type="application/javascript" src="../vendor/localforage.js"></script>
-        <script type="application/javascript" src="../vendor/eventemitter3.min.js"></script>
-        <script type="application/javascript" src="../vendor/cbor-x.js"></script>
+        <script type="importmap">
+            {
+              "imports": {
+                "automerge": "../vendor/automerge.min.js",
+                "localforage": "../vendor/localforage.js",
+                "eventemitter3": "../vendor/eventemitter3.min.js"
+                "cbor-x": "../vendor/cbor-x.js"
+              }
+            }
+            </script>
         <script type="module" src="./index.js"></script>
     </body>
     <h2>A Very Boring TODO App</h2>

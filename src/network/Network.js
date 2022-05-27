@@ -1,4 +1,6 @@
-export default class AutomergeNetwork extends EventEmitter3 {
+import EventEmitter from 'eventemitter3'
+
+export default class AutomergeNetwork extends EventEmitter {
   networkAdapters = []
 
   peers = {}

@@ -1,3 +1,6 @@
+import EventEmitter from 'eventemitter3'
+import * as CBOR from 'cbor-x'
+
 import DocSynchronizer from './DocSynchronizer.js'
 import '../../vendor/cbor-x.js' // Creates CBOR object in global namespace. Uh. TODO.
 
@@ -5,7 +8,7 @@ import '../../vendor/cbor-x.js' // Creates CBOR object in global namespace. Uh. 
 // and subscribe to everything it offers us.
 // In the real world, we probably want to authenticate the peer somehow,
 // but we'll get to that later.
-export default class CollectionSynchronizer extends EventEmitter3 {
+export default class CollectionSynchronizer extends EventEmitter {
   channel
   peers = []
   syncPool = {}

@@ -2,6 +2,8 @@
  * incremental & compacted writes due to cost & frequency -> give the option for two storage engines
  * we probably also want to have compaction callbacks. count / timeout / manual calls...
  */
+import Automerge from 'automerge'
+
 export default class StorageSubsystem {
   storageAdapter
 

@@ -1,6 +1,7 @@
 import { Client } from '../../../vendor/Client.js'
+import EventEmitter from 'eventemitter3'
 
-class LocalFirstRelayNetworkAdapter extends EventEmitter3 {
+class LocalFirstRelayNetworkAdapter extends EventEmitter {
   url
   client
 

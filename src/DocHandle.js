@@ -3,7 +3,10 @@
  * It would be easier just to have one repo object to pass around but that means giving
  * total repo access to everything which seems gratuitous to me.
  */
-export default class DocHandle extends EventEmitter3 {
+import EventEmitter from 'eventemitter3'
+import Automerge from 'automerge'
+
+export default class DocHandle extends EventEmitter {
   #doc
 
   documentId
