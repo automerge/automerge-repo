@@ -1,4 +1,4 @@
-import '../vendor/localforage.js'
+import localforage from 'localforage'
 import BrowserRepo from '../src/BrowserRepo.js'
 
 const repo = BrowserRepo()

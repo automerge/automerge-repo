@@ -18,7 +18,6 @@
     "http-server": "^14.1.0"
   },
   "dependencies": {
-    "automerge": "^1.0.1-preview.7",
     "cbor-x": "^1.3.0",
     "eventemitter3": "^4.0.7",
     "localforage": "^1.10.0"
