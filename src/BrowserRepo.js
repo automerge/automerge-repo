@@ -5,14 +5,14 @@
 // "offers" so storage peers will save your stuff
 // persistent share lists for storage peer
 
-import Repo from '../src/Repo.js'
-import StorageAdapter from '../src/storage/interfaces/LocalForageStorageAdapter.js'
-import BCNetworkAdapter from '../src/network/interfaces/BroadcastChannelNetworkAdapter.js'
-import LFNetworkAdapter from '../src/network/interfaces/LocalFirstRelayNetworkAdapter.js'
+import Repo from './Repo.js'
+import StorageAdapter from './storage/interfaces/LocalForageStorageAdapter.js'
+import BCNetworkAdapter from './network/interfaces/BroadcastChannelNetworkAdapter.js'
+import LFNetworkAdapter from './network/interfaces/LocalFirstRelayNetworkAdapter.js'
 
-import Network from '../src/network/Network.js'
-import StorageSystem from '../src/storage/StorageSubsystem.js'
-import DependencyCollectionSynchronizer from '../src/network/CollectionSynchronizer.js'
+import Network from './network/Network.js'
+import StorageSystem from './storage/StorageSubsystem.js'
+import DependencyCollectionSynchronizer from './network/CollectionSynchronizer.js'
 
 export default function makeRepo() {
   const storageSubsystem = new StorageSystem(StorageAdapter())
