@@ -1,0 +1,23 @@
+{
+  "name": "automerge-wasm",
+  "collaborators": [
+    "Alex Good <alex@memoryandthought.me>",
+    "Orion Henry <orion@inkandswitch.com>",
+    "Martin Kleppmann"
+  ],
+  "description": "An js/wasm wrapper for the rust implementation of automerge-backend",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/automerge/automerge-rs"
+  },
+  "files": [
+    "bindgen_bg.wasm",
+    "bindgen.js",
+    "bindgen.d.ts"
+  ],
+  "module": "bindgen.js",
+  "types": "bindgen.d.ts",
+  "sideEffects": false
+}
