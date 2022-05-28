@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "a repository object to manage a collection of automerge documents",
   "main": "src/index.js",
+  "type": "module",
   "repository": "https://github.com/pvh/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
@@ -16,7 +17,10 @@
     "eslint-config-airbnb": "^19.0.4",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.26.0",
-    "http-server": "^14.1.0"
+    "eslint-plugin-mocha": "^10.0.5",
+    "http-server": "^14.1.0",
+    "mocha": "^10.0.0",
+    "should": "^13.2.3"
   },
   "peerDependencies": {
     "automerge": "^1.0.1-preview.7"

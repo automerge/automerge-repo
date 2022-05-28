@@ -6,6 +6,9 @@ module.exports = {
   extends: [
     'airbnb-base',
   ],
+  plugins: [
+    'mocha',
+  ],
   parserOptions: {
     ecmaVersion: 'latest',
     sourceType: 'module',

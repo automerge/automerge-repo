@@ -1,5 +1,6 @@
 import EventEmitter from 'eventemitter3'
 import Automerge from 'automerge'
+import crypto from 'crypto'
 import DocHandle from './DocHandle.js'
 
 export default class Repo extends EventEmitter {
