@@ -6,35 +6,34 @@
 // persistent share lists for storage peer
 
 import Repo from './Repo.js'
-import StorageAdapter from './storage/interfaces/LocalForageStorageAdapter.js'
+import LocalForageStorageAdapter from './storage/interfaces/LocalForageStorageAdapter.js'
 import BCNetworkAdapter from './network/interfaces/BroadcastChannelNetworkAdapter.js'
-import LFNetworkAdapter from './network/interfaces/LocalFirstRelayNetworkAdapter.js'
 
 import Network from './network/Network.js'
 import StorageSystem from './storage/StorageSubsystem.js'
 import DependencyCollectionSynchronizer from './network/CollectionSynchronizer.js'
 
-export default function makeRepo() {
-  const storageSubsystem = new StorageSystem(StorageAdapter())
+export default function BrowserRepo(config) {
+  const { storage = LocalForageStorageAdapter(), network = [new BCNetworkAdapter()]} = config
+
+  const storageSubsystem = new StorageSystem(storage)
   const repo = new Repo(storageSubsystem)
   repo.on('document', ({ handle }) => storageSubsystem.onDocument(handle))
 
-  const network = new Network(
-    [new LFNetworkAdapter('ws://localhost:8080'), new BCNetworkAdapter()],
-  )
+  const networkSubsystem = new Network(network)
 
   // wire up the dependency synchronizer
   const synchronizer = new DependencyCollectionSynchronizer(repo)
-  network.on('peer', ({ peerId }) => synchronizer.addPeer(peerId))
+  networkSubsystem.on('peer', ({ peerId }) => synchronizer.addPeer(peerId))
   repo.on('document', ({ handle }) => synchronizer.addDocument(handle.documentId))
-  network.on('message', ({ peerId, message }) => {
+  networkSubsystem.on('message', ({ peerId, message }) => {
     synchronizer.onSyncMessage(peerId, message)
   })
   synchronizer.on('message', ({ peerId, message }) => {
-    network.onMessage(peerId, message)
+    networkSubsystem.onMessage(peerId, message)
   })
 
-  network.join('sync_channel')
+  networkSubsystem.join('sync_channel')
 
   return repo
 }
