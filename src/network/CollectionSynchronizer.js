@@ -2,7 +2,6 @@ import EventEmitter from 'eventemitter3'
 import * as CBOR from 'cbor-x'
 
 import DocSynchronizer from './DocSynchronizer.js'
-import '../../vendor/cbor-x.js' // Creates CBOR object in global namespace. Uh. TODO.
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.
