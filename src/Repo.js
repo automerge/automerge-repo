@@ -1,6 +1,8 @@
 import EventEmitter from 'eventemitter3'
 import Automerge from 'automerge'
-// import crypto from 'crypto'
+// ugh, this breaks the browser and is necessary for the node tests
+// import crypto from 'crypto' 
+// ✨✨✨ 💖 javascript 💖 ✨✨✨
 import DocHandle from './DocHandle.js'
 
 export default class Repo extends EventEmitter {
