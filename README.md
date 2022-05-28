@@ -4,19 +4,31 @@ Folks building automerge-based applications often have similar requirements for 
 
 # Usage
 ```js
-# Create a repository already wired up with some adapters from the example code
-const repo = makeRepo()
+import {
+  BrowserRepo, 
+  LocalForageStorageAdapter,
+  BroadcastChannelNetworkAdapter,
+  LocalFirstRelayNetworkAdapter
+ } from 'automerge-repo'
+
+const repo = BrowserRepo({
+  storage: new LocalForageStorageAdapter(),
+  network: [
+    new BroadcastChannelNetworkAdapter(),
+    new LocalFirstRelayNetworkAdapter('ws://localhost:8080')
+  ]
+})
 
 # now try to load the document from localstorage, or failing that create a new one
 # weirdly, this works with synchronization from another source because the other source
 # will be able to merge with your fresh, empty document
-# (though not if you start editing it right away. sorry.)
-let handle = await repo.load(docId)
+# TODO: need to figure out what to do with missing documents / during sync
+let handle = await repo.find(docId)
 if (!handle) { handle = repo.create(docId) }
 
 # get an event every time the document is changed either locally or remotely
 # the data is { handle: DocHandle }
-doc.on('change', ({ handle }) => render(handle))
+doc.on('change', ({ handle, doc, lastChange }) => render(handle))
 
 # the current API is not great and you've already missed the first change notification by now
 # so you're going to have to call your first render() manually.
@@ -25,45 +37,54 @@ render(handle)
 
 # Example
 
-Sample code is provided in `./example`. Run it with `yarn run demo`, then go to [http://localhost:8081/example] to see it running. Note that unless you're already running the local-first-web/relay server on port 8080 it won't work.
+The example code isn't working right now, but this React code is... probably.
+
+https://github.com/pvh/automerge-repo-react
 
 # API & Design Notes
 
-The Repo object holds a collection of documents, indexed by UUID.
+The BrowserRepo wires together a few systems.
 
-It makes use of two subsystems (storage and networking) to handle synchronization and persistence of data. Currently there are only one implementation for each of these and neither one is particularly robust or performance-oriented. As this library matures, hopefully that is no longer true.
+First, the Repo object holds a collection of documents, indexed by documentId (UUID). It returns DocHandles, which hold a doc and its ID together and allow you to listen to changes. There's only one DocHandle in the universe per document in order to ensure event propagation works. This is not a great design feature.
+
+The Repo emits "document" events when it loads / creates / fetches a document for the first time since starting up. The document event has a handle on it. The handles emit "change" events whenever they are mutated whether by local edits through calling handle.change((doc) => { /* do stuff */ }), or by receiving SyncMessages from other peers with the same document.
+
+The Storage System only has a single plugin implemented so far, localforage, which provides a localStorage-like API over IndexedDB. It stores incremental changes and only calls the full .save() every third edit. This should be customizable and also we should expose explicit control over saving to the developer.
+
+The Network discovers peers and routes messages to and from them on (currently) a single discovery channel. The current implementation of the CollectionSynchronizer will offer every open document and accept every document offered to it. This is not ideal but works for a demo and exercises multi-document support and routing.
+
+The network doesn't know anything about Automerge, really. It dispatches messages to the CollectionSynchronizer which instantiates a DocSynchronizer to do the actual synchronization work.
+
+The storage system and network system both support plugging in additional implementations.
 
 The interface for a Network Adapter is as follows:
-```
+
+```js
   interface LocalFirstRelayNetworkAdapter extends EventEmitter3 {
     join(docId) // to listen for new peers for a given document
   }
-  this.emit('peer', { peerId, documentId, connection }})
-  this.emit('message', { peerId, documentId, message /* a UInt8Array containing a SyncMessage */ }})
-
-  The connection has two methods:
-  interface RepoConnection {
-    isOpen(): bool // is the connection live and ready to send?
-    send(msg): a UInt8Array containing a SyncMessage
-  }
+  this.emit('peer', { peerId, channel, connection }})
+  this.emit('message', { peerId, channel, message /* a UInt8Array containing a SyncMessage */ }})
 ```
+
+To send messages, call `networkSubsystem.onMessage(peerId, message)`. BrowserRepo wires this all up for you in a simple configuration but you can reconfigure or extend that design if your needs are different.
 
 # Future Work and Known Issues
 
 There are a number of problems with the current design which I will briefly enumerate here:
- * Repo / RepoDoc
-  * RepoDoc is a strange class that wraps an underlying Automerge doc. I don't think it's particularly inteligible when you should expect one vs. the underlying data.
+ * Repo / DocHandle
+  * DocHandle is a strange class that wraps an underlying Automerge doc. I don't think it's particularly inteligible when you should expect one vs. the underlying data.
   * The EventEmitter3 interface doesn't work in node, and there's no way to send a "welcome" event to a new listener, leading to awkwardness for new subscribers.
  * NetworkSubsystem
+  * peer candidate selection -> do we trust this peer?
   * handle disconnections -> try another protocol
   * one websocket per peer per document. seems expensive
   * syncstates aren't persisted... but neither are client-ids
  * StorageSubsystem
-  * it's gonna get expensive to store whole files on every change
-  * storage is shared across all clients in a browser but we don't do anything to dedupe / make that cheaper
-  * need a FileSystem store as well.
-
-Oh, also this isn't really a library yet. Need to build an actual browser module and figure that out.
+  * we could write to IndexedDB on a SharedWorker so we're not duplicating work per-tab
+  * customizable save intervals / manual-only saving
+  * separate backends for incremental vs. full document saves
+  * need a FileSystem store as well, and maybe S3/redis for a node storage peer 
 
 Also, the upstream `@local-first-web/relay` repo doesn't actually support sending binary data over the wire correctly. I'm running a hacked up version and have vendored a hacked-up client into this repo. I should fix both of those problems as well.
 
