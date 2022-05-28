@@ -1,6 +1,6 @@
 {
   "name": "automerge-repo",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "a repository object to manage a collection of automerge documents",
   "main": "src/index.js",
   "type": "module",
