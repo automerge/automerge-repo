@@ -64,14 +64,12 @@ export default class StorageSubsystem {
     return numQueued >= 3
   }
 
-  onDocument(handle) {
-    handle.on('change', ({ documentId, doc, latestChange }) => {
-      if (this.shouldCompact(documentId)) {
-        this.saveTotal(documentId, doc)
-      } else {
-        this.saveIncremental(documentId, latestChange)
-      }
-    })
+  save(documentId, doc, latestChange) {
+    if (this.shouldCompact(documentId)) {
+      this.saveTotal(documentId, doc)
+    } else {
+      this.saveIncremental(documentId, latestChange)
+    }
   }
 
   async load(docId) {

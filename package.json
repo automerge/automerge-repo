@@ -12,6 +12,9 @@
     "demo": "http-server",
     "test": "mocha"
   },
+  "browser": {
+      "crypto": false
+  },
   "devDependencies": {
     "eslint": "^8.15.0",
     "eslint-config-airbnb": "^19.0.4",

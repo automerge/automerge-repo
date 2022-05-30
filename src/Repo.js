@@ -1,17 +1,12 @@
 import EventEmitter from 'eventemitter3'
 import Automerge from 'automerge'
-// ugh, this breaks the browser and is necessary for the node tests
-// import crypto from 'crypto' 
-// ✨✨✨ 💖 javascript 💖 ✨✨✨
+import crypto from 'crypto' 
 import DocHandle from './DocHandle.js'
 
 export default class Repo extends EventEmitter {
   handles = {}
   storageSubsystem
 
-  // TODO: There's a weird asymmetry here where the storage subsystem
-  //       wants to be told when a document changes to decide if it should save but the
-  //       Repo needs to have direct access to the storage subsystem to load...
   constructor(storageSubsystem) {
     super()
     this.storageSubsystem = storageSubsystem
