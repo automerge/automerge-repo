@@ -1,5 +1,4 @@
-// Saving & loading
-// How should we think about incremental save & load? Log + compaction? TBD.
+// Saving & loading via localforage. Very naive but probably fine for blob-storage.
 import localforage from 'localforage'
 
 function LocalForageAdapter() {

@@ -28,10 +28,10 @@ There are a number of problems with the current design which I will briefly enum
   * DocHandle is a strange class that wraps an underlying Automerge doc. I don't think it's particularly inteligible when you should expect one vs. the underlying data.
   * The EventEmitter3 interface doesn't work in node, and there's no way to send a "welcome" event to a new listener, leading to awkwardness for new subscribers.
  * NetworkSubsystem
-  * peer candidate selection -> do we trust this peer?
+  * peer candidate selection -> do we trust this peer? (see Network.js peer-candidate)
   * handle disconnections -> try another protocol
   * one websocket per peer per document. seems expensive
-  * syncstates aren't persisted... but neither are client-ids
+  * syncstates aren't persisted... but neither are client-ids. should they be?
  * StorageSubsystem
   * we could write to IndexedDB on a SharedWorker so we're not duplicating work per-tab
   * customizable save intervals / manual-only saving
@@ -55,3 +55,13 @@ Also, the upstream `@local-first-web/relay` repo doesn't actually support sendin
  * encrypt contents but not structure, allowing syncing with a semi-trusted peer instead of all the peers
     * change.hash & change.deps but with a consistently salted hash?
  * RLE encode block of changes
+
+* Synchronizer & network needs improved handling of disconnection & reconnection of peers
+* TODO: preserving syncState in localStorage would be a good optimization
+StorageSubsystem:
+    // TODO: can we do incremental save that takes advantage of the last binary?
+/* TODO: we probably want to be able to distinguish between
+ * incremental & compacted writes due to cost & frequency -> give the option for two storage engines
+ * we probably also want to have compaction callbacks. count / timeout / manual calls...
+ */
+* figure out a compaction callback system (and an option for explicit saves only)

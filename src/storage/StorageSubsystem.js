@@ -1,7 +1,3 @@
-/* TODO: we probably want to be able to distinguish between
- * incremental & compacted writes due to cost & frequency -> give the option for two storage engines
- * we probably also want to have compaction callbacks. count / timeout / manual calls...
- */
 import Automerge from 'automerge'
 
 export default class StorageSubsystem {
@@ -24,7 +20,6 @@ export default class StorageSubsystem {
   }
 
   saveTotal(documentId, doc) {
-    // TODO: can we do incremental save that takes advantage of the last binary?
     const binary = Automerge.save(doc)
     this.storageAdapter.save(`${documentId}:snapshot`, binary)
 

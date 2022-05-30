@@ -7,8 +7,8 @@ export default class AutomergeNetwork extends EventEmitter {
 
   constructor(networkAdapters) {
     super()
-    // hmmm... persist this? how do tabs/processes allocate ownership?
     this.peerId = `user-${Math.round(Math.random() * 100000)}`
+    
     // this really ought to do some input checking
     // eslint-disable-next-line no-param-reassign
     if (!Array.isArray(networkAdapters)) {
@@ -27,7 +27,6 @@ export default class AutomergeNetwork extends EventEmitter {
         this.peers[peerId] = { peerId, isOpen, send }
       }
 
-      // TODO: this is where we should authenticate candidates
       this.emit('peer', { peerId, channel })
     })
 

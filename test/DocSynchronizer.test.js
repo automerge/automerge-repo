@@ -1,6 +1,6 @@
 import assert from 'assert'
 import DocHandle from '../src/DocHandle.js'
-import DocSynchronizer from '../src/network/DocSynchronizer.js'
+import DocSynchronizer from '../src/synchronizer/DocSynchronizer.js'
 import Automerge from 'automerge'
 
 describe('DocSynchronizer', () => {

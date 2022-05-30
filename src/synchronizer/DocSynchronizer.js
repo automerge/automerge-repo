@@ -7,7 +7,8 @@ import Automerge from 'automerge'
 
 export default class DocSynchronizer extends EventEmitter {
   handle
-  // we track this separately from syncStates because you might have more syncStates than peers
+
+  // we track this separately from syncStates because you might have more syncStates than active peers
   peers = []
   syncStates = {} // peer -> syncState
 
