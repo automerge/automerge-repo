@@ -6,7 +6,7 @@ import BCNetworkAdapter from './network/interfaces/BroadcastChannelNetworkAdapte
 
 import Network from './network/Network.js'
 import StorageSubsystem from './storage/StorageSubsystem.js'
-import DependencyCollectionSynchronizer from './network/CollectionSynchronizer.js'
+import DependencyCollectionSynchronizer from './synchronizer/CollectionSynchronizer.js'
 
 export default function BrowserRepo(config) {
   const { storage = LocalForageStorageAdapter(), network = [new BCNetworkAdapter()]} = config
