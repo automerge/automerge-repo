@@ -1,6 +1,6 @@
 import EventEmitter from 'eventemitter3'
 import Automerge from 'automerge'
-import crypto from 'crypto' 
+import { v4 as uuid } from 'uuid'
 import DocHandle from './DocHandle.js'
 
 export default class Repo extends EventEmitter {
@@ -33,7 +33,7 @@ export default class Repo extends EventEmitter {
   }
 
   create() {
-    const documentId = crypto.randomUUID()
+    const documentId = uuid()
     const handle = this.cacheHandle(documentId)
     handle.replace(Automerge.init())
     this.emit('document', { handle })

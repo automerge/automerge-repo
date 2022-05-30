@@ -1,4 +1,4 @@
-import { Client } from '../../../vendor/Client.js'
+import { Client } from '@localfirst/relay-client'
 import EventEmitter from 'eventemitter3'
 
 class LocalFirstRelayNetworkAdapter extends EventEmitter {
@@ -32,7 +32,7 @@ class LocalFirstRelayNetworkAdapter extends EventEmitter {
       url: this.url,
     })
 
-    this.client.addEventListener('peer.connect', (ev) => {
+    this.client.on('peer.connect', (ev) => {
       const { documentId, userName, socket } = ev.detail
       socket.binaryType = 'arraybuffer'
       this.#announceConnection(documentId, userName, socket)
