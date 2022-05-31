@@ -36,6 +36,7 @@ export default class DocSynchronizer extends EventEmitter {
       // TODO: load syncState from localStorage if available
       this.peers.push(peerId)
       syncState = Automerge.initSyncState()
+      this.syncStates[peerId] = syncState
     }
     return syncState
   }

@@ -18,21 +18,21 @@ export default class DocHandle extends EventEmitter {
 
   // should i move this?
   change(callback) {
-    callback(this.doc) // you gonna have to do your own automergin'
-    this.replace(doc)
+    callback(this.#doc) // you gonna have to do your own automergin'
+    this.replace(this.#doc)
   }
 
   replace(doc) {
     this.#doc = doc
     const { documentId } = this
-    /* const latestChange = doc.getLastLocalChange(doc)
-    const patches = doc.getPatches() */
+    const latestChange = null // doc.getLastLocalChange(doc)
+    const patches = null // doc.popPatches()
     this.emit('change', {
       handle: this,
       documentId,
       doc,
-      /* latestChange,
-      patches */
+      latestChange,
+      patches
     })
   }
 

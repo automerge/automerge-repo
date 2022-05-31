@@ -172,33 +172,29 @@
     "lodash" "^4.17.14"
 
 "automerge-js@^0.1.0":
-  "integrity" "sha512-oDYhNp1ciaxt1PsLgDAtqaVctSlDRVF19LxuoHloF8BumuiI+6SZEvmAEX1+R13g6Zre/7aMakSwMAtQlGGZCg=="
-  "resolved" "https://registry.npmjs.org/automerge-js/-/automerge-js-0.1.0.tgz"
-  "version" "0.1.0"
+  "integrity" "sha512-cFNXe20HOa6ePAZxtKuKweEKp25wdCUs2V9DKEDJEXuyk0uWPRMALkSTAKxcw4LIOS3yYf8ClEU6XhoT/IRIhA=="
+  "resolved" "https://registry.npmjs.org/automerge-js/-/automerge-js-0.1.1.tgz"
+  "version" "0.1.1"
   dependencies:
-    "automerge-types" "^0.1.1"
+    "automerge-types" "0.1.4"
     "uuid" "^8.3"
 
-"automerge-types@^0.1.1":
-  "integrity" "sha512-TKF65iD6DWvA6LGuesAP03hSAJrV4DsmRFsSW8NELbqab6fdvpphJ55GykhqCjnUsywXvP3D6yYYlqX/qpCY6Q=="
-  "resolved" "https://registry.npmjs.org/automerge-types/-/automerge-types-0.1.1.tgz"
-  "version" "0.1.1"
+"automerge-types@0.1.3":
+  "integrity" "sha512-ntf+9EbGc1kT0wkpE+4t+w/VsDS+AAzkajPhemn0vrXgG12mUu67w5nuZnkmYJY3Rh9Cmx9RcwQXRg8o88FJ1w=="
+  "resolved" "https://registry.npmjs.org/automerge-types/-/automerge-types-0.1.3.tgz"
+  "version" "0.1.3"
+
+"automerge-types@0.1.4":
+  "integrity" "sha512-VguW0d8Wt8jqbObh8bmMlGZMyUR2Av6eMtboekEzuHI3juru4oeq5+4brcceO/0Us8bkQdfZGErCR9vmBcX7Sw=="
+  "resolved" "https://registry.npmjs.org/automerge-types/-/automerge-types-0.1.4.tgz"
+  "version" "0.1.4"
 
 "automerge-wasm@^0.1.4":
-  "integrity" "sha512-/Aa1anpWSI7BiOflX6uxXueo2AZjvqJ5ON7xUpendQNcY7ejvPAuCExkHZHbFCZAthl5O7aoR3gxnEOi1szr8Q=="
-  "resolved" "https://registry.npmjs.org/automerge-wasm/-/automerge-wasm-0.1.4.tgz"
-  "version" "0.1.4"
+  "integrity" "sha512-yXJqyi9eiO0xkaHiJQW9VKAXe0Q50SfDwJ9Jbx+3jrrCuVeVlzccpnNaqBUYA+Z0sB0WprSH+cz/9n8hn61Y9Q=="
+  "resolved" "https://registry.npmjs.org/automerge-wasm/-/automerge-wasm-0.1.5.tgz"
+  "version" "0.1.5"
   dependencies:
-    "automerge-types" "^0.1.1"
-
-"automerge@^1.0.1-preview.7":
-  "integrity" "sha512-Fz5fJdU59xYYj0viteMKTGg/bQWTyibZlkY3V8VQqx9Do1Eg3jtud2+BAI5ZQiKwdWocXc4KKC5o5vT1dzouag=="
-  "resolved" "https://registry.npmjs.org/automerge/-/automerge-1.0.1-preview.7.tgz"
-  "version" "1.0.1-preview.7"
-  dependencies:
-    "fast-sha256" "^1.3.0"
-    "pako" "^2.0.3"
-    "uuid" "^3.4.0"
+    "automerge-types" "0.1.3"
 
 "axe-core@^4.3.5":
   "integrity" "sha512-LVAaGp/wkkgYJcjmHsoKx4juT1aQvJyPcW09MLCjVTh3V2cc6PnyempiLMNH5iMdfIX/zdbjUx2KDjMLCTdPeA=="
@@ -759,11 +755,6 @@
   "integrity" "sha1-PYpcZog6FqMMqGQ+hR8Zuqd5eRc="
   "resolved" "https://registry.npmjs.org/fast-levenshtein/-/fast-levenshtein-2.0.6.tgz"
   "version" "2.0.6"
-
-"fast-sha256@^1.3.0":
-  "integrity" "sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ=="
-  "resolved" "https://registry.npmjs.org/fast-sha256/-/fast-sha256-1.3.0.tgz"
-  "version" "1.3.0"
 
 "file-entry-cache@^6.0.1":
   "integrity" "sha512-7Gps/XWymbLk2QLYK4NzpMOrYjMhdIxXuIvy2QBsLE6ljuodKvdkWs/cpyJJ3CVIVpH0Oi1Hvg1ovbMzLdFBBg=="
@@ -1478,11 +1469,6 @@
   "resolved" "https://registry.npmjs.org/p-try/-/p-try-1.0.0.tgz"
   "version" "1.0.0"
 
-"pako@^2.0.3":
-  "integrity" "sha512-v8tweI900AUkZN6heMU/4Uy4cXRc2AYNRggVmTR+dEncawDJgCdLMximOVA2p4qO57WMynangsfGRb5WD6L1Bg=="
-  "resolved" "https://registry.npmjs.org/pako/-/pako-2.0.4.tgz"
-  "version" "2.0.4"
-
 "parent-module@^1.0.0":
   "integrity" "sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g=="
   "resolved" "https://registry.npmjs.org/parent-module/-/parent-module-1.0.1.tgz"
@@ -1868,11 +1854,6 @@
   "integrity" "sha512-jk1+QP6ZJqyOiuEI9AEWQfju/nB2Pw466kbA0LEZljHwKeMgd9WrAEgEGxjPDD2+TNbbb37rTyhEfrCXfuKXnA=="
   "resolved" "https://registry.npmjs.org/url-join/-/url-join-4.0.1.tgz"
   "version" "4.0.1"
-
-"uuid@^3.4.0":
-  "integrity" "sha512-HjSDRw6gZE5JMggctHBcjVak08+KEVhSIiDzFnT9S9aegmp85S/bReBVTb4QTFaRNptJ9kuYaNhnbNEOkbKb/A=="
-  "resolved" "https://registry.npmjs.org/uuid/-/uuid-3.4.0.tgz"
-  "version" "3.4.0"
 
 "uuid@^8.3", "uuid@^8.3.2":
   "integrity" "sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg=="

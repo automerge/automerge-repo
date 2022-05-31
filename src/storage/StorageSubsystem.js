@@ -59,11 +59,11 @@ export default class StorageSubsystem {
   }
 
   save(documentId, doc, latestChange) {
-    if (this.shouldCompact(documentId)) {
+    //if (this.shouldCompact(documentId) || latestChange === null) {
       this.saveTotal(documentId, doc)
-    } else {
+    /*} else {
       this.saveIncremental(documentId, latestChange)
-    }
+    }*/
   }
 
   async load(docId) {
