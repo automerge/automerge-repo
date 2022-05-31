@@ -4,7 +4,6 @@
  * total repo access to everything which seems gratuitous to me.
  */
 import EventEmitter from 'eventemitter3'
-import * as Automerge from 'automerge-js'
 
 export default class DocHandle extends EventEmitter {
   #doc
@@ -19,19 +18,21 @@ export default class DocHandle extends EventEmitter {
 
   // should i move this?
   change(callback) {
-    const doc = Automerge.change(this.#doc, callback)
+    callback(this.doc) // you gonna have to do your own automergin'
     this.replace(doc)
   }
 
   replace(doc) {
     this.#doc = doc
     const { documentId } = this
-    const latestChange = Automerge.getLastLocalChange(doc)
+    /* const latestChange = doc.getLastLocalChange(doc)
+    const patches = doc.getPatches() */
     this.emit('change', {
       handle: this,
       documentId,
       doc,
-      latestChange,
+      /* latestChange,
+      patches */
     })
   }
 

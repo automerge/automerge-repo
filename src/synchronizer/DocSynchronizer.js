@@ -3,7 +3,7 @@
  * receive & dispatch sync messages to bring it in-line with all other peers' versions.
  */
 import EventEmitter from 'eventemitter3'
-import * as Automerge from 'automerge-js'
+import * as Automerge from 'automerge-wasm'
 
 export default class DocSynchronizer extends EventEmitter {
   handle
@@ -40,14 +40,10 @@ export default class DocSynchronizer extends EventEmitter {
     return syncState
   }
 
-  #setSyncState(peerId, syncState) {
-    this.syncStates[peerId] = syncState
-  }
-
   async #sendSyncMessage(peerId, documentId, doc) {
     const syncState = this.#getSyncState(peerId)
-    const [newSyncState, message] = Automerge.generateSyncMessage(doc, syncState)
-    this.#setSyncState(peerId, newSyncState)
+    // this mutates the syncState
+    const message = doc.generateSyncMessage(syncState) 
     if (message) {
       this.emit('message', { peerId, documentId, message })
     }
@@ -66,9 +62,8 @@ export default class DocSynchronizer extends EventEmitter {
   async onSyncMessage(peerId, message) {
     let doc = await this.getDoc()
     let syncState = this.#getSyncState(peerId);
-    [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
+    doc.receiveSyncMessage(syncState, message)
     this.setDoc(doc)
-    this.#setSyncState(peerId, syncState)
   }
 
   async syncWithPeers() {

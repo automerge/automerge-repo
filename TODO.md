@@ -1,7 +1,5 @@
 TODO
 -----
-remove Client.js vendored dependency
-remove automerge-js & wasm vendored dependencies
 get this thing syncing over the real internet
 get a text editor wodged in there
 get automerge-wasm hooked up in the repo module

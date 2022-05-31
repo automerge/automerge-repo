@@ -1,4 +1,3 @@
-import * as Automerge from 'automerge-js'
 import initWASM from 'automerge-wasm'  
 
 import Repo from './Repo.js'
@@ -10,7 +9,7 @@ import StorageSubsystem from './storage/StorageSubsystem.js'
 import DependencyCollectionSynchronizer from './synchronizer/CollectionSynchronizer.js'
 
 export default async function BrowserRepo(config) {
-  Automerge.use(await initWASM())
+  await initWASM()
 
   const { storage = LocalForageStorageAdapter(), network = [new BCNetworkAdapter()]} = config
 

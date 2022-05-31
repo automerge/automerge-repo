@@ -2,7 +2,7 @@ import EventEmitter from 'eventemitter3'
 import { v4 as uuid } from 'uuid'
 
 import DocHandle from './DocHandle.js'
-import * as Automerge from 'automerge-js'
+import * as Automerge from 'automerge-wasm'
 
 export default class Repo extends EventEmitter {
   handles = {}
@@ -28,7 +28,10 @@ export default class Repo extends EventEmitter {
    */
   async load(documentId) {
     const handle = this.cacheHandle(documentId)
-    handle.replace(await this.storageSubsystem.load(documentId) || Automerge.init())
+    const doc = await this.storageSubsystem.load(documentId)
+    doc.enablePatches(true)
+    handle.replace(doc)
+    
     this.emit('document', { handle })
     return handle
   }
@@ -36,7 +39,9 @@ export default class Repo extends EventEmitter {
   create() {
     const documentId = uuid()
     const handle = this.cacheHandle(documentId)
-    handle.replace(Automerge.init())
+    const doc = Automerge.create()
+    doc.enablePatches(true)
+    handle.replace(doc)
     this.emit('document', { handle })
     return handle
   }

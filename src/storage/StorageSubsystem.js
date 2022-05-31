@@ -1,4 +1,4 @@
-import * as Automerge from 'automerge-js'
+import * as Automerge from 'automerge-wasm'
 
 export default class StorageSubsystem {
   storageAdapter
@@ -20,7 +20,7 @@ export default class StorageSubsystem {
   }
 
   saveTotal(documentId, doc) {
-    const binary = Automerge.save(doc)
+    const binary = doc.save()
     this.storageAdapter.save(`${documentId}:snapshot`, binary)
 
     const changes = this.queuedChanges[documentId] || []
@@ -35,8 +35,7 @@ export default class StorageSubsystem {
     // TODO: this is bad because we really only want to do this if we *have* incremental changes
     if (!binary) { console.log('no binary, gonna just do an init()') }
 
-    let doc = (binary) ? Automerge.load(binary) : Automerge.init()
-
+    let doc = (binary) ? Automerge.load(binary) : Automerge.create()
     const changes = this.queuedChanges[documentId] || []
 
     let index = 0
@@ -45,7 +44,7 @@ export default class StorageSubsystem {
     while (change = await this.storageAdapter.load(`${documentId}:incremental:${index}`)) {
       changes.push(change);
       // applyChanges has a second return we don't need, so we destructure here
-      [doc] = Automerge.applyChanges(doc, [change])
+      doc.applyChanges([change])
       index += 1
     }
 
