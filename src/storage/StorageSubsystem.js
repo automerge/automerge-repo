@@ -1,4 +1,4 @@
-import * as Automerge from '../../vendor/automerge-js/index.js'
+import * as Automerge from 'automerge-js'
 
 export default class StorageSubsystem {
   storageAdapter
