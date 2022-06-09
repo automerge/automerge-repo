@@ -9,14 +9,16 @@ export default class StorageSubsystem {
 
   queuedChanges = {}
 
-  saveIncremental(documentId, change) {
+  saveIncremental(documentId, newChanges) {
     if (!this.queuedChanges[documentId]) {
       this.queuedChanges[documentId] = []
     }
     const changes = this.queuedChanges[documentId]
-    changes.push(change)
-    const index = changes.length - 1
-    this.storageAdapter.save(`${documentId}:incremental:${index}`, change)
+    for (let change of newChanges) {
+      changes.push(change)
+      const index = changes.length - 1
+      this.storageAdapter.save(`${documentId}:incremental:${index}`, change)
+    }
   }
 
   saveTotal(documentId, doc) {
@@ -59,11 +61,11 @@ export default class StorageSubsystem {
     return numQueued >= 3
   }
 
-  save(documentId, doc, latestChange) {
+  save(documentId, doc, changes) {
     if (this.shouldCompact(documentId)) {
       this.saveTotal(documentId, doc)
     } else {
-      this.saveIncremental(documentId, latestChange)
+      this.saveIncremental(documentId, changes)
     }
   }
 

@@ -24,14 +24,14 @@ export default class DocHandle extends EventEmitter {
   }
 
   replace(doc) {
+    const oldDoc = this.#doc
     this.#doc = doc
     const { documentId } = this
-    const latestChange = Automerge.getLastLocalChange(doc)
     this.emit('change', {
       handle: this,
       documentId,
       doc,
-      latestChange,
+      changes: Automerge.getChanges(oldDoc || Automerge.init(), doc)
     })
   }
 
