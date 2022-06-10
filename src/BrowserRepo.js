@@ -14,8 +14,8 @@ export default function BrowserRepo(config) {
   const storageSubsystem = new StorageSubsystem(storage)
   const repo = new Repo(storageSubsystem)
   repo.on('document', ({ handle }) =>
-    handle.on('change', ({ documentId, doc, latestChange }) => 
-      storageSubsystem.save(documentId, doc, latestChange)
+    handle.on('change', ({ documentId, doc, changes }) => 
+      storageSubsystem.save(documentId, doc, changes)
     )
   )
 
