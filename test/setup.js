@@ -1,4 +1,6 @@
 import * as Automerge from 'automerge-js'
-import WASM from 'automerge-wasm-pack'
+import * as WASM from 'automerge-wasm-pack'
+import init from 'automerge-wasm-pack'
 
-Automerge.use(await WASM())
+console.log(WASM)
+Automerge.use(init)
