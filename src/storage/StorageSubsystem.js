@@ -1,4 +1,4 @@
-import * as Automerge from '../../vendor/automerge-js/index.js'
+import * as Automerge from 'automerge-js'
 
 export default class StorageSubsystem {
   storageAdapter
@@ -14,7 +14,7 @@ export default class StorageSubsystem {
       this.queuedChanges[documentId] = []
     }
     const changes = this.queuedChanges[documentId]
-    for (let change of newChanges) {
+    for (const change of newChanges) {
       changes.push(change)
       const index = changes.length - 1
       this.storageAdapter.save(`${documentId}:incremental:${index}`, change)

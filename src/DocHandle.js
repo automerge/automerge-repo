@@ -4,7 +4,7 @@
  * total repo access to everything which seems gratuitous to me.
  */
 import EventEmitter from 'eventemitter3'
-import * as Automerge from '../vendor/automerge-js/index.js'
+import * as Automerge from 'automerge-js'
 
 export default class DocHandle extends EventEmitter {
   #doc
@@ -31,7 +31,7 @@ export default class DocHandle extends EventEmitter {
       handle: this,
       documentId,
       doc,
-      changes: Automerge.getChanges(oldDoc || Automerge.init(), doc)
+      changes: Automerge.getChanges(oldDoc || Automerge.init(), doc),
     })
   }
 
