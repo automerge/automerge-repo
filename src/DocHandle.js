@@ -73,4 +73,12 @@ export default class DocHandle extends EventEmitter {
   deleteAt(objId, position, count = 1) {
     return this.dangerousLowLevel().splice(objId, position, count, '')
   }
+
+  insertBlock(objId, position, type, attributes = {}) {
+    let block = { type }
+    Object.keys(attributes).forEach((key) => {
+      block[`attribute-${key}`] = attributes[key]
+    })
+    return this.dangerousLowLevel().insertObject(objId, position, block)
+  }
 }
