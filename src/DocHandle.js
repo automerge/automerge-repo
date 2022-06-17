@@ -65,4 +65,12 @@ export default class DocHandle extends EventEmitter {
   mark(objId, range, name, value) {
     this.dangerousLowLevel().mark(objId, range, name, value)
   }
+
+  insertAt(objId, position, value) {
+    return this.dangerousLowLevel().splice(objId, position, 0, value)
+  }
+
+  deleteAt(objId, position, count = 1) {
+    return this.dangerousLowLevel().splice(objId, position, count, '')
+  }
 }
