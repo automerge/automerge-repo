@@ -55,7 +55,7 @@ export default class DocHandle extends EventEmitter {
 
   getObjId(objId, attr) {
     let data = this.dangerousLowLevel().getAll(objId, attr)
-    if (data && data.length === 1) { return data[0][2] }
+    if (data && data.length === 1) { return data[0][1] }
   }
 
   getMarks(objId) {
@@ -67,7 +67,9 @@ export default class DocHandle extends EventEmitter {
   }
 
   insertAt(objId, position, value) {
-    return this.dangerousLowLevel().splice(objId, position, 0, value)
+    let ins = this.dangerousLowLevel().splice(objId, position, 0, value)
+    this.replace(this.#doc)
+    return ins
   }
 
   deleteAt(objId, position, count = 1) {
@@ -80,5 +82,8 @@ export default class DocHandle extends EventEmitter {
       block[`attribute-${key}`] = attributes[key]
     })
     return this.dangerousLowLevel().insertObject(objId, position, block)
+  }
+
+  getBlock(objId, position) {
   }
 }
