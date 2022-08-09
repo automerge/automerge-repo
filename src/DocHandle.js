@@ -46,4 +46,44 @@ export default class DocHandle extends EventEmitter {
     }
     return this.#doc
   }
+
+  /* these would ideally be exposed on the text/list proxy objs; doing them here
+   * for experimental purposes only. */
+  dangerousLowLevel() {
+    return Automerge.getBackend(this.#doc)
+  }
+
+  getObjId(objId, attr) {
+    let data = this.dangerousLowLevel().getAll(objId, attr)
+    if (data && data.length === 1) { return data[0][1] }
+  }
+
+  getMarks(objId) {
+    return this.dangerousLowLevel().raw_spans(objId)
+  }
+
+  mark(objId, range, name, value) {
+    this.dangerousLowLevel().mark(objId, range, name, value)
+  }
+
+  insertAt(objId, position, value) {
+    let ins = this.dangerousLowLevel().splice(objId, position, 0, value)
+    this.replace(this.#doc)
+    return ins
+  }
+
+  deleteAt(objId, position, count = 1) {
+    return this.dangerousLowLevel().splice(objId, position, count, '')
+  }
+
+  insertBlock(objId, position, type, attributes = {}) {
+    let block = { type }
+    Object.keys(attributes).forEach((key) => {
+      block[`attribute-${key}`] = attributes[key]
+    })
+    return this.dangerousLowLevel().insertObject(objId, position, block)
+  }
+
+  getBlock(objId, position) {
+  }
 }
