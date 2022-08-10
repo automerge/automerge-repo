@@ -31,8 +31,8 @@ export default class AutomergeNetwork extends EventEmitter {
       this.emit('peer', { peerId, channelId })
     })
 
-    networkAdapter.on('message', ({ peerId, channelId, message }) => {
-      this.emit('message', { peerId, channelId, message })
+    networkAdapter.on('message', msg => {
+      this.emit('message', msg)
     })
   }
 

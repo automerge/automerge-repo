@@ -23,6 +23,7 @@ export default class CollectionSynchronizer extends EventEmitter {
     // if we receive a sync message for a document we haven't got in memory,
     // we'll need to register it with the repo and start synchronizing
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
+    console.log("ColSync:osm", peerId)
     docSynchronizer.onSyncMessage(peerId, message)
   }
 
@@ -38,7 +39,7 @@ export default class CollectionSynchronizer extends EventEmitter {
   initDocSynchronizer(handle) {
     const docSynchronizer = new DocSynchronizer(handle)
     docSynchronizer.on('message', ({ peerId, documentId, message }) => {
-      const newmsg = CBOR.encode({ documentId, message })
+      const newmsg = CBOR.encode({ type: 'sync', documentId, message }) // I don't love wrapping the type in here
       this.emit('message', { peerId, message: newmsg })
     })
     return docSynchronizer

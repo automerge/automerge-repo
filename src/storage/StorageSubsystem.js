@@ -38,8 +38,6 @@ export default class StorageSubsystem {
     // TODO: this is bad because we really only want to do this if we *have* incremental changes
     if (!binary) { console.log('no binary, gonna just do an init()') }
 
-    console.log(WASM.default)
-    Automerge.use(WASM)
 
     let doc = (binary) ? Automerge.load(binary) : Automerge.init()
 
@@ -49,6 +47,7 @@ export default class StorageSubsystem {
     let change
     // eslint-disable-next-line no-await-in-loop, no-cond-assign
     while (change = await this.storageAdapter.load(`${documentId}:incremental:${index}`)) {
+      console.log("found a change:", change)
       changes.push(change);
       // applyChanges has a second return we don't need, so we destructure here
       [doc] = Automerge.applyChanges(doc, [change])

@@ -31,9 +31,12 @@ export default class DocSynchronizer extends EventEmitter {
   }
 
   #getSyncState(peerId) {
+    if (!peerId) { throw new Error("Tried to load a missing peerId") }
+    
     let syncState = this.syncStates[peerId]
     if (!syncState) {
       // TODO: load syncState from localStorage if available
+      console.log('adding a new peer', peerId)
       this.peers.push(peerId)
       syncState = Automerge.initSyncState()
     }
@@ -65,6 +68,7 @@ export default class DocSynchronizer extends EventEmitter {
 
   async onSyncMessage(peerId, message) {
     let doc = await this.getDoc()
+    console.log('on sync message', peerId)
     let syncState = this.#getSyncState(peerId);
     [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
     this.setDoc(doc)
@@ -72,9 +76,11 @@ export default class DocSynchronizer extends EventEmitter {
   }
 
   async syncWithPeers() {
+    console.log("syncing with peers")
     const { documentId } = this.handle
     const doc = await this.getDoc()
     this.peers.forEach((peerId) => {
+      console.log('messaging peer', peerId)
       this.#sendSyncMessage(peerId, documentId, doc)
     })
   }

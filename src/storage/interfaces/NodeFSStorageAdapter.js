@@ -9,6 +9,7 @@ function NodeFSStorageAdapter(directory = ".amrg") {
     load: (docId) => {
       return new Promise((resolve, reject) => {
         fs.readFile(fileName(docId), (err, data) => {
+          console.log("loaded", fileName(docId), data)
           if (err) resolve(null); else resolve(data)
         });
       });
