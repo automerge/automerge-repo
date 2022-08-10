@@ -66,17 +66,17 @@ export default class DocHandle extends EventEmitter {
     this.dangerousLowLevel().mark(objId, range, name, value)
   }
 
-  insertAt(objId, position, value) {
+  textInsertAt(objId, position, value) {
     let ins = this.dangerousLowLevel().splice(objId, position, 0, value)
     this.replace(this.#doc)
     return ins
   }
 
-  deleteAt(objId, position, count = 1) {
+  textDeleteAt(objId, position, count = 1) {
     return this.dangerousLowLevel().splice(objId, position, count, '')
   }
 
-  insertBlock(objId, position, type, attributes = {}) {
+  textInsertBlock(objId, position, type, attributes = {}) {
     let block = { type }
     Object.keys(attributes).forEach((key) => {
       block[`attribute-${key}`] = attributes[key]
@@ -84,6 +84,63 @@ export default class DocHandle extends EventEmitter {
     return this.dangerousLowLevel().insertObject(objId, position, block)
   }
 
-  getBlock(objId, position) {
+  textGetBlock(objId, position) {
+    return this.dangerousLowLevel().get(objId, position)
+  }
+  
+  textGetBlocks(objId) {
+    let text = this.#doc[objId]
+    let string = this.textToString(objId)
+    let blocks = []
+
+    console.log(string.replace('\uFFFC', 'X'))
+
+    let initial = string.indexOf('\uFFFC');
+
+    // If there isn't a block at the start of the document, create a virtual one
+    // because we need it for prosemirror
+    if (initial !== 0) {
+      console.log('adding initial virtual paragraph')
+      let end = (initial === -1) ? string.length : initial
+
+      blocks.push({
+        start: 0,
+        end,
+        type: 'paragraph',
+        attributes: { virtual: true }
+      })
+    }
+
+    if (initial > -1) {
+      console.log('trying to create a new paragraph')
+      let i = initial
+      while (i !== -1) {
+        let next = string.indexOf('\uFFFC', i + 1)
+        let end = (next === -1) ? string.length : next
+        blocks.push({
+          start: i,
+          end,
+          type: text[i]['type']
+        })
+        i = next
+      }
+    }
+
+    return blocks
+  }
+
+  textToString(objId) {
+    let string = []
+    let text = this.#doc[objId]
+    console.log(objId, text)
+    for (let i = 0; i < text.length; i++) {
+      console.log(typeof text[i])
+      if (typeof text[i] === 'string') {
+        string.push(text[i])
+      } else {
+        string.push('\uFFFC')
+      }
+    }
+    return string.join('')
   }
 }
