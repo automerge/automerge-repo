@@ -8,6 +8,7 @@ export default class AutomergeNetwork extends EventEmitter {
   constructor(networkAdapters) {
     super()
     this.peerId = `user-${Math.round(Math.random() * 100000)}`
+    console.log("We are: ", this.peerId)
     
     // this really ought to do some input checking
     // eslint-disable-next-line no-param-reassign
@@ -21,30 +22,31 @@ export default class AutomergeNetwork extends EventEmitter {
 
   addNetworkAdapter(networkAdapter) {
     networkAdapter.connect(this.peerId)
-    networkAdapter.on('peer-candidate', ({ peerId, channel, connection }) => {
+    networkAdapter.on('peer-candidate', ({ peerId, channelId, connection }) => {
       if (!this.peers[peerId] || !this.peers[peerId].isOpen()) {
         const { isOpen, send } = connection
         this.peers[peerId] = { peerId, isOpen, send }
       }
 
-      this.emit('peer', { peerId, channel })
+      this.emit('peer', { peerId, channelId })
     })
 
-    networkAdapter.on('message', ({ peerId, channel, message }) => {
-      this.emit('message', { peerId, channel, message })
+    networkAdapter.on('message', ({ peerId, channelId, message }) => {
+      this.emit('message', { peerId, channelId, message })
     })
   }
 
   onMessage(peerId, message) {
+    console.log("message to:", peerId, ":", this.peers)
     const peer = this.peers[peerId]
     peer.send(message)
   }
 
-  join(channel) {
-    this.networkAdapters.forEach((a) => a.join(channel))
+  join(channelId) {
+    this.networkAdapters.forEach((a) => a.join(channelId))
   }
 
-  leave(channel) {
-    this.networkAdapters.forEach((a) => a.leave(channel))
+  leave(channelId) {
+    this.networkAdapters.forEach((a) => a.leave(channelId))
   }
 }

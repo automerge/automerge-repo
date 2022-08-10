@@ -63,8 +63,8 @@ The interface for a Network Adapter is as follows:
   interface LocalFirstRelayNetworkAdapter extends EventEmitter3 {
     join(docId) // to listen for new peers for a given document
   }
-  this.emit('peer', { peerId, channel, connection }})
-  this.emit('message', { peerId, channel, message /* a UInt8Array containing a SyncMessage */ }})
+  this.emit('peer', { peerId, channelId, connection }})
+  this.emit('message', { peerId, channelId, message /* a UInt8Array containing a SyncMessage */ }})
 ```
 
 To send messages, call `networkSubsystem.onMessage(peerId, message)`. BrowserRepo wires this all up for you in a simple configuration but you can reconfigure or extend that design if your needs are different.

@@ -8,7 +8,6 @@ import DocSynchronizer from './DocSynchronizer.js'
 // In the real world, we probably want to authenticate the peer somehow,
 // but we'll get to that later.
 export default class CollectionSynchronizer extends EventEmitter {
-  channel
   peers = []
   syncPool = {}
 
@@ -53,6 +52,7 @@ export default class CollectionSynchronizer extends EventEmitter {
   // need a removeDocument implementation
 
   addPeer(peerId) {
+    console.log("adding, ", peerId)
     this.peers.push(peerId)
     Object.values(this.syncPool).forEach((docSynchronizer) => docSynchronizer.beginSync(peerId))
   }

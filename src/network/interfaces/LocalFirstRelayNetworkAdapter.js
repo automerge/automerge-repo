@@ -10,7 +10,7 @@ class LocalFirstRelayNetworkAdapter extends EventEmitter {
     this.url = url
   }
 
-  #announceConnection(channel, peerId, socket) {
+  #announceConnection(channelId, peerId, socket) {
     // return a peer object
     const connection = {
       close: () => socket.close(),
@@ -23,7 +23,7 @@ class LocalFirstRelayNetworkAdapter extends EventEmitter {
         socket.send(message)
       },
     }
-    this.emit('peer-candidate', { peerId, channel, connection })
+    this.emit('peer-candidate', { peerId, channelId, connection })
   }
 
   connect(peerId) {
@@ -40,7 +40,7 @@ class LocalFirstRelayNetworkAdapter extends EventEmitter {
       // listen for messages
       socket.onmessage = (e) => {
         const message = new Uint8Array(e.data)
-        this.emit('message', { peerId: userName, channel: documentId, message })
+        this.emit('message', { peerId: userName, channelId: documentId, message })
       }
     })
   }

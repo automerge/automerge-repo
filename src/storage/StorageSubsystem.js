@@ -1,4 +1,5 @@
 import * as Automerge from 'automerge-js'
+import WASM from 'automerge-wasm-pack'
 
 export default class StorageSubsystem {
   storageAdapter
@@ -36,6 +37,9 @@ export default class StorageSubsystem {
     const binary = await this.storageAdapter.load(`${documentId}:snapshot`)
     // TODO: this is bad because we really only want to do this if we *have* incremental changes
     if (!binary) { console.log('no binary, gonna just do an init()') }
+
+    console.log(WASM.default)
+    Automerge.use(WASM)
 
     let doc = (binary) ? Automerge.load(binary) : Automerge.init()
 

@@ -7,7 +7,7 @@ class BroadcastChannelNetworkAdapter extends EventEmitter {
     this.clientId = clientId
   }
 
-  #announceConnection(channel, peerId, broadcastChannel) {
+  #announceConnection(channelId, peerId, broadcastChannel) {
     // return a peer object
     const connection = {
       close: () => {}, /* not sure what it would mean to close this yet */
@@ -22,11 +22,11 @@ class BroadcastChannelNetworkAdapter extends EventEmitter {
         })
       },
     }
-    this.emit('peer-candidate', { peerId, channel, connection })
+    this.emit('peer-candidate', { peerId, channelId, connection })
   }
 
-  join(channel) {
-    const broadcastChannel = new BroadcastChannel(`doc-${channel}`)
+  join(channelId) {
+    const broadcastChannel = new BroadcastChannel(`doc-${channelId}`)
     broadcastChannel.postMessage({ origin: this.clientId, type: 'arrive' })
     broadcastChannel.addEventListener('message', (e) => {
       const {
@@ -38,13 +38,13 @@ class BroadcastChannelNetworkAdapter extends EventEmitter {
       switch (type) {
         case 'arrive':
           broadcastChannel.postMessage({ origin: this.clientId, destination: origin, type: 'welcome' })
-          this.#announceConnection(channel, origin, broadcastChannel)
+          this.#announceConnection(channelId, origin, broadcastChannel)
           break
         case 'welcome':
-          this.#announceConnection(channel, origin, broadcastChannel)
+          this.#announceConnection(channelId, origin, broadcastChannel)
           break
         case 'message':
-          this.emit('message', { peerId: origin, channel, message: new Uint8Array(message) })
+          this.emit('message', { peerId: origin, channelId, message: new Uint8Array(message) })
           break
         default:
           throw new Error('unhandled message from network')
