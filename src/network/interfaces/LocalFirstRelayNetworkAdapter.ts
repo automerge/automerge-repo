@@ -12,7 +12,7 @@ class LocalFirstRelayNetworkAdapter extends EventEmitter<NetworkEvents> implemen
     this.url = url
   }
 
-  #announceConnection(channelId: string, peerId: string, socket: WebSocket) {
+  announceConnection(channelId: string, peerId: string, socket: WebSocket) {
     // return a peer object
     const connection = {
       close: () => socket.close(),
@@ -40,7 +40,7 @@ class LocalFirstRelayNetworkAdapter extends EventEmitter<NetworkEvents> implemen
       const socket: WebSocket = ev.detail.socket
 
       socket.binaryType = 'arraybuffer'
-      this.#announceConnection(documentId, userName, socket)
+      this.announceConnection(documentId, userName, socket)
 
       // listen for messages
       socket.onmessage = (e) => {

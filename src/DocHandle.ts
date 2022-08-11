@@ -17,7 +17,7 @@ export interface DocHandleEvents {
 }
 
 export default class DocHandle extends EventEmitter<DocHandleEvents> implements EventEmitter<DocHandleEvents> {
-  #doc: Automerge.AutomergeDoc
+  doc: Automerge.AutomergeDoc
 
   documentId
 
@@ -29,13 +29,13 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
 
   // should i move this?
   change(callback: (doc: Automerge.Doc) => void) {
-    const doc = Automerge.change(this.#doc, callback)
+    const doc = Automerge.change(this.doc, callback)
     this.replace(doc)
   }
 
   replace(doc: Automerge.Doc) {
-    const oldDoc = this.#doc
-    this.#doc = doc
+    const oldDoc = this.doc
+    this.doc = doc
     const { documentId } = this
     this.emit('change', {
       handle: this,
@@ -48,20 +48,20 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
 
   /* hmmmmmmmmmmm */
   async value() {
-    if (!this.#doc) {
+    if (!this.doc) {
       /* this bit of jank blocks anyone else getting the value
          before the first time data gets set into here */
       await new Promise((resolve) => {
         this.once('change', resolve)
       })
     }
-    return this.#doc
+    return this.doc
   }
 
   /* these would ideally be exposed on the text/list proxy objs; doing them here
    * for experimental purposes only. */
   dangerousLowLevel() {
-    return Automerge.getBackend(this.#doc)
+    return Automerge.getBackend(this.doc)
   }
 
   getObjId(objId: string, attr: string) {
@@ -79,7 +79,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
 
   insertAt(objId: string, position: number, value: unknown) {
     const ins = this.dangerousLowLevel().splice(objId, position, 0, value)
-    this.replace(this.#doc)
+    this.replace(this.doc)
     return ins
   }
 

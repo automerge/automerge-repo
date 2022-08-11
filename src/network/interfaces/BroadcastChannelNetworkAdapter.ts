@@ -9,7 +9,7 @@ class BroadcastChannelNetworkAdapter extends EventEmitter<NetworkEvents> impleme
     this.peerId = peerId
   }
 
-  #announceConnection(channelId: string, peerId: string, broadcastChannel: BroadcastChannel) {
+  announceConnection(channelId: string, peerId: string, broadcastChannel: BroadcastChannel) {
     // return a peer object
     const connection = {
       close: () => { /* noop */ }, /* not sure what it would mean to close this yet */
@@ -40,10 +40,10 @@ class BroadcastChannelNetworkAdapter extends EventEmitter<NetworkEvents> impleme
       switch (type) {
         case 'arrive':
           broadcastChannel.postMessage({ origin: this.peerId, destination: origin, type: 'welcome' })
-          this.#announceConnection(channelId, origin, broadcastChannel)
+          this.announceConnection(channelId, origin, broadcastChannel)
           break
         case 'welcome':
-          this.#announceConnection(channelId, origin, broadcastChannel)
+          this.announceConnection(channelId, origin, broadcastChannel)
           break
         case 'message':
           this.emit('message', { senderId: origin, channelId, message: new Uint8Array(message) })
