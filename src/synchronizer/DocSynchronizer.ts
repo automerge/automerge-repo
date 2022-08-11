@@ -51,7 +51,7 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
   }
 
   async sendSyncMessage(peerId: string, documentId: string, doc: Automerge.Doc) {
-    const syncState = this.#getSyncState(peerId)
+    const syncState = this.getSyncState(peerId)
     const [newSyncState, message] = Automerge.generateSyncMessage(doc, syncState)
     this.setSyncState(peerId, newSyncState)
     if (message) {
