@@ -33,7 +33,7 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
     this.handle.replace(doc)
   }
 
-  #getSyncState(peerId: string) {
+  getSyncState(peerId: string) {
     if (!peerId) { throw new Error("Tried to load a missing peerId") }
 
     let syncState = this.syncStates[peerId]
@@ -46,14 +46,14 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
     return syncState
   }
 
-  #setSyncState(peerId: string, syncState: SyncState) {
+  setSyncState(peerId: string, syncState: SyncState) {
     this.syncStates[peerId] = syncState
   }
 
-  async #sendSyncMessage(peerId: string, documentId: string, doc: Automerge.Doc) {
+  async sendSyncMessage(peerId: string, documentId: string, doc: Automerge.Doc) {
     const syncState = this.#getSyncState(peerId)
     const [newSyncState, message] = Automerge.generateSyncMessage(doc, syncState)
-    this.#setSyncState(peerId, newSyncState)
+    this.setSyncState(peerId, newSyncState)
     if (message) {
       this.emit('message', { peerId, documentId, message })
     }
@@ -62,7 +62,7 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
   async beginSync(peerId: string) {
     const { documentId } = this.handle
     const doc = await this.getDoc()
-    this.#sendSyncMessage(peerId, documentId, doc)
+    this.sendSyncMessage(peerId, documentId, doc)
   }
 
   endSync(peerId: string) {
@@ -72,10 +72,10 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
   async onSyncMessage(peerId: string, message: Uint8Array) {
     let doc = await this.getDoc()
     console.log('on sync message', peerId)
-    let syncState = this.#getSyncState(peerId);
+    let syncState = this.getSyncState(peerId);
     [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
     this.setDoc(doc)
-    this.#setSyncState(peerId, syncState)
+    this.setSyncState(peerId, syncState)
   }
 
   async syncWithPeers() {
@@ -84,7 +84,7 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
     const doc = await this.getDoc()
     this.peers.forEach((peerId) => {
       console.log('messaging peer', peerId)
-      this.#sendSyncMessage(peerId, documentId, doc)
+      this.sendSyncMessage(peerId, documentId, doc)
     })
   }
 }

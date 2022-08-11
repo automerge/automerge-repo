@@ -2,14 +2,15 @@ import EventEmitter from 'eventemitter3'
 import * as CBOR from 'cbor-x'
 import { receiveMessageClient, WebSocketNetworkAdapter } from './WSShared.js'
 import { NetworkEvents } from '../Network'
+import { WebSocket } from 'isomorphic-ws'
 
 class BrowserWebSocketClientAdapter extends EventEmitter<NetworkEvents> implements WebSocketNetworkAdapter {  
-  client: WebSocket
-  peerId: string
+  client?: WebSocket
+  peerId?: string
   url: string
   openSockets: WebSocket[] = []
 
-  constructor(url) {
+  constructor(url: string) {
     super()
     this.url = url
   }
@@ -29,21 +30,24 @@ class BrowserWebSocketClientAdapter extends EventEmitter<NetworkEvents> implemen
       // TODO: manage reconnection here
     })
 
-    this.client.addEventListener('message', event => receiveMessageClient(event.data, this))
+    this.client.addEventListener('message', event => receiveMessageClient(event.data as Uint8Array, this))
   }
 
   join(channelId: string) {
+    if (!this.client) { throw new Error("WTF, get a client") }
     if (this.client.readyState === WebSocket.OPEN) {
       this.client.send(CBOR.encode({type: "join", channelId, senderId: this.peerId}))
     }
     else {
       this.client.addEventListener('open', () => {
+        if (!this.client) { throw new Error("WTF, get a client") }
         this.client.send(CBOR.encode({type: "join", channelId, senderId: this.peerId}))
       }, { once: true })
     }
   }
 
   leave(channelId: string) {
+    if (!this.client) { throw new Error("WTF, get a client") }
     this.client.send(CBOR.encode({type: "leave", channelId, senderId: this.peerId}))
   }
 }

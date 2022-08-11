@@ -9,6 +9,7 @@ class NodeWSServerAdapter extends EventEmitter<NetworkEvents> implements Network
   openSockets: WebSocket[] = []
 
   constructor(server: WebSocketServer) {
+    super()
     this.server = server
   } 
 
