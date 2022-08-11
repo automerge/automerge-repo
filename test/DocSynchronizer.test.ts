@@ -1,7 +1,7 @@
 import assert from 'assert'
 import Automerge from 'automerge-js'
-import DocHandle from '../src/DocHandle.js'
-import DocSynchronizer from '../src/synchronizer/DocSynchronizer.js'
+import DocHandle from '../src/DocHandle'
+import DocSynchronizer from '../src/synchronizer/DocSynchronizer'
 
 describe('DocSynchronizer', () => {
   const handle = new DocHandle('synced-doc')

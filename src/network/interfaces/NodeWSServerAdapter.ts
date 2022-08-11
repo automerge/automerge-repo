@@ -1,14 +1,19 @@
 import EventEmitter from 'eventemitter3'
-import { WebSocketServer } from 'ws'
+import { WebSocket, WebSocketServer } from 'isomorphic-ws'
+import { NetworkAdapter, NetworkEvents } from '../Network.js'
 import { receiveMessageServer } from './WSShared.js'
 
-class NodeWSServerAdapter extends EventEmitter {
-  server
-  openSockets = []
+class NodeWSServerAdapter extends EventEmitter<NetworkEvents> implements NetworkAdapter {
+  peerId?: string
+  server: WebSocketServer
+  openSockets: WebSocket[] = []
 
-  connect(peerId) {
+  constructor(server: WebSocketServer) {
+    this.server = server
+  } 
+
+  connect(peerId: string) {
     this.peerId = peerId
-    this.server = new WebSocketServer({ noServer: true })
     this.server.on('connection', socket => {
       console.log('New WebSocket connection')
       this.openSockets.push(socket)
@@ -19,16 +24,16 @@ class NodeWSServerAdapter extends EventEmitter {
         this.openSockets = this.openSockets.filter(s => s !== socket)
       })
 
-      socket.on('message', message => receiveMessageServer(message, socket, this))
+      socket.on('message', message => receiveMessageServer(message as Uint8Array, socket, this))
 
     })
   }
 
-  join(docId) {
+  join(docId: string) {
     // throw new Error("The server doesn't join channels.")
   }
 
-  leave(docId) {
+  leave(docId: string) {
     // throw new Error("The server doesn't join channels.")
   }
 }

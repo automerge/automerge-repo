@@ -6,24 +6,34 @@
 import EventEmitter from 'eventemitter3'
 import * as Automerge from 'automerge-js'
 
-export default class DocHandle extends EventEmitter {
-  #doc
+interface DocHandleEventArg { 
+  handle: DocHandle, 
+  documentId: string, 
+  doc: Automerge.Doc, 
+  changes: Uint8Array[]
+}
+export interface DocHandleEvents {
+  'change': (event: DocHandleEventArg) => void
+}
+
+export default class DocHandle extends EventEmitter<DocHandleEvents> implements EventEmitter<DocHandleEvents> {
+  #doc: Automerge.AutomergeDoc
 
   documentId
 
-  constructor(documentId) {
+  constructor(documentId: string) {
     super()
     if (!documentId) { throw new Error('Need a document ID for this RepoDoc.') }
     this.documentId = documentId
   }
 
   // should i move this?
-  change(callback) {
+  change(callback: (doc: Automerge.Doc) => void) {
     const doc = Automerge.change(this.#doc, callback)
     this.replace(doc)
   }
 
-  replace(doc) {
+  replace(doc: Automerge.Doc) {
     const oldDoc = this.#doc
     this.#doc = doc
     const { documentId } = this
@@ -34,6 +44,7 @@ export default class DocHandle extends EventEmitter {
       changes: Automerge.getChanges(oldDoc || Automerge.init(), doc),
     })
   }
+
 
   /* hmmmmmmmmmmm */
   async value() {
@@ -53,37 +64,38 @@ export default class DocHandle extends EventEmitter {
     return Automerge.getBackend(this.#doc)
   }
 
-  getObjId(objId, attr) {
-    let data = this.dangerousLowLevel().getAll(objId, attr)
+  getObjId(objId: string, attr: string) {
+    const data = this.dangerousLowLevel().getAll(objId, attr)
     if (data && data.length === 1) { return data[0][1] }
   }
 
-  getMarks(objId) {
+  getMarks(objId: string) {
     return this.dangerousLowLevel().raw_spans(objId)
   }
 
-  mark(objId, range, name, value) {
+  mark(objId: string, range: string, name: string, value: string) {
     this.dangerousLowLevel().mark(objId, range, name, value)
   }
 
-  insertAt(objId, position, value) {
-    let ins = this.dangerousLowLevel().splice(objId, position, 0, value)
+  insertAt(objId: string, position: number, value: unknown) {
+    const ins = this.dangerousLowLevel().splice(objId, position, 0, value)
     this.replace(this.#doc)
     return ins
   }
 
-  deleteAt(objId, position, count = 1) {
+  deleteAt(objId: string, position: number, count = 1) {
     return this.dangerousLowLevel().splice(objId, position, count, '')
   }
 
-  insertBlock(objId, position, type, attributes = {}) {
-    let block = { type }
+  insertBlock(objId: string, position: number, type: string, attributes: { [attr: string]: unknown } = {}) {
+    const block = { type } as { [k: string]: unknown }
     Object.keys(attributes).forEach((key) => {
       block[`attribute-${key}`] = attributes[key]
     })
     return this.dangerousLowLevel().insertObject(objId, position, block)
   }
 
-  getBlock(objId, position) {
+  getBlock(objId: string, position: string) {
+    throw new Error("getBlock unimplemented" + objId + position)
   }
 }

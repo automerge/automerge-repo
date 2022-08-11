@@ -1,7 +1,8 @@
 import { Client } from '@localfirst/relay-client'
 import EventEmitter from 'eventemitter3'
+import { NetworkAdapter, NetworkEvents } from '../Network.js'
 
-class LocalFirstRelayNetworkAdapter extends EventEmitter {
+class LocalFirstRelayNetworkAdapter extends EventEmitter<NetworkEvents> implements NetworkAdapter {
   url
   client
 
@@ -40,7 +41,7 @@ class LocalFirstRelayNetworkAdapter extends EventEmitter {
       // listen for messages
       socket.onmessage = (e) => {
         const message = new Uint8Array(e.data)
-        this.emit('message', { peerId: userName, channelId: documentId, message })
+        this.emit('message', { senderId: userName, channelId: documentId, message })
       }
     })
   }

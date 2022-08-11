@@ -6,20 +6,26 @@ import Repo from './Repo.js'
 import LocalForageStorageAdapter from './storage/interfaces/LocalForageStorageAdapter.js'
 import BCNetworkAdapter from './network/interfaces/BroadcastChannelNetworkAdapter.js'
 
-import Network from './network/Network.js'
-import StorageSubsystem from './storage/StorageSubsystem.js'
+import Network, { NetworkAdapter } from './network/Network.js'
+import StorageSubsystem, { StorageAdapter } from './storage/StorageSubsystem.js'
 import DependencyCollectionSynchronizer from './synchronizer/CollectionSynchronizer.js'
 
-export default async function BrowserRepo(config) {
+interface BrowserRepoConfig {
+  storage?: StorageAdapter
+  network?: NetworkAdapter[]
+}
+
+export default async function BrowserRepo(config: BrowserRepoConfig) {
   await init()
   Automerge.use(WASM)
 
-  const { storage = LocalForageStorageAdapter(), network = [new BCNetworkAdapter()]} = config
+  const { storage = new LocalForageStorageAdapter(), network = [new BCNetworkAdapter()]} = config
 
   const storageSubsystem = new StorageSubsystem(storage)
   const repo = new Repo(storageSubsystem)
-  repo.on('document', ({ handle }) =>
-    handle.on('change', ({ documentId, doc, changes }) => 
+  
+  repo.on('document', e =>
+    e.handle.on('change', ({ documentId, doc, changes }) => 
       storageSubsystem.save(documentId, doc, changes)
     )
   )

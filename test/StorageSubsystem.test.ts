@@ -1,6 +1,6 @@
 import assert from 'assert'
-import StorageSubsystem from '../src/storage/StorageSubsystem.js'
-import LocalForageAdapter from '../src/storage/interfaces/LocalForageStorageAdapter.js'
+import StorageSubsystem from '../src/storage/StorageSubsystem'
+import LocalForageAdapter from '../src/storage/interfaces/LocalForageStorageAdapter'
 import crypto from 'crypto'
 
 const memory = {}

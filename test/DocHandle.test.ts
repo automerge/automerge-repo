@@ -1,5 +1,5 @@
 import assert from 'assert'
-import DocHandle from '../src/DocHandle.js'
+import DocHandle from '../src/DocHandle'
 
 describe('DocHandle', () => {
   it('should take the UUID passed into it', () => {

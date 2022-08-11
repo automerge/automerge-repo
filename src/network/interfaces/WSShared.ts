@@ -1,49 +1,60 @@
 import * as CBOR from 'cbor-x'
+import { DecodedMessage, NetworkAdapter, NetworkConnection } from '../Network'
+import { WebSocket } from 'isomorphic-ws'
 
-export function sendMessage(socket, channelId, senderId, message) {
+export interface WebSocketNetworkAdapter extends NetworkAdapter {
+  client?: WebSocket
+}
+
+export function sendMessage(socket: WebSocket, channelId: string, senderId: string, message: Uint8Array) {
   if (message.byteLength === 0) { throw new Error("tried to send a zero-length message")}
-  const wrappedMessage = CBOR.encode({senderId, channelId, type: 'sync', data: message})
-
-  console.log("SENDMESSAGE:", arrayBufferToHex(wrappedMessage))
+  const decoded: DecodedMessage = {senderId, channelId, type: 'sync', data: message}
+  const encoded = CBOR.encode(decoded)
 
   // This incantation deals with websocket sending the whole
   // underlying buffer even if we just have a uint8array view on it
-  const arrayBuf = wrappedMessage.buffer.slice(
-    wrappedMessage.byteOffset,
-    wrappedMessage.byteOffset + wrappedMessage.byteLength,
+  const arrayBuf = encoded.buffer.slice(
+    encoded.byteOffset,
+    encoded.byteOffset + encoded.byteLength,
   )
   socket.send(arrayBuf)
 }
 
-function announceConnection(channelId, peerId, socket, self) {
+function announceConnection(channelId: string, peerId: string, socket: WebSocket, self: NetworkAdapter) {
   // return a peer object
-  const connection = {
+  const myPeerId = self.peerId
+  if (!myPeerId) { throw new Error("we should have a peer ID by now")}
+
+  const connection: NetworkConnection = {
     close: () => socket.close(),
     isOpen: () => socket.readyState === WebSocket.OPEN,
-    send: (message) => sendMessage(socket, channelId, self.peerId, message),
+    send: (message) => sendMessage(socket, channelId, myPeerId, message),
   }
   self.emit('peer-candidate', { peerId, channelId, connection })
 }
 
-export function receiveMessageClient(message, self) {
-  const decoded = CBOR.decode(new Uint8Array(message))
+export function receiveMessageClient(message: Uint8Array, self: WebSocketNetworkAdapter) {
+  const decoded = CBOR.decode(new Uint8Array(message)) as DecodedMessage
   console.log(decoded)
   const { type, senderId, channelId, data } = decoded
   console.log('Received message: ', event)
+
+  const client = self.client
+  if (!client) { throw new Error("Missing client at receiveMessage") }
 
   if (message.byteLength === 0) { throw new Error("received a zero-length message") }
 
   switch (type) {
     case "peer":
       console.log(`peer: ${senderId}, ${channelId}`)
-      announceConnection(channelId, senderId, self.client, self)
-      break;
+      announceConnection(channelId, senderId, client, self)
+      break
     default:
       self.emit('message', { channelId, senderId, message: new Uint8Array(data) })
   }
 }
 
-export function receiveMessageServer(message, socket, self) {
+export function receiveMessageServer(message: Uint8Array, socket: WebSocket, self: WebSocketNetworkAdapter) {
   const cbor = CBOR.decode(message)
   console.log("received: ", cbor)
   const { type, channelId, senderId, data } = cbor
@@ -64,19 +75,3 @@ export function receiveMessageServer(message, socket, self) {
   } 
 }
 
-function arrayBufferToHex (arrayBuffer) {
-  if (typeof arrayBuffer !== 'object' || arrayBuffer === null || typeof arrayBuffer.byteLength !== 'number') {
-    throw new TypeError('Expected input to be an ArrayBuffer')
-  }
-
-  var view = new Uint8Array(arrayBuffer)
-  var result = ''
-  var value
-
-  for (var i = 0; i < view.length; i++) {
-    value = view[i].toString(16)
-    result += (value.length === 1 ? '0' + value : value)
-  }
-
-  return result
-}

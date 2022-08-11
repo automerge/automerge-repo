@@ -1,23 +1,25 @@
 import EventEmitter from 'eventemitter3'
 import * as CBOR from 'cbor-x'
-import { receiveMessageClient } from './WSShared.js'
+import { receiveMessageClient, WebSocketNetworkAdapter } from './WSShared.js'
+import { NetworkEvents } from '../Network'
 
-class BrowserWebSocketClientAdapter extends EventEmitter {
-  client
-  openSockets = []
+class BrowserWebSocketClientAdapter extends EventEmitter<NetworkEvents> implements WebSocketNetworkAdapter {  
+  client: WebSocket
+  peerId: string
+  url: string
+  openSockets: WebSocket[] = []
 
   constructor(url) {
     super()
     this.url = url
   }
 
-  connect(peerId) {
+  connect(peerId: string) {
     this.peerId = peerId
     this.client = new WebSocket(this.url)
-    this.client.binaryType = "arraybuffer";
+    this.client.binaryType = "arraybuffer"
 
-    this.client.addEventListener('open', event => {
-      const socket = event.target
+    this.client.addEventListener('open', () => {
       console.log("Connected to server.")
     })
 
@@ -30,7 +32,7 @@ class BrowserWebSocketClientAdapter extends EventEmitter {
     this.client.addEventListener('message', event => receiveMessageClient(event.data, this))
   }
 
-  join(channelId) {
+  join(channelId: string) {
     if (this.client.readyState === WebSocket.OPEN) {
       this.client.send(CBOR.encode({type: "join", channelId, senderId: this.peerId}))
     }
@@ -41,7 +43,7 @@ class BrowserWebSocketClientAdapter extends EventEmitter {
     }
   }
 
-  leave(channelId) {
+  leave(channelId: string) {
     this.client.send(CBOR.encode({type: "leave", channelId, senderId: this.peerId}))
   }
 }

@@ -1,5 +1,5 @@
 import assert from 'assert'
-import Network from '../src/network/Network.js'
+import Network from '../src/network/Network'
 
 describe('Network', () => {
   const network = new Network([])

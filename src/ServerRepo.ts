@@ -2,19 +2,24 @@ import WASM from 'automerge-wasm-pack'
 import * as Automerge from 'automerge-js'
 
 import Repo from './Repo.js'
-import Network from './network/Network.js'
-import StorageSubsystem from './storage/StorageSubsystem.js'
+import Network, { NetworkAdapter } from './network/Network.js'
+import StorageSubsystem, { StorageAdapter } from './storage/StorageSubsystem.js'
 import CollectionSynchronizer from './synchronizer/CollectionSynchronizer.js'
 
-import NodeFSStorageAdapter from './storage/interfaces/NodeFSStorageAdapter.js'
-import NodeWSServerAdapter from './network/interfaces/NodeWSServerAdapter.js'
+import { WebSocketServer } from 'ws'
 
-export default async function ServerRepo(config) {
+interface ServerRepoConfig {
+  storage: StorageAdapter
+  network: NetworkAdapter[]
+  websocketServer: WebSocketServer
+}
+
+export default async function ServerRepo(config: ServerRepoConfig) {
   await WASM.default()
   Automerge.use(WASM)  
 
-  const filesystem = new NodeFSStorageAdapter(config)
-  const webSocketServer = new NodeWSServerAdapter(config)
+  const filesystem = config.storage
+  const networkAdapters = config.network
   const storageSubsystem = new StorageSubsystem(filesystem)
   const repo = new Repo(storageSubsystem)
 
@@ -25,7 +30,7 @@ export default async function ServerRepo(config) {
     })
   )
 
-  const networkSubsystem = new Network([webSocketServer])
+  const networkSubsystem = new Network(networkAdapters)
   const synchronizer = new CollectionSynchronizer(repo)
 
   // wire up the dependency synchronizer
@@ -42,6 +47,5 @@ export default async function ServerRepo(config) {
 
   networkSubsystem.join('sync_channel')
 
-  repo.server = webSocketServer.server
   return repo
 }

@@ -2,17 +2,25 @@ import EventEmitter from 'eventemitter3'
 import { v4 as uuid } from 'uuid'
 import * as Automerge from 'automerge-js'
 import DocHandle from './DocHandle.js'
+import StorageSubsystem from '../dist/storage/StorageSubsystem.js'
 
-export default class Repo extends EventEmitter {
-  handles = {}
+export interface RepoDocumentEventArg {
+  handle: DocHandle
+}
+export interface RepoEvents {
+  'document': (arg: RepoDocumentEventArg) => void
+}
+
+export default class Repo extends EventEmitter<RepoEvents> {
+  handles: { [documentId: string] : DocHandle } = {}
   storageSubsystem
 
-  constructor(storageSubsystem) {
+  constructor(storageSubsystem: StorageSubsystem) {
     super()
     this.storageSubsystem = storageSubsystem
   }
 
-  cacheHandle(documentId) {
+  cacheHandle(documentId: string): DocHandle {
     if (this.handles[documentId]) {
       return this.handles[documentId]
     }
@@ -25,14 +33,14 @@ export default class Repo extends EventEmitter {
    * before anything loads off the network.
    * fixing this probably demands some work in automerge core.
    */
-  async load(documentId) {
+  async load(documentId: string): Promise<DocHandle> {
     const handle = this.cacheHandle(documentId)
     handle.replace(await this.storageSubsystem.load(documentId) || Automerge.init())
     this.emit('document', { handle })
     return handle
   }
 
-  create() {
+  create(): DocHandle {
     const documentId = uuid()
     const handle = this.cacheHandle(documentId)
     handle.replace(Automerge.init())
@@ -44,10 +52,8 @@ export default class Repo extends EventEmitter {
    * find() locates a document by id
    * getting data from the local system but also by sending out a 'document'
    * event which a CollectionSynchronizer would use to advertise interest to other peers
-   * @param {string} documentId
-   * @returns DocHandle
    */
-  async find(documentId) {
+  async find(documentId: string): Promise<DocHandle> {
     // TODO: we want a way to make sure we don't yield
     //       intermediate document states during initial synchronization
     return this.handles[documentId] || this.load(documentId)
