@@ -84,17 +84,17 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
     this.dangerousLowLevel().mark(objId, range, name, value)
   }
 
-  textInsertAt(objId: string, position, value) {
+  textInsertAt(objId: string, position: number, value: string) {
     const ins = this.dangerousLowLevel().splice(objId, position, 0, value)
     this.replace(this.doc)
     return ins
   }
 
-  textDeconsteAt(objId: string, position, count = 1) {
+  textDeleteAt(objId: string, position: number, count = 1) {
     return this.dangerousLowLevel().splice(objId, position, count, '')
   }
 
-  textInsertBlock(objId: string, position, type, attributes = {}) {
+  textInsertBlock(objId: string, position: number, type: string, attributes = {}) {
     const block = { type }
     Object.keys(attributes).forEach((key) => {
       block[`attribute-${key}`] = attributes[key]
@@ -102,11 +102,11 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
     return this.dangerousLowLevel().insertObject(objId, position, block)
   }
 
-  textGetBlock(objId: string, position) {
+  textGetBlock(objId: string, position: number) {
     return this.dangerousLowLevel().get(objId, position)
   }
   
-  textGetBlocks(objId) {
+  textGetBlocks(objId: string) {
     const text = this.doc[objId]
     const string = this.textToString(objId)
     const blocks: BlockData[] = []
@@ -147,7 +147,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
     return blocks
   }
 
-  textToString(objId) {
+  textToString(objId: string) {
     const string: string[] = []
     const text = this.doc[objId]
     console.log(objId, text)

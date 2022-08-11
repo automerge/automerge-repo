@@ -1,8 +1,8 @@
 import EventEmitter from 'eventemitter3'
 import { v4 as uuid } from 'uuid'
 import * as Automerge from 'automerge-js'
-import DocHandle from './DocHandle.js'
-import StorageSubsystem from '../dist/storage/StorageSubsystem.js'
+import DocHandle from './DocHandle'
+import StorageSubsystem from './storage/StorageSubsystem'
 
 export interface RepoDocumentEventArg {
   handle: DocHandle

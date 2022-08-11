@@ -3,12 +3,12 @@ import init from 'automerge-wasm-pack'
 import * as Automerge from 'automerge-js'
 
 import Repo from './Repo.js'
-import LocalForageStorageAdapter from './storage/interfaces/LocalForageStorageAdapter.js'
-import BCNetworkAdapter from './network/interfaces/BroadcastChannelNetworkAdapter.js'
+import LocalForageStorageAdapter from './storage/interfaces/LocalForageStorageAdapter'
+import BCNetworkAdapter from './network/interfaces/BroadcastChannelNetworkAdapter'
 
-import Network, { NetworkAdapter } from './network/Network.js'
-import StorageSubsystem, { StorageAdapter } from './storage/StorageSubsystem.js'
-import DependencyCollectionSynchronizer from './synchronizer/CollectionSynchronizer.js'
+import Network, { NetworkAdapter } from './network/Network'
+import StorageSubsystem, { StorageAdapter } from './storage/StorageSubsystem'
+import DependencyCollectionSynchronizer from './synchronizer/CollectionSynchronizer'
 
 interface BrowserRepoConfig {
   storage?: StorageAdapter
