@@ -1,5 +1,5 @@
 // Saving & loading via localforage. Very naive but probably fine for blob-storage.
-import localforage from 'localforage'
+import * as localforage from 'localforage'
 import { StorageAdapter } from '../StorageSubsystem'
 
 class LocalForageAdapter implements StorageAdapter {

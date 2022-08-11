@@ -1,4 +1,4 @@
-import EventEmitter from 'eventemitter3'
+import * as EventEmitter from 'eventemitter3'
 import * as CBOR from 'cbor-x'
 import { receiveMessageClient, WebSocketNetworkAdapter } from './WSShared.js'
 import { NetworkEvents } from '../Network'
@@ -30,6 +30,7 @@ class BrowserWebSocketClientAdapter extends EventEmitter<NetworkEvents> implemen
       // TODO: manage reconnection here
     })
 
+    
     this.client.addEventListener('message', event => receiveMessageClient(event.data as Uint8Array, this))
   }
 

@@ -1,5 +1,5 @@
 import { Client } from '@localfirst/relay-client'
-import EventEmitter from 'eventemitter3'
+import * as EventEmitter from 'eventemitter3'
 import { NetworkAdapter, NetworkEvents } from '../Network.js'
 import { WebSocket } from 'isomorphic-ws'
 

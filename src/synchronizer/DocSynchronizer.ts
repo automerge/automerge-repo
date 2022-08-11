@@ -2,7 +2,7 @@
  * Given a handle to an Automerge document,
  * receive & dispatch sync messages to bring it in-line with all other peers' versions.
  */
-import EventEmitter from 'eventemitter3'
+import * as EventEmitter from 'eventemitter3'
 import { Synchronizer, SyncMessages } from './Synchronizer'
 import * as Automerge from 'automerge-js'
 import DocHandle from '../DocHandle'
@@ -21,7 +21,7 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
     handle.on('change', () => this.syncWithPeers())
   }
 
-  async getDoc(): Automerge.Doc {
+  async getDoc() {
     const doc = await this.handle.value()
     if (!doc) { throw new Error('getDoc called with no document') }
     return doc

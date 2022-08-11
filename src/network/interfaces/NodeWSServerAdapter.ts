@@ -1,4 +1,4 @@
-import EventEmitter from 'eventemitter3'
+import * as EventEmitter from 'eventemitter3'
 import { WebSocket, WebSocketServer } from 'isomorphic-ws'
 import { NetworkAdapter, NetworkEvents } from '../Network.js'
 import { receiveMessageServer } from './WSShared.js'

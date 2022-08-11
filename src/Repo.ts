@@ -1,5 +1,5 @@
-import EventEmitter from 'eventemitter3'
-import { v4 as uuid } from 'uuid'
+import EventEmitter, * as MoreEventEmitter from 'eventemitter3'
+import * as uuid from 'uuid'
 import * as Automerge from 'automerge-js'
 import DocHandle from './DocHandle'
 import StorageSubsystem from './storage/StorageSubsystem'
@@ -11,7 +11,7 @@ export interface RepoEvents {
   'document': (arg: RepoDocumentEventArg) => void
 }
 
-export default class Repo extends EventEmitter<RepoEvents> {
+export default class Repo extends MoreEventEmitter<RepoEvents> {
   handles: { [documentId: string] : DocHandle } = {}
   storageSubsystem
 
@@ -41,7 +41,7 @@ export default class Repo extends EventEmitter<RepoEvents> {
   }
 
   create(): DocHandle {
-    const documentId = uuid()
+    const documentId = uuid.v4()
     const handle = this.cacheHandle(documentId)
     handle.replace(Automerge.init())
     this.emit('document', { handle })

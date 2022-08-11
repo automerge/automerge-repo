@@ -1,4 +1,4 @@
-import EventEmitter from 'eventemitter3'
+import { EventEmitter } from 'eventemitter3'
 import { NetworkAdapter, NetworkEvents } from '../Network'
 
 class BroadcastChannelNetworkAdapter extends EventEmitter<NetworkEvents> implements NetworkAdapter {

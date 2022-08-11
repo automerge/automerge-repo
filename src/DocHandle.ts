@@ -3,7 +3,7 @@
  * It would be easier just to have one repo object to pass around but that means giving
  * total repo access to everything which seems gratuitous to me.
  */
-import EventEmitter from 'eventemitter3'
+import EventEmitter, * as MoreEventEmitter from 'eventemitter3'
 import * as Automerge from 'automerge-js'
 
 interface DocHandleEventArg { 
@@ -11,6 +11,7 @@ interface DocHandleEventArg {
   documentId: string, 
   doc: Automerge.Doc, 
   changes: Uint8Array[]
+  attribution: unknown
 }
 export interface DocHandleEvents {
   'change': (event: DocHandleEventArg) => void
@@ -23,8 +24,8 @@ interface BlockData {
   attributes?: unknown
 }
 
-export default class DocHandle extends EventEmitter<DocHandleEvents> implements EventEmitter<DocHandleEvents> {
-  doc: Automerge.AutomergeDoc
+export default class DocHandle extends MoreEventEmitter<DocHandleEvents> implements EventEmitter<DocHandleEvents> {
+  doc?: Automerge.Doc
 
   documentId
 
@@ -44,11 +45,21 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
     const oldDoc = this.doc
     this.doc = doc
     const { documentId } = this
+
+    let attribution = null
+    const textObj = Automerge.getBackend(doc).get('_root', 'message') // yikes
+    if (textObj && textObj[0] === 'text' ) {
+      const oldHeads = Automerge.getBackend(oldDoc).getHeads()
+      const newHeads = Automerge.getBackend(doc).getHeads()
+      attribution = Automerge.getBackend(doc).attribute(textObj[1], oldHeads, [newHeads])
+    }
+
     this.emit('change', {
       handle: this,
       documentId,
       doc,
       changes: Automerge.getChanges(oldDoc || Automerge.init(), doc),
+      attribution,
     })
   }
 
@@ -86,6 +97,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
 
   textInsertAt(objId: string, position: number, value: string) {
     const ins = this.dangerousLowLevel().splice(objId, position, 0, value)
+    if (!this.doc) { throw new Error("can't insert without a doc")}
     this.replace(this.doc)
     return ins
   }
@@ -94,8 +106,8 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
     return this.dangerousLowLevel().splice(objId, position, count, '')
   }
 
-  textInsertBlock(objId: string, position: number, type: string, attributes = {}) {
-    const block = { type }
+  textInsertBlock(objId: string, position: number, type: string, attributes: { [key: string]: unknown } = {}) {
+    const block: { [attr: string] : unknown } = { type }
     Object.keys(attributes).forEach((key) => {
       block[`attribute-${key}`] = attributes[key]
     })
@@ -107,6 +119,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
   }
   
   textGetBlocks(objId: string) {
+    if (!this.doc) { throw new Error("Missing doc")}
     const text = this.doc[objId]
     const string = this.textToString(objId)
     const blocks: BlockData[] = []
@@ -149,6 +162,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> implements 
 
   textToString(objId: string) {
     const string: string[] = []
+    if (!this.doc) { throw new Error("Missing doc")}
     const text = this.doc[objId]
     console.log(objId, text)
     for (let i = 0; i < text.length; i++) {

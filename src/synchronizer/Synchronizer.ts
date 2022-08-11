@@ -1,4 +1,4 @@
-import EventEmitter from 'eventemitter3'
+import * as EventEmitter from 'eventemitter3'
 
 export interface SyncMessageArg {
   peerId: string
