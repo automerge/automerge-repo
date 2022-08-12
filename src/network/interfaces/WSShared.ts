@@ -1,6 +1,6 @@
 import * as CBOR from 'cbor-x'
 import { DecodedMessage, NetworkAdapter, NetworkConnection } from '../Network'
-import { WebSocket } from 'isomorphic-ws'
+import WebSocket from 'isomorphic-ws'
 
 export interface WebSocketNetworkAdapter extends NetworkAdapter {
   client?: WebSocket
