@@ -3,7 +3,7 @@
  * It would be easier just to have one repo object to pass around but that means giving
  * total repo access to everything which seems gratuitous to me.
  */
-import EventEmitter, * as MoreEventEmitter from 'eventemitter3'
+import EventEmitter from 'eventemitter3'
 import * as Automerge from 'automerge-js'
 
 interface DocHandleEventArg { 
@@ -24,7 +24,7 @@ interface BlockData {
   attributes?: unknown
 }
 
-export default class DocHandle extends MoreEventEmitter<DocHandleEvents> implements EventEmitter<DocHandleEvents> {
+export default class DocHandle extends EventEmitter<DocHandleEvents> {
   doc?: Automerge.Doc
 
   documentId
