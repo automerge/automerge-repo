@@ -11,7 +11,7 @@ interface DocHandleEventArg {
   documentId: string, 
   doc: Automerge.Doc, 
   changes: Uint8Array[]
-  attribution: unknown
+  // attribution: unknown
 }
 export interface DocHandleEvents {
   'change': (event: DocHandleEventArg) => void
@@ -59,7 +59,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
       documentId,
       doc,
       changes: Automerge.getChanges(oldDoc || Automerge.init(), doc),
-      attribution,
+      /*attribution, */
     })
   }
 

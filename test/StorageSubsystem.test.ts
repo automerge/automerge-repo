@@ -1,14 +1,8 @@
-import assert from 'assert'
+/* import assert from 'assert'
 import StorageSubsystem from '../src/storage/StorageSubsystem'
 import LocalForageAdapter from '../src/storage/interfaces/LocalForageStorageAdapter'
 import crypto from 'crypto'
-
-const memory = {}
-const memoryStorage = {
-  load(id) { return memory[id] },
-  save(id, data) { memory[id] = data },
-  remove(id) { delete memory[id] }
-}
+import MemoryStorageAdapter
 
 describe('StorageSubsystem', () => {
   it('should accept a storage adapter at construction', () => {
@@ -18,7 +12,7 @@ describe('StorageSubsystem', () => {
   })
 })
 
-/* these tests are browser only. right. */
+ these tests are browser only. right. 
 describe('LocalForageStorageAdapter', () => {
   const localForage = new LocalForageAdapter()
   const buf = crypto.randomBytes(10)
@@ -42,3 +36,4 @@ describe('LocalForageStorageAdapter', () => {
     localForage.remove('test-key')
   })
 })
+*/

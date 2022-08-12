@@ -1,9 +1,14 @@
-import * as EventEmitter from 'eventemitter3'
+import EventEmitter from 'eventemitter3'
+
+interface PeerCandidateDetails {
+  peerId: string,
+  channelId: string,
+  connection: NetworkConnection
+}
 
 interface PeerDetails {
   peerId: string,
   channelId: string,
-  connection: NetworkConnection
 }
 
 interface MessageDetails {
@@ -12,12 +17,17 @@ interface MessageDetails {
   message: Uint8Array
 }
 
-export interface NetworkEvents {
-  'peer-candidate': (msg: PeerDetails) => void;
+export interface NetworkAdapterEvents {
+  'peer-candidate': (msg: PeerCandidateDetails) => void;
   'message': (msg: MessageDetails) => void;
 }
 
-export interface NetworkAdapter extends EventEmitter<NetworkEvents> {
+export interface NetworkEvents {
+  'peer': (msg: PeerDetails) => void;
+  'message': (msg: MessageDetails) => void;
+}
+
+export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: string // hmmm, maybe not
   connect(clientId: string): void
   join(channelId: string): void
@@ -37,7 +47,7 @@ export interface NetworkConnection {
   send(msg: Uint8Array): void
 }
 
-export default class AutomergeNetwork extends EventEmitter {
+export default class AutomergeNetwork extends EventEmitter<NetworkEvents> {
   networkAdapters: NetworkAdapter[] = []
 
   myPeerId

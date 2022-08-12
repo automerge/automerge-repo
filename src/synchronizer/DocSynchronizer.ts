@@ -2,13 +2,13 @@
  * Given a handle to an Automerge document,
  * receive & dispatch sync messages to bring it in-line with all other peers' versions.
  */
-import * as EventEmitter from 'eventemitter3'
+import EventEmitter from 'eventemitter3'
 import { Synchronizer, SyncMessages } from './Synchronizer'
 import * as Automerge from 'automerge-js'
 import DocHandle from '../DocHandle'
 import { SyncState } from 'automerge-wasm-pack'
 
-export default class CollectionSynchronizer extends EventEmitter<SyncMessages> implements Synchronizer {
+export default class DocSynchronizer extends EventEmitter<SyncMessages> implements Synchronizer {
   handle
 
   // track this separately from syncStates because you might have more syncStates than active peers

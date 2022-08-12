@@ -1,9 +1,9 @@
-import * as EventEmitter from 'eventemitter3'
+import EventEmitter from 'eventemitter3'
 import { WebSocket, WebSocketServer } from 'isomorphic-ws'
-import { NetworkAdapter, NetworkEvents } from '../Network.js'
+import { NetworkAdapter, NetworkAdapterEvents } from '../Network.js'
 import { receiveMessageServer } from './WSShared.js'
 
-class NodeWSServerAdapter extends EventEmitter<NetworkEvents> implements NetworkAdapter {
+class NodeWSServerAdapter extends EventEmitter<NetworkAdapterEvents> implements NetworkAdapter {
   peerId?: string
   server: WebSocketServer
   openSockets: WebSocket[] = []

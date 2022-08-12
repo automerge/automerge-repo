@@ -1,10 +1,10 @@
-import * as EventEmitter from 'eventemitter3'
+import EventEmitter from 'eventemitter3'
 import * as CBOR from 'cbor-x'
 
-import DocSynchronizer from './DocSynchronizer.js'
-import Repo from '../Repo.js'
-import { Synchronizer, SyncMessages } from './Synchronizer.js'
-import DocHandle from '../DocHandle.js'
+import DocSynchronizer from './DocSynchronizer'
+import Repo from '../Repo'
+import { Synchronizer, SyncMessages } from './Synchronizer'
+import DocHandle from '../DocHandle'
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.

@@ -1,7 +1,7 @@
-import { EventEmitter } from 'eventemitter3'
-import { NetworkAdapter, NetworkEvents } from '../Network'
+import EventEmitter from 'eventemitter3'
+import { NetworkAdapter, NetworkAdapterEvents } from '../Network'
 
-class BroadcastChannelNetworkAdapter extends EventEmitter<NetworkEvents> implements NetworkAdapter {
+class BroadcastChannelNetworkAdapter extends EventEmitter<NetworkAdapterEvents> implements NetworkAdapter {
   channels = {}
   peerId?: string
 

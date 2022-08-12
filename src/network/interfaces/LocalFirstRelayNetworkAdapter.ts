@@ -1,9 +1,9 @@
 import { Client } from '@localfirst/relay-client'
-import * as EventEmitter from 'eventemitter3'
-import { NetworkAdapter, NetworkEvents } from '../Network.js'
+import EventEmitter from 'eventemitter3'
+import { NetworkAdapter, NetworkAdapterEvents } from '../Network.js'
 import { WebSocket } from 'isomorphic-ws'
 
-class LocalFirstRelayNetworkAdapter extends EventEmitter<NetworkEvents> implements NetworkAdapter {
+class LocalFirstRelayNetworkAdapter extends EventEmitter<NetworkAdapterEvents> implements NetworkAdapter {
   url
   client?: Client
 
