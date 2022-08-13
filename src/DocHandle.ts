@@ -11,7 +11,7 @@ interface DocHandleEventArg {
   documentId: string, 
   doc: Automerge.Doc, 
   changes: Uint8Array[]
-  // attribution: unknown
+  attribution: unknown
 }
 export interface DocHandleEvents {
   'change': (event: DocHandleEventArg) => void
@@ -41,17 +41,18 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
     this.replace(doc)
   }
 
-  replace(doc: Automerge.Doc) {
+  replace(doc: Automerge.Doc, oldHeads?: string[], newHeads?: string[]) {
     const oldDoc = this.doc
     this.doc = doc
     const { documentId } = this
 
     let attribution = null
     const textObj = Automerge.getBackend(doc).get('_root', 'message') // yikes
-    if (textObj && textObj[0] === 'text' ) {
-      const oldHeads = Automerge.getBackend(oldDoc).getHeads()
-      const newHeads = Automerge.getBackend(doc).getHeads()
-      attribution = Automerge.getBackend(doc).attribute(textObj[1], oldHeads, [newHeads])
+
+    if (textObj && oldHeads && newHeads && oldHeads[0] !== newHeads[0]) { // && textObj[0] === 'text' ) {
+      console.log('in here trying to compute attribution')
+      console.log({oldHeads: oldHeads[0], newHeads: newHeads[0]})
+      attribution = Automerge.getBackend(doc).attribute(textObj, oldHeads, [newHeads])
     }
 
     this.emit('change', {
@@ -59,7 +60,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
       documentId,
       doc,
       changes: Automerge.getChanges(oldDoc || Automerge.init(), doc),
-      /*attribution, */
+      attribution
     })
   }
 
