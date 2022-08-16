@@ -165,7 +165,11 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
     const string: string[] = []
     if (!this.doc) { throw new Error("Missing doc")}
     const text = this.doc[objId]
-    console.log(objId, text)
+    if (!text) {
+      console.log('what no text', objId, text)
+      return ""
+    }
+    console.log('in text to string', objId, text)
     for (let i = 0; i < text.length; i++) {
       console.log(typeof text[i])
       if (typeof text[i] === 'string') {
