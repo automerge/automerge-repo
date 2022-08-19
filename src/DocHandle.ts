@@ -88,11 +88,11 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
     if (data && data.length === 1) { return data[0][1] }
   }
 
-  getMarks(objId: string) {
+  textGetMarks(objId: string) {
     return this.dangerousLowLevel().raw_spans(objId)
   }
 
-  mark(objId: string, range: string, name: string, value: string) {
+  textMark(objId: string, range: string, name: string, value: string) {
     this.dangerousLowLevel().mark(objId, range, name, value)
   }
 
