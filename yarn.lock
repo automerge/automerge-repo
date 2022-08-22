@@ -352,24 +352,24 @@ async@^2.6.2:
     lodash "^4.17.14"
 
 automerge-js@^0.1.5:
-  version "0.1.5"
-  resolved "https://registry.yarnpkg.com/automerge-js/-/automerge-js-0.1.5.tgz#0c25c99731094788ee16ad986d2550f104f1174a"
-  integrity sha512-DQQ2jFlmQBMErCgT8ipME41fdyuPhemZyEgKwWsb4hJbbmS0FON2WISTKtUBgHUFnTtTHXpouOwNzIyZXIC2YQ==
+  version "0.1.9"
+  resolved "https://registry.yarnpkg.com/automerge-js/-/automerge-js-0.1.9.tgz#75fa77fb6e9faa510751e6c44a8674c240bda19f"
+  integrity sha512-Ty5IhUo/JoOOqZWxl7ioYP1yHBz1BXAE38Cpnb6cM7xd0yjNpb4w9SgBnUiZ1v0t+JsrcDSkT7TKA9sozIJLuA==
   dependencies:
-    automerge-types "0.1.4"
+    automerge-types "0.1.5"
     uuid "^8.3"
 
-automerge-types@0.1.4:
-  version "0.1.4"
-  resolved "https://registry.yarnpkg.com/automerge-types/-/automerge-types-0.1.4.tgz#ecefcfd5dc8703fb64c3c61f98d24685b746cb86"
-  integrity sha512-VguW0d8Wt8jqbObh8bmMlGZMyUR2Av6eMtboekEzuHI3juru4oeq5+4brcceO/0Us8bkQdfZGErCR9vmBcX7Sw==
+automerge-types@0.1.5:
+  version "0.1.5"
+  resolved "https://registry.yarnpkg.com/automerge-types/-/automerge-types-0.1.5.tgz#0341b949fe213278f8363d10d87b7fb5401e3f98"
+  integrity sha512-UD7SB/Bh1DtT7dcF4+WqNrEpfsirfk/hM2tvu15uZlqG/P5Re5VuwREGypDyQPm6upe/gmiip5wCz9p4ihJG2g==
 
 automerge-wasm-pack@^0.1.2:
-  version "0.1.5"
-  resolved "https://registry.yarnpkg.com/automerge-wasm-pack/-/automerge-wasm-pack-0.1.5.tgz#e424a36ae66adf0d968159d9d4a56e2a2d3190b9"
-  integrity sha512-OAR99YRIxQc842GctxZ+yE/8FzMIn86+OSM/5bbusV9qnMDSXwbCsvXXWyVYrBURmX6bkyrPE2ySatInQpRuYw==
+  version "0.1.7"
+  resolved "https://registry.yarnpkg.com/automerge-wasm-pack/-/automerge-wasm-pack-0.1.7.tgz#f2af7e109d78b70dbd6b41976ddcd339333cf8b2"
+  integrity sha512-VDR8Wgrcdo9qP5zk1+xZXY7lTXCSDxp0LB/pblaqIA3bbWrg+327aYe2hQCPgb/YSmTi64iG09d8TuEWkzci6g==
   dependencies:
-    automerge-types "0.1.4"
+    automerge-types "0.1.5"
 
 balanced-match@^1.0.0:
   version "1.0.2"
