@@ -27,7 +27,7 @@ export default class StorageSubsystem {
     }
   }
 
-  saveTotal(documentId: string, doc: Automerge.Doc) {
+  saveTotal(documentId: string, doc: Automerge.Doc<unknown>) {
     const binary = Automerge.save(doc)
     this.storageAdapter.save(`${documentId}:snapshot`, binary)
 
@@ -38,7 +38,7 @@ export default class StorageSubsystem {
     this.queuedChanges[documentId] = []
   }
 
-  async loadWithIncremental(documentId: string): Promise<Automerge.Doc> {
+  async loadWithIncremental(documentId: string): Promise<Automerge.Doc<unknown>> {
     const binary = await this.storageAdapter.load(`${documentId}:snapshot`)
     // TODO: this is bad because we really only want to do this if we *have* incremental changes
     if (!binary) { console.log('no binary, gonna just do an init()') }
@@ -68,7 +68,7 @@ export default class StorageSubsystem {
     return numQueued >= 3
   }
 
-  save(documentId: string, doc: Automerge.Doc, changes: Uint8Array[]) {
+  save(documentId: string, doc: Automerge.Doc<unknown>, changes: Uint8Array[]) {
     if (this.shouldCompact(documentId)) {
       this.saveTotal(documentId, doc)
     } else {
@@ -76,7 +76,7 @@ export default class StorageSubsystem {
     }
   }
 
-  async load(docId: string): Promise<Automerge.Doc> {
+  async load(docId: string): Promise<Automerge.Doc<unknown>> {
     return this.loadWithIncremental(docId)
   }
 }

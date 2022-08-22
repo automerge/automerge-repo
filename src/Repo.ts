@@ -4,15 +4,15 @@ import * as Automerge from 'automerge-js'
 import DocHandle from './DocHandle'
 import StorageSubsystem from './storage/StorageSubsystem'
 
-export interface RepoDocumentEventArg {
-  handle: DocHandle
+export interface RepoDocumentEventArg<T> {
+  handle: DocHandle<T>
 }
-export interface RepoEvents {
-  'document': (arg: RepoDocumentEventArg) => void
+export interface RepoEvents<T> {
+  'document': (arg: RepoDocumentEventArg<T>) => void
 }
 
-export default class Repo extends EventEmitter<RepoEvents> {
-  handles: { [documentId: string] : DocHandle } = {}
+export default class Repo extends EventEmitter<RepoEvents<unknown>> {
+  handles: { [documentId: string] : DocHandle<unknown> } = {}
   storageSubsystem
 
   constructor(storageSubsystem: StorageSubsystem) {
@@ -20,11 +20,11 @@ export default class Repo extends EventEmitter<RepoEvents> {
     this.storageSubsystem = storageSubsystem
   }
 
-  cacheHandle(documentId: string): DocHandle {
+  cacheHandle(documentId: string): DocHandle<unknown> {
     if (this.handles[documentId]) {
       return this.handles[documentId]
     }
-    const handle = new DocHandle(documentId)
+    const handle = new DocHandle<unknown>(documentId)
     this.handles[documentId] = handle
     return handle
   }
@@ -33,14 +33,14 @@ export default class Repo extends EventEmitter<RepoEvents> {
    * before anything loads off the network.
    * fixing this probably demands some work in automerge core.
    */
-  async load(documentId: string): Promise<DocHandle> {
+  async load<T>(documentId: string): Promise<DocHandle<T>> {
     const handle = this.cacheHandle(documentId)
     handle.replace(await this.storageSubsystem.load(documentId) || Automerge.init())
     this.emit('document', { handle })
-    return handle
+    return handle as DocHandle<T>
   }
 
-  create(): DocHandle {
+  create(): DocHandle<unknown> {
     const documentId = v4()
     const handle = this.cacheHandle(documentId)
     handle.replace(Automerge.init())
@@ -53,9 +53,9 @@ export default class Repo extends EventEmitter<RepoEvents> {
    * getting data from the local system but also by sending out a 'document'
    * event which a CollectionSynchronizer would use to advertise interest to other peers
    */
-  async find(documentId: string): Promise<DocHandle> {
+  async find<T>(documentId: string): Promise<DocHandle<T>> {
     // TODO: we want a way to make sure we don't yield
     //       intermediate document states during initial synchronization
-    return this.handles[documentId] || this.load(documentId)
+    return (this.handles[documentId] || this.load(documentId)) as DocHandle<T>
   }
 }

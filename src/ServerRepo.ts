@@ -15,8 +15,7 @@ interface ServerRepoConfig {
 }
 
 export default async function ServerRepo(config: ServerRepoConfig) {
-  await WASM()
-  Automerge.use(WASM)  
+  Automerge.use(await WASM())  
 
   const filesystem = config.storage
   const networkAdapters = config.network

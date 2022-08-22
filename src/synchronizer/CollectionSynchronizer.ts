@@ -43,7 +43,7 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
     return this.syncPool[documentId]
   }
 
-  initDocSynchronizer(handle: DocHandle): DocSynchronizer {
+  initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer(handle)
     docSynchronizer.on('message', ({ peerId, documentId, message }) => {
       const newmsg = CBOR.encode({ type: 'sync', documentId, message }) // I don't love wrapping the type in here

@@ -6,16 +6,15 @@ import EventEmitter from 'eventemitter3'
 import { Synchronizer, SyncMessages } from './Synchronizer'
 import * as Automerge from 'automerge-js'
 import DocHandle from '../DocHandle'
-import { SyncState } from 'automerge-wasm-pack'
 
 export default class DocSynchronizer extends EventEmitter<SyncMessages> implements Synchronizer {
   handle
 
   // track this separately from syncStates because you might have more syncStates than active peers
   peers: string[] = []
-  syncStates: { [peerId: string] : SyncState } = {} // peer -> syncState
+  syncStates: { [peerId: string] : Automerge.SyncState } = {} // peer -> syncState
 
-  constructor(handle: DocHandle) {
+  constructor(handle: DocHandle<unknown>) {
     super()
     this.handle = handle
     handle.on('change', () => this.syncWithPeers())
@@ -27,7 +26,7 @@ export default class DocSynchronizer extends EventEmitter<SyncMessages> implemen
     return doc
   }
 
-  setDoc(doc: Automerge.Doc, initialHeads?: string[], newHeads?: string[]) {
+  setDoc(doc: Automerge.Doc<unknown>, initialHeads?: string[], newHeads?: string[]) {
     if (!doc) { throw new Error('setDoc called with no document') }
     // this will trigger a peer sync due to the change listener above
     this.handle.replace(doc, initialHeads, newHeads)
@@ -46,11 +45,11 @@ export default class DocSynchronizer extends EventEmitter<SyncMessages> implemen
     return syncState
   }
 
-  setSyncState(peerId: string, syncState: SyncState) {
+  setSyncState(peerId: string, syncState: Automerge.SyncState) {
     this.syncStates[peerId] = syncState
   }
 
-  async sendSyncMessage(peerId: string, documentId: string, doc: Automerge.Doc) {
+  async sendSyncMessage(peerId: string, documentId: string, doc: Automerge.Doc<unknown>) {
     const syncState = this.getSyncState(peerId)
     const [newSyncState, message] = Automerge.generateSyncMessage(doc, syncState)
     this.setSyncState(peerId, newSyncState)
@@ -71,11 +70,11 @@ export default class DocSynchronizer extends EventEmitter<SyncMessages> implemen
 
   async onSyncMessage(peerId: string, message: Uint8Array) {
     let doc = await this.getDoc()
-    const initialHeads = Automerge.getBackend(doc).getHeads()
+    const initialHeads = (Automerge as any).getBackend(doc).getHeads()
     console.log('on sync message', peerId)
     let syncState = this.getSyncState(peerId);
     [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
-    const newHeads = Automerge.getBackend(doc).getHeads()
+    const newHeads = (Automerge as any).getBackend(doc).getHeads()
     this.setDoc(doc, initialHeads, newHeads)
     this.setSyncState(peerId, syncState)
   }

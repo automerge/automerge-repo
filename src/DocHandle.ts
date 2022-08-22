@@ -6,15 +6,15 @@
 import EventEmitter from 'eventemitter3'
 import * as Automerge from 'automerge-js'
 
-interface DocHandleEventArg { 
-  handle: DocHandle, 
+interface DocHandleEventArg<T> { 
+  handle: DocHandle<T>, 
   documentId: string, 
-  doc: Automerge.Doc, 
+  doc: Automerge.Doc<T>, 
   changes: Uint8Array[]
   attribution: unknown
 }
-export interface DocHandleEvents {
-  'change': (event: DocHandleEventArg) => void
+export interface DocHandleEvents<T> {
+  'change': (event: DocHandleEventArg<T>) => void
 }
 
 interface BlockData {
@@ -24,8 +24,8 @@ interface BlockData {
   attributes?: unknown
 }
 
-export default class DocHandle extends EventEmitter<DocHandleEvents> {
-  doc?: Automerge.Doc
+export default class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
+  doc?: Automerge.Doc<T>
 
   documentId
 
@@ -36,23 +36,24 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
   }
 
   // should i move this?
-  change(callback: (doc: Automerge.Doc) => void) {
+  change(callback: (doc: Automerge.Doc<T>) => void) {
+    if (!this.doc) { throw new Error("Can't call change before establishing a document.") }
     const doc = Automerge.change(this.doc, callback)
     this.replace(doc)
   }
 
-  replace(doc: Automerge.Doc, oldHeads?: string[], newHeads?: string[]) {
+  replace(doc: Automerge.Doc<T>, oldHeads?: string[], newHeads?: string[]) {
     const oldDoc = this.doc
     this.doc = doc
     const { documentId } = this
 
     let attribution = null
-    const textObj = Automerge.getBackend(doc).get('_root', 'message') // yikes
+    const textObj = (Automerge as any).getBackend(doc).get('_root', 'message') // yikes
 
     if (textObj && oldHeads && newHeads && oldHeads[0] !== newHeads[0]) { // && textObj[0] === 'text' ) {
       console.log('in here trying to compute attribution')
       console.log({oldHeads: oldHeads[0], newHeads: newHeads[0]})
-      attribution = Automerge.getBackend(doc).attribute(textObj, oldHeads, [newHeads])
+      attribution = (Automerge as any).getBackend(doc).attribute(textObj, oldHeads, [newHeads])
     }
 
     this.emit('change', {
@@ -80,7 +81,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
   /* these would ideally be exposed on the text/list proxy objs; doing them here
    * for experimental purposes only. */
   dangerousLowLevel() {
-    return Automerge.getBackend(this.doc)
+    return (Automerge as any).getBackend(this.doc)
   }
 
   getObjId(objId: string, attr: string) {
@@ -121,7 +122,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
   
   textGetBlocks(objId: string) {
     if (!this.doc) { throw new Error("Missing doc")}
-    const text = this.doc[objId]
+    const text = (this.doc as any)[objId]
     const string = this.textToString(objId)
     const blocks: BlockData[] = []
 
@@ -164,7 +165,7 @@ export default class DocHandle extends EventEmitter<DocHandleEvents> {
   textToString(objId: string) {
     const string: string[] = []
     if (!this.doc) { throw new Error("Missing doc")}
-    const text = this.doc[objId]
+    const text = (this.doc as any)[objId]
     if (!text) {
       console.log('what no text', objId, text)
       return ""
