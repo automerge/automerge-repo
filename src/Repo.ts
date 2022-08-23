@@ -40,9 +40,9 @@ export default class Repo extends EventEmitter<RepoEvents<unknown>> {
     return handle as DocHandle<T>
   }
 
-  create(): DocHandle<unknown> {
+  create<T>(): DocHandle<T> {
     const documentId = v4()
-    const handle = this.cacheHandle(documentId)
+    const handle = this.cacheHandle(documentId) as DocHandle<T>
     handle.replace(Automerge.init())
     this.emit('document', { handle })
     return handle

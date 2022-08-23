@@ -36,9 +36,9 @@ export default class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   // should i move this?
-  change(callback: (doc: Automerge.Doc<T>) => void) {
+  change(callback: (doc: T) => void) {
     if (!this.doc) { throw new Error("Can't call change before establishing a document.") }
-    const doc = Automerge.change(this.doc, callback)
+    const doc = Automerge.change<T>(this.doc, callback)
     this.replace(doc)
   }
 
