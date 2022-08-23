@@ -17,13 +17,6 @@ export interface DocHandleEvents<T> {
   'change': (event: DocHandleEventArg<T>) => void
 }
 
-interface BlockData {
-  start: number
-  end: number,
-  type: string,
-  attributes?: unknown
-}
-
 export default class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   doc?: Automerge.Doc<T>
 
@@ -76,109 +69,5 @@ export default class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       })
     }
     return this.doc
-  }
-
-  /* these would ideally be exposed on the text/list proxy objs; doing them here
-   * for experimental purposes only. */
-  dangerousLowLevel() {
-    return (Automerge as any).getBackend(this.doc)
-  }
-
-  getObjId(objId: string, attr: string) {
-    const data = this.dangerousLowLevel().getAll(objId, attr)
-    if (data && data.length === 1) { return data[0][1] }
-  }
-
-  textGetMarks(objId: string) {
-    return this.dangerousLowLevel().raw_spans(objId)
-  }
-
-  textMark(objId: string, range: string, name: string, value: string) {
-    this.dangerousLowLevel().mark(objId, range, name, value)
-  }
-
-  textInsertAt(objId: string, position: number, value: string) {
-    const ins = this.dangerousLowLevel().splice(objId, position, 0, value)
-    if (!this.doc) { throw new Error("can't insert without a doc")}
-    this.replace(this.doc)
-    return ins
-  }
-
-  textDeleteAt(objId: string, position: number, count = 1) {
-    return this.dangerousLowLevel().splice(objId, position, count, '')
-  }
-
-  textInsertBlock(objId: string, position: number, type: string, attributes: { [key: string]: unknown } = {}) {
-    const block: { [attr: string] : unknown } = { type }
-    Object.keys(attributes).forEach((key) => {
-      block[`attribute-${key}`] = attributes[key]
-    })
-    return this.dangerousLowLevel().insertObject(objId, position, block)
-  }
-
-  textGetBlock(objId: string, position: number) {
-    return this.dangerousLowLevel().get(objId, position)
-  }
-  
-  textGetBlocks(objId: string) {
-    if (!this.doc) { throw new Error("Missing doc")}
-    const text = (this.doc as any)[objId]
-    const string = this.textToString(objId)
-    const blocks: BlockData[] = []
-
-    console.log(string.replace('\uFFFC', 'X'))
-
-    const initial = string.indexOf('\uFFFC')
-
-    // If there isn't a block at the start of the document, create a virtual one
-    // because we need it for prosemirror
-    if (initial !== 0) {
-      console.log('adding initial virtual paragraph')
-      const end = (initial === -1) ? string.length : initial
-
-      blocks.push({
-        start: 0,
-        end,
-        type: 'paragraph',
-        attributes: { virtual: true }
-      })
-    }
-
-    if (initial > -1) {
-      console.log('trying to create a new paragraph')
-      let i = initial
-      while (i !== -1) {
-        const next = string.indexOf('\uFFFC', i + 1)
-        const end = (next === -1) ? string.length : next
-        blocks.push({
-          start: i,
-          end,
-          type: text[i]['type']
-        })
-        i = next
-      }
-    }
-
-    return blocks
-  }
-
-  textToString(objId: string) {
-    const string: string[] = []
-    if (!this.doc) { throw new Error("Missing doc")}
-    const text = (this.doc as any)[objId]
-    if (!text) {
-      console.log('what no text', objId, text)
-      return ""
-    }
-    console.log('in text to string', objId, text)
-    for (let i = 0; i < text.length; i++) {
-      console.log(typeof text[i])
-      if (typeof text[i] === 'string') {
-        string.push(text[i])
-      } else {
-        string.push('\uFFFC')
-      }
-    }
-    return string.join('')
   }
 }
