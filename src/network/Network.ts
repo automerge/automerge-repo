@@ -56,7 +56,6 @@ export default class AutomergeNetwork extends EventEmitter<NetworkEvents> {
   constructor(networkAdapters: NetworkAdapter[]) {
     super()
     this.myPeerId = `user-${Math.round(Math.random() * 100000)}`
-    console.log("We are: ", this.myPeerId)
     
     this.networkAdapters = networkAdapters
     networkAdapters.forEach((a) => this.addNetworkAdapter(a))

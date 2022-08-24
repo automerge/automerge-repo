@@ -25,7 +25,6 @@ export default async function ServerRepo(config: ServerRepoConfig) {
   repo.on('document', ({ handle }) =>
     handle.on('change', ({ documentId, doc, changes }) => {
       storageSubsystem.save(documentId, doc, changes)
-      console.log('updated doc', doc)
     })
   )
 
@@ -37,7 +36,6 @@ export default async function ServerRepo(config: ServerRepoConfig) {
   repo.on('document', ({ handle }) => synchronizer.addDocument(handle.documentId))
   networkSubsystem.on('message', (msg) => {
     const { senderId, message } = msg
-    console.log("network sent out", msg)
     synchronizer.onSyncMessage(senderId, message)
   })
   synchronizer.on('message', ({ peerId, message }) => {

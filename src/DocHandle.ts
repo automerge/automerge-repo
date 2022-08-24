@@ -6,7 +6,7 @@
 import EventEmitter from 'eventemitter3'
 import * as Automerge from 'automerge-js'
 
-interface DocHandleEventArg<T> { 
+export interface DocHandleEventArg<T> { 
   handle: DocHandle<T>, 
   documentId: string, 
   doc: Automerge.Doc<T>, 
@@ -44,8 +44,6 @@ export default class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     const textObj = (Automerge as any).getBackend(doc).get('_root', 'message') // yikes
 
     if (textObj && oldHeads && newHeads && oldHeads[0] !== newHeads[0]) { // && textObj[0] === 'text' ) {
-      console.log('in here trying to compute attribution')
-      console.log({oldHeads: oldHeads[0], newHeads: newHeads[0]})
       attribution = (Automerge as any).getBackend(doc).attribute(textObj, oldHeads, [newHeads])
     }
 

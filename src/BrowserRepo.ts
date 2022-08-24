@@ -38,7 +38,6 @@ export default async function BrowserRepo(config: BrowserRepoConfig) {
   repo.on('document', ({ handle }) => synchronizer.addDocument(handle.documentId))
   networkSubsystem.on('message', (msg) => {
     const { senderId, message } = msg
-    console.log("network sent out", msg)
     synchronizer.onSyncMessage(senderId, message)
   })
   synchronizer.on('message', ({ peerId, message }) => {
