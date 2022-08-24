@@ -26,10 +26,10 @@ export default class DocSynchronizer extends EventEmitter<SyncMessages> implemen
     return doc
   }
 
-  setDoc(doc: Automerge.Doc<unknown>, initialHeads?: string[], newHeads?: string[]) {
+  setDoc(doc: Automerge.Doc<unknown>) {
     if (!doc) { throw new Error('setDoc called with no document') }
     // this will trigger a peer sync due to the change listener above
-    this.handle.replace(doc, initialHeads, newHeads)
+    this.handle.replace(doc)
   }
 
   getSyncState(peerId: string) {
@@ -70,12 +70,10 @@ export default class DocSynchronizer extends EventEmitter<SyncMessages> implemen
 
   async onSyncMessage(peerId: string, message: Uint8Array) {
     let doc = await this.getDoc()
-    const initialHeads = (Automerge as any).getBackend(doc).getHeads()
     console.log('on sync message', peerId)
     let syncState = this.getSyncState(peerId);
     [doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
-    const newHeads = (Automerge as any).getBackend(doc).getHeads()
-    this.setDoc(doc, initialHeads, newHeads)
+    this.setDoc(doc)
     this.setSyncState(peerId, syncState)
   }
 
