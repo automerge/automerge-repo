@@ -352,9 +352,9 @@ async@^2.6.2:
     lodash "^4.17.14"
 
 automerge-js@^0.1.5:
-  version "0.1.10"
-  resolved "https://registry.yarnpkg.com/automerge-js/-/automerge-js-0.1.10.tgz#b54012503cc2a047aa883f541dcf4c5fd24aa9e0"
-  integrity sha512-o9B2s/VTubDTqO3DDDDjnqRYS0ZH68HceisViC+4icOeZIF7t1emdh5jBlSJj8BsVTCHE/iI1NEhoKsLShG/mQ==
+  version "0.1.12"
+  resolved "https://registry.yarnpkg.com/automerge-js/-/automerge-js-0.1.12.tgz#b3e7ecd737f0ae3bbb0dd5813ade23682526ff4c"
+  integrity sha512-4mX066TNOk9S+K1Rnn49eDfFEN63BWV5HKNUNQ32FJbqwvuD14e8qRJMCmD1tt66ECCqgagVort49E4eSOB2JQ==
   dependencies:
     automerge-types "0.1.5"
     uuid "^8.3"
