@@ -1,19 +1,22 @@
-import EventEmitter from 'eventemitter3'
-import * as CBOR from 'cbor-x'
+import EventEmitter from "eventemitter3"
+import * as CBOR from "cbor-x"
 
-import DocSynchronizer from './DocSynchronizer'
-import Repo from '../Repo'
-import { Synchronizer, SyncMessages } from './Synchronizer'
-import DocHandle from '../DocHandle'
+import DocSynchronizer from "./DocSynchronizer.js"
+import Repo from "../Repo.js"
+import { Synchronizer, SyncMessages } from "./Synchronizer.js"
+import DocHandle from "../DocHandle.js"
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.
 // In the real world, we probably want to authenticate the peer somehow,
 // but we'll get to that later.
-interface SyncPool { 
-  [docId: string] : DocSynchronizer 
+interface SyncPool {
+  [docId: string]: DocSynchronizer
 }
-export default class CollectionSynchronizer extends EventEmitter<SyncMessages> implements Synchronizer {
+export default class CollectionSynchronizer
+  extends EventEmitter<SyncMessages>
+  implements Synchronizer
+{
   repo: Repo
   peers: string[] = []
   syncPool: SyncPool = {}
@@ -38,16 +41,17 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
     // TODO: we want a callback to decide to accept offered documents
     if (!this.syncPool[documentId]) {
       const handle = await this.repo.find(documentId)
-      this.syncPool[documentId] = this.syncPool[documentId] || this.initDocSynchronizer(handle)
+      this.syncPool[documentId] =
+        this.syncPool[documentId] || this.initDocSynchronizer(handle)
     }
     return this.syncPool[documentId]
   }
 
   initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer(handle)
-    docSynchronizer.on('message', ({ peerId, documentId, message }) => {
-      const newmsg = CBOR.encode({ type: 'sync', documentId, message }) // I don't love wrapping the type in here
-      this.emit('message', { documentId, peerId, message: newmsg })
+    docSynchronizer.on("message", ({ peerId, documentId, message }) => {
+      const newmsg = CBOR.encode({ type: "sync", documentId, message }) // I don't love wrapping the type in here
+      this.emit("message", { documentId, peerId, message: newmsg })
     })
     return docSynchronizer
   }
@@ -62,7 +66,9 @@ export default class CollectionSynchronizer extends EventEmitter<SyncMessages> i
   addPeer(peerId: string) {
     console.log("adding, ", peerId)
     this.peers.push(peerId)
-    Object.values(this.syncPool).forEach((docSynchronizer) => docSynchronizer.beginSync(peerId))
+    Object.values(this.syncPool).forEach((docSynchronizer) =>
+      docSynchronizer.beginSync(peerId)
+    )
   }
 
   // need to handle vanishing peers somehow and deliberately removing them

@@ -1,4 +1,4 @@
-import WASM from "automerge-wasm-pack"
+import * as WASM from "automerge-wasm-pack"
 import * as Automerge from "automerge-js"
 
 import Repo from "./Repo.js"
@@ -12,7 +12,7 @@ interface ServerRepoConfig {
 }
 
 export default async function ServerRepo(config: ServerRepoConfig) {
-  Automerge.use(await WASM())
+  Automerge.use(await WASM.init())
 
   const filesystem = config.storage
   const networkAdapters = config.network

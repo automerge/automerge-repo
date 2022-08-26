@@ -1,18 +1,18 @@
-import EventEmitter from 'eventemitter3'
-import { v4 } from 'uuid'
-import * as Automerge from 'automerge-js'
-import DocHandle from './DocHandle'
-import StorageSubsystem from './storage/StorageSubsystem'
+import EventEmitter from "eventemitter3"
+import { v4 } from "uuid"
+import * as Automerge from "automerge-js"
+import DocHandle from "./DocHandle.js"
+import StorageSubsystem from "./storage/StorageSubsystem.js"
 
 export interface RepoDocumentEventArg<T> {
   handle: DocHandle<T>
 }
 export interface RepoEvents<T> {
-  'document': (arg: RepoDocumentEventArg<T>) => void
+  document: (arg: RepoDocumentEventArg<T>) => void
 }
 
 export default class Repo extends EventEmitter<RepoEvents<unknown>> {
-  handles: { [documentId: string] : DocHandle<unknown> } = {}
+  handles: { [documentId: string]: DocHandle<unknown> } = {}
   storageSubsystem
 
   constructor(storageSubsystem: StorageSubsystem) {
@@ -35,8 +35,10 @@ export default class Repo extends EventEmitter<RepoEvents<unknown>> {
    */
   async load<T>(documentId: string): Promise<DocHandle<T>> {
     const handle = this.cacheHandle(documentId)
-    handle.replace(await this.storageSubsystem.load(documentId) || Automerge.init())
-    this.emit('document', { handle })
+    handle.replace(
+      (await this.storageSubsystem.load(documentId)) || Automerge.init()
+    )
+    this.emit("document", { handle })
     return handle as DocHandle<T>
   }
 
@@ -44,7 +46,7 @@ export default class Repo extends EventEmitter<RepoEvents<unknown>> {
     const documentId = v4()
     const handle = this.cacheHandle(documentId) as DocHandle<T>
     handle.replace(Automerge.init())
-    this.emit('document', { handle })
+    this.emit("document", { handle })
     return handle
   }
 

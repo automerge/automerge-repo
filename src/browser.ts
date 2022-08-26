@@ -1,11 +1,21 @@
-import BrowserRepo from './BrowserRepo'
-import LocalForageStorageAdapter from './storage/interfaces/LocalForageStorageAdapter'
-import BroadcastChannelNetworkAdapter from './network/interfaces/BroadcastChannelNetworkAdapter'
-import BrowserWebSocketClientAdapter from './network/interfaces/BrowserWebSocketClientAdapter'
-import Repo from './Repo'
-import Network from './network/Network'
-import StorageSubsystem from './storage/StorageSubsystem'
-import DependencyCollectionSynchronizer from './synchronizer/CollectionSynchronizer'
-import DocHandle from './DocHandle'
+import BrowserRepo from "./BrowserRepo.js"
+import LocalForageStorageAdapter from "./storage/interfaces/LocalForageStorageAdapter.js"
+import BroadcastChannelNetworkAdapter from "./network/interfaces/BroadcastChannelNetworkAdapter.js"
+import BrowserWebSocketClientAdapter from "./network/interfaces/BrowserWebSocketClientAdapter.js"
+import Repo from "./Repo.js"
+import Network from "./network/Network.js"
+import StorageSubsystem from "./storage/StorageSubsystem.js"
+import DependencyCollectionSynchronizer from "./synchronizer/CollectionSynchronizer.js"
+import DocHandle from "./DocHandle.js"
 
-export { BrowserRepo, LocalForageStorageAdapter, BroadcastChannelNetworkAdapter, BrowserWebSocketClientAdapter, Repo, Network, StorageSubsystem, DependencyCollectionSynchronizer, DocHandle }
+export {
+  BrowserRepo,
+  LocalForageStorageAdapter,
+  BroadcastChannelNetworkAdapter,
+  BrowserWebSocketClientAdapter,
+  Repo,
+  Network,
+  StorageSubsystem,
+  DependencyCollectionSynchronizer,
+  DocHandle,
+}
