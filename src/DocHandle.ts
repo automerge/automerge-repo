@@ -12,6 +12,7 @@ export interface DocHandleEventArg<T> {
   doc: Automerge.Doc<T>
   changes: Uint8Array[]
 }
+
 export interface DocHandleEvents<T> {
   change: (event: DocHandleEventArg<T>) => void
 }
