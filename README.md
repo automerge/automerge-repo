@@ -5,18 +5,21 @@ Folks building automerge-based applications often have similar requirements for 
 # Usage
 ```js
 import {
-  BrowserRepo, 
+  BrowserRepo,
   LocalForageStorageAdapter,
   BroadcastChannelNetworkAdapter,
-  LocalFirstRelayNetworkAdapter
- } from 'automerge-repo'
+  BrowserWebSocketClientAdapter,
+  Repo,
+} from "automerge-repo"
 
-const repo = BrowserRepo({
-  storage: new LocalForageStorageAdapter(),
-  network: [
-    new BroadcastChannelNetworkAdapter(),
-    new LocalFirstRelayNetworkAdapter('ws://localhost:8080')
-  ]
+const url = "wss://automerge-storage-demo.glitch.me"
+
+const repo = await BrowserRepo({
+    storage: new LocalForageStorageAdapter(),
+    network: [
+      new BroadcastChannelNetworkAdapter(),
+      new BrowserWebSocketClientAdapter(url)
+    ],
 })
 
 # now try to load the document from localstorage, or failing that create a new one
@@ -32,7 +35,7 @@ doc.on('change', ({ handle, doc, lastChange }) => render(handle))
 
 # the current API is not great and you've already missed the first change notification by now
 # so you're going to have to call your first render() manually.
-render(handle)
+render(await handle.value())
 ```
 
 # Example
