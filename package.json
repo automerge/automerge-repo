@@ -1,6 +1,6 @@
 {
   "name": "automerge-repo",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "a repository object to manage a collection of automerge documents",
   "main": "dist/index.js",
   "repository": "https://github.com/pvh/automerge-repo",
