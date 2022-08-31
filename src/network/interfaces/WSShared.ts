@@ -35,9 +35,7 @@ function announceConnection(channelId: string, peerId: string, socket: WebSocket
 
 export function receiveMessageClient(message: Uint8Array, self: WebSocketNetworkAdapter) {
   const decoded = CBOR.decode(new Uint8Array(message)) as DecodedMessage
-  console.log(decoded)
   const { type, senderId, channelId, data } = decoded
-  console.log('Received message: ', event)
 
   const client = self.client
   if (!client) { throw new Error("Missing client at receiveMessage") }

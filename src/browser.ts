@@ -1,4 +1,5 @@
 import BrowserRepo from "./BrowserRepo.js"
+import MemoryStorageAdapter from "./storage/interfaces/MemoryStorageAdapter.js"
 import LocalForageStorageAdapter from "./storage/interfaces/LocalForageStorageAdapter.js"
 import BroadcastChannelNetworkAdapter from "./network/interfaces/BroadcastChannelNetworkAdapter.js"
 import BrowserWebSocketClientAdapter from "./network/interfaces/BrowserWebSocketClientAdapter.js"
@@ -10,6 +11,7 @@ import DocHandle from "./DocHandle.js"
 
 export {
   BrowserRepo,
+  MemoryStorageAdapter,
   LocalForageStorageAdapter,
   BroadcastChannelNetworkAdapter,
   BrowserWebSocketClientAdapter,
