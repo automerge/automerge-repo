@@ -8,7 +8,7 @@ import BCNetworkAdapter from "./network/interfaces/BroadcastChannelNetworkAdapte
 
 import Network, { NetworkAdapter } from "./network/Network.js"
 import StorageSubsystem, { StorageAdapter } from "./storage/StorageSubsystem.js"
-import DependencyCollectionSynchronizer from "./synchronizer/CollectionSynchronizer.js"
+import FullCollectionSynchronizer from "./synchronizer/CollectionSynchronizer.js"
 
 interface BrowserRepoConfig {
   storage?: StorageAdapter
@@ -34,7 +34,7 @@ export default async function BrowserRepo(config: BrowserRepoConfig) {
   )
 
   const networkSubsystem = new Network(network)
-  const synchronizer = new DependencyCollectionSynchronizer(repo)
+  const synchronizer = new FullCollectionSynchronizer(repo)
 
   // wire up the dependency synchronizer
   networkSubsystem.on("peer", ({ peerId }) => synchronizer.addPeer(peerId))
