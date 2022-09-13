@@ -1,63 +1,47 @@
-import EventEmitter from "eventemitter3"
-import { v4 } from "uuid"
+import * as WASM from "automerge-wasm-pack"
 import * as Automerge from "automerge-js"
-import DocHandle from "./DocHandle.js"
-import StorageSubsystem from "./storage/StorageSubsystem.js"
 
-export interface RepoDocumentEventArg<T> {
-  handle: DocHandle<T>
+import DocCollection from "./DocCollection.js"
+import Network, { NetworkAdapter } from "./network/Network.js"
+import StorageSubsystem, { StorageAdapter } from "./storage/StorageSubsystem.js"
+import CollectionSynchronizer from "./synchronizer/CollectionSynchronizer.js"
+
+export interface RepoConfig {
+  storage: StorageAdapter
+  network: NetworkAdapter[]
 }
-export interface RepoEvents<T> {
-  document: (arg: RepoDocumentEventArg<T>) => void
-}
 
-export default class Repo extends EventEmitter<RepoEvents<unknown>> {
-  handles: { [documentId: string]: DocHandle<unknown> } = {}
-  storageSubsystem
+export default async function Repo(config: RepoConfig) {
+  Automerge.use(await WASM.init())
 
-  constructor(storageSubsystem: StorageSubsystem) {
-    super()
-    this.storageSubsystem = storageSubsystem
-  }
+  const { storage, network } = config
 
-  cacheHandle(documentId: string): DocHandle<unknown> {
-    if (this.handles[documentId]) {
-      return this.handles[documentId]
-    }
-    const handle = new DocHandle<unknown>(documentId)
-    this.handles[documentId] = handle
-    return handle
-  }
+  const storageSubsystem = new StorageSubsystem(storage)
+  const repo = new DocCollection(storageSubsystem)
 
-  /* this is janky, because it returns an empty (but editable) document
-   * before anything loads off the network.
-   * fixing this probably demands some work in automerge core.
-   */
-  async load<T>(documentId: string): Promise<DocHandle<T>> {
-    const handle = this.cacheHandle(documentId)
-    handle.replace(
-      (await this.storageSubsystem.load(documentId)) || Automerge.init()
+  repo.on("document", ({ handle }) =>
+    handle.on("change", ({ documentId, doc, changes }) =>
+      storageSubsystem.save(documentId, doc, changes)
     )
-    this.emit("document", { handle })
-    return handle as DocHandle<T>
-  }
+  )
 
-  create<T>(): DocHandle<T> {
-    const documentId = v4()
-    const handle = this.cacheHandle(documentId) as DocHandle<T>
-    handle.replace(Automerge.init())
-    this.emit("document", { handle })
-    return handle
-  }
+  const networkSubsystem = new Network(network)
+  const synchronizer = new CollectionSynchronizer(repo)
 
-  /**
-   * find() locates a document by id
-   * getting data from the local system but also by sending out a 'document'
-   * event which a CollectionSynchronizer would use to advertise interest to other peers
-   */
-  async find<T>(documentId: string): Promise<DocHandle<T>> {
-    // TODO: we want a way to make sure we don't yield
-    //       intermediate document states during initial synchronization
-    return (this.handles[documentId] || this.load(documentId)) as DocHandle<T>
-  }
+  // wire up the dependency synchronizer
+  networkSubsystem.on("peer", ({ peerId }) => synchronizer.addPeer(peerId))
+  repo.on("document", ({ handle }) =>
+    synchronizer.addDocument(handle.documentId)
+  )
+  networkSubsystem.on("message", (msg) => {
+    const { senderId, message } = msg
+    synchronizer.onSyncMessage(senderId, message)
+  })
+  synchronizer.on("message", ({ peerId, message }) => {
+    networkSubsystem.onMessage(peerId, message)
+  })
+
+  networkSubsystem.join("sync_channel")
+
+  return repo
 }

@@ -2,7 +2,7 @@ import EventEmitter from "eventemitter3"
 import * as CBOR from "cbor-x"
 
 import DocSynchronizer from "./DocSynchronizer.js"
-import Repo from "../Repo.js"
+import DocCollection from "../DocCollection.js"
 import { Synchronizer, SyncMessages } from "./Synchronizer.js"
 import DocHandle from "../DocHandle.js"
 
@@ -17,11 +17,11 @@ export default class CollectionSynchronizer
   extends EventEmitter<SyncMessages>
   implements Synchronizer
 {
-  repo: Repo
+  repo: DocCollection
   peers: string[] = []
   syncPool: SyncPool = {}
 
-  constructor(repo: Repo) {
+  constructor(repo: DocCollection) {
     super()
     this.repo = repo
   }
