@@ -7,7 +7,7 @@ export interface StorageAdapter {
 }
 
 export default class StorageSubsystem {
-  storageAdapter
+  storageAdapter: StorageAdapter
 
   constructor(storageAdapter: StorageAdapter) {
     this.storageAdapter = storageAdapter
