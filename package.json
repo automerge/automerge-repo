@@ -10,7 +10,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "test": "mocha"
+    "test": "mocha --experimental-specifier-resolution=node"
   },
   "browser": {
     "./dist/index.js": "./dist/browser.js",
