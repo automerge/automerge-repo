@@ -1,5 +1,4 @@
 import * as WASM from "automerge-wasm-pack"
-import init from "automerge-wasm-pack"
 import * as Automerge from "automerge-js"
 
 import Repo from "./Repo.js"
@@ -16,8 +15,7 @@ interface BrowserRepoConfig {
 }
 
 export default async function BrowserRepo(config: BrowserRepoConfig) {
-  await init()
-  Automerge.use(WASM)
+  Automerge.use(await WASM.init())
 
   const {
     storage = new LocalForageStorageAdapter(),
