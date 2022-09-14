@@ -11,9 +11,11 @@ export interface DocCollectionEvents<T> {
   document: (arg: DocCollectionDocumentEventArg<T>) => void
 }
 
-export default class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
+export default class DocCollection extends EventEmitter<
+  DocCollectionEvents<unknown>
+> {
   handles: { [documentId: string]: DocHandle<unknown> } = {}
-  storageSubsystem
+  storageSubsystem: StorageSubsystem
 
   constructor(storageSubsystem: StorageSubsystem) {
     super()
