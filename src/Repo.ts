@@ -17,20 +17,20 @@ export async function Repo(config: RepoConfig) {
   const { storage, network } = config
 
   const storageSubsystem = new StorageSubsystem(storage)
-  const repo = new DocCollection(storageSubsystem)
+  const docCollection = new DocCollection(storageSubsystem)
 
-  repo.on("document", ({ handle }) =>
+  docCollection.on("document", ({ handle }) =>
     handle.on("change", ({ documentId, doc, changes }) =>
       storageSubsystem.save(documentId, doc, changes)
     )
   )
 
   const networkSubsystem = new AutomergeNetwork(network)
-  const synchronizer = new CollectionSynchronizer(repo)
+  const synchronizer = new CollectionSynchronizer(docCollection)
 
   // wire up the dependency synchronizer
   networkSubsystem.on("peer", ({ peerId }) => synchronizer.addPeer(peerId))
-  repo.on("document", ({ handle }) =>
+  docCollection.on("document", ({ handle }) =>
     synchronizer.addDocument(handle.documentId)
   )
   networkSubsystem.on("message", (msg) => {
@@ -43,5 +43,5 @@ export async function Repo(config: RepoConfig) {
 
   networkSubsystem.join("sync_channel")
 
-  return repo
+  return docCollection
 }
