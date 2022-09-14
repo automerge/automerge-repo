@@ -1,8 +1,8 @@
 import EventEmitter from "eventemitter3"
 import { v4 } from "uuid"
 import * as Automerge from "automerge-js"
-import DocHandle from "./DocHandle.js"
-import StorageSubsystem from "./storage/StorageSubsystem.js"
+import { DocHandle } from "./DocHandle.js"
+import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 
 export interface DocCollectionDocumentEventArg<T> {
   handle: DocHandle<T>
@@ -11,9 +11,7 @@ export interface DocCollectionEvents<T> {
   document: (arg: DocCollectionDocumentEventArg<T>) => void
 }
 
-export default class DocCollection extends EventEmitter<
-  DocCollectionEvents<unknown>
-> {
+export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   handles: { [documentId: string]: DocHandle<unknown> } = {}
   storageSubsystem: StorageSubsystem
 
@@ -31,9 +29,9 @@ export default class DocCollection extends EventEmitter<
     return handle
   }
 
-  /* this is janky, because it returns an empty (but editable) document
-   * before anything loads off the network.
-   * fixing this probably demands some work in automerge core.
+  /**
+   * this is janky, because it returns an empty (but editable) document before anything loads off
+   * the network. fixing this probably demands some work in automerge core.
    */
   async load<T>(documentId: string): Promise<DocHandle<T>> {
     const handle = this.cacheHandle(documentId)
@@ -53,9 +51,8 @@ export default class DocCollection extends EventEmitter<
   }
 
   /**
-   * find() locates a document by id
-   * getting data from the local system but also by sending out a 'document'
-   * event which a CollectionSynchronizer would use to advertise interest to other peers
+   * find() locates a document by id. It gets data from the local system, but also by sends a
+   * 'document' event which a CollectionSynchronizer would use to advertise interest to other peers
    */
   async find<T>(documentId: string): Promise<DocHandle<T>> {
     // TODO: we want a way to make sure we don't yield

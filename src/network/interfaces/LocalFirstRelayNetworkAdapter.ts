@@ -3,7 +3,7 @@ import EventEmitter from "eventemitter3"
 import { NetworkAdapter, NetworkAdapterEvents } from "../Network.js"
 import WebSocket from "isomorphic-ws"
 
-class LocalFirstRelayNetworkAdapter
+export class LocalFirstRelayNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements NetworkAdapter
 {
@@ -65,5 +65,3 @@ class LocalFirstRelayNetworkAdapter
     this.client!.leave(docId)
   }
 }
-
-export default LocalFirstRelayNetworkAdapter

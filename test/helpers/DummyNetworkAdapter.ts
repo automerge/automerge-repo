@@ -1,7 +1,7 @@
 import EventEmitter from "eventemitter3"
 import { NetworkAdapter, NetworkAdapterEvents } from "../../src/network/Network"
 
-export default class MockNetworkAdapter
+export class DummyNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements NetworkAdapter
 {

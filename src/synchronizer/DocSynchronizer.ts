@@ -1,13 +1,13 @@
 import EventEmitter from "eventemitter3"
 import { Synchronizer, SyncMessages } from "./Synchronizer"
 import * as Automerge from "automerge-js"
-import DocHandle from "../DocHandle"
+import { DocHandle } from "../DocHandle"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
  * to bring it inline with all other peers' versions.
  */
-export default class DocSynchronizer
+export class DocSynchronizer
   extends EventEmitter<SyncMessages>
   implements Synchronizer
 {

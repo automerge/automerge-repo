@@ -6,7 +6,7 @@ export interface StorageAdapter {
   remove(docId: string): void
 }
 
-export default class StorageSubsystem {
+export class StorageSubsystem {
   storageAdapter: StorageAdapter
 
   constructor(storageAdapter: StorageAdapter) {

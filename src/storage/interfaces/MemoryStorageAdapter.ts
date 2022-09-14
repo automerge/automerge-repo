@@ -1,6 +1,6 @@
 import { StorageAdapter } from "../StorageSubsystem"
 
-class MemoryStorageAdapter implements StorageAdapter {
+export class MemoryStorageAdapter implements StorageAdapter {
   data: { [id: string]: Uint8Array } = {}
   load(docId: string) {
     return new Promise<Uint8Array | null>((resolve) =>
@@ -14,4 +14,3 @@ class MemoryStorageAdapter implements StorageAdapter {
     delete this.data[docId]
   }
 }
-export default MemoryStorageAdapter

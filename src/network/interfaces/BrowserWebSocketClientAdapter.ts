@@ -4,7 +4,7 @@ import { receiveMessageClient, WebSocketNetworkAdapter } from "./WSShared.js"
 import { NetworkAdapterEvents } from "../Network"
 import WebSocket from "isomorphic-ws"
 
-class BrowserWebSocketClientAdapter
+export class BrowserWebSocketClientAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements WebSocketNetworkAdapter
 {
@@ -73,5 +73,3 @@ class BrowserWebSocketClientAdapter
     )
   }
 }
-
-export default BrowserWebSocketClientAdapter

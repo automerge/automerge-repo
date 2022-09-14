@@ -1,30 +1,30 @@
-import EventEmitter from 'eventemitter3'
+import EventEmitter from "eventemitter3"
 
 interface PeerCandidateDetails {
-  peerId: string,
-  channelId: string,
+  peerId: string
+  channelId: string
   connection: NetworkConnection
 }
 
 interface PeerDetails {
-  peerId: string,
-  channelId: string,
+  peerId: string
+  channelId: string
 }
 
 interface MessageDetails {
-  senderId: string,
-  channelId: string,
+  senderId: string
+  channelId: string
   message: Uint8Array
 }
 
 export interface NetworkAdapterEvents {
-  'peer-candidate': (msg: PeerCandidateDetails) => void;
-  'message': (msg: MessageDetails) => void;
+  "peer-candidate": (msg: PeerCandidateDetails) => void
+  message: (msg: MessageDetails) => void
 }
 
 export interface NetworkEvents {
-  'peer': (msg: PeerDetails) => void;
-  'message': (msg: MessageDetails) => void;
+  peer: (msg: PeerDetails) => void
+  message: (msg: MessageDetails) => void
 }
 
 export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
@@ -35,10 +35,10 @@ export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
 }
 
 export interface DecodedMessage {
-  type: string,
-  senderId: string,
-  channelId: string,
-  data: Uint8Array,
+  type: string
+  senderId: string
+  channelId: string
+  data: Uint8Array
 }
 
 export interface NetworkConnection {
@@ -47,32 +47,32 @@ export interface NetworkConnection {
   send(msg: Uint8Array): void
 }
 
-export default class AutomergeNetwork extends EventEmitter<NetworkEvents> {
+export class AutomergeNetwork extends EventEmitter<NetworkEvents> {
   networkAdapters: NetworkAdapter[] = []
 
   myPeerId
-  peers: { [peerId: string] : NetworkConnection } = {}
+  peers: { [peerId: string]: NetworkConnection } = {}
 
   constructor(networkAdapters: NetworkAdapter[]) {
     super()
     this.myPeerId = `user-${Math.round(Math.random() * 100000)}`
-    
+
     this.networkAdapters = networkAdapters
     networkAdapters.forEach((a) => this.addNetworkAdapter(a))
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
     networkAdapter.connect(this.myPeerId)
-    networkAdapter.on('peer-candidate', ({ peerId, channelId, connection }) => {
+    networkAdapter.on("peer-candidate", ({ peerId, channelId, connection }) => {
       if (!this.peers[peerId] || !this.peers[peerId].isOpen()) {
         this.peers[peerId] = connection
       }
 
-      this.emit('peer', { peerId, channelId })
+      this.emit("peer", { peerId, channelId })
     })
 
-    networkAdapter.on('message', msg => {
-      this.emit('message', msg)
+    networkAdapter.on("message", (msg) => {
+      this.emit("message", msg)
     })
   }
 

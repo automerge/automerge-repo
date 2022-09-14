@@ -2,7 +2,7 @@
 import * as localforage from "localforage"
 import { StorageAdapter } from "../StorageSubsystem"
 
-class LocalForageAdapter implements StorageAdapter {
+export class LocalForageAdapter implements StorageAdapter {
   load(docId: string) {
     return localforage.getItem<Uint8Array>(docId)
   }
@@ -13,4 +13,3 @@ class LocalForageAdapter implements StorageAdapter {
     localforage.removeItem(docId)
   }
 }
-export default LocalForageAdapter

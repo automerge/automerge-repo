@@ -1,10 +1,10 @@
 import EventEmitter from "eventemitter3"
 import * as CBOR from "cbor-x"
 
-import DocSynchronizer from "./DocSynchronizer.js"
-import DocCollection from "../DocCollection.js"
+import { DocSynchronizer } from "./DocSynchronizer.js"
+import { DocCollection } from "../DocCollection.js"
 import { Synchronizer, SyncMessages } from "./Synchronizer.js"
-import DocHandle from "../DocHandle.js"
+import { DocHandle } from "../DocHandle.js"
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.
@@ -13,7 +13,7 @@ import DocHandle from "../DocHandle.js"
 interface SyncPool {
   [docId: string]: DocSynchronizer
 }
-export default class CollectionSynchronizer
+export class CollectionSynchronizer
   extends EventEmitter<SyncMessages>
   implements Synchronizer
 {

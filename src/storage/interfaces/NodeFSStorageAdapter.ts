@@ -35,5 +35,3 @@ export class NodeFSStorageAdapter implements StorageAdapter {
     })
   }
 }
-
-export default NodeFSStorageAdapter
