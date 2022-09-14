@@ -1,28 +1,31 @@
-/** DocSynchronizer
- * Given a handle to an Automerge document,
- * receive & dispatch sync messages to bring it in-line with all other peers' versions.
- */
-import EventEmitter from 'eventemitter3'
-import { Synchronizer, SyncMessages } from './Synchronizer'
-import * as Automerge from 'automerge-js'
-import DocHandle from '../DocHandle'
+import EventEmitter from "eventemitter3"
+import { Synchronizer, SyncMessages } from "./Synchronizer"
+import * as Automerge from "automerge-js"
+import DocHandle from "../DocHandle"
 
-export default class DocSynchronizer extends EventEmitter<SyncMessages> implements Synchronizer {
+/**
+ * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
+ * to bring it inline with all other peers' versions.
+ */
+export default class DocSynchronizer
+  extends EventEmitter<SyncMessages>
+  implements Synchronizer
+{
   handle: DocHandle<unknown>
 
-  // track this separately from syncStates because you might have more syncStates than active peers
+  // we track peers separately from syncStates because we might have more syncStates than active peers
   peers: string[] = []
   syncStates: { [peerId: string]: Automerge.SyncState } = {} // peer -> syncState
 
   constructor(handle: DocHandle<unknown>) {
     super()
     this.handle = handle
-    handle.on('change', () => this.syncWithPeers())
+    handle.on("change", () => this.syncWithPeers())
   }
 
   getSyncState(peerId: string) {
     if (!peerId) {
-      throw new Error('Tried to load a missing peerId')
+      throw new Error("Tried to load a missing peerId")
     }
 
     let syncState = this.syncStates[peerId]
@@ -39,12 +42,19 @@ export default class DocSynchronizer extends EventEmitter<SyncMessages> implemen
     this.syncStates[peerId] = syncState
   }
 
-  async sendSyncMessage(peerId: string, documentId: string, doc: Automerge.Doc<unknown>) {
+  async sendSyncMessage(
+    peerId: string,
+    documentId: string,
+    doc: Automerge.Doc<unknown>
+  ) {
     const syncState = this.getSyncState(peerId)
-    const [newSyncState, message] = Automerge.generateSyncMessage(doc, syncState)
+    const [newSyncState, message] = Automerge.generateSyncMessage(
+      doc,
+      syncState
+    )
     this.setSyncState(peerId, newSyncState)
     if (message) {
-      this.emit('message', { peerId, documentId, message })
+      this.emit("message", { peerId, documentId, message })
     }
   }
 
@@ -55,7 +65,7 @@ export default class DocSynchronizer extends EventEmitter<SyncMessages> implemen
   }
 
   endSync(peerId: string) {
-    this.peers.filter(p => p !== peerId)
+    this.peers.filter((p) => p !== peerId)
   }
 
   async onSyncMessage(peerId: string, message: Uint8Array) {
@@ -72,7 +82,7 @@ export default class DocSynchronizer extends EventEmitter<SyncMessages> implemen
     // console.log("syncing with peers")
     const { documentId } = this.handle
     const doc = await this.handle.value()
-    this.peers.forEach(peerId => {
+    this.peers.forEach((peerId) => {
       // console.log("messaging peer", peerId)
       this.sendSyncMessage(peerId, documentId, doc)
     })
