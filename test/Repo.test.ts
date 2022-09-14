@@ -1,13 +1,18 @@
-import assert from "assert"
-import { StorageSubsystem } from "../src"
+import * as Automerge from "automerge-js"
 import Repo from "../src/Repo"
+import DocHandle from "../src/DocHandle"
+import DummyNetworkAdapter from "./helpers/DummyNetworkAdapter"
 import MemoryStorageAdapter from "../src/storage/interfaces/MemoryStorageAdapter"
+import CollectionSynchronizer from "../src/synchronizer/CollectionSynchronizer"
 
-describe("Repo", () => {
-  it("should assign a UUID on create()", () => {
-    const memoryStorage = new StorageSubsystem(new MemoryStorageAdapter())
-    const repo = new Repo(memoryStorage)
-    const handle = repo.create()
-    assert(handle.documentId)
+describe("CollectionSynchronizer", async () => {
+  const handle = new DocHandle("synced-doc")
+  handle.replace(Automerge.init())
+  const repo = await Repo({
+    storage: new MemoryStorageAdapter(),
+    network: [new DummyNetworkAdapter()],
   })
+  const synchronizer = new CollectionSynchronizer(repo)
+
+  it("should probably do something")
 })

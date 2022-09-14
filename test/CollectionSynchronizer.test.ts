@@ -1,15 +1,18 @@
-import assert from 'assert'
-import * as Automerge from 'automerge-js'
-import { Repo, StorageSubsystem } from '../src'
-import DocHandle from '../src/DocHandle'
-import MemoryStorageAdapter from '../src/storage/interfaces/MemoryStorageAdapter'
-import CollectionSynchronizer from '../src/synchronizer/CollectionSynchronizer'
+import * as Automerge from "automerge-js"
+import { Repo } from "../src"
+import DummyNetworkAdapter from "./helpers/DummyNetworkAdapter"
+import DocHandle from "../src/DocHandle"
+import MemoryStorageAdapter from "../src/storage/interfaces/MemoryStorageAdapter"
+import CollectionSynchronizer from "../src/synchronizer/CollectionSynchronizer"
 
-describe('CollectionSynchronizer', () => {
-  const handle = new DocHandle('synced-doc')
+describe("CollectionSynchronizer", async () => {
+  const handle = new DocHandle("synced-doc")
   handle.replace(Automerge.init())
-  const repo = new Repo(new StorageSubsystem(new MemoryStorageAdapter()))
+  const repo = await Repo({
+    storage: new MemoryStorageAdapter(),
+    network: [new DummyNetworkAdapter()],
+  })
   const synchronizer = new CollectionSynchronizer(repo)
 
-  it('should probably do something')
+  it("should probably do something")
 })
