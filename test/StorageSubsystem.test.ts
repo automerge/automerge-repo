@@ -4,9 +4,10 @@ import path from "path"
 
 import assert from "assert"
 import Automerge from "automerge-js"
-import MemoryStorageAdapter from "../src/storage/interfaces/MemoryStorageAdapter"
-import NodeFSStorageAdapter from "../src/storage/interfaces/NodeFSStorageAdapter"
-import StorageSubsystem, {
+import { MemoryStorageAdapter } from "../src/storage/interfaces/MemoryStorageAdapter"
+import { NodeFSStorageAdapter } from "../src/storage/interfaces/NodeFSStorageAdapter"
+import {
+  StorageSubsystem,
   StorageAdapter,
 } from "../src/storage/StorageSubsystem"
 
