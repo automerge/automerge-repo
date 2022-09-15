@@ -2,6 +2,8 @@
   "name": "automerge-repo-react-demo",
   "version": "0.0.11",
   "private": false,
+  "description": "React demo site for automerge-repo",
+  "repository": "https://github.com/pvh/automerge-repo",
   "scripts": {
     "start": "react-scripts start ",
     "build": "react-scripts build",
@@ -11,6 +13,7 @@
   "dependencies": {
     "@atjson/document": "^0.24.5",
     "@atjson/renderer-hir": "^0.22.14",
+    "automerge": "^1.0.1-preview.7",
     "automerge-js": "^0.1.10",
     "automerge-repo": "*",
     "automerge-wasm-pack": "^0.1.5",
