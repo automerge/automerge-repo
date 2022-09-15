@@ -16,7 +16,7 @@ import "./index.css"
 import App, { RootDocument } from "./App"
 import { RepoContext } from "./hooks"
 
-/* eslint-disable-next-line */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const sharedWorker = new SharedWorker(
   new URL("./shared-worker.js", import.meta.url),
   { type: "module", name: "automerge-repo-shared-worker" }
