@@ -1,0 +1,33 @@
+{
+  "name": "automerge-repo-storage-localforage",
+  "version": "0.0.11",
+  "description": "LocalForage storage adapter for Automerge Repo",
+  "repository": "https://github.com/pvh/automerge-repo",
+  "author": "Peter van Hardenberg <pvh@pvh.ca>",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "npm-watch",
+    "test": "mocha --no-warnings --experimental-specifier-resolution=node"
+  },
+  "devDependencies": {
+    "@types/mocha": "^9.1.1",
+    "mocha": "^10.0.0",
+    "npm-watch": "^0.11.0"
+  },
+  "dependencies": {
+    "automerge-repo": "*",
+    "localforage": "^1.10.0"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
+  }
+}

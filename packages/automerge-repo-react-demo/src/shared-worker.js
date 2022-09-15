@@ -1,12 +1,12 @@
 import {
   Repo,
   // @ts-expect-error
-  LocalForageStorageAdapter,
-  // @ts-expect-error
   BroadcastChannelNetworkAdapter,
   // @ts-expect-error
   BrowserWebSocketClientAdapter,
 } from "automerge-repo"
+
+import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
 
 console.log("hello from the shared worker ")
 

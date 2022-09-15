@@ -5,7 +5,7 @@ import { NodeWSServerAdapter } from "./network/interfaces/NodeWSServerAdapter.js
 import { AutomergeNetwork as Network } from "./network/Network.js"
 import { Repo } from "./Repo.js"
 import { NodeFSStorageAdapter } from "./storage/interfaces/NodeFSStorageAdapter.js"
-import { StorageSubsystem } from "./storage/StorageSubsystem.js"
+import { StorageAdapter, StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer as DependencyCollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 
 export {
@@ -18,5 +18,6 @@ export {
   NodeFSStorageAdapter,
   NodeWSServerAdapter,
   Repo,
+  StorageAdapter,
   StorageSubsystem,
 }

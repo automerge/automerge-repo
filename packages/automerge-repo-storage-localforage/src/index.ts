@@ -1,8 +1,8 @@
-// Saving & loading via localforage. Very naive but probably fine for blob-storage.
 import * as localforage from "localforage"
-import { StorageAdapter } from "../StorageSubsystem"
+import { StorageAdapter } from "automerge-repo"
 
-export class LocalForageAdapter implements StorageAdapter {
+// Saving & loading via localforage. Very naive but probably fine for blob-storage.
+export class LocalForageStorageAdapter implements StorageAdapter {
   load(docId: string) {
     return localforage.getItem<Uint8Array>(docId)
   }

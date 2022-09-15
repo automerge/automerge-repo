@@ -2,21 +2,22 @@
   "name": "automerge-repo-react-demo",
   "version": "0.0.11",
   "private": false,
+  "license": "MIT",
   "description": "React demo site for automerge-repo",
   "repository": "https://github.com/pvh/automerge-repo",
   "scripts": {
     "start": "react-scripts start ",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "watch": "yarn tailwindcss -i ./src/App.css -o ./dist/output.css --watch"
+    "eject": "react-scripts eject"
   },
   "dependencies": {
+    "automerge-repo": "*",
+    "automerge-repo-storage-localforage": "*",
     "@atjson/document": "^0.24.5",
     "@atjson/renderer-hir": "^0.22.14",
     "automerge": "^1.0.1-preview.7",
     "automerge-js": "^0.1.10",
-    "automerge-repo": "*",
     "automerge-wasm-pack": "^0.1.5",
     "localforage": "^1.10.0",
     "prosemirror": "^0.11.1",
