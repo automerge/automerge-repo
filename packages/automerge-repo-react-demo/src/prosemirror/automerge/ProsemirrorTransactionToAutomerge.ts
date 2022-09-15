@@ -37,6 +37,7 @@ function handleReplaceStep<T>(
     // the type system can't keep track but we can. otherwise this is: T[TextKeyOf<T>]
 
     // XXX: orion fixing this
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     let deleted = text.deleteAt(start, end - start)
     changeSet.del.push({
       //actor: doc.getActorId(),
@@ -221,7 +222,7 @@ export const prosemirrorTransactionToAutomerge = <T>(
   attribute: TextKeyOf<T>,
   state: EditorState
 ) => {
-  if (steps.length == 0) {
+  if (steps.length === 0) {
     return
   }
   changeDoc((doc: Doc<T>) => {
