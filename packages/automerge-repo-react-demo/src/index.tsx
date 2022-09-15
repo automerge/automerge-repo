@@ -12,7 +12,6 @@ import {
   LocalFirstRelayNetworkAdapter,
 } from "automerge-repo"
 
-import "./index.css"
 import App, { RootDocument } from "./App"
 import { RepoContext } from "./hooks"
 

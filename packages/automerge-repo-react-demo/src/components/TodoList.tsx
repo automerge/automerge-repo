@@ -27,23 +27,28 @@ function TodoItem({ documentId }: TodoItemArgs) {
   const { done } = doc
   return (
     <div
-      style={
-        done
-          ? { display: "flex", textDecoration: "line-through" }
-          : { display: "flex" }
-      }
+      className={`
+        flex border-b py-1 
+        ${done ? "line-through text-gray-400" : ""}
+      `}
     >
+      {/* checkbox */}
       <input
+        className="mr-2 mt-1 w-7 h-7 "
         type="checkbox"
-        defaultChecked={done}
+        checked={done}
         onChange={toggleDone}
       ></input>
-      <Editor
-        handle={handle}
-        attribute={"text"}
-        doc={doc}
-        changeDoc={changeDoc}
-      ></Editor>
+
+      {/* editable item*/}
+      <div className="w-full">
+        <Editor
+          handle={handle}
+          attribute={"text"}
+          doc={doc}
+          changeDoc={changeDoc}
+        ></Editor>
+      </div>
     </div>
   )
 }
@@ -73,26 +78,31 @@ export function TodoList({ documentId }: TodoListArgs) {
     })
   }
 
-  if (!doc) {
-    return <></>
-  }
-
-  const items = (doc.items || []).map((i) => (
-    <TodoItem key={i} documentId={i} />
-  ))
-
+  if (!doc) return null
   return (
-    <>
-      <ul id="todo-list">{items}</ul>
-      <form onSubmit={addItem}>
+    <div className="m-3 p-3 border w-96 border-blue-400 rounded-lg bg-white">
+      <ul id="todo-list">
+        {(doc.items || []).map((i) => (
+          <TodoItem key={i} documentId={i} />
+        ))}
+      </ul>
+      <form className="flex py-2" onSubmit={addItem}>
+        {/* new item */}
         <input
           type="text"
           id="new-todo"
+          placeholder="What needs to be done?"
+          className="appearance-none rounded border border-blue-100 w-full px-3 py-1 text-grey-darker"
           value={input}
           onChange={(e) => setInput(e.target.value)}
         />
-        <input type="submit" value=">" />
+        {/* add button */}
+        <input
+          type="submit"
+          className="rounded px-2 pv-1 ml-2 text-white bg-blue-500"
+          value="Add"
+        />
       </form>
-    </>
+    </div>
   )
 }
