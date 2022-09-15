@@ -4,13 +4,6 @@ import * as Automerge from "automerge-js"
 import { DocHandle } from "./DocHandle.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 
-export interface DocCollectionDocumentEventArg<T> {
-  handle: DocHandle<T>
-}
-export interface DocCollectionEvents<T> {
-  document: (arg: DocCollectionDocumentEventArg<T>) => void
-}
-
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   handles: { [documentId: string]: DocHandle<unknown> } = {}
   storageSubsystem: StorageSubsystem
@@ -59,4 +52,11 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     //       intermediate document states during initial synchronization
     return (this.handles[documentId] || this.load(documentId)) as DocHandle<T>
   }
+}
+
+export interface DocCollectionDocumentEventArg<T> {
+  handle: DocHandle<T>
+}
+export interface DocCollectionEvents<T> {
+  document: (arg: DocCollectionDocumentEventArg<T>) => void
 }
