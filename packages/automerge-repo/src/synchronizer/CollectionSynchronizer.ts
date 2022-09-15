@@ -33,7 +33,7 @@ export class CollectionSynchronizer
     // if we receive a sync message for a document we haven't got in memory,
     // we'll need to register it with the repo and start synchronizing
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
-    console.log("ColSync:osm", peerId)
+    // console.log("ColSync:osm", peerId)
     docSynchronizer.onSyncMessage(peerId, message)
   }
 
@@ -64,7 +64,7 @@ export class CollectionSynchronizer
   // need a removeDocument implementation
 
   addPeer(peerId: string) {
-    console.log("adding, ", peerId)
+    // console.log("adding, ", peerId)
     this.peers.push(peerId)
     Object.values(this.syncPool).forEach((docSynchronizer) =>
       docSynchronizer.beginSync(peerId)

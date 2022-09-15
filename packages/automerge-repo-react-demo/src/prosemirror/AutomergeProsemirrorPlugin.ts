@@ -65,7 +65,7 @@ export const createProsemirrorTransactionOnChange = <T>(
 
   const newHeads: string[] = Automerge.getBackend(doc as Doc<T>).getHeads()
   if (newHeads.every((val, i) => val === currentHeads[i])) {
-    console.log("heads haven't changed.")
+    // console.log("heads haven't changed.")
     return state.tr // noop transaction
     // TODO: we should just filter these events at the source when we get patches
   }

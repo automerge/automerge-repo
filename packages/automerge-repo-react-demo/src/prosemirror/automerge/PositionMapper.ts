@@ -93,8 +93,8 @@ export const prosemirrorToAutomergeNumber = (
   })
 
   if (am2pm !== position) {
-    console.log('Error: PM<->AM position mapping inconsistentcy detected.')
-    console.log({
+    // console.log('Error: PM<->AM position mapping inconsistentcy detected.')
+    // console.log({
       prosemirrorState: state,
       prosemirrorDoc: state.doc,
       //automergeDraft: doc,

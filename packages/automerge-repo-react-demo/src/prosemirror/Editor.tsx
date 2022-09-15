@@ -79,7 +79,7 @@ export function Editor<T>({ handle, attribute }: EditorProps<T>) {
 
     /* move this out, we're in a then */
     return () => {
-      console.log("cleaning up")
+      // console.log("cleaning up")
       handle.off("change", onChange)
       view.destroy()
     }
