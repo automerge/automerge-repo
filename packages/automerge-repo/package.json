@@ -1,7 +1,7 @@
 {
   "name": "automerge-repo",
   "version": "0.0.11",
-  "description": "A repository object to manage a collection of automerge documents",
+  "description": "a repository object to manage a collection of automerge documents",
   "main": "dist/index.js",
   "repository": "https://github.com/pvh/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -10,15 +10,25 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "test": "mocha  --experimental-specifier-resolution=node"
+    "test": "mocha --no-warnings --experimental-specifier-resolution=node"
   },
   "browser": {
     "./dist/index.js": "./dist/browser.js",
     "crypto": false
   },
   "devDependencies": {
+    "@types/mocha": "^9.1.1",
     "@types/uuid": "^8.3.4",
-    "http-server": "^14.1.0"
+    "eslint": "^8.15.0",
+    "eslint-config-airbnb": "^19.0.4",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.26.0",
+    "eslint-plugin-mocha": "^10.0.5",
+    "http-server": "^14.1.0",
+    "mocha": "^10.0.0",
+    "prettier": "^2.7.1",
+    "should": "^13.2.3",
+    "typescript": "^4.7.4"
   },
   "peerDependencies": {
     "automerge": "^1.0.1-preview.7"
@@ -38,5 +48,10 @@
     "ts-node": "^10.9.1",
     "uuid": "^8.3.2",
     "ws": "^8.8.1"
+  },
+  "prettier": {
+    "semi": false,
+    "singleQuote": false,
+    "trailingComma": "es5"
   }
 }
