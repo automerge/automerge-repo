@@ -2,7 +2,7 @@ import * as WASM from "automerge-wasm-pack"
 import * as Automerge from "automerge-js"
 
 import { DocCollection } from "./DocCollection.js"
-import { AutomergeNetwork, NetworkAdapter } from "./network/Network.js"
+import { NetworkSubsystem, NetworkAdapter } from "./network/NetworkSubsystem.js"
 import { StorageSubsystem, StorageAdapter } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 
@@ -27,11 +27,11 @@ export async function Repo(config: RepoConfig) {
     )
   )
 
-  const networkSubsystem = new Network(network, peerId)
+  const networkSubsystem = new NetworkSubsystem(network, peerId)
 
   const synchronizers = {}
-  const generousSynchronizer = new CollectionSynchronizer(repo, true)
-  const shySynchronizer = new CollectionSynchronizer(repo, false)
+  const generousSynchronizer = new CollectionSynchronizer(docCollection, true)
+  const shySynchronizer = new CollectionSynchronizer(docCollection, false)
 
   // wire up the dependency synchronizers.
   networkSubsystem.on("peer", ({ peerId }) => {
@@ -42,7 +42,7 @@ export async function Repo(config: RepoConfig) {
     synchronizer.addPeer(peerId)
     synchronizers[peerId] = synchronizer
   })
-  repo.on("document", ({ handle }) => {
+  docCollection.on("document", ({ handle }) => {
     generousSynchronizer.addDocument(handle.documentId)
     shySynchronizer.addDocument(handle.documentId)
   })
