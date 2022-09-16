@@ -19,8 +19,7 @@ export type ChangeSet = {
 
 export type TextKeyOf<T> = {
   // for all keys in T
-  [K in keyof T]: // if the value of this key is a string, keep it. Else, discard it
-  T[K] extends Automerge.Text ? K : never
+  [K in keyof T]: T[K] extends Automerge.Text ? K : never // if the value of this key is a string, keep it. Else, discard it
 
   // Get the union type of the remaining values.
 }[Extract<keyof T, string>]

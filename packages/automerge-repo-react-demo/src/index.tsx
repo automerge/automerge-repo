@@ -28,7 +28,8 @@ async function getRepo(url: string): Promise<DocCollection> {
       new BroadcastChannelNetworkAdapter(),
       new LocalFirstRelayNetworkAdapter("wss://local-first-relay.glitch.me/"),
     ],
-  })
+    sharePolicy: (peerId) => peerId.includes("shared-worker"),
+  });
 }
 
 async function getRootDocument(repo: DocCollection, initFunction: any) {

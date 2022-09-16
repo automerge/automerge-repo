@@ -27,6 +27,8 @@ async function getRepo(url) {
       new BroadcastChannelNetworkAdapter(),
       new BrowserWebSocketClientAdapter(url),
     ],
+    peerId: "shared-worker-" + Math.round(Math.random() * 10000),
+    sharePolicy: (peerId) => peerId.includes("storage-server"),
   })
 }
 
