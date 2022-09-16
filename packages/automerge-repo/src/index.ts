@@ -2,7 +2,7 @@ import { DocCollection } from "./DocCollection.js"
 import { DocHandle, DocHandleEventArg } from "./DocHandle.js"
 import { LocalFirstRelayNetworkAdapter } from "./network/interfaces/LocalFirstRelayNetworkAdapter.js"
 import { NodeWSServerAdapter } from "./network/interfaces/NodeWSServerAdapter.js"
-import { AutomergeNetwork as Network } from "./network/Network.js"
+import { NetworkSubsystem } from "./network/NetworkSubsystem"
 import { Repo } from "./Repo.js"
 import { NodeFSStorageAdapter } from "./storage/interfaces/NodeFSStorageAdapter.js"
 import { StorageAdapter, StorageSubsystem } from "./storage/StorageSubsystem.js"
@@ -14,7 +14,7 @@ export {
   DocHandle,
   DocHandleEventArg,
   LocalFirstRelayNetworkAdapter,
-  Network,
+  NetworkSubsystem,
   NodeFSStorageAdapter,
   NodeWSServerAdapter,
   Repo,

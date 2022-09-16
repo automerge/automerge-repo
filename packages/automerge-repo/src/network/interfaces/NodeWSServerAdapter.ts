@@ -1,6 +1,6 @@
 import EventEmitter from "eventemitter3"
 import { WebSocket, WebSocketServer } from "isomorphic-ws"
-import { NetworkAdapter, NetworkAdapterEvents } from "../Network.js"
+import { NetworkAdapter, NetworkAdapterEvents } from "../NetworkSubsystem.js"
 import { receiveMessageServer } from "./WSShared.js"
 
 export class NodeWSServerAdapter
