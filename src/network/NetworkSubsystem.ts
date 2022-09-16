@@ -47,15 +47,16 @@ export interface NetworkConnection {
   send(msg: Uint8Array): void
 }
 
-export class AutomergeNetwork extends EventEmitter<NetworkEvents> {
+export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   networkAdapters: NetworkAdapter[] = []
 
   myPeerId
   peers: { [peerId: string]: NetworkConnection } = {}
 
-  constructor(networkAdapters: NetworkAdapter[]) {
+  constructor(networkAdapters: NetworkAdapter[], peerId?: string) {
     super()
-    this.myPeerId = `user-${Math.round(Math.random() * 100000)}`
+    this.myPeerId = peerId || `user-${Math.round(Math.random() * 100000)}`
+    console.log("we are peer id", this.myPeerId)
 
     this.networkAdapters = networkAdapters
     networkAdapters.forEach((a) => this.addNetworkAdapter(a))

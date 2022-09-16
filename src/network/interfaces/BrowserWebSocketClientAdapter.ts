@@ -1,7 +1,7 @@
 import EventEmitter from "eventemitter3"
 import * as CBOR from "cbor-x"
 import { receiveMessageClient, WebSocketNetworkAdapter } from "./WSShared.js"
-import { NetworkAdapterEvents } from "../Network"
+import { NetworkAdapterEvents } from "../NetworkSubsystem"
 import WebSocket from "isomorphic-ws"
 
 export class BrowserWebSocketClientAdapter

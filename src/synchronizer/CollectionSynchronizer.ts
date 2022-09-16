@@ -20,10 +20,12 @@ export class CollectionSynchronizer
   repo: DocCollection
   peers: string[] = []
   syncPool: SyncPool = {}
+  offerAllDocs: boolean
 
-  constructor(repo: DocCollection) {
+  constructor(repo: DocCollection, offerAllDocs: boolean) {
     super()
     this.repo = repo
+    this.offerAllDocs = offerAllDocs
   }
 
   async onSyncMessage(peerId: string, wrappedMessage: Uint8Array) {
@@ -41,6 +43,7 @@ export class CollectionSynchronizer
     // TODO: we want a callback to decide to accept offered documents
     if (!this.syncPool[documentId]) {
       const handle = await this.repo.find(documentId)
+      console.log("loaded doc:", JSON.stringify(await handle.value()))
       this.syncPool[documentId] =
         this.syncPool[documentId] || this.initDocSynchronizer(handle)
     }
@@ -66,9 +69,11 @@ export class CollectionSynchronizer
   addPeer(peerId: string) {
     console.log("adding, ", peerId)
     this.peers.push(peerId)
-    Object.values(this.syncPool).forEach((docSynchronizer) =>
-      docSynchronizer.beginSync(peerId)
-    )
+    if (this.offerAllDocs) {
+      Object.values(this.syncPool).forEach((docSynchronizer) =>
+        docSynchronizer.beginSync(peerId)
+      )
+    }
   }
 
   // need to handle vanishing peers somehow and deliberately removing them
