@@ -60,6 +60,8 @@ export function Editor<T>({ handle, attribute }: EditorProps<T>) {
     const view = new EditorView(editorRoot.current, { state })
 
     handle.value().then((doc) => {
+      if (view.isDestroyed) { return /* too late */ }
+      
       const transaction = createProsemirrorTransactionOnChange(
         view.state,
         attribute,

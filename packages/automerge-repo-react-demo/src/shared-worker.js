@@ -27,5 +27,5 @@ async function getRepo(url) {
 }
 
 ;(async () => {
-  await getRepo("wss://automerge-storage-demo.glitch.me")
+  await getRepo("ws://localhost:3030")
 })()

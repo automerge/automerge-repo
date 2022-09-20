@@ -31,7 +31,7 @@ export class NodeFSStorageAdapter implements StorageAdapter {
 
   remove(docId: string): void {
     fs.rm(this.fileName(docId), (err) => {
-      if (err) throw err
+      if (err) console.log("removed a file that does not exist: " + docId)
     })
   }
 }

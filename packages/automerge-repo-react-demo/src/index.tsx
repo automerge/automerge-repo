@@ -8,7 +8,6 @@ import {
 } from "automerge-repo"
 
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
-import { LocalFirstRelayNetworkAdapter } from "automerge-repo-network-localfirst-relay"
 
 import App, { RootDocument } from "./App"
 import { RepoContext } from "automerge-repo-react-hooks"
@@ -23,7 +22,6 @@ async function getRepo(url: string): Promise<DocCollection> {
   return await Repo({
     network: [
       new BroadcastChannelNetworkAdapter(),
-      new LocalFirstRelayNetworkAdapter("wss://local-first-relay.glitch.me/"),
     ],
     sharePolicy: (peerId) => peerId.includes("shared-worker"),
   });
