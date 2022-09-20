@@ -1,0 +1,24 @@
+{
+  "name": "storage-peer",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node ./src/index.js"
+  },
+  "dependencies": {
+    "automerge-repo": "*",
+    "automerge-repo-storage-nodefs": "*",
+    "automerge-repo-network-websocket": "*",
+    "express": "^4.18.1",
+    "ws": "^8.7.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.1",
+    "typescript": "^4.7.4"
+  },
+  "prettier": {
+    "semi": false
+  }
+}
