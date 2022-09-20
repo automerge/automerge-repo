@@ -1,5 +1,9 @@
 import * as CBOR from "cbor-x"
-import { DecodedMessage, NetworkAdapter, NetworkConnection } from "../Network"
+import {
+  DecodedMessage,
+  NetworkAdapter,
+  NetworkConnection,
+} from "automerge-repo"
 import WebSocket from "isomorphic-ws"
 
 export interface WebSocketNetworkAdapter extends NetworkAdapter {
