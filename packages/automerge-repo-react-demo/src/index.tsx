@@ -5,11 +5,11 @@ import localforage from "localforage"
 import {
   Repo,
   DocCollection,
-  MemoryStorageAdapter,
 } from "automerge-repo"
 
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 import { LocalFirstRelayNetworkAdapter } from "automerge-repo-network-localfirst-relay"
+import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 
 import App, { RootDocument } from "./App"
 import { RepoContext } from "./hooks"
