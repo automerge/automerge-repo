@@ -1,4 +1,4 @@
-import { StorageAdapter } from "./StorageSubsystem"
+import { StorageAdapter } from "automerge-repo"
 
 export class MemoryStorageAdapter implements StorageAdapter {
   data: { [id: string]: Uint8Array } = {}

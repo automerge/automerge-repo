@@ -2,7 +2,7 @@ import * as Automerge from "automerge-js"
 import { Repo } from "../src/Repo"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { DocHandle } from "../src/DocHandle"
-import { MemoryStorageAdapter } from "../src/storage/interfaces/MemoryStorageAdapter"
+import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer"
 
 describe("CollectionSynchronizer", () => {
