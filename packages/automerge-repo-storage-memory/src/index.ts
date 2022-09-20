@@ -1,4 +1,4 @@
-import { StorageAdapter } from "../StorageSubsystem"
+import { StorageAdapter } from "./StorageSubsystem"
 
 export class MemoryStorageAdapter implements StorageAdapter {
   data: { [id: string]: Uint8Array } = {}

@@ -14,6 +14,10 @@
   "dependencies": {
     "automerge-repo": "*",
     "automerge-repo-storage-localforage": "*",
+    "automerge-repo-network-broadcastchannel": "*",
+    "automerge-repo-network-localfirst-relay": "*",
+    "automerge-repo-network-websocket": "*",
+    "automerge-repo-storage-memory": "*",
     "@atjson/document": "^0.24.5",
     "@atjson/renderer-hir": "^0.22.14",
     "automerge": "^1.0.1-preview.7",
