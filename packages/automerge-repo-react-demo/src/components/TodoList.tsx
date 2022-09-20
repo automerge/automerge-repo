@@ -1,7 +1,7 @@
 import { Text } from "automerge-js"
 import React, { useState } from "react"
 import { RootDocument } from "../App"
-import { useDocument, useHandle, useRepo } from "../hooks"
+import { useDocument, useHandle, useRepo } from "automerge-repo-react-hooks"
 import { Editor } from "../prosemirror/Editor"
 
 export interface TodoItemArgs {

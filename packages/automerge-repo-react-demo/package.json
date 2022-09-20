@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "automerge-repo": "*",
+    "automerge-repo-react-hooks": "*",
     "automerge-repo-storage-localforage": "*",
     "automerge-repo-network-broadcastchannel": "*",
     "automerge-repo-network-localfirst-relay": "*",

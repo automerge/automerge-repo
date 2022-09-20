@@ -11,7 +11,7 @@ import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcast
 import { LocalFirstRelayNetworkAdapter } from "automerge-repo-network-localfirst-relay"
 
 import App, { RootDocument } from "./App"
-import { RepoContext } from "./hooks"
+import { RepoContext } from "automerge-repo-react-hooks"
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const sharedWorker = new SharedWorker(
