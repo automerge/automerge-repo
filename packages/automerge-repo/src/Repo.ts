@@ -7,7 +7,7 @@ import { StorageSubsystem, StorageAdapter } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 
 export interface RepoConfig {
-  storage: StorageAdapter
+  storage?: StorageAdapter
   network: NetworkAdapter[]
   peerId?: string
   sharePolicy?: (peerId: string) => boolean // generous or no. this is a stand-in for a better API to test an idea.
@@ -18,18 +18,35 @@ export async function Repo(config: RepoConfig) {
 
   const { storage, network, peerId, sharePolicy = () => true } = config
 
-  const storageSubsystem = new StorageSubsystem(storage)
-  const docCollection = new DocCollection(storageSubsystem)
+  const docCollection = new DocCollection()
 
-  docCollection.on("document", ({ handle }) =>
-    handle.on("change", ({ documentId, doc, changes }) =>
-      storageSubsystem.save(documentId, doc, changes)
-    )
-  )
+  if (storage) {
+    const storageSubsystem = new StorageSubsystem(storage)
+    docCollection.on("document", async ({ handle }) => {
+      // TODO: this is going to race with the network.
+      // if we have local data we probably want to go with that first, then synchronize
+      const savedDoc = await storageSubsystem.load(handle.documentId)
+      if (savedDoc) {
+        handle.replace(savedDoc)
+      } else {
+        handle.replace(Automerge.init())
+      }
+
+      handle.on("change", ({ documentId, doc, changes }) =>
+        storageSubsystem.save(documentId, doc, changes)
+      )
+    })
+  } else {
+    // With no storage system, there's no hope of loading.
+    // We need to unblock the synchronizer to go find the doc.
+    docCollection.on("document", async ({ handle }) => {
+      handle.replace(Automerge.init())
+    })
+  }
 
   const networkSubsystem = new NetworkSubsystem(network, peerId)
 
-  const synchronizers = {}
+  const synchronizers: { [documentId: string]: CollectionSynchronizer } = {}
   const generousSynchronizer = new CollectionSynchronizer(docCollection, true)
   const shySynchronizer = new CollectionSynchronizer(docCollection, false)
 
@@ -42,10 +59,12 @@ export async function Repo(config: RepoConfig) {
     synchronizer.addPeer(peerId)
     synchronizers[peerId] = synchronizer
   })
+
   docCollection.on("document", ({ handle }) => {
     generousSynchronizer.addDocument(handle.documentId)
     shySynchronizer.addDocument(handle.documentId)
   })
+
   networkSubsystem.on("message", (msg) => {
     const { senderId, message } = msg
     if (!synchronizers[senderId]) {

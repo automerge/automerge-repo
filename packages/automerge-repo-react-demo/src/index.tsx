@@ -9,7 +9,6 @@ import {
 
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 import { LocalFirstRelayNetworkAdapter } from "automerge-repo-network-localfirst-relay"
-import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 
 import App, { RootDocument } from "./App"
 import { RepoContext } from "./hooks"
@@ -22,7 +21,6 @@ const sharedWorker = new SharedWorker(
 
 async function getRepo(url: string): Promise<DocCollection> {
   return await Repo({
-    storage: new MemoryStorageAdapter(),
     network: [
       new BroadcastChannelNetworkAdapter(),
       new LocalFirstRelayNetworkAdapter("wss://local-first-relay.glitch.me/"),

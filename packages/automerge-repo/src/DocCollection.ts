@@ -2,15 +2,12 @@ import EventEmitter from "eventemitter3"
 import { v4 } from "uuid"
 import * as Automerge from "automerge-js"
 import { DocHandle } from "./DocHandle.js"
-import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   handles: { [documentId: string]: DocHandle<unknown> } = {}
-  storageSubsystem: StorageSubsystem
 
-  constructor(storageSubsystem: StorageSubsystem) {
+  constructor() {
     super()
-    this.storageSubsystem = storageSubsystem
   }
 
   cacheHandle(documentId: string): DocHandle<unknown> {
@@ -20,19 +17,6 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     const handle = new DocHandle<unknown>(documentId)
     this.handles[documentId] = handle
     return handle
-  }
-
-  /**
-   * this is janky, because it returns an empty (but editable) document before anything loads off
-   * the network. fixing this probably demands some work in automerge core.
-   */
-  async load<T>(documentId: string): Promise<DocHandle<T>> {
-    const handle = this.cacheHandle(documentId)
-    handle.replace(
-      (await this.storageSubsystem.load(documentId)) || Automerge.init()
-    )
-    this.emit("document", { handle })
-    return handle as DocHandle<T>
   }
 
   create<T>(): DocHandle<T> {
@@ -50,7 +34,18 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   async find<T>(documentId: string): Promise<DocHandle<T>> {
     // TODO: we want a way to make sure we don't yield
     //       intermediate document states during initial synchronization
-    return (this.handles[documentId] || this.load(documentId)) as DocHandle<T>
+    if (this.handles[documentId]) {
+      return this.handles[documentId] as DocHandle<T>
+    }
+    const handle = this.cacheHandle(documentId)
+
+    // we don't directly initialize a value here because
+    // the StorageSubsystem and Synchronizers go and get the data
+    // they'll fill it in via a first replace() call and until then anyone
+    // accessing the value of this will block
+    this.emit("document", { handle })
+
+    return handle as DocHandle<T>
   }
 }
 
