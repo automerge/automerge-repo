@@ -73,7 +73,7 @@ export class DocSynchronizer
     console.log(
       `received syncmessage from ${peerId} for ${this.handle.documentId}`
     )
-    this.handle.updateDoc((doc: unknown): unknown => {
+    this.handle.updateDoc((doc: Automerge.Doc<unknown>): Automerge.Doc<unknown> => {
       let syncState = this.getSyncState(peerId)
       // console.log("on sync message", peerId)
       ;[doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)

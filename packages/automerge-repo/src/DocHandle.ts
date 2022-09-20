@@ -21,13 +21,16 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.documentId = documentId
   }
 
-  async updateDoc(callback: (doc: T) => T) {
+  async updateDoc(callback: (doc: Automerge.Doc<T>) => Automerge.Doc<T>) {
     if (!this.doc) {
       await new Promise((resolve) => {
         this.once("change", resolve)
       })
     }
-    this.replace(callback(this.doc))
+    if (this.doc)
+      this.replace(callback(this.doc))
+    else
+      throw new Error('Unexpected null document')
   }
 
   // TODO: should i move this?
@@ -60,7 +63,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         this.once("change", resolve)
       })
     }
-    return this.doc
+    if (this.doc)
+      return this.doc
+    else
+      throw new Error('Unexpected null document')
   }
 }
 
