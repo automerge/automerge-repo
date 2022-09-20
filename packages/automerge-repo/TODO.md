@@ -1,15 +1,10 @@
 TODO
 -----
-remove Client.js vendored dependency
-remove automerge-js & wasm vendored dependencies
-get this thing syncing over the real internet
-get a text editor wodged in there
-get automerge-wasm hooked up in the repo module
 cursor sharing (multi channel?)
+repo should be a class
 
 ----------
 peer authentication
-write a cloud peer to sync with instead of the current design
 E2E encryption
 write more tests
 file-handle based storage
@@ -33,12 +28,9 @@ There are a number of problems with the current design which I will briefly enum
   * one websocket per peer per document. seems expensive
   * syncstates aren't persisted... but neither are client-ids. should they be?
  * StorageSubsystem
-  * we could write to IndexedDB on a SharedWorker so we're not duplicating work per-tab
   * customizable save intervals / manual-only saving
   * separate backends for incremental vs. full document saves
-  * need a FileSystem store as well, and maybe S3/redis for a node storage peer 
-
-Also, the upstream `@local-first-web/relay` repo doesn't actually support sending binary data over the wire correctly. I'm running a hacked up version and have vendored a hacked-up client into this repo. I should fix both of those problems as well.
+  * S3/redis store for a node storage peer 
 
 * Repo Design Problems
  * sending cursors / ephemeral data
