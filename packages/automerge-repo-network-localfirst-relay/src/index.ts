@@ -1,6 +1,6 @@
 import { Client } from "@localfirst/relay-client"
 import EventEmitter from "eventemitter3"
-import { NetworkAdapter, NetworkAdapterEvents } from "../NetworkSubsystem.js"
+import { NetworkAdapter, NetworkAdapterEvents } from "automerge-repo"
 import WebSocket from "isomorphic-ws"
 
 export class LocalFirstRelayNetworkAdapter

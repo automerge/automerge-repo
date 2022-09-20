@@ -1,0 +1,32 @@
+{
+  "name": "automerge-repo-network-broadcastchannel",
+  "version": "0.0.11",
+  "description": "BroadcastChannel network adapter for Automerge Repo",
+  "repository": "https://github.com/pvh/automerge-repo",
+  "author": "Peter van Hardenberg <pvh@pvh.ca>",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "npm-watch",
+    "test": "mocha --no-warnings --experimental-specifier-resolution=node"
+  },
+  "devDependencies": {
+    "@types/mocha": "^9.1.1",
+    "mocha": "^10.0.0",
+    "npm-watch": "^0.11.0"
+  },
+  "dependencies": {
+    "automerge-repo": "*"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
+  }
+}

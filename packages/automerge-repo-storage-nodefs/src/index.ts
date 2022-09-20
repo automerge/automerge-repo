@@ -1,5 +1,5 @@
 import * as fs from "fs"
-import { StorageAdapter } from "../StorageSubsystem"
+import { StorageAdapter } from "automerge-repo"
 
 export class NodeFSStorageAdapter implements StorageAdapter {
   directory: string

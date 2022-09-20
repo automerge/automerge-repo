@@ -1,5 +1,5 @@
 import EventEmitter from "eventemitter3"
-import { NetworkAdapter, NetworkAdapterEvents } from "../NetworkSubsystem"
+import { NetworkAdapter, NetworkAdapterEvents } from "automerge-repo"
 
 export class BroadcastChannelNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>

@@ -1,23 +1,27 @@
 import { DocCollection } from "./DocCollection.js"
 import { DocHandle, DocHandleEventArg } from "./DocHandle.js"
-import { LocalFirstRelayNetworkAdapter } from "./network/interfaces/LocalFirstRelayNetworkAdapter.js"
-import { NodeWSServerAdapter } from "./network/interfaces/NodeWSServerAdapter.js"
-import { NetworkSubsystem } from "./network/NetworkSubsystem"
+import {
+  DecodedMessage,
+  NetworkAdapter,
+  NetworkAdapterEvents,
+  NetworkSubsystem,
+  NetworkConnection,
+} from "./network/NetworkSubsystem.js"
 import { Repo } from "./Repo.js"
-import { NodeFSStorageAdapter } from "./storage/interfaces/NodeFSStorageAdapter.js"
 import { StorageAdapter, StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer as DependencyCollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 
 export {
+  Repo,
   DependencyCollectionSynchronizer,
   DocCollection,
   DocHandle,
   DocHandleEventArg,
-  LocalFirstRelayNetworkAdapter,
+  DecodedMessage,
   NetworkSubsystem,
-  NodeFSStorageAdapter,
-  NodeWSServerAdapter,
-  Repo,
+  NetworkAdapter,
+  NetworkAdapterEvents,
+  NetworkConnection,
   StorageAdapter,
   StorageSubsystem,
 }

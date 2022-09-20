@@ -1,14 +1,8 @@
-import {
-  Repo,
-  // @ts-expect-error
-  BroadcastChannelNetworkAdapter,
-  // @ts-expect-error
-  BrowserWebSocketClientAdapter,
-} from "automerge-repo"
+import { Repo } from "automerge-repo"
 
+import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
-
-console.log("hello from the shared worker ")
+import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
 
 // eslint-disable-next-line
 self.onconnect = function (e) {
