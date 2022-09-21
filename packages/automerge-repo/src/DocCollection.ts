@@ -31,7 +31,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
    * find() locates a document by id. It gets data from the local system, but also by sends a
    * 'document' event which a CollectionSynchronizer would use to advertise interest to other peers
    */
-  async find<T>(documentId: string): Promise<DocHandle<T>> {
+  find<T>(documentId: string): DocHandle<T> {
     // TODO: we want a way to make sure we don't yield
     //       intermediate document states during initial synchronization
     if (this.handles[documentId]) {
