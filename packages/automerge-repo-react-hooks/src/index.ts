@@ -19,16 +19,7 @@ export function useHandle<T>(
 ): [DocHandle<T> | undefined, (d: DocHandle<T>) => void] {
   const repo = useRepo()
 
-  const [handle, setHandle] = useState<DocHandle<T>>()
-
-  useEffect(() => {
-    ;(async () => {
-      const handle: DocHandle<T> = await repo.find(documentId)
-      setHandle(handle)
-    })()
-  }, [repo, documentId])
-
-  return [handle, setHandle]
+  return useState<DocHandle<T>>(repo.find(documentId))
 }
 
 export function useDocument<T>(
