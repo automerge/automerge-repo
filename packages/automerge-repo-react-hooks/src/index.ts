@@ -34,8 +34,9 @@ export function useHandle<T>(
 export function useDocument<T>(
   documentId: string
 ): [doc: Doc<T> | undefined, changeFn: (cf: (d: T) => void) => void] {
-  const [doc, setDoc] = useState<Doc<T>>() // should be Doc<T> but that's an error?
-  const [handle] = useHandle<T>(documentId)
+  const [doc, setDoc] = useState<Doc<T>>()
+  const repo = useRepo()
+  const handle = repo.find<T>(documentId)
 
   useEffect(() => {
     if (!handle) {
