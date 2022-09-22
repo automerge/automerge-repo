@@ -14,12 +14,28 @@ export function useRepo(): DocCollection {
   return repo
 }
 
+export function useHandle<T>(
+  documentId: string
+): [DocHandle<T> | undefined, (d: DocHandle<T>) => void] {
+  const repo = useRepo()
+
+  const [handle, setHandle] = useState<DocHandle<T>>()
+
+  useEffect(() => {
+    ;(async () => {
+      const handle: DocHandle<T> = await repo.find(documentId)
+      setHandle(handle)
+    })()
+  }, [repo, documentId])
+
+  return [handle, setHandle]
+}
+
 export function useDocument<T>(
   documentId: string
 ): [doc: Doc<T> | undefined, changeFn: (cf: (d: T) => void) => void] {
   const [doc, setDoc] = useState<Doc<T>>() // should be Doc<T> but that's an error?
-  const repo = useRepo()
-  const handle = repo.find<T>(documentId)
+  const [handle] = useHandle<T>(documentId)
 
   useEffect(() => {
     if (!handle) {
