@@ -20,8 +20,6 @@ import {
 export type EditorProps<T> = {
   handle: DocHandle<T>
   attribute: TextKeyOf<T>
-  doc: Automerge.Doc<T>
-  changeDoc: any
 }
 
 const toggleBold = toggleMarkCommand(schema.marks.strong)

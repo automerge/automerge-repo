@@ -14,7 +14,7 @@ interface TodoItemDoc {
 }
 
 function TodoItem({ documentId }: TodoItemArgs) {
-  const [handle] = useHandle<TodoItemDoc>(documentId)
+  const handle = useHandle<TodoItemDoc>(documentId)
   const [doc, changeDoc] = useDocument<TodoItemDoc>(documentId)
   const toggleDone = () => {
     changeDoc((d: TodoItemDoc) => {
@@ -45,8 +45,6 @@ function TodoItem({ documentId }: TodoItemArgs) {
         <Editor
           handle={handle}
           attribute={"text"}
-          doc={doc}
-          changeDoc={changeDoc}
         ></Editor>
       </div>
     </div>

@@ -14,21 +14,10 @@ export function useRepo(): DocCollection {
   return repo
 }
 
-export function useHandle<T>(
-  documentId: string
-): [DocHandle<T> | undefined, (d: DocHandle<T>) => void] {
+export function useHandle<T>(documentId: string): DocHandle<T> {
   const repo = useRepo()
-
-  const [handle, setHandle] = useState<DocHandle<T>>()
-
-  useEffect(() => {
-    ;(async () => {
-      const handle: DocHandle<T> = await repo.find(documentId)
-      setHandle(handle)
-    })()
-  }, [repo, documentId])
-
-  return [handle, setHandle]
+  const [handle] = useState<DocHandle<T>>(repo.find(documentId))
+  return handle
 }
 
 export function useDocument<T>(

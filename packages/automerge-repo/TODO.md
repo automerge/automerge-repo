@@ -10,18 +10,10 @@ write more tests
 file-handle based storage
 
 // TODO:
-// end-to-end encryption (authenticating peers)
-// "drafts" of documents per upwelling (offers)
-// PSI -> sharing documents you have in common with a peer
-// "offers" so storage peers will save your stuff
-// persistent share lists for storage peer
-
+// efficient sharing of sets of documents
 # Future Work and Known Issues
 
 There are a number of problems with the current design which I will briefly enumerate here:
- * Repo / DocHandle
-  * DocHandle is a strange class that wraps an underlying Automerge doc. I don't think it's particularly inteligible when you should expect one vs. the underlying data.
-  * The EventEmitter3 interface doesn't work in node, and there's no way to send a "welcome" event to a new listener, leading to awkwardness for new subscribers.
  * NetworkSubsystem
   * peer candidate selection -> do we trust this peer? (see Network.js peer-candidate)
   * handle disconnections -> try another protocol
