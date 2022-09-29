@@ -4,49 +4,35 @@ Folks building automerge-based applications often have similar requirements for 
 
 # Usage
 ```js
-import {
-  BrowserRepo,
-  LocalForageStorageAdapter,
-  BroadcastChannelNetworkAdapter,
-  BrowserWebSocketClientAdapter,
-  Repo,
-} from "automerge-repo"
+import { Repo } from "automerge-repo"
+import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
+import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 
-const url = "wss://automerge-storage-demo.glitch.me"
-
-const repo = await BrowserRepo({
+const repo = new Repo({
     storage: new LocalForageStorageAdapter(),
     network: [
       new BroadcastChannelNetworkAdapter(),
-      new BrowserWebSocketClientAdapter(url)
     ],
 })
 
 # now try to load the document from localstorage, or failing that create a new one
 # weirdly, this works with synchronization from another source because the other source
 # will be able to merge with your fresh, empty document
-# TODO: need to figure out what to do with missing documents / during sync
-let handle = await repo.find(docId)
+let handle = repo.find(docId)
 if (!handle) { handle = repo.create(docId) }
 
 # get an event every time the document is changed either locally or remotely
 # the data is { handle: DocHandle }
-doc.on('change', ({ handle, doc, lastChange }) => render(handle))
+doc.on('change', ({ handle, doc }) => render(handle))
 
 # the current API is not great and you've already missed the first change notification by now
 # so you're going to have to call your first render() manually.
 render(await handle.value())
 ```
 
-# Example
-
-The example code isn't working right now, but this React code is... probably.
-
-https://github.com/pvh/automerge-repo-react
-
 # API & Design Notes
 
-The BrowserRepo wires together a few systems.
+The Repo wires together a few systems.
 
 First, the Repo object holds a collection of documents, indexed by documentId (UUID). It returns DocHandles, which hold a doc and its ID together and allow you to listen to changes. There's only one DocHandle in the universe per document in order to ensure event propagation works. This is not a great design feature.
 
