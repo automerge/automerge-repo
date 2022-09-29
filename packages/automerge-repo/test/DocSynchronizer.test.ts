@@ -1,5 +1,5 @@
 import assert from "assert"
-import * as Automerge from "automerge-js"
+import * as Automerge from "automerge"
 import { DocHandle } from "../src/DocHandle"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
 

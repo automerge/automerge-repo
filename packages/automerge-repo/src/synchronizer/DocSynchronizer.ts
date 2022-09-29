@@ -1,6 +1,6 @@
 import EventEmitter from "eventemitter3"
 import { Synchronizer, SyncMessages } from "./Synchronizer"
-import * as Automerge from "automerge-js"
+import * as Automerge from "automerge"
 import { DocHandle } from "../DocHandle"
 
 /**
@@ -73,15 +73,21 @@ export class DocSynchronizer
     console.log(
       `received syncmessage from ${peerId} for ${this.handle.documentId}`
     )
-    this.handle.updateDoc((doc: Automerge.Doc<unknown>): Automerge.Doc<unknown> => {
-      let syncState = this.getSyncState(peerId)
-      // console.log("on sync message", peerId)
-      ;[doc, syncState] = Automerge.receiveSyncMessage(doc, syncState, message)
-      this.setSyncState(peerId, syncState)
-      console.log("on sync message doc:", JSON.stringify(doc))
+    this.handle.updateDoc(
+      (doc: Automerge.Doc<unknown>): Automerge.Doc<unknown> => {
+        let syncState = this.getSyncState(peerId)
+        // console.log("on sync message", peerId)
+        ;[doc, syncState] = Automerge.receiveSyncMessage(
+          doc,
+          syncState,
+          message
+        )
+        this.setSyncState(peerId, syncState)
+        console.log("on sync message doc:", JSON.stringify(doc))
 
-      return doc
-    })
+        return doc
+      }
+    )
   }
 
   async syncWithPeers() {

@@ -17,6 +17,7 @@
     "crypto": false
   },
   "devDependencies": {
+    "automerge-repo-storage-memory": "*",
     "@types/mocha": "^9.1.1",
     "@types/uuid": "^8.3.4",
     "@types/ws": "^8.5.3",
@@ -35,12 +36,9 @@
     "typescript": "^4.7.4"
   },
   "peerDependencies": {
-    "automerge": "^1.0.1-preview.7"
+    "automerge": "*"
   },
   "dependencies": {
-    "automerge-js": "^0.1.5",
-    "automerge-wasm-pack": "^0.1.2",
-    "automerge-repo-storage-memory": "*",
     "cbor-x": "^1.3.0",
     "eventemitter3": "^4.0.7",
     "tiny-typed-emitter": "^2.1.0",

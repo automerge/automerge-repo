@@ -1,4 +1,4 @@
-import * as Automerge from "automerge-js"
+import * as Automerge from "automerge"
 import { Repo } from "../src/Repo"
 import { DocHandle } from "../src/DocHandle"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"

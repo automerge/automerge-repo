@@ -1,5 +1,5 @@
-import * as Automerge from "automerge-js"
-import { Doc } from "automerge-js"
+import * as Automerge from "automerge"
+import { Doc } from "automerge"
 import { DocHandle } from "automerge-repo"
 import { PluginKey, Plugin, EditorState } from "prosemirror-state"
 import { convertAutomergeTransactionToProsemirrorTransaction } from "./automerge/AutomergeToProsemirrorTransaction"

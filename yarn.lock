@@ -3900,7 +3900,7 @@ at-least-node@^1.0.0:
   resolved "https://registry.npmjs.org/at-least-node/-/at-least-node-1.0.0.tgz"
   integrity sha512-+q/t7Ekv1EDY2l6Gda6LLiX14rU9TV20Wa3ofeQmwPFZbOMo9DXrLbOjFaaclkXKWidIaopwAObQDqwWtGUjqg==
 
-automerge-js@^0.1.10, automerge-js@^0.1.5:
+automerge-js@^0.1.10:
   version "0.1.12"
   resolved "https://registry.npmjs.org/automerge-js/-/automerge-js-0.1.12.tgz"
   integrity sha512-4mX066TNOk9S+K1Rnn49eDfFEN63BWV5HKNUNQ32FJbqwvuD14e8qRJMCmD1tt66ECCqgagVort49E4eSOB2JQ==
@@ -3912,13 +3912,6 @@ automerge-types@0.1.5:
   version "0.1.5"
   resolved "https://registry.npmjs.org/automerge-types/-/automerge-types-0.1.5.tgz"
   integrity sha512-UD7SB/Bh1DtT7dcF4+WqNrEpfsirfk/hM2tvu15uZlqG/P5Re5VuwREGypDyQPm6upe/gmiip5wCz9p4ihJG2g==
-
-automerge-wasm-pack@^0.1.2:
-  version "0.1.7"
-  resolved "https://registry.npmjs.org/automerge-wasm-pack/-/automerge-wasm-pack-0.1.7.tgz"
-  integrity sha512-VDR8Wgrcdo9qP5zk1+xZXY7lTXCSDxp0LB/pblaqIA3bbWrg+327aYe2hQCPgb/YSmTi64iG09d8TuEWkzci6g==
-  dependencies:
-    automerge-types "0.1.5"
 
 automerge-wasm-pack@^0.1.5:
   version "0.1.8"

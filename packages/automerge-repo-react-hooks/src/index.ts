@@ -1,6 +1,8 @@
-import { Doc } from "automerge-js"
+import { Doc } from "automerge"
 import { DocHandle, DocHandleEventArg, DocCollection } from "automerge-repo"
 import { useEffect, useState, createContext, useContext } from "react"
+
+export type DocumentId = string & { __documentId: false }
 
 export const RepoContext = createContext<DocCollection | null>(null)
 
@@ -14,14 +16,14 @@ export function useRepo(): DocCollection {
   return repo
 }
 
-export function useHandle<T>(documentId: string): DocHandle<T> {
+export function useHandle<T>(documentId: DocumentId): DocHandle<T> {
   const repo = useRepo()
   const [handle] = useState<DocHandle<T>>(repo.find(documentId))
   return handle
 }
 
 export function useDocument<T>(
-  documentId: string
+  documentId: DocumentId
 ): [doc: Doc<T> | undefined, changeFn: (cf: (d: T) => void) => void] {
   const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()

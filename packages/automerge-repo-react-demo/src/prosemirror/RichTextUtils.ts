@@ -1,4 +1,4 @@
-import * as Automerge from "automerge-js"
+import * as Automerge from "automerge"
 import { AutomergeTransaction } from "./automerge/AutomergeTypes"
 
 export interface BlockData {

@@ -1,4 +1,4 @@
-import * as Automerge from "automerge-js"
+import * as Automerge from "automerge"
 
 export type AutomergeTransaction = ChangeSet[]
 

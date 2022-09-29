@@ -1,5 +1,5 @@
 import EventEmitter from "eventemitter3"
-import * as Automerge from "automerge-js"
+import * as Automerge from "automerge"
 
 /**
  * DocHandle is a wrapper around a single Automerge document that allows us to listen for changes.
@@ -27,10 +27,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         this.once("change", resolve)
       })
     }
-    if (this.doc)
-      this.replace(callback(this.doc))
-    else
-      throw new Error('Unexpected null document')
+    if (this.doc) this.replace(callback(this.doc))
+    else throw new Error("Unexpected null document")
   }
 
   // TODO: should i move this?
@@ -63,10 +61,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         this.once("change", resolve)
       })
     }
-    if (this.doc)
-      return this.doc
-    else
-      throw new Error('Unexpected null document')
+    if (this.doc) return this.doc
+    else throw new Error("Unexpected null document")
   }
 }
 

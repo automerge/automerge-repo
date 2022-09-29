@@ -1,5 +1,4 @@
-import * as WASM from "automerge-wasm-pack"
-import * as Automerge from "automerge-js"
+import * as Automerge from "automerge"
 
 import { DocCollection } from "./DocCollection.js"
 import { NetworkSubsystem, NetworkAdapter } from "./network/NetworkSubsystem.js"
@@ -14,8 +13,6 @@ export interface RepoConfig {
 }
 
 export async function Repo(config: RepoConfig) {
-  Automerge.use(await WASM.init())
-
   const { storage, network, peerId, sharePolicy = () => true } = config
 
   const docCollection = new DocCollection()

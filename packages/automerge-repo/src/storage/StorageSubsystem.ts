@@ -1,4 +1,4 @@
-import * as Automerge from "automerge-js"
+import * as Automerge from "automerge"
 
 export interface StorageAdapter {
   load(docId: string): Promise<Uint8Array | null>
