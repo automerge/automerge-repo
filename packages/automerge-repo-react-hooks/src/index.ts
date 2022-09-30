@@ -24,19 +24,12 @@ export function useHandle<T>(documentId: DocumentId): DocHandle<T> {
 
 export type Change<T> = (cf: (d: T) => void) => void
 
-export function maybeUseDocument<T>(
-  documentId?: DocumentId
-): [doc: Doc<T> | undefined, changeFn: Change<T> | undefined] {
-  if (!documentId) return [undefined, undefined]
-  return useDocument<T>(documentId)
-}
-
 export function useDocument<T>(
-  documentId: DocumentId
+  documentId?: DocumentId
 ): [doc: Doc<T> | undefined, changeFn: Change<T>] {
   const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()
-  const handle = repo.find<T>(documentId)
+  const handle = documentId ? repo.find<T>(documentId) : null
 
   useEffect(() => {
     if (!handle) {
