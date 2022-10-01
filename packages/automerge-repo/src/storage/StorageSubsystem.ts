@@ -1,4 +1,5 @@
 import * as Automerge from "automerge"
+import { DocumentId } from "../DocHandle"
 
 export interface StorageAdapter {
   load(docId: string): Promise<Uint8Array | null>
@@ -13,9 +14,9 @@ export class StorageSubsystem {
     this.storageAdapter = storageAdapter
   }
 
-  queuedChanges: { [documentId: string]: Uint8Array[] } = {}
+  queuedChanges: { [documentId: DocumentId]: Uint8Array[] } = {}
 
-  saveIncremental(documentId: string, newChanges: Uint8Array[]) {
+  saveIncremental(documentId: DocumentId, newChanges: Uint8Array[]) {
     if (!this.queuedChanges[documentId]) {
       this.queuedChanges[documentId] = []
     }
@@ -27,7 +28,7 @@ export class StorageSubsystem {
     }
   }
 
-  saveTotal(documentId: string, doc: Automerge.Doc<unknown>) {
+  saveTotal(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
     const binary = Automerge.save(doc)
     this.storageAdapter.save(`${documentId}.snapshot`, binary)
 
@@ -39,7 +40,7 @@ export class StorageSubsystem {
   }
 
   async loadWithIncremental(
-    documentId: string
+    documentId: DocumentId
   ): Promise<Automerge.Doc<unknown>> {
     const binary = await this.storageAdapter.load(`${documentId}.snapshot`)
     // TODO: this is bad because we really only want to do this if we *have* incremental changes
@@ -71,12 +72,16 @@ export class StorageSubsystem {
   }
 
   // TODO: make this, you know, good.
-  shouldCompact(documentId: string) {
+  shouldCompact(documentId: DocumentId) {
     const numQueued = (this.queuedChanges[documentId] || []).length
     return numQueued >= 3
   }
 
-  save(documentId: string, doc: Automerge.Doc<unknown>, changes: Uint8Array[]) {
+  save(
+    documentId: DocumentId,
+    doc: Automerge.Doc<unknown>,
+    changes: Uint8Array[]
+  ) {
     if (this.shouldCompact(documentId)) {
       this.saveTotal(documentId, doc)
     } else {
@@ -84,7 +89,7 @@ export class StorageSubsystem {
     }
   }
 
-  async load(docId: string): Promise<Automerge.Doc<unknown>> {
+  async load(docId: DocumentId): Promise<Automerge.Doc<unknown>> {
     return this.loadWithIncremental(docId)
   }
 }

@@ -1,16 +1,16 @@
 import EventEmitter from "eventemitter3"
 import { v4 } from "uuid"
 import * as Automerge from "automerge"
-import { DocHandle } from "./DocHandle.js"
+import { DocHandle, DocumentId } from "./DocHandle.js"
 
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
-  handles: { [documentId: string]: DocHandle<unknown> } = {}
+  handles: { [documentId: DocumentId]: DocHandle<unknown> } = {}
 
   constructor() {
     super()
   }
 
-  cacheHandle(documentId: string): DocHandle<unknown> {
+  cacheHandle(documentId: DocumentId): DocHandle<unknown> {
     if (this.handles[documentId]) {
       return this.handles[documentId]
     }
@@ -20,7 +20,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   }
 
   create<T>(): DocHandle<T> {
-    const documentId = v4()
+    const documentId = v4() as DocumentId
     const handle = this.cacheHandle(documentId) as DocHandle<T>
     handle.replace(Automerge.init())
     this.emit("document", { handle, justCreated: true })
@@ -31,7 +31,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
    * find() locates a document by id. It gets data from the local system, but also by sends a
    * 'document' event which a CollectionSynchronizer would use to advertise interest to other peers
    */
-  find<T>(documentId: string): DocHandle<T> {
+  find<T>(documentId: DocumentId): DocHandle<T> {
     // TODO: we want a way to make sure we don't yield
     //       intermediate document states during initial synchronization
     if (this.handles[documentId]) {

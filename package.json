@@ -11,7 +11,7 @@
   "scripts": {
     "build": "lerna run build",
     "test": "lerna run test",
-    "dev:demo": "yarn workspace automerge-repo-react-demo start",
+    "dev:demo": "yarn workspace automerge-repo-react-demo dev",
     "dev": "run-p watch dev:demo",
     "pub": "lerna publish --yes",
     "watch": "lerna run watch --parallel"

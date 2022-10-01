@@ -1,19 +1,21 @@
 import EventEmitter from "eventemitter3"
 import * as Automerge from "automerge"
 
+export type DocumentId = string & { __documentId: true }
+
 /**
  * DocHandle is a wrapper around a single Automerge document that allows us to listen for changes.
  */
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   doc?: Automerge.Doc<T>
-  documentId: string
+  documentId: DocumentId
 
   // TODO: DocHandle is kind of terrible because we have to be careful to preserve a 1:1
   // relationship between handles and documentIds or else we have split-brain on listeners.
   // It would be easier just to have one repo object to pass around but that means giving
   // total repo access to everything which seems gratuitous to me.
 
-  constructor(documentId: string) {
+  constructor(documentId: DocumentId) {
     super()
     if (!documentId) {
       throw new Error("Need a document ID for this DocHandle.")
@@ -70,7 +72,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
 export interface DocHandleEventArg<T> {
   handle: DocHandle<T>
-  documentId: string
+  documentId: DocumentId
   doc: Automerge.Doc<T>
   changes: Uint8Array[]
 }

@@ -1,8 +1,11 @@
 import { Doc } from "automerge"
-import { DocHandle, DocHandleEventArg, DocCollection } from "automerge-repo"
+import {
+  DocHandle,
+  DocHandleEventArg,
+  DocCollection,
+  DocumentId,
+} from "automerge-repo"
 import { useEffect, useState, createContext, useContext } from "react"
-
-export type DocumentId = string & { __documentId: false }
 
 export const RepoContext = createContext<DocCollection | null>(null)
 
