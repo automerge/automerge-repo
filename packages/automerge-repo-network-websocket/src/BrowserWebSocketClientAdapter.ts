@@ -21,14 +21,18 @@ export class BrowserWebSocketClientAdapter
   }
 
   connect(peerId: string) {
+    if (!this.timerId) {
+      this.timerId = setInterval(() => this.connect(peerId), 5000)
+    }
+
     this.peerId = peerId
     this.client = new WebSocket(this.url)
     this.client.binaryType = "arraybuffer"
-    this.timerId = setInterval(() => this.connect(peerId), 5000)
 
     this.client.addEventListener("open", () => {
       // console.log("Connected to server.")
       clearInterval(this.timerId)
+      this.timerId = null
     })
 
     // When a socket closes, or disconnects, remove it from the array.

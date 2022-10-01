@@ -55,6 +55,11 @@ export class DocSynchronizer
     this.setSyncState(peerId, newSyncState)
     if (message) {
       console.log(`sending a sync message to ${peerId} about ${documentId}`)
+
+      // ensure we're sending good messages
+      console.log(message)
+      Automerge.decodeSyncMessage(message)
+
       this.emit("message", { peerId, documentId, message })
     }
   }
