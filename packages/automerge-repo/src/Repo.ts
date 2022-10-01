@@ -19,14 +19,14 @@ export async function Repo(config: RepoConfig) {
 
   if (storage) {
     const storageSubsystem = new StorageSubsystem(storage)
-    docCollection.on("document", async ({ handle }) => {
-      // TODO: this is going to race with the network.
-      // if we have local data we probably want to go with that first, then synchronize
-      const savedDoc = await storageSubsystem.load(handle.documentId)
-      if (savedDoc) {
-        handle.replace(savedDoc)
-      } else {
-        handle.replace(Automerge.init())
+    docCollection.on("document", async ({ handle, justCreated }) => {
+      if (!justCreated) {
+        const savedDoc = await storageSubsystem.load(handle.documentId)
+        if (savedDoc) {
+          handle.replace(savedDoc)
+        } else {
+          handle.replace(Automerge.init())
+        }
       }
 
       handle.on("change", ({ documentId, doc, changes }) =>

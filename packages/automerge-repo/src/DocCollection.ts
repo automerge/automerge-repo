@@ -23,7 +23,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     const documentId = v4()
     const handle = this.cacheHandle(documentId) as DocHandle<T>
     handle.replace(Automerge.init())
-    this.emit("document", { handle })
+    this.emit("document", { handle, justCreated: true })
     return handle
   }
 
@@ -43,7 +43,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     // the StorageSubsystem and Synchronizers go and get the data
     // they'll fill it in via a first replace() call and until then anyone
     // accessing the value of this will block
-    this.emit("document", { handle })
+    this.emit("document", { handle, justCreated: false })
 
     return handle as DocHandle<T>
   }
@@ -51,6 +51,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
 
 export interface DocCollectionDocumentEventArg<T> {
   handle: DocHandle<T>
+  justCreated: boolean // hint for the storage system. TODO: smooth this away.
 }
 export interface DocCollectionEvents<T> {
   document: (arg: DocCollectionDocumentEventArg<T>) => void
