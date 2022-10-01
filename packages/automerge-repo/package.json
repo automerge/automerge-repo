@@ -1,6 +1,6 @@
 {
   "name": "automerge-repo",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "A repository object to manage a collection of automerge documents",
   "repository": "https://github.com/pvh/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -17,12 +17,12 @@
     "crypto": false
   },
   "devDependencies": {
-    "automerge-repo-storage-memory": "*",
     "@types/mocha": "^9.1.1",
     "@types/uuid": "^8.3.4",
     "@types/ws": "^8.5.3",
     "@typescript-eslint/eslint-plugin": "^5.33.0",
     "@typescript-eslint/parser": "^5.33.0",
+    "automerge-repo-storage-memory": "*",
     "eslint": "^8.15.0",
     "eslint-config-airbnb": "^19.0.4",
     "eslint-config-airbnb-base": "^15.0.0",
