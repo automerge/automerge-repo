@@ -40,6 +40,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.replace(doc)
   }
 
+  // TODO: there's a race condition where you could call change() before init()
+  //       we aren't hitting it anywhere i can think of but change/updateDoc need some thought
   replace(doc: Automerge.Doc<T>) {
     const oldDoc = this.doc
     this.doc = doc
