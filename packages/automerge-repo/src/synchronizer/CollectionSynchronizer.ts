@@ -4,7 +4,7 @@ import * as CBOR from "cbor-x"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { DocCollection } from "../DocCollection.js"
 import { Synchronizer, SyncMessages } from "./Synchronizer.js"
-import { DocHandle } from "../DocHandle.js"
+import { DocHandle, DocumentId } from "../DocHandle.js"
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.
@@ -42,7 +42,7 @@ export class CollectionSynchronizer
   async fetchDocSynchronizer(documentId: string) {
     // TODO: we want a callback to decide to accept offered documents
     if (!this.syncPool[documentId]) {
-      const handle = await this.repo.find(documentId)
+      const handle = await this.repo.find(documentId as DocumentId)
       console.log("loaded doc:", JSON.stringify(await handle.value()))
       this.syncPool[documentId] =
         this.syncPool[documentId] || this.initDocSynchronizer(handle)
