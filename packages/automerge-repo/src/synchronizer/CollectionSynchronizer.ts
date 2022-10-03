@@ -39,10 +39,10 @@ export class CollectionSynchronizer
     docSynchronizer.onSyncMessage(peerId, message)
   }
 
-  async fetchDocSynchronizer(documentId: string) {
+  async fetchDocSynchronizer(documentId: DocumentId) {
     // TODO: we want a callback to decide to accept offered documents
     if (!this.syncPool[documentId]) {
-      const handle = await this.repo.find(documentId as DocumentId)
+      const handle = await this.repo.find(documentId)
       console.log("loaded doc:", JSON.stringify(await handle.value()))
       this.syncPool[documentId] =
         this.syncPool[documentId] || this.initDocSynchronizer(handle)
@@ -59,7 +59,7 @@ export class CollectionSynchronizer
     return docSynchronizer
   }
 
-  async addDocument(documentId: string) {
+  async addDocument(documentId: DocumentId) {
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
     this.peers.forEach((peerId) => docSynchronizer.beginSync(peerId))
   }
