@@ -1,4 +1,4 @@
-import * as Automerge from "automerge"
+import * as Automerge from "@automerge/automerge"
 import { Repo } from "../src/Repo"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { DocHandle } from "../src/DocHandle"

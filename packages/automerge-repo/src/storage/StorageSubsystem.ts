@@ -1,4 +1,4 @@
-import * as Automerge from "automerge"
+import * as Automerge from "@automerge/automerge"
 import { DocumentId } from "../DocHandle"
 
 export interface StorageAdapter {

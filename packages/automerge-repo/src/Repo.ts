@@ -1,4 +1,4 @@
-import * as Automerge from "automerge"
+import * as Automerge from "@automerge/automerge"
 
 import { DocCollection } from "./DocCollection.js"
 import { NetworkSubsystem, NetworkAdapter } from "./network/NetworkSubsystem.js"
@@ -48,7 +48,7 @@ export async function Repo(config: RepoConfig) {
   const shySynchronizer = new CollectionSynchronizer(docCollection, false)
 
   // wire up the dependency synchronizers.
-  networkSubsystem.on("peer", ({ peerId }) => {
+  networkSubsystem.on("peer", ({ peerId, channelId }) => {
     console.log(peerId, "share policy:", sharePolicy(peerId))
     const synchronizer = sharePolicy(peerId)
       ? generousSynchronizer

@@ -3,7 +3,7 @@ import os from "os"
 import path from "path"
 
 import assert from "assert"
-import Automerge from "automerge"
+import Automerge from "@automerge/automerge"
 import { MemoryStorageAdapter } from "../src/storage/interfaces/MemoryStorageAdapter"
 import { NodeFSStorageAdapter } from "../src/storage/interfaces/NodeFSStorageAdapter"
 import {

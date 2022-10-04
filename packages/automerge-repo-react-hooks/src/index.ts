@@ -1,4 +1,4 @@
-import { Doc } from "automerge"
+import { Doc } from "@automerge/automerge"
 import {
   DocHandle,
   DocHandleEventArg,

@@ -1,6 +1,6 @@
 import EventEmitter from "eventemitter3"
 import { Synchronizer, SyncMessages } from "./Synchronizer"
-import * as Automerge from "automerge"
+import * as Automerge from "@automerge/automerge"
 import { DocHandle } from "../DocHandle"
 
 /**

@@ -10,9 +10,9 @@ import {
   ChangeSetDeletion,
   TextKeyOf,
 } from "./AutomergeTypes"
-import * as Automerge from "automerge"
+import * as Automerge from "@automerge/automerge"
 import { textToString } from "../RichTextUtils"
-import { Doc } from "automerge"
+import { Doc } from "@automerge/automerge"
 
 const convertAddToStep = <T>(
   doc: Doc<T>,

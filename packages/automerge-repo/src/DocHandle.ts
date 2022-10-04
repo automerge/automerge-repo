@@ -1,5 +1,5 @@
 import EventEmitter from "eventemitter3"
-import * as Automerge from "automerge"
+import * as Automerge from "@automerge/automerge"
 
 export type DocumentId = string & { __documentId: true }
 

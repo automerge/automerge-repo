@@ -1,6 +1,6 @@
 import EventEmitter from "eventemitter3"
 import { v4 } from "uuid"
-import * as Automerge from "automerge"
+import * as Automerge from "@automerge/automerge"
 import { DocHandle, DocumentId } from "./DocHandle.js"
 
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {

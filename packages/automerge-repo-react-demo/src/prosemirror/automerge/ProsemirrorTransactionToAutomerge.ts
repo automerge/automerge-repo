@@ -1,4 +1,4 @@
-import { Doc, Text } from "automerge"
+import { Doc, Text } from "@automerge/automerge"
 import { EditorState } from "prosemirror-state"
 import {
   AddMarkStep,
