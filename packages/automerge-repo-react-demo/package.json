@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@automerge/automerge": "*",
     "automerge-repo": "*",
     "automerge-repo-react-hooks": "*",
     "automerge-repo-storage-localforage": "*",
@@ -20,9 +21,6 @@
     "automerge-repo-storage-memory": "*",
     "@atjson/document": "^0.24.5",
     "@atjson/renderer-hir": "^0.22.14",
-    "automerge": "^1.0.1-preview.7",
-    "automerge-js": "^0.1.10",
-    "automerge-wasm-pack": "^0.1.5",
     "localforage": "^1.10.0",
     "prosemirror": "^0.11.1",
     "prosemirror-commands": "^1.3.0",
