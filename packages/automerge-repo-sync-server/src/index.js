@@ -1,8 +1,14 @@
+import fs from "fs"
 import express from "express"
 import { WebSocketServer } from "ws"
 import { Repo } from "automerge-repo"
 import { NodeWSServerAdapter } from "automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
+
+const dir = ".amrg"
+if (!fs.existsSync(dir)) {
+  fs.mkdirSync(dir)
+}
 
 const wsServer = new WebSocketServer({ noServer: true })
 const config = {
