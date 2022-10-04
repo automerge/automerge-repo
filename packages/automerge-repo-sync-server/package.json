@@ -9,8 +9,8 @@
   },
   "dependencies": {
     "automerge-repo": "*",
-    "automerge-repo-storage-nodefs": "*",
     "automerge-repo-network-websocket": "*",
+    "automerge-repo-storage-nodefs": "*",
     "express": "^4.18.1",
     "ws": "^8.7.0"
   },
