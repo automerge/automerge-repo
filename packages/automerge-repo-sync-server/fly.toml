@@ -15,6 +15,10 @@ processes = []
   allowed_public_ports = []
   auto_rollback = true
 
+[mounts]
+  source="automerge_storage"
+  destination="/.amrg"
+
 [[services]]
   http_checks = []
   internal_port = 3030
