@@ -7,7 +7,6 @@ import { history, redo, undo } from "prosemirror-history"
 import { schema } from "prosemirror-schema-basic"
 import { MarkType } from "prosemirror-model"
 
-import * as Automerge from "automerge-js"
 import { DocHandle, DocHandleEventArg } from "automerge-repo"
 import { TextKeyOf } from "./automerge/AutomergeTypes"
 
