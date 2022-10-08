@@ -1,13 +1,14 @@
+import { DocumentId } from "automerge-repo"
 import React from "react"
 import "./App.css"
 import { TodoList } from "./components/TodoList"
 
 export interface RootDocument {
-  items: string[]
+  items: DocumentId[]
 }
 
 interface AppArgs {
-  rootDocumentId: string
+  rootDocumentId: DocumentId
 }
 
 function App({ rootDocumentId }: AppArgs) {

@@ -1,11 +1,12 @@
-import { Text } from "automerge-js"
+import { Text } from "@automerge/automerge"
 import React, { useState } from "react"
 import { RootDocument } from "../App"
 import { useDocument, useHandle, useRepo } from "automerge-repo-react-hooks"
 import { Editor } from "../prosemirror/Editor"
+import { DocumentId } from "automerge-repo"
 
 export interface TodoItemArgs {
-  documentId: string
+  documentId: DocumentId
 }
 
 interface TodoItemDoc {
@@ -52,7 +53,7 @@ function TodoItem({ documentId }: TodoItemArgs) {
 }
 
 export interface TodoListArgs {
-  documentId: string
+  documentId: DocumentId
 }
 
 export function TodoList({ documentId }: TodoListArgs) {
