@@ -43,7 +43,6 @@ export class CollectionSynchronizer
     // TODO: we want a callback to decide to accept offered documents
     if (!this.syncPool[documentId]) {
       const handle = await this.repo.find(documentId)
-      console.log("loaded doc:", JSON.stringify(await handle.value()))
       this.syncPool[documentId] =
         this.syncPool[documentId] || this.initDocSynchronizer(handle)
     }

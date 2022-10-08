@@ -4,6 +4,7 @@ import {
   NetworkAdapter,
   NetworkConnection,
 } from "automerge-repo"
+import * as Automerge from "@automerge/automerge"
 import WebSocket from "isomorphic-ws"
 
 export interface WebSocketNetworkAdapter extends NetworkAdapter {
@@ -92,11 +93,21 @@ export function receiveMessageServer(
   self: WebSocketNetworkAdapter
 ) {
   const cbor = CBOR.decode(message)
-  console.log("received: ", cbor)
+  if (cbor.type === "sync") {
+    const inner_cbor = CBOR.decode(cbor.data)
+    console.log("received: ", {
+      ...cbor,
+      data: {
+        ...inner_cbor,
+        message: Automerge.decodeSyncMessage(inner_cbor.message),
+      },
+    })
+  }
   const { type, channelId, senderId, data } = cbor
   switch (type) {
     case "join":
       announceConnection(channelId, senderId, socket, self)
+      console.log("ready?", socket.readyState)
       socket.send(
         CBOR.encode({ type: "peer", senderId: self.peerId, channelId })
       )

@@ -4,17 +4,20 @@ import { WebSocketServer } from "ws"
 import { Repo } from "automerge-repo"
 import { NodeWSServerAdapter } from "automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
+import os from "os"
 
 const dir = ".amrg"
 if (!fs.existsSync(dir)) {
   fs.mkdirSync(dir)
 }
 
+var hostname = os.hostname()
+
 const wsServer = new WebSocketServer({ noServer: true })
 const config = {
   network: [new NodeWSServerAdapter(wsServer)],
   storage: new NodeFSStorageAdapter(),
-  peerId: "storage-server",
+  peerId: `storage-server-${hostname}`,
   sharePolicy: (peerId) => false,
 }
 

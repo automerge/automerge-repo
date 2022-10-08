@@ -49,7 +49,6 @@ export async function Repo(config: RepoConfig) {
 
   // wire up the dependency synchronizers.
   networkSubsystem.on("peer", ({ peerId, channelId }) => {
-    console.log(peerId, "share policy:", sharePolicy(peerId))
     const synchronizer = sharePolicy(peerId)
       ? generousSynchronizer
       : shySynchronizer

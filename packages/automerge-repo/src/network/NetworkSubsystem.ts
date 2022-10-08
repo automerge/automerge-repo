@@ -17,9 +17,14 @@ interface MessageDetails {
   message: Uint8Array
 }
 
+interface DisconnectedDetails {
+  peerId: string
+}
+
 export interface NetworkAdapterEvents {
-  "peer-candidate": (msg: PeerCandidateDetails) => void
-  message: (msg: MessageDetails) => void
+  "peer-candidate": (event: PeerCandidateDetails) => void
+  "peer-disconnected": (event: DisconnectedDetails) => void
+  message: (event: MessageDetails) => void
 }
 
 export interface NetworkEvents {

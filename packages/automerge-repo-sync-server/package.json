@@ -5,9 +5,10 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "start": "node ./src/index.js"
+    "start": "node --prof ./src/index.js"
   },
   "dependencies": {
+    "@automerge/automerge": "^2.0.0-alpha.4",
     "automerge-repo": "*",
     "automerge-repo-network-websocket": "*",
     "automerge-repo-storage-nodefs": "*",
