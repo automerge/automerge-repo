@@ -1,7 +1,8 @@
 import { Doc } from "@automerge/automerge"
 import {
   DocHandle,
-  DocHandleEventArg,
+  DocHandleChangeEventArg,
+  DocHandlePatchEventArg,
   DocCollection,
   DocumentId,
 } from "automerge-repo"
@@ -39,7 +40,7 @@ export function useDocument<T>(
       return
     }
     handle.value().then((v) => setDoc(v as Doc<T>))
-    const listener = (h: DocHandleEventArg<T>) => setDoc(h.doc as Doc<T>)
+    const listener = (h: DocHandleChangeEventArg<T>) => setDoc(h.doc as Doc<T>)
     handle.on("change", listener)
 
     return () => {

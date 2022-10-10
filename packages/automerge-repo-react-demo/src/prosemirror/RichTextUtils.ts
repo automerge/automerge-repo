@@ -26,6 +26,22 @@ export function attributedTextChanges(
     .attribute(textObj, prevHeads, [newHeads])
 }
 
+export function getTextChanges(
+  doc: Automerge.Doc<unknown>,
+  prevHeads: Automerge.Doc<unknown>,
+  objId: string
+): any {
+  const newHeads = (Automerge as any).getBackend(doc).getHeads()
+  const textObj = (Automerge as any).getBackend(doc).get("_root", objId)
+
+  if (!textObj) {
+    console.warn(`textChanges: ${objId} was not found in the document`)
+    return []
+  }
+
+  return []
+}
+
 export function getObjId(
   doc: Automerge.Doc<unknown>,
   objId: string,

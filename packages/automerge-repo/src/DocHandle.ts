@@ -57,6 +57,21 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
+  getPatchCallback() {
+    return (patch: any, before: any, after: any) => {
+      const { documentId } = this
+      const doc: Automerge.Doc<T> = this.doc!
+      this.emit('patch', {
+        handle: this,
+        documentId,
+        doc,
+        patch,
+        before,
+        after
+      })
+    }
+  }
+
   async value() {
     if (!this.doc) {
       // TODO: this bit of jank blocks anyone else getting the value before the first time data gets
@@ -70,13 +85,23 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 }
 
-export interface DocHandleEventArg<T> {
+export interface DocHandleChangeEventArg<T> {
   handle: DocHandle<T>
   documentId: DocumentId
   doc: Automerge.Doc<T>
   changes: Uint8Array[]
 }
 
+export interface DocHandlePatchEventArg<T> {
+  handle: DocHandle<T>
+  documentId: DocumentId
+  doc: Automerge.Doc<T>
+  patch: any
+  before: any
+  after: any
+}
+
 export interface DocHandleEvents<T> {
-  change: (event: DocHandleEventArg<T>) => void
+  change: (event: DocHandleChangeEventArg<T>) => void
+  patch: (event: DocHandlePatchEventArg<T>) => void
 }

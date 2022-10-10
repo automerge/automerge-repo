@@ -37,7 +37,10 @@ export async function Repo(config: RepoConfig) {
     // With no storage system, there's no hope of loading.
     // We need to unblock the synchronizer to go find the doc.
     docCollection.on("document", async ({ handle }) => {
-      handle.replace(Automerge.init())
+      // ngl, this is kind of gross but I'm not sure how else to do this without
+      // calling init() in handle (and I'm trying to avoid changing too much atm).
+      const patchCallback = handle.getPatchCallback()
+      handle.replace(Automerge.init({patchCallback}))
     })
   }
 
