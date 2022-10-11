@@ -19,25 +19,12 @@ export async function Repo(config: RepoConfig) {
 
   if (storage) {
     const storageSubsystem = new StorageSubsystem(storage)
-    docCollection.on("document", async ({ handle, justCreated }) => {
-      if (!justCreated) {
-        const savedDoc = await storageSubsystem.load(handle.documentId)
-        if (savedDoc) {
-          handle.replace(savedDoc)
-        } else {
-          handle.replace(Automerge.init())
-        }
-      }
-
-      handle.on("change", ({ documentId, doc, changes }) =>
-        storageSubsystem.save(documentId, doc, changes)
-      )
-    })
-  } else {
-    // With no storage system, there's no hope of loading.
-    // We need to unblock the synchronizer to go find the doc.
     docCollection.on("document", async ({ handle }) => {
-      handle.replace(Automerge.init())
+      handle.doc = await storageSubsystem.load(handle.documentId, handle.doc)
+
+      handle.on("change", ({ handle }) =>
+        storageSubsystem.save(handle.documentId, handle.doc)
+      )
     })
   }
 

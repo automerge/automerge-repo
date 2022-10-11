@@ -14,17 +14,21 @@ export class StorageSubsystem {
     this.storageAdapter = storageAdapter
   }
 
-  queuedChanges: { [documentId: DocumentId]: Uint8Array[] } = {}
+  incrementalChanges: { [docId: DocumentId]: number } = {}
 
-  saveIncremental(documentId: DocumentId, newChanges: Uint8Array[]) {
-    if (!this.queuedChanges[documentId]) {
-      this.queuedChanges[documentId] = []
-    }
-    const changes = this.queuedChanges[documentId]
-    for (const change of newChanges) {
-      changes.push(change)
-      const index = changes.length - 1
-      this.storageAdapter.save(`${documentId}.incremental.${index}`, change)
+  saveIncremental(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
+    const binary = Automerge.getBackend(doc).saveIncremental()
+    if (binary && binary.length > 0) {
+      if (!this.incrementalChanges[documentId]) {
+        this.incrementalChanges[documentId] = 0
+      }
+
+      this.storageAdapter.save(
+        `${documentId}.incremental.${this.incrementalChanges[documentId]}`,
+        binary
+      )
+
+      this.incrementalChanges[documentId]++
     }
   }
 
@@ -32,64 +36,54 @@ export class StorageSubsystem {
     const binary = Automerge.save(doc)
     this.storageAdapter.save(`${documentId}.snapshot`, binary)
 
-    const changes = this.queuedChanges[documentId] || []
-    changes.forEach((c, index) => {
-      this.storageAdapter.remove(`${documentId}.incremental.${index}`)
-    })
-    this.queuedChanges[documentId] = []
-  }
-
-  async loadWithIncremental(
-    documentId: DocumentId
-  ): Promise<Automerge.Doc<unknown>> {
-    const binary = await this.storageAdapter.load(`${documentId}.snapshot`)
-    // TODO: this is bad because we really only want to do this if we *have* incremental changes
-    if (!binary) {
-      // console.log("no binary, gonna just do an init()")
+    for (let i = 0; i < this.incrementalChanges[documentId]; i++) {
+      this.storageAdapter.remove(`${documentId}.incremental.${i}`)
     }
 
-    let doc = binary ? Automerge.load(binary) : Automerge.init()
+    this.incrementalChanges[documentId] = 0
+  }
 
-    const changes = this.queuedChanges[documentId] || []
+  async load(
+    documentId: DocumentId,
+    doc: Automerge.Doc<unknown>
+  ): Promise<Automerge.Doc<unknown>> {
+    let binary = await this.storageAdapter.load(`${documentId}.snapshot`)
+    console.log(documentId, "got binary", binary)
+
+    if (binary && binary.length > 0) {
+      // TODO: this generates patches for every change along the way
+      doc = Automerge.loadIncremental(doc, binary)
+      console.log(documentId, "loaded base", JSON.stringify(doc))
+    }
 
     let index = 0
-    let change
-    // eslint-disable-next-line no-await-in-loop, no-cond-assign
     while (
-      (change = await this.storageAdapter.load(
+      (binary = await this.storageAdapter.load(
         `${documentId}.incremental.${index}`
       ))
     ) {
-      // console.log("found a change:", change)
-      changes.push(change)
-      // applyChanges has a second return we don't need, so we destructure here
-      ;[doc] = Automerge.applyChanges(doc, [change])
+      if (binary && binary.length > 0) {
+        doc = Automerge.loadIncremental(doc, binary)
+      }
       index += 1
     }
 
-    this.queuedChanges[documentId] = changes
+    this.incrementalChanges[documentId] = index
+
+    console.log(documentId, "loaded base", JSON.stringify(doc))
     return doc
   }
 
   // TODO: make this, you know, good.
   shouldCompact(documentId: DocumentId) {
-    const numQueued = (this.queuedChanges[documentId] || []).length
-    return numQueued >= 3
+    return this.incrementalChanges[documentId] >= 2
   }
 
-  save(
-    documentId: DocumentId,
-    doc: Automerge.Doc<unknown>,
-    changes: Uint8Array[]
-  ) {
+  save(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
     if (this.shouldCompact(documentId)) {
       this.saveTotal(documentId, doc)
     } else {
-      this.saveIncremental(documentId, changes)
+      this.saveIncremental(documentId, doc)
     }
-  }
-
-  async load(docId: DocumentId): Promise<Automerge.Doc<unknown>> {
-    return this.loadWithIncremental(docId)
   }
 }

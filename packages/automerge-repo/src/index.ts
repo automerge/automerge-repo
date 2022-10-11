@@ -1,5 +1,5 @@
 import { DocCollection } from "./DocCollection.js"
-import { DocHandle, DocHandleEventArg, DocumentId } from "./DocHandle.js"
+import { DocHandle, DocHandlePatchEvent, DocumentId } from "./DocHandle.js"
 import {
   DecodedMessage,
   NetworkAdapter,
@@ -17,7 +17,7 @@ export {
   DocCollection,
   DocHandle,
   DocumentId,
-  DocHandleEventArg,
+  DocHandlePatchEvent,
   DecodedMessage,
   NetworkSubsystem,
   NetworkAdapter,
