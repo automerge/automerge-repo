@@ -1,5 +1,6 @@
 import EventEmitter from "eventemitter3"
 import * as Automerge from "@automerge/automerge"
+import { Doc } from "@automerge/automerge"
 
 export type DocumentId = string & { __documentId: true }
 
@@ -22,52 +23,31 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       throw new Error("Need a document ID for this DocHandle.")
     }
     this.documentId = documentId
-    this.doc = Automerge.init()
+    this.doc = Automerge.init({
+      patchCallback: (
+        patch: any, // Automerge.Patch,
+        before: Automerge.Doc<T>,
+        after: Automerge.Doc<T>
+      ) => this.__notifyPatchListeners(patch, before, after),
+    })
+  }
+
+  updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
+    // make sure doc is a new version of the old doc somehow...
+    this.__notifyChangeListeners(callback(this.doc))
   }
 
   ready() {
     return this.anyChangeHappened === true
   }
 
-  finishedLoading(doc: T) {
-    this.__notifyChangeListeners(doc)
-  }
-
   change(callback: (doc: T) => void) {
-    const newDoc = Automerge.change<T>(
-      this.doc,
-      {
-        patchCallback: (
-          patch: any, // Automerge.Patch,
-          before: Automerge.Doc<T>,
-          after: Automerge.Doc<T>
-        ) => this.__notifyPatchListeners(patch, before, after),
-      },
-      callback
-    )
+    const newDoc = Automerge.change<T>(this.doc, callback)
     this.__notifyChangeListeners(newDoc)
-  }
-
-  receiveSyncMessage(syncState: Automerge.SyncState, message: Uint8Array) {
-    const [newDoc, newSyncState] = Automerge.receiveSyncMessage(
-      this.doc,
-      syncState,
-      message,
-      {
-        patchCallback: (
-          patch: any, // Automerge.Patch,
-          before: Automerge.Doc<T>,
-          after: Automerge.Doc<T>
-        ) => this.__notifyPatchListeners(patch, before, after),
-      }
-    )
-    this.__notifyChangeListeners(newDoc)
-    return newSyncState
   }
 
   __notifyChangeListeners(newDoc: Automerge.Doc<T>) {
     this.anyChangeHappened = true
-    const oldDoc = this.doc
     this.doc = newDoc
 
     this.emit("change", {

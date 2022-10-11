@@ -72,10 +72,15 @@ export class DocSynchronizer
   }
 
   async onSyncMessage(peerId: string, message: Uint8Array) {
-    this.setSyncState(
-      peerId,
-      this.handle.receiveSyncMessage(this.getSyncState(peerId), message)
-    )
+    this.handle.updateDoc((doc) => {
+      const [newDoc, newSyncState] = Automerge.receiveSyncMessage(
+        doc,
+        this.getSyncState(peerId),
+        message
+      )
+      this.setSyncState(peerId, newSyncState)
+      return newDoc
+    })
   }
 
   async syncWithPeers() {
