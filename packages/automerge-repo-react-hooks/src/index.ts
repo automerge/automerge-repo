@@ -41,7 +41,7 @@ export function useDocument<T>(
     handle.value().then((v) => setDoc(v as Doc<T>))
     const listener = (h: DocHandlePatchEvent<T>) =>
       setDoc(h.handle.doc as Doc<T>) // TODO: this is kinda gross
-    handle.on("patch", listener)
+    handle.on("change", listener)
 
     return () => {
       handle.removeListener("change", listener)

@@ -9,7 +9,7 @@ export type DocumentId = string & { __documentId: true }
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   doc: Automerge.Doc<T>
   documentId: DocumentId
-  anyDataReceived = false // TODO: wait until we have the whole doc
+  anyChangeHappened = false // TODO: wait until we have the whole doc
 
   // TODO: DocHandle is kind of terrible because we have to be careful to preserve a 1:1
   // relationship between handles and documentIds or else we have split-brain on listeners.
@@ -22,17 +22,29 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       throw new Error("Need a document ID for this DocHandle.")
     }
     this.documentId = documentId
-    this.doc = Automerge.init({
-      patchCallback: (
-        patch: any, // Automerge.Patch,
-        before: Automerge.Doc<T>,
-        after: Automerge.Doc<T>
-      ) => this.__notifyPatchListeners(patch, before, after),
-    })
+    this.doc = Automerge.init()
+  }
+
+  ready() {
+    return this.anyChangeHappened === true
+  }
+
+  finishedLoading(doc: T) {
+    this.__notifyChangeListeners(doc)
   }
 
   change(callback: (doc: T) => void) {
-    const newDoc = Automerge.change<T>(this.doc, callback)
+    const newDoc = Automerge.change<T>(
+      this.doc,
+      {
+        patchCallback: (
+          patch: any, // Automerge.Patch,
+          before: Automerge.Doc<T>,
+          after: Automerge.Doc<T>
+        ) => this.__notifyPatchListeners(patch, before, after),
+      },
+      callback
+    )
     this.__notifyChangeListeners(newDoc)
   }
 
@@ -40,13 +52,21 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     const [newDoc, newSyncState] = Automerge.receiveSyncMessage(
       this.doc,
       syncState,
-      message
+      message,
+      {
+        patchCallback: (
+          patch: any, // Automerge.Patch,
+          before: Automerge.Doc<T>,
+          after: Automerge.Doc<T>
+        ) => this.__notifyPatchListeners(patch, before, after),
+      }
     )
     this.__notifyChangeListeners(newDoc)
     return newSyncState
   }
 
   __notifyChangeListeners(newDoc: Automerge.Doc<T>) {
+    this.anyChangeHappened = true
     const oldDoc = this.doc
     this.doc = newDoc
 
@@ -60,12 +80,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     before: Automerge.Doc<T>,
     after: Automerge.Doc<T>
   ) {
-    console.log(this.documentId, "pitched", patch, JSON.stringify(this.doc))
-    this.doc = after
+    console.log(this.documentId, "patchola", patch, JSON.stringify(after))
+    // @ts-ignore-next-line
     this.emit("patch", { handle: this, patch, before, after })
   }
 
   async value() {
+    if (!this.ready()) {
+      await new Promise((resolve) => this.once("change", () => resolve(true)))
+    }
     return this.doc
   }
 }

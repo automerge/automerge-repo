@@ -64,6 +64,12 @@ export class StorageSubsystem {
     ) {
       if (binary && binary.length > 0) {
         doc = Automerge.loadIncremental(doc, binary)
+        console.log(
+          documentId,
+          "loaded incremental ",
+          index,
+          JSON.stringify(doc)
+        )
       }
       index += 1
     }

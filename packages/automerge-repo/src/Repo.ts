@@ -20,7 +20,9 @@ export async function Repo(config: RepoConfig) {
   if (storage) {
     const storageSubsystem = new StorageSubsystem(storage)
     docCollection.on("document", async ({ handle }) => {
-      handle.doc = await storageSubsystem.load(handle.documentId, handle.doc)
+      handle.finishedLoading(
+        await storageSubsystem.load(handle.documentId, handle.doc)
+      )
 
       handle.on("change", ({ handle }) =>
         storageSubsystem.save(handle.documentId, handle.doc)
