@@ -1,5 +1,8 @@
 import EventEmitter from "eventemitter3"
-import { NetworkAdapter, NetworkAdapterEvents } from "../../src/network/Network"
+import {
+  NetworkAdapter,
+  NetworkAdapterEvents,
+} from "../../src/network/NetworkSubsystem"
 
 export class DummyNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>

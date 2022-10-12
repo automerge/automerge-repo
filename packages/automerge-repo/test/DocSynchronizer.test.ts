@@ -1,11 +1,10 @@
 import assert from "assert"
 import * as Automerge from "@automerge/automerge"
-import { DocHandle } from "../src/DocHandle"
+import { DocHandle, DocumentId } from "../src/DocHandle"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
 
 describe("DocSynchronizer", () => {
-  const handle = new DocHandle("synced-doc")
-  handle.replace(Automerge.init())
+  const handle = new DocHandle("synced-doc" as DocumentId)
   const docSynchronizer = new DocSynchronizer(handle)
 
   it("should take the handle passed into it", () => {

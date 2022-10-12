@@ -4,12 +4,13 @@ import path from "path"
 
 import assert from "assert"
 import Automerge from "@automerge/automerge"
-import { MemoryStorageAdapter } from "../src/storage/interfaces/MemoryStorageAdapter"
-import { NodeFSStorageAdapter } from "../src/storage/interfaces/NodeFSStorageAdapter"
+import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
+import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
 import {
   StorageSubsystem,
   StorageAdapter,
 } from "../src/storage/StorageSubsystem"
+import { DocumentId } from "../dist"
 
 describe("StorageSubsystem", () => {
   it("should accept a storage adapter at construction", () => {
@@ -27,8 +28,11 @@ describe("StorageSubsystem", () => {
       d.foo = "bar"
     })
 
-    storage.saveTotal("test-key", doc)
-    const result: any = await storage.load("test-key")
+    storage.saveTotal("test-key" as DocumentId, doc)
+    const result: any = await storage.load(
+      "test-key" as DocumentId,
+      Automerge.init()
+    )
     return result.foo === "bar"
   }
 

@@ -1,8 +1,8 @@
 import assert from "assert"
-import { AutomergeNetwork as Network } from "../src/network/Network"
+import { NetworkSubsystem } from "../src/network/NetworkSubsystem"
 
 describe("Network", () => {
   it("TODO", () => {
-    const network = new Network([])
+    const network = new NetworkSubsystem([])
   })
 })
