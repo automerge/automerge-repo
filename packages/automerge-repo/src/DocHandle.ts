@@ -17,7 +17,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   // It would be easier just to have one repo object to pass around but that means giving
   // total repo access to everything which seems gratuitous to me.
 
-  constructor(documentId: DocumentId) {
+  constructor(documentId: DocumentId, newDoc = false) {
     super()
     if (!documentId) {
       throw new Error("Need a document ID for this DocHandle.")
@@ -30,6 +30,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         after: Automerge.Doc<T>
       ) => this.__notifyPatchListeners(patch, before, after),
     })
+    // new documents don't need to block on an initial value setting
+    if (newDoc) {
+      this.anyChangeHappened = true
+    }
   }
 
   ready() {

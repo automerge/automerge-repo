@@ -4,7 +4,7 @@ import { DocHandle, DocumentId } from "../src/DocHandle"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
 
 describe("DocSynchronizer", () => {
-  const handle = new DocHandle("synced-doc" as DocumentId)
+  const handle = new DocHandle("synced-doc" as DocumentId, true)
   const docSynchronizer = new DocSynchronizer(handle)
 
   it("should take the handle passed into it", () => {

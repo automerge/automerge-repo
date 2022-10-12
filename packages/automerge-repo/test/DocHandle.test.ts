@@ -19,7 +19,7 @@ describe("DocHandle", () => {
     assert(handle.ready() === true)
   })
 
-  it.only("should not return a value until ready()", (done) => {
+  it("should not return a value until ready()", (done) => {
     const handle = new DocHandle("test-document-id" as DocumentId)
     assert(handle.ready() === false)
     let tooSoon = true
@@ -38,7 +38,7 @@ describe("DocHandle", () => {
     })
   })
 
-  it.only("should block changes until ready()", (done) => {
+  it("should block changes until ready()", (done) => {
     const handle = new DocHandle("test-document-id" as DocumentId)
     assert(handle.ready() === false)
     let tooSoon = true
@@ -58,7 +58,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a change message when changes happen", (done) => {
-    const handle = new DocHandle<any>("test-document-id" as DocumentId)
+    const handle = new DocHandle<any>("test-document-id" as DocumentId, true)
     handle.on("change", ({ handle }) => {
       assert(handle.doc.foo === "bar")
       done()
@@ -69,7 +69,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a patch message when changes happen", (done) => {
-    const handle = new DocHandle<any>("test-document-id" as DocumentId)
+    const handle = new DocHandle<any>("test-document-id" as DocumentId, true)
     handle.on("patch", ({ handle, patch, after }) => {
       console.log(patch)
       assert.deepEqual(patch, {
@@ -87,11 +87,8 @@ describe("DocHandle", () => {
     })
   })
 
-  it.only("should not emit a patch message if no change happens", (done) => {
-    const handle = new DocHandle<any>("test-document-id" as DocumentId)
-    handle.updateDoc((doc) =>
-      Automerge.change(doc, (d: any) => (d.foo = "bar"))
-    )
+  it("should not emit a patch message if no change happens", (done) => {
+    const handle = new DocHandle<any>("test-document-id" as DocumentId, true)
     handle.on("patch", () => {
       done(new Error("shouldn't have patched"))
     })
