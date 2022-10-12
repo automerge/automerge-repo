@@ -32,18 +32,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
-  updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
-    // make sure doc is a new version of the old doc somehow...
-    this.__notifyChangeListeners(callback(this.doc))
-  }
-
   ready() {
     return this.anyChangeHappened === true
   }
 
-  change(callback: (doc: T) => void) {
-    const newDoc = Automerge.change<T>(this.doc, callback)
-    this.__notifyChangeListeners(newDoc)
+  updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
+    // make sure doc is a new version of the old doc somehow...
+    this.__notifyChangeListeners(callback(this.doc))
   }
 
   __notifyChangeListeners(newDoc: Automerge.Doc<T>) {
@@ -60,7 +55,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     before: Automerge.Doc<T>,
     after: Automerge.Doc<T>
   ) {
-    console.log(this.documentId, "patchola", patch, JSON.stringify(after))
     // @ts-ignore-next-line
     this.emit("patch", { handle: this, patch, before, after })
   }
@@ -70,6 +64,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       await new Promise((resolve) => this.once("change", () => resolve(true)))
     }
     return this.doc
+  }
+
+  // A handy convenience method but not strictly required...
+  change(callback: (doc: T) => void) {
+    this.value().then((doc) => {
+      const newDoc = Automerge.change<T>(doc, callback)
+      this.__notifyChangeListeners(newDoc)
+    })
   }
 }
 
