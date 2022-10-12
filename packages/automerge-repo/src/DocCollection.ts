@@ -9,18 +9,22 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     super()
   }
 
-  cacheHandle(documentId: DocumentId): DocHandle<unknown> {
+  cacheHandle(documentId: DocumentId, newDoc: boolean): DocHandle<unknown> {
     if (this.handles[documentId]) {
       return this.handles[documentId]
     }
-    const handle = new DocHandle<unknown>(documentId)
+    const handle = new DocHandle<unknown>(documentId, newDoc)
     this.handles[documentId] = handle
     return handle
   }
 
+  // TODO: this should really insist on initial value of T
+  // (but: we need to make sure the storage system will collect it)
+  // (next: we need to have some kind of reify function)
+  // (then: cambria!)
   create<T>(): DocHandle<T> {
     const documentId = v4() as DocumentId
-    const handle = this.cacheHandle(documentId) as DocHandle<T>
+    const handle = this.cacheHandle(documentId, true) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }
@@ -35,7 +39,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     if (this.handles[documentId]) {
       return this.handles[documentId] as DocHandle<T>
     }
-    const handle = this.cacheHandle(documentId)
+    const handle = this.cacheHandle(documentId, false)
 
     // we don't directly initialize a value here because
     // the StorageSubsystem and Synchronizers go and get the data
