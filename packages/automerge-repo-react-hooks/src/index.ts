@@ -1,9 +1,9 @@
 import { Doc } from "@automerge/automerge"
 import {
   DocHandle,
-  DocHandlePatchEvent,
   DocCollection,
   DocumentId,
+  DocHandleChangeEvent,
 } from "automerge-repo"
 import { useEffect, useState, createContext, useContext } from "react"
 
@@ -39,7 +39,7 @@ export function useDocument<T>(
       return
     }
     handle.value().then((v) => setDoc(v as Doc<T>))
-    const listener = (h: DocHandlePatchEvent<T>) =>
+    const listener = (h: DocHandleChangeEvent<T>) =>
       setDoc(h.handle.doc as Doc<T>) // TODO: this is kinda gross
     handle.on("change", listener)
 
