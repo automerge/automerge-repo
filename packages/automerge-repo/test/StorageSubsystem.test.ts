@@ -29,10 +29,7 @@ describe("StorageSubsystem", () => {
     })
 
     storage.saveTotal("test-key" as DocumentId, doc)
-    const result: any = await storage.load(
-      "test-key" as DocumentId,
-      Automerge.init()
-    )
+    const result: any = await storage.load("test-key" as DocumentId)
     return result.foo === "bar"
   }
 
