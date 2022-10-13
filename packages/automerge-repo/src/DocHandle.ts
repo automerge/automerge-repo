@@ -40,12 +40,20 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.anyChangeHappened === true
   }
 
+  loadIncremental(binary: Uint8Array) {
+    const newDoc = Automerge.loadIncremental(this.doc, binary)
+    this.__notifyChangeListeners(newDoc)
+  }
+
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
     // make sure doc is a new version of the old doc somehow...
     this.__notifyChangeListeners(callback(this.doc))
   }
 
   __notifyChangeListeners(newDoc: Automerge.Doc<T>) {
+    if ("then" in newDoc) {
+      throw new Error("this appears to be a promise")
+    }
     this.anyChangeHappened = true
     this.doc = newDoc
 

@@ -7,6 +7,23 @@ export interface StorageAdapter {
   remove(docId: string): void
 }
 
+function mergeArrays(myArrays: Uint8Array[]) {
+  // Get the total length of all arrays.
+  let length = 0
+  myArrays.forEach((item) => {
+    length += item.length
+  })
+
+  // Create a new array with total length and merge all source arrays.
+  const mergedArray = new Uint8Array(length)
+  let offset = 0
+  myArrays.forEach((item) => {
+    mergedArray.set(item, offset)
+    offset += item.length
+  })
+
+  return mergedArray
+}
 export class StorageSubsystem {
   storageAdapter: StorageAdapter
 
@@ -43,41 +60,26 @@ export class StorageSubsystem {
     this.incrementalChanges[documentId] = 0
   }
 
-  async load(
-    documentId: DocumentId,
-    doc: Automerge.Doc<unknown>
-  ): Promise<Automerge.Doc<unknown>> {
-    let binary = await this.storageAdapter.load(`${documentId}.snapshot`)
-    console.log(documentId, "got binary", binary)
-
+  async load(storageKey: string): Promise<Uint8Array> {
+    const result = []
+    let binary = await this.storageAdapter.load(`${storageKey}.snapshot`)
     if (binary && binary.length > 0) {
-      // TODO: this generates patches for every change along the way
-      doc = Automerge.loadIncremental(doc, binary)
-      console.log(documentId, "loaded base", JSON.stringify(doc))
+      result.push(binary)
     }
 
     let index = 0
     while (
       (binary = await this.storageAdapter.load(
-        `${documentId}.incremental.${index}`
+        `${storageKey}.incremental.${index}`
       ))
     ) {
       if (binary && binary.length > 0) {
-        doc = Automerge.loadIncremental(doc, binary)
-        console.log(
-          documentId,
-          "loaded incremental ",
-          index,
-          JSON.stringify(doc)
-        )
+        result.push(binary)
       }
       index += 1
     }
 
-    this.incrementalChanges[documentId] = index
-
-    console.log(documentId, "loaded base", JSON.stringify(doc))
-    return doc
+    return mergeArrays(result)
   }
 
   // TODO: make this, you know, good.
