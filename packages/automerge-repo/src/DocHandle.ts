@@ -4,24 +4,42 @@ import { Doc } from "@automerge/automerge"
 
 export type DocumentId = string & { __documentId: true }
 
+type HandleState = "loading" | "syncing" | "ready"
+/*
+ * Handle Lifecycle
+ * We need to carefully orchestrate document loading in order
+ * to avoid requesting data we already have or surfacing intermediate
+ * values to the consumer above.
+ *
+ *                        handle.state
+ * ┌───────────────┐      ┌─────────┐
+ * │new DocHandle()│  ┌──►│ loading ├─┐
+ * ├─────────────┬─┘  │   ├─────────┤ │ via loadIncremental()
+ * ├─────────────┤    │   ├─────────┤ │  or unblockSync()
+ * │find()       ├────┘ ┌─┤ syncing ├─┘
+ * ├─────────────┤      │ ├─────────┤
+ * │create()     ├────┐ │ ├─────────┤   via receiveSyncMessage()
+ * └─────────────┘    └►└►│ ready   │    or create()
+ *                        └─────────┘
+ *  ┌────────────┐
+ *  │value()     │ <- blocks until "ready"
+ *  ├────────────┤
+ *  │syncValue() │ <- blocks until "syncing"
+ *  └────────────┘
+ *
+ * TODO: W
+ */
+
 /**
  * DocHandle is a wrapper around a single Automerge document that allows us to listen for changes.
  */
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   doc: Automerge.Doc<T>
   documentId: DocumentId
-  anyChangeHappened = false // TODO: wait until we have the whole doc
-
-  // TODO: DocHandle is kind of terrible because we have to be careful to preserve a 1:1
-  // relationship between handles and documentIds or else we have split-brain on listeners.
-  // It would be easier just to have one repo object to pass around but that means giving
-  // total repo access to everything which seems gratuitous to me.
+  state: HandleState = "loading"
 
   constructor(documentId: DocumentId, newDoc = false) {
     super()
-    if (!documentId) {
-      throw new Error("Need a document ID for this DocHandle.")
-    }
     this.documentId = documentId
     this.doc = Automerge.init({
       patchCallback: (
@@ -30,22 +48,37 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         after: Automerge.Doc<T>
       ) => this.__notifyPatchListeners(patch, before, after),
     })
+
     // new documents don't need to block on an initial value setting
     if (newDoc) {
-      this.anyChangeHappened = true
+      this.state = "ready"
+      this.emit("ready")
     }
   }
 
   ready() {
-    return this.anyChangeHappened === true
+    return this.state === "ready"
   }
 
   loadIncremental(binary: Uint8Array) {
+    console.log(`[${this.documentId}]: loadIncremental`, this.doc)
     const newDoc = Automerge.loadIncremental(this.doc, binary)
+    if (this.state === "loading") {
+      this.state = "syncing"
+      this.emit("syncing")
+    }
     this.__notifyChangeListeners(newDoc)
   }
 
+  unblockSync() {
+    if (this.state === "loading") {
+      this.state = "syncing"
+      this.emit("syncing")
+    }
+  }
+
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
+    console.log(`[${this.documentId}]: updateDoc`, this.doc)
     // make sure doc is a new version of the old doc somehow...
     this.__notifyChangeListeners(callback(this.doc))
   }
@@ -54,7 +87,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if ("then" in newDoc) {
       throw new Error("this appears to be a promise")
     }
-    this.anyChangeHappened = true
+    this.state = "ready"
+    this.emit("ready")
     this.doc = newDoc
 
     this.emit("change", {
@@ -72,9 +106,21 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   async value() {
+    console.log(`[${this.documentId}]: value!-start ${this.state}`)
     if (!this.ready()) {
-      await new Promise((resolve) => this.once("change", () => resolve(true)))
+      await new Promise((resolve) => this.once("ready", () => resolve(true)))
     }
+    console.log(`[${this.documentId}]: value!!! `, this.doc)
+    return this.doc
+  }
+
+  async syncValue() {
+    console.log(`[${this.documentId}]: syncValue,`, this.doc)
+    if (this.state == "loading") {
+      console.log(`[${this.documentId}]: syncValue blocked,`, this.doc)
+      await new Promise((resolve) => this.once("syncing", () => resolve(true)))
+    }
+    console.log(`[${this.documentId}]: syncValue done,`, this.doc)
     return this.doc
   }
 
@@ -99,6 +145,8 @@ export interface DocHandlePatchEvent<T> {
 }
 
 export interface DocHandleEvents<T> {
+  syncing: () => void // HMM
+  ready: () => void // HMM
   change: (event: DocHandleChangeEvent<T>) => void
   patch: (event: DocHandlePatchEvent<T>) => void
 }

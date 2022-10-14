@@ -54,16 +54,18 @@ export class DocSynchronizer
     )
     this.setSyncState(peerId, newSyncState)
     if (message) {
-      // ensure we're sending good messages
-      Automerge.decodeSyncMessage(message)
-
+      console.log(
+        `[${this.handle.documentId}]: sendSync: ${message.byteLength}b to ${peerId}`
+      )
       this.emit("message", { peerId, documentId, message })
     }
   }
 
   async beginSync(peerId: string) {
+    console.log(`[${this.handle.documentId}]: beginSync`)
     const { documentId } = this.handle
-    const doc = await this.handle.value()
+    const doc = await this.handle.syncValue()
+    console.log(`[${this.handle.documentId}]: sendingSyncMessage`)
     this.sendSyncMessage(peerId, documentId, doc)
   }
 
@@ -73,6 +75,9 @@ export class DocSynchronizer
 
   async onSyncMessage(peerId: string, message: Uint8Array) {
     this.handle.updateDoc((doc) => {
+      console.log(
+        `[${this.handle.documentId}]: receiveSync: ${message.byteLength}b from ${peerId}`
+      )
       const [newDoc, newSyncState] = Automerge.receiveSyncMessage(
         doc,
         this.getSyncState(peerId),

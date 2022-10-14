@@ -21,11 +21,19 @@ export async function Repo(config: RepoConfig) {
     const storageSubsystem = new StorageSubsystem(storage)
     docCollection.on("document", async ({ handle }) => {
       const binary = await storageSubsystem.load(handle.documentId)
-      handle.loadIncremental(binary)
+      if (binary.byteLength > 0) {
+        handle.loadIncremental(binary)
+      } else {
+        handle.unblockSync()
+      }
 
       handle.on("change", ({ handle }) =>
         storageSubsystem.save(handle.documentId, handle.doc)
       )
+    })
+  } else {
+    docCollection.on("document", async ({ handle }) => {
+      handle.unblockSync()
     })
   }
 

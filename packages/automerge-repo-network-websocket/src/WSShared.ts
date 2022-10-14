@@ -34,6 +34,7 @@ export function sendMessage(
     encoded.byteOffset,
     encoded.byteOffset + encoded.byteLength
   )
+
   socket.send(arrayBuf)
 }
 
