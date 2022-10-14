@@ -35,6 +35,9 @@ export function sendMessage(
     encoded.byteOffset + encoded.byteLength
   )
 
+  console.log(
+    `[${senderId}@${channelId}]-> "sync" | ${arrayBuf.byteLength} bytes`
+  )
   socket.send(arrayBuf)
 }
 
@@ -94,17 +97,8 @@ export function receiveMessageServer(
   self: WebSocketNetworkAdapter
 ) {
   const cbor = CBOR.decode(message)
-  if (cbor.type === "sync") {
-    const inner_cbor = CBOR.decode(cbor.data)
-    console.log("received: ", {
-      ...cbor,
-      data: {
-        ...inner_cbor,
-        message: Automerge.decodeSyncMessage(inner_cbor.message),
-      },
-    })
-  }
   const { type, channelId, senderId, data } = cbor
+  console.log(`[${senderId}@${channelId}]-> ${type} | ${data.byteLength} bytes`)
   switch (type) {
     case "join":
       announceConnection(channelId, senderId, socket, self)
