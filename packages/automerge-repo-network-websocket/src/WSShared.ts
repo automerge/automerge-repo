@@ -12,6 +12,7 @@ export interface WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export function sendMessage(
+  destinationId: string,
   socket: WebSocket,
   channelId: string,
   senderId: string,
@@ -36,7 +37,7 @@ export function sendMessage(
   )
 
   console.log(
-    `[${senderId}@${channelId}]-> "sync" | ${arrayBuf.byteLength} bytes`
+    `[${senderId}->${destinationId}@${channelId}] "sync" | ${arrayBuf.byteLength} bytes`
   )
   socket.send(arrayBuf)
 }
@@ -56,7 +57,8 @@ function announceConnection(
   const connection: NetworkConnection = {
     close: () => socket.close(),
     isOpen: () => socket.readyState === WebSocket.OPEN,
-    send: (message) => sendMessage(socket, channelId, myPeerId, message),
+    send: (message) =>
+      sendMessage(peerId, socket, channelId, myPeerId, message),
   }
   self.emit("peer-candidate", { peerId, channelId, connection })
 }
@@ -98,7 +100,9 @@ export function receiveMessageServer(
 ) {
   const cbor = CBOR.decode(message)
   const { type, channelId, senderId, data } = cbor
-  console.log(`[${senderId}@${channelId}]-> ${type} | ${data.byteLength} bytes`)
+  console.log(
+    `[${senderId}->${self.peerId}@${channelId}] ${type} | ${data.byteLength} bytes`
+  )
   switch (type) {
     case "join":
       announceConnection(channelId, senderId, socket, self)
