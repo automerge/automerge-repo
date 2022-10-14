@@ -14,12 +14,12 @@ type HandleState = "loading" | "syncing" | "ready"
  *                        handle.state
  * ┌───────────────┐      ┌─────────┐
  * │new DocHandle()│  ┌──►│ loading ├─┐
- * ├─────────────┬─┘  │   ├─────────┤ │ via loadIncremental()
- * ├─────────────┤    │   ├─────────┤ │  or unblockSync()
- * │find()       ├────┘ ┌─┤ syncing ├─┘
- * ├─────────────┤      │ ├─────────┤
- * │create()     ├────┐ │ ├─────────┤   via receiveSyncMessage()
- * └─────────────┘    └►└►│ ready   │    or create()
+ * ├─────────────┬─┘  │ ┌┤├─────────┤ │ via loadIncremental()
+ * ├─────────────┤    │ └►├─────────┤ │  or unblockSync()
+ * │find()       ├────┘ ┌─┤ syncing │ │
+ * ├─────────────┤      │ ├─────────┤ │
+ * │create()     ├────┐ │ ├─────────┤ │ via receiveSyncMessage()
+ * └─────────────┘    └►└►│ ready   │►┘  or create()
  *                        └─────────┘
  *  ┌────────────┐
  *  │value()     │ <- blocks until "ready"
@@ -64,8 +64,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     console.log(`[${this.documentId}]: loadIncremental`, this.doc)
     const newDoc = Automerge.loadIncremental(this.doc, binary)
     if (this.state === "loading") {
-      this.state = "syncing"
-      this.emit("syncing")
+      this.state = "ready"
+      this.emit("ready")
     }
     this.__notifyChangeListeners(newDoc)
   }
@@ -87,8 +87,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if ("then" in newDoc) {
       throw new Error("this appears to be a promise")
     }
-    this.state = "ready"
-    this.emit("ready")
+    if (this.state != "ready") {
+      this.state = "ready"
+      this.emit("ready")
+    }
     this.doc = newDoc
 
     this.emit("change", {

@@ -15,9 +15,11 @@ export class MessageChannelNetworkAdapter
   }
 
   connect(peerId: string) {
+    console.log("messageport connecting")
     this.peerId = peerId
-
+    this.messagePort.start()
     this.messagePort.addEventListener("message", (e) => {
+      console.log("message port received", e.data)
       const { origin, destination, type, channelId, message } = e.data
       if (destination && destination !== this.peerId) {
         throw new Error(
