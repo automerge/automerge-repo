@@ -87,7 +87,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if ("then" in newDoc) {
       throw new Error("this appears to be a promise")
     }
-    if (this.state != "ready") {
+    const equalArrays = (a: unknown[], b: unknown[]) =>
+      a.length === b.length && a.every((element, index) => element === b[index])
+
+    if (
+      this.state != "ready" &&
+      // only go to ready if the heads changed
+      !equalArrays(Automerge.getHeads(newDoc), Automerge.getHeads(this.doc))
+    ) {
       this.state = "ready"
       this.emit("ready")
     }
