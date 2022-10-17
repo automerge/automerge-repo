@@ -135,8 +135,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   // A handy convenience method but not strictly required...
   change(callback: (doc: T) => void) {
-    this.value().then((doc) => {
-      const newDoc = Automerge.change<T>(doc, callback)
+    this.value().then(() => {
+      const newDoc = Automerge.change<T>(this.doc, callback)
       this.__notifyChangeListeners(newDoc)
     })
   }
