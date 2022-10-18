@@ -47,6 +47,7 @@ export class DocSynchronizer
     documentId: string,
     doc: Automerge.Doc<unknown>
   ) {
+    console.log(`[${this.handle.documentId}]: sendSyncMessage -> ${peerId}`)
     const syncState = this.getSyncState(peerId)
     const [newSyncState, message] = Automerge.generateSyncMessage(
       doc,
@@ -55,9 +56,13 @@ export class DocSynchronizer
     this.setSyncState(peerId, newSyncState)
     if (message) {
       console.log(
-        `[${this.handle.documentId}]: sendSync: ${message.byteLength}b to ${peerId}`
+        `[${this.handle.documentId}]: sendSyncMessage: ${message.byteLength}b to ${peerId}`
       )
       this.emit("message", { peerId, documentId, message })
+    } else {
+      console.log(
+        `[${this.handle.documentId}]: sendSyncMessage: [no message generated]`
+      )
     }
   }
 
@@ -89,11 +94,10 @@ export class DocSynchronizer
   }
 
   async syncWithPeers() {
-    // console.log("syncing with peers")
+    console.log(`[${this.handle.documentId}]: syncWithPeers`)
     const { documentId } = this.handle
-    const doc = await this.handle.value()
+    const doc = await this.handle.syncValue()
     this.peers.forEach((peerId) => {
-      // console.log("messaging peer", peerId)
       this.sendSyncMessage(peerId, documentId, doc)
     })
   }

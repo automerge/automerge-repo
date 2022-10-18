@@ -90,6 +90,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     const equalArrays = (a: unknown[], b: unknown[]) =>
       a.length === b.length && a.every((element, index) => element === b[index])
 
+    this.doc = newDoc
+
     if (
       this.state != "ready" &&
       // only go to ready if the heads changed
@@ -98,7 +100,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       this.state = "ready"
       this.emit("ready")
     }
-    this.doc = newDoc
 
     this.emit("change", {
       handle: this,

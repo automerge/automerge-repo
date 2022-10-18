@@ -101,7 +101,7 @@ export function receiveMessageServer(
   const cbor = CBOR.decode(message)
   const { type, channelId, senderId, data } = cbor
   console.log(
-    `[${senderId}->${self.peerId}@${channelId}] ${type} | ${data.byteLength} bytes`
+    `[${senderId}->${self.peerId}@${channelId}] ${type} | ${message.byteLength} bytes`
   )
   switch (type) {
     case "join":
