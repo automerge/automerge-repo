@@ -8,7 +8,7 @@ import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchroniz
 describe("CollectionSynchronizer", () => {
   it("TODO", async () => {
     const handle = new DocHandle("synced-doc" as DocumentId)
-    const repo = await Repo({
+    const repo = new Repo({
       storage: new MemoryStorageAdapter(),
       network: [new DummyNetworkAdapter()],
     })

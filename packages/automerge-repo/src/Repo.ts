@@ -46,8 +46,8 @@ export class Repo extends DocCollection {
     this.networkSubsystem = networkSubsystem
 
     const synchronizers: { [documentId: string]: CollectionSynchronizer } = {}
-    const generousSynchronizer = new CollectionSynchronizer(docCollection, true)
-    const shySynchronizer = new CollectionSynchronizer(docCollection, false)
+    const generousSynchronizer = new CollectionSynchronizer(this, true)
+    const shySynchronizer = new CollectionSynchronizer(this, false)
 
     // wire up the dependency synchronizers.
     networkSubsystem.on("peer", ({ peerId, channelId }) => {

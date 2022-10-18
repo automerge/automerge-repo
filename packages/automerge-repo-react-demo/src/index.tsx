@@ -2,10 +2,7 @@ import React, { StrictMode } from "react"
 import ReactDOM from "react-dom/client"
 import localforage from "localforage"
 
-import {
-  Repo,
-  DocCollection,
-} from "automerge-repo"
+import { Repo, DocCollection, DocumentId } from "automerge-repo"
 
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 
@@ -19,12 +16,10 @@ const sharedWorker = new SharedWorker(
 )
 
 async function getRepo(url: string): Promise<DocCollection> {
-  return await Repo({
-    network: [
-      new BroadcastChannelNetworkAdapter(),
-    ],
+  return new Repo({
+    network: [new BroadcastChannelNetworkAdapter()],
     sharePolicy: (peerId) => peerId.includes("shared-worker"),
-  });
+  })
 }
 
 async function getRootDocument(repo: DocCollection, initFunction: any) {
@@ -39,7 +34,7 @@ async function getRootDocument(repo: DocCollection, initFunction: any) {
     rootHandle.change(initFunction)
     await localforage.setItem("root", rootHandle.documentId)
   } else {
-    rootHandle = await repo.find(docId)
+    rootHandle = repo.find(docId as DocumentId)
     window.location.hash = docId
   }
   return rootHandle

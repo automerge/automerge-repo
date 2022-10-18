@@ -57,11 +57,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
   myPeerId
   peers: { [peerId: string]: NetworkConnection } = {}
+  channels: string[]
 
   constructor(networkAdapters: NetworkAdapter[], peerId?: string) {
     super()
     this.myPeerId = peerId || `user-${Math.round(Math.random() * 100000)}`
     console.log("we are peer id", this.myPeerId)
+
+    this.channels = []
 
     this.networkAdapters = networkAdapters
     networkAdapters.forEach((a) => this.addNetworkAdapter(a))
@@ -80,6 +83,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     networkAdapter.on("message", (msg) => {
       this.emit("message", msg)
     })
+
+    this.channels.forEach((c) => networkAdapter.join(c))
   }
 
   onMessage(peerId: string, message: Uint8Array) {
@@ -88,10 +93,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   }
 
   join(channelId: string) {
+    this.channels.push(channelId)
     this.networkAdapters.forEach((a) => a.join(channelId))
   }
 
   leave(channelId: string) {
+    this.channels = this.channels.filter((c) => c !== channelId)
     this.networkAdapters.forEach((a) => a.leave(channelId))
   }
 }

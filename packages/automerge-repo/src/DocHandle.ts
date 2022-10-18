@@ -27,7 +27,6 @@ type HandleState = "loading" | "syncing" | "ready"
  *  │syncValue() │ <- blocks until "syncing"
  *  └────────────┘
  *
- * TODO: W
  */
 
 /**
@@ -87,15 +86,17 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if ("then" in newDoc) {
       throw new Error("this appears to be a promise")
     }
+
+    const oldDoc = this.doc
+    this.doc = newDoc
+
     const equalArrays = (a: unknown[], b: unknown[]) =>
       a.length === b.length && a.every((element, index) => element === b[index])
-
-    this.doc = newDoc
 
     if (
       this.state != "ready" &&
       // only go to ready if the heads changed
-      !equalArrays(Automerge.getHeads(newDoc), Automerge.getHeads(this.doc))
+      !equalArrays(Automerge.getHeads(newDoc), Automerge.getHeads(oldDoc))
     ) {
       this.state = "ready"
       this.emit("ready")
@@ -116,21 +117,25 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   async value() {
-    console.log(`[${this.documentId}]: value!-start ${this.state}`)
     if (!this.ready()) {
+      console.log(
+        `[${this.documentId}]: value: (${this.state}, waiting for ready)`
+      )
       await new Promise((resolve) => this.once("ready", () => resolve(true)))
     }
-    console.log(`[${this.documentId}]: value!!! `, this.doc)
+    console.log(`[${this.documentId}]: value:`, this.doc)
     return this.doc
   }
 
   async syncValue() {
     console.log(`[${this.documentId}]: syncValue,`, this.doc)
     if (this.state == "loading") {
-      console.log(`[${this.documentId}]: syncValue blocked,`, this.doc)
+      console.log(
+        `[${this.documentId}]: value: (${this.state}, waiting for syncing)`
+      )
       await new Promise((resolve) => this.once("syncing", () => resolve(true)))
     }
-    console.log(`[${this.documentId}]: syncValue done,`, this.doc)
+    console.log(`[${this.documentId}]: syncValue:`, this.doc)
     return this.doc
   }
 
@@ -149,7 +154,7 @@ export interface DocHandleChangeEvent<T> {
 
 export interface DocHandlePatchEvent<T> {
   handle: DocHandle<T>
-  patch: any //Automerge.Patch
+  patch: any // Automerge.Patch
   before: Automerge.Doc<T>
   after: Automerge.Doc<T>
 }
