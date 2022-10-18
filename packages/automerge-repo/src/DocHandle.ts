@@ -112,7 +112,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     before: Automerge.Doc<T>,
     after: Automerge.Doc<T>
   ) {
-    // @ts-ignore-next-line
     this.emit("patch", { handle: this, patch, before, after })
   }
 

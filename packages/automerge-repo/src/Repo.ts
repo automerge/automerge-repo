@@ -1,5 +1,3 @@
-import * as Automerge from "@automerge/automerge"
-
 import { DocCollection } from "./DocCollection.js"
 import { NetworkSubsystem, NetworkAdapter } from "./network/NetworkSubsystem.js"
 import { StorageSubsystem, StorageAdapter } from "./storage/StorageSubsystem.js"
@@ -42,7 +40,6 @@ export class Repo extends DocCollection {
     }
 
     const networkSubsystem = new NetworkSubsystem(network, peerId)
-    // XXX this is a hack to expose the networkSubsystem temporarily
     this.networkSubsystem = networkSubsystem
 
     const synchronizers: { [documentId: string]: CollectionSynchronizer } = {}
