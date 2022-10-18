@@ -38,10 +38,13 @@ describe("Repo", () => {
     handle.change((d) => {
       d.foo = "bar"
     })
+    assert(handle.state === "ready")
     const handle2 = repo.find<TestDoc>(handle.documentId)
-    handle.value().then((v) => {
-      assert(v.foo === "bar")
+    assert(handle === handle2)
+    assert(handle2.ready())
+    handle2.value().then((v) => {
       done()
+      assert(v.foo === "bar")
     })
   })
 })
