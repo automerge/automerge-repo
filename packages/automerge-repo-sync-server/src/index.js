@@ -22,7 +22,7 @@ const config = {
 }
 
 const PORT = 3030
-const serverRepo = Repo(config)
+const serverRepo = new Repo(config)
 const app = express()
 app.use(express.static("public"))
 
