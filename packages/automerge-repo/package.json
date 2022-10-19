@@ -1,6 +1,6 @@
 {
   "name": "automerge-repo",
-  "version": "0.0.24",
+  "version": "0.0.25",
   "description": "A repository object to manage a collection of automerge documents",
   "repository": "https://github.com/pvh/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
