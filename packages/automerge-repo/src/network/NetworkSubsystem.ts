@@ -37,7 +37,7 @@ export interface NetworkEvents {
 
 export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
-  connect(clientId: PeerId): void
+  connect(url?: string): void
   join(channelId: ChannelId): void
   leave(channelId: ChannelId): void
 }
