@@ -4,5 +4,6 @@ import { NetworkSubsystem } from "../src/network/NetworkSubsystem"
 describe("Network", () => {
   it("TODO", () => {
     const network = new NetworkSubsystem([])
+    assert(network !== null)
   })
 })

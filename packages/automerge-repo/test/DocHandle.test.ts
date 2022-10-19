@@ -79,7 +79,7 @@ describe("DocHandle", () => {
       "test-document-id" as DocumentId,
       true
     )
-    handle.on("patch", ({ handle, patch, after }) => {
+    handle.on("patch", ({ /*handle,*/ patch, after }) => {
       console.log(patch)
       assert.deepEqual(patch, {
         action: "put",

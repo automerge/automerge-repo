@@ -1,10 +1,7 @@
-import * as Automerge from "@automerge/automerge"
 import { Repo } from "../src/Repo"
-import { DocHandle, DocumentId } from "../src/DocHandle"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import assert from "assert"
-import { Test } from "mocha"
 
 export interface TestDoc {
   foo: string

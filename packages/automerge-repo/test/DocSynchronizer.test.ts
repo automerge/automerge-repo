@@ -1,5 +1,4 @@
 import assert from "assert"
-import * as Automerge from "@automerge/automerge"
 import { DocHandle, DocumentId } from "../src/DocHandle"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
 import { PeerId } from "../src/network/NetworkSubsystem"
