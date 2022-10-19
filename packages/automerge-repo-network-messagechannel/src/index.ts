@@ -1,5 +1,10 @@
 import EventEmitter from "eventemitter3"
-import { NetworkAdapter, NetworkAdapterEvents } from "automerge-repo"
+import {
+  ChannelId,
+  NetworkAdapter,
+  NetworkAdapterEvents,
+  PeerId,
+} from "automerge-repo"
 
 export class MessageChannelNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
@@ -7,14 +12,14 @@ export class MessageChannelNetworkAdapter
 {
   channels = {}
   messagePort: MessagePort
-  peerId?: string
+  peerId?: PeerId
 
   constructor(messagePort: MessagePort) {
     super()
     this.messagePort = messagePort
   }
 
-  connect(peerId: string) {
+  connect(peerId: PeerId) {
     console.log("messageport connecting")
     this.peerId = peerId
     this.messagePort.start()
@@ -51,7 +56,7 @@ export class MessageChannelNetworkAdapter
     })
   }
 
-  announceConnection(channelId: string, peerId: string) {
+  announceConnection(channelId: ChannelId, peerId: PeerId) {
     // return a peer object
     const connection = {
       close: () => {

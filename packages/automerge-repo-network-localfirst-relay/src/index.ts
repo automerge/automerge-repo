@@ -1,6 +1,11 @@
 import { Client } from "@localfirst/relay-client"
 import EventEmitter from "eventemitter3"
-import { NetworkAdapter, NetworkAdapterEvents } from "automerge-repo"
+import {
+  ChannelId,
+  NetworkAdapter,
+  NetworkAdapterEvents,
+  PeerId,
+} from "automerge-repo"
 import WebSocket from "isomorphic-ws"
 
 export class LocalFirstRelayNetworkAdapter
@@ -15,7 +20,7 @@ export class LocalFirstRelayNetworkAdapter
     this.url = url
   }
 
-  announceConnection(channelId: string, peerId: string, socket: WebSocket) {
+  announceConnection(channelId: ChannelId, peerId: PeerId, socket: WebSocket) {
     // return a peer object
     const connection = {
       close: () => socket.close(),
@@ -38,30 +43,30 @@ export class LocalFirstRelayNetworkAdapter
     })
 
     this.client.on("peer.connect", (ev) => {
-      const documentId: string = ev.detail.documentId
-      const userName: string = ev.detail.userName
+      const channelId: ChannelId = ev.detail.documentId
+      const userName: PeerId = ev.detail.userName
       const socket: WebSocket = ev.detail.socket
 
       socket.binaryType = "arraybuffer"
-      this.announceConnection(documentId, userName, socket)
+      this.announceConnection(channelId, userName, socket)
 
       // listen for messages
       socket.onmessage = (e) => {
         const message = new Uint8Array(e.data as ArrayBuffer)
         this.emit("message", {
           senderId: userName,
-          channelId: documentId,
+          channelId,
           message,
         })
       }
     })
   }
 
-  join(docId: string) {
-    this.client!.join(docId)
+  join(channelId: ChannelId) {
+    this.client!.join(channelId)
   }
 
-  leave(docId: string) {
-    this.client!.leave(docId)
+  leave(channelId: ChannelId) {
+    this.client!.leave(channelId)
   }
 }

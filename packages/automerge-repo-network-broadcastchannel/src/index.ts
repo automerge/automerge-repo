@@ -1,20 +1,25 @@
 import EventEmitter from "eventemitter3"
-import { NetworkAdapter, NetworkAdapterEvents } from "automerge-repo"
+import {
+  ChannelId,
+  NetworkAdapter,
+  NetworkAdapterEvents,
+  PeerId,
+} from "automerge-repo"
 
 export class BroadcastChannelNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements NetworkAdapter
 {
   channels = {}
-  peerId?: string
+  peerId?: PeerId
 
-  connect(peerId: string) {
+  connect(peerId: PeerId) {
     this.peerId = peerId
   }
 
   announceConnection(
-    channelId: string,
-    peerId: string,
+    channelId: ChannelId,
+    peerId: PeerId,
     broadcastChannel: BroadcastChannel
   ) {
     // return a peer object
@@ -39,7 +44,7 @@ export class BroadcastChannelNetworkAdapter
     this.emit("peer-candidate", { peerId, channelId, connection })
   }
 
-  join(channelId: string) {
+  join(channelId: ChannelId) {
     const broadcastChannel = new BroadcastChannel(`doc-${channelId}`)
     broadcastChannel.postMessage({ origin: this.peerId, type: "arrive" })
     broadcastChannel.addEventListener("message", (e) => {
@@ -72,10 +77,10 @@ export class BroadcastChannelNetworkAdapter
     })
   }
 
-  leave(docId: string) {
+  leave(channelId: ChannelId) {
     // TODO
     throw new Error(
-      "Unimplemented: leave on BroadcastChannelNetworkAdapter: " + docId
+      "Unimplemented: leave on BroadcastChannelNetworkAdapter: " + channelId
     )
   }
 }

@@ -1,8 +1,10 @@
 import * as CBOR from "cbor-x"
 import {
+  ChannelId,
   DecodedMessage,
   NetworkAdapter,
   NetworkConnection,
+  PeerId,
 } from "automerge-repo"
 import * as Automerge from "@automerge/automerge"
 import WebSocket from "isomorphic-ws"
@@ -12,10 +14,10 @@ export interface WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export function sendMessage(
-  destinationId: string,
+  destinationId: PeerId,
   socket: WebSocket,
-  channelId: string,
-  senderId: string,
+  channelId: ChannelId,
+  senderId: PeerId,
   message: Uint8Array
 ) {
   if (message.byteLength === 0) {
@@ -43,10 +45,10 @@ export function sendMessage(
 }
 
 function prepareConnection(
-  channelId: string,
-  destinationId: string,
+  channelId: ChannelId,
+  destinationId: PeerId,
   socket: WebSocket,
-  sourceId: string
+  sourceId: PeerId
 ) {
   const connection: NetworkConnection = {
     close: () => socket.close(),
