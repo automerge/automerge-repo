@@ -1,7 +1,8 @@
 import EventEmitter from "eventemitter3"
 import { Synchronizer, SyncMessages } from "./Synchronizer"
 import * as Automerge from "@automerge/automerge"
-import { DocHandle } from "../DocHandle"
+import { DocHandle, DocumentId } from "../DocHandle"
+import { PeerId } from "../network/NetworkSubsystem"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -14,8 +15,8 @@ export class DocSynchronizer
   handle: DocHandle<unknown>
 
   // we track peers separately from syncStates because we might have more syncStates than active peers
-  peers: string[] = []
-  syncStates: { [peerId: string]: Automerge.SyncState } = {} // peer -> syncState
+  peers: PeerId[] = []
+  syncStates: { [peerId: PeerId]: Automerge.SyncState } = {} // peer -> syncState
 
   constructor(handle: DocHandle<unknown>) {
     super()
@@ -23,7 +24,7 @@ export class DocSynchronizer
     handle.on("change", () => this.syncWithPeers())
   }
 
-  getSyncState(peerId: string) {
+  getSyncState(peerId: PeerId) {
     if (!peerId) {
       throw new Error("Tried to load a missing peerId")
     }
@@ -38,13 +39,13 @@ export class DocSynchronizer
     return syncState
   }
 
-  setSyncState(peerId: string, syncState: Automerge.SyncState) {
+  setSyncState(peerId: PeerId, syncState: Automerge.SyncState) {
     this.syncStates[peerId] = syncState
   }
 
   async sendSyncMessage(
-    peerId: string,
-    documentId: string,
+    peerId: PeerId,
+    documentId: DocumentId,
     doc: Automerge.Doc<unknown>
   ) {
     console.log(`[${this.handle.documentId}]->[${peerId}]: sendSyncMessage`)
@@ -66,18 +67,18 @@ export class DocSynchronizer
     }
   }
 
-  async beginSync(peerId: string) {
+  async beginSync(peerId: PeerId) {
     console.log(`[${this.handle.documentId}]: beginSync: ${peerId}`)
     const { documentId } = this.handle
     const doc = await this.handle.syncValue()
     this.sendSyncMessage(peerId, documentId, doc)
   }
 
-  endSync(peerId: string) {
+  endSync(peerId: PeerId) {
     this.peers.filter((p) => p !== peerId)
   }
 
-  async onSyncMessage(peerId: string, message: Uint8Array) {
+  async onSyncMessage(peerId: PeerId, message: Uint8Array) {
     this.handle.updateDoc((doc) => {
       console.log(
         `[${this.handle.documentId}]: receiveSync: ${message.byteLength}b from ${peerId}`

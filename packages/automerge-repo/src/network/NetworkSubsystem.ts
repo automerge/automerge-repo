@@ -1,24 +1,27 @@
 import EventEmitter from "eventemitter3"
 
+export type PeerId = string & { __peerId: false }
+export type ChannelId = string & { __channelId: false }
+
 interface PeerCandidateDetails {
-  peerId: string
-  channelId: string
+  peerId: PeerId
+  channelId: ChannelId
   connection: NetworkConnection
 }
 
 interface PeerDetails {
-  peerId: string
-  channelId: string
+  peerId: PeerId
+  channelId: ChannelId
 }
 
 interface MessageDetails {
-  senderId: string
-  channelId: string
+  senderId: PeerId
+  channelId: ChannelId
   message: Uint8Array
 }
 
 interface DisconnectedDetails {
-  peerId: string
+  peerId: PeerId
 }
 
 export interface NetworkAdapterEvents {
@@ -33,16 +36,16 @@ export interface NetworkEvents {
 }
 
 export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
-  peerId?: string // hmmm, maybe not
-  connect(clientId: string): void
-  join(channelId: string): void
-  leave(channelId: string): void
+  peerId?: PeerId // hmmm, maybe not
+  connect(clientId: PeerId): void
+  join(channelId: ChannelId): void
+  leave(channelId: ChannelId): void
 }
 
 export interface DecodedMessage {
   type: string
-  senderId: string
-  channelId: string
+  senderId: PeerId
+  channelId: ChannelId
   data: Uint8Array
 }
 
@@ -55,13 +58,14 @@ export interface NetworkConnection {
 export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   networkAdapters: NetworkAdapter[] = []
 
-  myPeerId
-  peers: { [peerId: string]: NetworkConnection } = {}
-  channels: string[]
+  myPeerId: PeerId
+  peers: { [peerId: PeerId]: NetworkConnection } = {}
+  channels: ChannelId[]
 
-  constructor(networkAdapters: NetworkAdapter[], peerId?: string) {
+  constructor(networkAdapters: NetworkAdapter[], peerId?: PeerId) {
     super()
-    this.myPeerId = peerId || `user-${Math.round(Math.random() * 100000)}`
+    this.myPeerId =
+      peerId || (`user-${Math.round(Math.random() * 100000)}` as PeerId)
     console.log("we are peer id", this.myPeerId)
 
     this.channels = []
@@ -87,17 +91,17 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     this.channels.forEach((c) => networkAdapter.join(c))
   }
 
-  onMessage(peerId: string, message: Uint8Array) {
+  onMessage(peerId: PeerId, message: Uint8Array) {
     const peer = this.peers[peerId]
     peer.send(message)
   }
 
-  join(channelId: string) {
+  join(channelId: ChannelId) {
     this.channels.push(channelId)
     this.networkAdapters.forEach((a) => a.join(channelId))
   }
 
-  leave(channelId: string) {
+  leave(channelId: ChannelId) {
     this.channels = this.channels.filter((c) => c !== channelId)
     this.networkAdapters.forEach((a) => a.leave(channelId))
   }

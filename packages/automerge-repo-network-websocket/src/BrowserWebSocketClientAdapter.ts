@@ -4,23 +4,23 @@ import { NetworkAdapterEvents } from "automerge-repo"
 import WebSocket from "isomorphic-ws"
 
 import { receiveMessageClient, WebSocketNetworkAdapter } from "./WSShared.js"
+import { PeerId } from "automerge-repo/dist/network/NetworkSubsystem.js"
 
 export class BrowserWebSocketClientAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements WebSocketNetworkAdapter
 {
+  url: string
   client?: WebSocket
   timerId?: NodeJS.Timer
-  peerId?: string
-  url: string
-  openSockets: WebSocket[] = []
+  peerId?: PeerId
 
   constructor(url: string) {
     super()
     this.url = url
   }
 
-  connect(peerId: string) {
+  connect(peerId: PeerId) {
     if (!this.timerId) {
       this.timerId = setInterval(() => this.connect(peerId), 5000)
     }
@@ -32,7 +32,7 @@ export class BrowserWebSocketClientAdapter
     this.client.addEventListener("open", () => {
       // console.log("Connected to server.")
       clearInterval(this.timerId)
-      this.timerId = null
+      this.timerId = undefined
     })
 
     // When a socket closes, or disconnects, remove it from the array.

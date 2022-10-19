@@ -1,13 +1,18 @@
 import { DocCollection } from "./DocCollection.js"
-import { NetworkSubsystem, NetworkAdapter } from "./network/NetworkSubsystem.js"
+import {
+  NetworkSubsystem,
+  NetworkAdapter,
+  PeerId,
+  ChannelId,
+} from "./network/NetworkSubsystem.js"
 import { StorageSubsystem, StorageAdapter } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 
 export interface RepoConfig {
   storage?: StorageAdapter
   network: NetworkAdapter[]
-  peerId?: string
-  sharePolicy?: (peerId: string) => boolean // generous or no. this is a stand-in for a better API to test an idea.
+  peerId?: PeerId
+  sharePolicy?: (peerId: PeerId) => boolean // generous or no. this is a stand-in for a better API to test an idea.
 }
 
 export class Repo extends DocCollection {
@@ -42,8 +47,8 @@ export class Repo extends DocCollection {
     const networkSubsystem = new NetworkSubsystem(network, peerId)
     this.networkSubsystem = networkSubsystem
 
-    const synchronizer = new CollectionSynchronizer(this, true)
-    
+    const synchronizer = new CollectionSynchronizer(this)
+
     // wire up the dependency synchronizers.
     networkSubsystem.on("peer", ({ peerId, channelId }) => {
       synchronizer.addPeer(peerId, sharePolicy(peerId))
@@ -61,6 +66,6 @@ export class Repo extends DocCollection {
       networkSubsystem.onMessage(peerId, message)
     })
 
-    networkSubsystem.join("sync_channel")
+    networkSubsystem.join("sync_channel" as ChannelId)
   }
 }

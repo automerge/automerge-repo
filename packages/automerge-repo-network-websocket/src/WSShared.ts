@@ -42,25 +42,19 @@ export function sendMessage(
   socket.send(arrayBuf)
 }
 
-function announceConnection(
+function prepareConnection(
   channelId: string,
-  peerId: string,
+  destinationId: string,
   socket: WebSocket,
-  self: NetworkAdapter
+  sourceId: string
 ) {
-  // return a peer object
-  const myPeerId = self.peerId
-  if (!myPeerId) {
-    throw new Error("we should have a peer ID by now")
-  }
-
   const connection: NetworkConnection = {
     close: () => socket.close(),
     isOpen: () => socket.readyState === WebSocket.OPEN,
     send: (message) =>
-      sendMessage(peerId, socket, channelId, myPeerId, message),
+      sendMessage(destinationId, socket, channelId, sourceId, message),
   }
-  self.emit("peer-candidate", { peerId, channelId, connection })
+  return connection
 }
 
 export function receiveMessageClient(
@@ -70,8 +64,8 @@ export function receiveMessageClient(
   const decoded = CBOR.decode(new Uint8Array(message)) as DecodedMessage
   const { type, senderId, channelId, data } = decoded
 
-  const client = self.client
-  if (!client) {
+  const socket = self.client
+  if (!socket) {
     throw new Error("Missing client at receiveMessage")
   }
 
@@ -82,7 +76,18 @@ export function receiveMessageClient(
   switch (type) {
     case "peer":
       // console.log(`peer: ${senderId}, ${channelId}`)
-      announceConnection(channelId, senderId, client, self)
+      const myPeerId = self.peerId
+      if (!myPeerId) {
+        throw new Error("Local peer ID not set!")
+      }
+
+      const connection = prepareConnection(
+        channelId,
+        senderId,
+        socket,
+        myPeerId
+      )
+      self.emit("peer-candidate", { peerId: senderId, channelId, connection })
       break
     default:
       self.emit("message", {
@@ -100,13 +105,24 @@ export function receiveMessageServer(
 ) {
   const cbor = CBOR.decode(message)
   const { type, channelId, senderId, data } = cbor
+  const myPeerId = self.peerId
+  if (!myPeerId) {
+    throw new Error("Missing my peer ID.")
+  }
   console.log(
-    `[${senderId}->${self.peerId}@${channelId}] ${type} | ${message.byteLength} bytes`
+    `[${senderId}->${myPeerId}@${channelId}] ${type} | ${message.byteLength} bytes`
   )
   switch (type) {
     case "join":
-      announceConnection(channelId, senderId, socket, self)
-      console.log("ready?", socket.readyState)
+      // Let the rest of the system know that we have a new connection.
+      const connection = prepareConnection(
+        channelId,
+        senderId,
+        socket,
+        myPeerId
+      )
+      self.emit("peer-candidate", { peerId: senderId, channelId, connection })
+      // In this client-server connection, there's only ever one peer: us!
       socket.send(
         CBOR.encode({ type: "peer", senderId: self.peerId, channelId })
       )

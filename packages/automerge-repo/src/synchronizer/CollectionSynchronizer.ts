@@ -5,20 +5,21 @@ import { DocSynchronizer } from "./DocSynchronizer.js"
 import { DocCollection } from "../DocCollection.js"
 import { Synchronizer, SyncMessages } from "./Synchronizer.js"
 import { DocHandle, DocumentId } from "../DocHandle.js"
+import { PeerId } from "../network/NetworkSubsystem.js"
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.
 // In the real world, we probably want to authenticate the peer somehow,
 // but we'll get to that later.
 interface SyncPool {
-  [docId: string]: DocSynchronizer
+  [docId: DocumentId]: DocSynchronizer
 }
 export class CollectionSynchronizer
   extends EventEmitter<SyncMessages>
   implements Synchronizer
 {
   repo: DocCollection
-  peers: { [peerId: string]: boolean /* share policy */ } = {}
+  peers: { [peerId: PeerId]: boolean /* share policy */ } = {}
   syncPool: SyncPool = {}
 
   constructor(repo: DocCollection) {
@@ -26,7 +27,7 @@ export class CollectionSynchronizer
     this.repo = repo
   }
 
-  async onSyncMessage(peerId: string, wrappedMessage: Uint8Array) {
+  async onSyncMessage(peerId: PeerId, wrappedMessage: Uint8Array) {
     const contents = CBOR.decode(wrappedMessage)
     const { documentId, message } = contents
 
@@ -69,13 +70,13 @@ export class CollectionSynchronizer
   // need a removeDocument implementation
 
   // return an array of peers where sharePolicy
-  __generousPeers() {
+  __generousPeers(): PeerId[] {
     return Object.entries(this.peers)
       .filter(([peer, sharePolicy]) => sharePolicy === true)
-      .map(([p]) => p)
+      .map(([p]) => p as PeerId)
   }
 
-  addPeer(peerId: string, sharePolicy: boolean) {
+  addPeer(peerId: PeerId, sharePolicy: boolean) {
     console.log(`[CollectionSynchronizer]: ${peerId}, ${sharePolicy}`)
     this.peers[peerId] = sharePolicy
     if (sharePolicy === true) {

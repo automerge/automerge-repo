@@ -3,12 +3,16 @@ import { WebSocket, WebSocketServer } from "isomorphic-ws"
 import { NetworkAdapter, NetworkAdapterEvents } from "automerge-repo"
 
 import { receiveMessageServer } from "./WSShared.js"
+import {
+  ChannelId,
+  PeerId,
+} from "automerge-repo/dist/network/NetworkSubsystem.js"
 
 export class NodeWSServerAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements NetworkAdapter
 {
-  peerId?: string
+  peerId?: PeerId
   server: WebSocketServer
   openSockets: WebSocket[] = []
 
@@ -17,7 +21,7 @@ export class NodeWSServerAdapter
     this.server = server
   }
 
-  connect(peerId: string) {
+  connect(peerId: PeerId) {
     this.peerId = peerId
     this.server.on("connection", (socket) => {
       this.openSockets.push(socket)
@@ -33,11 +37,11 @@ export class NodeWSServerAdapter
     })
   }
 
-  join(docId: string) {
+  join(docId: ChannelId) {
     // throw new Error("The server doesn't join channels.")
   }
 
-  leave(docId: string) {
+  leave(docId: ChannelId) {
     // throw new Error("The server doesn't join channels.")
   }
 }

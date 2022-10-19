@@ -12,6 +12,6 @@ describe("CollectionSynchronizer", () => {
       storage: new MemoryStorageAdapter(),
       network: [new DummyNetworkAdapter()],
     })
-    const synchronizer = new CollectionSynchronizer(repo, false)
+    const synchronizer = new CollectionSynchronizer(repo)
   })
 })

@@ -2,6 +2,7 @@ import assert from "assert"
 import * as Automerge from "@automerge/automerge"
 import { DocHandle, DocumentId } from "../src/DocHandle"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
+import { PeerId } from "../src/network/NetworkSubsystem"
 
 describe("DocSynchronizer", () => {
   const handle = new DocHandle("synced-doc" as DocumentId, true)
@@ -12,6 +13,6 @@ describe("DocSynchronizer", () => {
   })
   it("should emit a syncMessage when beginSync is called", (done) => {
     docSynchronizer.on("message", () => done())
-    docSynchronizer.beginSync("imaginary-peer-id")
+    docSynchronizer.beginSync("imaginary-peer-id" as PeerId)
   })
 })
