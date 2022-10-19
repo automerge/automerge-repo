@@ -18,14 +18,12 @@ export class CollectionSynchronizer
   implements Synchronizer
 {
   repo: DocCollection
-  peers: string[] = []
+  peers: { [peerId: string]: boolean /* share policy */ } = {}
   syncPool: SyncPool = {}
-  offerAllDocs: boolean
 
-  constructor(repo: DocCollection, offerAllDocs: boolean) {
+  constructor(repo: DocCollection) {
     super()
     this.repo = repo
-    this.offerAllDocs = offerAllDocs
   }
 
   async onSyncMessage(peerId: string, wrappedMessage: Uint8Array) {
@@ -37,6 +35,9 @@ export class CollectionSynchronizer
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
     // console.log("ColSync:osm", peerId)
     docSynchronizer.onSyncMessage(peerId, message)
+    this.__generousPeers().forEach((peerId) =>
+      docSynchronizer.beginSync(peerId)
+    )
   }
 
   async fetchDocSynchronizer(documentId: DocumentId) {
@@ -60,15 +61,25 @@ export class CollectionSynchronizer
 
   async addDocument(documentId: DocumentId) {
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
-    this.peers.forEach((peerId) => docSynchronizer.beginSync(peerId))
+    this.__generousPeers().forEach((peerId) =>
+      docSynchronizer.beginSync(peerId)
+    )
   }
 
   // need a removeDocument implementation
 
-  addPeer(peerId: string) {
-    // console.log("adding, ", peerId)
-    this.peers.push(peerId)
-    if (this.offerAllDocs) {
+  // return an array of peers where sharePolicy
+  __generousPeers() {
+    return Object.entries(this.peers)
+      .filter(([peer, sharePolicy]) => sharePolicy === true)
+      .map(([p]) => p)
+  }
+
+  addPeer(peerId: string, sharePolicy: boolean) {
+    console.log(`[CollectionSynchronizer]: ${peerId}, ${sharePolicy}`)
+    this.peers[peerId] = sharePolicy
+    if (sharePolicy === true) {
+      console.log(`[CollectionSynchronizer]: sharing all open docs`)
       Object.values(this.syncPool).forEach((docSynchronizer) =>
         docSynchronizer.beginSync(peerId)
       )

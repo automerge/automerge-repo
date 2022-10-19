@@ -42,35 +42,22 @@ export class Repo extends DocCollection {
     const networkSubsystem = new NetworkSubsystem(network, peerId)
     this.networkSubsystem = networkSubsystem
 
-    const synchronizers: { [documentId: string]: CollectionSynchronizer } = {}
-    const generousSynchronizer = new CollectionSynchronizer(this, true)
-    const shySynchronizer = new CollectionSynchronizer(this, false)
-
+    const synchronizer = new CollectionSynchronizer(this, true)
+    
     // wire up the dependency synchronizers.
     networkSubsystem.on("peer", ({ peerId, channelId }) => {
-      const synchronizer = sharePolicy(peerId)
-        ? generousSynchronizer
-        : shySynchronizer
-      synchronizer.addPeer(peerId)
-      synchronizers[peerId] = synchronizer
+      synchronizer.addPeer(peerId, sharePolicy(peerId))
     })
 
     this.on("document", ({ handle }) => {
-      generousSynchronizer.addDocument(handle.documentId)
-      shySynchronizer.addDocument(handle.documentId)
+      synchronizer.addDocument(handle.documentId)
     })
 
     networkSubsystem.on("message", (msg) => {
       const { senderId, message } = msg
-      if (!synchronizers[senderId]) {
-        throw new Error("received a message from a peer we haven't met")
-      }
-      synchronizers[senderId].onSyncMessage(senderId, message)
+      synchronizer.onSyncMessage(senderId, message)
     })
-    shySynchronizer.on("message", ({ peerId, message }) => {
-      networkSubsystem.onMessage(peerId, message)
-    })
-    generousSynchronizer.on("message", ({ peerId, message }) => {
+    synchronizer.on("message", ({ peerId, message }) => {
       networkSubsystem.onMessage(peerId, message)
     })
 
