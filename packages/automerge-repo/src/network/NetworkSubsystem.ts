@@ -3,6 +3,9 @@ import EventEmitter from "eventemitter3"
 export type PeerId = string & { __peerId: false }
 export type ChannelId = string & { __channelId: false }
 
+interface AdapterOpenDetails {
+  network: NetworkAdapter
+}
 interface PeerCandidateDetails {
   peerId: PeerId
   channelId: ChannelId
@@ -25,6 +28,7 @@ interface DisconnectedDetails {
 }
 
 export interface NetworkAdapterEvents {
+  open: (event: AdapterOpenDetails) => void
   "peer-candidate": (event: PeerCandidateDetails) => void
   "peer-disconnected": (event: DisconnectedDetails) => void
   message: (event: MessageDetails) => void

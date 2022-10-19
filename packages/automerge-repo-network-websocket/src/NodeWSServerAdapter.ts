@@ -1,12 +1,16 @@
 import EventEmitter from "eventemitter3"
-import { WebSocket, WebSocketServer } from "isomorphic-ws"
-import { NetworkAdapter, NetworkAdapterEvents } from "automerge-repo"
+import pkg from "isomorphic-ws"
+const { WebSocket, WebSocketServer } = pkg
+import * as CBOR from "cbor-x"
 
-import { receiveMessageServer } from "./WSShared.js"
 import {
   ChannelId,
+  DecodedMessage,
+  NetworkAdapter,
+  NetworkAdapterEvents,
+  NetworkConnection,
   PeerId,
-} from "automerge-repo/dist/network/NetworkSubsystem.js"
+} from "automerge-repo"
 
 export class NodeWSServerAdapter
   extends EventEmitter<NetworkAdapterEvents>
@@ -14,7 +18,7 @@ export class NodeWSServerAdapter
 {
   peerId?: PeerId
   server: WebSocketServer
-  openSockets: WebSocket[] = []
+  sockets: WebSocket[] = []
 
   constructor(server: WebSocketServer) {
     super()
@@ -24,15 +28,15 @@ export class NodeWSServerAdapter
   connect(peerId: PeerId) {
     this.peerId = peerId
     this.server.on("connection", (socket) => {
-      this.openSockets.push(socket)
+      this.sockets.push(socket)
 
       // When a socket closes, or disconnects, remove it from the array.
       socket.on("close", () => {
-        this.openSockets = this.openSockets.filter((s) => s !== socket)
+        this.sockets = this.sockets.filter((s) => s !== socket)
       })
 
       socket.on("message", (message) =>
-        receiveMessageServer(message as Uint8Array, socket, this)
+        this.receiveMessage(message as Uint8Array, socket)
       )
     })
   }
@@ -43,5 +47,92 @@ export class NodeWSServerAdapter
 
   leave(docId: ChannelId) {
     // throw new Error("The server doesn't join channels.")
+  }
+
+  sendMessage(
+    destinationId: PeerId,
+    socket: WebSocket,
+    channelId: ChannelId,
+    senderId: PeerId,
+    message: Uint8Array
+  ) {
+    if (message.byteLength === 0) {
+      throw new Error("tried to send a zero-length message")
+    }
+    const decoded: DecodedMessage = {
+      senderId,
+      channelId,
+      type: "sync",
+      data: message,
+    }
+    const encoded = CBOR.encode(decoded)
+
+    // This incantation deals with websocket sending the whole
+    // underlying buffer even if we just have a uint8array view on it
+    const arrayBuf = encoded.buffer.slice(
+      encoded.byteOffset,
+      encoded.byteOffset + encoded.byteLength
+    )
+
+    console.log(
+      `[${senderId}->${destinationId}@${channelId}] "sync" | ${arrayBuf.byteLength} bytes`
+    )
+    socket.send(arrayBuf)
+  }
+
+  prepareConnection(
+    channelId: ChannelId,
+    destinationId: PeerId,
+    socket: WebSocket,
+    sourceId: PeerId
+  ) {
+    const connection: NetworkConnection = {
+      close: () => socket.close(),
+      isOpen: () => socket.readyState === WebSocket.OPEN,
+      send: (message) =>
+        this.sendMessage(destinationId, socket, channelId, sourceId, message),
+    }
+    return connection
+  }
+
+  receiveMessage(message: Uint8Array, socket: WebSocket) {
+    const cbor = CBOR.decode(message)
+    const { type, channelId, senderId, data } = cbor
+    const myPeerId = this.peerId
+    if (!myPeerId) {
+      throw new Error("Missing my peer ID.")
+    }
+    console.log(
+      `[${senderId}->${myPeerId}@${channelId}] ${type} | ${message.byteLength} bytes`
+    )
+    switch (type) {
+      case "join":
+        // Let the rest of the system know that we have a new connection.
+        const connection = this.prepareConnection(
+          channelId,
+          senderId,
+          socket,
+          myPeerId
+        )
+        this.emit("peer-candidate", { peerId: senderId, channelId, connection })
+        // In this client-server connection, there's only ever one peer: us!
+        socket.send(
+          CBOR.encode({ type: "peer", senderId: this.peerId, channelId })
+        )
+        break
+      case "leave":
+        // ?
+        break
+      case "sync":
+        this.emit("message", {
+          senderId,
+          channelId,
+          message: new Uint8Array(data),
+        })
+        break
+      default:
+        // console.log("unrecognized message type")
+        break
+    }
   }
 }

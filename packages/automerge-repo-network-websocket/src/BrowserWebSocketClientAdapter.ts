@@ -1,19 +1,29 @@
 import EventEmitter from "eventemitter3"
 import * as CBOR from "cbor-x"
-import { NetworkAdapterEvents } from "automerge-repo"
 import WebSocket from "isomorphic-ws"
 
-import { receiveMessageClient, WebSocketNetworkAdapter } from "./WSShared.js"
-import { PeerId } from "automerge-repo/dist/network/NetworkSubsystem.js"
+import {
+  ChannelId,
+  DecodedMessage,
+  NetworkAdapter,
+  NetworkAdapterEvents,
+  NetworkConnection,
+  PeerId,
+} from "automerge-repo"
+
+interface WebSocketNetworkAdapter extends NetworkAdapter {
+  socket?: WebSocket
+}
 
 export class BrowserWebSocketClientAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements WebSocketNetworkAdapter
 {
-  url: string
-  client?: WebSocket
+  socket?: WebSocket
   timerId?: NodeJS.Timer
   peerId?: PeerId
+  url: string
+  channels: ChannelId[] = []
 
   constructor(url: string) {
     super()
@@ -26,41 +36,49 @@ export class BrowserWebSocketClientAdapter
     }
 
     this.peerId = peerId
-    this.client = new WebSocket(this.url)
-    this.client.binaryType = "arraybuffer"
+    this.socket = new WebSocket(this.url)
+    this.socket.binaryType = "arraybuffer"
 
-    this.client.addEventListener("open", () => {
-      // console.log("Connected to server.")
+    this.socket.addEventListener("open", () => {
+      console.log(`[WebSocketClientAdapter @ ${this.url}]: open`)
       clearInterval(this.timerId)
       this.timerId = undefined
+      this.channels.forEach(c => this.join(c))
     })
 
     // When a socket closes, or disconnects, remove it from the array.
-    this.client.addEventListener("close", () => {
+    this.socket.addEventListener("close", () => {
+      console.log(`[WebSocketClientAdapter @ ${this.url}]: close`)
+      if (!this.timerId) { this.connect(peerId) }
       // console.log("Disconnected from server")
     })
 
-    this.client.addEventListener("message", (event) =>
-      receiveMessageClient(event.data as Uint8Array, this)
+    this.socket.addEventListener("message", (event: WebSocket.MessageEvent) =>
+      this.receiveMessage(event.data as Uint8Array)
     )
   }
 
-  join(channelId: string) {
-    if (!this.client) {
-      throw new Error("WTF, get a client")
+  join(channelId: ChannelId) {
+    // TODO: the network subsystem should manage this
+    if (!this.channels.includes(channelId) {
+      this.channels.push(channelId)
     }
-    if (this.client.readyState === WebSocket.OPEN) {
-      this.client.send(
+    
+    if (!this.socket) {
+      throw new Error("WTF, get a socket")
+    }
+    if (this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(
         CBOR.encode({ type: "join", channelId, senderId: this.peerId })
       )
     } else {
-      this.client.addEventListener(
+      this.socket.addEventListener(
         "open",
         () => {
-          if (!this.client) {
-            throw new Error("WTF, get a client")
+          if (!this.socket) {
+            throw new Error("WTF, get a socket")
           }
-          this.client.send(
+          this.socket.send(
             CBOR.encode({ type: "join", channelId, senderId: this.peerId })
           )
         },
@@ -69,12 +87,82 @@ export class BrowserWebSocketClientAdapter
     }
   }
 
-  leave(channelId: string) {
-    if (!this.client) {
-      throw new Error("WTF, get a client")
+  leave(channelId: ChannelId) {
+    this.channels = this.channels.filter(c => c !== channelId)
+    if (!this.socket) {
+      throw new Error("WTF, get a socket")
     }
-    this.client.send(
+    this.socket.send(
       CBOR.encode({ type: "leave", channelId, senderId: this.peerId })
     )
+  }
+
+  sendMessage(
+    socket: WebSocket,
+    channelId: ChannelId,
+    senderId: PeerId,
+    message: Uint8Array
+  ) {
+    if (message.byteLength === 0) {
+      throw new Error("tried to send a zero-length message")
+    }
+    const decoded: DecodedMessage = {
+      senderId,
+      channelId,
+      type: "sync",
+      data: message,
+    }
+    const encoded = CBOR.encode(decoded)
+
+    // This incantation deals with websocket sending the whole
+    // underlying buffer even if we just have a uint8array view on it
+    const arrayBuf = encoded.buffer.slice(
+      encoded.byteOffset,
+      encoded.byteOffset + encoded.byteLength
+    )
+    socket.send(arrayBuf)
+  }
+
+  announceConnection(channelId: ChannelId, peerId: PeerId) {
+    // return a peer object
+    const myPeerId = this.peerId
+    if (!myPeerId) {
+      throw new Error("we should have a peer ID by now")
+    }
+
+    const connection: NetworkConnection = {
+      close: () => this.socket!.close(),
+      isOpen: () => this.socket!.readyState === WebSocket.OPEN,
+      send: (message) =>
+        this.sendMessage(this.socket!, channelId, myPeerId, message),
+    }
+    this.emit("peer-candidate", { peerId, channelId, connection })
+  }
+
+  receiveMessage(message: Uint8Array) {
+    const decoded = CBOR.decode(new Uint8Array(message)) as DecodedMessage
+    const { type, senderId, channelId, data } = decoded
+
+    const socket = this.socket
+    if (!socket) {
+      throw new Error("Missing socket at receiveMessage")
+    }
+
+    if (message.byteLength === 0) {
+      throw new Error("received a zero-length message")
+    }
+
+    switch (type) {
+      case "peer":
+        // console.log(`peer: ${senderId}, ${channelId}`)
+        this.announceConnection(channelId, senderId)
+        break
+      default:
+        this.emit("message", {
+          channelId,
+          senderId,
+          message: new Uint8Array(data),
+        })
+    }
   }
 }
