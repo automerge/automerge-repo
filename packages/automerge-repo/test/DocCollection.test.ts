@@ -1,7 +1,6 @@
-import * as Automerge from "@automerge/automerge"
 import { assert } from "console"
 import { DocCollection } from "../src/DocCollection"
-import { DocHandle, DocumentId } from "../src/DocHandle"
+import { DocumentId } from "../src/DocHandle"
 
 interface TestDoc {
   foo: string

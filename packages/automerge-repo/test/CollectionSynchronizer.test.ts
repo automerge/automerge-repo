@@ -1,17 +1,12 @@
-import * as Automerge from "@automerge/automerge"
-import { Repo } from "../src/Repo"
-import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
-import { DocHandle, DocumentId } from "../src/DocHandle"
-import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer"
+import { DocCollection } from "../dist"
+import assert from "assert"
 
 describe("CollectionSynchronizer", () => {
-  it("TODO", async () => {
-    const handle = new DocHandle("synced-doc" as DocumentId)
-    const repo = new Repo({
-      storage: new MemoryStorageAdapter(),
-      network: [new DummyNetworkAdapter()],
-    })
-    const synchronizer = new CollectionSynchronizer(repo)
+  const collection = new DocCollection()
+  const synchronizer = new CollectionSynchronizer(collection)
+
+  it("is not null", async () => {
+    assert(synchronizer !== null)
   })
 })

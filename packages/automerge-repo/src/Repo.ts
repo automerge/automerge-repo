@@ -50,7 +50,7 @@ export class Repo extends DocCollection {
     const synchronizer = new CollectionSynchronizer(this)
 
     // wire up the dependency synchronizers.
-    networkSubsystem.on("peer", ({ peerId, channelId }) => {
+    networkSubsystem.on("peer", ({ peerId }) => {
       synchronizer.addPeer(peerId, sharePolicy(peerId))
     })
 

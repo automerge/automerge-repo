@@ -7,7 +7,7 @@ import { history, redo, undo } from "prosemirror-history"
 import { schema } from "prosemirror-schema-basic"
 import { MarkType } from "prosemirror-model"
 
-import { DocHandle, DocHandleEventArg } from "automerge-repo"
+import { DocHandle, DocHandleChangeEvent } from "automerge-repo"
 import { TextKeyOf } from "./automerge/AutomergeTypes"
 
 import { EditorView } from "prosemirror-view"
@@ -57,8 +57,10 @@ export function Editor<T>({ handle, attribute }: EditorProps<T>) {
     const view = new EditorView(editorRoot.current, { state })
 
     handle.value().then((doc) => {
-      if (view.isDestroyed) { return /* too late */ }
-      
+      if (view.isDestroyed) {
+        return /* too late */
+      }
+
       const transaction = createProsemirrorTransactionOnChange(
         view.state,
         attribute,
@@ -66,11 +68,11 @@ export function Editor<T>({ handle, attribute }: EditorProps<T>) {
       )
       view.updateState(view.state.apply(transaction))
     })
-    const onChange = (args: DocHandleEventArg<T>) => {
+    const onChange = (args: DocHandleChangeEvent<T>) => {
       const transaction = createProsemirrorTransactionOnChange(
         view.state,
         attribute,
-        args.doc
+        args.handle.doc
       )
       view.updateState(view.state.apply(transaction))
     }

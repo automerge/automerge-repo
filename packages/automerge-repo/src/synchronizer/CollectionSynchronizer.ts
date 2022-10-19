@@ -72,7 +72,7 @@ export class CollectionSynchronizer
   // return an array of peers where sharePolicy
   __generousPeers(): PeerId[] {
     return Object.entries(this.peers)
-      .filter(([peer, sharePolicy]) => sharePolicy === true)
+      .filter(([, sharePolicy]) => sharePolicy === true)
       .map(([p]) => p as PeerId)
   }
 
