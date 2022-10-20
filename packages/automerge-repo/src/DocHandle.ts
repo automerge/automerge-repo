@@ -93,18 +93,18 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     const equalArrays = (a: unknown[], b: unknown[]) =>
       a.length === b.length && a.every((element, index) => element === b[index])
 
-    if (
-      this.state != "ready" &&
-      // only go to ready if the heads changed
-      !equalArrays(Automerge.getHeads(newDoc), Automerge.getHeads(oldDoc))
-    ) {
-      this.state = "ready"
-      this.emit("ready")
-    }
+    // we only need to emit a "change" if something changed as a result of the update
+    if (!equalArrays(Automerge.getHeads(newDoc), Automerge.getHeads(oldDoc))) {
+      if (this.state != "ready") {
+        // only go to ready once
+        this.state = "ready"
+        this.emit("ready")
+      }
 
-    this.emit("change", {
-      handle: this,
-    })
+      this.emit("change", {
+        handle: this,
+      })
+    }
   }
 
   __notifyPatchListeners(

@@ -74,6 +74,20 @@ describe("DocHandle", () => {
     })
   })
 
+  it("should not emit a change message if no change happens via updateDoc", (done) => {
+    const handle = new DocHandle<TestDoc>(
+      "test-document-id" as DocumentId,
+      true
+    )
+    handle.on("change", () => {
+      done(new Error("shouldn't have changed"))
+    })
+    handle.updateDoc((d) => {
+      setTimeout(done, 0)
+      return d
+    })
+  })
+
   it("should emit a patch message when changes happen", (done) => {
     const handle = new DocHandle<TestDoc>(
       "test-document-id" as DocumentId,
