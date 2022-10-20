@@ -56,8 +56,10 @@ export class DocSynchronizer
     )
     this.setSyncState(peerId, newSyncState)
     if (message) {
+      const decoded = Automerge.decodeSyncMessage(message)
       console.log(
-        `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: ${message.byteLength}b`
+        `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: ${message.byteLength}b`,
+        decoded
       )
       this.emit("message", { peerId, documentId, message })
     } else {
