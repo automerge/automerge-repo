@@ -82,13 +82,20 @@ export class DocSynchronizer
 
   async onSyncMessage(peerId: PeerId, message: Uint8Array) {
     this.handle.updateDoc((doc) => {
-      console.log(
-        `[${this.handle.documentId}]: receiveSync: ${message.byteLength}b from ${peerId}`
-      )
+      console.log(`[${this.handle.documentId}]: receiveSync:  from `)
+
+      const start = Date.now()
       const [newDoc, newSyncState] = Automerge.receiveSyncMessage(
         doc,
         this.getSyncState(peerId),
         message
+      )
+      const end = Date.now()
+      const time = end - start
+      console.log(
+        `[${this.handle.documentId}]: receiveSync: <- ${peerId} ${
+          message.byteLength
+        }b in ${time}ms ${time > 1000 ? "[SLOW]!" : ""} from ${peerId}`
       )
       this.setSyncState(peerId, newSyncState)
       return newDoc
