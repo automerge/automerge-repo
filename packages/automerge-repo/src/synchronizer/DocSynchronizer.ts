@@ -93,6 +93,7 @@ export class DocSynchronizer
       this.setSyncState(peerId, newSyncState)
       return newDoc
     })
+    this.syncWithPeers()
   }
 
   async syncWithPeers() {

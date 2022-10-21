@@ -100,7 +100,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         this.state = "ready"
         this.emit("ready")
       }
-
       this.emit("change", {
         handle: this,
       })
