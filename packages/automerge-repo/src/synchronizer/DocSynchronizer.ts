@@ -82,7 +82,11 @@ export class DocSynchronizer
 
   async onSyncMessage(peerId: PeerId, message: Uint8Array) {
     this.handle.updateDoc((doc) => {
-      console.log(`[${this.handle.documentId}]: receiveSync:  from `)
+      const decoded = Automerge.decodeSyncMessage(message)
+      console.log(
+        `[${this.handle.documentId}]->[${peerId}]: receiveSync: ${message.byteLength}b`,
+        decoded
+      )
 
       const start = Date.now()
       const [newDoc, newSyncState] = Automerge.receiveSyncMessage(
