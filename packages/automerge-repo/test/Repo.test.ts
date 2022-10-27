@@ -30,6 +30,22 @@ describe("Repo", () => {
     assert(handle.documentId != null)
   })
 
+  it("can change a document", (done) => {
+    const handle = repo.create<TestDoc>()
+    handle.change((d) => {
+      d.foo = "bar"
+    })
+    assert(handle.state === "ready")
+    handle.value().then((v) => {
+      try {
+        assert(v.foo === "bar")
+        done()
+      } catch (e) {
+        done(e)
+      }
+    })
+  })
+
   it("can find a created document", (done) => {
     const handle = repo.create<TestDoc>()
     handle.change((d) => {
@@ -40,8 +56,12 @@ describe("Repo", () => {
     assert(handle === handle2)
     assert(handle2.ready())
     handle2.value().then((v) => {
-      done()
-      assert(v.foo === "bar")
+      try {
+        assert(v.foo === "bar")
+        done()
+      } catch (e) {
+        done(e)
+      }
     })
   })
 })

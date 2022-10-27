@@ -34,10 +34,10 @@
   dependencies:
     "@atjson/hir" "0.22.14"
 
-"@automerge/automerge-wasm@0.1.12":
-  version "0.1.12"
-  resolved "https://registry.yarnpkg.com/@automerge/automerge-wasm/-/automerge-wasm-0.1.12.tgz#8ce25255d95d4ed6fb387de6858f7b7b7e2ed4a9"
-  integrity sha512-/xjX1217QYJ+QaoT6iHQw4hGNUIoc3xc65c9eCnfX5v9J9BkTOl05p2Cnr51O2rPc/M6TqZLmlvpvNVdcH9JpA==
+"@automerge/automerge-wasm@0.1.15":
+  version "0.1.15"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge-wasm/-/automerge-wasm-0.1.15.tgz#2999c49d1fa27bd84433c0b2b196c22783200f1b"
+  integrity sha512-n1K8Jq4ICb5U5F+vYkUx5o86b7CaQo1CufOsHDAJGycDyA1ATKqh0Bkf6imTue9BHbncpmP95vX8BKERkKR2Qg==
 
 "@automerge/automerge-wasm@0.1.9":
   version "0.1.9"
@@ -45,11 +45,11 @@
   integrity sha512-lqb+dZAgWyVwIXfQbLhSdt0zecr0jsxKztuTyu0PcMm3i0NeWXvPuxLcJvZ72K2/V7mKnNYs2cqYZFXYqC3yKg==
 
 "@automerge/automerge@*":
-  version "2.0.0-beta.1"
-  resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-2.0.0-beta.1.tgz#4e0eafeebb1975eb57d73abd1b5f4251d36d8d43"
-  integrity sha512-sio6mScjkU2BRhR9fA/Mxg5TJQl7eWXgPvmEf1DLgFdu9BUisO5m85TsVVOKJGY2xiqQsYLc9IwpUJI2JkP9Zw==
+  version "2.0.0-beta.3"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-2.0.0-beta.3.tgz#10f22d55d3c072d1e556e4c34de97fe4c366430f"
+  integrity sha512-XGn2zemfqTdJiK/095+QIdHu8e0P6qRlTP/8WT/Jqpvxwlf/PDNyA+XS0gDO6SUZf56B4b+Lc86OmGolHRdq0Q==
   dependencies:
-    "@automerge/automerge-wasm" "0.1.12"
+    "@automerge/automerge-wasm" "0.1.15"
     uuid "^8.3"
 
 "@automerge/automerge@^2.0.0-alpha.4":
