@@ -1,7 +1,12 @@
-import { Repo } from "../src/Repo"
-import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
-import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import assert from "assert"
+import { MessageChannel } from "worker_threads"
+
+import { DocHandle, PeerId } from "../src"
+import { Repo } from "../src/Repo"
+
+import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
+import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
+import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 
 export interface TestDoc {
   foo: string
@@ -62,6 +67,93 @@ describe("Repo", () => {
       } catch (e) {
         done(e)
       }
+    })
+  })
+
+  describe("sync between three repos", async () => {
+    const mc1to2 = new MessageChannel()
+    const mc2to3 = new MessageChannel()
+
+    const mc1to2port1 = mc1to2.port1 as unknown as MessagePort
+    const mc1to2port2 = mc1to2.port2 as unknown as MessagePort
+    const mc2to3port1 = mc2to3.port1 as unknown as MessagePort
+    const mc2to3port2 = mc2to3.port2 as unknown as MessagePort
+
+    // Set up three repos and have them communicate via MessageChannels
+    const repo1 = new Repo({
+      network: [new MessageChannelNetworkAdapter(mc1to2port1)],
+      peerId: "repo1" as PeerId,
+    })
+    const repo2 = new Repo({
+      network: [
+        new MessageChannelNetworkAdapter(mc1to2port2),
+        new MessageChannelNetworkAdapter(mc2to3port1),
+      ],
+      peerId: "repo2" as PeerId,
+    })
+    const repo3 = new Repo({
+      network: [new MessageChannelNetworkAdapter(mc2to3port2)],
+      peerId: "repo3" as PeerId,
+    })
+
+    // First test: create a document and ensure the second repo can find it
+    const handle1 = repo1.create<TestDoc>()
+    handle1.change((d) => {
+      d.foo = "bar"
+    })
+
+    it("can load a document from repo1 on repo2", async () => {
+      const handle2 = repo2.find<TestDoc>(handle1.documentId)
+      const doc2 = await handle2.value()
+      assert.deepStrictEqual(doc2, { foo: "bar" })
+    })
+
+    it("can load a document from repo1 on repo3", async () => {
+      const handle3 = repo3.find<TestDoc>(handle1.documentId)
+      const doc3 = await handle3.value()
+      assert.deepStrictEqual(doc3, { foo: "bar" })
+    })
+
+    it("can do some complicated sync thing without duplicating messages", () => {
+      let lastMessage: any
+      repo1.networkSubsystem.on("message", (msg) => {
+        assert.notDeepStrictEqual(msg, lastMessage)
+        lastMessage = msg
+        console.log("messages were not equal")
+      })
+
+      const CHANCE_OF_NEW_DOC = 0.05
+      const getRandomItem = (iterable: Record<string, unknown>) => {
+        const values = Object.values(iterable)
+        const idx = Math.floor(Math.random() * values.length)
+        return values[idx]
+      }
+
+      const repos = [repo1, repo2, repo3]
+
+      for (let i = 0; i < 10; i++) {
+        // pick a repo
+        const repo = repos[Math.floor(Math.random() * repos.length)]
+        const doc =
+          Math.random() < CHANCE_OF_NEW_DOC
+            ? repo.create<TestDoc>()
+            : (getRandomItem(repo.handles) as DocHandle<TestDoc>)
+
+        console.log("RH", repo.handles)
+        doc.change((d) => {
+          d.foo = Math.random().toString()
+        })
+      }
+
+      console.log("*****************************")
+      repos.forEach((r, i) => {
+        console.log(`Repo ${i}: ${Object.keys(r.handles).length} documents.`)
+      })
+      console.log("*****************************")
+
+      // Close the message ports so that the script can exit.
+      mc1to2.port1.close()
+      mc2to3.port1.close()
     })
   })
 })

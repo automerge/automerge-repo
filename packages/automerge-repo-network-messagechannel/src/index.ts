@@ -28,7 +28,7 @@ export class MessageChannelNetworkAdapter
       const { origin, destination, type, channelId, message } = e.data
       if (destination && destination !== this.peerId) {
         throw new Error(
-          "MessagePortNetwork is point-to-point -- something is wrong"
+          "MessagePortNetwork should never receive messages for a different peer."
         )
       }
       switch (type) {
