@@ -60,7 +60,7 @@ export class BrowserWebSocketClientAdapter
 
   join(channelId: ChannelId) {
     // TODO: the network subsystem should manage this
-    if (!this.channels.includes(channelId) {
+    if (!this.channels.includes(channelId)) {
       this.channels.push(channelId)
     }
     
