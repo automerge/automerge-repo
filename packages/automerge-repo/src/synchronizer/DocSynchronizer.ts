@@ -2,7 +2,7 @@ import EventEmitter from "eventemitter3"
 import { Synchronizer, SyncMessages } from "./Synchronizer"
 import * as Automerge from "@automerge/automerge"
 import { DocHandle, DocumentId } from "../DocHandle"
-import { PeerId } from "../network/NetworkSubsystem"
+import { ChannelId, PeerId } from "../network/NetworkSubsystem"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -61,7 +61,8 @@ export class DocSynchronizer
         `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: ${message.byteLength}b`,
         decoded
       )
-      this.emit("message", { peerId, documentId, message })
+      const channelId = this.handle.documentId as unknown as ChannelId
+      this.emit("message", { peerId, channelId, message })
     } else {
       console.log(
         `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: [no message generated]`
@@ -80,7 +81,16 @@ export class DocSynchronizer
     this.peers.filter((p) => p !== peerId)
   }
 
-  async onSyncMessage(peerId: PeerId, message: Uint8Array) {
+  async onSyncMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array
+  ) {
+    if ((channelId as unknown as DocumentId) !== this.handle.documentId) {
+      throw new Error(
+        `[DocHandle: ${this.handle.documentId}]: Received a sync message for ${channelId}`
+      )
+    }
     this.handle.updateDoc((doc) => {
       const decoded = Automerge.decodeSyncMessage(message)
       console.log(

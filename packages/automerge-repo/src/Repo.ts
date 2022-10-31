@@ -1,4 +1,5 @@
 import { DocCollection } from "./DocCollection.js"
+import { EphemeralData } from "./EphemeralData.js"
 import {
   NetworkSubsystem,
   NetworkAdapter,
@@ -50,6 +51,7 @@ export class Repo extends DocCollection {
     this.networkSubsystem = networkSubsystem
 
     const synchronizer = new CollectionSynchronizer(this)
+    const ephemeralData = new EphemeralData()
 
     // wire up the dependency synchronizers.
     networkSubsystem.on("peer", ({ peerId }) => {
@@ -61,13 +63,19 @@ export class Repo extends DocCollection {
     })
 
     networkSubsystem.on("message", (msg) => {
-      const { senderId, channelId, message } = msg
-      if (channelId === SYNC_CHANNEL) {
-        synchronizer.onSyncMessage(senderId, message)
+      const { peerId, channelId, message } = msg
+      if (channelId.startsWith("m/")) {
+        ephemeralData.receiveBroadcast(peerId, channelId, message)
+      } else {
+        synchronizer.onSyncMessage(peerId, channelId, message)
       }
     })
-    synchronizer.on("message", ({ peerId, message }) => {
-      networkSubsystem.sendMessage(peerId, SYNC_CHANNEL, message)
+    synchronizer.on("message", ({ peerId, channelId, message }) => {
+      networkSubsystem.sendMessage(peerId, channelId, message)
+    })
+
+    ephemeralData.on("message", ({ peerId, channelId, message }) => {
+      networkSubsystem.sendMessage(peerId, channelId, message)
     })
 
     networkSubsystem.join("sync_channel" as ChannelId)

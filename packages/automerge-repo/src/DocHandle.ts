@@ -1,6 +1,7 @@
 import EventEmitter from "eventemitter3"
 import * as Automerge from "@automerge/automerge"
 import { Doc } from "@automerge/automerge"
+import { ChannelId, PeerId } from "."
 
 export type DocumentId = string & { __documentId: true }
 
@@ -149,6 +150,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 }
 
+export interface DocHandleMessageEvent {
+  destinationId: PeerId
+  channelId: ChannelId
+  data: Uint8Array
+}
+
 export interface DocHandleChangeEvent<T> {
   handle: DocHandle<T>
 }
@@ -163,6 +170,7 @@ export interface DocHandlePatchEvent<T> {
 export interface DocHandleEvents<T> {
   syncing: () => void // HMM
   ready: () => void // HMM
+  message: (event: DocHandleMessageEvent) => void
   change: (event: DocHandleChangeEvent<T>) => void
   patch: (event: DocHandlePatchEvent<T>) => void
 }

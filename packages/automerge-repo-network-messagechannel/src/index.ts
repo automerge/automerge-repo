@@ -45,7 +45,7 @@ export class MessageChannelNetworkAdapter
           break
         case "message":
           this.emit("message", {
-            senderId: origin,
+            peerId: origin,
             channelId,
             message: new Uint8Array(message),
           })

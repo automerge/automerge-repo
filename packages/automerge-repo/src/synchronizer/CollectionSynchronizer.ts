@@ -3,9 +3,9 @@ import * as CBOR from "cbor-x"
 
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { DocCollection } from "../DocCollection.js"
-import { Synchronizer, SyncMessages } from "./Synchronizer.js"
+import { SyncMessages } from "./Synchronizer.js"
 import { DocHandle, DocumentId } from "../DocHandle.js"
-import { PeerId } from "../network/NetworkSubsystem.js"
+import { ChannelId, PeerId } from "../network/NetworkSubsystem.js"
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.
@@ -14,10 +14,7 @@ import { PeerId } from "../network/NetworkSubsystem.js"
 interface SyncPool {
   [docId: DocumentId]: DocSynchronizer
 }
-export class CollectionSynchronizer
-  extends EventEmitter<SyncMessages>
-  implements Synchronizer
-{
+export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
   repo: DocCollection
   peers: { [peerId: PeerId]: boolean /* share policy */ } = {}
   syncPool: SyncPool = {}
@@ -27,15 +24,18 @@ export class CollectionSynchronizer
     this.repo = repo
   }
 
-  async onSyncMessage(peerId: PeerId, wrappedMessage: Uint8Array) {
-    const contents = CBOR.decode(wrappedMessage)
-    const { documentId, message } = contents
+  async onSyncMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array
+  ) {
+    const documentId = channelId as unknown as DocumentId
 
     // if we receive a sync message for a document we haven't got in memory,
     // we'll need to register it with the repo and start synchronizing
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
-    // console.log("ColSync:osm", peerId)
-    docSynchronizer.onSyncMessage(peerId, message)
+    console.log("ColSync:osm", peerId, channelId, message)
+    docSynchronizer.onSyncMessage(peerId, channelId, message)
     this.__generousPeers().forEach((peerId) =>
       docSynchronizer.beginSync(peerId)
     )
@@ -53,9 +53,8 @@ export class CollectionSynchronizer
 
   initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer(handle)
-    docSynchronizer.on("message", ({ peerId, documentId, message }) => {
-      const newmsg = CBOR.encode({ type: "sync", documentId, message }) // I don't love wrapping the type in here
-      this.emit("message", { documentId, peerId, message: newmsg })
+    docSynchronizer.on("message", ({ peerId, channelId, message }) => {
+      this.emit("message", { channelId, peerId, message })
     })
     return docSynchronizer
   }

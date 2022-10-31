@@ -17,8 +17,8 @@ interface PeerDetails {
   channelId: ChannelId
 }
 
-interface MessageDetails {
-  senderId: PeerId
+export interface NetworkMessageDetails {
+  peerId: PeerId
   channelId: ChannelId
   message: Uint8Array
 }
@@ -31,12 +31,12 @@ export interface NetworkAdapterEvents {
   open: (event: AdapterOpenDetails) => void
   "peer-candidate": (event: PeerCandidateDetails) => void
   "peer-disconnected": (event: DisconnectedDetails) => void
-  message: (event: MessageDetails) => void
+  message: (event: NetworkMessageDetails) => void
 }
 
 export interface NetworkEvents {
   peer: (msg: PeerDetails) => void
-  message: (msg: MessageDetails) => void
+  message: (msg: NetworkMessageDetails) => void
 }
 
 export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {

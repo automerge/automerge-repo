@@ -1,10 +1,9 @@
 import EventEmitter from "eventemitter3"
-import { DocumentId } from "../DocHandle"
-import { PeerId } from "../network/NetworkSubsystem"
+import { ChannelId, PeerId } from "../network/NetworkSubsystem"
 
 export interface SyncMessageArg {
   peerId: PeerId
-  documentId: DocumentId
+  channelId: ChannelId
   message: Uint8Array
 }
 
@@ -13,5 +12,5 @@ export interface SyncMessages {
 }
 
 export interface Synchronizer extends EventEmitter<SyncMessages> {
-  onSyncMessage(peerId: PeerId, message: Uint8Array): void
+  onSyncMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array): void
 }
