@@ -62,9 +62,9 @@ export class Repo extends DocCollection {
 
     networkSubsystem.on("message", (msg) => {
       const { senderId, channelId, message } = msg
-      // if (channelId === SYNC_CHANNEL) {
-      synchronizer.onSyncMessage(senderId, message)
-      // }
+      if (channelId === SYNC_CHANNEL) {
+        synchronizer.onSyncMessage(senderId, message)
+      }
     })
     synchronizer.on("message", ({ peerId, message }) => {
       networkSubsystem.sendMessage(peerId, SYNC_CHANNEL, message)

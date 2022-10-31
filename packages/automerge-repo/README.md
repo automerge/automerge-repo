@@ -19,7 +19,7 @@ const repo = new Repo({
 # weirdly, this works with synchronization from another source because the other source
 # will be able to merge with your fresh, empty document
 let handle = repo.find(docId)
-if (!handle) { handle = repo.create(docId) }
+if (!handle) { handle = repo.create() }
 
 # get an event every time the document is changed either locally or remotely
 # the data is { handle: DocHandle }
