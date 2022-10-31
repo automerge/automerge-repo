@@ -28,7 +28,7 @@ export class BroadcastChannelNetworkAdapter
         /* noop */
       } /* not sure what it would mean to close this yet */,
       isOpen: () => true,
-      send: (uint8message: Uint8Array) => {
+      send: (channelId, uint8message: Uint8Array) => {
         const message = uint8message.buffer.slice(
           uint8message.byteOffset,
           uint8message.byteOffset + uint8message.byteLength
@@ -66,7 +66,7 @@ export class BroadcastChannelNetworkAdapter
           break
         case "message":
           this.emit("message", {
-            senderId: origin,
+            peerId: origin,
             channelId,
             message: new Uint8Array(message),
           })

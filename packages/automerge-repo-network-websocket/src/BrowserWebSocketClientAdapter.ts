@@ -43,13 +43,15 @@ export class BrowserWebSocketClientAdapter
       console.log(`[WebSocketClientAdapter @ ${this.url}]: open`)
       clearInterval(this.timerId)
       this.timerId = undefined
-      this.channels.forEach(c => this.join(c))
+      this.channels.forEach((c) => this.join(c))
     })
 
     // When a socket closes, or disconnects, remove it from the array.
     this.socket.addEventListener("close", () => {
       console.log(`[WebSocketClientAdapter @ ${this.url}]: close`)
-      if (!this.timerId) { this.connect(peerId) }
+      if (!this.timerId) {
+        this.connect(peerId)
+      }
       // console.log("Disconnected from server")
     })
 
@@ -63,7 +65,7 @@ export class BrowserWebSocketClientAdapter
     if (!this.channels.includes(channelId)) {
       this.channels.push(channelId)
     }
-    
+
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }
@@ -88,7 +90,7 @@ export class BrowserWebSocketClientAdapter
   }
 
   leave(channelId: ChannelId) {
-    this.channels = this.channels.filter(c => c !== channelId)
+    this.channels = this.channels.filter((c) => c !== channelId)
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }
@@ -133,7 +135,8 @@ export class BrowserWebSocketClientAdapter
     const connection: NetworkConnection = {
       close: () => this.socket!.close(),
       isOpen: () => this.socket!.readyState === WebSocket.OPEN,
-      send: (message) =>
+      /* XXX TODO: Herb -- how should i handle having multiple sockets per peer here? */
+      send: (channelId, message) =>
         this.sendMessage(this.socket!, channelId, myPeerId, message),
     }
     this.emit("peer-candidate", { peerId, channelId, connection })
@@ -160,7 +163,7 @@ export class BrowserWebSocketClientAdapter
       default:
         this.emit("message", {
           channelId,
-          senderId,
+          peerId: senderId,
           message: new Uint8Array(data),
         })
     }

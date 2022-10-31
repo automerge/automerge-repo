@@ -81,7 +81,6 @@ export class NodeWSServerAdapter
   }
 
   prepareConnection(
-    channelId: ChannelId,
     destinationId: PeerId,
     socket: WebSocket,
     sourceId: PeerId
@@ -89,7 +88,7 @@ export class NodeWSServerAdapter
     const connection: NetworkConnection = {
       close: () => socket.close(),
       isOpen: () => socket.readyState === ws.OPEN,
-      send: (message) =>
+      send: (channelId, message) =>
         this.sendMessage(destinationId, socket, channelId, sourceId, message),
     }
     return connection
@@ -108,12 +107,7 @@ export class NodeWSServerAdapter
     switch (type) {
       case "join":
         // Let the rest of the system know that we have a new connection.
-        const connection = this.prepareConnection(
-          channelId,
-          senderId,
-          socket,
-          myPeerId
-        )
+        const connection = this.prepareConnection(senderId, socket, myPeerId)
         this.emit("peer-candidate", { peerId: senderId, channelId, connection })
         // In this client-server connection, there's only ever one peer: us!
         socket.send(
@@ -125,7 +119,7 @@ export class NodeWSServerAdapter
         break
       case "sync":
         this.emit("message", {
-          senderId,
+          peerId: senderId,
           channelId,
           message: new Uint8Array(data),
         })

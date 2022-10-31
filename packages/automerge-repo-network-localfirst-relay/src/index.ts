@@ -25,7 +25,7 @@ export class LocalFirstRelayNetworkAdapter
     const connection = {
       close: () => socket.close(),
       isOpen: () => socket.readyState === WebSocket.OPEN,
-      send: (uint8message: Uint8Array) => {
+      send: (channelId, uint8message: Uint8Array) => {
         const message = uint8message.buffer.slice(
           uint8message.byteOffset,
           uint8message.byteOffset + uint8message.byteLength
@@ -54,7 +54,7 @@ export class LocalFirstRelayNetworkAdapter
       socket.onmessage = (e) => {
         const message = new Uint8Array(e.data as ArrayBuffer)
         this.emit("message", {
-          senderId: userName,
+          peerId: userName,
           channelId,
           message,
         })
