@@ -185,9 +185,11 @@ function handleReplaceAroundStep<T>(
   )
 
   // Double-check that we're doing what we think we are, i.e., replacing a parent node
+  // @ts-ignore
   if (text[gapStart - 1] !== "\uFFFC") {
     console.error(
       `Unhandled scenario in ReplaceAroundStep, expected character at ${gapStart} (${(
+        // @ts-ignore
         text[gapStart - 1]! as string
       ).charCodeAt(0)}) to be ${"\uFFFC".charCodeAt(0)}`,
       step
@@ -195,9 +197,11 @@ function handleReplaceAroundStep<T>(
     return emptyChangeSet
   }
 
+  // @ts-ignore
   if (text[gapEnd] !== "\uFFFC" && gapEnd !== text.length) {
     console.error(
       `Unhandled scenario in ReplaceAroundStep, expected character at ${gapEnd} (${
+        // @ts-ignore
         text[gapStart - 1]! as string
       }) to be ${"\uFFFC".charCodeAt(0)} or End of Document (${text.length})`,
       step

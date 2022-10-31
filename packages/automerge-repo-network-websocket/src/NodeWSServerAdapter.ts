@@ -1,6 +1,6 @@
 import EventEmitter from "eventemitter3"
-import pkg from "isomorphic-ws"
-const { WebSocket, WebSocketServer } = pkg
+import * as ws from "isomorphic-ws"
+import { type WebSocketServer, WebSocket } from "isomorphic-ws"
 import * as CBOR from "cbor-x"
 
 import {
@@ -88,7 +88,7 @@ export class NodeWSServerAdapter
   ) {
     const connection: NetworkConnection = {
       close: () => socket.close(),
-      isOpen: () => socket.readyState === WebSocket.OPEN,
+      isOpen: () => socket.readyState === ws.OPEN,
       send: (message) =>
         this.sendMessage(destinationId, socket, channelId, sourceId, message),
     }
