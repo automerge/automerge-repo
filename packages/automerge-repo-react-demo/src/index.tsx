@@ -3,7 +3,6 @@ import ReactDOM from "react-dom/client"
 import localforage from "localforage"
 
 import { Repo, DocCollection, DocumentId } from "automerge-repo"
-
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 
 import App, { RootDocument } from "./App"

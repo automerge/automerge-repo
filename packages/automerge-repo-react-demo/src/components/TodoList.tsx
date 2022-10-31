@@ -22,6 +22,7 @@ function TodoItem({ documentId }: TodoItemArgs) {
       d.done = !d.done
     })
   }
+
   if (!doc || !handle) {
     return <></>
   }
@@ -43,10 +44,7 @@ function TodoItem({ documentId }: TodoItemArgs) {
 
       {/* editable item*/}
       <div className="w-full">
-        <Editor
-          handle={handle}
-          attribute={"text"}
-        ></Editor>
+        <Editor handle={handle} attribute={"text"}></Editor>
       </div>
     </div>
   )
