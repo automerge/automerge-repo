@@ -63,7 +63,7 @@ export class MessageChannelNetworkAdapter
         /* noop */
       } /* not sure what it would mean to close this yet */,
       isOpen: () => true,
-      send: (uint8message: Uint8Array) => {
+      send: (channelId: ChannelId, uint8message: Uint8Array) => {
         const message = uint8message.buffer.slice(
           uint8message.byteOffset,
           uint8message.byteOffset + uint8message.byteLength
@@ -72,6 +72,7 @@ export class MessageChannelNetworkAdapter
           {
             origin: this.peerId,
             destination: peerId,
+            channelId: channelId,
             type: "message",
             message,
           },

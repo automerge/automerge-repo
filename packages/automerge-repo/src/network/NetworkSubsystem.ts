@@ -56,7 +56,7 @@ export interface DecodedMessage {
 export interface NetworkConnection {
   isOpen(): boolean
   close(): void
-  send(msg: Uint8Array): void
+  send(channelId: ChannelId, msg: Uint8Array): void
 }
 
 export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
@@ -70,7 +70,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     super()
     this.myPeerId =
       peerId || (`user-${Math.round(Math.random() * 100000)}` as PeerId)
-    console.log("we are peer id", this.myPeerId)
+    console.log("[NetworkSubsystem] local peerID: ", this.myPeerId)
 
     this.channels = []
 
@@ -95,9 +95,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     this.channels.forEach((c) => networkAdapter.join(c))
   }
 
-  onMessage(peerId: PeerId, message: Uint8Array) {
+  sendMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array) {
     const peer = this.peers[peerId]
-    peer.send(message)
+    peer.send(channelId, message)
   }
 
   join(channelId: ChannelId) {

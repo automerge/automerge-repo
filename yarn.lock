@@ -45,9 +45,9 @@
   integrity sha512-lqb+dZAgWyVwIXfQbLhSdt0zecr0jsxKztuTyu0PcMm3i0NeWXvPuxLcJvZ72K2/V7mKnNYs2cqYZFXYqC3yKg==
 
 "@automerge/automerge@*":
-  version "2.0.0-beta.3"
-  resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-2.0.0-beta.3.tgz#10f22d55d3c072d1e556e4c34de97fe4c366430f"
-  integrity sha512-XGn2zemfqTdJiK/095+QIdHu8e0P6qRlTP/8WT/Jqpvxwlf/PDNyA+XS0gDO6SUZf56B4b+Lc86OmGolHRdq0Q==
+  version "2.0.0-beta.4"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-2.0.0-beta.4.tgz#aff6a98855ac8d283d6af262b0024e9e314af2a3"
+  integrity sha512-xloD4qS11FosiV8KohtGVM+Xdkqpocwovi4VfRdF58WaNz+LwQdOZJoxURoVsfKaGnpz4NyyKYdxpxqFG/Rl1w==
   dependencies:
     "@automerge/automerge-wasm" "0.1.15"
     uuid "^8.3"

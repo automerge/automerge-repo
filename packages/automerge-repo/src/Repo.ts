@@ -15,6 +15,8 @@ export interface RepoConfig {
   sharePolicy?: (peerId: PeerId) => boolean // generous or no. this is a stand-in for a better API to test an idea.
 }
 
+const SYNC_CHANNEL = "sync_channel" as ChannelId
+
 export class Repo extends DocCollection {
   networkSubsystem: NetworkSubsystem
   storageSubsystem?: StorageSubsystem
@@ -59,11 +61,13 @@ export class Repo extends DocCollection {
     })
 
     networkSubsystem.on("message", (msg) => {
-      const { senderId, message } = msg
+      const { senderId, channelId, message } = msg
+      // if (channelId === SYNC_CHANNEL) {
       synchronizer.onSyncMessage(senderId, message)
+      // }
     })
     synchronizer.on("message", ({ peerId, message }) => {
-      networkSubsystem.onMessage(peerId, message)
+      networkSubsystem.sendMessage(peerId, SYNC_CHANNEL, message)
     })
 
     networkSubsystem.join("sync_channel" as ChannelId)
