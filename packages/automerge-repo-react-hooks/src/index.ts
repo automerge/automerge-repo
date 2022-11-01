@@ -4,12 +4,14 @@ import {
   DocCollection,
   DocumentId,
   DocHandleChangeEvent,
+  Repo,
+  ChannelId,
 } from "automerge-repo"
 import { useEffect, useState, createContext, useContext } from "react"
 
-export const RepoContext = createContext<DocCollection | null>(null)
+export const RepoContext = createContext<Repo | null>(null)
 
-export function useRepo(): DocCollection {
+export function useRepo(): Repo {
   const repo = useContext(RepoContext)
 
   if (!repo) {
@@ -56,4 +58,16 @@ export function useDocument<T>(
   }
 
   return [doc, changeDoc]
+}
+
+export function useMessaging(documentId: DocumentId) {
+  const repo = useRepo()
+
+  const channelId = documentId as unknown as ChannelId
+
+  const state = repo.ephemeralData.value(channelId)
+  const broadcast = (message: unknown) =>
+    repo.ephemeralData.broadcast(channelId, message)
+
+  return [state, broadcast]
 }

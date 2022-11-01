@@ -3,10 +3,32 @@ import EventEmitter from "eventemitter3"
 import { ChannelId, PeerId } from "."
 import { NetworkMessageDetails } from "./network/NetworkSubsystem"
 
-export type EphemeralDataMessageEvents = {
-  message: (event: NetworkMessageDetails) => void
+export interface EphemeralDataDetails {
+  channelId: ChannelId
+  peerId: PeerId
+  data: unknown
 }
 
+export type EphemeralDataMessageEvents = {
+  message: (event: NetworkMessageDetails) => void
+  data: (event: EphemeralDataDetails) => void
+}
+
+/**
+ * Ephemeral Data
+ * -----
+ *
+ * Not all data needs to be persisted to disk. For example, selections,
+ * cursor positions, and presence heartbeats are all quite disposible.
+ *
+ * This class tracks the last broadcast value on a per-peer basis for
+ * a particular key / channelId.
+ *
+ * Note that as we navigate around the site we don't want to see "missing"
+ * data for a moment if the same data shows up multiple places.
+ *
+ * Thus, we cache the last known value of each atom of data to prevent flicker.
+ */
 export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
   data: { [channelId: ChannelId]: { [peer: PeerId]: unknown } } = {}
 
@@ -28,16 +50,13 @@ export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
     channelId: ChannelId,
     message: Uint8Array
   ) {
+    const data = CBOR.decode(message)
     const currentValue = this.data[channelId] || {}
-    this.data[channelId] = { ...currentValue, [senderId]: CBOR.decode(message) }
+    this.data[channelId] = { ...currentValue, [senderId]: data }
+    this.emit("data", { peerId: senderId, channelId, data })
   }
 
-  value(peerId: PeerId, channelId: ChannelId): unknown {
-    const channelData = this.data[channelId]
-    if (!channelData) {
-      return
-    }
-
-    return channelData[peerId] // could be undefined, of course
+  value(channelId: ChannelId): Record<PeerId, unknown> | undefined {
+    return this.data[channelId]
   }
 }

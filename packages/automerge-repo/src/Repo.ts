@@ -16,11 +16,10 @@ export interface RepoConfig {
   sharePolicy?: (peerId: PeerId) => boolean // generous or no. this is a stand-in for a better API to test an idea.
 }
 
-const SYNC_CHANNEL = "sync_channel" as ChannelId
-
 export class Repo extends DocCollection {
   networkSubsystem: NetworkSubsystem
   storageSubsystem?: StorageSubsystem
+  ephemeralData: EphemeralData
 
   constructor(config: RepoConfig) {
     super()
@@ -52,6 +51,7 @@ export class Repo extends DocCollection {
 
     const synchronizer = new CollectionSynchronizer(this)
     const ephemeralData = new EphemeralData()
+    this.ephemeralData = ephemeralData
 
     // wire up the dependency synchronizers.
     networkSubsystem.on("peer", ({ peerId }) => {
