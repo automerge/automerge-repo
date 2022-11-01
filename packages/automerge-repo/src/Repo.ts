@@ -65,6 +65,7 @@ export class Repo extends DocCollection {
     networkSubsystem.on("message", (msg) => {
       const { peerId, channelId, message } = msg
       if (channelId.startsWith("m/")) {
+        console.log("********* EM")
         ephemeralData.receiveBroadcast(peerId, channelId, message)
       } else {
         synchronizer.onSyncMessage(peerId, channelId, message)

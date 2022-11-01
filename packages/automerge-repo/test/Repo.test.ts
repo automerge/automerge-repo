@@ -1,7 +1,7 @@
 import assert from "assert"
 import { MessageChannel } from "worker_threads"
 
-import { DocHandle, PeerId } from "../src"
+import { ChannelId, DocHandle, PeerId } from "../src"
 import { Repo } from "../src/Repo"
 
 import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
@@ -114,6 +114,25 @@ describe("Repo", () => {
       assert.deepStrictEqual(doc3, { foo: "bar" })
     })
 
+    it.only("can broadcast a message", (done) => {
+      console.log("BROADCASTING")
+      const messageChannel = "m/broadcast" as ChannelId
+      const data = { presence: "myUserId" }
+
+      repo1.ephemeralData.on("data", ({ peerId, channelId, data }) => {
+        try {
+          const peerId = repo2.networkSubsystem.myPeerId
+          console.log("DATA:", data)
+          assert.deepEqual(data, data)
+          done()
+        } catch (e) {
+          done(e)
+        }
+      })
+
+      repo2.ephemeralData.broadcast(messageChannel, data)
+    })
+
     it("can do some complicated sync thing without duplicating messages", () => {
       let lastMessage: any
       repo1.networkSubsystem.on("message", (msg) => {
@@ -150,10 +169,12 @@ describe("Repo", () => {
         console.log(`Repo ${i}: ${Object.keys(r.handles).length} documents.`)
       })
       console.log("*****************************")
+    })
 
+    setTimeout(() => {
       // Close the message ports so that the script can exit.
       mc1to2.port1.close()
       mc2to3.port1.close()
-    })
+    }, 200)
   })
 })

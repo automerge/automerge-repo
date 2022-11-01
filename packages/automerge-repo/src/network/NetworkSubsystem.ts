@@ -96,8 +96,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   }
 
   sendMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array) {
-    const peer = this.peers[peerId]
-    peer.send(channelId, message)
+    if (peerId === "*") {
+      Object.values(this.peers).forEach((peer) => peer.send(channelId, message))
+    } else {
+      const peer = this.peers[peerId]
+      peer.send(channelId, message)
+    }
   }
 
   join(channelId: ChannelId) {
