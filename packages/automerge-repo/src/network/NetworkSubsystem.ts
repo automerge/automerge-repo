@@ -58,6 +58,7 @@ export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
 export interface DecodedMessage {
   type: string
   senderId: PeerId
+  targetId: PeerId
   channelId: ChannelId
   data: Uint8Array
 }

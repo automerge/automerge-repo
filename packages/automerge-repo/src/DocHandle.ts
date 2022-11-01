@@ -123,7 +123,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       log(`[${this.documentId}]: value: (${this.state}, waiting for ready)`)
       await new Promise((resolve) => this.once("ready", () => resolve(true)))
     } else {
-      await new Promise((resolve) => setImmediate(() => resolve(true)))
+      await new Promise((resolve) => setTimeout(() => resolve(true), 0))
     }
     log(`[${this.documentId}]: value:`, this.doc)
     return this.doc
@@ -135,7 +135,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       log(`[${this.documentId}]: value: (${this.state}, waiting for syncing)`)
       await new Promise((resolve) => this.once("syncing", () => resolve(true)))
     } else {
-      await new Promise((resolve) => setImmediate(() => resolve(true)))
+      await new Promise((resolve) => setTimeout(() => resolve(true), 0))
     }
     log(`[${this.documentId}]: syncValue:`, this.doc)
     return this.doc

@@ -9,7 +9,6 @@ import {
   DecodedMessage,
   NetworkAdapter,
   NetworkAdapterEvents,
-  NetworkConnection,
   PeerId,
 } from "automerge-repo"
 
@@ -101,21 +100,22 @@ export class BrowserWebSocketClientAdapter
     )
   }
 
-  sendMessage(
-    socket: WebSocket,
-    channelId: ChannelId,
-    senderId: PeerId,
-    message: Uint8Array
-  ) {
+  sendMessage(targetId: PeerId, channelId: ChannelId, message: Uint8Array) {
     if (message.byteLength === 0) {
       throw new Error("tried to send a zero-length message")
     }
+    if (!this.peerId) {
+      throw new Error("Why don't we have a PeerID?")
+    }
+
     const decoded: DecodedMessage = {
-      senderId,
+      senderId: this.peerId,
+      targetId,
       channelId,
       type: "sync",
       data: message,
     }
+
     const encoded = CBOR.encode(decoded)
 
     // This incantation deals with websocket sending the whole
@@ -124,7 +124,10 @@ export class BrowserWebSocketClientAdapter
       encoded.byteOffset,
       encoded.byteOffset + encoded.byteLength
     )
-    socket.send(arrayBuf)
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error("Websocket Socket not ready!")
+    }
+    this.socket.send(arrayBuf)
   }
 
   announceConnection(channelId: ChannelId, peerId: PeerId) {
@@ -134,19 +137,12 @@ export class BrowserWebSocketClientAdapter
       throw new Error("we should have a peer ID by now")
     }
 
-    const connection: NetworkConnection = {
-      close: () => this.socket!.close(),
-      isOpen: () => this.socket!.readyState === WebSocket.OPEN,
-      /* XXX TODO: Herb -- how should i handle having multiple sockets per peer here? */
-      send: (channelId, message) =>
-        this.sendMessage(this.socket!, channelId, myPeerId, message),
-    }
-    this.emit("peer-candidate", { peerId, channelId, connection })
+    this.emit("peer-candidate", { peerId, channelId })
   }
 
   receiveMessage(message: Uint8Array) {
     const decoded = CBOR.decode(new Uint8Array(message)) as DecodedMessage
-    const { type, senderId, channelId, data } = decoded
+    const { type, senderId, targetId, channelId, data } = decoded
 
     const socket = this.socket
     if (!socket) {
@@ -165,7 +161,8 @@ export class BrowserWebSocketClientAdapter
       default:
         this.emit("message", {
           channelId,
-          peerId: senderId,
+          senderId,
+          targetId,
           message: new Uint8Array(data),
         })
     }

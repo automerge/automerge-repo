@@ -4,7 +4,8 @@ import { ChannelId, PeerId } from "."
 import {
   ALL_PEERS_ID,
   OutboundMessageDetails,
-} from "./network/NetworkSubsystem"
+} from "./network/NetworkSubsystem.js"
+// TODO: why did I need a .js here?
 
 export interface EphemeralDataDetails {
   channelId: ChannelId
