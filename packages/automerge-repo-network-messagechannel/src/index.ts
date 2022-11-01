@@ -1,5 +1,6 @@
 import EventEmitter from "eventemitter3"
 import {
+  ALL_PEERS_ID,
   ChannelId,
   NetworkAdapter,
   NetworkAdapterEvents,
@@ -28,7 +29,10 @@ export class MessageChannelNetworkAdapter
     this.messagePort.addEventListener("message", (e) => {
       log("message port received", e.data)
       const { origin, destination, type, channelId, message } = e.data
-      if (destination && destination !== this.peerId) {
+      if (
+        destination &&
+        !(destination === this.peerId || destination === ALL_PEERS_ID)
+      ) {
         throw new Error(
           "MessagePortNetwork should never receive messages for a different peer."
         )
@@ -47,7 +51,8 @@ export class MessageChannelNetworkAdapter
           break
         case "message":
           this.emit("message", {
-            peerId: origin,
+            senderId: origin,
+            targetId: destination,
             channelId,
             message: new Uint8Array(message),
           })
@@ -58,31 +63,32 @@ export class MessageChannelNetworkAdapter
     })
   }
 
+  sendMessage(peerId: PeerId, channelId: ChannelId, uint8message: Uint8Array) {
+    const message = uint8message.buffer.slice(
+      uint8message.byteOffset,
+      uint8message.byteOffset + uint8message.byteLength
+    )
+    this.messagePort.postMessage(
+      {
+        origin: this.peerId,
+        destination: peerId,
+        channelId: channelId,
+        type: "message",
+        message,
+      },
+      [message]
+    )
+  }
+
   announceConnection(channelId: ChannelId, peerId: PeerId) {
     // return a peer object
-    const connection = {
+    const peer = {
       close: () => {
         /* noop */
       } /* not sure what it would mean to close this yet */,
       isOpen: () => true,
-      send: (channelId: ChannelId, uint8message: Uint8Array) => {
-        const message = uint8message.buffer.slice(
-          uint8message.byteOffset,
-          uint8message.byteOffset + uint8message.byteLength
-        )
-        this.messagePort.postMessage(
-          {
-            origin: this.peerId,
-            destination: peerId,
-            channelId: channelId,
-            type: "message",
-            message,
-          },
-          [message]
-        )
-      },
     }
-    this.emit("peer-candidate", { peerId, channelId, connection })
+    this.emit("peer-candidate", { peerId, channelId })
   }
 
   join(channelId: string) {

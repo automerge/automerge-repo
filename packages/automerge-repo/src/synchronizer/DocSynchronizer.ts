@@ -64,7 +64,7 @@ export class DocSynchronizer
         decoded
       )
       const channelId = this.handle.documentId as unknown as ChannelId
-      this.emit("message", { peerId, channelId, message })
+      this.emit("message", { targetId: peerId, channelId, message })
     } else {
       log(
         `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: [no message generated]`

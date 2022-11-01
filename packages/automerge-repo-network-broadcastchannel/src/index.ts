@@ -1,5 +1,6 @@
 import EventEmitter from "eventemitter3"
 import {
+  ALL_PEERS_ID,
   ChannelId,
   NetworkAdapter,
   NetworkAdapterEvents,
@@ -49,7 +50,7 @@ export class BroadcastChannelNetworkAdapter
     broadcastChannel.postMessage({ origin: this.peerId, type: "arrive" })
     broadcastChannel.addEventListener("message", (e) => {
       const { origin, destination, type, message } = e.data
-      if (destination && destination !== this.peerId) {
+      if (destination && destination !== this.peerId || ALL_PEERS_ID ) {
         return
       }
       switch (type) {
@@ -66,7 +67,8 @@ export class BroadcastChannelNetworkAdapter
           break
         case "message":
           this.emit("message", {
-            peerId: origin,
+            sourceId: origin,
+            targetId: destination
             channelId,
             message: new Uint8Array(message),
           })

@@ -1,7 +1,10 @@
 import * as CBOR from "cbor-x"
 import EventEmitter from "eventemitter3"
 import { ChannelId, PeerId } from "."
-import { NetworkMessageDetails } from "./network/NetworkSubsystem"
+import {
+  ALL_PEERS_ID,
+  OutboundMessageDetails,
+} from "./network/NetworkSubsystem"
 
 export interface EphemeralDataDetails {
   channelId: ChannelId
@@ -10,7 +13,7 @@ export interface EphemeralDataDetails {
 }
 
 export type EphemeralDataMessageEvents = {
-  message: (event: NetworkMessageDetails) => void
+  message: (event: OutboundMessageDetails) => void
   data: (event: EphemeralDataDetails) => void
 }
 
@@ -36,7 +39,7 @@ export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
   broadcast(channelId: ChannelId, message: unknown) {
     const cbor = CBOR.encode(message)
     this.emit("message", {
-      peerId: "*" as PeerId, // TODO: should I make "*" a special PeerId?
+      targetId: ALL_PEERS_ID,
       channelId,
       message: cbor,
     })

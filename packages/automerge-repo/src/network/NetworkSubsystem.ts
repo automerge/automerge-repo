@@ -6,13 +6,14 @@ const log = debug("NetworkSubsystem")
 export type PeerId = string & { __peerId: false }
 export type ChannelId = string & { __channelId: false }
 
+export const ALL_PEERS_ID = "*" as PeerId
+
 interface AdapterOpenDetails {
   network: NetworkAdapter
 }
 interface PeerCandidateDetails {
   peerId: PeerId
   channelId: ChannelId
-  connection: NetworkConnection
 }
 
 interface PeerDetails {
@@ -20,10 +21,14 @@ interface PeerDetails {
   channelId: ChannelId
 }
 
-export interface NetworkMessageDetails {
-  peerId: PeerId
+export interface OutboundMessageDetails {
+  targetId: PeerId // * is a special value that indicates "all peers"
   channelId: ChannelId
   message: Uint8Array
+}
+
+export interface InboundMessageDetails extends OutboundMessageDetails {
+  senderId: PeerId
 }
 
 interface DisconnectedDetails {
@@ -34,17 +39,18 @@ export interface NetworkAdapterEvents {
   open: (event: AdapterOpenDetails) => void
   "peer-candidate": (event: PeerCandidateDetails) => void
   "peer-disconnected": (event: DisconnectedDetails) => void
-  message: (event: NetworkMessageDetails) => void
+  message: (event: InboundMessageDetails) => void
 }
 
 export interface NetworkEvents {
   peer: (msg: PeerDetails) => void
-  message: (msg: NetworkMessageDetails) => void
+  message: (msg: InboundMessageDetails) => void
 }
 
 export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
   connect(url?: string): void
+  sendMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array): void
   join(channelId: ChannelId): void
   leave(channelId: ChannelId): void
 }
@@ -56,7 +62,7 @@ export interface DecodedMessage {
   data: Uint8Array
 }
 
-export interface NetworkConnection {
+export interface Peer extends EventEmitter<InboundMessageDetails> {
   isOpen(): boolean
   close(): void
   send(channelId: ChannelId, msg: Uint8Array): void
@@ -66,7 +72,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   networkAdapters: NetworkAdapter[] = []
 
   myPeerId: PeerId
-  peers: { [peerId: PeerId]: NetworkConnection } = {}
+  peers: { [peerId: PeerId]: NetworkAdapter } = {}
   channels: ChannelId[]
 
   constructor(networkAdapters: NetworkAdapter[], peerId?: PeerId) {
@@ -83,15 +89,24 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
     networkAdapter.connect(this.myPeerId)
-    networkAdapter.on("peer-candidate", ({ peerId, channelId, connection }) => {
-      if (!this.peers[peerId] || !this.peers[peerId].isOpen()) {
-        this.peers[peerId] = connection
+    networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
+      if (!this.peers[peerId]) {
+        // TODO: handle losing a server here
+        this.peers[peerId] = networkAdapter
       }
 
       this.emit("peer", { peerId, channelId })
     })
 
     networkAdapter.on("message", (msg) => {
+      const { senderId, targetId, channelId, message } = msg
+      if (targetId === ALL_PEERS_ID) {
+        Object.entries(this.peers)
+          .filter(([id]) => id !== senderId)
+          .forEach(([id, peer]) =>
+            peer.sendMessage(id as PeerId, channelId, message)
+          )
+      }
       this.emit("message", msg)
     })
 
@@ -99,11 +114,13 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   }
 
   sendMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array) {
-    if (peerId === "*") {
-      Object.values(this.peers).forEach((peer) => peer.send(channelId, message))
+    if (peerId === ALL_PEERS_ID) {
+      Object.entries(this.peers).forEach(([id, peer]) =>
+        peer.sendMessage(id as PeerId, channelId, message)
+      )
     } else {
       const peer = this.peers[peerId]
-      peer.send(channelId, message)
+      peer.sendMessage(peerId, channelId, message)
     }
   }
 

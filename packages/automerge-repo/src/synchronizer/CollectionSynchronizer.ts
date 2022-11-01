@@ -54,8 +54,8 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
 
   initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer(handle)
-    docSynchronizer.on("message", ({ peerId, channelId, message }) => {
-      this.emit("message", { channelId, peerId, message })
+    docSynchronizer.on("message", ({ targetId, channelId, message }) => {
+      this.emit("message", { channelId, targetId, message })
     })
     return docSynchronizer
   }

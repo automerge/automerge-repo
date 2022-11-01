@@ -1,14 +1,12 @@
 import EventEmitter from "eventemitter3"
-import { ChannelId, PeerId } from "../network/NetworkSubsystem"
-
-export interface SyncMessageArg {
-  peerId: PeerId
-  channelId: ChannelId
-  message: Uint8Array
-}
+import {
+  ChannelId,
+  OutboundMessageDetails,
+  PeerId,
+} from "../network/NetworkSubsystem"
 
 export interface SyncMessages {
-  message: (arg: SyncMessageArg) => void
+  message: (arg: OutboundMessageDetails) => void
 }
 
 export interface Synchronizer extends EventEmitter<SyncMessages> {
