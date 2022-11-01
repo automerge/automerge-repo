@@ -3,6 +3,9 @@ import * as ws from "isomorphic-ws"
 import { type WebSocketServer, WebSocket } from "isomorphic-ws"
 import * as CBOR from "cbor-x"
 
+import debug from "debug"
+const log = debug("WebsocketServer")
+
 import {
   ChannelId,
   DecodedMessage,
@@ -74,7 +77,7 @@ export class NodeWSServerAdapter
       encoded.byteOffset + encoded.byteLength
     )
 
-    console.log(
+    log(
       `[${senderId}->${destinationId}@${channelId}] "sync" | ${arrayBuf.byteLength} bytes`
     )
     socket.send(arrayBuf)
@@ -101,7 +104,7 @@ export class NodeWSServerAdapter
     if (!myPeerId) {
       throw new Error("Missing my peer ID.")
     }
-    console.log(
+    log(
       `[${senderId}->${myPeerId}@${channelId}] ${type} | ${message.byteLength} bytes`
     )
     switch (type) {
@@ -125,7 +128,7 @@ export class NodeWSServerAdapter
         })
         break
       default:
-        // console.log("unrecognized message type")
+        // log("unrecognized message type")
         break
     }
   }

@@ -64,8 +64,8 @@ export class Repo extends DocCollection {
 
     networkSubsystem.on("message", (msg) => {
       const { peerId, channelId, message } = msg
+      // TODO: i think i want a more principled way of associating channels with recipients
       if (channelId.startsWith("m/")) {
-        console.log("********* EM")
         ephemeralData.receiveBroadcast(peerId, channelId, message)
       } else {
         synchronizer.onSyncMessage(peerId, channelId, message)

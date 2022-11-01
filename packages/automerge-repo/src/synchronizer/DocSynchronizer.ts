@@ -3,6 +3,8 @@ import { Synchronizer, SyncMessages } from "./Synchronizer"
 import * as Automerge from "@automerge/automerge"
 import { DocHandle, DocumentId } from "../DocHandle"
 import { ChannelId, PeerId } from "../network/NetworkSubsystem"
+import debug from "debug"
+const log = debug("DocSynchronizer")
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -32,7 +34,7 @@ export class DocSynchronizer
     let syncState = this.syncStates[peerId]
     if (!syncState) {
       // TODO: load syncState from localStorage if available
-      // console.log("adding a new peer", peerId)
+      log("adding a new peer", peerId)
       this.peers.push(peerId)
       syncState = Automerge.initSyncState()
     }
@@ -48,7 +50,7 @@ export class DocSynchronizer
     documentId: DocumentId,
     doc: Automerge.Doc<unknown>
   ) {
-    console.log(`[${this.handle.documentId}]->[${peerId}]: sendSyncMessage`)
+    log(`[${this.handle.documentId}]->[${peerId}]: sendSyncMessage`)
     const syncState = this.getSyncState(peerId)
     const [newSyncState, message] = Automerge.generateSyncMessage(
       doc,
@@ -57,21 +59,21 @@ export class DocSynchronizer
     this.setSyncState(peerId, newSyncState)
     if (message) {
       const decoded = Automerge.decodeSyncMessage(message)
-      console.log(
+      log(
         `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: ${message.byteLength}b`,
         decoded
       )
       const channelId = this.handle.documentId as unknown as ChannelId
       this.emit("message", { peerId, channelId, message })
     } else {
-      console.log(
+      log(
         `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: [no message generated]`
       )
     }
   }
 
   async beginSync(peerId: PeerId) {
-    console.log(`[${this.handle.documentId}]: beginSync: ${peerId}`)
+    log(`[${this.handle.documentId}]: beginSync: ${peerId}`)
     const { documentId } = this.handle
     const doc = await this.handle.syncValue()
     this.sendSyncMessage(peerId, documentId, doc)
@@ -93,7 +95,7 @@ export class DocSynchronizer
     }
     this.handle.updateDoc((doc) => {
       const decoded = Automerge.decodeSyncMessage(message)
-      console.log(
+      log(
         `[${this.handle.documentId}]->[${peerId}]: receiveSync: ${message.byteLength}b`,
         decoded
       )
@@ -106,7 +108,7 @@ export class DocSynchronizer
       )
       const end = Date.now()
       const time = end - start
-      console.log(
+      log(
         `[${this.handle.documentId}]: receiveSync: <- ${peerId} ${
           message.byteLength
         }b in ${time}ms ${time > 1000 ? "[SLOW]!" : ""} from ${peerId}`
@@ -118,7 +120,7 @@ export class DocSynchronizer
   }
 
   async syncWithPeers() {
-    console.log(`[${this.handle.documentId}]: syncWithPeers`)
+    log(`[${this.handle.documentId}]: syncWithPeers`)
     const { documentId } = this.handle
     const doc = await this.handle.syncValue()
     this.peers.forEach((peerId) => {

@@ -5,6 +5,8 @@ import {
   NetworkAdapterEvents,
   PeerId,
 } from "automerge-repo"
+import debug from "debug"
+const log = debug("messagechannel")
 
 export class MessageChannelNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
@@ -20,11 +22,11 @@ export class MessageChannelNetworkAdapter
   }
 
   connect(peerId: PeerId) {
-    console.log("messageport connecting")
+    log("messageport connecting")
     this.peerId = peerId
     this.messagePort.start()
     this.messagePort.addEventListener("message", (e) => {
-      console.log("message port received", e.data)
+      log("message port received", e.data)
       const { origin, destination, type, channelId, message } = e.data
       if (destination && destination !== this.peerId) {
         throw new Error(

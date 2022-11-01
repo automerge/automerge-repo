@@ -1,6 +1,8 @@
 import EventEmitter from "eventemitter3"
 import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
+import debug from "debug"
+const log = debug("WebsocketClient")
 
 import {
   ChannelId,
@@ -40,7 +42,7 @@ export class BrowserWebSocketClientAdapter
     this.socket.binaryType = "arraybuffer"
 
     this.socket.addEventListener("open", () => {
-      console.log(`[WebSocketClientAdapter @ ${this.url}]: open`)
+      log(`@ ${this.url}: open`)
       clearInterval(this.timerId)
       this.timerId = undefined
       this.channels.forEach((c) => this.join(c))
@@ -48,11 +50,11 @@ export class BrowserWebSocketClientAdapter
 
     // When a socket closes, or disconnects, remove it from the array.
     this.socket.addEventListener("close", () => {
-      console.log(`[WebSocketClientAdapter @ ${this.url}]: close`)
+      log(`${this.url}: close`)
       if (!this.timerId) {
         this.connect(peerId)
       }
-      // console.log("Disconnected from server")
+      // log("Disconnected from server")
     })
 
     this.socket.addEventListener("message", (event: WebSocket.MessageEvent) =>
@@ -157,7 +159,7 @@ export class BrowserWebSocketClientAdapter
 
     switch (type) {
       case "peer":
-        // console.log(`peer: ${senderId}, ${channelId}`)
+        log(`peer: ${senderId}, ${channelId}`)
         this.announceConnection(channelId, senderId)
         break
       default:

@@ -94,7 +94,6 @@ describe("DocHandle", () => {
       true
     )
     handle.on("patch", ({ /*handle,*/ patch, after }) => {
-      console.log(patch)
       assert.deepEqual(patch, {
         action: "put",
         path: ["foo"],

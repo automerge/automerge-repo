@@ -1,5 +1,8 @@
 import EventEmitter from "eventemitter3"
 
+import debug from "debug"
+const log = debug("NetworkSubsystem")
+
 export type PeerId = string & { __peerId: false }
 export type ChannelId = string & { __channelId: false }
 
@@ -70,7 +73,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     super()
     this.myPeerId =
       peerId || (`user-${Math.round(Math.random() * 100000)}` as PeerId)
-    console.log("[NetworkSubsystem] local peerID: ", this.myPeerId)
+    log("local peerID: ", this.myPeerId)
 
     this.channels = []
 

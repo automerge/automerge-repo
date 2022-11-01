@@ -3,6 +3,9 @@ import * as Automerge from "@automerge/automerge"
 import { Doc } from "@automerge/automerge"
 import { ChannelId, PeerId } from "."
 
+import debug from "debug"
+const log = debug("DocHandle")
+
 export type DocumentId = string & { __documentId: true }
 
 type HandleState = "loading" | "syncing" | "ready"
@@ -61,7 +64,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   loadIncremental(binary: Uint8Array) {
-    console.log(`[${this.documentId}]: loadIncremental`, this.doc)
+    log(`[${this.documentId}]: loadIncremental`, this.doc)
     const newDoc = Automerge.loadIncremental(this.doc, binary)
     if (this.state === "loading") {
       this.state = "ready"
@@ -78,7 +81,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
-    console.log(`[${this.documentId}]: updateDoc`, this.doc)
+    log(`[${this.documentId}]: updateDoc`, this.doc)
     // make sure doc is a new version of the old doc somehow...
     this.__notifyChangeListeners(callback(this.doc))
   }
@@ -117,28 +120,24 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   async value() {
     if (!this.ready()) {
-      console.log(
-        `[${this.documentId}]: value: (${this.state}, waiting for ready)`
-      )
+      log(`[${this.documentId}]: value: (${this.state}, waiting for ready)`)
       await new Promise((resolve) => this.once("ready", () => resolve(true)))
     } else {
       await new Promise((resolve) => setImmediate(() => resolve(true)))
     }
-    console.log(`[${this.documentId}]: value:`, this.doc)
+    log(`[${this.documentId}]: value:`, this.doc)
     return this.doc
   }
 
   async syncValue() {
-    console.log(`[${this.documentId}]: syncValue,`, this.doc)
+    log(`[${this.documentId}]: syncValue,`, this.doc)
     if (this.state == "loading") {
-      console.log(
-        `[${this.documentId}]: value: (${this.state}, waiting for syncing)`
-      )
+      log(`[${this.documentId}]: value: (${this.state}, waiting for syncing)`)
       await new Promise((resolve) => this.once("syncing", () => resolve(true)))
     } else {
       await new Promise((resolve) => setImmediate(() => resolve(true)))
     }
-    console.log(`[${this.documentId}]: syncValue:`, this.doc)
+    log(`[${this.documentId}]: syncValue:`, this.doc)
     return this.doc
   }
 

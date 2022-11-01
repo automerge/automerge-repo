@@ -1,5 +1,6 @@
 import EventEmitter from "eventemitter3"
-import * as CBOR from "cbor-x"
+import debug from "debug"
+const log = debug("CollectionSynchronizer")
 
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { DocCollection } from "../DocCollection.js"
@@ -34,7 +35,7 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
     // if we receive a sync message for a document we haven't got in memory,
     // we'll need to register it with the repo and start synchronizing
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
-    console.log("ColSync:osm", peerId, channelId, message)
+    log(`onSyncMessage: ${peerId}, ${channelId}, ${message}`)
     docSynchronizer.onSyncMessage(peerId, channelId, message)
     this.__generousPeers().forEach((peerId) =>
       docSynchronizer.beginSync(peerId)
@@ -76,10 +77,10 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
   }
 
   addPeer(peerId: PeerId, sharePolicy: boolean) {
-    console.log(`[CollectionSynchronizer]: ${peerId}, ${sharePolicy}`)
+    log(`${peerId}, ${sharePolicy}`)
     this.peers[peerId] = sharePolicy
     if (sharePolicy === true) {
-      console.log(`[CollectionSynchronizer]: sharing all open docs`)
+      log(`sharing all open docs`)
       Object.values(this.syncPool).forEach((docSynchronizer) =>
         docSynchronizer.beginSync(peerId)
       )
