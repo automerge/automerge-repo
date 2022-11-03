@@ -11,38 +11,28 @@ export class BroadcastChannelNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements NetworkAdapter
 {
-  channels = {}
+  broadcastChannels: { [channelId: ChannelId]: BroadcastChannel }
   peerId?: PeerId
 
   connect(peerId: PeerId) {
     this.peerId = peerId
   }
 
-  announceConnection(
-    channelId: ChannelId,
-    peerId: PeerId,
-    broadcastChannel: BroadcastChannel
-  ) {
-    // return a peer object
-    const connection = {
-      close: () => {
-        /* noop */
-      } /* not sure what it would mean to close this yet */,
-      isOpen: () => true,
-      send: (channelId, uint8message: Uint8Array) => {
-        const message = uint8message.buffer.slice(
-          uint8message.byteOffset,
-          uint8message.byteOffset + uint8message.byteLength
-        )
-        broadcastChannel.postMessage({
-          origin: this.peerId,
-          destination: peerId,
-          type: "message",
-          message,
-        })
-      },
-    }
-    this.emit("peer-candidate", { peerId, channelId, connection })
+  announceConnection(channelId: ChannelId, peerId: PeerId) {
+    this.emit("peer-candidate", { peerId, channelId })
+  }
+
+  sendMessage(peerId: PeerId, channelId: ChannelId, uint8message: Uint8Array) {
+    const message = uint8message.buffer.slice(
+      uint8message.byteOffset,
+      uint8message.byteOffset + uint8message.byteLength
+    )
+    this.broadcastChannels[channelId].postMessage({
+      origin: this.peerId,
+      destination: peerId,
+      type: "message",
+      message,
+    })
   }
 
   join(channelId: ChannelId) {
@@ -50,7 +40,7 @@ export class BroadcastChannelNetworkAdapter
     broadcastChannel.postMessage({ origin: this.peerId, type: "arrive" })
     broadcastChannel.addEventListener("message", (e) => {
       const { origin, destination, type, message } = e.data
-      if (destination && destination !== this.peerId || ALL_PEERS_ID ) {
+      if ((destination && destination !== this.peerId) || ALL_PEERS_ID) {
         return
       }
       switch (type) {
@@ -60,15 +50,15 @@ export class BroadcastChannelNetworkAdapter
             destination: origin,
             type: "welcome",
           })
-          this.announceConnection(channelId, origin, broadcastChannel)
+          this.announceConnection(channelId, origin)
           break
         case "welcome":
-          this.announceConnection(channelId, origin, broadcastChannel)
+          this.announceConnection(channelId, origin)
           break
         case "message":
           this.emit("message", {
-            sourceId: origin,
-            targetId: destination
+            senderId: origin,
+            targetId: destination,
             channelId,
             message: new Uint8Array(message),
           })
