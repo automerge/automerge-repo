@@ -67,7 +67,7 @@ export class Repo extends DocCollection {
 
       // TODO: i think i want a more principled way of associating channels with recipients
       if (channelId.startsWith("m/")) {
-        ephemeralData.receiveBroadcast(senderId, channelId, message)
+        ephemeralData.receive(senderId, channelId, message)
       } else {
         synchronizer.onSyncMessage(senderId, channelId, message)
       }

@@ -22,16 +22,12 @@ export type EphemeralDataMessageEvents = {
  * Ephemeral Data
  * -----
  *
- * Not all data needs to be persisted to disk. For example, selections,
- * cursor positions, and presence heartbeats are all quite disposible.
+ * Not all that glitters is gold.
  *
- * This class tracks the last broadcast value on a per-peer basis for
- * a particular key / channelId.
+ * It's useful to have a mechanism to send around short-lived data like cursor
+ * positions, presence, or heartbeats. This kind of data is often high-bandwidth
+ * and low-utility to persist so... this lets you communicate without that.
  *
- * Note that as we navigate around the site we don't want to see "missing"
- * data for a moment if the same data shows up multiple places.
- *
- * Thus, we cache the last known value of each atom of data to prevent flicker.
  */
 export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
   data: { [channelId: ChannelId]: { [peer: PeerId]: unknown } } = {}
@@ -46,21 +42,8 @@ export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
     })
   }
 
-  // Messages are cached until replaced in order to avoid "flicker"
-  // or other rendering bugs.
-  // We may want to remove values when peers disconnect.
-  receiveBroadcast(
-    senderId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array
-  ) {
+  receive(senderId: PeerId, channelId: ChannelId, message: Uint8Array) {
     const data = CBOR.decode(message)
-    const currentValue = this.data[channelId] || {}
-    this.data[channelId] = { ...currentValue, [senderId]: data }
     this.emit("data", { peerId: senderId, channelId, data })
-  }
-
-  value(channelId: ChannelId): Record<PeerId, unknown> | undefined {
-    return this.data[channelId]
   }
 }

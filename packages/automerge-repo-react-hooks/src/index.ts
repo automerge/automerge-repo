@@ -59,15 +59,3 @@ export function useDocument<T>(
 
   return [doc, changeDoc]
 }
-
-export function useMessaging(documentId: DocumentId) {
-  const repo = useRepo()
-
-  const channelId = documentId as unknown as ChannelId
-
-  const state = repo.ephemeralData.value(channelId)
-  const broadcast = (message: unknown) =>
-    repo.ephemeralData.broadcast(channelId, message)
-
-  return [state, broadcast]
-}

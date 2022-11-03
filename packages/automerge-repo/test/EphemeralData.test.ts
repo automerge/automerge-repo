@@ -28,7 +28,7 @@ describe("EphemeralData", () => {
     eD.broadcast(destinationChannelId, messageData)
   })
 
-  it("should emit a data event on receiveBroadcast()", (done) => {
+  it("should emit a data event on receive()", (done) => {
     eD.on("data", ({ peerId, channelId, data }) => {
       try {
         assert.deepStrictEqual(peerId, otherPeerId)
@@ -39,13 +39,6 @@ describe("EphemeralData", () => {
         done(e)
       }
     })
-    eD.receiveBroadcast(
-      otherPeerId,
-      destinationChannelId,
-      CBOR.encode(messageData)
-    )
-
-    const v = eD.value(destinationChannelId)
-    assert.deepEqual(v![otherPeerId], messageData)
+    eD.receive(otherPeerId, destinationChannelId, CBOR.encode(messageData))
   })
 })
