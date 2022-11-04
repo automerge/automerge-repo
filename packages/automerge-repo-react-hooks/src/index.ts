@@ -1,11 +1,9 @@
 import { Doc } from "@automerge/automerge"
 import {
   DocHandle,
-  DocCollection,
   DocumentId,
   DocHandleChangeEvent,
   Repo,
-  ChannelId,
 } from "automerge-repo"
 import { useEffect, useState, createContext, useContext } from "react"
 
