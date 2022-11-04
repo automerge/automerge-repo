@@ -7,6 +7,7 @@ import debug from "debug"
 const log = debug("WebsocketServer")
 
 import {
+  ALL_PEERS_ID,
   ChannelId,
   DecodedMessage,
   NetworkAdapter,
@@ -78,7 +79,13 @@ export class NodeWSServerAdapter
     log(
       `[${senderId}->${targetId}@${channelId}] "sync" | ${arrayBuf.byteLength} bytes`
     )
-    this.sockets[targetId].send(arrayBuf)
+    if (targetId === ALL_PEERS_ID) {
+      Object.entries(this.sockets).forEach(([id, socket]) => {
+        if (id !== senderId) { socket.send(arrayBuf) }
+      })
+    } else {
+      this.sockets[targetId].send(arrayBuf)
+    }
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {

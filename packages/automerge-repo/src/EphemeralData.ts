@@ -37,13 +37,15 @@ export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
     const cbor = CBOR.encode(message)
     this.emit("message", {
       targetId: ALL_PEERS_ID,
-      channelId,
+      channelId: ("m/" + channelId) as ChannelId,
       message: cbor,
     })
   }
 
-  receive(senderId: PeerId, channelId: ChannelId, message: Uint8Array) {
+  receive(senderId: PeerId, grossChannelId: ChannelId, message: Uint8Array) {
     const data = CBOR.decode(message)
+    console.log("received a message", senderId, grossChannelId, data)
+    const channelId = grossChannelId.slice(2) as ChannelId
     this.emit("data", { peerId: senderId, channelId, data })
   }
 }

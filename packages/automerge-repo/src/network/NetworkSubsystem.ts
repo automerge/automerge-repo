@@ -102,10 +102,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     networkAdapter.on("message", (msg) => {
       const { senderId, targetId, channelId, message } = msg
       if (targetId === ALL_PEERS_ID) {
+        console.log("message for all peers, sending to", this.peers)
         Object.entries(this.peers)
           .filter(([id]) => id !== senderId)
           .forEach(([id, peer]) =>
-            peer.sendMessage(id as PeerId, channelId, message)
+            peer.sendMessage(targetId, channelId, message)
           )
       }
       this.emit("message", msg)
@@ -116,8 +117,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
   sendMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array) {
     if (peerId === ALL_PEERS_ID) {
-      Object.entries(this.peers).forEach(([id, peer]) =>
-        peer.sendMessage(id as PeerId, channelId, message)
+      Object.entries(this.peers).forEach(
+        ([id, peerAdapter]) =>
+          peerAdapter.sendMessage(ALL_PEERS_ID, channelId, message) // TODO: this would lead to message duplication if we had N peers on an adapter
       )
     } else {
       const peer = this.peers[peerId]
