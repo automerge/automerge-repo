@@ -28,7 +28,8 @@ export class MessageChannelNetworkAdapter
     this.messagePort.start()
     this.messagePort.addEventListener("message", (e) => {
       log("message port received", e.data)
-      const { origin, destination, type, channelId, message } = e.data
+      const { origin, destination, type, channelId, message, broadcast } =
+        e.data
       if (
         destination &&
         !(destination === this.peerId || destination === ALL_PEERS_ID)
@@ -55,6 +56,7 @@ export class MessageChannelNetworkAdapter
             targetId: destination,
             channelId,
             message: new Uint8Array(message),
+            broadcast,
           })
           break
         default:
@@ -63,7 +65,12 @@ export class MessageChannelNetworkAdapter
     })
   }
 
-  sendMessage(peerId: PeerId, channelId: ChannelId, uint8message: Uint8Array) {
+  sendMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    uint8message: Uint8Array,
+    broadcast: boolean
+  ) {
     const message = uint8message.buffer.slice(
       uint8message.byteOffset,
       uint8message.byteOffset + uint8message.byteLength
@@ -75,6 +82,7 @@ export class MessageChannelNetworkAdapter
         channelId: channelId,
         type: "message",
         message,
+        broadcast,
       },
       [message]
     )

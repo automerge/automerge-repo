@@ -30,8 +30,6 @@ export type EphemeralDataMessageEvents = {
  *
  */
 export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
-  data: { [channelId: ChannelId]: { [peer: PeerId]: unknown } } = {}
-
   // Send an ephemeral message to anyone listening to this DocHandle
   broadcast(channelId: ChannelId, message: unknown) {
     const cbor = CBOR.encode(message)

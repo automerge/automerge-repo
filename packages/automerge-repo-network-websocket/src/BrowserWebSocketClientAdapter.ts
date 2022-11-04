@@ -9,6 +9,7 @@ import {
   DecodedMessage,
   NetworkAdapter,
   NetworkAdapterEvents,
+  NetworkSubsystem,
   PeerId,
 } from "automerge-repo"
 
@@ -100,7 +101,7 @@ export class BrowserWebSocketClientAdapter
     )
   }
 
-  sendMessage(targetId: PeerId, channelId: ChannelId, message: Uint8Array) {
+  sendMessage(targetId: PeerId, channelId: ChannelId, message: Uint8Array, broadcast) {
     if (message.byteLength === 0) {
       throw new Error("tried to send a zero-length message")
     }
@@ -112,8 +113,9 @@ export class BrowserWebSocketClientAdapter
       senderId: this.peerId,
       targetId,
       channelId,
-      type: "sync",
+      type: "message",
       data: message,
+      broadcast
     }
 
     const encoded = CBOR.encode(decoded)
@@ -137,12 +139,18 @@ export class BrowserWebSocketClientAdapter
       throw new Error("we should have a peer ID by now")
     }
 
-    this.emit("peer-candidate", { peerId, channelId })
+    const peer = {
+      send(channelId: ChannelId, message: Uint8Array) {
+        this.sendMessage(peerId, channelId, message)
+      }
+    }
+
+    this.emit("peer-candidate", { peerId, channelId, peer })
   }
 
   receiveMessage(message: Uint8Array) {
     const decoded = CBOR.decode(new Uint8Array(message)) as DecodedMessage
-    const { type, senderId, targetId, channelId, data } = decoded
+    const { type, senderId, targetId, channelId, data, broadcast } = decoded
 
     const socket = this.socket
     if (!socket) {
@@ -164,7 +172,38 @@ export class BrowserWebSocketClientAdapter
           senderId,
           targetId,
           message: new Uint8Array(data),
+          broadcast
         })
     }
   }
 }
+
+
+/*
+
+frontend -- MessageChannel (1:1) --> 
+  sharedWorker -- WebSocket (1:1) / MessageChannel n*(1:1) --> 
+  syncServer -- WebSocket (1:n) --> 
+  sharedWorker -- MessageChannel n(1:1) --> 
+  frontend
+
+
+
+NetworkSubsystem
+  has NetworkAdapters
+  which provide Peers to NetworkSubsystem
+    return { isOpen(): ()=>{}, send(): this.socket.send(theMessage) }
+  an adapter can be responsible for 0:n peers
+  peers could be reachable via multiple NetworkAdapters
+
+
+  whoever you connect to first, you keep that connection
+  if you lose that connection -- find another? (TODO)
+
+
+eph -> "broadcast", message
+net sub -> tell each adapter to broadcast the message on a channel and who we got it from
+
+
+
+*/

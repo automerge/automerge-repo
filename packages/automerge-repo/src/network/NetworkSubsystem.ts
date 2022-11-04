@@ -25,9 +25,11 @@ export interface OutboundMessageDetails {
   targetId: PeerId // * is a special value that indicates "all peers"
   channelId: ChannelId
   message: Uint8Array
+  broadcast?: boolean
 }
 
 export interface InboundMessageDetails extends OutboundMessageDetails {
+  broadcast: boolean
   senderId: PeerId
 }
 
@@ -50,7 +52,12 @@ export interface NetworkEvents {
 export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
   connect(url?: string): void
-  sendMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array): void
+  sendMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array,
+    broadcast: boolean
+  ): void
   join(channelId: ChannelId): void
   leave(channelId: ChannelId): void
 }
@@ -73,7 +80,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   networkAdapters: NetworkAdapter[] = []
 
   myPeerId: PeerId
-  peers: { [peerId: PeerId]: NetworkAdapter } = {}
+  peerIdToAdapter: { [peerId: PeerId]: NetworkAdapter } = {}
   channels: ChannelId[]
 
   constructor(networkAdapters: NetworkAdapter[], peerId?: PeerId) {
@@ -91,23 +98,33 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
     networkAdapter.connect(this.myPeerId)
     networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
-      if (!this.peers[peerId]) {
+      if (!this.peerIdToAdapter[peerId]) {
         // TODO: handle losing a server here
-        this.peers[peerId] = networkAdapter
+        this.peerIdToAdapter[peerId] = networkAdapter
       }
 
       this.emit("peer", { peerId, channelId })
     })
 
     networkAdapter.on("message", (msg) => {
-      const { senderId, targetId, channelId, message } = msg
-      if (targetId === ALL_PEERS_ID) {
-        console.log("message for all peers, sending to", this.peers)
-        Object.entries(this.peers)
+      const { senderId, targetId, channelId, broadcast, message } = msg
+      if (broadcast) {
+        console.log("broadcast message")
+        Object.entries(this.peerIdToAdapter)
           .filter(([id]) => id !== senderId)
-          .forEach(([id, peer]) =>
-            peer.sendMessage(targetId, channelId, message)
-          )
+          .forEach(([id, peer]) => {
+            console.log(
+              "from",
+              senderId,
+              "sending",
+              id as PeerId,
+              channelId,
+              message,
+              broadcast,
+              targetId
+            )
+            peer.sendMessage(id as PeerId, channelId, message, broadcast)
+          })
       }
       this.emit("message", msg)
     })
@@ -117,13 +134,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
   sendMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array) {
     if (peerId === ALL_PEERS_ID) {
-      Object.entries(this.peers).forEach(
-        ([id, peerAdapter]) =>
-          peerAdapter.sendMessage(ALL_PEERS_ID, channelId, message) // TODO: this would lead to message duplication if we had N peers on an adapter
+      Object.entries(this.peerIdToAdapter).forEach(([id, peer]) =>
+        peer.sendMessage(id as PeerId, channelId, message, true)
       )
     } else {
-      const peer = this.peers[peerId]
-      peer.sendMessage(peerId, channelId, message)
+      const peer = this.peerIdToAdapter[peerId]
+      peer.sendMessage(peerId, channelId, message, false)
     }
   }
 

@@ -39,6 +39,10 @@ describe("EphemeralData", () => {
         done(e)
       }
     })
-    eD.receive(otherPeerId, destinationChannelId, CBOR.encode(messageData))
+    eD.receive(
+      otherPeerId,
+      ("m/" + destinationChannelId) as ChannelId, // TODO: this is nonsense
+      CBOR.encode(messageData)
+    )
   })
 })

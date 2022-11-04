@@ -51,7 +51,7 @@ export class NodeWSServerAdapter
     // throw new Error("The server doesn't join channels.")
   }
 
-  sendMessage(targetId: PeerId, channelId: ChannelId, message: Uint8Array) {
+  sendMessage(targetId: PeerId, channelId: ChannelId, message: Uint8Array, broadcast: boolean) {
     if (message.byteLength === 0) {
       throw new Error("tried to send a zero-length message")
     }
@@ -66,6 +66,7 @@ export class NodeWSServerAdapter
       channelId,
       type: "sync",
       data: message,
+      broadcast
     }
     const encoded = CBOR.encode(decoded)
 
@@ -79,18 +80,13 @@ export class NodeWSServerAdapter
     log(
       `[${senderId}->${targetId}@${channelId}] "sync" | ${arrayBuf.byteLength} bytes`
     )
-    if (targetId === ALL_PEERS_ID) {
-      Object.entries(this.sockets).forEach(([id, socket]) => {
-        if (id !== senderId) { socket.send(arrayBuf) }
-      })
-    } else {
-      this.sockets[targetId].send(arrayBuf)
-    }
+    
+    this.sockets[targetId].send(arrayBuf)
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {
     const cbor = CBOR.decode(message)
-    const { type, channelId, senderId, targetId, data } = cbor
+    const { type, channelId, senderId, targetId, data, broadcast } = cbor
     const myPeerId = this.peerId
     if (!myPeerId) {
       throw new Error("Missing my peer ID.")
@@ -113,12 +109,13 @@ export class NodeWSServerAdapter
       case "leave":
         // ?
         break
-      case "sync":
+      case "message":
         this.emit("message", {
           senderId,
           targetId,
           channelId,
           message: new Uint8Array(data),
+          broadcast,
         })
         break
       default:
