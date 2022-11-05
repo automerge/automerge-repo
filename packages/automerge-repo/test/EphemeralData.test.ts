@@ -1,11 +1,7 @@
 import assert from "assert"
 import * as CBOR from "cbor-x"
 import { EphemeralData } from "../src/EphemeralData"
-import {
-  ALL_PEERS_ID,
-  ChannelId,
-  PeerId,
-} from "../src/network/NetworkSubsystem"
+import { ChannelId, PeerId } from "../src/network/NetworkSubsystem"
 
 describe("EphemeralData", () => {
   const eD = new EphemeralData()
@@ -16,9 +12,9 @@ describe("EphemeralData", () => {
   it("should emit a network message on broadcast()", (done) => {
     eD.on("message", (event) => {
       try {
-        const { targetId, channelId, message } = event
+        const { targetId, channelId, message, broadcast } = event
         assert.deepStrictEqual(CBOR.decode(message), messageData)
-        assert.strictEqual(targetId, ALL_PEERS_ID)
+        assert.strictEqual(broadcast, true)
         assert.strictEqual(channelId, channelId)
         done()
       } catch (e) {

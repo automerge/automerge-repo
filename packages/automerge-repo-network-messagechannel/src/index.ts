@@ -1,6 +1,5 @@
 import EventEmitter from "eventemitter3"
 import {
-  ALL_PEERS_ID,
   ChannelId,
   NetworkAdapter,
   NetworkAdapterEvents,
@@ -30,10 +29,7 @@ export class MessageChannelNetworkAdapter
       log("message port received", e.data)
       const { origin, destination, type, channelId, message, broadcast } =
         e.data
-      if (
-        destination &&
-        !(destination === this.peerId || destination === ALL_PEERS_ID)
-      ) {
+      if (destination && !(destination === this.peerId || broadcast)) {
         throw new Error(
           "MessagePortNetwork should never receive messages for a different peer."
         )

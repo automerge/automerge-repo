@@ -1,10 +1,7 @@
 import * as CBOR from "cbor-x"
 import EventEmitter from "eventemitter3"
 import { ChannelId, PeerId } from "."
-import {
-  ALL_PEERS_ID,
-  OutboundMessageDetails,
-} from "./network/NetworkSubsystem.js"
+import { OutboundMessageDetails } from "./network/NetworkSubsystem.js"
 // TODO: why did I need a .js here?
 
 export interface EphemeralDataDetails {
@@ -34,7 +31,7 @@ export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
   broadcast(channelId: ChannelId, message: unknown) {
     const cbor = CBOR.encode(message)
     this.emit("message", {
-      targetId: ALL_PEERS_ID,
+      targetId: "*" as PeerId, // TODO: we don't really need a targetId for broadcast
       channelId: ("m/" + channelId) as ChannelId,
       message: cbor,
       broadcast: true,

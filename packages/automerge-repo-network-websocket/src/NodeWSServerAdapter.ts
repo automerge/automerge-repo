@@ -7,7 +7,6 @@ import debug from "debug"
 const log = debug("WebsocketServer")
 
 import {
-  ALL_PEERS_ID,
   ChannelId,
   DecodedMessage,
   NetworkAdapter,
@@ -51,7 +50,12 @@ export class NodeWSServerAdapter
     // throw new Error("The server doesn't join channels.")
   }
 
-  sendMessage(targetId: PeerId, channelId: ChannelId, message: Uint8Array, broadcast: boolean) {
+  sendMessage(
+    targetId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array,
+    broadcast: boolean
+  ) {
     if (message.byteLength === 0) {
       throw new Error("tried to send a zero-length message")
     }
@@ -66,7 +70,7 @@ export class NodeWSServerAdapter
       channelId,
       type: "sync",
       data: message,
-      broadcast
+      broadcast,
     }
     const encoded = CBOR.encode(decoded)
 
@@ -80,7 +84,7 @@ export class NodeWSServerAdapter
     log(
       `[${senderId}->${targetId}@${channelId}] "sync" | ${arrayBuf.byteLength} bytes`
     )
-    
+
     this.sockets[targetId].send(arrayBuf)
   }
 

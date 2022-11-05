@@ -12,7 +12,6 @@ import {
   NetworkSubsystem,
   Peer,
   PeerId,
-  ALL_PEERS_ID,
   ChannelId,
 } from "./network/NetworkSubsystem.js"
 import { Repo } from "./Repo.js"
@@ -33,7 +32,6 @@ export {
   NetworkAdapterEvents,
   Peer,
   PeerId,
-  ALL_PEERS_ID,
   ChannelId,
   StorageAdapter,
   StorageSubsystem,

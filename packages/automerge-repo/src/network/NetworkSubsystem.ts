@@ -6,8 +6,6 @@ const log = debug("NetworkSubsystem")
 export type PeerId = string & { __peerId: false }
 export type ChannelId = string & { __channelId: false }
 
-export const ALL_PEERS_ID = "*" as PeerId
-
 interface AdapterOpenDetails {
   network: NetworkAdapter
 }

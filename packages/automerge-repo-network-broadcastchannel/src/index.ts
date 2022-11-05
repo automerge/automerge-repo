@@ -1,6 +1,5 @@
 import EventEmitter from "eventemitter3"
 import {
-  ALL_PEERS_ID,
   ChannelId,
   NetworkAdapter,
   NetworkAdapterEvents,
@@ -46,7 +45,9 @@ export class BroadcastChannelNetworkAdapter
     broadcastChannel.postMessage({ origin: this.peerId, type: "arrive" })
     broadcastChannel.addEventListener("message", (e) => {
       const { origin, destination, type, message, broadcast } = e.data
-      if ((destination && destination !== this.peerId) || ALL_PEERS_ID) {
+      // TODO: this logic is no good, we're gonna get event amplification from this
+      //       but since we don't have tests... and i'm not using it...
+      if ((destination && destination !== this.peerId) || !broadcast) {
         return
       }
       switch (type) {
