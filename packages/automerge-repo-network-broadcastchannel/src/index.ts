@@ -22,7 +22,12 @@ export class BroadcastChannelNetworkAdapter
     this.emit("peer-candidate", { peerId, channelId })
   }
 
-  sendMessage(peerId: PeerId, channelId: ChannelId, uint8message: Uint8Array) {
+  sendMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    uint8message: Uint8Array,
+    broadcast: boolean
+  ) {
     const message = uint8message.buffer.slice(
       uint8message.byteOffset,
       uint8message.byteOffset + uint8message.byteLength
@@ -32,6 +37,7 @@ export class BroadcastChannelNetworkAdapter
       destination: peerId,
       type: "message",
       message,
+      broadcast,
     })
   }
 
@@ -39,7 +45,7 @@ export class BroadcastChannelNetworkAdapter
     const broadcastChannel = new BroadcastChannel(`doc-${channelId}`)
     broadcastChannel.postMessage({ origin: this.peerId, type: "arrive" })
     broadcastChannel.addEventListener("message", (e) => {
-      const { origin, destination, type, message } = e.data
+      const { origin, destination, type, message, broadcast } = e.data
       if ((destination && destination !== this.peerId) || ALL_PEERS_ID) {
         return
       }
@@ -61,6 +67,7 @@ export class BroadcastChannelNetworkAdapter
             targetId: destination,
             channelId,
             message: new Uint8Array(message),
+            broadcast,
           })
           break
         default:

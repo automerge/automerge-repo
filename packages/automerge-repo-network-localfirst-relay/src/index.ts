@@ -14,29 +14,34 @@ export class LocalFirstRelayNetworkAdapter
 {
   url: string
   client?: Client
+  sockets: { [peerId: PeerId]: WebSocket } = {}
 
   constructor(url: string) {
     super()
     this.url = url
   }
 
-  announceConnection(channelId: ChannelId, peerId: PeerId, socket: WebSocket) {
+  announceConnection(channelId: ChannelId, peerId: PeerId) {
     // return a peer object
-    const connection = {
-      close: () => socket.close(),
-      isOpen: () => socket.readyState === WebSocket.OPEN,
-      send: (channelId, uint8message: Uint8Array) => {
-        const message = uint8message.buffer.slice(
-          uint8message.byteOffset,
-          uint8message.byteOffset + uint8message.byteLength
-        )
-        socket.send(message)
-      },
-    }
-    this.emit("peer-candidate", { peerId, channelId, connection })
+    this.emit("peer-candidate", { peerId, channelId })
   }
 
-  connect(peerId: string) {
+  sendMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    uint8message: Uint8Array,
+    broadcast: boolean
+  ) {
+    // TODO: we're not preserving the channelID or the broadcast flag
+    //       not really sure what to do with localfirst relay on this one
+    const message = uint8message.buffer.slice(
+      uint8message.byteOffset,
+      uint8message.byteOffset + uint8message.byteLength
+    )
+    this.sockets[peerId].send(message)
+  }
+
+  connect(peerId: PeerId) {
     this.client = new Client({
       userName: peerId,
       url: this.url,
@@ -48,17 +53,20 @@ export class LocalFirstRelayNetworkAdapter
       const socket: WebSocket = ev.detail.socket
 
       socket.binaryType = "arraybuffer"
-      this.announceConnection(channelId, userName, socket)
+      this.announceConnection(channelId, userName)
 
       // listen for messages
       socket.onmessage = (e) => {
         const message = new Uint8Array(e.data as ArrayBuffer)
         this.emit("message", {
-          peerId: userName,
+          senderId: userName,
+          targetId: peerId, // TODO: this is bad too
           channelId,
           message,
+          broadcast: false, // we don't s
         })
       }
+      this.sockets[userName] = socket
     })
   }
 
