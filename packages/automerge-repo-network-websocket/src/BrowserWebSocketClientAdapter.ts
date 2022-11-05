@@ -101,7 +101,12 @@ export class BrowserWebSocketClientAdapter
     )
   }
 
-  sendMessage(targetId: PeerId, channelId: ChannelId, message: Uint8Array, broadcast) {
+  sendMessage(
+    targetId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array,
+    broadcast: boolean
+  ) {
     if (message.byteLength === 0) {
       throw new Error("tried to send a zero-length message")
     }
@@ -115,7 +120,7 @@ export class BrowserWebSocketClientAdapter
       channelId,
       type: "message",
       data: message,
-      broadcast
+      broadcast,
     }
 
     const encoded = CBOR.encode(decoded)
@@ -166,7 +171,7 @@ export class BrowserWebSocketClientAdapter
           senderId,
           targetId,
           message: new Uint8Array(data),
-          broadcast
+          broadcast,
         })
     }
   }

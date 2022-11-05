@@ -67,6 +67,7 @@ export interface DecodedMessage {
   targetId: PeerId
   channelId: ChannelId
   data: Uint8Array
+  broadcast: boolean
 }
 
 export interface Peer extends EventEmitter<InboundMessageDetails> {
