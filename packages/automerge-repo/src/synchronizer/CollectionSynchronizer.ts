@@ -54,9 +54,7 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
 
   initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer(handle)
-    docSynchronizer.on("message", ({ targetId, channelId, message }) => {
-      this.emit("message", { channelId, targetId, message })
-    })
+    docSynchronizer.on("message", (event) => this.emit("message", event))
     return docSynchronizer
   }
 
@@ -87,5 +85,5 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
     }
   }
 
-  // need to handle vanishing peers somehow and deliberately removing them
+  // TODO: need to handle vanishing peers somehow and deliberately removing them
 }

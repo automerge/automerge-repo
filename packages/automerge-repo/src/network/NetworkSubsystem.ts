@@ -22,14 +22,13 @@ interface PeerDetails {
 }
 
 export interface OutboundMessageDetails {
-  targetId: PeerId // * is a special value that indicates "all peers"
+  targetId: PeerId
   channelId: ChannelId
   message: Uint8Array
-  broadcast?: boolean
+  broadcast: boolean
 }
 
 export interface InboundMessageDetails extends OutboundMessageDetails {
-  broadcast: boolean
   senderId: PeerId
 }
 
@@ -108,32 +107,32 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
     networkAdapter.on("message", (msg) => {
       const { senderId, targetId, channelId, broadcast, message } = msg
+      // If we receive a broadcast message from a network adapter
+      // we need to re-broadcast it to all our other peers.
+      // This is the world's worst gossip protocol.
+      // TODO: This relies on the network forming a tree!
+      //       If there are cycles, this approach will loop messages around forever.
       if (broadcast) {
-        console.log("broadcast message")
         Object.entries(this.peerIdToAdapter)
           .filter(([id]) => id !== senderId)
           .forEach(([id, peer]) => {
-            console.log(
-              "from",
-              senderId,
-              "sending",
-              id as PeerId,
-              channelId,
-              message,
-              broadcast,
-              targetId
-            )
             peer.sendMessage(id as PeerId, channelId, message, broadcast)
           })
       }
+
       this.emit("message", msg)
     })
 
     this.channels.forEach((c) => networkAdapter.join(c))
   }
 
-  sendMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array) {
-    if (peerId === ALL_PEERS_ID) {
+  sendMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array,
+    broadcast: boolean
+  ) {
+    if (broadcast) {
       Object.entries(this.peerIdToAdapter).forEach(([id, peer]) =>
         peer.sendMessage(id as PeerId, channelId, message, true)
       )

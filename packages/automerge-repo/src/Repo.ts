@@ -65,7 +65,7 @@ export class Repo extends DocCollection {
     networkSubsystem.on("message", (msg) => {
       const { senderId, channelId, message } = msg
 
-      // TODO: i think i want a more principled way of associating channels with recipients
+      // TODO: this demands a more principled way of associating channels with recipients
       if (channelId.startsWith("m/")) {
         ephemeralData.receive(senderId, channelId, message)
       } else {
@@ -73,13 +73,19 @@ export class Repo extends DocCollection {
       }
     })
 
-    synchronizer.on("message", ({ targetId, channelId, message }) => {
-      networkSubsystem.sendMessage(targetId, channelId, message)
-    })
+    synchronizer.on(
+      "message",
+      ({ targetId, channelId, message, broadcast }) => {
+        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
+      }
+    )
 
-    ephemeralData.on("message", ({ targetId, channelId, message }) => {
-      networkSubsystem.sendMessage(targetId, channelId, message)
-    })
+    ephemeralData.on(
+      "message",
+      ({ targetId, channelId, message, broadcast }) => {
+        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
+      }
+    )
 
     networkSubsystem.join("sync_channel" as ChannelId)
   }
