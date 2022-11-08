@@ -63,6 +63,7 @@ export class DocSynchronizer
         `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: ${message.byteLength}b`,
         decoded
       )
+
       const channelId = this.handle.documentId as unknown as ChannelId
       this.emit("message", {
         targetId: peerId,
@@ -81,6 +82,17 @@ export class DocSynchronizer
     log(`[${this.handle.documentId}]: beginSync: ${peerId}`)
     const { documentId } = this.handle
     const doc = await this.handle.syncValue()
+
+    // Just in case we have a sync state already, we round-trip it through
+    // the encoding system to make sure state is preserved. This prevents an
+    // infinite loop caused by failed attempts to send messages during disconnection.
+    // TODO: we should be storing sync states and besides, we only need to do this on reconnect
+    this.setSyncState(
+      peerId,
+      Automerge.decodeSyncState(
+        Automerge.encodeSyncState(this.getSyncState(peerId))
+      )
+    )
     this.sendSyncMessage(peerId, documentId, doc)
   }
 
