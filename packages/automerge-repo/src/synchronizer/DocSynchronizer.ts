@@ -35,7 +35,9 @@ export class DocSynchronizer
     if (!syncState) {
       // TODO: load syncState from localStorage if available
       log("adding a new peer", peerId)
-      this.peers.push(peerId)
+      if (!this.peers.includes(peerId)) {
+        this.peers.push(peerId)
+      }
       syncState = Automerge.initSyncState()
     }
     return syncState
