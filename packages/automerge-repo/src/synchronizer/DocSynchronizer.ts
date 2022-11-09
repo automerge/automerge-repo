@@ -33,8 +33,13 @@ export class DocSynchronizer
 
     let syncState = this.syncStates[peerId]
     if (!syncState) {
+      if (!this.peers.includes(peerId)) {
+        log("adding a new peer", peerId)
+        this.peers.push(peerId)
+      }
       syncState = Automerge.initSyncState()
     }
+
     return syncState
   }
 
@@ -90,10 +95,6 @@ export class DocSynchronizer
         Automerge.encodeSyncState(this.getSyncState(peerId))
       )
     )
-    if (!this.peers.includes(peerId)) {
-      log("adding a new peer", peerId)
-      this.peers.push(peerId)
-    }
 
     this.sendSyncMessage(peerId, documentId, doc)
   }
