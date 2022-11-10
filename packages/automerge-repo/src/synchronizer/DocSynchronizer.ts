@@ -120,7 +120,7 @@ export class DocSynchronizer
 
     // We need to block receiving the syncMessages until we've checked local storage
     // TODO: this is kind of an opaque way of doing this...
-    await this.handle.syncValue()
+    // await this.handle.syncValue()
     this.handle.updateDoc((doc) => {
       const decoded = Automerge.decodeSyncMessage(message)
       log(
