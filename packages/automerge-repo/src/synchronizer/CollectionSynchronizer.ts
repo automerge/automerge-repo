@@ -37,9 +37,11 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message}`)
     docSynchronizer.onSyncMessage(peerId, channelId, message)
-    this.__generousPeers().forEach((peerId) =>
-      docSynchronizer.beginSync(peerId)
-    )
+    this.__generousPeers().forEach((peerId) => {
+      if (!docSynchronizer.peers.includes(peerId)) {
+        docSynchronizer.beginSync(peerId)
+      }
+    })
   }
 
   async fetchDocSynchronizer(documentId: DocumentId) {

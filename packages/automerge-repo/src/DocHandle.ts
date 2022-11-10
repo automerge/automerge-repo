@@ -129,6 +129,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.doc
   }
 
+  // this returns the value but not until after loading is done
+  // but it will return the value during syncing when we don't want to share it
+  // with the frontend / user code
   async syncValue() {
     log(`[${this.documentId}]: syncValue,`, this.doc)
     if (this.state == "loading") {

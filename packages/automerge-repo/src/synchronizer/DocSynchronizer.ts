@@ -52,6 +52,9 @@ export class DocSynchronizer
     documentId: DocumentId,
     doc: Automerge.Doc<unknown>
   ) {
+    // TODO: Right now this can send duplicate messages
+    // even if nothing has changed
+
     log(`[${this.handle.documentId}]->[${peerId}]: sendSyncMessage`)
     const syncState = this.getSyncState(peerId)
     const [newSyncState, message] = Automerge.generateSyncMessage(
@@ -135,9 +138,10 @@ export class DocSynchronizer
         }b in ${time}ms ${time > 1000 ? "[SLOW]!" : ""} from ${peerId}`
       )
       this.setSyncState(peerId, newSyncState)
+      // respond to just this peer (as required)
+      this.sendSyncMessage(peerId, this.handle.documentId, doc)
       return newDoc
     })
-    this.syncWithPeers()
   }
 
   async syncWithPeers() {
