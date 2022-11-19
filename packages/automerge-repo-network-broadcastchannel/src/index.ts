@@ -10,11 +10,45 @@ export class BroadcastChannelNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
   implements NetworkAdapter
 {
-  broadcastChannels: { [channelId: ChannelId]: BroadcastChannel }
+  broadcastChannel: BroadcastChannel
   peerId?: PeerId
 
   connect(peerId: PeerId) {
     this.peerId = peerId
+    this.broadcastChannel = new BroadcastChannel(`broadcast`)
+
+    this.broadcastChannel.addEventListener("message", (e) => {
+      const { senderId, targetId, type, channelId, message, broadcast } = e.data
+      
+      if ((targetId && targetId !== this.peerId) && !broadcast) {
+        return
+      }
+      
+      switch (type) {
+        case "arrive":
+          this.broadcastChannel.postMessage({
+            senderId: this.peerId,
+            targetId: senderId,
+            type: "welcome",
+          })
+          this.announceConnection(channelId, senderId)
+          break
+        case "welcome":
+          this.announceConnection(channelId, senderId)
+          break
+        case "message":
+          this.emit("message", {
+            senderId,
+            targetId,
+            channelId,
+            message: new Uint8Array(message),
+            broadcast,
+          })
+          break
+        default:
+          throw new Error("unhandled message from network")
+      }
+    })
   }
 
   announceConnection(channelId: ChannelId, peerId: PeerId) {
@@ -31,50 +65,20 @@ export class BroadcastChannelNetworkAdapter
       uint8message.byteOffset,
       uint8message.byteOffset + uint8message.byteLength
     )
-    this.broadcastChannels[channelId].postMessage({
-      origin: this.peerId,
-      destination: peerId,
+    this.broadcastChannel.postMessage({
+      senderId: this.peerId,
+      targetId: peerId,
       type: "message",
+      channelId,
       message,
       broadcast,
     })
   }
 
-  join(channelId: ChannelId) {
-    const broadcastChannel = new BroadcastChannel(`doc-${channelId}`)
-    broadcastChannel.postMessage({ origin: this.peerId, type: "arrive", broadcast: true })
-    broadcastChannel.addEventListener("message", (e) => {
-      const { origin, destination, type, message, broadcast } = e.data
-      // TODO: this logic is no good, we're gonna get event amplification from this
-      //       but since we don't have tests... and i'm not using it...
-      if ((destination && destination !== this.peerId) || !broadcast) {
-        return
-      }
-      switch (type) {
-        case "arrive":
-          broadcastChannel.postMessage({
-            origin: this.peerId,
-            destination: origin,
-            type: "welcome",
-          })
-          this.announceConnection(channelId, origin)
-          break
-        case "welcome":
-          this.announceConnection(channelId, origin)
-          break
-        case "message":
-          this.emit("message", {
-            senderId: origin,
-            targetId: destination,
-            channelId,
-            message: new Uint8Array(message),
-            broadcast,
-          })
-          break
-        default:
-          throw new Error("unhandled message from network")
-      }
-    })
+  join(joinChannelId: ChannelId) {
+    this.broadcastChannel.postMessage({ senderId: this.peerId, channelId: joinChannelId, type: "arrive", broadcast: true })
+
+    
   }
 
   leave(channelId: ChannelId) {
