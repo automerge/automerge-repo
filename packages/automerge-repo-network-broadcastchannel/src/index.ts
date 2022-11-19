@@ -42,7 +42,7 @@ export class BroadcastChannelNetworkAdapter
 
   join(channelId: ChannelId) {
     const broadcastChannel = new BroadcastChannel(`doc-${channelId}`)
-    broadcastChannel.postMessage({ origin: this.peerId, type: "arrive" })
+    broadcastChannel.postMessage({ origin: this.peerId, type: "arrive", broadcast: true })
     broadcastChannel.addEventListener("message", (e) => {
       const { origin, destination, type, message, broadcast } = e.data
       // TODO: this logic is no good, we're gonna get event amplification from this
