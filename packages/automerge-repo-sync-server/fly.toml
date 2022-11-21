@@ -10,7 +10,7 @@ processes = []
 
 [env]
   PORT = "3030"
-  DEBUG = "*,-WebsocketServer,-DocHandle"
+  DEBUG = "DocSynchronizerConcise"
 
 [experimental]
   allowed_public_ports = []

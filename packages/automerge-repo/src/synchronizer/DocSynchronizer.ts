@@ -5,6 +5,7 @@ import { DocHandle, DocumentId } from "../DocHandle"
 import { ChannelId, PeerId } from "../network/NetworkSubsystem"
 import debug from "debug"
 const log = debug("DocSynchronizer")
+const conciseLog = debug("DocSynchronizerConcise") // Only logs one line per receive/send
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -68,6 +69,13 @@ export class DocSynchronizer
         `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: ${message.byteLength}b`,
         decoded
       )
+      conciseLog(
+        `📣 sendSyncMessage\t${JSON.stringify({
+          documentId: this.handle.documentId,
+          peerId,
+          messageLength: message.byteLength,
+        })}`
+      )
 
       const channelId = this.handle.documentId as unknown as ChannelId
       this.emit("message", {
@@ -126,6 +134,14 @@ export class DocSynchronizer
       log(
         `[${this.handle.documentId}]->[${peerId}]: receiveSync: ${message.byteLength}b`,
         decoded
+      )
+      conciseLog(
+        `📫 receiveSyncMessage\t${JSON.stringify({
+          documentId: this.handle.documentId,
+          peerId,
+          channelId,
+          messageLength: message.byteLength,
+        })}`
       )
 
       const start = Date.now()
