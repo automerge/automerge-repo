@@ -135,6 +135,7 @@ export class DocSynchronizer
         `[${this.handle.documentId}]->[${peerId}]: receiveSync: ${message.byteLength}b`,
         decoded
       )
+      console.log("just testing logging 123")
       conciseLog(
         `📫 receiveSyncMessage\t${JSON.stringify({
           documentId: this.handle.documentId,
