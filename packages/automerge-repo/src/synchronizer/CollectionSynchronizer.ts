@@ -87,5 +87,11 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
     }
   }
 
-  // TODO: need to handle vanishing peers somehow and deliberately removing them
+  removePeer(peerId: PeerId) {
+    log(`removing peer ${peerId}`)
+    delete this.peers[peerId]
+    for (const docSynchronizer of Object.values(this.syncPool)) {
+      docSynchronizer.endSync(peerId)
+    }
+  }
 }

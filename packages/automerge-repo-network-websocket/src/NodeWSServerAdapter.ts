@@ -30,11 +30,16 @@ export class NodeWSServerAdapter
   connect(peerId: PeerId) {
     this.peerId = peerId
     this.server.on("connection", (socket) => {
-      // When a socket closes, or disconnects, remove it from the array.
-      // TODO
-      //      socket.on("close", () => {
-      //        this.sockets = this.sockets.filter((s) => s !== socket)
-      //})
+      // When a socket closes, or disconnects, remove it from our list
+      socket.on("close", () => {
+        for (const [otherPeerId, otherSocket] of Object.entries(this.sockets)) {
+          if(socket === otherSocket) {
+            this.emit("peer-disconnected", { peerId: otherPeerId as PeerId })
+            delete this.sockets[otherPeerId as PeerId]
+          }
+        }
+
+      })
 
       socket.on("message", (message) =>
         this.receiveMessage(message as Uint8Array, socket)
@@ -62,6 +67,10 @@ export class NodeWSServerAdapter
     const senderId = this.peerId
     if (!senderId) {
       throw new Error("No peerId set for the websocket server network adapter.")
+    }
+    if(this.sockets[targetId] === undefined) {
+      log(`Tried to send message to disconnected peer: ${targetId}`)
+      return
     }
 
     const decoded: DecodedMessage = {
@@ -111,6 +120,9 @@ export class NodeWSServerAdapter
         )
         break
       case "leave":
+        // It doesn't seem like this gets called;
+        // we handle leaving in the socket close logic
+        // TODO: confirm this
         // ?
         break
       case "message":
