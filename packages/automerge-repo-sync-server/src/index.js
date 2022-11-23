@@ -21,7 +21,7 @@ const config = {
   sharePolicy: (peerId) => false,
 }
 
-const PORT = 3030
+const PORT = process.env.PORT !== undefined ? parseInt(process.env.PORT) : 3030
 const serverRepo = new Repo(config)
 const app = express()
 app.use(express.static("public"))
