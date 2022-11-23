@@ -43,6 +43,7 @@ export interface NetworkAdapterEvents {
 
 export interface NetworkEvents {
   peer: (msg: PeerDetails) => void
+  "peer-disconnected": (event: DisconnectedDetails) => void
   message: (msg: InboundMessageDetails) => void
 }
 
@@ -103,6 +104,10 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
       this.emit("peer", { peerId, channelId })
     })
+    networkAdapter.on("peer-disconnected", ({peerId}) => {
+      delete this.peerIdToAdapter[peerId]
+      this.emit("peer-disconnected", {peerId})
+    })
 
     networkAdapter.on("message", (msg) => {
       const { senderId, targetId, channelId, broadcast, message } = msg
@@ -131,6 +136,10 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     message: Uint8Array,
     broadcast: boolean
   ) {
+    if(this.peerIdToAdapter[peerId] === undefined) {
+      log(`Tried to send message to disconnected peer: ${peerId}`)
+      return
+    }
     if (broadcast) {
       Object.entries(this.peerIdToAdapter).forEach(([id, peer]) =>
         peer.sendMessage(id as PeerId, channelId, message, true)
