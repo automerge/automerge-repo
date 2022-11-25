@@ -2,10 +2,12 @@ import EventEmitter from "eventemitter3"
 import { Synchronizer, SyncMessages } from "./Synchronizer"
 import * as Automerge from "@automerge/automerge"
 import { DocHandle, DocumentId } from "../DocHandle"
-import { ChannelId, PeerId } from "../network/NetworkSubsystem"
+import { ChannelId, DecodedMessage, PeerId } from "../network/NetworkSubsystem"
 import debug from "debug"
+import { decodeChange, DecodedSyncMessage } from "@automerge/automerge"
 const log = debug("DocSynchronizer")
 const conciseLog = debug("DocSynchronizerConcise") // Only logs one line per receive/send
+const opsLog = debug("DocSynchronizerOps") // Log list of ops of each message
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -69,13 +71,9 @@ export class DocSynchronizer
         `[${this.handle.documentId}]->[${peerId}]: sendSyncMessage: ${message.byteLength}b`,
         decoded
       )
-      conciseLog(
-        `📣 sendSyncMessage\t${JSON.stringify({
-          documentId: this.handle.documentId,
-          peerId,
-          messageLength: message.byteLength,
-        })}`
-      )
+
+      conciseLog(`${peerId} ⬅️️  ${this.handle.documentId} (${message.byteLength} bytes)`)
+      opsLog(getChangesOfMessage(decoded))
 
       const channelId = this.handle.documentId as unknown as ChannelId
       this.emit("message", {
@@ -135,14 +133,9 @@ export class DocSynchronizer
         `[${this.handle.documentId}]->[${peerId}]: receiveSync: ${message.byteLength}b`,
         decoded
       )
-      conciseLog(
-        `📫 receiveSyncMessage\t${JSON.stringify({
-          documentId: this.handle.documentId,
-          peerId,
-          channelId,
-          messageLength: message.byteLength,
-        })}`
-      )
+
+      conciseLog(`${peerId} ➡️️️  ${this.handle.documentId} (${message.byteLength} bytes)`)
+      opsLog(getChangesOfMessage(decoded))
 
       const start = Date.now()
       const [newDoc, newSyncState] = Automerge.receiveSyncMessage(
@@ -172,4 +165,11 @@ export class DocSynchronizer
       this.sendSyncMessage(peerId, documentId, doc)
     })
   }
+}
+
+
+function getChangesOfMessage (decoded: DecodedSyncMessage): any  {
+  return decoded.changes.flatMap(change => {
+    return decodeChange(change).ops.map((op) => JSON.stringify(op))
+  })
 }
