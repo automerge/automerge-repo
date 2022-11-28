@@ -161,7 +161,6 @@ export class MessageChannelNetworkAdapter
     })
 
     this.messagePortRef.addListener("close", () => {
-      console.log("close message port")
       this.emit("close")
     })
   }
