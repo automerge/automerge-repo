@@ -36,6 +36,7 @@ interface DisconnectedDetails {
 
 export interface NetworkAdapterEvents {
   open: (event: AdapterOpenDetails) => void
+  close: () => void
   "peer-candidate": (event: PeerCandidateDetails) => void
   "peer-disconnected": (event: DisconnectedDetails) => void
   message: (event: InboundMessageDetails) => void
@@ -125,6 +126,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
       }
 
       this.emit("message", msg)
+    })
+
+    networkAdapter.on("close", () => {
+      Object.entries(this.peerIdToAdapter).forEach(([peerId, other]) => {
+        if (other === networkAdapter) {
+          delete this.peerIdToAdapter[peerId as PeerId]
+        }
+      })
     })
 
     this.channels.forEach((c) => networkAdapter.join(c))
