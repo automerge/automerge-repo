@@ -13,13 +13,13 @@ interface PortRefEvents {
   close: () => void
 }
 
-export interface MessagePortRef extends EventEmitter<PortRefEvents> {
+interface MessagePortRef extends EventEmitter<PortRefEvents> {
   start (): void
   postMessage (message: any, transferable?: Transferable[]): void
   isAlive () : boolean
 }
 
-export class WeakMessagePortRef extends EventEmitter<PortRefEvents> implements MessagePortRef {
+class WeakMessagePortRef extends EventEmitter<PortRefEvents> implements MessagePortRef {
 
   private weakRef : WeakRef<MessagePort>
   private isDisconnected = false
@@ -85,8 +85,7 @@ export class WeakMessagePortRef extends EventEmitter<PortRefEvents> implements M
   }
 }
 
-
-export class StrongMessagePortRef extends EventEmitter<PortRefEvents> implements MessagePortRef {
+class StrongMessagePortRef extends EventEmitter<PortRefEvents> implements MessagePortRef {
   constructor(private port: MessagePort) {
     port.addEventListener("message", (event) => {
       this.emit("message", event)
@@ -117,9 +116,9 @@ export class MessageChannelNetworkAdapter
   messagePortRef: MessagePortRef
   peerId?: PeerId
 
-  constructor(messagePortRef: MessagePortRef) {
+  constructor(messagePort: MessagePort, useWeakRef: boolean = false) {
     super()
-    this.messagePortRef = messagePortRef
+    this.messagePortRef = useWeakRef ? new WeakMessagePortRef(messagePort) : new StrongMessagePortRef(messagePort)
   }
 
   connect(peerId: PeerId) {
