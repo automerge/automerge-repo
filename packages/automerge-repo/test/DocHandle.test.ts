@@ -40,6 +40,23 @@ describe("DocHandle", () => {
       }
     })
   })
+  
+  it("should return syncValue following an incremental load on an existing document", (done) => {
+    const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
+    assert(handle.ready() === false)
+    
+    handle.syncValue().then((doc) => {
+      try {
+        assert(handle.ready() === true)
+        assert(doc.foo === "bar")
+        done()
+      } catch (e) {
+        done(e)
+      }
+    })
+
+    handle.loadIncremental(Automerge.save(Automerge.change<{foo: string}>(Automerge.init(), (d) => (d.foo = "bar"))))
+  })
 
   it("should block changes until ready()", (done) => {
     const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)

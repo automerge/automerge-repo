@@ -136,7 +136,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     log(`[${this.documentId}]: syncValue,`, this.doc)
     if (this.state == "loading") {
       log(`[${this.documentId}]: value: (${this.state}, waiting for syncing)`)
-      await new Promise((resolve) => this.once("syncing", () => resolve(true)))
+      await new Promise((resolve) => {
+        this.once("syncing", () => resolve(true))
+        this.once("ready", () => resolve(true))
+      })
     } else {
       await new Promise((resolve) => setTimeout(() => resolve(true), 0))
     }
