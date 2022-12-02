@@ -16,6 +16,51 @@ There are a number of additional submodules providing either networking or stora
 
 All of these are found in `packages`.
 
+## Using Automerge-Repo
+
+There are two main user-facing components of automerge repo. The `Repo` itself, and the `DocHandles` it contains.
+
+Repo has only two main methods a user should interact with:
+
+* create<T>(): returns a DocHandle for a new, empty document and
+* find<T>(docId: DocumentId): which looks up a given document either on the local machine or (if necessary) over any configured networks.
+* .on("document", ({handle: DocHandle}) => void): an event is emitted every time a new document is loaded or created
+
+A DocHandle is a wrapper around an Automerge.Doc primarily to handle event dispatch and is similarly straightforward.
+
+* handle.value(): returns a Promise<Doc<T>> that will contain the current value of the document. it waits until the document has finished loading and/or synchronizing over the network before returning a value.
+* handle.change( (d: T) => void ): calls the provided callback with an instrumented mutable object representing the document. Any changes made to the document will be recorded and distributed to other nodes.
+  
+Last, DocHandles also emit two useful events:
+* change({handle: DocHandle}): called any time changes are created or received on the document. request the value() from the handle
+* patch({handle: DocHandle, before: Doc, after: Doc, patch: Patch}): useful for manual increment maintenance of a video, most notably for text editors
+
+  
+## Creating an Automerge Repo
+
+To make use of Automerge-Repo, you should configure it with Storage and Network. If you give it neither, it will still work, but you won't be able to find any data and data created won't outlast the process.
+
+Note that we currently only support one Storage per repo, and it must be provided at creation. Many network adapters (even of the same type) can be added, even after the repository is created.
+
+A config example is given below, but for storage the team provides two options out of the box.
+  * automerge-repo-storage-localforage: a simple wrapper around an IndexedDb library
+  * automerge-repo-storage-nodefs: a wrapper for storing data in a subfolder
+
+There are three primary networking options supported:
+  * automerge-repo-network-websocket: for client-server applications (see also automerge-repo-sync-server)
+  * automerge-repo-network-messagechannel: for intra-browser communication (useful for synchronizing tabs with shared workers or service workers)
+  * automerge-repo-network-broadcastchannel: likely only useful for experimentation, but allows simple (inefficient) tab-to-tab data synchronization
+
+
+For example:
+
+```
+const repo = new Repo({
+  network: [new BroadcastChannelNetworkAdapter()],
+  storage: new LocalForageStorageAdapter()
+})
+```
+
 ## Starting the demo app
 
 ```
