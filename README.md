@@ -42,7 +42,9 @@ $ yarn add @automerge/automerge automerge-repo automerge-repo-react-hooks autome
 
 ```
 
-Edit the `vite.config.js`
+Edit the `vite.config.js`. 
+
+(Every part of what you're adding here is working around packaging hiccups due to WASM. We look forward to the day that we can delete this step entirely.)
 
 ```
 import { defineConfig } from "vite"
