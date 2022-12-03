@@ -58,7 +58,7 @@ export class Repo extends DocCollection {
       synchronizer.addPeer(peerId, sharePolicy(peerId))
     })
 
-    networkSubsystem.on("peer-disconnected", ({peerId}) => {
+    networkSubsystem.on("peer-disconnected", ({ peerId }) => {
       synchronizer.removePeer(peerId)
     })
 

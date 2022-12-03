@@ -104,9 +104,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
       this.emit("peer", { peerId, channelId })
     })
-    networkAdapter.on("peer-disconnected", ({peerId}) => {
+    networkAdapter.on("peer-disconnected", ({ peerId }) => {
       delete this.peerIdToAdapter[peerId]
-      this.emit("peer-disconnected", {peerId})
+      this.emit("peer-disconnected", { peerId })
     })
 
     networkAdapter.on("message", (msg) => {
@@ -136,16 +136,16 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     message: Uint8Array,
     broadcast: boolean
   ) {
-    if(this.peerIdToAdapter[peerId] === undefined) {
-      log(`Tried to send message to disconnected peer: ${peerId}`)
-      return
-    }
     if (broadcast) {
-      Object.entries(this.peerIdToAdapter).forEach(([id, peer]) =>
+      Object.entries(this.peerIdToAdapter).forEach(([id, peer]) => {
         peer.sendMessage(id as PeerId, channelId, message, true)
-      )
+      })
     } else {
       const peer = this.peerIdToAdapter[peerId]
+      if (!peer) {
+        log(`Tried to send message to disconnected peer: ${peerId}`)
+        return
+      }
       peer.sendMessage(peerId, channelId, message, false)
     }
   }
