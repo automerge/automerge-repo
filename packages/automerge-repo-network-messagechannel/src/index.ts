@@ -107,6 +107,15 @@ class StrongMessagePortRef extends EventEmitter<PortRefEvents> implements Messag
   }
 }
 
+interface MessageChannelNetworkAdapterConfig {
+  // optional parameter to use a weak ref to reference the message port that is passed to the adapter.
+  // This option is useful when using a message channel with a shared worker.
+  // If you use a network adapter with useWeakRef = true in the shared worker and in the main thread network adapters
+  // with strong refs the network adapter will be automatically garbage collected if you close a page.
+  // The garbage collection doesn't happen immediately; there might be some time in between when the page is closed
+  // and when the port is garbage collected
+  useWeakRef?: boolean
+}
 
 export class MessageChannelNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
@@ -116,8 +125,11 @@ export class MessageChannelNetworkAdapter
   messagePortRef: MessagePortRef
   peerId?: PeerId
 
-  constructor(messagePort: MessagePort, useWeakRef: boolean = false) {
+  constructor(messagePort: MessagePort, config : MessageChannelNetworkAdapterConfig = {}) {
     super()
+
+    const useWeakRef = config.useWeakRef ?? false
+
     this.messagePortRef = useWeakRef ? new WeakMessagePortRef(messagePort) : new StrongMessagePortRef(messagePort)
   }
 
