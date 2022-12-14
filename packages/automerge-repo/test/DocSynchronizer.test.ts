@@ -29,14 +29,6 @@ describe("DocSynchronizer", () => {
     })
   })
 
-  it("should emit a syncMessage to peers when the handle is updated", (done) => {
-    docSynchronizer.beginSync("imaginary-peer-id" as PeerId)
-    docSynchronizer.once("message", () => done())
-    handle.change((doc) => {
-      doc.foo = "bar"
-    })
-  })
-
   it("should emit a syncMessage to peers when the peer is removed, then re-added", (done) => {
     docSynchronizer.beginSync("imaginary-peer-id-2" as PeerId).then(() => {
       handle.change((doc) => {
