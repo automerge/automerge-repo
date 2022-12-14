@@ -33,13 +33,14 @@ export class DocSynchronizer
     if (!peerId) {
       throw new Error("Tried to load a missing peerId")
     }
+    
+    if (!this.peers.includes(peerId)) {
+      log("adding a new peer", peerId)
+      this.peers.push(peerId)
+    }
 
     let syncState = this.syncStates[peerId]
     if (!syncState) {
-      if (!this.peers.includes(peerId)) {
-        log("adding a new peer", peerId)
-        this.peers.push(peerId)
-      }
       syncState = Automerge.initSyncState()
     }
 
