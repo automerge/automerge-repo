@@ -84,7 +84,7 @@ export class StorageSubsystem {
 
   // TODO: make this, you know, good.
   shouldCompact(documentId: DocumentId) {
-    return this.incrementalChanges[documentId] >= 2
+    return this.incrementalChanges[documentId] >= 20
   }
 
   save(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
