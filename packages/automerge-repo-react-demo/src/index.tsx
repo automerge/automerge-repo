@@ -1,12 +1,12 @@
+import localforage from "localforage"
 import React, { StrictMode } from "react"
 import ReactDOM from "react-dom/client"
-import localforage from "localforage"
 
-import { Repo, DocCollection, DocumentId } from "automerge-repo"
+import { DocumentId, Repo } from "automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 
-import App, { RootDocument } from "./App"
 import { RepoContext } from "automerge-repo-react-hooks"
+import App, { RootDocument } from "./App"
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const sharedWorker = new SharedWorker(
@@ -14,14 +14,14 @@ const sharedWorker = new SharedWorker(
   { type: "module", name: "automerge-repo-shared-worker" }
 )
 
-async function getRepo(url: string): Promise<DocCollection> {
+async function getRepo(url: string): Promise<Repo> {
   return new Repo({
     network: [new BroadcastChannelNetworkAdapter()],
     sharePolicy: (peerId) => peerId.includes("shared-worker"),
   })
 }
 
-async function getRootDocument(repo: DocCollection, initFunction: any) {
+async function getRootDocument(repo: Repo, initFunction: any) {
   let docId: string | null = window.location.hash.replace(/^#/, "")
   if (!docId) {
     docId = await localforage.getItem("root")
