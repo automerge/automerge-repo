@@ -16,7 +16,7 @@
     "automerge-repo-react-hooks": "*",
     "automerge-repo-storage-localforage": "*",
     "automerge-repo-network-broadcastchannel": "*",
-    "automerge-repo-network-localfirst-relay": "*",
+    "automerge-repo-network-localfirstrelay": "*",
     "automerge-repo-network-websocket": "*",
     "automerge-repo-storage-memory": "*",
     "@atjson/document": "^0.24.5",

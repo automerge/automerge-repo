@@ -1,5 +1,5 @@
 {
-  "name": "automerge-repo-network-localfirst-relay",
+  "name": "automerge-repo-network-localfirstrelay",
   "version": "0.0.11",
   "description": "Local-First Relay network adapter for Automerge Repo",
   "repository": "https://github.com/pvh/automerge-repo",

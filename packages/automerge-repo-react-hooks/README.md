@@ -2,7 +2,7 @@
 
 ## Example usage
 
-###  App Setup
+### App Setup
 
 ```
 import React, { StrictMode } from "react"
@@ -15,7 +15,7 @@ import {
 } from "automerge-repo"
 
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
-import { LocalFirstRelayNetworkAdapter } from "automerge-repo-network-localfirst-relay"
+import { LocalFirstRelayNetworkAdapter } from "automerge-repo-network-localfirstrelay"
 
 import App, { RootDocument } from "./App"
 import { RepoContext } from "automerge-repo-react-hooks"
