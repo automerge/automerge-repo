@@ -1,4 +1,3 @@
-import EventEmitter from "eventemitter3"
 import {
   ChannelId,
   NetworkAdapter,
@@ -6,116 +5,12 @@ import {
   PeerId,
 } from "automerge-repo"
 import debug from "debug"
+import EventEmitter from "eventemitter3"
+import { MessagePortRef } from "./MessagePortRef"
+import { StrongMessagePortRef } from "./StrongMessagePortRef"
+import { WeakMessagePortRef } from "./WeakMessagePortRef"
+
 const log = debug("messagechannel")
-
-interface PortRefEvents {
-  message: (event: MessageEvent) => void
-  close: () => void
-}
-
-interface MessagePortRef extends EventEmitter<PortRefEvents> {
-  start (): void
-  postMessage (message: any, transferable?: Transferable[]): void
-  isAlive () : boolean
-}
-
-class WeakMessagePortRef extends EventEmitter<PortRefEvents> implements MessagePortRef {
-
-  private weakRef : WeakRef<MessagePort>
-  private isDisconnected = false
-
-  constructor(port: MessagePort) {
-    super()
-
-    this.weakRef = new WeakRef<MessagePort>(port)
-
-    port.addEventListener("message", (event) => {
-      this.emit("message", event)
-    })
-  }
-
-  postMessage(message: any, transfer: Transferable[]): void {
-    const port = this.weakRef.deref()
-
-    if (!port) {
-      this.disconnnect()
-      return
-    }
-
-    try {
-      port.postMessage(message, transfer);
-    } catch (err) {
-      this.disconnnect()
-    }
-  }
-
-  start(): void {
-    const port = this.weakRef.deref()
-
-    if (!port) {
-      this.disconnnect()
-      return
-    }
-
-    try {
-      port.start();
-    } catch (err) {
-      this.disconnnect()
-    }
-  }
-
-  private disconnnect() {
-    if (!this.isDisconnected) {
-      this.emit("close");
-      this.isDisconnected = true;
-    }
-  }
-
-  isAlive(): boolean {
-    if (this.isDisconnected) {
-      return false
-    }
-
-    if (!this.weakRef.deref()) {
-      this.disconnnect()
-      return false
-    }
-
-    return true;
-  }
-}
-
-class StrongMessagePortRef extends EventEmitter<PortRefEvents> implements MessagePortRef {
-  constructor(private port: MessagePort) {
-    port.addEventListener("message", (event) => {
-      this.emit("message", event)
-    })
-
-    super()
-  }
-
-  postMessage(message: any, transfer: Transferable[]): void {
-    this.port.postMessage(message, transfer)
-  }
-
-  start(): void {
-    this.port.start()
-  }
-
-  isAlive(): boolean {
-    return true
-  }
-}
-
-interface MessageChannelNetworkAdapterConfig {
-  // optional parameter to use a weak ref to reference the message port that is passed to the adapter.
-  // This option is useful when using a message channel with a shared worker.
-  // If you use a network adapter with useWeakRef = true in the shared worker and in the main thread network adapters
-  // with strong refs the network adapter will be automatically garbage collected if you close a page.
-  // The garbage collection doesn't happen immediately; there might be some time in between when the page is closed
-  // and when the port is garbage collected
-  useWeakRef?: boolean
-}
 
 export class MessageChannelNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
@@ -125,12 +20,17 @@ export class MessageChannelNetworkAdapter
   messagePortRef: MessagePortRef
   peerId?: PeerId
 
-  constructor(messagePort: MessagePort, config : MessageChannelNetworkAdapterConfig = {}) {
+  constructor(
+    messagePort: MessagePort,
+    config: MessageChannelNetworkAdapterConfig = {}
+  ) {
     super()
 
     const useWeakRef = config.useWeakRef ?? false
 
-    this.messagePortRef = useWeakRef ? new WeakMessagePortRef(messagePort) : new StrongMessagePortRef(messagePort)
+    this.messagePortRef = useWeakRef
+      ? new WeakMessagePortRef(messagePort)
+      : new StrongMessagePortRef(messagePort)
   }
 
   connect(peerId: PeerId) {
@@ -225,4 +125,16 @@ export class MessageChannelNetworkAdapter
       "Unimplemented: leave on MessagePortNetworkAdapter: " + docId
     )
   }
+}
+
+interface MessageChannelNetworkAdapterConfig {
+  /**
+   * This is an optional parameter to use a weak ref to reference the message port that is passed to
+   * the adapter. This option is useful when using a message channel with a shared worker. If you
+   * use a network adapter with `useWeakRef = true` in the shared worker and in the main thread
+   * network adapters with strong refs the network adapter will be automatically garbage collected
+   * if you close a page. The garbage collection doesn't happen immediately; there might be some
+   * time in between when the page is closed and when the port is garbage collected
+   */
+  useWeakRef?: boolean
 }
