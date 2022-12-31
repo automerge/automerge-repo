@@ -101,13 +101,6 @@ export class MessageChannelNetworkAdapter
   }
 
   announceConnection(channelId: ChannelId, peerId: PeerId) {
-    // return a peer object
-    const peer = {
-      close: () => {
-        /* noop */
-      } /* not sure what it would mean to close this yet */,
-      isOpen: () => true,
-    }
     this.emit("peer-candidate", { peerId, channelId })
   }
 
