@@ -187,6 +187,8 @@ open it in two browser windows. You should see the count increment in both windo
 
 ![](/images/hello-automerge-repo.gif)
 
+This application is also available as a package in this repo in [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter). You can run it with `yarn dev:demo`.
+
 ### Adding a sync server
 
 First, get a sync-server running locally, following the instructions for the [automerge-repo-sync-server](/packages/automerge-repo-sync-server/) package.
