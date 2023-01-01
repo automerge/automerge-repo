@@ -1,9 +1,0 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-.ProseMirror {
-  @apply px-2 py-1 rounded border border-white hover:border-blue-300;
-}
-.ProseMirror-focused {
-}

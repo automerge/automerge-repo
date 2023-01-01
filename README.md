@@ -4,7 +4,7 @@ This is a wrapper for the [Automerge](https://github.com/automerge/automerge) CR
 
 The core library, [automerge-repo](/packages/automerge-repo/), handles dispatch of events and provides shared functionality such as deciding which peers to connect to or when to write data out to storage.
 
-There is a React-based demonstration application called [automerge-repo-react-demo](/packages/automerge-repo-react-demo/) and a synchronization server under [automerge-repo-sync-server](/packages/automerge-repo-sync-server/). There are example hooks for use with React under [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/).
+There is a React-based demonstration application called [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter/) and a synchronization server under [automerge-repo-sync-server](/packages/automerge-repo-sync-server/). There are example hooks for use with React under [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/).
 
 These storage adapters are included:
 
