@@ -14,12 +14,13 @@
     "dev:demo": "yarn workspace automerge-repo-demo-counter dev",
     "dev": "run-p watch dev:demo",
     "pub": "lerna publish --yes",
-    "start:syncserver": "yarn workspace automerge-repo-sync-server start",
+    "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace automerge-repo-sync-server start",
     "watch": "lerna run watch --parallel"
   },
   "devDependencies": {
     "@types/mocha": "^9.1.1",
     "chai": "^4.3.7",
+    "cross-env": "^7.0.3",
     "eslint": "^8.15.0",
     "eslint-config-airbnb": "^19.0.4",
     "eslint-config-airbnb-base": "^15.0.0",
