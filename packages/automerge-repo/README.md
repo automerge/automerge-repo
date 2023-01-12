@@ -243,7 +243,7 @@ import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
 const repo = new Repo({
   network: [
     new BroadcastChannelNetworkAdapter(),
-    new BrowserWebSocketClientAdapter("wss://localhost:3030"), // <-- add this line
+    new BrowserWebSocketClientAdapter("ws://localhost:3030"), // <-- add this line
   ],
   storage: new LocalForageStorageAdapter(),
 })
