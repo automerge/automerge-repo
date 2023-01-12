@@ -187,11 +187,14 @@ open it in two browser windows. You should see the count increment in both windo
 
 ![](/images/hello-automerge-repo.gif)
 
-This application is also available as a package in this repo in [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter). You can run it with `yarn dev:demo`.
+This application is also available as a package in this repo in
+[automerge-repo-demo-counter](/packages/automerge-repo-demo-counter). You can run it with `yarn
+dev:demo`.
 
 ### Adding a sync server
 
-First, get a sync-server running locally, following the instructions for the [automerge-repo-sync-server](/packages/automerge-repo-sync-server/) package.
+First, get a sync-server running locally, following the instructions for the
+[automerge-repo-sync-server](/packages/automerge-repo-sync-server/) package.
 
 Next, update your application to synchronize with it:
 
@@ -205,14 +208,14 @@ Now import it and add it to your list of network adapters:
 
 ```ts
 // main.tsx
-import { WebsocketClientNetworkAdapter } from "automerge-repo-network-websocket" // <-- add this line
+import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket" // <-- add this line
 
 // ...
 
 const repo = new Repo({
   network: [
     new BroadcastChannelNetworkAdapter(),
-    new WebsocketClientNetworkAdapter("wss://localhost:3000"), // <-- add this line
+    new BrowserWebSocketClientAdapter("wss://localhost:3030"), // <-- add this line
   ],
   storage: new LocalForageStorageAdapter(),
 })
@@ -220,7 +223,7 @@ const repo = new Repo({
 // ...
 ```
 
-And you're finished! You can test that your sync server is opening the same document in two different browsers. (Note that with our current trivial implementation you'll need to manually copy the `appDocId` value between the browsers.)
+And you're finished! You can test that your sync server is opening the same document in two different browsers (e.g. Chrome and Firefox). (Note that with our current trivial implementation you'll need to manually copy the `appDocId` value between the browsers.)
 
 ## Acknowledgements
 
