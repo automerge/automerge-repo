@@ -31,7 +31,6 @@ app.get("/", (req, res) => {
 })
 
 const server = app.listen(PORT, () => {
-  console.log("Hello world")
   console.log(`Listening on port ${PORT}`)
 })
 
