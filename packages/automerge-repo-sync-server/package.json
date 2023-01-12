@@ -1,5 +1,5 @@
 {
-  "name": "storage-peer",
+  "name": "automerge-repo-sync-server",
   "version": "1.0.0",
   "main": "src/index.js",
   "license": "MIT",
