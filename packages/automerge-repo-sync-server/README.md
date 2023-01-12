@@ -1,14 +1,16 @@
-# Automerge-Repo Sync Server
+# Automerge Repo Sync Server
 
-A very simple automerge-repo synchronization server. It pairs with the websocket client protocol found in `automerge-repo-network-websocket`.
+A very simple automerge-repo synchronization server. It pairs with the websocket client protocol
+found in `automerge-repo-network-websocket`.
 
-It wraps those things in an unsecured `express` app. This isn't a great way to operate (or the only way) but it's a useful demonstration of what a client/server deployment might look like.
+The server is an unsecured [Express](https://expressjs.com/) app. It is really just for
+demonstration purposes at this point; you probably don't want to use it for anything real yet. This
+isn't a great way to operate (or the only way) but it's a useful demonstration of what a
+client/server deployment might look like.
 
-## Running sync-server
+## Run the sync server
 
-`yarn start`
-
-Good luck. You're gonna need it.
+`yarn start:syncserver`
 
 ## Set up a sync-server on ubuntu
 
