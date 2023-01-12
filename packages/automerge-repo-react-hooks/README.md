@@ -4,15 +4,12 @@
 
 ### App Setup
 
-```
+```ts
 import React, { StrictMode } from "react"
 import ReactDOM from "react-dom/client"
 import localforage from "localforage"
 
-import {
-  Repo,
-  DocCollection,
-} from "automerge-repo"
+import { Repo, DocCollection } from "automerge-repo"
 
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 import { LocalFirstRelayNetworkAdapter } from "automerge-repo-network-localfirstrelay"
@@ -33,7 +30,7 @@ async function getRepo(url: string): Promise<DocCollection> {
       new LocalFirstRelayNetworkAdapter("wss://local-first-relay.glitch.me/"),
     ],
     sharePolicy: (peerId) => peerId.includes("shared-worker"),
-  });
+  })
 }
 
 async function getRootDocument(repo: DocCollection, initFunction: any) {
