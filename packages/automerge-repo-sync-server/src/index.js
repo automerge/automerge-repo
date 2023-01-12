@@ -14,20 +14,20 @@ if (!fs.existsSync(dir)) {
 var hostname = os.hostname()
 
 const wsServer = new WebSocketServer({ noServer: true })
+const PORT = process.env.PORT !== undefined ? parseInt(process.env.PORT) : 3030
+const app = express()
+app.use(express.static("public"))
+
 const config = {
   network: [new NodeWSServerAdapter(wsServer)],
   storage: new NodeFSStorageAdapter(),
   peerId: `storage-server-${hostname}`,
   sharePolicy: (peerId) => false,
 }
-
-const PORT = process.env.PORT !== undefined ? parseInt(process.env.PORT) : 3030
 const serverRepo = new Repo(config)
-const app = express()
-app.use(express.static("public"))
 
 app.get("/", (req, res) => {
-  res.send("Hello World")
+  res.send(`👍 automerge-repo-sync-server is running`)
 })
 
 const server = app.listen(PORT, () => {
