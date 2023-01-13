@@ -1,5 +1,4 @@
 import { useRef, useState, useEffect } from "react"
-import cn from "classnames"
 
 const ENTER_KEY = 13
 const ESCAPE_KEY = 27
@@ -12,7 +11,7 @@ export const Todo = ({ id, completed, content }: TodoProps) => {
   const [editContent, setEditContent] = useState(content)
 
   // input.current will contain a reference to the editing input
-  const input = useRef()
+  const input = useRef(null)
 
   // side effect: need to select all content in the input when going into editing mode
   // this will only fire when `editing` changes
@@ -53,29 +52,33 @@ export const Todo = ({ id, completed, content }: TodoProps) => {
   const restoreContent = () => setEditContent(content)
 
   return (
-    <li className={cn({ completed, editing })}>
-      <div className="view">
-        <input
-          className="toggle"
-          type="checkbox"
-          checked={completed}
-          // onChange={() => dispatch(toggleTodo(id))}
-        />
-        <label onDoubleClick={enterEditMode}>{content}</label>
-        <button
-          className="destroy"
-          style={{ cursor: "pointer" }}
-          // onClick={() => dispatch(destroyTodo(id))}
-        />
-      </div>
-
+    <li className="px-3 py-1 leading-none flex items-center group">
+      {/* checkbox */}
       <input
-        className="edit"
-        // ref={input}
+        className="w-4 h-4 flex-none"
+        type="checkbox"
+        checked={completed}
+        // onChange={() => dispatch(toggleTodo(id))}
+      />
+      {/* todo content */}
+      <input
+        className="flex-1 mx-1 p-1"
+        ref={input}
         value={editContent}
         onBlur={save}
         onChange={updateContent}
         onKeyDown={onKeyDown}
+      />
+      {/* delete button */}
+      <button
+        className={`
+          p-1
+          opacity-5 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-300
+          after:content-['⨉']
+          font-extrabold text-danger-500
+        `}
+        style={{ cursor: "pointer" }}
+        // onClick={() => dispatch(destroyTodo(id))}
       />
     </li>
   )

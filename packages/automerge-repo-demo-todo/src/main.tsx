@@ -6,6 +6,7 @@ import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcast
 import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
 import { RepoContext } from "automerge-repo-react-hooks"
 import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
+import "./index.css"
 
 const repo = new Repo({
   network: [
