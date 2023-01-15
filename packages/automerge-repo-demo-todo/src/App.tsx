@@ -38,7 +38,16 @@ export function App(props: { documentId: DocumentId }) {
         {/* count button */}
         <div className=" p-3">
           <button
-            className="bg-primary-500 hover:bg-primary-700 text-white py-1 px-3 rounded"
+            className="bg-danger-500 hover:bg-danger-700 text-white py-1 px-3 rounded mr-2"
+            onClick={() => {
+              location.hash = ""
+              window.location.reload()
+            }}
+          >
+            Reset
+          </button>
+          <button
+            className="bg-primary-500 hover:bg-primary-700 text-white py-1 px-3 rounded mr-2"
             onClick={() => {
               changeDoc((d: any) => {
                 d.count = (d.count || 0) + 1
