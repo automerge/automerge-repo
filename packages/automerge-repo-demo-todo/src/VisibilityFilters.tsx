@@ -1,4 +1,4 @@
-import cn from "classnames"
+import cx from "classnames"
 import { VISIBILITY_FILTERS } from "./constants"
 
 export const VisibilityFilters = () => {
@@ -18,16 +18,16 @@ export const VisibilityFilters = () => {
           // dispatch(setFilter(currentFilter))
         }
 
+        const buttonStyle = cx({
+          ["text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md"]:
+            !selected,
+          ["bg-gray-100 text-gray-700 px-3 py-2 font-medium text-sm rounded-md"]:
+            selected,
+        })
+
         return (
           <li className="leading-none" key={`filter-${currentFilter}`}>
-            <button
-              className={`${
-                selected
-                  ? "bg-gray-100 text-gray-700 px-3 py-2 font-medium text-sm rounded-md"
-                  : "text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md"
-              }`}
-              onClick={onClick}
-            >
+            <button className={buttonStyle} onClick={onClick}>
               {currentFilter}
             </button>
           </li>

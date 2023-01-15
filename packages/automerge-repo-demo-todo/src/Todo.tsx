@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react"
+import cx from "classnames"
 
 const ENTER_KEY = 13
 const ESCAPE_KEY = 27
@@ -55,7 +56,7 @@ export const Todo = ({ id, completed, content }: TodoProps) => {
     <li className="px-3 py-1 leading-none flex items-center group">
       {/* checkbox */}
       <input
-        className="w-4 h-4 flex-none"
+        className="w-4 h-4 flex-none cursor-pointer"
         type="checkbox"
         checked={completed}
         // onChange={() => dispatch(toggleTodo(id))}
@@ -71,12 +72,13 @@ export const Todo = ({ id, completed, content }: TodoProps) => {
       />
       {/* delete button */}
       <button
-        className={`
-          p-1
-          opacity-5 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-300
-          after:content-['⨉']
-          font-extrabold text-danger-500
-        `}
+        className={cx(
+          "p-1",
+          "opacity-5 group-hover:opacity-100 focus:opacity-100 ",
+          "transition-opacity duration-300",
+          "after:content-['⨉']",
+          "font-extrabold text-danger-500"
+        )}
         style={{ cursor: "pointer" }}
         // onClick={() => dispatch(destroyTodo(id))}
       />
