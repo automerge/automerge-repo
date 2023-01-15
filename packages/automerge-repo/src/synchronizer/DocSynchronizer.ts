@@ -1,10 +1,11 @@
-import EventEmitter from "eventemitter3"
-import { Synchronizer, SyncMessages } from "./Synchronizer"
 import * as Automerge from "@automerge/automerge"
-import { DocHandle, DocumentId } from "../DocHandle"
-import { ChannelId, PeerId } from "../network/NetworkSubsystem"
-import debug from "debug"
 import { decodeChange } from "@automerge/automerge"
+import debug from "debug"
+import EventEmitter from "eventemitter3"
+import { DocHandle } from "../DocHandle"
+import { ChannelId, DocumentId, PeerId } from "../types"
+import { Synchronizer, SyncMessages } from "./Synchronizer"
+
 const log = debug("DocSynchronizer")
 const conciseLog = debug("DocSynchronizer:Concise") // Only logs one line per receive/send
 const opsLog = debug("DocSynchronizer:Ops") // Log list of ops of each message
@@ -33,7 +34,7 @@ export class DocSynchronizer
     if (!peerId) {
       throw new Error("Tried to load a missing peerId")
     }
-    
+
     if (!this.peers.includes(peerId)) {
       log("adding a new peer", peerId)
       this.peers.push(peerId)
@@ -73,11 +74,16 @@ export class DocSynchronizer
         decoded
       )
 
-      conciseLog(`${peerId} ⬅️️  ${this.handle.documentId} (${message.byteLength} bytes)`)
-      if (opsLog.enabled) { // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
-        opsLog(decoded.changes.flatMap(change => {
-          return decodeChange(change).ops.map((op) => JSON.stringify(op))
-        }))
+      conciseLog(
+        `${peerId} ⬅️️  ${this.handle.documentId} (${message.byteLength} bytes)`
+      )
+      if (opsLog.enabled) {
+        // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
+        opsLog(
+          decoded.changes.flatMap((change) => {
+            return decodeChange(change).ops.map((op) => JSON.stringify(op))
+          })
+        )
       }
 
       const channelId = this.handle.documentId as unknown as ChannelId
@@ -139,12 +145,17 @@ export class DocSynchronizer
         decoded
       )
 
-      conciseLog(`${peerId} ➡️️️  ${this.handle.documentId} (${message.byteLength} bytes)`)
+      conciseLog(
+        `${peerId} ➡️️️  ${this.handle.documentId} (${message.byteLength} bytes)`
+      )
 
-      if (opsLog.enabled) { // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
-        opsLog(decoded.changes.flatMap(change => {
-          return decodeChange(change).ops.map((op) => JSON.stringify(op))
-        }))
+      if (opsLog.enabled) {
+        // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
+        opsLog(
+          decoded.changes.flatMap((change) => {
+            return decodeChange(change).ops.map((op) => JSON.stringify(op))
+          })
+        )
       }
 
       const start = Date.now()

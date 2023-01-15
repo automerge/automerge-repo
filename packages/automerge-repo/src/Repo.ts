@@ -1,13 +1,9 @@
-import { DocCollection } from "./DocCollection.js"
-import { EphemeralData } from "./EphemeralData.js"
-import {
-  NetworkSubsystem,
-  NetworkAdapter,
-  PeerId,
-  ChannelId,
-} from "./network/NetworkSubsystem.js"
-import { StorageSubsystem, StorageAdapter } from "./storage/StorageSubsystem.js"
-import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
+import { DocCollection } from "./DocCollection"
+import { EphemeralData } from "./EphemeralData"
+import { NetworkSubsystem } from "./network/NetworkSubsystem"
+import { StorageAdapter, StorageSubsystem } from "./storage/StorageSubsystem"
+import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
+import { NetworkAdapter, PeerId } from "./types"
 
 export interface RepoConfig {
   storage?: StorageAdapter

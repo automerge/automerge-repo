@@ -1,5 +1,5 @@
 import * as Automerge from "@automerge/automerge"
-import { DocumentId } from "../DocHandle"
+import { DocumentId } from "../types"
 
 export interface StorageAdapter {
   load(docId: string): Promise<Uint8Array | null>

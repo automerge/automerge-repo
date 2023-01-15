@@ -1,8 +1,7 @@
 import * as CBOR from "cbor-x"
 import EventEmitter from "eventemitter3"
 import { ChannelId, PeerId } from "."
-import { OutboundMessageDetails } from "./network/NetworkSubsystem.js"
-// TODO: why did I need a .js here?
+import { OutboundMessageDetails } from "./types"
 
 export interface EphemeralDataDetails {
   channelId: ChannelId

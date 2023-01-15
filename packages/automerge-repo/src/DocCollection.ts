@@ -1,6 +1,7 @@
 import EventEmitter from "eventemitter3"
 import { v4 } from "uuid"
-import { DocHandle, DocumentId } from "./DocHandle.js"
+import { DocHandle } from "./DocHandle.js"
+import { DocumentId } from "./types"
 
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   handles: { [documentId: DocumentId]: DocHandle<unknown> } = {}

@@ -1,81 +1,52 @@
-import EventEmitter from "eventemitter3"
 import * as Automerge from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
-import { ChannelId, PeerId } from "."
+import EventEmitter from "eventemitter3"
 
 import debug from "debug"
+import { DocHandleEvents, DocumentId, HandleState } from "./types"
 const log = debug("DocHandle")
 
-export type DocumentId = string & { __documentId: true }
-
-type HandleState = "loading" | "syncing" | "ready"
-/*
- * Handle Lifecycle
- * We need to carefully orchestrate document loading in order
- * to avoid requesting data we already have or surfacing intermediate
- * values to the consumer above.
- *
- *                        handle.state
- * ┌───────────────┐      ┌─────────┐
- * │new DocHandle()│  ┌──►│ loading ├─┐
- * ├─────────────┬─┘  │ ┌┤├─────────┤ │ via loadIncremental()
- * ├─────────────┤    │ └►├─────────┤ │  or unblockSync()
- * │find()       ├────┘ ┌─┤ syncing │ │
- * ├─────────────┤      │ ├─────────┤ │
- * │create()     ├────┐ │ ├─────────┤ │ via receiveSyncMessage()
- * └─────────────┘    └►└►│ ready   │►┘  or create()
- *                        └─────────┘
- *  ┌────────────┐
- *  │value()     │ <- blocks until "ready"
- *  ├────────────┤
- *  │syncValue() │ <- blocks until "syncing"
- *  └────────────┘
- *
- */
-
-/**
- * DocHandle is a wrapper around a single Automerge document that allows us to listen for changes.
- */
+/** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   doc: Automerge.Doc<T>
   documentId: DocumentId
-  state: HandleState = "loading"
+  state: HandleState = HandleState.LOADING
 
   constructor(documentId: DocumentId, newDoc = false) {
     super()
     this.documentId = documentId
     this.doc = Automerge.init({
       patchCallback: (
-        patch: any, // Automerge.Patch,
+        patch: any, // TODO: Automerge.Patch,
         before: Automerge.Doc<T>,
         after: Automerge.Doc<T>
-      ) => this.__notifyPatchListeners(patch, before, after),
+      ) => this.#notifyPatchListeners(patch, before, after),
     })
 
     // new documents don't need to block on an initial value setting
     if (newDoc) {
-      this.state = "ready"
+      this.state = HandleState.READY
       this.emit("ready")
     }
   }
 
   ready() {
-    return this.state === "ready"
+    return this.state === HandleState.READY
   }
 
   loadIncremental(binary: Uint8Array) {
     log(`[${this.documentId}]: loadIncremental`, this.doc)
     const newDoc = Automerge.loadIncremental(this.doc, binary)
-    if (this.state === "loading") {
-      this.state = "ready"
+    if (this.state === HandleState.LOADING) {
+      this.state = HandleState.READY
       this.emit("ready")
     }
-    this.__notifyChangeListeners(newDoc)
+    this.#notifyChangeListeners(newDoc)
   }
 
   unblockSync() {
-    if (this.state === "loading") {
-      this.state = "syncing"
+    if (this.state === HandleState.LOADING) {
+      this.state = HandleState.SYNCING
       this.emit("syncing")
     }
   }
@@ -83,14 +54,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
     log(`[${this.documentId}]: updateDoc`, this.doc)
     // make sure doc is a new version of the old doc somehow...
-    this.__notifyChangeListeners(callback(this.doc))
+    this.#notifyChangeListeners(callback(this.doc))
   }
 
-  __notifyChangeListeners(newDoc: Automerge.Doc<T>) {
-    if ("then" in newDoc) {
-      throw new Error("this appears to be a promise")
-    }
-
+  #notifyChangeListeners(newDoc: Automerge.Doc<T>) {
     const oldDoc = this.doc
     this.doc = newDoc
 
@@ -99,9 +66,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     // we only need to emit a "change" if something changed as a result of the update
     if (!equalArrays(Automerge.getHeads(newDoc), Automerge.getHeads(oldDoc))) {
-      if (this.state != "ready") {
+      if (this.state !== HandleState.READY) {
         // only go to ready once
-        this.state = "ready"
+        this.state = HandleState.READY
         this.emit("ready")
       }
       this.emit("change", {
@@ -110,7 +77,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     }
   }
 
-  __notifyPatchListeners(
+  #notifyPatchListeners(
     patch: any, //Automerge.Patch,
     before: Automerge.Doc<T>,
     after: Automerge.Doc<T>
@@ -129,12 +96,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.doc
   }
 
-  // this returns the value but not until after loading is done
-  // but it will return the value during syncing when we don't want to share it
-  // with the frontend / user code
+  /**
+   * syncValue returns the value, but not until after loading is done. It will return the value
+   * during syncing when we don't want to share it with the frontend/user code.
+   */
   async syncValue() {
     log(`[${this.documentId}]: syncValue,`, this.doc)
-    if (this.state == "loading") {
+    if (this.state == HandleState.LOADING) {
       log(`[${this.documentId}]: value: (${this.state}, waiting for syncing)`)
       await new Promise((resolve) => {
         this.once("syncing", () => resolve(true))
@@ -150,32 +118,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   change(callback: (doc: T) => void, options: ChangeOptions<T> = {}) {
     this.value().then(() => {
       const newDoc = Automerge.change<T>(this.doc, options, callback)
-      this.__notifyChangeListeners(newDoc)
+      this.#notifyChangeListeners(newDoc)
     })
   }
-}
-
-export interface DocHandleMessageEvent {
-  destinationId: PeerId
-  channelId: ChannelId
-  data: Uint8Array
-}
-
-export interface DocHandleChangeEvent<T> {
-  handle: DocHandle<T>
-}
-
-export interface DocHandlePatchEvent<T> {
-  handle: DocHandle<T>
-  patch: any // Automerge.Patch
-  before: Automerge.Doc<T>
-  after: Automerge.Doc<T>
-}
-
-export interface DocHandleEvents<T> {
-  syncing: () => void // HMM
-  ready: () => void // HMM
-  message: (event: DocHandleMessageEvent) => void
-  change: (event: DocHandleChangeEvent<T>) => void
-  patch: (event: DocHandlePatchEvent<T>) => void
 }

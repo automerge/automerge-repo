@@ -1,6 +1,6 @@
 import { assert } from "console"
 import { DocCollection } from "../src/DocCollection"
-import { DocumentId } from "../src/DocHandle"
+import { DocumentId } from "../src/types"
 
 interface TestDoc {
   foo: string

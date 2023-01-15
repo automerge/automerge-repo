@@ -1,12 +1,12 @@
-import EventEmitter from "eventemitter3"
 import debug from "debug"
+import EventEmitter from "eventemitter3"
 const log = debug("CollectionSynchronizer")
 
-import { DocSynchronizer } from "./DocSynchronizer.js"
-import { DocCollection } from "../DocCollection.js"
-import { SyncMessages } from "./Synchronizer.js"
-import { DocHandle, DocumentId } from "../DocHandle.js"
-import { ChannelId, PeerId } from "../network/NetworkSubsystem.js"
+import { DocCollection } from "../DocCollection"
+import { DocHandle } from "../DocHandle"
+import { ChannelId, DocumentId, PeerId } from "../types"
+import { DocSynchronizer } from "./DocSynchronizer"
+import { SyncMessages } from "./Synchronizer"
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.

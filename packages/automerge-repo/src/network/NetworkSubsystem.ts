@@ -1,80 +1,8 @@
 import EventEmitter from "eventemitter3"
+import { ChannelId, NetworkAdapter, NetworkEvents, PeerId } from "../types"
 
 import debug from "debug"
 const log = debug("NetworkSubsystem")
-
-export type PeerId = string & { __peerId: false }
-export type ChannelId = string & { __channelId: false }
-
-interface AdapterOpenDetails {
-  network: NetworkAdapter
-}
-interface PeerCandidateDetails {
-  peerId: PeerId
-  channelId: ChannelId
-}
-
-interface PeerDetails {
-  peerId: PeerId
-  channelId: ChannelId
-}
-
-export interface OutboundMessageDetails {
-  targetId: PeerId
-  channelId: ChannelId
-  message: Uint8Array
-  broadcast: boolean
-}
-
-export interface InboundMessageDetails extends OutboundMessageDetails {
-  senderId: PeerId
-}
-
-interface DisconnectedDetails {
-  peerId: PeerId
-}
-
-export interface NetworkAdapterEvents {
-  open: (event: AdapterOpenDetails) => void
-  close: () => void
-  "peer-candidate": (event: PeerCandidateDetails) => void
-  "peer-disconnected": (event: DisconnectedDetails) => void
-  message: (event: InboundMessageDetails) => void
-}
-
-export interface NetworkEvents {
-  peer: (msg: PeerDetails) => void
-  "peer-disconnected": (event: DisconnectedDetails) => void
-  message: (msg: InboundMessageDetails) => void
-}
-
-export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
-  peerId?: PeerId // hmmm, maybe not
-  connect(url?: string): void
-  sendMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array,
-    broadcast: boolean
-  ): void
-  join(channelId: ChannelId): void
-  leave(channelId: ChannelId): void
-}
-
-export interface DecodedMessage {
-  type: string
-  senderId: PeerId
-  targetId: PeerId
-  channelId: ChannelId
-  data: Uint8Array
-  broadcast: boolean
-}
-
-export interface Peer extends EventEmitter<InboundMessageDetails> {
-  isOpen(): boolean
-  close(): void
-  send(channelId: ChannelId, msg: Uint8Array): void
-}
 
 export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   networkAdapters: NetworkAdapter[] = []

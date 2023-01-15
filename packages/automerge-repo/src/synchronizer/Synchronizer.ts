@@ -1,9 +1,5 @@
 import EventEmitter from "eventemitter3"
-import {
-  ChannelId,
-  OutboundMessageDetails,
-  PeerId,
-} from "../network/NetworkSubsystem"
+import { ChannelId, OutboundMessageDetails, PeerId } from "../types"
 
 export interface SyncMessages {
   message: (arg: OutboundMessageDetails) => void
