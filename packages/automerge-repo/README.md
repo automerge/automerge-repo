@@ -166,16 +166,16 @@ const repo = new Repo({
   storage: new LocalForageStorageAdapter(),
 })
 
-let appDocId = localStorage.appDocId
-if (!appDocId) {
+let rootDocId = localStorage.rootDocId
+if (!rootDocId) {
   const handle = repo.create()
-  localStorage.appDocId = appDocId = handle.documentId
+  localStorage.rootDocId = rootDocId = handle.documentId
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App documentId={appDocId} />
+      <App documentId={rootDocId} />
     </React.StrictMode>
   </RepoContext.Provider>
 )
@@ -253,7 +253,7 @@ const repo = new Repo({
 
 And you're finished! You can test that your sync server is opening the same document in two
 different browsers (e.g. Chrome and Firefox). (Note that with our current trivial implementation
-you'll need to manually copy the `appDocId` value between the browsers.)
+you'll need to manually copy the `rootDocId` value between the browsers.)
 
 ## Acknowledgements
 
