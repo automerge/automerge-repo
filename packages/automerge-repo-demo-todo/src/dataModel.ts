@@ -1,3 +1,4 @@
+import { DocumentId } from "automerge-repo"
 import { v4 as uuid } from "uuid"
 
 /** Inside an Automerge change function, any arrays found on the document have these utility functions */
@@ -14,7 +15,7 @@ export type State = {
 }
 
 export interface TodoData {
-  id: string
+  id: DocumentId
   content: string
   completed: boolean
 }
@@ -38,14 +39,14 @@ export const addTodo =
   (content: string): ChangeFn =>
   s => {
     s.todos.push({
-      id: uuid(),
+      id: uuid() as DocumentId,
       content,
       completed: false,
     })
   }
 
 export const destroyTodo =
-  (id: string): ChangeFn =>
+  (id: DocumentId): ChangeFn =>
   s => {
     const todos = s.todos as ExtendedArray<TodoData>
     const index = todos.findIndex(t => t.id === id)
@@ -53,16 +54,16 @@ export const destroyTodo =
   }
 
 export const toggleTodo =
-  (id: string): ChangeFn =>
+  (id: DocumentId): ChangeFn =>
   s => {
-    const todo = s.todos.find(t => t.id === id)
+    const todo = getTodo(s, id)
     if (todo) todo.completed = !todo.completed
   }
 
-export const updateTodo =
-  (id: string, content: string): ChangeFn =>
+export const editTodo =
+  (id: DocumentId, content: string): ChangeFn =>
   s => {
-    const todo = s.todos.find(t => t.id === id)
+    const todo = getTodo(s, id)
     if (todo) todo.content = content
   }
 
@@ -75,7 +76,8 @@ export const destroyCompletedTodos: ChangeFn = s => {
 
 export const getFilter = (s: State) => s.filter
 
-export const getTodo = (s: State, id: string) => s.todos.find(t => t.id === id)
+export const getTodo = (s: State, id: DocumentId) =>
+  s.todos.find(t => t.id === id)
 
 export const getAllTodos = (s: State) => s.todos
 
