@@ -1,10 +1,12 @@
 import { useRef, useState, useEffect } from "react"
 import cx from "classnames"
+import { TodoData } from "./dataModel"
 
 const ENTER_KEY = 13
 const ESCAPE_KEY = 27
 
-export const Todo = ({ id, completed, content }: TodoProps) => {
+export const Todo = ({ todo, onToggle, onEdit, onDestroy }: TodoProps) => {
+  const { id, content, completed } = todo
   // const dispatch = useDispatch()
 
   // component state
@@ -26,10 +28,10 @@ export const Todo = ({ id, completed, content }: TodoProps) => {
     const saveContent = e.target.value.trim()
     if (saveContent.length > 0) {
       // todo was changed - keep the edited content
-      // dispatch(editTodo(id, saveContent))
+      onEdit(id, saveContent)
     } else {
       // user has removed all the content of the todo, so delete it
-      // dispatch(destroyTodo(id))
+      onDestroy(id)
     }
     leaveEditMode()
   }
@@ -59,13 +61,14 @@ export const Todo = ({ id, completed, content }: TodoProps) => {
         className="w-4 h-4 flex-none cursor-pointer"
         type="checkbox"
         checked={completed}
-        // onChange={() => dispatch(toggleTodo(id))}
+        onChange={() => onToggle(id)}
       />
       {/* todo content */}
       <input
         className="flex-1 mx-1 p-1"
         ref={input}
         value={editContent}
+        onFocus={enterEditMode}
         onBlur={save}
         onChange={updateContent}
         onKeyDown={onKeyDown}
@@ -80,14 +83,15 @@ export const Todo = ({ id, completed, content }: TodoProps) => {
           "font-extrabold text-danger-500"
         )}
         style={{ cursor: "pointer" }}
-        // onClick={() => dispatch(destroyTodo(id))}
+        onClick={() => onDestroy(id)}
       />
     </li>
   )
 }
 
 export interface TodoProps {
-  id: string
-  completed: boolean
-  content: string
+  todo: TodoData
+  onToggle: (id: string) => void
+  onEdit: (id: string, content: string) => void
+  onDestroy: (id: string) => void
 }
