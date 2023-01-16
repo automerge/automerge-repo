@@ -6,7 +6,6 @@ import { useRef, useState } from "react"
 import { Todo } from "./Todo"
 
 import { ExtendedArray, Filter, State, TodoData } from "./types"
-import { pluralize } from "./pluralize"
 
 export function App(props: { rootId: DocumentId }) {
   const newTodoInput = useRef<HTMLInputElement>(null)
@@ -45,14 +44,13 @@ export function App(props: { rootId: DocumentId }) {
     }
   }
 
-  // const incompleteCount = (await getFilteredTodos(Filter.incomplete)).length
-  // const completedCount = (await getFilteredTodos(Filter.completed)).length
   if (!state) return null
 
   return (
     <>
       <div className="flex h-screen pt-2 pb-96 bg-primary-50">
         <div className="m-auto w-4/5 max-w-xl border border-neutral-300 shadow-md rounded-md bg-white">
+          {/* new todo form */}
           <header>
             <form
               onSubmit={e => {
@@ -96,7 +94,7 @@ export function App(props: { rootId: DocumentId }) {
               {state.todos.map(id => (
                 <Todo
                   key={id}
-                  documentId={id}
+                  id={id}
                   onDestroy={id => destroy(id)}
                   filter={filter}
                 />
@@ -141,7 +139,6 @@ export function App(props: { rootId: DocumentId }) {
               })}
             </ul>
             <div className="flex-1 text-right">
-              {/* {completedCount > 0 && ( */}
               <button
                 className={cx(
                   "leading-none border py-2 px-4 rounded-md",
@@ -154,7 +151,6 @@ export function App(props: { rootId: DocumentId }) {
               >
                 Clear completed
               </button>
-              {/* )} */}
             </div>
           </footer>
         </div>
