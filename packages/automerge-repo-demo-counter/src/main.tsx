@@ -15,16 +15,16 @@ const repo = new Repo({
   storage: new LocalForageStorageAdapter(),
 })
 
-let appDocId = localStorage.appDocId
-if (!appDocId) {
+let rootDocId = localStorage.rootDocId
+if (!rootDocId) {
   const handle = repo.create()
-  localStorage.appDocId = appDocId = handle.documentId
+  localStorage.rootDocId = rootDocId = handle.documentId
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App documentId={appDocId} />
+      <App documentId={rootDocId} />
     </React.StrictMode>
   </RepoContext.Provider>
 )

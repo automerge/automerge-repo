@@ -11,7 +11,7 @@
   "scripts": {
     "build": "lerna run build",
     "test": "lerna run test",
-    "dev:demo": "yarn workspace automerge-repo-demo-counter dev",
+    "dev:demo": "yarn workspace automerge-repo-demo-todo dev",
     "dev": "run-p watch dev:demo",
     "pub": "lerna publish --yes",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace automerge-repo-sync-server start",
@@ -43,6 +43,7 @@
   "prettier": {
     "semi": false,
     "singleQuote": false,
-    "trailingComma": "es5"
+    "trailingComma": "es5",
+    "arrowParens": "avoid"
   }
 }
