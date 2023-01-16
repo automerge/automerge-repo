@@ -1,58 +1,38 @@
-import { useRef, useState, useEffect } from "react"
+import { DocumentId } from "automerge-repo"
 import cx from "classnames"
+import { useEffect, useRef, useState } from "react"
 import { TodoData } from "./dataModel"
-
-const ENTER_KEY = 13
-const ESCAPE_KEY = 27
 
 export const Todo = ({ todo, onToggle, onEdit, onDestroy }: TodoProps) => {
   const { id, content, completed } = todo
-  // const dispatch = useDispatch()
 
-  // component state
+  // editing mode
   const [editing, setEditing] = useState(false)
-  const [editContent, setEditContent] = useState(content)
 
-  // input.current will contain a reference to the editing input
-  const input = useRef(null)
+  // the content of the todo when editing
+  const [newContent, setNewContent] = useState(content)
 
-  // side effect: need to select all content in the input when going into editing mode
-  // this will only fire when `editing` changes
-  const selectAllOnEdit = () => {
-    // if (editing) input.current.select()
-  }
-  useEffect(selectAllOnEdit, [editing])
+  // the input element for editing the todo content
+  const contentInput = useRef<HTMLInputElement>(null)
 
-  // we save when the user has either tabbed or clicked away, or hit Enter
-  const save = (e: any) => {
-    const saveContent = e.target.value.trim()
-    if (saveContent.length > 0) {
-      // todo was changed - keep the edited content
-      onEdit(id, saveContent)
-    } else {
-      // user has removed all the content of the todo, so delete it
-      onDestroy(id)
+  // handle entering and exiting edit mode
+  useEffect(() => {
+    if (!contentInput.current) return
+
+    // select all content in the input when going into editing mode
+    if (editing) {
+      contentInput.current.select()
     }
-    leaveEditMode()
-  }
-
-  // listen for special keys
-  const onKeyDown = (e: any) => {
-    if (e.keyCode === ESCAPE_KEY) {
-      // ESC: abort editing
-      restoreContent()
-      leaveEditMode()
-    } else if (e.keyCode === ENTER_KEY) {
-      // ENTER: persist the edited content
-      save(e)
+    // blur when leaving editing mode
+    else {
+      contentInput.current.blur()
     }
-  }
+  }, [editing])
 
-  const enterEditMode = () => setEditing(true)
-  const leaveEditMode = () => setEditing(false)
-
-  const updateContent = (e: any) => setEditContent(e.target.value)
-  const restoreContent = () => setEditContent(content)
+  // update the input when the content of the todo is modified from elsewhere
+  useEffect(() => {
+    setNewContent(content)
+  }, [content])
 
   return (
     <li className="px-3 py-1 leading-none flex items-center group">
@@ -61,17 +41,35 @@ export const Todo = ({ todo, onToggle, onEdit, onDestroy }: TodoProps) => {
         className="w-4 h-4 flex-none cursor-pointer"
         type="checkbox"
         checked={completed}
-        onChange={() => onToggle(id)}
+        onChange={e => onToggle(id)}
       />
       {/* todo content */}
       <input
         className="flex-1 mx-1 p-1"
-        ref={input}
-        value={editContent}
-        onFocus={enterEditMode}
-        onBlur={save}
-        onChange={updateContent}
-        onKeyDown={onKeyDown}
+        ref={contentInput}
+        value={newContent}
+        onFocus={e => setEditing(true)}
+        onBlur={e => {
+          const newContent = e.target.value.trim()
+          if (newContent.length > 0) {
+            // todo was changed - keep the edited content
+            onEdit(id, newContent)
+          } else {
+            // user has removed all the content of the todo, so delete it
+            onDestroy(id)
+          }
+          setEditing(false)
+        }}
+        onChange={e => setNewContent(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === "Escape") {
+            // restore the original content
+            setNewContent(content)
+            setEditing(false)
+          } else if (e.key === "Enter") {
+            setEditing(false)
+          }
+        }}
       />
       {/* delete button */}
       <button
@@ -83,7 +81,7 @@ export const Todo = ({ todo, onToggle, onEdit, onDestroy }: TodoProps) => {
           "font-extrabold text-danger-500"
         )}
         style={{ cursor: "pointer" }}
-        onClick={() => onDestroy(id)}
+        onClick={e => onDestroy(id)}
       />
     </li>
   )
@@ -91,7 +89,7 @@ export const Todo = ({ todo, onToggle, onEdit, onDestroy }: TodoProps) => {
 
 export interface TodoProps {
   todo: TodoData
-  onToggle: (id: string) => void
-  onEdit: (id: string, content: string) => void
-  onDestroy: (id: string) => void
+  onToggle: (id: DocumentId) => void
+  onEdit: (id: DocumentId, content: string) => void
+  onDestroy: (id: DocumentId) => void
 }
