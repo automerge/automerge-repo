@@ -1,34 +1,25 @@
 import { DocumentId } from "automerge-repo"
-import { useDocument } from "automerge-repo-react-hooks"
+import { useDocument, useRepo } from "automerge-repo-react-hooks"
 import cx from "classnames"
 import { useRef, useState } from "react"
 
 import { Todo } from "./Todo"
 
-import {
-  addTodo,
-  destroyCompletedTodos,
-  destroyTodo,
-  Filter,
-  getFilteredTodos,
-  State,
-  toggleTodo,
-  editTodo,
-} from "./dataModel"
+import { addTodo, destroyTodo, Filter, State, TodoData } from "./dataModel"
 import { pluralize } from "./pluralize"
-
-const { incomplete, completed } = Filter
 
 export function App(props: { rootId: DocumentId }) {
   const newTodoInput = useRef<HTMLInputElement>(null)
   const [filter, setFilter] = useState<Filter>(Filter.all)
 
+  const repo = useRepo()
+
   const { rootId: documentId } = props
   const [state, changeState] = useDocument<State>(documentId)
   if (!state) return null
 
-  const incompleteCount = getFilteredTodos(state, incomplete).length
-  const completedCount = getFilteredTodos(state, completed).length
+  const incompleteCount = 1 // getFilteredTodos(state, incomplete).length
+  const completedCount = 1 // getFilteredTodos(state, completed).length
   return (
     <>
       <div className="flex h-screen pt-2 pb-96 bg-primary-50">
@@ -44,8 +35,15 @@ export function App(props: { rootId: DocumentId }) {
                 // don't create empty todos
                 if (newTodoText.length === 0) return
 
+                const handle = repo.create<TodoData>()
+                handle.change(t => {
+                  t.id = handle.documentId
+                  t.content = newTodoText
+                  t.completed = false
+                })
+
                 // update state with new todo
-                changeState(addTodo(newTodoText))
+                changeState(addTodo(handle.documentId))
 
                 // clear input
                 newTodoInput.current.value = ""
@@ -63,13 +61,12 @@ export function App(props: { rootId: DocumentId }) {
           {/* todos */}
           <section>
             <ul className="border-y divide-y divide-solid">
-              {getFilteredTodos(state, filter).map(todo => (
+              {state.todos.map(id => (
                 <Todo
-                  key={todo.id}
-                  todo={todo}
-                  onToggle={id => changeState(toggleTodo(id))}
-                  onEdit={(id, content) => changeState(editTodo(id, content))}
+                  key={id}
+                  documentId={id}
                   onDestroy={id => changeState(destroyTodo(id))}
+                  filter={filter}
                 />
               ))}
             </ul>
@@ -120,7 +117,7 @@ export function App(props: { rootId: DocumentId }) {
                   )}
                   onClick={e => {
                     e.preventDefault()
-                    changeState(destroyCompletedTodos)
+                    // changeState(destroyCompletedTodos)
                   }}
                 >
                   Clear completed

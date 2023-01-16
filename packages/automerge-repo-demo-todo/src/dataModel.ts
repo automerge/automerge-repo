@@ -9,9 +9,8 @@ interface ExtendedArray<T> extends Array<T> {
 
 type ChangeFn = (s: State) => void
 
-export type State = {
-  todos: TodoData[]
-  todoDocs: DocumentId[]
+export interface State {
+  todos: DocumentId[]
 }
 
 export interface TodoData {
@@ -30,59 +29,54 @@ export type Filter = typeof Filter[keyof typeof Filter]
 // "reducers"
 
 export const addTodo =
-  (content: string): ChangeFn =>
+  (id: DocumentId): ChangeFn =>
   s => {
-    const todo = {
-      id: uuid() as DocumentId,
-      content,
-      completed: false,
-    }
-    s.todos.push(todo)
+    s.todos.push(id)
   }
 
 export const destroyTodo =
   (id: DocumentId): ChangeFn =>
   s => {
-    const todos = s.todos as ExtendedArray<TodoData>
-    const index = todos.findIndex(t => t.id === id)
+    const todos = s.todos as ExtendedArray<DocumentId>
+    const index = todos.findIndex(documentId => documentId === id)
     todos.deleteAt(index)
   }
 
-export const toggleTodo =
-  (id: DocumentId): ChangeFn =>
-  s => {
-    const todo = getTodo(s, id)
-    if (todo) todo.completed = !todo.completed
-  }
+// export const toggleTodo =
+//   (id: DocumentId): ChangeFn =>
+//   s => {
+//     const todo = getTodo(s, id)
+//     if (todo) todo.completed = !todo.completed
+//   }
 
-export const editTodo =
-  (id: DocumentId, content: string): ChangeFn =>
-  s => {
-    const todo = getTodo(s, id)
-    if (todo) todo.content = content
-  }
+// export const editTodo =
+//   (id: DocumentId, content: string): ChangeFn =>
+//   s => {
+//     const todo = getTodo(s, id)
+//     if (todo) todo.content = content
+//   }
 
-export const destroyCompletedTodos: ChangeFn = s => {
-  const completed = getFilteredTodos(s, Filter.completed)
-  completed.forEach(t => destroyTodo(t.id)(s))
-}
+// export const destroyCompletedTodos: ChangeFn = s => {
+//   const completed = getFilteredTodos(s, Filter.completed)
+//   completed.forEach(t => destroyTodo(t.id)(s))
+// }
 
 // "selectors"
 
-export const getTodo = (s: State, id: DocumentId) =>
-  s.todos.find(t => t.id === id)
+// export const getTodo = (s: State, id: DocumentId) =>
+//   s.todos.find(t => t.id === id)
 
-export const getAllTodos = (s: State) => s.todos
+// export const getAllTodos = (s: State) => s.todos
 
-export const getFilteredTodos = (s: State, filter: Filter) => {
-  switch (filter) {
-    case Filter.all:
-      return getAllTodos(s)
-    case Filter.incomplete:
-      return getAllTodos(s).filter(t => !t.completed)
-    case Filter.completed:
-      return getAllTodos(s).filter(t => t.completed)
-    default:
-      return []
-  }
-}
+// export const getFilteredTodos = (s: State, filter: Filter) => {
+//   switch (filter) {
+//     case Filter.all:
+//       return getAllTodos(s)
+//     case Filter.incomplete:
+//       return getAllTodos(s).filter(t => !t.completed)
+//     case Filter.completed:
+//       return getAllTodos(s).filter(t => t.completed)
+//     default:
+//       return []
+//   }
+// }
