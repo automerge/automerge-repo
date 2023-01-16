@@ -1,13 +1,13 @@
+import { DocumentId, Repo } from "automerge-repo"
+import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
+import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
+import { RepoContext } from "automerge-repo-react-hooks"
+import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App"
-import { DocumentId, Repo } from "automerge-repo"
-import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
-import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
-import { RepoContext } from "automerge-repo-react-hooks"
-import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
+import { State } from "./dataModel"
 import "./index.css"
-import { Filter, State } from "./dataModel"
 
 const repo = new Repo({
   network: [
@@ -32,6 +32,7 @@ const getRootId = () => {
   // set its initial state
   handle.change(s => {
     s.todos = []
+    s.todoDocs = []
   })
   return handle.documentId
 }
