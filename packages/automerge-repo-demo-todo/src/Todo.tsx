@@ -51,13 +51,12 @@ export const Todo = ({ todo, onToggle, onEdit, onDestroy }: TodoProps) => {
         onFocus={e => setEditing(true)}
         onBlur={e => {
           const newContent = e.target.value.trim()
-          if (newContent.length > 0) {
-            // todo was changed - keep the edited content
-            onEdit(id, newContent)
-          } else {
-            // user has removed all the content of the todo, so delete it
-            onDestroy(id)
-          }
+
+          // if user has removed all the content of the todo, delete it
+          if (newContent.length === 0) onDestroy(id)
+          // otherwise, update the content
+          else onEdit(id, newContent)
+
           setEditing(false)
         }}
         onChange={e => setNewContent(e.target.value)}
