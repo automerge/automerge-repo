@@ -11,6 +11,7 @@ type ChangeFn = (s: State) => void
 
 export type State = {
   todos: TodoData[]
+  todoDocs: DocumentId[]
 }
 
 export interface TodoData {
@@ -31,11 +32,12 @@ export type Filter = typeof Filter[keyof typeof Filter]
 export const addTodo =
   (content: string): ChangeFn =>
   s => {
-    s.todos.push({
+    const todo = {
       id: uuid() as DocumentId,
       content,
       completed: false,
-    })
+    }
+    s.todos.push(todo)
   }
 
 export const destroyTodo =
