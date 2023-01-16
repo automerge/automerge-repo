@@ -1,6 +1,6 @@
 import { v4 as uuid } from "uuid"
 
-/** Inside an Automerge change function, any arrays found on the document have these utility functions*/
+/** Inside an Automerge change function, any arrays found on the document have these utility functions */
 interface ExtendedArray<T> extends Array<T> {
   insertAt(index: number, ...args: T[]): ExtendedArray<T>
   deleteAt(index: number, numDelete?: number): ExtendedArray<T>
@@ -66,7 +66,7 @@ export const updateTodo =
     if (todo) todo.content = content
   }
 
-export const destroyCompletedTodos = (s: State) => {
+export const destroyCompletedTodos: ChangeFn = s => {
   const completed = getFilteredTodos(s, Filter.completed)
   completed.forEach(t => destroyTodo(t.id)(s))
 }
