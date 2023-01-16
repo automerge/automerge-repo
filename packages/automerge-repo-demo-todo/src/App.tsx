@@ -5,7 +5,7 @@ import { useRef, useState } from "react"
 
 import { Todo } from "./Todo"
 
-import { addTodo, destroyTodo, Filter, State, TodoData } from "./dataModel"
+import { ExtendedArray, Filter, State, TodoData } from "./types"
 import { pluralize } from "./pluralize"
 
 export function App(props: { rootId: DocumentId }) {
@@ -15,11 +15,40 @@ export function App(props: { rootId: DocumentId }) {
   const repo = useRepo()
 
   const { rootId: documentId } = props
+
   const [state, changeState] = useDocument<State>(documentId)
+
+  const destroy = (id: DocumentId) => {
+    changeState(s => {
+      const todos = s.todos as ExtendedArray<DocumentId>
+      const index = todos.findIndex(_ => _ === id)
+      todos.deleteAt(index)
+    })
+  }
+
+  const getFilteredTodos = async (filter: Filter) => {
+    if (!state) return []
+    return state.todos.filter(async id => {
+      if (filter === Filter.all) return true
+      const todo = await repo.find<TodoData>(id).value()
+      if (filter === Filter.completed) return todo.completed
+      if (filter === Filter.incomplete) return !todo.completed
+      return false
+    })
+  }
+
+  const destroyCompleted = async () => {
+    if (!state) return
+    for (const id of await getFilteredTodos(Filter.completed)) {
+      const todo = await repo.find<TodoData>(id).value()
+      if (todo.completed) destroy(id)
+    }
+  }
+
+  // const incompleteCount = (await getFilteredTodos(Filter.incomplete)).length
+  // const completedCount = (await getFilteredTodos(Filter.completed)).length
   if (!state) return null
 
-  const incompleteCount = 1 // getFilteredTodos(state, incomplete).length
-  const completedCount = 1 // getFilteredTodos(state, completed).length
   return (
     <>
       <div className="flex h-screen pt-2 pb-96 bg-primary-50">
@@ -36,14 +65,17 @@ export function App(props: { rootId: DocumentId }) {
                 if (newTodoText.length === 0) return
 
                 const handle = repo.create<TodoData>()
+                const id = handle.documentId
                 handle.change(t => {
-                  t.id = handle.documentId
+                  t.id = id
                   t.content = newTodoText
                   t.completed = false
                 })
 
                 // update state with new todo
-                changeState(addTodo(handle.documentId))
+                changeState(s => {
+                  s.todos.push(id)
+                })
 
                 // clear input
                 newTodoInput.current.value = ""
@@ -65,7 +97,7 @@ export function App(props: { rootId: DocumentId }) {
                 <Todo
                   key={id}
                   documentId={id}
-                  onDestroy={id => changeState(destroyTodo(id))}
+                  onDestroy={id => destroy(id)}
                   filter={filter}
                 />
               ))}
@@ -75,10 +107,10 @@ export function App(props: { rootId: DocumentId }) {
           {/* footer tools */}
           <footer className="p-3 flex justify-between items-center text-sm">
             {/* remaining count */}
-            <span className="flex-1">
+            {/* <span className="flex-1">
               <strong>{incompleteCount}</strong>{" "}
               {pluralize(incompleteCount, "item")} left
-            </span>
+            </span> */}
 
             {/* filter */}
             <ul className="flex-1 flex space-x-1 cursor-pointer">
@@ -109,20 +141,20 @@ export function App(props: { rootId: DocumentId }) {
               })}
             </ul>
             <div className="flex-1 text-right">
-              {completedCount > 0 && (
-                <button
-                  className={cx(
-                    "leading-none border py-2 px-4 rounded-md",
-                    "hover:border-primary-600 hover:bg-primary-500 hover:text-white"
-                  )}
-                  onClick={e => {
-                    e.preventDefault()
-                    // changeState(destroyCompletedTodos)
-                  }}
-                >
-                  Clear completed
-                </button>
-              )}
+              {/* {completedCount > 0 && ( */}
+              <button
+                className={cx(
+                  "leading-none border py-2 px-4 rounded-md",
+                  "hover:border-primary-600 hover:bg-primary-500 hover:text-white"
+                )}
+                onClick={e => {
+                  e.preventDefault()
+                  destroyCompleted()
+                }}
+              >
+                Clear completed
+              </button>
+              {/* )} */}
             </div>
           </footer>
         </div>

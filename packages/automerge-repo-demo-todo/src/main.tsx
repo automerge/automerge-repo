@@ -6,7 +6,7 @@ import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App"
-import { State } from "./dataModel"
+import { State } from "./types"
 import "./index.css"
 
 const repo = new Repo({
