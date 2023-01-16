@@ -17,6 +17,12 @@ const repo = new Repo({
   storage: new LocalForageStorageAdapter(),
 })
 
+const getHashValue = (key: string) => {
+  const { hash } = window.location
+  var matches = hash.match(new RegExp(`${key}=([^&]*)`))
+  return matches ? matches[1] : undefined
+}
+
 const getRootId = () => {
   const idFromHash = getHashValue("id")
   if (idFromHash) return idFromHash as DocumentId
@@ -41,9 +47,3 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     </React.StrictMode>
   </RepoContext.Provider>
 )
-
-function getHashValue(key: string) {
-  const { hash } = window.location
-  var matches = hash.match(new RegExp(`${key}=([^&]*)`))
-  return matches ? matches[1] : undefined
-}
