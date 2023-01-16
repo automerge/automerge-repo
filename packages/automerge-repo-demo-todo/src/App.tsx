@@ -21,6 +21,7 @@ import {
 import { pluralize } from "./pluralize"
 
 const { incomplete, completed } = Filter
+
 export function App(props: { rootId: DocumentId }) {
   const newTodoInput = useRef<HTMLInputElement>(null)
 
@@ -36,18 +37,22 @@ export function App(props: { rootId: DocumentId }) {
         <div className="m-auto w-4/5 max-w-xl border border-neutral-300 shadow-md rounded-md bg-white">
           <header>
             <form
-              onSubmit={(e: any) => {
+              onSubmit={e => {
+                if (!newTodoInput.current) return
+
                 // don't post back
                 e.preventDefault()
-                if (newTodoInput.current) {
-                  const newText = newTodoInput.current.value.trim()
-                  // don't create empty todos
-                  if (newText.length === 0) return
-                  // update state with new todo
-                  changeState(addTodo(newText))
-                  // clear input
-                  newTodoInput.current.value = ""
-                }
+
+                const newTodoText = newTodoInput.current.value.trim()
+
+                // don't create empty todos
+                if (newTodoText.length === 0) return
+
+                // update state with new todo
+                changeState(addTodo(newTodoText))
+
+                // clear input
+                newTodoInput.current.value = ""
               }}
             >
               <input
