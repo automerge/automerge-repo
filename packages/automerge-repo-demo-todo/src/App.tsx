@@ -16,7 +16,7 @@ import {
   setFilter,
   State,
   toggleTodo,
-  updateTodo,
+  editTodo,
 } from "./dataModel"
 import { pluralize } from "./pluralize"
 
@@ -72,7 +72,7 @@ export function App(props: { rootId: DocumentId }) {
                   key={todo.id}
                   todo={todo}
                   onToggle={id => changeState(toggleTodo(id))}
-                  onEdit={(id, content) => changeState(updateTodo(id, content))}
+                  onEdit={(id, content) => changeState(editTodo(id, content))}
                   onDestroy={id => changeState(destroyTodo(id))}
                 />
               ))}
