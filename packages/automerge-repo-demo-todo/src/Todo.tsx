@@ -20,13 +20,9 @@ export const Todo = ({ todo, onToggle, onEdit, onDestroy }: TodoProps) => {
     if (!contentInput.current) return
 
     // select all content in the input when going into editing mode
-    if (editing) {
-      contentInput.current.select()
-    }
+    if (editing) contentInput.current.select()
     // blur when leaving editing mode
-    else {
-      contentInput.current.blur()
-    }
+    if (!editing) contentInput.current.blur()
   }, [editing])
 
   // update the input when the content of the todo is modified from elsewhere
