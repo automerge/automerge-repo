@@ -5,14 +5,14 @@ import { DocumentId, Repo } from "automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
 import { RepoContext } from "automerge-repo-react-hooks"
-// import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
+import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
 import "./index.css"
 import { Filter, State } from "./dataModel"
 
 const repo = new Repo({
   network: [
     new BroadcastChannelNetworkAdapter(),
-    // new BrowserWebSocketClientAdapter("ws://localhost:3030"),
+    new BrowserWebSocketClientAdapter("ws://localhost:3030"),
   ],
   storage: new LocalForageStorageAdapter(),
 })
