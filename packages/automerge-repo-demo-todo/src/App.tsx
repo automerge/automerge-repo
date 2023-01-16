@@ -36,10 +36,8 @@ export function App(props: { rootId: DocumentId }) {
           <header>
             <form
               onSubmit={e => {
-                if (!newTodoInput.current) return
-
-                // don't post back
                 e.preventDefault()
+                if (!newTodoInput.current) return
 
                 const newTodoText = newTodoInput.current.value.trim()
 
