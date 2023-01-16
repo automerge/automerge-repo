@@ -32,7 +32,6 @@ const getRootId = () => {
   // set its initial state
   handle.change(s => {
     s.todos = []
-    s.filter = Filter.all
   })
   return handle.documentId
 }

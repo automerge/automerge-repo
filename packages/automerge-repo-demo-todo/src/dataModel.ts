@@ -11,7 +11,6 @@ type ChangeFn = (s: State) => void
 
 export type State = {
   todos: TodoData[]
-  filter: Filter
 }
 
 export interface TodoData {
@@ -28,12 +27,6 @@ export const Filter = {
 export type Filter = typeof Filter[keyof typeof Filter]
 
 // "reducers"
-
-export const setFilter =
-  (filter: Filter): ChangeFn =>
-  s => {
-    s.filter = filter
-  }
 
 export const addTodo =
   (content: string): ChangeFn =>
@@ -74,8 +67,6 @@ export const destroyCompletedTodos: ChangeFn = s => {
 
 // "selectors"
 
-export const getFilter = (s: State) => s.filter
-
 export const getTodo = (s: State, id: DocumentId) =>
   s.todos.find(t => t.id === id)
 
@@ -93,5 +84,3 @@ export const getFilteredTodos = (s: State, filter: Filter) => {
       return []
   }
 }
-
-export const getVisibleTodos = (s: State) => getFilteredTodos(s, getFilter(s))

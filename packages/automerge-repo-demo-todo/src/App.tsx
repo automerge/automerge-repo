@@ -1,7 +1,7 @@
 import { DocumentId } from "automerge-repo"
 import { useDocument } from "automerge-repo-react-hooks"
 import cx from "classnames"
-import { useRef } from "react"
+import { useRef, useState } from "react"
 
 import { Todo } from "./Todo"
 
@@ -10,10 +10,7 @@ import {
   destroyCompletedTodos,
   destroyTodo,
   Filter,
-  getFilter,
   getFilteredTodos,
-  getVisibleTodos,
-  setFilter,
   State,
   toggleTodo,
   editTodo,
@@ -24,6 +21,7 @@ const { incomplete, completed } = Filter
 
 export function App(props: { rootId: DocumentId }) {
   const newTodoInput = useRef<HTMLInputElement>(null)
+  const [filter, setFilter] = useState<Filter>(Filter.all)
 
   const { rootId: documentId } = props
   const [state, changeState] = useDocument<State>(documentId)
@@ -67,7 +65,7 @@ export function App(props: { rootId: DocumentId }) {
           {/* todos */}
           <section>
             <ul className="border-y divide-y divide-solid">
-              {getVisibleTodos(state).map(todo => (
+              {getFilteredTodos(state, filter).map(todo => (
                 <Todo
                   key={todo.id}
                   todo={todo}
@@ -89,9 +87,9 @@ export function App(props: { rootId: DocumentId }) {
 
             {/* filter */}
             <ul className="flex-1 flex space-x-1 cursor-pointer">
-              {Object.keys(Filter).map(key => {
-                const filter = key as Filter
-                const active = filter === getFilter(state)
+              {Object.keys(Filter).map(k => {
+                const key = k as Filter
+                const active = key === filter
 
                 const buttonStyle = cx({
                   ["text-gray-500 hover:text-gray-700 px-3 py-2 font-medium text-sm rounded-md"]:
@@ -101,15 +99,15 @@ export function App(props: { rootId: DocumentId }) {
                 })
 
                 return (
-                  <li className="leading-none" key={`filter-${filter}`}>
+                  <li className="leading-none" key={`filter-${key}`}>
                     <button
                       className={buttonStyle}
                       onClick={e => {
                         e.preventDefault()
-                        changeState(setFilter(filter))
+                        setFilter(key)
                       }}
                     >
-                      {filter}
+                      {key}
                     </button>
                   </li>
                 )
