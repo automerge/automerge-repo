@@ -58,25 +58,22 @@ export const Todo = ({ id, onDestroy, filter }: TodoProps) => {
           onFocus={e => setEditing(true)}
           onBlur={e => {
             const newContent = e.target.value.trim()
-
-            // if user has removed all the content of the todo, delete it
             if (newContent.length === 0) {
+              // if user has removed all the content of the todo, delete it
               onDestroy(id)
-            }
-            // otherwise, update the content
-            else {
+            } else {
+              // otherwise, update the content
               changeTodo(t => {
                 t.content = newContent
               })
             }
-
             setEditing(false)
           }}
           onChange={e => setContent(e.target.value)}
           onKeyDown={e => {
             if (e.key === "Escape") {
-              // restore the original content
-              setContent(content)
+              // cancel & restore the original content
+              setContent(todo.content)
               setEditing(false)
             } else if (e.key === "Enter") {
               setEditing(false)
