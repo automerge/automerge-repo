@@ -4,6 +4,7 @@ import { NetworkSubsystem } from "./network/NetworkSubsystem"
 import { StorageAdapter, StorageSubsystem } from "./storage/StorageSubsystem"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
 import { ChannelId, NetworkAdapter, PeerId } from "./types"
+import debug from "debug"
 
 export interface RepoConfig {
   storage?: StorageAdapter
@@ -13,13 +14,20 @@ export interface RepoConfig {
 }
 
 export class Repo extends DocCollection {
+  #log: debug.Debugger
   networkSubsystem: NetworkSubsystem
   storageSubsystem?: StorageSubsystem
   ephemeralData: EphemeralData
 
-  constructor(config: RepoConfig) {
+  constructor({
+    storage,
+    network,
+    peerId,
+    sharePolicy = () => true,
+  }: RepoConfig) {
     super()
-    const { storage, network, peerId, sharePolicy = () => true } = config
+
+    this.#log = debug(`ar:repo:${peerId}`)
 
     if (storage) {
       const storageSubsystem = new StorageSubsystem(storage)
@@ -51,6 +59,7 @@ export class Repo extends DocCollection {
 
     // wire up the dependency synchronizers.
     networkSubsystem.on("peer", ({ peerId }) => {
+      this.#log("peer connected", { peerId })
       synchronizer.addPeer(peerId, sharePolicy(peerId))
     })
 
@@ -67,8 +76,10 @@ export class Repo extends DocCollection {
 
       // TODO: this demands a more principled way of associating channels with recipients
       if (channelId.startsWith("m/")) {
+        this.#log(`receiving ephemeral message from ${senderId}`)
         ephemeralData.receive(senderId, channelId, message)
       } else {
+        this.#log(`receiving sync message from ${senderId}`)
         synchronizer.onSyncMessage(senderId, channelId, message)
       }
     })
@@ -76,6 +87,7 @@ export class Repo extends DocCollection {
     synchronizer.on(
       "message",
       ({ targetId, channelId, message, broadcast }) => {
+        this.#log(`sending sync message to ${targetId}`)
         networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
       }
     )
@@ -83,6 +95,7 @@ export class Repo extends DocCollection {
     ephemeralData.on(
       "message",
       ({ targetId, channelId, message, broadcast }) => {
+        this.#log(`sending ephemeral message to ${targetId}`)
         networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
       }
     )
