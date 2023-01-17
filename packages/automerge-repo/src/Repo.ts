@@ -3,7 +3,7 @@ import { EphemeralData } from "./EphemeralData"
 import { NetworkSubsystem } from "./network/NetworkSubsystem"
 import { StorageAdapter, StorageSubsystem } from "./storage/StorageSubsystem"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
-import { NetworkAdapter, PeerId } from "./types"
+import { ChannelId, NetworkAdapter, PeerId } from "./types"
 
 export interface RepoConfig {
   storage?: StorageAdapter
@@ -62,7 +62,7 @@ export class Repo extends DocCollection {
       synchronizer.addDocument(handle.documentId)
     })
 
-    networkSubsystem.on("message", (msg) => {
+    networkSubsystem.on("message", msg => {
       const { senderId, channelId, message } = msg
 
       // TODO: this demands a more principled way of associating channels with recipients
