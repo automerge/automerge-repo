@@ -4,7 +4,7 @@ import { DocHandle } from "./DocHandle.js"
 import { DocumentId } from "./types"
 
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
-  handles: { [documentId: DocumentId]: DocHandle<unknown> } = {}
+  handles: Record<DocumentId, DocHandle<unknown>> = {}
 
   constructor() {
     super()
