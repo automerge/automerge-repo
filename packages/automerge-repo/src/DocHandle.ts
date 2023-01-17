@@ -16,11 +16,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     super()
     this.documentId = documentId
     this.doc = Automerge.init({
-      patchCallback: (
-        patch: any, // TODO: Automerge.Patch,
-        before: Automerge.Doc<T>,
-        after: Automerge.Doc<T>
-      ) => this.#notifyPatchListeners(patch, before, after),
+      patchCallback: (patch, before, after) =>
+        this.#notifyPatchListeners(patch, before, after),
     })
 
     // new documents don't need to block on an initial value setting
