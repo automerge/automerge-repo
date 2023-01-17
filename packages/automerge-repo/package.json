@@ -12,6 +12,7 @@
     "build": "tsc",
     "watch": "npm-watch",
     "test": "mocha --no-warnings --experimental-specifier-resolution=node",
+    "test:log": "cross-env DEBUG='ar:*' yarn test",
     "fuzz": "ts-node fuzz/fuzz.js"
   },
   "browser": {
