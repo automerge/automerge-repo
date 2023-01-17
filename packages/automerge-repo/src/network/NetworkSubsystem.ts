@@ -20,7 +20,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     this.channels = []
 
     this.networkAdapters = networkAdapters
-    networkAdapters.forEach((a) => this.addNetworkAdapter(a))
+    networkAdapters.forEach(a => this.addNetworkAdapter(a))
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
@@ -38,7 +38,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
       this.emit("peer-disconnected", { peerId })
     })
 
-    networkAdapter.on("message", (msg) => {
+    networkAdapter.on("message", msg => {
       const { senderId, targetId, channelId, broadcast, message } = msg
       // If we receive a broadcast message from a network adapter
       // we need to re-broadcast it to all our other peers.
@@ -64,7 +64,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
       })
     })
 
-    this.channels.forEach((c) => networkAdapter.join(c))
+    this.channels.forEach(c => networkAdapter.join(c))
   }
 
   sendMessage(
@@ -89,11 +89,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
   join(channelId: ChannelId) {
     this.channels.push(channelId)
-    this.networkAdapters.forEach((a) => a.join(channelId))
+    this.networkAdapters.forEach(a => a.join(channelId))
   }
 
   leave(channelId: ChannelId) {
-    this.channels = this.channels.filter((c) => c !== channelId)
-    this.networkAdapters.forEach((a) => a.leave(channelId))
+    this.channels = this.channels.filter(c => c !== channelId)
+    this.networkAdapters.forEach(a => a.leave(channelId))
   }
 }

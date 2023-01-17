@@ -13,7 +13,7 @@ export function useDocument<T>(documentId?: DocumentId) {
   useEffect(() => {
     if (!handle) return
 
-    handle.value().then((v) => setDoc(v))
+    handle.value().then(v => setDoc(v))
 
     const onChange = (h: DocHandleChangeEvent<T>) => setDoc(h.handle.doc)
     handle.on("change", onChange)

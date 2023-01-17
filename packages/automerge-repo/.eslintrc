@@ -10,10 +10,7 @@
   ],
   "ignorePatterns": ["dist/**"],
   "parser": "@typescript-eslint/parser",
-  "plugins": [
-    "@typescript-eslint",
-    "mocha"
-  ],
+  "plugins": ["@typescript-eslint", "mocha"],
   "parserOptions": {
     "ecmaVersion": "latest",
     "sourceType": "module"

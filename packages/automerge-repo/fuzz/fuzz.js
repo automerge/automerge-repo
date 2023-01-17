@@ -25,7 +25,7 @@ const repo3 = new Repo({
 
 // First test: create a document and ensure the second repo can find it
 const handle1 = repo1.create()
-handle1.change((d) => {
+handle1.change(d => {
   d.foo = "bar"
 })
 
@@ -39,13 +39,13 @@ const doc3 = await handle3.value()
 assert.deepStrictEqual(doc3, { foo: "bar" })
 
 let lastMessage = null
-repo1.networkSubsystem.on("message", (msg) => {
+repo1.networkSubsystem.on("message", msg => {
   assert.notDeepStrictEqual(msg, lastMessage)
   console.log("messages were not equal")
 })
 
 const CHANCE_OF_NEW_DOC = 0.05
-const getRandomItem = (iterable) => {
+const getRandomItem = iterable => {
   const values = Object.values(iterable)
   const idx = Math.floor(Math.random() * values.length)
   return values[idx]
@@ -61,7 +61,7 @@ for (let i = 0; i < 100; i++) {
       ? repo.create()
       : getRandomItem(repo.handles)
 
-  doc.change((d) => {
+  doc.change(d => {
     d.foo = Math.random().toString()
   })
 }

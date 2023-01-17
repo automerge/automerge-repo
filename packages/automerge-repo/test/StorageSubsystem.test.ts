@@ -24,7 +24,7 @@ describe("StorageSubsystem", () => {
   ) => {
     const storage = new StorageSubsystem(adapter)
 
-    const doc = Automerge.change(Automerge.init<any>(), "test", (d) => {
+    const doc = Automerge.change(Automerge.init<any>(), "test", d => {
       d.foo = "bar"
     })
 

@@ -45,7 +45,7 @@ export class BrowserWebSocketClientAdapter
       log(`@ ${this.url}: open`)
       clearInterval(this.timerId)
       this.timerId = undefined
-      this.channels.forEach((c) => this.join(c))
+      this.channels.forEach(c => this.join(c))
     })
 
     // When a socket closes, or disconnects, remove it from the array.
@@ -92,7 +92,7 @@ export class BrowserWebSocketClientAdapter
   }
 
   leave(channelId: ChannelId) {
-    this.channels = this.channels.filter((c) => c !== channelId)
+    this.channels = this.channels.filter(c => c !== channelId)
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }

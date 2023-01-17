@@ -37,7 +37,7 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message}`)
     docSynchronizer.onSyncMessage(peerId, channelId, message)
-    this.__generousPeers().forEach((peerId) => {
+    this.__generousPeers().forEach(peerId => {
       if (!docSynchronizer.peers.includes(peerId)) {
         docSynchronizer.beginSync(peerId)
       }
@@ -56,15 +56,13 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
 
   initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer(handle)
-    docSynchronizer.on("message", (event) => this.emit("message", event))
+    docSynchronizer.on("message", event => this.emit("message", event))
     return docSynchronizer
   }
 
   async addDocument(documentId: DocumentId) {
     const docSynchronizer = await this.fetchDocSynchronizer(documentId)
-    this.__generousPeers().forEach((peerId) =>
-      docSynchronizer.beginSync(peerId)
-    )
+    this.__generousPeers().forEach(peerId => docSynchronizer.beginSync(peerId))
   }
 
   // need a removeDocument implementation
@@ -81,7 +79,7 @@ export class CollectionSynchronizer extends EventEmitter<SyncMessages> {
     this.peers[peerId] = sharePolicy
     if (sharePolicy === true) {
       log(`sharing all open docs`)
-      Object.values(this.syncPool).forEach((docSynchronizer) =>
+      Object.values(this.syncPool).forEach(docSynchronizer =>
         docSynchronizer.beginSync(peerId)
       )
     }

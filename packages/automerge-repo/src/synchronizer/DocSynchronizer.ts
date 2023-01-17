@@ -80,8 +80,8 @@ export class DocSynchronizer
       if (opsLog.enabled) {
         // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
         opsLog(
-          decoded.changes.flatMap((change) => {
-            return decodeChange(change).ops.map((op) => JSON.stringify(op))
+          decoded.changes.flatMap(change => {
+            return decodeChange(change).ops.map(op => JSON.stringify(op))
           })
         )
       }
@@ -121,7 +121,7 @@ export class DocSynchronizer
 
   endSync(peerId: PeerId) {
     log(`removing peer ${peerId}`)
-    this.peers = this.peers.filter((p) => p !== peerId)
+    this.peers = this.peers.filter(p => p !== peerId)
   }
 
   async onSyncMessage(
@@ -138,7 +138,7 @@ export class DocSynchronizer
     // We need to block receiving the syncMessages until we've checked local storage
     // TODO: this is kind of an opaque way of doing this...
     // await this.handle.syncValue()
-    this.handle.updateDoc((doc) => {
+    this.handle.updateDoc(doc => {
       const decoded = Automerge.decodeSyncMessage(message)
       log(
         `[${this.handle.documentId}]->[${peerId}]: receiveSync: ${message.byteLength}b`,
@@ -152,8 +152,8 @@ export class DocSynchronizer
       if (opsLog.enabled) {
         // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
         opsLog(
-          decoded.changes.flatMap((change) => {
-            return decodeChange(change).ops.map((op) => JSON.stringify(op))
+          decoded.changes.flatMap(change => {
+            return decodeChange(change).ops.map(op => JSON.stringify(op))
           })
         )
       }
@@ -182,7 +182,7 @@ export class DocSynchronizer
     log(`[${this.handle.documentId}]: syncWithPeers`)
     const { documentId } = this.handle
     const doc = await this.handle.syncValue()
-    this.peers.forEach((peerId) => {
+    this.peers.forEach(peerId => {
       this.sendSyncMessage(peerId, documentId, doc)
     })
   }

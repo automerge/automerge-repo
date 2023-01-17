@@ -17,13 +17,13 @@ export class BroadcastChannelNetworkAdapter
     this.peerId = peerId
     this.broadcastChannel = new BroadcastChannel(`broadcast`)
 
-    this.broadcastChannel.addEventListener("message", (e) => {
+    this.broadcastChannel.addEventListener("message", e => {
       const { senderId, targetId, type, channelId, message, broadcast } = e.data
-      
-      if ((targetId && targetId !== this.peerId) && !broadcast) {
+
+      if (targetId && targetId !== this.peerId && !broadcast) {
         return
       }
-      
+
       switch (type) {
         case "arrive":
           this.broadcastChannel.postMessage({
@@ -76,9 +76,12 @@ export class BroadcastChannelNetworkAdapter
   }
 
   join(joinChannelId: ChannelId) {
-    this.broadcastChannel.postMessage({ senderId: this.peerId, channelId: joinChannelId, type: "arrive", broadcast: true })
-
-    
+    this.broadcastChannel.postMessage({
+      senderId: this.peerId,
+      channelId: joinChannelId,
+      type: "arrive",
+      broadcast: true,
+    })
   }
 
   leave(channelId: ChannelId) {

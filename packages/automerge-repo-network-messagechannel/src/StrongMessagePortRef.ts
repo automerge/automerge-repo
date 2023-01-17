@@ -6,7 +6,7 @@ export class StrongMessagePortRef
   implements MessagePortRef
 {
   constructor(private port: MessagePort) {
-    port.addEventListener("message", (event) => {
+    port.addEventListener("message", event => {
       this.emit("message", event)
     })
 

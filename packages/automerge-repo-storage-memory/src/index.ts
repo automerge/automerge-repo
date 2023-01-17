@@ -3,7 +3,7 @@ import { StorageAdapter } from "automerge-repo"
 export class MemoryStorageAdapter implements StorageAdapter {
   data: { [id: string]: Uint8Array } = {}
   load(docId: string) {
-    return new Promise<Uint8Array | null>((resolve) =>
+    return new Promise<Uint8Array | null>(resolve =>
       resolve(this.data[docId] || null)
     )
   }

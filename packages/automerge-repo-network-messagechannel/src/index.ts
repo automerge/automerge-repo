@@ -37,7 +37,7 @@ export class MessageChannelNetworkAdapter
     log("messageport connecting")
     this.peerId = peerId
     this.messagePortRef.start()
-    this.messagePortRef.addListener("message", (e) => {
+    this.messagePortRef.addListener("message", e => {
       log("message port received", e.data)
       const { origin, destination, type, channelId, message, broadcast } =
         e.data

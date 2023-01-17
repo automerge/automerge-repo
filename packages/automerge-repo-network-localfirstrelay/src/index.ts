@@ -47,7 +47,7 @@ export class LocalFirstRelayNetworkAdapter
       url: this.url,
     })
 
-    this.client.on("peer.connect", (ev) => {
+    this.client.on("peer.connect", ev => {
       const channelId: ChannelId = ev.detail.documentId
       const userName: PeerId = ev.detail.userName
       const socket: WebSocket = ev.detail.socket
@@ -56,7 +56,7 @@ export class LocalFirstRelayNetworkAdapter
       this.announceConnection(channelId, userName)
 
       // listen for messages
-      socket.onmessage = (e) => {
+      socket.onmessage = e => {
         const message = new Uint8Array(e.data as ArrayBuffer)
         this.emit("message", {
           senderId: userName,
