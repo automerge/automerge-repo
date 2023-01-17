@@ -1,5 +1,4 @@
-import { DocumentId } from "../../src"
-import { StorageAdapter } from "../../src"
+import { DocumentId, StorageAdapter } from "../../src"
 
 export class DummyStorageAdapter implements StorageAdapter {
   #data: Record<DocumentId, Uint8Array> = {}
