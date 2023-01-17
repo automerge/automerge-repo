@@ -4,13 +4,13 @@ import { EphemeralData } from "../src/EphemeralData"
 import { ChannelId, PeerId } from "../src/types"
 
 describe("EphemeralData", () => {
-  const eD = new EphemeralData()
+  const ephemeral = new EphemeralData()
   const otherPeerId = "other_peer" as PeerId
   const destinationChannelId = "channel_id" as ChannelId
   const messageData = { foo: "bar" }
 
   it("should emit a network message on broadcast()", done => {
-    eD.on("message", event => {
+    ephemeral.on("message", event => {
       try {
         const { targetId, channelId, message, broadcast } = event
         assert.deepStrictEqual(CBOR.decode(message), messageData)
@@ -21,11 +21,11 @@ describe("EphemeralData", () => {
         done(e)
       }
     })
-    eD.broadcast(destinationChannelId, messageData)
+    ephemeral.broadcast(destinationChannelId, messageData)
   })
 
   it("should emit a data event on receive()", done => {
-    eD.on("data", ({ peerId, channelId, data }) => {
+    ephemeral.on("data", ({ peerId, channelId, data }) => {
       try {
         assert.deepStrictEqual(peerId, otherPeerId)
         assert.deepStrictEqual(channelId, destinationChannelId)
@@ -35,7 +35,7 @@ describe("EphemeralData", () => {
         done(e)
       }
     })
-    eD.receive(
+    ephemeral.receive(
       otherPeerId,
       ("m/" + destinationChannelId) as ChannelId, // TODO: this is nonsense
       CBOR.encode(messageData)
