@@ -4,7 +4,7 @@ import {
   NetworkAdapter,
   NetworkAdapterEvents,
   PeerId,
-} from "../../src/network/NetworkSubsystem"
+} from "../../src/types"
 
 export class DummyNetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
