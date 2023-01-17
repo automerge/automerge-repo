@@ -29,5 +29,5 @@ export function useDocument<T>(documentId?: DocumentId) {
     handle.change(changeFn)
   }
 
-  return [doc, changeDoc]
+  return [doc, changeDoc] as [Doc<T>, (changeFn: ChangeFn<T>) => void]
 }
