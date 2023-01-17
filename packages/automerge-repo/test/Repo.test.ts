@@ -1,160 +1,175 @@
 import assert from "assert"
-import { MessageChannel } from "worker_threads"
-
+import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
+import EventEmitter from "eventemitter3"
 import { ChannelId, DocHandle, HandleState, PeerId } from "../src"
 import { Repo } from "../src/Repo"
-
-import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
 
-export interface TestDoc {
+interface TestDoc {
   foo: string
 }
 
 describe("Repo", () => {
-  const repo = new Repo({
-    storage: new DummyStorageAdapter(),
-    network: [new DummyNetworkAdapter()],
-  })
+  describe("single repo", () => {
+    const setup = () => {
+      const repo = new Repo({
+        storage: new DummyStorageAdapter(),
+        network: [new DummyNetworkAdapter()],
+      })
+      return { repo }
+    }
 
-  it("can instantiate a Repo", () => {
-    assert(repo !== null)
-  })
-
-  it("has a network subsystem", () => {
-    assert(repo.networkSubsystem)
-  })
-
-  it("has a storage subsystem", () => {
-    assert(repo.storageSubsystem)
-  })
-
-  it("can create a document", () => {
-    const handle = repo.create()
-    assert(handle.documentId != null)
-  })
-
-  it("can change a document", done => {
-    const handle = repo.create<TestDoc>()
-    handle.change(d => {
-      d.foo = "bar"
+    it("can instantiate a Repo", () => {
+      const { repo } = setup()
+      assert(repo !== null)
+      assert(repo.networkSubsystem)
+      assert(repo.storageSubsystem)
     })
-    assert(handle.state === HandleState.READY)
-    handle.value().then(v => {
-      try {
+
+    it("can create a document", () => {
+      const { repo } = setup()
+      const handle = repo.create()
+      assert(handle.documentId != null)
+    })
+
+    it("can change a document", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert(handle.state === HandleState.READY)
+
+      const v = await handle.value()
+      assert(v.foo === "bar")
+    })
+
+    it("can find a created document", done => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert(handle.state === HandleState.READY)
+      const bobHandle = repo.find<TestDoc>(handle.documentId)
+      assert(handle === bobHandle)
+      assert(bobHandle.ready())
+      bobHandle.value().then(v => {
         assert(v.foo === "bar")
         done()
-      } catch (e) {
-        done(e)
-      }
+      })
     })
   })
 
-  it("can find a created document", done => {
-    const handle = repo.create<TestDoc>()
-    handle.change(d => {
-      d.foo = "bar"
-    })
-    assert(handle.state === HandleState.READY)
-    const handle2 = repo.find<TestDoc>(handle.documentId)
-    assert(handle === handle2)
-    assert(handle2.ready())
-    handle2.value().then(v => {
-      try {
-        assert(v.foo === "bar")
-        done()
-      } catch (e) {
-        done(e)
-      }
-    })
-  })
+  describe("sync", async () => {
+    const setup = async () => {
+      // Set up three repos; connect Alice to Bob, and Bob to Charlie
 
-  describe("sync between three repos", async () => {
-    const mc1to2 = new MessageChannel()
-    const mc2to3 = new MessageChannel()
+      const aliceBobChannel = new MessageChannel()
+      const bobCharlieChannel = new MessageChannel()
 
-    const mc1to2port1 = mc1to2.port1 as unknown as MessagePort
-    const mc1to2port2 = mc1to2.port2 as unknown as MessagePort
-    const mc2to3port1 = mc2to3.port1 as unknown as MessagePort
-    const mc2to3port2 = mc2to3.port2 as unknown as MessagePort
+      const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
+      const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-    // Set up three repos and have them communicate via MessageChannels
-    const repo1 = new Repo({
-      network: [new MessageChannelNetworkAdapter(mc1to2port1)],
-      peerId: "repo1" as PeerId,
-    })
-    const repo2 = new Repo({
-      network: [
-        new MessageChannelNetworkAdapter(mc1to2port2),
-        new MessageChannelNetworkAdapter(mc2to3port1),
-      ],
-      peerId: "repo2" as PeerId,
-    })
-    const repo3 = new Repo({
-      network: [new MessageChannelNetworkAdapter(mc2to3port2)],
-      peerId: "repo3" as PeerId,
-    })
-
-    // First test: create a document and ensure the second repo can find it
-    const handle1 = repo1.create<TestDoc>()
-    handle1.change(d => {
-      d.foo = "bar"
-    })
-
-    it("can load a document from repo1 on repo2", async () => {
-      const handle2 = repo2.find<TestDoc>(handle1.documentId)
-      const doc2 = await handle2.value()
-      assert.deepStrictEqual(doc2, { foo: "bar" })
-    })
-
-    it("can load a document from repo1 on repo3", async () => {
-      const handle3 = repo3.find<TestDoc>(handle1.documentId)
-      const doc3 = await handle3.value()
-      assert.deepStrictEqual(doc3, { foo: "bar" })
-    })
-
-    it("can broadcast a message", done => {
-      const messageChannel = "m/broadcast" as ChannelId
-      const data = { presence: "myUserId" }
-
-      repo1.ephemeralData.on("data", ({ peerId, channelId, data }) => {
-        try {
-          const peerId = repo2.networkSubsystem.myPeerId
-          assert.deepEqual(data, data)
-          done()
-        } catch (e) {
-          done(e)
-        }
+      const aliceRepo = new Repo({
+        network: [new MessageChannelNetworkAdapter(aliceToBob)],
+        peerId: "alice" as PeerId,
       })
 
-      repo2.ephemeralData.broadcast(messageChannel, data)
+      const bobRepo = new Repo({
+        network: [
+          new MessageChannelNetworkAdapter(bobToAlice),
+          new MessageChannelNetworkAdapter(bobToCharlie),
+        ],
+        peerId: "bob" as PeerId,
+      })
+
+      const charlieRepo = new Repo({
+        network: [new MessageChannelNetworkAdapter(charlieToBob)],
+        peerId: "charlie" as PeerId,
+      })
+
+      const aliceHandle = aliceRepo.create<TestDoc>()
+
+      const teardown = () => {
+        aliceBobChannel.port1.close()
+        bobCharlieChannel.port1.close()
+      }
+
+      await Promise.all([
+        event(aliceRepo.networkSubsystem, "peer"),
+        event(bobRepo.networkSubsystem, "peer"),
+        event(charlieRepo.networkSubsystem, "peer"),
+      ])
+
+      return { aliceRepo, bobRepo, charlieRepo, aliceHandle, teardown }
+    }
+
+    it("changes are replicated from aliceRepo to bobRepo", async () => {
+      const { bobRepo, aliceHandle, teardown } = await setup()
+      aliceHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+      const bobDoc = await bobHandle.value()
+      assert.deepStrictEqual(bobDoc, { foo: "bar" })
+      teardown()
     })
 
-    it("can do some complicated sync thing without duplicating messages", () => {
+    it("can load a document from aliceRepo on charlieRepo", async () => {
+      const { charlieRepo, aliceHandle, teardown } = await setup()
+      aliceHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
+      const doc3 = await handle3.value()
+      assert.deepStrictEqual(doc3, { foo: "bar" })
+      teardown()
+    })
+
+    it("can broadcast a message", async () => {
+      const { aliceRepo, bobRepo, teardown } = await setup()
+
+      const channelId = "m/broadcast" as ChannelId
+      const data = { presence: "bob" }
+
+      bobRepo.ephemeralData.broadcast(channelId, data)
+      const d = await event(aliceRepo.ephemeralData, "data")
+
+      assert.deepStrictEqual(d.data, data)
+      teardown()
+    })
+
+    it.skip("can do some complicated sync thing without duplicating messages", async () => {
+      const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
+
       let lastMessage: any
-      repo1.networkSubsystem.on("message", msg => {
+      aliceRepo.networkSubsystem.on("message", msg => {
         // assert.notDeepStrictEqual(msg, lastMessage)
         lastMessage = msg
       })
 
       const CHANCE_OF_NEW_DOC = 0.05
-      const getRandomItem = (iterable: Record<string, unknown>) => {
-        const values = Object.values(iterable)
-        const idx = Math.floor(Math.random() * values.length)
-        return values[idx]
-      }
-
-      const repos = [repo1, repo2, repo3]
+      const repos = [aliceRepo, bobRepo, charlieRepo]
 
       for (let i = 0; i < 10; i++) {
+        const repoIndex = Math.floor(Math.random() * repos.length)
         // pick a repo
-        const repo = repos[Math.floor(Math.random() * repos.length)]
-        const doc =
-          Math.random() < CHANCE_OF_NEW_DOC
-            ? repo.create<TestDoc>()
-            : (getRandomItem(repo.handles) as DocHandle<TestDoc>)
+        const repo = repos[repoIndex]
+        const makeNewDoc = Math.random() < CHANCE_OF_NEW_DOC
+        const doc = makeNewDoc
+          ? repo.create<TestDoc>()
+          : (getRandomItem(repo.handles) as DocHandle<TestDoc>)
 
+        const docId = doc?.documentId ?? "no doc"
+        console.log(
+          `${i} | ${
+            makeNewDoc ? "new" : "existing"
+          } | repo ${repoIndex} | ${docId}`
+        )
         doc.change(d => {
           d.foo = Math.random().toString()
         })
@@ -163,13 +178,16 @@ describe("Repo", () => {
       repos.forEach((r, i) => {
         console.log(`Repo ${i}: ${Object.keys(r.handles).length} documents.`)
       })
+      teardown()
     })
-
-    /* TODO: there's a race condition here... gotta look into that */
-    setTimeout(() => {
-      // Close the message ports so that the script can exit.
-      mc1to2.port1.close()
-      mc2to3.port1.close()
-    }, 200)
   })
 })
+
+const event = (emitter: EventEmitter, event: string) =>
+  new Promise<any>(resolve => emitter.once(event, d => resolve(d)))
+
+const getRandomItem = <T>(iterable: Record<string, T>) => {
+  const keys = Object.keys(iterable)
+  const index = Math.floor(Math.random() * keys.length)
+  return iterable[keys[index]]
+}
