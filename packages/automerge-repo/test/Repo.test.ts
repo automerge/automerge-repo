@@ -4,9 +4,9 @@ import { MessageChannel } from "worker_threads"
 import { ChannelId, DocHandle, HandleState, PeerId } from "../src"
 import { Repo } from "../src/Repo"
 
-import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
 
 export interface TestDoc {
   foo: string
@@ -14,7 +14,7 @@ export interface TestDoc {
 
 describe("Repo", () => {
   const repo = new Repo({
-    storage: new MemoryStorageAdapter(),
+    storage: new DummyStorageAdapter(),
     network: [new DummyNetworkAdapter()],
   })
 

@@ -23,7 +23,6 @@
     "@types/ws": "^8.5.3",
     "@typescript-eslint/eslint-plugin": "^5.33.0",
     "@typescript-eslint/parser": "^5.33.0",
-    "automerge-repo-storage-memory": "^0.0.43",
     "http-server": "^14.1.0"
   },
   "peerDependencies": {
