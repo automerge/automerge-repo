@@ -3,7 +3,7 @@ import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechan
 import { ChannelId, DocHandle, HandleState, PeerId, Repo } from "../src"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
-import { event } from "./helpers/event"
+import { eventFired } from "./helpers/eventFired"
 import { getRandomItem } from "./helpers/getRandomItem"
 
 interface TestDoc {
@@ -98,9 +98,9 @@ describe("Repo", () => {
       }
 
       await Promise.all([
-        event(aliceRepo.networkSubsystem, "peer"),
-        event(bobRepo.networkSubsystem, "peer"),
-        event(charlieRepo.networkSubsystem, "peer"),
+        eventFired(aliceRepo.networkSubsystem, "peer"),
+        eventFired(bobRepo.networkSubsystem, "peer"),
+        eventFired(charlieRepo.networkSubsystem, "peer"),
       ])
 
       return { aliceRepo, bobRepo, charlieRepo, aliceHandle, teardown }
@@ -137,7 +137,7 @@ describe("Repo", () => {
       const data = { presence: "bob" }
 
       bobRepo.ephemeralData.broadcast(channelId, data)
-      const d = await event(aliceRepo.ephemeralData, "data")
+      const d = await eventFired(aliceRepo.ephemeralData, "data")
 
       assert.deepStrictEqual(d.data, data)
       teardown()
