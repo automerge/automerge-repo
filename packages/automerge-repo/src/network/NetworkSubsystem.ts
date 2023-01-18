@@ -1,12 +1,12 @@
 import EventEmitter from "eventemitter3"
-import { ChannelId, NetworkAdapter, NetworkEvents, PeerId } from "../types"
+import { ChannelId, PeerId } from "../types"
+import { NetworkAdapter, NetworkEvents } from "./types"
 
 import debug from "debug"
 
 export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   #log: debug.Debugger
-  #adapters: NetworkAdapter[] = []
-  #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
+  #adapters: Record<PeerId, NetworkAdapter> = {}
   #channels: ChannelId[]
 
   peerId: PeerId
@@ -20,7 +20,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
     this.#channels = []
 
-    this.#adapters = networkAdapters
     networkAdapters.forEach(a => this.addNetworkAdapter(a))
   }
 
@@ -29,9 +28,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
     networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
       this.#log(`peer candidate: ${peerId} `)
-      if (!this.#adaptersByPeer[peerId]) {
+      if (!this.#adapters[peerId]) {
         // TODO: handle losing a server here
-        this.#adaptersByPeer[peerId] = networkAdapter
+        this.#adapters[peerId] = networkAdapter
       }
 
       this.emit("peer", { peerId, channelId })
@@ -39,12 +38,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
 
     networkAdapter.on("peer-disconnected", ({ peerId }) => {
       this.#log(`peer disconnected: ${peerId} `)
-      delete this.#adaptersByPeer[peerId]
+      delete this.#adapters[peerId]
       this.emit("peer-disconnected", { peerId })
     })
 
-    networkAdapter.on("message", msg => {
-      const { senderId, targetId, channelId, broadcast, message } = msg
+    networkAdapter.on("message", payload => {
+      const { senderId, channelId, broadcast, message } = payload
       this.#log(`message from ${senderId}`)
 
       // If we receive a broadcast message from a network adapter
@@ -53,21 +52,21 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
       // TODO: This relies on the network forming a tree!
       //       If there are cycles, this approach will loop messages around forever.
       if (broadcast) {
-        Object.entries(this.#adaptersByPeer)
+        Object.entries(this.#adapters)
           .filter(([id]) => id !== senderId)
           .forEach(([id, peer]) => {
             peer.sendMessage(id as PeerId, channelId, message, broadcast)
           })
       }
 
-      this.emit("message", msg)
+      this.emit("message", payload)
     })
 
     networkAdapter.on("close", () => {
       this.#log("adapter closed")
-      Object.entries(this.#adaptersByPeer).forEach(([peerId, other]) => {
+      Object.entries(this.#adapters).forEach(([peerId, other]) => {
         if (other === networkAdapter) {
-          delete this.#adaptersByPeer[peerId as PeerId]
+          delete this.#adapters[peerId as PeerId]
         }
       })
     })
@@ -82,12 +81,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     broadcast: boolean
   ) {
     if (broadcast) {
-      Object.entries(this.#adaptersByPeer).forEach(([id, peer]) => {
+      Object.entries(this.#adapters).forEach(([id, peer]) => {
         this.#log(`sending broadcast to ${id}`)
         peer.sendMessage(id as PeerId, channelId, message, true)
       })
     } else {
-      const peer = this.#adaptersByPeer[peerId]
+      const peer = this.#adapters[peerId]
       if (!peer) {
         this.#log(`Tried to send message but peer not found: ${peerId}`)
       }
@@ -99,12 +98,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   join(channelId: ChannelId) {
     this.#log(`Joining channel ${channelId}`)
     this.#channels.push(channelId)
-    this.#adapters.forEach(a => a.join(channelId))
+    Object.values(this.#adapters).forEach(a => a.join(channelId))
   }
 
   leave(channelId: ChannelId) {
     this.#log(`Leaving channel ${channelId}`)
     this.#channels = this.#channels.filter(c => c !== channelId)
-    this.#adapters.forEach(a => a.leave(channelId))
+    Object.values(this.#adapters).forEach(a => a.leave(channelId))
   }
 }

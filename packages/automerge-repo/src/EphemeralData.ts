@@ -1,7 +1,7 @@
 import * as CBOR from "cbor-x"
 import EventEmitter from "eventemitter3"
 import { ChannelId, PeerId } from "."
-import { OutboundMessageDetails } from "./types"
+import { OutboundPayload } from "./network/types"
 
 export interface EphemeralDataDetails {
   channelId: ChannelId
@@ -10,7 +10,7 @@ export interface EphemeralDataDetails {
 }
 
 export type EphemeralDataMessageEvents = {
-  message: (event: OutboundMessageDetails) => void
+  message: (event: OutboundPayload) => void
   data: (event: EphemeralDataDetails) => void
 }
 

@@ -3,7 +3,8 @@ import { EphemeralData } from "./EphemeralData"
 import { NetworkSubsystem } from "./network/NetworkSubsystem"
 import { StorageAdapter, StorageSubsystem } from "./storage/StorageSubsystem"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
-import { ChannelId, NetworkAdapter, PeerId } from "./types"
+import { ChannelId, PeerId } from "./types"
+import { NetworkAdapter } from "./network/types"
 import debug from "debug"
 
 export interface RepoConfig {
@@ -53,11 +54,12 @@ export class Repo extends DocCollection {
     const networkSubsystem = new NetworkSubsystem(network, peerId)
     this.networkSubsystem = networkSubsystem
 
-    const synchronizer = new CollectionSynchronizer(this)
     const ephemeralData = new EphemeralData()
     this.ephemeralData = ephemeralData
 
-    // wire up the dependency synchronizers.
+    // wire up the dependency synchronizers
+    const synchronizer = new CollectionSynchronizer(this)
+
     networkSubsystem.on("peer", ({ peerId }) => {
       this.#log("peer connected", { peerId })
       synchronizer.addPeer(peerId, sharePolicy(peerId))
@@ -71,9 +73,8 @@ export class Repo extends DocCollection {
       synchronizer.addDocument(handle.documentId)
     })
 
-    networkSubsystem.on("message", msg => {
-      const { senderId, channelId, message } = msg
-
+    networkSubsystem.on("message", payload => {
+      const { senderId, channelId, message } = payload
       // TODO: this demands a more principled way of associating channels with recipients
       if (channelId.startsWith("m/")) {
         this.#log(`receiving ephemeral message from ${senderId}`)

@@ -1,8 +1,9 @@
 import EventEmitter from "eventemitter3"
-import { ChannelId, OutboundMessageDetails, PeerId } from "../types"
+import { ChannelId, PeerId } from "../types"
+import { OutboundPayload } from "../network/types"
 
 export interface SyncMessages {
-  message: (arg: OutboundMessageDetails) => void
+  message: (arg: OutboundPayload) => void
 }
 
 export interface Synchronizer extends EventEmitter<SyncMessages> {
