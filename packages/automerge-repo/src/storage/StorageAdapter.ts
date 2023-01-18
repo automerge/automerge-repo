@@ -1,5 +1,5 @@
-export interface StorageAdapter {
-  load(docId: string): Promise<Uint8Array | null>
-  save(docId: string, data: Uint8Array): void
-  remove(docId: string): void
+export abstract class StorageAdapter {
+  abstract load(docId: string): Promise<Uint8Array | null>
+  abstract save(docId: string, data: Uint8Array): void
+  abstract remove(docId: string): void
 }
