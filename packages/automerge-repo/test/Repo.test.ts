@@ -1,3 +1,4 @@
+import { decode } from "cbor-x"
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 import { ChannelId, DocHandle, HandleState, PeerId, Repo } from "../src"
@@ -5,6 +6,9 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
 import { eventPromise } from "../src/helpers/eventPromise"
 import { getRandomItem } from "./helpers/getRandomItem"
+import { pause } from "./helpers/pause"
+import { isDeepStrictEqual } from "util"
+import { InboundMessagePayload } from "../dist"
 
 interface TestDoc {
   foo: string
@@ -90,18 +94,18 @@ describe("Repo", () => {
         peerId: "charlie" as PeerId,
       })
 
+      await Promise.all([
+        eventPromise(aliceRepo.networkSubsystem, "peer"),
+        eventPromise(bobRepo.networkSubsystem, "peer"),
+        eventPromise(charlieRepo.networkSubsystem, "peer"),
+      ])
+
       const aliceHandle = aliceRepo.create<TestDoc>()
 
       const teardown = () => {
         aliceBobChannel.port1.close()
         bobCharlieChannel.port1.close()
       }
-
-      await Promise.all([
-        eventPromise(aliceRepo.networkSubsystem, "peer"),
-        eventPromise(bobRepo.networkSubsystem, "peer"),
-        eventPromise(charlieRepo.networkSubsystem, "peer"),
-      ])
 
       return { aliceRepo, bobRepo, charlieRepo, aliceHandle, teardown }
     }
@@ -143,41 +147,34 @@ describe("Repo", () => {
       teardown()
     })
 
-    it.skip("can do some complicated sync thing without duplicating messages", async () => {
+    it("syncs a bunch of changes without duplicating messages", async () => {
       const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
 
-      let lastMessage: any
-      aliceRepo.networkSubsystem.on("message", msg => {
-        // assert.notDeepStrictEqual(msg, lastMessage)
-        lastMessage = msg
-      })
+      // HACK: yield to give repos time to get the one doc that aliceRepo created
+      await pause(100)
 
-      const CHANCE_OF_NEW_DOC = 0.05
-      const repos = [aliceRepo, bobRepo, charlieRepo]
+      let lastMsg: InboundMessagePayload
+      const listenForDuplicates = (msg: InboundMessagePayload) => {
+        assert.notDeepStrictEqual(msg, lastMsg, "duplicate message")
+        lastMsg = msg
+      }
+      aliceRepo.networkSubsystem.on("message", listenForDuplicates)
 
-      for (let i = 0; i < 10; i++) {
-        const repoIndex = Math.floor(Math.random() * repos.length)
+      for (let i = 0; i < 100; i++) {
         // pick a repo
-        const repo = repos[repoIndex]
-        const makeNewDoc = Math.random() < CHANCE_OF_NEW_DOC
-        const doc = makeNewDoc
-          ? repo.create<TestDoc>()
-          : (getRandomItem(repo.handles) as DocHandle<TestDoc>)
+        const repo = getRandomItem([aliceRepo, bobRepo, charlieRepo])
+        const handles = Object.values(repo.handles)
+        // pick a random doc, or create a new one
+        const doc =
+          Math.random() < 0.5
+            ? repo.create<TestDoc>()
+            : (getRandomItem(handles) as DocHandle<TestDoc>)
 
-        const docId = doc?.documentId ?? "no doc"
-        console.log(
-          `${i} | ${
-            makeNewDoc ? "new" : "existing"
-          } | repo ${repoIndex} | ${docId}`
-        )
         doc.change(d => {
           d.foo = Math.random().toString()
         })
       }
-
-      repos.forEach((r, i) => {
-        console.log(`Repo ${i}: ${Object.keys(r.handles).length} documents.`)
-      })
+      aliceRepo.networkSubsystem.removeListener("message", listenForDuplicates)
       teardown()
     })
   })
