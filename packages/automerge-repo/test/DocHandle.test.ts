@@ -1,5 +1,4 @@
 import * as Automerge from "@automerge/automerge"
-
 import assert from "assert"
 import { DocHandle, DocumentId } from "../src/"
 import { eventFired } from "./helpers/eventFired"
