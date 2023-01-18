@@ -52,9 +52,7 @@ export class StorageSubsystem {
         `${storageKey}.incremental.${index}`
       ))
     ) {
-      if (binary && binary.length > 0) {
-        result.push(binary)
-      }
+      if (binary && binary.length > 0) result.push(binary)
       index += 1
     }
 
