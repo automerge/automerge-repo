@@ -1,17 +1,21 @@
 import EventEmitter from "eventemitter3"
 import { PeerId, ChannelId } from "../types"
 
-export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
+export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
-  connect(url?: string): void
-  sendMessage(
+
+  abstract connect(url?: string): void
+
+  abstract sendMessage(
     peerId: PeerId,
     channelId: ChannelId,
     message: Uint8Array,
     broadcast: boolean
   ): void
-  join(channelId: ChannelId): void
-  leave(channelId: ChannelId): void
+
+  abstract join(channelId: ChannelId): void
+
+  abstract leave(channelId: ChannelId): void
 }
 
 // events & payloads

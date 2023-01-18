@@ -1,10 +1,4 @@
-import {
-  ChannelId,
-  NetworkAdapter,
-  NetworkAdapterEvents,
-  PeerId,
-} from "automerge-repo"
-import EventEmitter from "eventemitter3"
+import { ChannelId, NetworkAdapter, PeerId } from "automerge-repo"
 import { MessagePortRef } from "./MessagePortRef"
 import { StrongMessagePortRef } from "./StrongMessagePortRef"
 import { WeakMessagePortRef } from "./WeakMessagePortRef"
@@ -12,13 +6,9 @@ import { WeakMessagePortRef } from "./WeakMessagePortRef"
 import debug from "debug"
 const log = debug("ar:messagechannel")
 
-export class MessageChannelNetworkAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements NetworkAdapter
-{
+export class MessageChannelNetworkAdapter extends NetworkAdapter {
   channels = {}
   messagePortRef: MessagePortRef
-  peerId?: PeerId
 
   constructor(
     messagePort: MessagePort,

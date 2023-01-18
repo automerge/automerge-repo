@@ -1,18 +1,7 @@
-import EventEmitter from "eventemitter3"
-import {
-  ChannelId,
-  NetworkAdapter,
-  NetworkAdapterEvents,
-  PeerId,
-} from "automerge-repo"
+import { ChannelId, NetworkAdapter, PeerId } from "automerge-repo"
 
-export class BroadcastChannelNetworkAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements NetworkAdapter
-{
+export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel
-
-  peerId?: PeerId
 
   connect(peerId: PeerId) {
     this.peerId = peerId

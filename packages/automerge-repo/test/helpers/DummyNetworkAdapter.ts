@@ -1,10 +1,6 @@
-import EventEmitter from "eventemitter3"
-import { NetworkAdapter, NetworkAdapterEvents } from "../../src"
+import { NetworkAdapter } from "../../src"
 
-export class DummyNetworkAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements NetworkAdapter
-{
+export class DummyNetworkAdapter extends NetworkAdapter {
   sendMessage() {}
   connect(_: string) {}
   join(_: string) {}

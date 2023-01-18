@@ -1,17 +1,8 @@
 import { Client } from "@localfirst/relay-client"
-import EventEmitter from "eventemitter3"
-import {
-  ChannelId,
-  NetworkAdapter,
-  NetworkAdapterEvents,
-  PeerId,
-} from "automerge-repo"
+import { ChannelId, NetworkAdapter, PeerId } from "automerge-repo"
 import WebSocket from "isomorphic-ws"
 
-export class LocalFirstRelayNetworkAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements NetworkAdapter
-{
+export class LocalFirstRelayNetworkAdapter extends NetworkAdapter {
   url: string
   client?: Client
   sockets: { [peerId: PeerId]: WebSocket } = {}

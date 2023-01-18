@@ -1,6 +1,5 @@
-import EventEmitter from "eventemitter3"
-import { type WebSocketServer, WebSocket } from "isomorphic-ws"
 import * as CBOR from "cbor-x"
+import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 
 import debug from "debug"
 const log = debug("WebsocketServer")
@@ -9,15 +8,10 @@ import {
   ChannelId,
   InboundMessagePayload,
   NetworkAdapter,
-  NetworkAdapterEvents,
   PeerId,
 } from "automerge-repo"
 
-export class NodeWSServerAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements NetworkAdapter
-{
-  peerId?: PeerId
+export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
   sockets: { [peerId: PeerId]: WebSocket } = {}
 
