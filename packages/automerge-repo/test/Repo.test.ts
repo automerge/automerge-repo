@@ -45,20 +45,20 @@ describe("Repo", () => {
       assert(v.foo === "bar")
     })
 
-    it("can find a created document", done => {
+    it("can find a created document", async () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
       assert(handle.state === HandleState.READY)
+
       const bobHandle = repo.find<TestDoc>(handle.documentId)
       assert(handle === bobHandle)
       assert(bobHandle.ready())
-      bobHandle.value().then(v => {
-        assert(v.foo === "bar")
-        done()
-      })
+
+      const v = await bobHandle.value()
+      assert(v.foo === "bar")
     })
   })
 
