@@ -10,11 +10,12 @@
   "type": "module",
   "scripts": {
     "build": "lerna run build",
-    "test": "lerna run test",
     "dev:demo": "yarn workspace automerge-repo-demo-todo dev",
     "dev": "run-p watch dev:demo",
     "pub": "lerna publish --yes",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace automerge-repo-sync-server start",
+    "test": "lerna run test",
+    "test:coverage": "lerna run test:coverage",
     "watch": "lerna run watch --parallel"
   },
   "devDependencies": {
