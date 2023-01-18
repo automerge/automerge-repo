@@ -1,10 +1,10 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
-import EventEmitter from "eventemitter3"
-import { ChannelId, DocHandle, HandleState, PeerId } from "../src"
-import { Repo } from "../src/Repo"
+import { ChannelId, DocHandle, HandleState, PeerId, Repo } from "../src"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
+import { event } from "./helpers/event"
+import { getRandomItem } from "./helpers/getRandomItem"
 
 interface TestDoc {
   foo: string
@@ -182,12 +182,3 @@ describe("Repo", () => {
     })
   })
 })
-
-const event = (emitter: EventEmitter, event: string) =>
-  new Promise<any>(resolve => emitter.once(event, d => resolve(d)))
-
-const getRandomItem = <T>(iterable: Record<string, T>) => {
-  const keys = Object.keys(iterable)
-  const index = Math.floor(Math.random() * keys.length)
-  return iterable[keys[index]]
-}
