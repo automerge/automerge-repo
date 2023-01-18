@@ -6,9 +6,9 @@ import { DocHandle } from "../DocHandle"
 import { ChannelId, DocumentId, PeerId } from "../types"
 import { Synchronizer, SyncMessages } from "./Synchronizer"
 
-const log = debug("DocSynchronizer")
-const conciseLog = debug("DocSynchronizer:Concise") // Only logs one line per receive/send
-const opsLog = debug("DocSynchronizer:Ops") // Log list of ops of each message
+const log = debug("ar:docsync")
+const conciseLog = debug("ar:docsync:concise") // Only logs one line per receive/send
+const opsLog = debug("ar:docsync:ops") // Log list of ops of each message
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages

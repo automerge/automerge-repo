@@ -6,10 +6,9 @@ const log = debug("WebsocketClient")
 
 import {
   ChannelId,
-  DecodedMessage,
+  InboundMessagePayload,
   NetworkAdapter,
   NetworkAdapterEvents,
-  NetworkSubsystem,
   PeerId,
 } from "automerge-repo"
 
@@ -114,12 +113,12 @@ export class BrowserWebSocketClientAdapter
       throw new Error("Why don't we have a PeerID?")
     }
 
-    const decoded: DecodedMessage = {
+    const decoded: InboundMessagePayload = {
       senderId: this.peerId,
       targetId,
       channelId,
-      type: "message",
-      data: message,
+      // type: "message",
+      message,
       broadcast,
     }
 
@@ -148,8 +147,17 @@ export class BrowserWebSocketClientAdapter
   }
 
   receiveMessage(message: Uint8Array) {
-    const decoded = CBOR.decode(new Uint8Array(message)) as DecodedMessage
-    const { type, senderId, targetId, channelId, data, broadcast } = decoded
+    const decoded = CBOR.decode(
+      new Uint8Array(message)
+    ) as InboundMessagePayload
+    const {
+      type,
+      senderId,
+      targetId,
+      channelId,
+      message: messageData,
+      broadcast,
+    } = decoded
 
     const socket = this.socket
     if (!socket) {
@@ -170,7 +178,7 @@ export class BrowserWebSocketClientAdapter
           channelId,
           senderId,
           targetId,
-          message: new Uint8Array(data),
+          message: new Uint8Array(messageData),
           broadcast,
         })
     }

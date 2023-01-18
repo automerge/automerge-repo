@@ -1,5 +1,5 @@
 import { Doc } from "@automerge/automerge"
-import { DocumentId, DocHandleChangeEvent } from "automerge-repo"
+import { DocumentId, DocHandleChangePayload } from "automerge-repo"
 import { useEffect, useState } from "react"
 import { ChangeFn } from "./types"
 import { useRepo } from "./useRepo"
@@ -15,7 +15,7 @@ export function useDocument<T>(documentId?: DocumentId) {
 
     handle.value().then(v => setDoc(v))
 
-    const onChange = (h: DocHandleChangeEvent<T>) => setDoc(h.handle.doc)
+    const onChange = (h: DocHandleChangePayload<T>) => setDoc(h.handle.doc)
     handle.on("change", onChange)
     const cleanup = () => {
       handle.removeListener("change", onChange)

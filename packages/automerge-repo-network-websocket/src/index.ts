@@ -1,2 +1,2 @@
-export { BrowserWebSocketClientAdapter } from "./BrowserWebSocketClientAdapter.js"
-export { NodeWSServerAdapter } from "./NodeWSServerAdapter.js"
+export { BrowserWebSocketClientAdapter } from "./BrowserWebSocketClientAdapter"
+export { NodeWSServerAdapter } from "./NodeWSServerAdapter"

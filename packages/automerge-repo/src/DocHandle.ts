@@ -3,8 +3,8 @@ import { ChangeOptions, Doc } from "@automerge/automerge"
 import EventEmitter from "eventemitter3"
 
 import debug from "debug"
-import { DocHandleEvents, DocumentId, HandleState } from "./types"
-const log = debug("DocHandle")
+import { ChannelId, DocumentId, HandleState, PeerId } from "./types"
+const log = debug("ar:dochandle")
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
@@ -118,4 +118,31 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       this.#notifyChangeListeners(newDoc)
     })
   }
+}
+
+// types
+
+export interface DocHandleMessagePayload {
+  destinationId: PeerId
+  channelId: ChannelId
+  data: Uint8Array
+}
+
+export interface DocHandleChangePayload<T> {
+  handle: DocHandle<T>
+}
+
+export interface DocHandlePatchPayload<T> {
+  handle: DocHandle<T>
+  patch: Automerge.Patch
+  before: Automerge.Doc<T>
+  after: Automerge.Doc<T>
+}
+
+export interface DocHandleEvents<T> {
+  syncing: () => void // HMM
+  ready: () => void // HMM
+  message: (payload: DocHandleMessagePayload) => void
+  change: (payload: DocHandleChangePayload<T>) => void
+  patch: (payload: DocHandlePatchPayload<T>) => void
 }

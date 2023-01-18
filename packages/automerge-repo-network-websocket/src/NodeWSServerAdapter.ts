@@ -8,7 +8,7 @@ const log = debug("WebsocketServer")
 
 import {
   ChannelId,
-  DecodedMessage,
+  InboundMessagePayload,
   NetworkAdapter,
   NetworkAdapterEvents,
   PeerId,
@@ -72,12 +72,12 @@ export class NodeWSServerAdapter
       return
     }
 
-    const decoded: DecodedMessage = {
+    const decoded: InboundMessagePayload = {
       senderId,
       targetId,
       channelId,
       type: "sync",
-      data: message,
+      message,
       broadcast,
     }
     const encoded = CBOR.encode(decoded)

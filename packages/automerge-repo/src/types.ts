@@ -13,28 +13,3 @@ export const HandleState = {
 
 // avoiding enum https://maxheiber.medium.com/alternatives-to-typescript-enums-50e4c16600b1
 export type HandleState = typeof HandleState[keyof typeof HandleState]
-
-export interface DocHandleMessagePayload {
-  destinationId: PeerId
-  channelId: ChannelId
-  data: Uint8Array
-}
-
-export interface DocHandleChangePayload<T> {
-  handle: DocHandle<T>
-}
-
-export interface DocHandlePatchPayload<T> {
-  handle: DocHandle<T>
-  patch: any // Automerge.Patch
-  before: Automerge.Doc<T>
-  after: Automerge.Doc<T>
-}
-
-export interface DocHandleEvents<T> {
-  syncing: () => void // HMM
-  ready: () => void // HMM
-  message: (payload: DocHandleMessagePayload) => void
-  change: (payload: DocHandleChangePayload<T>) => void
-  patch: (payload: DocHandlePatchPayload<T>) => void
-}

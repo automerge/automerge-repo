@@ -1,6 +1,6 @@
 import EventEmitter from "eventemitter3"
 import { v4 } from "uuid"
-import { DocHandle } from "./DocHandle.js"
+import { DocHandle } from "./DocHandle"
 import { DocumentId } from "./types"
 
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
@@ -51,9 +51,9 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   }
 }
 
-export interface DocCollectionDocumentEventArg<T> {
+export interface DocCollectionDocumentPayload<T> {
   handle: DocHandle<T>
 }
 export interface DocCollectionEvents<T> {
-  document: (arg: DocCollectionDocumentEventArg<T>) => void
+  document: (arg: DocCollectionDocumentPayload<T>) => void
 }

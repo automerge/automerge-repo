@@ -1,10 +1,14 @@
 import EventEmitter from "eventemitter3"
-import { NetworkAdapter, NetworkEvents } from "./types"
+import {
+  InboundMessagePayload,
+  NetworkAdapter,
+  PeerDisconnectedPayload,
+} from "./NetworkAdapter"
 import { ChannelId, PeerId } from "../types"
 
 import debug from "debug"
 
-export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
+export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
   #adapters: NetworkAdapter[] = []
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
@@ -108,4 +112,17 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     this.#channels = this.#channels.filter(c => c !== channelId)
     this.#adapters.forEach(a => a.leave(channelId))
   }
+}
+
+// events & payloads
+
+export interface NetworkSubsystemEvents {
+  peer: (payload: PeerPayload) => void
+  "peer-disconnected": (payload: PeerDisconnectedPayload) => void
+  message: (payload: InboundMessagePayload) => void
+}
+
+export interface PeerPayload {
+  peerId: PeerId
+  channelId: ChannelId
 }

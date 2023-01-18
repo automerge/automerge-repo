@@ -1,10 +1,11 @@
 import { DocCollection } from "./DocCollection"
 import { EphemeralData } from "./EphemeralData"
 import { NetworkSubsystem } from "./network/NetworkSubsystem"
-import { StorageAdapter, StorageSubsystem } from "./storage/StorageSubsystem"
+import { StorageSubsystem } from "./storage/StorageSubsystem"
+import { StorageAdapter } from "./storage/StorageAdapter"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
 import { ChannelId, PeerId } from "./types"
-import { NetworkAdapter } from "./network/types"
+import { NetworkAdapter } from "./network/NetworkAdapter"
 import debug from "debug"
 
 export interface RepoConfig {

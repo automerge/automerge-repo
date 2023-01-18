@@ -1,6 +1,6 @@
 import debug from "debug"
 import EventEmitter from "eventemitter3"
-const log = debug("CollectionSynchronizer")
+const log = debug("ar:collectionsync")
 
 import { DocCollection } from "../DocCollection"
 import { DocHandle } from "../DocHandle"
