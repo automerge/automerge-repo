@@ -9,18 +9,13 @@ import { NetworkAdapter } from "./network/NetworkAdapter"
 
 import debug from "debug"
 
-export interface RepoConfig {
-  storage?: StorageAdapter
-  network: NetworkAdapter[]
-  peerId?: PeerId
-  sharePolicy?: (peerId: PeerId) => boolean // generous or no. this is a stand-in for a better API to test an idea.
-}
-
+/** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {
   #log: debug.Debugger
+
   networkSubsystem: NetworkSubsystem
   storageSubsystem?: StorageSubsystem
-  ephemeralData: EphemeralData
+  #ephemeralData: EphemeralData
 
   constructor({
     storage,
@@ -57,7 +52,7 @@ export class Repo extends DocCollection {
     this.networkSubsystem = networkSubsystem
 
     const ephemeralData = new EphemeralData()
-    this.ephemeralData = ephemeralData
+    this.#ephemeralData = ephemeralData
 
     // wire up the dependency synchronizers
     const synchronizer = new CollectionSynchronizer(this)
@@ -105,4 +100,11 @@ export class Repo extends DocCollection {
 
     networkSubsystem.join("sync_channel" as ChannelId)
   }
+}
+
+export interface RepoConfig {
+  storage?: StorageAdapter
+  network: NetworkAdapter[]
+  peerId?: PeerId
+  sharePolicy?: (peerId: PeerId) => boolean // generous or no. this is a stand-in for a better API to test an idea.
 }
