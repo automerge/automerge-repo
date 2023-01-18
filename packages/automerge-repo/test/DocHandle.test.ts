@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge"
 import assert from "assert"
-import { DocHandle, DocumentId } from "../src/"
-import { eventFired } from "./helpers/eventFired"
+import { DocHandle, DocumentId } from "../src"
+import { eventPromise } from "../src/helpers/eventPromise"
 
 interface TestDoc {
   foo: string
@@ -80,7 +80,7 @@ it("should emit a change message when changes happen", async () => {
     doc.foo = "bar"
   })
 
-  await eventFired(handle, "change")
+  await eventPromise(handle, "change")
   assert(handle.doc.foo === "bar")
 })
 
@@ -101,7 +101,7 @@ it("should emit a patch message when changes happen", async () => {
     doc.foo = "bar"
   })
 
-  const { after } = await eventFired(handle, "patch")
+  const { after } = await eventPromise(handle, "patch")
   assert(after.foo === "bar")
 })
 
@@ -110,7 +110,7 @@ it("should not emit a patch message if no change happens", done => {
   handle.on("patch", () => {
     done(new Error("shouldn't have patched"))
   })
-  handle.change(() => {
+  handle.change(_doc => {
     // do nothing
     setTimeout(done, 0)
   })

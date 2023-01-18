@@ -6,10 +6,7 @@ import assert from "assert"
 import Automerge from "@automerge/automerge"
 import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
-import {
-  StorageSubsystem,
-  StorageAdapter,
-} from "../src/storage/StorageSubsystem"
+import { StorageSubsystem, StorageAdapter } from "../src"
 import { DocumentId } from "../dist"
 
 describe("StorageSubsystem", () => {
