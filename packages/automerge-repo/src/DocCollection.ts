@@ -54,6 +54,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
 export interface DocCollectionDocumentPayload<T> {
   handle: DocHandle<T>
 }
+
 export interface DocCollectionEvents<T> {
   document: (arg: DocCollectionDocumentPayload<T>) => void
 }
