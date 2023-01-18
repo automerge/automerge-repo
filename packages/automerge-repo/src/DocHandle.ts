@@ -1,9 +1,9 @@
 import * as Automerge from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
 import EventEmitter from "eventemitter3"
+import { ChannelId, DocumentId, HandleState, PeerId } from "./types"
 
 import debug from "debug"
-import { ChannelId, DocumentId, HandleState, PeerId } from "./types"
 const log = debug("ar:dochandle")
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */

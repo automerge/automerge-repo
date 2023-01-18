@@ -24,7 +24,7 @@ export interface NetworkAdapterEvents {
   message: (payload: InboundMessagePayload) => void
 }
 
-interface OpenPayload {
+export interface OpenPayload {
   network: NetworkAdapter
 }
 

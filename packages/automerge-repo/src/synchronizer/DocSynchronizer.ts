@@ -1,11 +1,11 @@
 import * as Automerge from "@automerge/automerge"
 import { decodeChange } from "@automerge/automerge"
-import debug from "debug"
 import EventEmitter from "eventemitter3"
 import { DocHandle } from "../DocHandle"
 import { ChannelId, DocumentId, PeerId } from "../types"
 import { Synchronizer, SyncMessages } from "./Synchronizer"
 
+import debug from "debug"
 const log = debug("ar:docsync")
 const conciseLog = debug("ar:docsync:concise") // Only logs one line per receive/send
 const opsLog = debug("ar:docsync:ops") // Log list of ops of each message

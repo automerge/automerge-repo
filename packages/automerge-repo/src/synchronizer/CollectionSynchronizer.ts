@@ -1,12 +1,12 @@
-import debug from "debug"
 import EventEmitter from "eventemitter3"
-const log = debug("ar:collectionsync")
-
 import { DocCollection } from "../DocCollection"
 import { DocHandle } from "../DocHandle"
 import { ChannelId, DocumentId, PeerId } from "../types"
 import { DocSynchronizer } from "./DocSynchronizer"
 import { SyncMessages } from "./Synchronizer"
+
+import debug from "debug"
+const log = debug("ar:collectionsync")
 
 // When we get a peer for a channel, we want to offer it all the documents in this collection
 // and subscribe to everything it offers us.

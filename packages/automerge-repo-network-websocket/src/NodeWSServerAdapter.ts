@@ -1,5 +1,4 @@
 import EventEmitter from "eventemitter3"
-import * as ws from "isomorphic-ws"
 import { type WebSocketServer, WebSocket } from "isomorphic-ws"
 import * as CBOR from "cbor-x"
 

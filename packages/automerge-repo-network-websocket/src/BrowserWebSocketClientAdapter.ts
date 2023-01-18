@@ -1,9 +1,3 @@
-import EventEmitter from "eventemitter3"
-import * as CBOR from "cbor-x"
-import WebSocket from "isomorphic-ws"
-import debug from "debug"
-const log = debug("WebsocketClient")
-
 import {
   ChannelId,
   InboundMessagePayload,
@@ -11,6 +5,12 @@ import {
   NetworkAdapterEvents,
   PeerId,
 } from "automerge-repo"
+import * as CBOR from "cbor-x"
+import EventEmitter from "eventemitter3"
+import WebSocket from "isomorphic-ws"
+
+import debug from "debug"
+const log = debug("WebsocketClient")
 
 interface WebSocketNetworkAdapter extends NetworkAdapter {
   socket?: WebSocket
