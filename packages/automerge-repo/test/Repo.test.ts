@@ -1,4 +1,3 @@
-import * as Automerge from "@automerge/automerge"
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 import { ChannelId, DocHandle, HandleState, PeerId, Repo } from "../src"
