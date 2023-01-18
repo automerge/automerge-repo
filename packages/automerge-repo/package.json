@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "npm-watch",
+    "coverage": "c8 --reporter=lcov --reporter=html --reporter=text yarn test",
     "test": "mocha --no-warnings --experimental-specifier-resolution=node",
     "test:log": "cross-env DEBUG='ar:*' yarn test",
     "fuzz": "ts-node fuzz/fuzz.js"
