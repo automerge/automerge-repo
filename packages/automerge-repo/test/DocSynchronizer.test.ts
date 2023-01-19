@@ -2,49 +2,69 @@ import assert from "assert"
 import { DocumentId, PeerId } from "../src/types"
 import { DocHandle } from "../src/DocHandle"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
+import { eventPromise } from "../src/helpers/eventPromise"
+
+type TestDoc = {
+  foo: string
+}
+
+const alice = "alice" as PeerId
+const bob = "bob" as PeerId
 
 describe("DocSynchronizer", () => {
-  let handle: DocHandle<{ foo: string }>
+  let handle: DocHandle<TestDoc>
   let docSynchronizer: DocSynchronizer
 
-  beforeEach(() => {
+  const setup = () => {
     handle = new DocHandle<{ foo: string }>("synced-doc" as DocumentId, true)
     docSynchronizer = new DocSynchronizer(handle)
+    return { handle, docSynchronizer }
+  }
+
+  it("takes the handle passed into it", () => {
+    const { handle, docSynchronizer } = setup()
+    assert(docSynchronizer.documentId === handle.documentId)
   })
 
-  it("should take the handle passed into it", () => {
-    assert(docSynchronizer.handle === handle)
+  it("emits a syncMessage when beginSync is called", async () => {
+    const { docSynchronizer } = setup()
+    docSynchronizer.beginSync(alice)
+    const { targetId } = await eventPromise(docSynchronizer, "message")
+    assert.equal(targetId, "alice")
   })
 
-  it("should emit a syncMessage when beginSync is called", done => {
-    docSynchronizer.once("message", () => done())
-    docSynchronizer.beginSync("imaginary-peer-id" as PeerId)
-  })
-
-  it("should emit a syncMessage to peers when the handle is updated", done => {
-    docSynchronizer.beginSync("imaginary-peer-id" as PeerId)
-    docSynchronizer.once("message", () => done())
+  it("emits a syncMessage to peers when the handle is updated", async () => {
+    const { handle, docSynchronizer } = setup()
+    docSynchronizer.beginSync(alice)
     handle.change(doc => {
       doc.foo = "bar"
     })
+    const { targetId } = await eventPromise(docSynchronizer, "message")
+    assert.equal(targetId, "alice")
   })
 
-  it("should emit a syncMessage to peers when the peer is removed, then re-added", done => {
-    docSynchronizer.beginSync("imaginary-peer-id-2" as PeerId).then(() => {
+  it("still syncs with a peer after it disconnects and reconnects", async () => {
+    const { handle, docSynchronizer } = setup()
+
+    // first connection
+    {
+      await docSynchronizer.beginSync(bob)
       handle.change(doc => {
-        doc.foo = "bar"
+        doc.foo = "a change"
       })
-      docSynchronizer.endSync("imaginary-peer-id-2" as PeerId)
-      docSynchronizer.beginSync("imaginary-peer-id-2" as PeerId).then(() => {
-        docSynchronizer.once("message", event => {
-          if (event.targetId === "imaginary-peer-id-2") {
-            done()
-          }
-        })
-        handle.change(doc => {
-          doc.foo = "baz"
-        })
+      const { targetId } = await eventPromise(docSynchronizer, "message")
+      assert.equal(targetId, "bob")
+      docSynchronizer.endSync(bob)
+    }
+
+    // second connection
+    {
+      await docSynchronizer.beginSync(bob)
+      handle.change(doc => {
+        doc.foo = "another change"
       })
-    })
+      const { targetId } = await eventPromise(docSynchronizer, "message")
+      assert.equal(targetId, "bob")
+    }
   })
 })
