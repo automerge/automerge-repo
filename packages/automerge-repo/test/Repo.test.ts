@@ -25,7 +25,7 @@ describe("Repo", () => {
 
     it("can instantiate a Repo", () => {
       const { repo } = setup()
-      assert(repo !== null)
+      assert.notEqual(repo, null)
       assert(repo.networkSubsystem)
       assert(repo.storageSubsystem)
     })
@@ -33,7 +33,7 @@ describe("Repo", () => {
     it("can create a document", () => {
       const { repo } = setup()
       const handle = repo.create()
-      assert(handle.documentId != null)
+      assert.notEqual(handle.documentId, null)
     })
 
     it("can change a document", async () => {
