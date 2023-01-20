@@ -5,133 +5,169 @@ import { ChannelId, DocumentId, PeerId } from "./types"
 
 import debug from "debug"
 import { headsAreSame } from "./helpers/headsAreSame"
-const log = debug("ar:dochandle")
+import { pause } from "./helpers/pause"
+import { eventPromise } from "./helpers/eventPromise"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   doc: A.Doc<T>
   documentId: DocumentId
+
+  /**
+   * We need to carefully orchestrate document loading in order to avoid requesting data we already
+   * have or surfacing intermediate values to the consumer. The handle lifecycle looks like this:
+   * ```
+   *                        handle.state
+   * ┌───────────────┐      ┌────────────┐
+   * │new DocHandle()│  ┌──►│ LOADING    ├─┐
+   * ├─────────────┬─┘  │ ┌┤├────────────┤ │ via loadIncremental()
+   * ├─────────────┤    │ └►├────────────┤ │  or unblockSync()
+   * │find()       ├────┘ ┌─┤ REQUESTING │ │
+   * ├─────────────┤      │ ├────────────┤ │
+   * │create()     ├────┐ │ ├────────────┤ │ via receiveSyncMessage()
+   * └─────────────┘    └►└►│ READY      │►┘  or create()
+   *                        └────────────┘
+   *  ┌────────────┐
+   *  │value()     │ <- blocks until "ready"
+   *  ├────────────┤
+   *  │provisionalValue() │ <- blocks until "syncing"
+   *  └────────────┘
+   * ```
+   *
+   * */
   state: HandleState = HandleState.LOADING
+
+  #log: debug.Debugger
 
   constructor(documentId: DocumentId, newDoc = false) {
     super()
     this.documentId = documentId
+    this.#log = debug(`ar:dochandle:${documentId}`)
+
+    // Create an empty Automerge document
     this.doc = A.init({
-      patchCallback: (patch, before, after) =>
-        this.#notifyPatchListeners(patch, before, after),
+      patchCallback: (patch, before, after) => {
+        this.#notifyPatchListeners(patch, before, after)
+      },
     })
 
-    // new documents don't need to block on an initial value setting
-    if (newDoc) {
+    // If this is a freshly created document, we can immediately mark it as ready
+    if (newDoc) this.#ready()
+  }
+
+  #ready() {
+    if (this.state !== HandleState.READY) {
       this.state = HandleState.READY
       this.emit("ready")
     }
   }
+
+  /**
+   * We emit a `change` event for the benefit of network and storage; they care about the full
+   * history of changes. Changes may or may not result in a patch, would result in something visible
+   * to the user.
+   */
+  #notifyChangeListeners(newDoc: A.Doc<T>) {
+    const oldDoc = this.doc
+    this.doc = newDoc
+
+    // we only need to emit a "change" if there actually were changes
+    if (!headsAreSame(newDoc, oldDoc)) {
+      this.#ready()
+      this.emit("change", { handle: this })
+    }
+  }
+
+  /**
+   * We emit a `patch` event for the benefit of the front end; it cares about the changes that might
+   * be visible to the user. A patch is the result of one or more changes. It describes the
+   * difference between the state before and after the changes.
+   */
+  #notifyPatchListeners(patch: A.Patch[], before: A.Doc<T>, after: A.Doc<T>) {
+    this.emit("patch", { handle: this, patch, before, after })
+  }
+
+  // PUBLIC API
 
   isReady() {
     return this.state === HandleState.READY
   }
 
-  loadIncremental(binary: Uint8Array) {
-    log(`[${this.documentId}]: loadIncremental`, this.doc)
-    const newDoc = A.loadIncremental(this.doc, binary)
+  request() {
     if (this.state === HandleState.LOADING) {
-      this.state = HandleState.READY
-      this.emit("ready")
+      this.state = HandleState.REQUESTING
+      this.emit("requesting")
     }
-    this.#notifyChangeListeners(newDoc)
   }
 
   load(doc: A.Doc<T>) {
-    log(`[${this.documentId}]: load`, this.doc)
-    if (this.state === HandleState.LOADING) {
-      this.state = HandleState.READY
-      this.emit("ready")
-    }
+    this.#log(`load`, this.doc)
     this.#notifyChangeListeners(doc)
   }
 
-  requestDocument() {
-    if (this.state === HandleState.LOADING) {
-      this.state = HandleState.REQUESTING
-      this.emit("syncing")
-    }
-  }
-
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
-    log(`[${this.documentId}]: updateDoc`, this.doc)
-    // make sure doc is a new version of the old doc somehow...
-    this.#notifyChangeListeners(callback(this.doc))
+    this.#log(`updateDoc`, this.doc)
+
+    // TODO: make sure doc is a new version of the old doc somehow...
+
+    const newDoc = callback(this.doc)
+    this.#notifyChangeListeners(newDoc)
   }
 
-  #notifyChangeListeners(newDoc: A.Doc<T>) {
-    const oldDoc = this.doc
-    this.doc = newDoc
-
-    // we only need to emit a "change" if something changed as a result of the update
-    if (!headsAreSame(newDoc, oldDoc)) {
-      if (this.state !== HandleState.READY) {
-        // only go to ready once
-        this.state = HandleState.READY
-        this.emit("ready")
-      }
-      this.emit("change", {
-        handle: this,
-      })
-    }
-  }
-
-  #notifyPatchListeners(
-    patch: any, //Automerge.Patch,
-    before: A.Doc<T>,
-    after: A.Doc<T>
-  ) {
-    this.emit("patch", { handle: this, patch, before, after })
-  }
-
+  /**
+   * This is the current state of the document
+   *
+   * If a document isn't available locally, this will block until it gets it from the network.
+   *
+   * TODO: might be good for this to timeout if the document isn't available after a certain amount of time
+   */
   async value() {
     if (!this.isReady()) {
-      log(`[${this.documentId}]: value: (${this.state}, waiting for ready)`)
-      await new Promise(resolve => this.once("ready", () => resolve(true)))
+      this.#log(`value (${this.state}, waiting for ready)`)
+      await eventPromise(this, "ready")
     } else {
-      await new Promise(resolve => setTimeout(() => resolve(true), 0))
+      // HACK: yield for one tick
+      await pause(0)
     }
-    log(`[${this.documentId}]: value:`, this.doc)
+    this.#log(`value:`, this.doc)
     return this.doc
   }
 
   /**
-   * syncValue returns the value, but not until after loading is done. It will return the value
-   * during syncing when we don't want to share it with the frontend/user code.
+   * If a document isn't available locally, this will return an empty document while we're asking
+   * peers for it.
    */
-  async syncValue() {
-    log(`[${this.documentId}]: syncValue,`, this.doc)
+  async provisionalValue() {
     if (this.state == HandleState.LOADING) {
-      log(`[${this.documentId}]: value: (${this.state}, waiting for syncing)`)
-      await new Promise(resolve => {
-        this.once("syncing", () => resolve(true))
-        this.once("ready", () => resolve(true))
-      })
+      this.#log(`provisionalValue: waiting to be done loading`)
+      await Promise.any([
+        eventPromise(this, "ready"),
+        eventPromise(this, "requesting"),
+      ])
     } else {
-      await new Promise(resolve => setTimeout(() => resolve(true), 0))
+      // HACK: yield for one tick
+      await pause(0)
     }
-    log(`[${this.documentId}]: syncValue:`, this.doc)
+
+    this.#log(`provisionalValue:`, this.doc)
     return this.doc
   }
 
-  change(callback: (doc: T) => void, options: ChangeOptions<T> = {}) {
-    this.value().then(() => {
-      const newDoc = A.change<T>(this.doc, options, callback)
-      this.#notifyChangeListeners(newDoc)
-    })
+  async change(callback: A.ChangeFn<T>, options: ChangeOptions<T> = {}) {
+    const oldDoc = await this.value()
+    const newDoc = A.change<T>(oldDoc, options, callback)
+    this.#log(`change`, { oldDoc: this.doc, newDoc })
+    this.#notifyChangeListeners(newDoc)
   }
 }
 
 export const HandleState = {
   /** we're looking for the document on disk */
   LOADING: "LOADING",
-  /** we don't have it on disk, we're asking the network **/
+
+  /** we don't have it on disk, we're waiting to see if someone on the network has it **/
   REQUESTING: "REQUESTING",
+
   /** we have the document in memory  */
   READY: "READY",
 } as const
@@ -153,14 +189,14 @@ export interface DocHandleChangePayload<T> {
 
 export interface DocHandlePatchPayload<T> {
   handle: DocHandle<T>
-  patch: A.Patch
+  patch: A.Patch[]
   before: A.Doc<T>
   after: A.Doc<T>
 }
 
 export interface DocHandleEvents<T> {
-  syncing: () => void // HMM
-  ready: () => void // HMM
+  requesting: () => void
+  ready: () => void
   message: (payload: DocHandleMessagePayload) => void
   change: (payload: DocHandleChangePayload<T>) => void
   patch: (payload: DocHandlePatchPayload<T>) => void
