@@ -41,7 +41,7 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       const v = await handle.value()
-      assert.equal(handle.state, HandleState.READY)
+      assert.equal(handle.isReady(), true)
 
       assert.equal(v.foo, "bar")
     })
@@ -52,12 +52,12 @@ describe("Repo", () => {
       handle.change(d => {
         d.foo = "bar"
       })
-      assert(handle.state === HandleState.READY)
+      assert.equal(handle.isReady(), true)
 
       const bobHandle = repo.find<TestDoc>(handle.documentId)
 
       assert.equal(handle, bobHandle)
-      assert.equal(handle.state, HandleState.READY)
+      assert.equal(handle.isReady(), true)
 
       const v = await bobHandle.value()
       assert.equal(v.foo, "bar")
@@ -197,7 +197,7 @@ describe("Repo", () => {
       //   changes: []
       // }
       // ```
-      // Is that bad? I don't know!!
+      // Is that bad? I don't know!! At any rate this assertion fails:
 
       // assert.equal(
       //   duplicateMessages,

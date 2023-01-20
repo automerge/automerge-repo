@@ -35,7 +35,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * ```
    *
    * */
-  state: HandleState = HandleState.LOADING
+  #state: HandleState = HandleState.LOADING
 
   #log: debug.Debugger
 
@@ -47,7 +47,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     // Create an empty Automerge document
     this.doc = A.init({
       patchCallback: (patch, before, after) => {
-        this.#notifyPatchListeners(patch, before, after)
+        this.#emitPatch(patch, before, after)
       },
     })
 
@@ -56,8 +56,8 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   #ready() {
-    if (this.state !== HandleState.READY) {
-      this.state = HandleState.READY
+    if (this.#state !== HandleState.READY) {
+      this.#state = HandleState.READY
       this.emit("ready")
     }
   }
@@ -67,7 +67,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * history of changes. Changes may or may not result in a patch, would result in something visible
    * to the user.
    */
-  #notifyChangeListeners(newDoc: A.Doc<T>) {
+  #emitChange(newDoc: A.Doc<T>) {
     const oldDoc = this.doc
     this.doc = newDoc
 
@@ -83,26 +83,26 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * be visible to the user. A patch is the result of one or more changes. It describes the
    * difference between the state before and after the changes.
    */
-  #notifyPatchListeners(patch: A.Patch[], before: A.Doc<T>, after: A.Doc<T>) {
+  #emitPatch(patch: A.Patch[], before: A.Doc<T>, after: A.Doc<T>) {
     this.emit("patch", { handle: this, patch, before, after })
   }
 
   // PUBLIC API
 
   isReady() {
-    return this.state === HandleState.READY
+    return this.#state === HandleState.READY
   }
 
   request() {
-    if (this.state === HandleState.LOADING) {
-      this.state = HandleState.REQUESTING
+    if (this.#state === HandleState.LOADING) {
+      this.#state = HandleState.REQUESTING
       this.emit("requesting")
     }
   }
 
   load(doc: A.Doc<T>) {
     this.#log(`load`, this.doc)
-    this.#notifyChangeListeners(doc)
+    this.#emitChange(doc)
   }
 
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
@@ -111,7 +111,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     // TODO: make sure doc is a new version of the old doc somehow...
 
     const newDoc = callback(this.doc)
-    this.#notifyChangeListeners(newDoc)
+    this.#emitChange(newDoc)
   }
 
   /**
@@ -123,7 +123,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    */
   async value() {
     if (!this.isReady()) {
-      this.#log(`value (${this.state}, waiting for ready)`)
+      this.#log(`value (${this.#state}, waiting for ready)`)
       await eventPromise(this, "ready")
     } else {
       // HACK: yield for one tick
@@ -138,7 +138,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * peers for it.
    */
   async provisionalValue() {
-    if (this.state == HandleState.LOADING) {
+    if (this.#state == HandleState.LOADING) {
       this.#log(`provisionalValue: waiting to be done loading`)
       await Promise.any([
         eventPromise(this, "ready"),
@@ -153,11 +153,14 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     return this.doc
   }
 
+  /**
+   * Applies an Automerge change function to the document,
+   */
   async change(callback: A.ChangeFn<T>, options: ChangeOptions<T> = {}) {
     const oldDoc = await this.value()
     const newDoc = A.change<T>(oldDoc, options, callback)
     this.#log(`change`, { oldDoc: this.doc, newDoc })
-    this.#notifyChangeListeners(newDoc)
+    this.#emitChange(newDoc)
   }
 }
 
