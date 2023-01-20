@@ -1,13 +1,13 @@
 import * as Automerge from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
 import EventEmitter from "eventemitter3"
-import { ChannelId, DocumentId, HandleState, PeerId } from "./types"
+import { ChannelId, DocumentId, PeerId } from "./types"
 
 import debug from "debug"
 const log = debug("ar:dochandle")
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
-export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
+export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   doc: Automerge.Doc<T>
   documentId: DocumentId
   state: HandleState = HandleState.LOADING
@@ -27,7 +27,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     }
   }
 
-  ready() {
+  isReady() {
     return this.state === HandleState.READY
   }
 
@@ -41,9 +41,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.#notifyChangeListeners(newDoc)
   }
 
-  unblockSync() {
+  requestDocument() {
     if (this.state === HandleState.LOADING) {
-      this.state = HandleState.SYNCING
+      this.state = HandleState.REQUESTING
       this.emit("syncing")
     }
   }
@@ -83,7 +83,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   async value() {
-    if (!this.ready()) {
+    if (!this.isReady()) {
       log(`[${this.documentId}]: value: (${this.state}, waiting for ready)`)
       await new Promise(resolve => this.once("ready", () => resolve(true)))
     } else {
@@ -119,6 +119,18 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 }
+
+export const HandleState = {
+  /** we're looking for the document on disk */
+  LOADING: "LOADING",
+  /** we don't have it on disk, we're asking the network **/
+  REQUESTING: "REQUESTING",
+  /** we have the document in memory  */
+  READY: "READY",
+} as const
+
+// avoiding enum https://maxheiber.medium.com/alternatives-to-typescript-enums-50e4c16600b1
+export type HandleState = typeof HandleState[keyof typeof HandleState]
 
 // types
 
