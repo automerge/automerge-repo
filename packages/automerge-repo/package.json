@@ -13,6 +13,7 @@
     "watch": "npm-watch",
     "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text yarn test",
     "test": "mocha --no-warnings --experimental-specifier-resolution=node",
+    "test:watch": "npm-watch test",
     "test:log": "cross-env DEBUG='ar:*' yarn test",
     "fuzz": "ts-node fuzz/fuzz.js"
   },
@@ -41,6 +42,16 @@
   "watch": {
     "build": {
       "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    },
+    "test": {
+      "quiet": true,
+      "patterns": [
+        "./src/**/*",
+        "./test/**/*"
+      ],
       "extensions": [
         ".ts"
       ]
