@@ -1,54 +1,53 @@
-import * as Automerge from "@automerge/automerge"
+import * as A from "@automerge/automerge"
 import { DocumentId } from "../types"
 import { mergeArrays } from "../helpers/mergeArrays"
 import { StorageAdapter } from "./StorageAdapter"
 
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
-  #incrementalChangeCount: Record<DocumentId, number> = {}
+  #changeCount: Record<DocumentId, number> = {}
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
   }
 
-  saveIncremental(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
-    const binary = Automerge.getBackend(doc).saveIncremental()
+  #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
+    const binary = A.getBackend(doc).saveIncremental()
     if (binary && binary.length > 0) {
-      if (!this.#incrementalChangeCount[documentId]) {
-        this.#incrementalChangeCount[documentId] = 0
+      if (!this.#changeCount[documentId]) {
+        this.#changeCount[documentId] = 0
       }
 
       this.#storageAdapter.save(
-        `${documentId}.incremental.${this.#incrementalChangeCount[documentId]}`,
+        `${documentId}.incremental.${this.#changeCount[documentId]}`,
         binary
       )
 
-      this.#incrementalChangeCount[documentId]++
+      this.#changeCount[documentId]++
     }
   }
 
-  saveTotal(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
-    const binary = Automerge.save(doc)
+  #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
+    const binary = A.save(doc)
     this.#storageAdapter.save(`${documentId}.snapshot`, binary)
 
-    for (let i = 0; i < this.#incrementalChangeCount[documentId]; i++) {
+    for (let i = 0; i < this.#changeCount[documentId]; i++) {
       this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
     }
 
-    this.#incrementalChangeCount[documentId] = 0
+    this.#changeCount[documentId] = 0
   }
 
-  async load(storageKey: string): Promise<Uint8Array> {
-    const result = []
-    let binary = await this.#storageAdapter.load(`${storageKey}.snapshot`)
-    if (binary && binary.length > 0) {
-      result.push(binary)
-    }
+  async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
+    const result: Uint8Array[] = []
+
+    let binary = await this.#storageAdapter.load(`${documentId}.snapshot`)
+    if (binary && binary.length > 0) result.push(binary)
 
     let index = 0
     while (
       (binary = await this.#storageAdapter.load(
-        `${storageKey}.incremental.${index}`
+        `${documentId}.incremental.${index}`
       ))
     ) {
       if (binary && binary.length > 0) result.push(binary)
@@ -58,16 +57,23 @@ export class StorageSubsystem {
     return mergeArrays(result)
   }
 
-  save(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
+  async load<T>(
+    documentId: DocumentId,
+    prevDoc: A.Doc<T> = A.init<T>()
+  ): Promise<A.Doc<T>> {
+    return A.loadIncremental(prevDoc, await this.loadBinary(documentId))
+  }
+
+  save(documentId: DocumentId, doc: A.Doc<unknown>) {
     if (this.#shouldCompact(documentId)) {
-      this.saveTotal(documentId, doc)
+      this.#saveTotal(documentId, doc)
     } else {
-      this.saveIncremental(documentId, doc)
+      this.#saveIncremental(documentId, doc)
     }
   }
 
   // TODO: make this, you know, good.
   #shouldCompact(documentId: DocumentId) {
-    return this.#incrementalChangeCount[documentId] >= 20
+    return this.#changeCount[documentId] >= 20
   }
 }
