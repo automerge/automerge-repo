@@ -42,10 +42,24 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
    * to advertise interest in the document.
    */
   create<T>(): DocHandle<T> {
-    // TODO: this should really insist on initial value of T
-    // (but: we need to make sure the storage system will collect it)
-    // (next: we need to have some kind of reify function)
-    // (then: cambria!)
+    // TODO:
+    // either
+    // - pass an initial value and do something like this to ensure that you get a valid initial value
+
+    // const myInitialValue = {
+    //   tasks: [],
+    //   filter: "all",
+    // }
+
+    // const guaranteeInitialValue = (doc: any) => {
+    // if (!doc.tasks) doc.tasks = []
+    // if (!doc.filter) doc.filter = "all"
+
+    //   return { ...myInitialValue, ...doc }
+    // }
+
+    // or
+    // - pass a "reify" function that takes a `<any>` and returns `<T>`
 
     const documentId = uuid() as DocumentId
     const handle = this.#handleFromCache(documentId, true) as DocHandle<T>

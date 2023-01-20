@@ -5,7 +5,7 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
 import { eventPromise } from "../src/helpers/eventPromise"
 import { getRandomItem } from "./helpers/getRandomItem"
-import { pause } from "./helpers/pause"
+import { pause } from "../src/helpers/pause"
 import { isDeepStrictEqual } from "util"
 import { InboundMessagePayload } from "../dist"
 
@@ -58,7 +58,7 @@ describe("Repo", () => {
 
       const bobHandle = repo.find<TestDoc>(handle.documentId)
       assert(handle === bobHandle)
-      assert(bobHandle.ready())
+      assert(bobHandle.isReady())
 
       const v = await bobHandle.value()
       assert(v.foo === "bar")

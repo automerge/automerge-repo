@@ -15,7 +15,7 @@ export class Repo extends DocCollection {
 
   networkSubsystem: NetworkSubsystem
   storageSubsystem?: StorageSubsystem
-  #ephemeralData: EphemeralData
+  ephemeralData: EphemeralData
 
   constructor({
     storage,
@@ -39,12 +39,12 @@ export class Repo extends DocCollection {
         if (binary.byteLength > 0) {
           handle.loadIncremental(binary)
         } else {
-          handle.unblockSync()
+          handle.requestDocument()
         }
       })
     } else {
       this.on("document", async ({ handle }) => {
-        handle.unblockSync()
+        handle.requestDocument()
       })
     }
 
@@ -52,7 +52,7 @@ export class Repo extends DocCollection {
     this.networkSubsystem = networkSubsystem
 
     const ephemeralData = new EphemeralData()
-    this.#ephemeralData = ephemeralData
+    this.ephemeralData = ephemeralData
 
     // wire up the dependency synchronizers
     const synchronizer = new CollectionSynchronizer(this)

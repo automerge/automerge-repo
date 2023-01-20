@@ -15,16 +15,16 @@ describe("DocHandle", () => {
 
   it("should not be ready until updateDoc is called", () => {
     const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
-    assert(handle.ready() === false)
+    assert(handle.isReady() === false)
     // updateDoc is called by the sync / storage systems
     // this call is just to simulate loading
     handle.updateDoc(doc => Automerge.change(doc, d => (d.foo = "bar")))
-    assert(handle.ready() === true)
+    assert(handle.isReady() === true)
   })
 
   it("should not return a value until ready()", async () => {
     const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
-    assert(handle.ready() === false)
+    assert(handle.isReady() === false)
     let tooSoon = true as boolean
 
     handle.updateDoc(doc => {
@@ -35,13 +35,13 @@ describe("DocHandle", () => {
     const doc = await handle.value()
 
     assert(tooSoon === false)
-    assert(handle.ready() === true)
+    assert(handle.isReady() === true)
     assert(doc.foo === "bar")
   })
 
   it("should return syncValue following an incremental load on an existing document", async () => {
     const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
-    assert(handle.ready() === false)
+    assert(handle.isReady() === false)
 
     handle.loadIncremental(
       Automerge.save(
@@ -53,13 +53,13 @@ describe("DocHandle", () => {
     )
 
     const doc = await handle.syncValue()
-    assert(handle.ready() === true)
+    assert(handle.isReady() === true)
     assert(doc.foo === "bar")
   })
 
   it("should block changes until ready()", done => {
     const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
-    assert(handle.ready() === false)
+    assert(handle.isReady() === false)
     let tooSoon = true
     handle.updateDoc(doc => {
       tooSoon = false
@@ -68,7 +68,7 @@ describe("DocHandle", () => {
     handle.change(() => {
       try {
         assert(tooSoon === false)
-        assert(handle.ready() === true)
+        assert(handle.isReady() === true)
         done()
       } catch (e) {
         done(e)
