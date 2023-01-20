@@ -26,8 +26,6 @@ describe("Repo", () => {
     it("can instantiate a Repo", () => {
       const { repo } = setup()
       assert.notEqual(repo, null)
-      assert(repo.networkSubsystem)
-      assert(repo.storageSubsystem)
     })
 
     it("can create a document", () => {
@@ -95,9 +93,9 @@ describe("Repo", () => {
       })
 
       await Promise.all([
-        eventPromise(aliceRepo.networkSubsystem, "peer"),
-        eventPromise(bobRepo.networkSubsystem, "peer"),
-        eventPromise(charlieRepo.networkSubsystem, "peer"),
+        eventPromise(aliceRepo, "peer"),
+        eventPromise(bobRepo, "peer"),
+        eventPromise(charlieRepo, "peer"),
       ])
 
       const aliceHandle = aliceRepo.create<TestDoc>()
@@ -165,7 +163,8 @@ describe("Repo", () => {
         }
         lastMsg = msg
       }
-      aliceRepo.networkSubsystem.on("message", listenForDuplicates)
+      // @ts-ignore
+      aliceRepo.on("message", listenForDuplicates)
 
       for (let i = 0; i < 100; i++) {
         // pick a repo
@@ -183,7 +182,9 @@ describe("Repo", () => {
       }
       await pause(500)
 
-      aliceRepo.networkSubsystem.removeListener("message", listenForDuplicates)
+      // @ts-ignore
+      aliceRepo.removeListener("message", listenForDuplicates)
+
       teardown()
 
       // I'm not sure what the 'no duplicates' part of this test is intended to demonstrate, but the
