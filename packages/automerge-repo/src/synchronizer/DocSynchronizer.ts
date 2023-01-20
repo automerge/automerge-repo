@@ -14,8 +14,10 @@ export class DocSynchronizer extends Synchronizer {
   #opsLog: debug.Debugger
 
   #handle: DocHandle
+
   /** Active peers */
   #peers: PeerId[] = []
+
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
@@ -38,7 +40,7 @@ export class DocSynchronizer extends Synchronizer {
 
   async #syncWithPeers() {
     this.#log(`syncWithPeers`)
-    const doc = await this.#handle.syncValue()
+    const doc = await this.#handle.provisionalValue()
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
@@ -108,7 +110,7 @@ export class DocSynchronizer extends Synchronizer {
 
   async beginSync(peerId: PeerId) {
     this.#log(`beginSync: ${peerId}`)
-    const doc = await this.#handle.syncValue()
+    const doc = await this.#handle.provisionalValue()
 
     // HACK: if we have a sync state already, we round-trip it through the encoding system to make
     // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
@@ -135,7 +137,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // We need to block receiving the syncMessages until we've checked local storage
     // TODO: this is kind of an opaque way of doing this...
-    // await this.handle.syncValue()
+    // await this.handle.provisionalValue()
 
     this.logMessage(`onSyncMessage 🡐 ${peerId}`, message)
 
