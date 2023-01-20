@@ -2,20 +2,13 @@ import fs from "fs"
 import os from "os"
 import path from "path"
 
-import assert from "assert"
 import Automerge from "@automerge/automerge"
+import assert from "assert"
 import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
-import { StorageSubsystem, StorageAdapter } from "../src"
-import { DocumentId } from "../dist"
+import { DocumentId, StorageAdapter, StorageSubsystem } from "../src"
 
 describe("StorageSubsystem", () => {
-  it("should accept a storage adapter at construction", () => {
-    const memoryStorage = new MemoryStorageAdapter()
-    const storage = new StorageSubsystem(memoryStorage)
-    assert(storage.storageAdapter === memoryStorage)
-  })
-
   const canStoreAndRetrieveAutomergeDocument = async (
     adapter: StorageAdapter
   ) => {
