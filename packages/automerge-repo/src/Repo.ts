@@ -107,7 +107,10 @@ export class Repo extends Mixin(
      * synchronization.
      */
     this.on("document", async ({ handle }) => {
-      if (storage) {
+      if (!storage) {
+        // if we don't have any kind of storage, we will always wait for the document to come in from a peer. So much for "local-first"
+        handle.waitForSync()
+      } else {
         // storage listens for changes and saves them
         handle.on("change", ({ handle }) =>
           storage.save(handle.documentId, handle.doc)
@@ -115,14 +118,17 @@ export class Repo extends Mixin(
 
         // we always try first to load the document from storage
         const doc = await storage.load(handle.documentId, handle.doc)
-        if (doc) handle.load(doc)
+        if (doc) {
+          // If we found a document in storage, we load it into the handle
+          handle.load(doc)
+        } else {
+          // Otherwise we wait for the document to come in from a peer
+          handle.waitForSync()
+        }
       }
 
       // register the document with the synchronizer
       synchronizer.addDocument(handle.documentId)
-
-      // announce our interest in this document to peers
-      handle.request()
     })
   }
 }
@@ -130,6 +136,8 @@ export class Repo extends Mixin(
 export interface RepoConfig {
   /** Our unique identifier */
   peerId?: PeerId
+
+  // Q: Why is this optional? In what scenario would a local-first repo not have local storage?
 
   /** A storage adapter can be provided, or not */
   storage?: StorageAdapter
