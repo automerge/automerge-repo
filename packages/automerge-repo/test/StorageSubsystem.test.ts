@@ -1,12 +1,17 @@
 import fs from "fs"
 import os from "os"
 import path from "path"
+import assert from "assert"
 
 import Automerge from "@automerge/automerge"
-import assert from "assert"
+
 import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
+
 import { DocumentId, StorageAdapter, StorageSubsystem } from "../src"
+import { TestDoc } from "./types"
+
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
 describe("StorageSubsystem", () => {
   const canStoreAndRetrieveAutomergeDocument = async (
@@ -14,33 +19,33 @@ describe("StorageSubsystem", () => {
   ) => {
     const storage = new StorageSubsystem(adapter)
 
-    const doc = Automerge.change(Automerge.init<any>(), "test", d => {
+    const doc = Automerge.change(Automerge.init<TestDoc>(), d => {
       d.foo = "bar"
     })
 
-    storage.saveTotal("test-key" as DocumentId, doc)
-    const result: any = await storage.load("test-key" as DocumentId)
-    return result.foo === "bar"
+    const key = "test-key" as DocumentId
+    storage.save(key, doc)
+
+    const savedDoc: any = await storage.load("test-key" as DocumentId)
+    return savedDoc.foo === "bar"
   }
 
-  describe("MemoryStorageAdapter", () => {
+  describe.only("MemoryStorageAdapter", () => {
     it("can store and retrieve an Automerge document", async () => {
       const memoryStorage = new MemoryStorageAdapter()
-      assert(canStoreAndRetrieveAutomergeDocument(memoryStorage))
+      assert(await canStoreAndRetrieveAutomergeDocument(memoryStorage))
     })
   })
 
   describe("NodeFSStorageAdapter", () => {
     it("can store and retrieve an Automerge document", async () => {
-      const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "automerge-repo-tests")
-      )
       const nodeFSStorage = new NodeFSStorageAdapter(tempDir)
-      assert(canStoreAndRetrieveAutomergeDocument(nodeFSStorage))
+      assert(await canStoreAndRetrieveAutomergeDocument(nodeFSStorage))
     })
   })
 
   //  these tests are browser only. right.
+
   // describe('LocalForageStorageAdapter', () => {
   //   const localForage = new LocalForageAdapter()
 
