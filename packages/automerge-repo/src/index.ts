@@ -8,5 +8,5 @@ export * from "./storage/StorageSubsystem"
 export * from "./synchronizer/CollectionSynchronizer"
 export * from "./types"
 
-// Q: is there a reason this is exported with a different name?
+// Q: is there a reason this is re-exported with a different name?
 export { CollectionSynchronizer as DependencyCollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
