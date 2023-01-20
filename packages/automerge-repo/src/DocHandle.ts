@@ -1,21 +1,22 @@
-import * as Automerge from "@automerge/automerge"
+import * as A from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
 import EventEmitter from "eventemitter3"
 import { ChannelId, DocumentId, PeerId } from "./types"
 
 import debug from "debug"
+import { headsAreSame } from "./helpers/headsAreSame"
 const log = debug("ar:dochandle")
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
-  doc: Automerge.Doc<T>
+  doc: A.Doc<T>
   documentId: DocumentId
   state: HandleState = HandleState.LOADING
 
   constructor(documentId: DocumentId, newDoc = false) {
     super()
     this.documentId = documentId
-    this.doc = Automerge.init({
+    this.doc = A.init({
       patchCallback: (patch, before, after) =>
         this.#notifyPatchListeners(patch, before, after),
     })
@@ -33,12 +34,21 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
 
   loadIncremental(binary: Uint8Array) {
     log(`[${this.documentId}]: loadIncremental`, this.doc)
-    const newDoc = Automerge.loadIncremental(this.doc, binary)
+    const newDoc = A.loadIncremental(this.doc, binary)
     if (this.state === HandleState.LOADING) {
       this.state = HandleState.READY
       this.emit("ready")
     }
     this.#notifyChangeListeners(newDoc)
+  }
+
+  load(doc: A.Doc<T>) {
+    log(`[${this.documentId}]: load`, this.doc)
+    if (this.state === HandleState.LOADING) {
+      this.state = HandleState.READY
+      this.emit("ready")
+    }
+    this.#notifyChangeListeners(doc)
   }
 
   requestDocument() {
@@ -54,15 +64,12 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     this.#notifyChangeListeners(callback(this.doc))
   }
 
-  #notifyChangeListeners(newDoc: Automerge.Doc<T>) {
+  #notifyChangeListeners(newDoc: A.Doc<T>) {
     const oldDoc = this.doc
     this.doc = newDoc
 
-    const equalArrays = (a: unknown[], b: unknown[]) =>
-      a.length === b.length && a.every((element, index) => element === b[index])
-
     // we only need to emit a "change" if something changed as a result of the update
-    if (!equalArrays(Automerge.getHeads(newDoc), Automerge.getHeads(oldDoc))) {
+    if (!headsAreSame(newDoc, oldDoc)) {
       if (this.state !== HandleState.READY) {
         // only go to ready once
         this.state = HandleState.READY
@@ -76,8 +83,8 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
 
   #notifyPatchListeners(
     patch: any, //Automerge.Patch,
-    before: Automerge.Doc<T>,
-    after: Automerge.Doc<T>
+    before: A.Doc<T>,
+    after: A.Doc<T>
   ) {
     this.emit("patch", { handle: this, patch, before, after })
   }
@@ -114,7 +121,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
 
   change(callback: (doc: T) => void, options: ChangeOptions<T> = {}) {
     this.value().then(() => {
-      const newDoc = Automerge.change<T>(this.doc, options, callback)
+      const newDoc = A.change<T>(this.doc, options, callback)
       this.#notifyChangeListeners(newDoc)
     })
   }
@@ -146,9 +153,9 @@ export interface DocHandleChangePayload<T> {
 
 export interface DocHandlePatchPayload<T> {
   handle: DocHandle<T>
-  patch: Automerge.Patch
-  before: Automerge.Doc<T>
-  after: Automerge.Doc<T>
+  patch: A.Patch
+  before: A.Doc<T>
+  after: A.Doc<T>
 }
 
 export interface DocHandleEvents<T> {
