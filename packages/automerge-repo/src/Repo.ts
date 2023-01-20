@@ -9,7 +9,7 @@ import { NetworkAdapter } from "./network/NetworkAdapter"
 
 import debug from "debug"
 
-/** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
+/** A Repo is a DocCollection plus networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {
   #log: debug.Debugger
 
@@ -30,22 +30,6 @@ export class Repo extends DocCollection {
     if (storage) {
       const storageSubsystem = new StorageSubsystem(storage)
       this.storageSubsystem = storageSubsystem
-      this.on("document", async ({ handle }) => {
-        handle.on("change", ({ handle }) =>
-          storageSubsystem.save(handle.documentId, handle.doc)
-        )
-
-        const binary = await storageSubsystem.load(handle.documentId)
-        if (binary.byteLength > 0) {
-          handle.loadIncremental(binary)
-        } else {
-          handle.requestDocument()
-        }
-      })
-    } else {
-      this.on("document", async ({ handle }) => {
-        handle.requestDocument()
-      })
     }
 
     const networkSubsystem = new NetworkSubsystem(network, peerId)
@@ -56,6 +40,27 @@ export class Repo extends DocCollection {
 
     // wire up the dependency synchronizers
     const synchronizer = new CollectionSynchronizer(this)
+
+    /**
+     * The `document` event is fired by the DocCollection any time we create a new document or look
+     * up a document by ID.
+     */
+    this.on("document", async ({ handle }) => {
+      if (this.storageSubsystem) {
+        const storage = this.storageSubsystem
+
+        // storage listens for changes and saves them
+        handle.on("change", ({ handle }) =>
+          storage.save(handle.documentId, handle.doc)
+        )
+
+        // we try to load the document from storage
+        const doc = await storage.load(handle.documentId, handle.doc)
+        if (doc) handle.load(doc)
+      }
+      // we always announce our interest in this document to peers
+      handle.request()
+    })
 
     networkSubsystem.on("peer", ({ peerId }) => {
       this.#log("peer connected", { peerId })
