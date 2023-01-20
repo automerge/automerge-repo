@@ -7,15 +7,15 @@ import { DocumentId } from "./types"
  * A DocCollection is a collection of DocHandles. It supports creating new documents and finding
  * documents by ID.
  * */
-export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
-  #handleCache: Record<DocumentId, DocHandle<unknown>> = {}
+export class DocCollection extends EventEmitter<DocCollectionEvents> {
+  handles: Record<DocumentId, DocHandle<unknown>> = {}
 
   constructor() {
     super()
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
-  #handleFromCache(
+  private handleFromCache(
     /** The documentId of the handle to look up or create */
     documentId: DocumentId,
 
@@ -23,17 +23,12 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     isNew: boolean
   ) {
     // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) return this.#handleCache[documentId]
+    if (this.handles[documentId]) return this.handles[documentId]
 
     // If not, create a new handle, cache it, and return it
     const handle = new DocHandle<unknown>(documentId, isNew)
-    this.#handleCache[documentId] = handle
+    this.handles[documentId] = handle
     return handle
-  }
-
-  /** Returns all the handles we have cached. */
-  get handles() {
-    return this.#handleCache
   }
 
   /**
@@ -62,7 +57,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     // - pass a "reify" function that takes a `<any>` and returns `<T>`
 
     const documentId = uuid() as DocumentId
-    const handle = this.#handleFromCache(documentId, true) as DocHandle<T>
+    const handle = this.handleFromCache(documentId, true) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }
@@ -78,11 +73,11 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     // TODO: we want a way to make sure we don't yield intermediate document states during initial synchronization
 
     // If we already have a handle, return it
-    if (this.#handleCache[documentId])
-      return this.#handleCache[documentId] as DocHandle<T>
+    if (this.handles[documentId])
+      return this.handles[documentId] as DocHandle<T>
 
     // Otherwise, create a new handle
-    const handle = this.#handleFromCache(documentId, false) as DocHandle<T>
+    const handle = this.handleFromCache(documentId, false) as DocHandle<T>
 
     // we don't directly initialize a value here because the StorageSubsystem and Synchronizers go
     // and get the data asynchronously and block on read instead of on create
@@ -96,8 +91,8 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
 
 // events & payloads
 
-export interface DocCollectionEvents<T> {
-  document: (arg: DocumentPayload<T>) => void
+export interface DocCollectionEvents {
+  document: (payload: DocumentPayload<unknown>) => void
 }
 
 export interface DocumentPayload<T> {
