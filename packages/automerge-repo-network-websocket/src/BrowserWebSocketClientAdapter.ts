@@ -12,17 +12,12 @@ import WebSocket from "isomorphic-ws"
 import debug from "debug"
 const log = debug("WebsocketClient")
 
-interface WebSocketNetworkAdapter extends NetworkAdapter {
+abstract class WebSocketNetworkAdapter extends NetworkAdapter {
   socket?: WebSocket
 }
 
-export class BrowserWebSocketClientAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements WebSocketNetworkAdapter
-{
-  socket?: WebSocket
+export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   timerId?: NodeJS.Timer
-  peerId?: PeerId
   url: string
   channels: ChannelId[] = []
 
