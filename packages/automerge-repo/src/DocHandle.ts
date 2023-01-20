@@ -93,10 +93,17 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     return this.#state === HandleState.READY
   }
 
-  request() {
+  /**
+   * A Repo can call this when it doesn't have the document and has advertised our interest in it.
+   * This blocks access to the document until we get it from a peer.
+   *
+   * TODO: might be good for this to timeout and go to a "not found" state if the document isn't
+   * available after a certain amount of time. but not sure what we would do with a doc in that
+   * state. We'd also need to retry etc.
+   */
+  waitForSync() {
     if (this.#state === HandleState.LOADING) {
       this.#state = HandleState.REQUESTING
-      this.emit("requesting")
     }
   }
 
@@ -115,18 +122,15 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * This is the current state of the document
-   *
-   * If a document isn't available locally, this will block until it gets it from the network.
-   *
-   * TODO: might be good for this to timeout if the document isn't available after a certain amount of time
+   * This is the current state of the document. If a document isn't available locally, this will
+   * block until until we get it from a peer. (As noted above, we should probably have a timeout.)
    */
   async value() {
     if (!this.isReady()) {
       this.#log(`value (${this.#state}, waiting for ready)`)
       await eventPromise(this, "ready")
     } else {
-      // HACK: yield for one tick
+      // HACK: yield for one tick — why do we need this??
       await pause(0)
     }
     this.#log(`value:`, this.doc)
@@ -138,23 +142,19 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * peers for it.
    */
   async provisionalValue() {
-    if (this.#state == HandleState.LOADING) {
+    if (this.#state === HandleState.LOADING) {
       this.#log(`provisionalValue: waiting to be done loading`)
       await Promise.any([
         eventPromise(this, "ready"),
         eventPromise(this, "requesting"),
       ])
-    } else {
-      // HACK: yield for one tick
-      await pause(0)
     }
-
     this.#log(`provisionalValue:`, this.doc)
     return this.doc
   }
 
   /**
-   * Applies an Automerge change function to the document,
+   * Applies an Automerge change function to the document.
    */
   async change(callback: A.ChangeFn<T>, options: ChangeOptions<T> = {}) {
     const oldDoc = await this.value()
