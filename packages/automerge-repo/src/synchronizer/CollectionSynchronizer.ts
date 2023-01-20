@@ -33,7 +33,7 @@ export class CollectionSynchronizer extends Synchronizer {
     const docSynchronizer = this.fetchDocSynchronizer(documentId)
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message}`)
     docSynchronizer.onSyncMessage(peerId, channelId, message)
-    this.#generousPeers().forEach(peerId => {
+    this.#generousPolicyPeers().forEach(peerId => {
       if (!docSynchronizer.hasPeer(peerId)) {
         docSynchronizer.beginSync(peerId)
       }
@@ -62,7 +62,9 @@ export class CollectionSynchronizer extends Synchronizer {
    */
   addDocument(documentId: DocumentId) {
     const docSynchronizer = this.fetchDocSynchronizer(documentId)
-    this.#generousPeers().forEach(peerId => docSynchronizer.beginSync(peerId))
+    this.#generousPolicyPeers().forEach(peerId =>
+      docSynchronizer.beginSync(peerId)
+    )
   }
 
   // TODO: implement this
@@ -70,22 +72,26 @@ export class CollectionSynchronizer extends Synchronizer {
     throw new Error("not implemented")
   }
 
-  /** returns an array of peerIds whose sharePolicy is true */
-  #generousPeers(): PeerId[] {
+  /** returns an array of peerIds that we share generously with */
+  #generousPolicyPeers(): PeerId[] {
     return Object.entries(this.#peers)
-      .filter(([_, sharePolicy]) => sharePolicy === true)
+      .filter(([_, shareGenerous]) => shareGenerous === true)
       .map(([peerId, _]) => peerId as PeerId)
   }
 
   /** Adds a peer and maybe starts synchronizing with them */
   addPeer(
     peerId: PeerId,
-    /** If true, we share generously with this peer */
-    sharePolicy: boolean
+
+    /**
+     * If true, we share generously with this peer. ("Generous" means we tell them about every
+     * document we have, whether or not they ask for them.)
+     * */
+    generousPolicy: boolean
   ) {
-    log(`${peerId}, ${sharePolicy}`)
-    this.#peers[peerId] = sharePolicy
-    if (sharePolicy === true) {
+    log(`${peerId}, ${generousPolicy}`)
+    this.#peers[peerId] = generousPolicy
+    if (generousPolicy === true) {
       log(`sharing all open docs`)
       Object.values(this.#syncPool).forEach(docSynchronizer =>
         docSynchronizer.beginSync(peerId)
