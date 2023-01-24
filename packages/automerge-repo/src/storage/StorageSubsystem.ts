@@ -57,6 +57,13 @@ export class StorageSubsystem {
     return mergeArrays(result)
   }
 
+  async load<T>(
+    documentId: DocumentId,
+    prevDoc: A.Doc<T> = A.init<T>()
+  ): Promise<A.Doc<T>> {
+    return A.loadIncremental(prevDoc, await this.loadBinary(documentId))
+  }
+
   save(documentId: DocumentId, doc: A.Doc<unknown>) {
     if (this.#shouldCompact(documentId)) {
       this.#saveTotal(documentId, doc)

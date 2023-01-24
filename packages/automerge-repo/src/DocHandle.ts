@@ -106,6 +106,11 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     }
   }
 
+  load(doc: A.Doc<T>) {
+    this.#log(`load`, this.doc)
+    this.#emitChange(doc)
+  }
+
   loadIncremental(binary: Uint8Array) {
     this.#log(`loadIncremental`, this.doc)
     const newDoc = A.loadIncremental(this.doc, binary)
