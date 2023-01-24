@@ -50,7 +50,6 @@ export function App(props: { rootId: DocumentId }) {
     <>
       <div className="flex h-screen pt-2 pb-96 bg-primary-50">
         <div className="m-auto w-4/5 max-w-xl border border-neutral-300 shadow-md rounded-md bg-white">
-          {/* new todo form */}
           <header>
             <form
               onSubmit={e => {
@@ -94,7 +93,7 @@ export function App(props: { rootId: DocumentId }) {
               {state.todos.map(id => (
                 <Todo
                   key={id}
-                  id={id}
+                  documentId={id}
                   onDestroy={id => destroy(id)}
                   filter={filter}
                 />
