@@ -115,16 +115,12 @@ export class Repo extends Mixin(
           storage.save(handle.documentId, handle.doc)
         )
 
-        // we always try first to load the document from storage
-        const doc = await storage.load(handle.documentId, handle.doc)
-        if (doc) {
-          // If we found a document in storage, we load it into the handle
-          handle.load(doc)
+        const binary = await storage.loadBinary(handle.documentId)
+        if (binary.byteLength > 0) {
+          handle.loadIncremental(binary)
         } else {
-          // Otherwise we wait for the document to come in from a peer
           handle.waitForSync()
         }
-      }
 
       // register the document with the synchronizer
       synchronizer.addDocument(handle.documentId)
