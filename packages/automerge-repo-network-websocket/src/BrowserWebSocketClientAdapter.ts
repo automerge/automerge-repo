@@ -2,11 +2,9 @@ import {
   ChannelId,
   InboundMessagePayload,
   NetworkAdapter,
-  NetworkAdapterEvents,
   PeerId,
 } from "automerge-repo"
 import * as CBOR from "cbor-x"
-import EventEmitter from "eventemitter3"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
