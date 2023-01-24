@@ -13,7 +13,7 @@ export class NodeFSStorageAdapter implements StorageAdapter {
   }
 
   load(docId: string): Promise<Uint8Array | null> {
-    return new Promise<Uint8Array | null>((resolve) => {
+    return new Promise<Uint8Array | null>(resolve => {
       fs.readFile(this.fileName(docId), (err, data) => {
         if (err) resolve(null)
         else resolve(data)
@@ -22,7 +22,7 @@ export class NodeFSStorageAdapter implements StorageAdapter {
   }
 
   save(docId: string, binary: Uint8Array): void {
-    fs.writeFile(this.fileName(docId), binary, (err) => {
+    fs.writeFile(this.fileName(docId), binary, err => {
       // TODO: race condition if a load happens before the save is complete.
       // use an in-memory cache while save is in progress
       if (err) throw err
@@ -30,7 +30,7 @@ export class NodeFSStorageAdapter implements StorageAdapter {
   }
 
   remove(docId: string): void {
-    fs.rm(this.fileName(docId), (err) => {
+    fs.rm(this.fileName(docId), err => {
       if (err) console.log("removed a file that does not exist: " + docId)
     })
   }

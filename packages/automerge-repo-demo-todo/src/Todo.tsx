@@ -2,7 +2,7 @@ import { DocumentId } from "automerge-repo"
 import { useDocument, useRepo } from "automerge-repo-react-hooks"
 import cx from "classnames"
 import { useEffect, useRef, useState } from "react"
-import { Filter, TodoData } from "./types"
+import { Filter, TodoData } from "./types.js"
 
 export const Todo = ({ documentId, onDestroy, filter }: TodoProps) => {
   const [todo, changeTodo] = useDocument<TodoData>(documentId)

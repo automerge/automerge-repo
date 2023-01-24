@@ -1,5 +1,5 @@
 import EventEmitter from "eventemitter3"
-import { PortRefEvents, MessagePortRef } from "./MessagePortRef"
+import { PortRefEvents, MessagePortRef } from "./MessagePortRef.js"
 
 export class WeakMessagePortRef
   extends EventEmitter<PortRefEvents>
@@ -13,7 +13,7 @@ export class WeakMessagePortRef
 
     this.weakRef = new WeakRef<MessagePort>(port)
 
-    port.addEventListener("message", (event) => {
+    port.addEventListener("message", event => {
       this.emit("message", event)
     })
   }

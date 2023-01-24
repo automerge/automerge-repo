@@ -1,12 +1,12 @@
 import EventEmitter from "eventemitter3"
-import { PortRefEvents, MessagePortRef } from "./MessagePortRef"
+import { PortRefEvents, MessagePortRef } from "./MessagePortRef.js"
 
 export class StrongMessagePortRef
   extends EventEmitter<PortRefEvents>
   implements MessagePortRef
 {
   constructor(private port: MessagePort) {
-    port.addEventListener("message", (event) => {
+    port.addEventListener("message", event => {
       this.emit("message", event)
     })
 

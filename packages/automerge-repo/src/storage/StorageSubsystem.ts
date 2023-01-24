@@ -1,97 +1,72 @@
-import * as Automerge from "@automerge/automerge"
-import { DocumentId } from "../DocHandle"
+import * as A from "@automerge/automerge"
+import { DocumentId } from "../types.js"
+import { mergeArrays } from "../helpers/mergeArrays.js"
+import { StorageAdapter } from "./StorageAdapter.js"
 
-export interface StorageAdapter {
-  load(docId: string): Promise<Uint8Array | null>
-  save(docId: string, data: Uint8Array): void
-  remove(docId: string): void
-}
-
-function mergeArrays(myArrays: Uint8Array[]) {
-  // Get the total length of all arrays.
-  let length = 0
-  myArrays.forEach((item) => {
-    length += item.length
-  })
-
-  // Create a new array with total length and merge all source arrays.
-  const mergedArray = new Uint8Array(length)
-  let offset = 0
-  myArrays.forEach((item) => {
-    mergedArray.set(item, offset)
-    offset += item.length
-  })
-
-  return mergedArray
-}
 export class StorageSubsystem {
-  storageAdapter: StorageAdapter
+  #storageAdapter: StorageAdapter
+  #changeCount: Record<DocumentId, number> = {}
 
   constructor(storageAdapter: StorageAdapter) {
-    this.storageAdapter = storageAdapter
+    this.#storageAdapter = storageAdapter
   }
 
-  incrementalChanges: { [docId: DocumentId]: number } = {}
-
-  saveIncremental(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
-    const binary = Automerge.getBackend(doc).saveIncremental()
+  #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
+    const binary = A.getBackend(doc).saveIncremental()
     if (binary && binary.length > 0) {
-      if (!this.incrementalChanges[documentId]) {
-        this.incrementalChanges[documentId] = 0
+      if (!this.#changeCount[documentId]) {
+        this.#changeCount[documentId] = 0
       }
 
-      this.storageAdapter.save(
-        `${documentId}.incremental.${this.incrementalChanges[documentId]}`,
+      this.#storageAdapter.save(
+        `${documentId}.incremental.${this.#changeCount[documentId]}`,
         binary
       )
 
-      this.incrementalChanges[documentId]++
+      this.#changeCount[documentId]++
     }
   }
 
-  saveTotal(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
-    const binary = Automerge.save(doc)
-    this.storageAdapter.save(`${documentId}.snapshot`, binary)
+  #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
+    const binary = A.save(doc)
+    this.#storageAdapter.save(`${documentId}.snapshot`, binary)
 
-    for (let i = 0; i < this.incrementalChanges[documentId]; i++) {
-      this.storageAdapter.remove(`${documentId}.incremental.${i}`)
+    for (let i = 0; i < this.#changeCount[documentId]; i++) {
+      this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
     }
 
-    this.incrementalChanges[documentId] = 0
+    this.#changeCount[documentId] = 0
   }
 
-  async load(storageKey: string): Promise<Uint8Array> {
-    const result = []
-    let binary = await this.storageAdapter.load(`${storageKey}.snapshot`)
-    if (binary && binary.length > 0) {
-      result.push(binary)
-    }
+  async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
+    const result: Uint8Array[] = []
+
+    let binary = await this.#storageAdapter.load(`${documentId}.snapshot`)
+    if (binary && binary.length > 0) result.push(binary)
 
     let index = 0
     while (
-      (binary = await this.storageAdapter.load(
-        `${storageKey}.incremental.${index}`
+      (binary = await this.#storageAdapter.load(
+        `${documentId}.incremental.${index}`
       ))
     ) {
-      if (binary && binary.length > 0) {
-        result.push(binary)
-      }
+      if (binary && binary.length > 0) result.push(binary)
       index += 1
     }
 
     return mergeArrays(result)
   }
 
-  // TODO: make this, you know, good.
-  shouldCompact(documentId: DocumentId) {
-    return this.incrementalChanges[documentId] >= 20
+  save(documentId: DocumentId, doc: A.Doc<unknown>) {
+    if (this.#shouldCompact(documentId)) {
+      this.#saveTotal(documentId, doc)
+    } else {
+      this.#saveIncremental(documentId, doc)
+    }
   }
 
-  save(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
-    if (this.shouldCompact(documentId)) {
-      this.saveTotal(documentId, doc)
-    } else {
-      this.saveIncremental(documentId, doc)
-    }
+  // TODO: make this, you know, good.
+  #shouldCompact(documentId: DocumentId) {
+    return this.#changeCount[documentId] >= 20
   }
 }

@@ -1,24 +1,17 @@
-import EventEmitter from "eventemitter3"
-import * as ws from "isomorphic-ws"
-import { type WebSocketServer, WebSocket } from "isomorphic-ws"
 import * as CBOR from "cbor-x"
+import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 
 import debug from "debug"
 const log = debug("WebsocketServer")
 
 import {
   ChannelId,
-  DecodedMessage,
+  InboundMessagePayload,
   NetworkAdapter,
-  NetworkAdapterEvents,
   PeerId,
 } from "automerge-repo"
 
-export class NodeWSServerAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements NetworkAdapter
-{
-  peerId?: PeerId
+export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
   sockets: { [peerId: PeerId]: WebSocket } = {}
 
@@ -29,19 +22,18 @@ export class NodeWSServerAdapter
 
   connect(peerId: PeerId) {
     this.peerId = peerId
-    this.server.on("connection", (socket) => {
+    this.server.on("connection", socket => {
       // When a socket closes, or disconnects, remove it from our list
       socket.on("close", () => {
         for (const [otherPeerId, otherSocket] of Object.entries(this.sockets)) {
-          if(socket === otherSocket) {
+          if (socket === otherSocket) {
             this.emit("peer-disconnected", { peerId: otherPeerId as PeerId })
             delete this.sockets[otherPeerId as PeerId]
           }
         }
-
       })
 
-      socket.on("message", (message) =>
+      socket.on("message", message =>
         this.receiveMessage(message as Uint8Array, socket)
       )
     })
@@ -68,17 +60,17 @@ export class NodeWSServerAdapter
     if (!senderId) {
       throw new Error("No peerId set for the websocket server network adapter.")
     }
-    if(this.sockets[targetId] === undefined) {
+    if (this.sockets[targetId] === undefined) {
       log(`Tried to send message to disconnected peer: ${targetId}`)
       return
     }
 
-    const decoded: DecodedMessage = {
+    const decoded: InboundMessagePayload = {
       senderId,
       targetId,
       channelId,
       type: "sync",
-      data: message,
+      message,
       broadcast,
     }
     const encoded = CBOR.encode(decoded)

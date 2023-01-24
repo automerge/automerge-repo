@@ -1,5 +1,5 @@
 import assert from "assert"
-import { NetworkSubsystem } from "../src/network/NetworkSubsystem"
+import { NetworkSubsystem } from "../src/network/NetworkSubsystem.js"
 
 describe("Network", () => {
   it("TODO", () => {

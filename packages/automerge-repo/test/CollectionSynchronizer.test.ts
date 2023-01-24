@@ -1,6 +1,6 @@
-import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer"
-import { DocCollection } from "../dist"
+import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
 import assert from "assert"
+import { DocCollection } from "../src/DocCollection.js"
 
 describe("CollectionSynchronizer", () => {
   const collection = new DocCollection()
