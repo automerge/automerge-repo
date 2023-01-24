@@ -47,7 +47,7 @@ describe("DocHandle", () => {
       Automerge.change<{ foo: string }>(Automerge.init(), d => (d.foo = "bar"))
     )
 
-    const provisionalDoc = await handle.provisionalValue()
+    const provisionalDoc = await handle.value(true)
     assert.equal(handle.isReady(), true)
     assert.equal(provisionalDoc.foo, "bar")
   })
