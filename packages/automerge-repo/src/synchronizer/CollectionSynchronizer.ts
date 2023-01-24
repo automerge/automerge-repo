@@ -9,59 +9,57 @@ const log = debug("ar:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
 export class CollectionSynchronizer extends Synchronizer {
-  repo: DocCollection
-
   /** A map of our peers to whether we share generously with them or not */
   #peers: Record<PeerId, boolean> = {}
 
-  /** A map of documentIds to their synchronizers */
-  #syncPool: Record<DocumentId, DocSynchronizer> = {}
+  /** A map of documentIds to their document synchronizers */
+  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
 
-  constructor(repo: DocCollection) {
+  constructor(private repo: DocCollection) {
     super()
-    this.repo = repo
   }
 
   /**
-   *
+   * When we receive a sync message, we hand it off to the appropriate document synchronizer. Once
+   * the document synchronizer has updated the document, we update our peers.
    */
-  onSyncMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array) {
-    const documentId = channelId as unknown as DocumentId
-
-    // if we receive a sync message for a document we haven't got in memory,
-    // we'll need to register it with the repo and start synchronizing
-    const docSynchronizer = this.fetchDocSynchronizer(documentId)
+  receiveSyncMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array
+  ) {
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message}`)
-    docSynchronizer.onSyncMessage(peerId, channelId, message)
+
+    const documentId = channelId as string as DocumentId
+
+    // Have the doc synchronizer handle the message & update document accordingly
+    const docSynchronizer = this.#fetchDocSynchronizer(documentId)
+    docSynchronizer.receiveSyncMessage(peerId, channelId, message)
+
+    // Let any peers know about the change (if we share generously with them)
     this.#generousPolicyPeers().forEach(peerId => {
-      if (!docSynchronizer.hasPeer(peerId)) {
-        docSynchronizer.beginSync(peerId)
-      }
+      if (!docSynchronizer.hasPeer(peerId)) docSynchronizer.beginSync(peerId)
     })
   }
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
-  fetchDocSynchronizer(documentId: DocumentId) {
+  #fetchDocSynchronizer(documentId: DocumentId) {
     // TODO: add a callback to decide whether or not to accept offered documents
 
-    if (!this.#syncPool[documentId]) {
+    if (!this.#docSynchronizers[documentId]) {
       const handle = this.repo.find(documentId)
-      this.#syncPool[documentId] = this.initDocSynchronizer(handle)
+      const docSynchronizer = new DocSynchronizer(handle)
+      // re-emit this synchronizer's messages
+      docSynchronizer.on("message", payload => this.emit("message", payload))
+
+      this.#docSynchronizers[documentId] = docSynchronizer
     }
-    return this.#syncPool[documentId]
+    return this.#docSynchronizers[documentId]
   }
 
-  initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
-    const docSynchronizer = new DocSynchronizer(handle)
-    docSynchronizer.on("message", event => this.emit("message", event))
-    return docSynchronizer
-  }
-
-  /**
-   * Starts synchronizing the given document with all peers that we share generously with.
-   */
+  /** Starts synchronizing the given document with all peers that we share generously with. */
   addDocument(documentId: DocumentId) {
-    const docSynchronizer = this.fetchDocSynchronizer(documentId)
+    const docSynchronizer = this.#fetchDocSynchronizer(documentId)
     this.#generousPolicyPeers().forEach(peerId =>
       docSynchronizer.beginSync(peerId)
     )
@@ -86,14 +84,14 @@ export class CollectionSynchronizer extends Synchronizer {
     /**
      * If true, we share generously with this peer. ("Generous" means we tell them about every
      * document we have, whether or not they ask for them.)
-     * */
+     */
     generousPolicy: boolean
   ) {
     log(`${peerId}, ${generousPolicy}`)
     this.#peers[peerId] = generousPolicy
     if (generousPolicy === true) {
       log(`sharing all open docs`)
-      Object.values(this.#syncPool).forEach(docSynchronizer =>
+      Object.values(this.#docSynchronizers).forEach(docSynchronizer =>
         docSynchronizer.beginSync(peerId)
       )
     }
@@ -103,7 +101,7 @@ export class CollectionSynchronizer extends Synchronizer {
   removePeer(peerId: PeerId) {
     log(`removing peer ${peerId}`)
     delete this.#peers[peerId]
-    for (const docSynchronizer of Object.values(this.#syncPool)) {
+    for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       docSynchronizer.endSync(peerId)
     }
   }

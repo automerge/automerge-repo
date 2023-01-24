@@ -37,25 +37,23 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
    * to advertise interest in the document.
    */
   create<T>(): DocHandle<T> {
-    // TODO:
-    // either
-    // - pass an initial value and do something like this to ensure that you get a valid initial value
-
-    // const myInitialValue = {
-    //   tasks: [],
-    //   filter: "all",
-    // }
-
-    // const guaranteeInitialValue = (doc: any) => {
-    // if (!doc.tasks) doc.tasks = []
-    // if (!doc.filter) doc.filter = "all"
-
-    //   return { ...myInitialValue, ...doc }
-    // }
-
-    // or
-    // - pass a "reify" function that takes a `<any>` and returns `<T>`
-
+    /**
+     * TODO: we should ensure that the document has the desired initial structure here. Options:
+     *
+     * 1. pass an initial value and do something like this to ensure that you get a valid initial value
+     *
+     * const initialValue: TodoState = { tasks: [], filter: "all"}
+     * create(initialValue)
+     *
+     * 2.  pass a "reify" function that takes a `<any>` and returns `<T>`
+     *
+     * cons setInitialValue = <TodoState>(v: any): TodoState => {
+     *   v.tasks = v.tasks || []
+     *   v.filter = v.tasks || "all"
+     * }
+     * create(setInitialValue)
+     *
+     */
     const documentId = uuid() as DocumentId
     const handle = this.handleFromCache(documentId, true) as DocHandle<T>
     this.emit("document", { handle })
@@ -70,7 +68,9 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     /** The documentId of the handle to retrieve */
     documentId: DocumentId
   ): DocHandle<T> {
-    // TODO: we want a way to make sure we don't yield intermediate document states during initial synchronization
+    // TODO: make sure we don't yield intermediate document states during initial synchronization
+    // (e.g. if the sync process is requiring multiple rounds because of a Bloom filter false
+    // positive)
 
     // If we already have a handle, return it
     if (this.handles[documentId])
@@ -79,10 +79,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     // Otherwise, create a new handle
     const handle = this.handleFromCache(documentId, false) as DocHandle<T>
 
-    // we don't directly initialize a value here because the StorageSubsystem and Synchronizers go
-    // and get the data asynchronously and block on read instead of on create
-
-    // emit a document event to advertise interest in this document
+    // emit a document event so Repo will advertise interest in this document
     this.emit("document", { handle })
 
     return handle

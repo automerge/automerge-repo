@@ -4,6 +4,8 @@ import { ChannelId, PeerId } from "../types"
 import { Synchronizer } from "./Synchronizer"
 
 import debug from "debug"
+const PROVISIONAL = true
+
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
  * to bring it inline with all other peers' versions.
@@ -13,17 +15,14 @@ export class DocSynchronizer extends Synchronizer {
   #conciseLog: debug.Debugger
   #opsLog: debug.Debugger
 
-  #handle: DocHandle
-
   /** Active peers */
   #peers: PeerId[] = []
 
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  constructor(handle: DocHandle) {
+  constructor(private handle: DocHandle) {
     super()
-    this.#handle = handle
 
     this.#conciseLog = debug(`ar:concise:docsync:${this.documentId}`) // Only logs one line per receive/send
     this.#log = debug(`ar:docsync:${this.documentId}`)
@@ -33,14 +32,14 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   get documentId() {
-    return this.#handle.documentId
+    return this.handle.documentId
   }
 
   /// PRIVATE
 
   async #syncWithPeers() {
     this.#log(`syncWithPeers`)
-    const doc = await this.#handle.provisionalValue()
+    const doc = await this.handle.value(PROVISIONAL)
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
@@ -65,15 +64,15 @@ export class DocSynchronizer extends Synchronizer {
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
     this.#log(`sendSyncMessage ->${peerId}`)
 
-    // TODO: Right now this can send duplicate messages even if nothing has changed
+    const state = this.#getSyncState(peerId)
+    const [newState, message] = A.generateSyncMessage(doc, state)
+    this.#setSyncState(peerId, newState)
 
-    const syncState = this.#getSyncState(peerId)
-    const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
-    this.#setSyncState(peerId, newSyncState)
+    // message will be null if there's nothing further to send
     if (message) {
-      this.logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
+      this.#logMessage(`sendSyncMessage sending 🡒 ${peerId}`, message)
 
-      const channelId = this.#handle.documentId as string as ChannelId
+      const channelId = this.handle.documentId as string as ChannelId
       this.emit("message", {
         targetId: peerId,
         channelId,
@@ -85,7 +84,7 @@ export class DocSynchronizer extends Synchronizer {
     }
   }
 
-  logMessage = (label: string, message: Uint8Array) => {
+  #logMessage = (label: string, message: Uint8Array) => {
     const size = message.byteLength
     const logText = `${label} ${size}b`
     const decoded = A.decodeSyncMessage(message)
@@ -104,20 +103,25 @@ export class DocSynchronizer extends Synchronizer {
 
   /// PUBLIC
 
+  /** Returns true if we're already synchronizing with the given peer on this doc */
   hasPeer(peerId: PeerId) {
     return this.#peers.includes(peerId)
   }
 
+  /** Kicks off the sync process */
   async beginSync(peerId: PeerId) {
     this.#log(`beginSync: ${peerId}`)
-    const doc = await this.#handle.provisionalValue()
+    const doc = await this.handle.value(true)
 
-    // HACK: if we have a sync state already, we round-trip it through the encoding system to make
-    // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
-    // messages during disconnection.
-    const syncStateRaw = this.#getSyncState(peerId)
-    const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
-    this.#setSyncState(peerId, syncState)
+    // Q: I don't totally understand why this business is necessary -- tests pass without it
+    {
+      // HACK: if we have a sync state already, we round-trip it through the encoding system to make
+      // sure state is preserved (??). This prevents an infinite loop caused by failed attempts to send
+      // messages during disconnection.
+      const syncStateRaw = this.#getSyncState(peerId)
+      const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
+      this.#setSyncState(peerId, syncState)
+    }
 
     this.#sendSyncMessage(peerId, doc)
   }
@@ -127,7 +131,10 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  async onSyncMessage(
+  /**
+   * When we receive a sync message from a peer, we run it through Automerge's sync algorithm to
+   */
+  receiveSyncMessage(
     peerId: PeerId,
     channelId: ChannelId,
     message: Uint8Array
@@ -135,22 +142,15 @@ export class DocSynchronizer extends Synchronizer {
     if ((channelId as string) !== (this.documentId as string))
       throw new Error(`channelId doesn't match documentId`)
 
-    // We need to block receiving the syncMessages until we've checked local storage
-    // TODO: this is kind of an opaque way of doing this...
-    // await this.handle.provisionalValue()
+    this.#logMessage(`onSyncMessage receiving 🡐 ${peerId}`, message)
 
-    this.logMessage(`onSyncMessage 🡐 ${peerId}`, message)
+    this.handle.updateDoc(doc => {
+      const state = this.#getSyncState(peerId)
+      const [newDoc, newState] = A.receiveSyncMessage(doc, state, message)
 
-    this.#handle.updateDoc(doc => {
-      const [newDoc, newSyncState] = A.receiveSyncMessage(
-        doc,
-        this.#getSyncState(peerId),
-        message
-      )
+      this.#setSyncState(peerId, newState)
 
-      this.#setSyncState(peerId, newSyncState)
-
-      // respond to just this peer (as required)
+      // respond to just this peer (if needed)
       this.#sendSyncMessage(peerId, doc)
       return newDoc
     })

@@ -69,7 +69,7 @@ export class Repo extends Mixin(
       } else {
         // process sync message
         this.log(`receiving sync message from ${senderId}`)
-        synchronizer.onSyncMessage(senderId, channelId, message)
+        synchronizer.receiveSyncMessage(senderId, channelId, message)
       }
       this.emit("message", payload)
     })
