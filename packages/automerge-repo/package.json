@@ -36,6 +36,7 @@
     "debug": "^4.3.4",
     "eventemitter3": "^4.0.7",
     "tiny-typed-emitter": "^2.1.0",
+    "ts-mixer": "^6.0.2",
     "ts-node": "^10.9.1",
     "uuid": "^8.3.2"
   },
