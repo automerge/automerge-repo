@@ -1,5 +1,5 @@
 import EventEmitter from "eventemitter3"
-import { PeerId, ChannelId } from "../types"
+import { PeerId, ChannelId } from "../types.js"
 
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not

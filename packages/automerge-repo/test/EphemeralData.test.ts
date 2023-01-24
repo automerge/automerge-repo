@@ -1,7 +1,7 @@
 import assert from "assert"
 import * as CBOR from "cbor-x"
-import { EphemeralData } from "../src/EphemeralData"
-import { ChannelId, PeerId } from "../src/types"
+import { EphemeralData } from "../src/EphemeralData.js"
+import { ChannelId, PeerId } from "../src/types.js"
 
 describe("EphemeralData", () => {
   const ephemeral = new EphemeralData()

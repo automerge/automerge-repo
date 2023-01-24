@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge"
 import assert from "assert"
 import { DocHandle, DocumentId } from "../src"
-import { eventPromise } from "../src/helpers/eventPromise"
+import { eventPromise } from "../src/helpers/eventPromise.js"
 
 interface TestDoc {
   foo: string

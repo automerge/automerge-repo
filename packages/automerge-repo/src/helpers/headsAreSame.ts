@@ -1,5 +1,5 @@
 import * as A from "@automerge/automerge"
-import { arraysAreEqual } from "./arraysAreEqual"
+import { arraysAreEqual } from "./arraysAreEqual.js"
 
 export const headsAreSame = <T>(a: A.Doc<T>, b: A.Doc<T>) => {
   const aHeads = A.getHeads(a)

@@ -1,8 +1,8 @@
 import assert from "assert"
-import { DocumentId, PeerId } from "../src/types"
-import { DocHandle } from "../src/DocHandle"
-import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
-import { eventPromise } from "../src/helpers/eventPromise"
+import { DocumentId, PeerId } from "../src/types.js"
+import { DocHandle } from "../src/DocHandle.js"
+import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
+import { eventPromise } from "../src/helpers/eventPromise.js"
 
 type TestDoc = {
   foo: string

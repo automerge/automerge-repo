@@ -1,6 +1,6 @@
 import EventEmitter from "eventemitter3"
-import { ChannelId, PeerId } from "../types"
-import { MessagePayload } from "../network/NetworkAdapter"
+import { ChannelId, PeerId } from "../types.js"
+import { MessagePayload } from "../network/NetworkAdapter.js"
 
 // Q: not sure this abstract class is buying us anything
 

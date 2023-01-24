@@ -3,8 +3,8 @@ import {
   InboundMessagePayload,
   NetworkAdapter,
   PeerDisconnectedPayload,
-} from "./NetworkAdapter"
-import { ChannelId, PeerId } from "../types"
+} from "./NetworkAdapter.js"
+import { ChannelId, PeerId } from "../types.js"
 
 import debug from "debug"
 

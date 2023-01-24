@@ -1,7 +1,7 @@
 import { ChannelId, NetworkAdapter, PeerId } from "automerge-repo"
-import { MessagePortRef } from "./MessagePortRef"
-import { StrongMessagePortRef } from "./StrongMessagePortRef"
-import { WeakMessagePortRef } from "./WeakMessagePortRef"
+import { MessagePortRef } from "./MessagePortRef.js"
+import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
+import { WeakMessagePortRef } from "./WeakMessagePortRef.js"
 
 import debug from "debug"
 const log = debug("ar:messagechannel")

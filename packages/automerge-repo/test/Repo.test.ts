@@ -1,13 +1,13 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
-import { ChannelId, DocHandle, HandleState, PeerId, Repo } from "../src"
-import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
-import { eventPromise } from "../src/helpers/eventPromise"
-import { getRandomItem } from "./helpers/getRandomItem"
-import { pause } from "../src/helpers/pause"
 import { isDeepStrictEqual } from "util"
-import { InboundMessagePayload } from "../dist"
+import { ChannelId, DocHandle, PeerId, Repo } from "../src"
+import { eventPromise } from "../src/helpers/eventPromise.js"
+import { pause } from "../src/helpers/pause.js"
+import { InboundMessagePayload } from "../src/network/NetworkAdapter.js"
+import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { getRandomItem } from "./helpers/getRandomItem.js"
 
 interface TestDoc {
   foo: string

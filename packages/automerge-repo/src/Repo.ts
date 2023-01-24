@@ -1,19 +1,18 @@
+import debug from "debug"
 import EventEmitter from "eventemitter3"
 import { Mixin } from "ts-mixer"
 
-import { DocCollection } from "./DocCollection"
-import { EphemeralData } from "./EphemeralData"
-import { NetworkAdapter } from "./network/NetworkAdapter"
+import { DocCollection } from "./DocCollection.js"
+import { EphemeralData } from "./EphemeralData.js"
+import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import {
   NetworkSubsystem,
   NetworkSubsystemEvents,
-} from "./network/NetworkSubsystem"
-import { StorageAdapter } from "./storage/StorageAdapter"
-import { StorageSubsystem } from "./storage/StorageSubsystem"
-import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
-import { ChannelId, PeerId } from "./types"
-
-import debug from "debug"
+} from "./network/NetworkSubsystem.js"
+import { StorageAdapter } from "./storage/StorageAdapter.js"
+import { StorageSubsystem } from "./storage/StorageSubsystem.js"
+import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
+import { ChannelId, PeerId } from "./types.js"
 
 const SYNC_CHANNEL = "sync_channel" as ChannelId
 

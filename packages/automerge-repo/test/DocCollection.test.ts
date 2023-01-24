@@ -1,6 +1,6 @@
 import assert from "assert"
 import { DocCollection, DocumentId } from "../src"
-import { TestDoc } from "./types"
+import { TestDoc } from "./types.js"
 
 const MISSING_DOCID = "non-existent-docID" as DocumentId
 

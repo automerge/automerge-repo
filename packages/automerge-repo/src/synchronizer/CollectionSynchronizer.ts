@@ -1,8 +1,8 @@
-import { DocCollection } from "../DocCollection"
-import { DocHandle } from "../DocHandle"
-import { ChannelId, DocumentId, PeerId } from "../types"
-import { DocSynchronizer } from "./DocSynchronizer"
-import { Synchronizer } from "./Synchronizer"
+import { DocCollection } from "../DocCollection.js"
+import { DocHandle } from "../DocHandle.js"
+import { ChannelId, DocumentId, PeerId } from "../types.js"
+import { DocSynchronizer } from "./DocSynchronizer.js"
+import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
 const log = debug("ar:collectionsync")

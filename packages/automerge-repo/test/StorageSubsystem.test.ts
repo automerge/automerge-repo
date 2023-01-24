@@ -9,7 +9,7 @@ import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
 
 import { DocumentId, StorageSubsystem } from "../src"
-import { TestDoc } from "./types"
+import { TestDoc } from "./types.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
