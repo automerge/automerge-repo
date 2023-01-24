@@ -1,10 +1,9 @@
 import * as A from "@automerge/automerge"
-import { DocHandle } from "../DocHandle.js"
+import debug from "debug"
+
+import { DocHandle, PROVISIONAL } from "../DocHandle.js"
 import { ChannelId, PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
-
-import debug from "debug"
-const PROVISIONAL = true
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -111,7 +110,7 @@ export class DocSynchronizer extends Synchronizer {
   /** Kicks off the sync process */
   async beginSync(peerId: PeerId) {
     this.#log(`beginSync: ${peerId}`)
-    const doc = await this.handle.value(true)
+    const doc = await this.handle.value(PROVISIONAL)
 
     // Q: I don't totally understand why this business is necessary -- tests pass without it
     {

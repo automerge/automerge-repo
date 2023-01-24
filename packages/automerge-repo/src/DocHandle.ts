@@ -204,3 +204,5 @@ export interface DocHandleEvents<T> {
   change: (payload: DocHandleChangePayload<T>) => void
   patch: (payload: DocHandlePatchPayload<T>) => void
 }
+
+export const PROVISIONAL = true

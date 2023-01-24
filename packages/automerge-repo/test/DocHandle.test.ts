@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge"
 import assert from "assert"
-import { DocHandle, DocumentId } from "../src"
+import { DocHandle, DocumentId, PROVISIONAL } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 
 interface TestDoc {
@@ -47,7 +47,7 @@ describe("DocHandle", () => {
       Automerge.change<{ foo: string }>(Automerge.init(), d => (d.foo = "bar"))
     )
 
-    const provisionalDoc = await handle.value(true)
+    const provisionalDoc = await handle.value(PROVISIONAL)
     assert.equal(handle.isReady(), true)
     assert.equal(provisionalDoc.foo, "bar")
   })
