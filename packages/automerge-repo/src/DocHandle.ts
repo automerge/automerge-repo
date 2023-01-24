@@ -1,12 +1,11 @@
 import * as A from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
-import EventEmitter from "eventemitter3"
-import { ChannelId, DocumentId, PeerId } from "./types"
-
 import debug from "debug"
+import EventEmitter from "eventemitter3"
+import { eventPromise } from "./helpers/eventPromise"
 import { headsAreSame } from "./helpers/headsAreSame"
 import { pause } from "./helpers/pause"
-import { eventPromise } from "./helpers/eventPromise"
+import { ChannelId, DocumentId, PeerId } from "./types"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
@@ -20,8 +19,8 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    *                        handle.state
    * ┌───────────────┐      ┌────────────┐
    * │new DocHandle()│  ┌──►│ LOADING    ├─┐
-   * ├─────────────┬─┘  │ ┌┤├────────────┤ │ via loadIncremental()
-   * ├─────────────┤    │ └►├────────────┤ │  or unblockSync()
+   * ├─────────────┬─┘  │ ┌┤├────────────┤ │ via load()
+   * ├─────────────┤    │ └►├────────────┤ │  or waitForSync()
    * │find()       ├────┘ ┌─┤ REQUESTING │ │
    * ├─────────────┤      │ ├────────────┤ │
    * │create()     ├────┐ │ ├────────────┤ │ via receiveSyncMessage()
@@ -114,42 +113,35 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
 
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
     this.#log(`updateDoc`, this.doc)
-
-    // TODO: make sure doc is a new version of the old doc somehow...
-
     const newDoc = callback(this.doc)
     this.#emitChange(newDoc)
   }
 
   /**
    * This is the current state of the document. If a document isn't available locally, this will
-   * block until until we get it from a peer. (As noted above, we should probably have a timeout.)
+   * block until until we get it from a peer. (As noted above, this should probably time out after a while.)
    */
-  async value() {
-    if (!this.isReady()) {
-      this.#log(`value (${this.#state}, waiting for ready)`)
-      await eventPromise(this, "ready")
+  async value(
+    /** If we don't have a doc, passing `true` will return an empty doc while we're asking peers for it. */
+    provisional = false
+  ) {
+    if (provisional) {
+      // make sure we're not still in loading state
+      if (this.#state === HandleState.LOADING) {
+        await Promise.any([
+          eventPromise(this, "ready"),
+          eventPromise(this, "requesting"),
+        ])
+      }
     } else {
-      // HACK: yield for one tick — why do we need this??
-      await pause(0)
+      // wait until we're in ready state
+      if (!this.isReady()) {
+        await eventPromise(this, "ready")
+      } else {
+        // HACK: yield for one tick — why do we need this??
+        await pause(0)
+      }
     }
-    this.#log(`value:`, this.doc)
-    return this.doc
-  }
-
-  /**
-   * If a document isn't available locally, this will return an empty document while we're asking
-   * peers for it.
-   */
-  async provisionalValue() {
-    if (this.#state === HandleState.LOADING) {
-      this.#log(`provisionalValue: waiting to be done loading`)
-      await Promise.any([
-        eventPromise(this, "ready"),
-        eventPromise(this, "requesting"),
-      ])
-    }
-    this.#log(`provisionalValue:`, this.doc)
     return this.doc
   }
 
@@ -174,8 +166,6 @@ export const HandleState = {
   /** we have the document in memory  */
   READY: "READY",
 } as const
-
-// avoiding enum https://maxheiber.medium.com/alternatives-to-typescript-enums-50e4c16600b1
 export type HandleState = typeof HandleState[keyof typeof HandleState]
 
 // types
