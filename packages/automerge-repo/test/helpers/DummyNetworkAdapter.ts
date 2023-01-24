@@ -1,23 +1,8 @@
-import EventEmitter from "eventemitter3"
-import {
-  ChannelId,
-  NetworkAdapter,
-  NetworkAdapterEvents,
-  PeerId,
-} from "../../src/network/NetworkSubsystem"
+import { NetworkAdapter } from "../../src"
 
-export class DummyNetworkAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements NetworkAdapter
-{
-  sendMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array
-  ): void {}
+export class DummyNetworkAdapter extends NetworkAdapter {
+  sendMessage() {}
   connect(_: string) {}
-
   join(_: string) {}
-
   leave(_: string) {}
 }

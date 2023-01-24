@@ -1,124 +1,64 @@
 import EventEmitter from "eventemitter3"
+import {
+  InboundMessagePayload,
+  NetworkAdapter,
+  PeerDisconnectedPayload,
+} from "./NetworkAdapter.js"
+import { ChannelId, PeerId } from "../types.js"
 
 import debug from "debug"
-const log = debug("NetworkSubsystem")
 
-export type PeerId = string & { __peerId: false }
-export type ChannelId = string & { __channelId: false }
+export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
+  #log: debug.Debugger
+  #adapters: NetworkAdapter[] = []
+  #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
+  #channels: ChannelId[]
 
-interface AdapterOpenDetails {
-  network: NetworkAdapter
-}
-interface PeerCandidateDetails {
   peerId: PeerId
-  channelId: ChannelId
-}
-
-interface PeerDetails {
-  peerId: PeerId
-  channelId: ChannelId
-}
-
-export interface OutboundMessageDetails {
-  targetId: PeerId
-  channelId: ChannelId
-  message: Uint8Array
-  broadcast: boolean
-}
-
-export interface InboundMessageDetails extends OutboundMessageDetails {
-  senderId: PeerId
-}
-
-interface DisconnectedDetails {
-  peerId: PeerId
-}
-
-export interface NetworkAdapterEvents {
-  open: (event: AdapterOpenDetails) => void
-  close: () => void
-  "peer-candidate": (event: PeerCandidateDetails) => void
-  "peer-disconnected": (event: DisconnectedDetails) => void
-  message: (event: InboundMessageDetails) => void
-}
-
-export interface NetworkEvents {
-  peer: (msg: PeerDetails) => void
-  "peer-disconnected": (event: DisconnectedDetails) => void
-  message: (msg: InboundMessageDetails) => void
-}
-
-export interface NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
-  peerId?: PeerId // hmmm, maybe not
-  connect(url?: string): void
-  sendMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array,
-    broadcast: boolean
-  ): void
-  join(channelId: ChannelId): void
-  leave(channelId: ChannelId): void
-}
-
-export interface DecodedMessage {
-  type: string
-  senderId: PeerId
-  targetId: PeerId
-  channelId: ChannelId
-  data: Uint8Array
-  broadcast: boolean
-}
-
-export interface Peer extends EventEmitter<InboundMessageDetails> {
-  isOpen(): boolean
-  close(): void
-  send(channelId: ChannelId, msg: Uint8Array): void
-}
-
-export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
-  networkAdapters: NetworkAdapter[] = []
-
-  myPeerId: PeerId
-  peerIdToAdapter: { [peerId: PeerId]: NetworkAdapter } = {}
-  channels: ChannelId[]
 
   constructor(networkAdapters: NetworkAdapter[], peerId?: PeerId) {
     super()
-    this.myPeerId =
+    this.peerId =
       peerId || (`user-${Math.round(Math.random() * 100000)}` as PeerId)
-    log("local peerID: ", this.myPeerId)
 
-    this.channels = []
+    this.#log = debug(`ar:network:${this.peerId}`)
 
-    this.networkAdapters = networkAdapters
-    networkAdapters.forEach((a) => this.addNetworkAdapter(a))
+    this.#channels = []
+
+    this.#adapters = networkAdapters
+    networkAdapters.forEach(a => this.addNetworkAdapter(a))
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
-    networkAdapter.connect(this.myPeerId)
+    networkAdapter.connect(this.peerId)
+
     networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
-      if (!this.peerIdToAdapter[peerId]) {
+      this.#log(`peer candidate: ${peerId} `)
+      if (!this.#adaptersByPeer[peerId]) {
         // TODO: handle losing a server here
-        this.peerIdToAdapter[peerId] = networkAdapter
+        this.#adaptersByPeer[peerId] = networkAdapter
       }
 
       this.emit("peer", { peerId, channelId })
     })
+
     networkAdapter.on("peer-disconnected", ({ peerId }) => {
-      delete this.peerIdToAdapter[peerId]
+      this.#log(`peer disconnected: ${peerId} `)
+      delete this.#adaptersByPeer[peerId]
       this.emit("peer-disconnected", { peerId })
     })
 
-    networkAdapter.on("message", (msg) => {
+    networkAdapter.on("message", msg => {
       const { senderId, targetId, channelId, broadcast, message } = msg
+      this.#log(`message from ${senderId}`)
+
       // If we receive a broadcast message from a network adapter
       // we need to re-broadcast it to all our other peers.
       // This is the world's worst gossip protocol.
       // TODO: This relies on the network forming a tree!
       //       If there are cycles, this approach will loop messages around forever.
       if (broadcast) {
-        Object.entries(this.peerIdToAdapter)
+        Object.entries(this.#adaptersByPeer)
           .filter(([id]) => id !== senderId)
           .forEach(([id, peer]) => {
             peer.sendMessage(id as PeerId, channelId, message, broadcast)
@@ -129,14 +69,15 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     })
 
     networkAdapter.on("close", () => {
-      Object.entries(this.peerIdToAdapter).forEach(([peerId, other]) => {
+      this.#log("adapter closed")
+      Object.entries(this.#adaptersByPeer).forEach(([peerId, other]) => {
         if (other === networkAdapter) {
-          delete this.peerIdToAdapter[peerId as PeerId]
+          delete this.#adaptersByPeer[peerId as PeerId]
         }
       })
     })
 
-    this.channels.forEach((c) => networkAdapter.join(c))
+    this.#channels.forEach(c => networkAdapter.join(c))
   }
 
   sendMessage(
@@ -146,26 +87,42 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     broadcast: boolean
   ) {
     if (broadcast) {
-      Object.entries(this.peerIdToAdapter).forEach(([id, peer]) => {
+      Object.entries(this.#adaptersByPeer).forEach(([id, peer]) => {
+        this.#log(`sending broadcast to ${id}`)
         peer.sendMessage(id as PeerId, channelId, message, true)
       })
     } else {
-      const peer = this.peerIdToAdapter[peerId]
+      const peer = this.#adaptersByPeer[peerId]
       if (!peer) {
-        log(`Tried to send message to disconnected peer: ${peerId}`)
-        return
+        this.#log(`Tried to send message but peer not found: ${peerId}`)
       }
+      this.#log(`Sending message to ${peerId}`)
       peer.sendMessage(peerId, channelId, message, false)
     }
   }
 
   join(channelId: ChannelId) {
-    this.channels.push(channelId)
-    this.networkAdapters.forEach((a) => a.join(channelId))
+    this.#log(`Joining channel ${channelId}`)
+    this.#channels.push(channelId)
+    this.#adapters.forEach(a => a.join(channelId))
   }
 
   leave(channelId: ChannelId) {
-    this.channels = this.channels.filter((c) => c !== channelId)
-    this.networkAdapters.forEach((a) => a.leave(channelId))
+    this.#log(`Leaving channel ${channelId}`)
+    this.#channels = this.#channels.filter(c => c !== channelId)
+    this.#adapters.forEach(a => a.leave(channelId))
   }
+}
+
+// events & payloads
+
+export interface NetworkSubsystemEvents {
+  peer: (payload: PeerPayload) => void
+  "peer-disconnected": (payload: PeerDisconnectedPayload) => void
+  message: (payload: InboundMessagePayload) => void
+}
+
+export interface PeerPayload {
+  peerId: PeerId
+  channelId: ChannelId
 }

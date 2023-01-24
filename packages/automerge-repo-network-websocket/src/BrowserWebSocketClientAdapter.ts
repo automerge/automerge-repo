@@ -1,29 +1,21 @@
-import EventEmitter from "eventemitter3"
+import {
+  ChannelId,
+  InboundMessagePayload,
+  NetworkAdapter,
+  PeerId,
+} from "automerge-repo"
 import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
+
 import debug from "debug"
 const log = debug("WebsocketClient")
 
-import {
-  ChannelId,
-  DecodedMessage,
-  NetworkAdapter,
-  NetworkAdapterEvents,
-  NetworkSubsystem,
-  PeerId,
-} from "automerge-repo"
-
-interface WebSocketNetworkAdapter extends NetworkAdapter {
+abstract class WebSocketNetworkAdapter extends NetworkAdapter {
   socket?: WebSocket
 }
 
-export class BrowserWebSocketClientAdapter
-  extends EventEmitter<NetworkAdapterEvents>
-  implements WebSocketNetworkAdapter
-{
-  socket?: WebSocket
+export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   timerId?: NodeJS.Timer
-  peerId?: PeerId
   url: string
   channels: ChannelId[] = []
 
@@ -45,7 +37,7 @@ export class BrowserWebSocketClientAdapter
       log(`@ ${this.url}: open`)
       clearInterval(this.timerId)
       this.timerId = undefined
-      this.channels.forEach((c) => this.join(c))
+      this.channels.forEach(c => this.join(c))
     })
 
     // When a socket closes, or disconnects, remove it from the array.
@@ -92,7 +84,7 @@ export class BrowserWebSocketClientAdapter
   }
 
   leave(channelId: ChannelId) {
-    this.channels = this.channels.filter((c) => c !== channelId)
+    this.channels = this.channels.filter(c => c !== channelId)
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }
@@ -114,12 +106,12 @@ export class BrowserWebSocketClientAdapter
       throw new Error("Why don't we have a PeerID?")
     }
 
-    const decoded: DecodedMessage = {
+    const decoded: InboundMessagePayload = {
       senderId: this.peerId,
       targetId,
       channelId,
-      type: "message",
-      data: message,
+      // type: "message",
+      message,
       broadcast,
     }
 
@@ -148,8 +140,17 @@ export class BrowserWebSocketClientAdapter
   }
 
   receiveMessage(message: Uint8Array) {
-    const decoded = CBOR.decode(new Uint8Array(message)) as DecodedMessage
-    const { type, senderId, targetId, channelId, data, broadcast } = decoded
+    const decoded = CBOR.decode(
+      new Uint8Array(message)
+    ) as InboundMessagePayload
+    const {
+      type,
+      senderId,
+      targetId,
+      channelId,
+      message: messageData,
+      broadcast,
+    } = decoded
 
     const socket = this.socket
     if (!socket) {
@@ -170,7 +171,7 @@ export class BrowserWebSocketClientAdapter
           channelId,
           senderId,
           targetId,
-          message: new Uint8Array(data),
+          message: new Uint8Array(messageData),
           broadcast,
         })
     }

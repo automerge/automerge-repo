@@ -3,9 +3,9 @@ import { useDocument, useRepo } from "automerge-repo-react-hooks"
 import cx from "classnames"
 import { useRef, useState } from "react"
 
-import { Todo } from "./Todo"
+import { Todo } from "./Todo.js"
 
-import { ExtendedArray, Filter, State, TodoData } from "./types"
+import { ExtendedArray, Filter, State, TodoData } from "./types.js"
 
 export function App(props: { rootId: DocumentId }) {
   const newTodoInput = useRef<HTMLInputElement>(null)

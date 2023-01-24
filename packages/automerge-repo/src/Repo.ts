@@ -1,96 +1,151 @@
+import debug from "debug"
+import EventEmitter from "eventemitter3"
+import { Mixin } from "ts-mixer"
+
 import { DocCollection } from "./DocCollection.js"
 import { EphemeralData } from "./EphemeralData.js"
+import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import {
   NetworkSubsystem,
-  NetworkAdapter,
-  PeerId,
-  ChannelId,
+  NetworkSubsystemEvents,
 } from "./network/NetworkSubsystem.js"
-import { StorageSubsystem, StorageAdapter } from "./storage/StorageSubsystem.js"
+import { StorageAdapter } from "./storage/StorageAdapter.js"
+import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
+import { ChannelId, PeerId } from "./types.js"
 
-export interface RepoConfig {
-  storage?: StorageAdapter
-  network: NetworkAdapter[]
-  peerId?: PeerId
-  sharePolicy?: (peerId: PeerId) => boolean // generous or no. this is a stand-in for a better API to test an idea.
-}
+const SYNC_CHANNEL = "sync_channel" as ChannelId
 
-export class Repo extends DocCollection {
-  networkSubsystem: NetworkSubsystem
-  storageSubsystem?: StorageSubsystem
+/** A Repo is a DocCollection plus networking, syncing, and storage capabilities. */
+export class Repo extends Mixin(
+  DocCollection,
+  // repo re-emits the events from the network subsystem
+  EventEmitter<NetworkSubsystemEvents>
+) {
+  private log: debug.Debugger
+
   ephemeralData: EphemeralData
 
-  constructor(config: RepoConfig) {
+  constructor({
+    peerId,
+    storage: storageAdapter,
+    network: networkAdapters = [],
+    sharePolicy = GENEROUS_SHARE_POLICY,
+  }: RepoConfig) {
     super()
-    const { storage, network, peerId, sharePolicy = () => true } = config
 
-    if (storage) {
-      const storageSubsystem = new StorageSubsystem(storage)
-      this.storageSubsystem = storageSubsystem
-      this.on("document", async ({ handle }) => {
-        handle.on("change", ({ handle }) =>
-          storageSubsystem.save(handle.documentId, handle.doc)
-        )
+    this.log = debug(`ar:repo:${peerId}`)
 
-        const binary = await storageSubsystem.load(handle.documentId)
-        if (binary.byteLength > 0) {
-          handle.loadIncremental(binary)
-        } else {
-          handle.unblockSync()
-        }
-      })
-    } else {
-      this.on("document", async ({ handle }) => {
-        handle.unblockSync()
-      })
-    }
+    // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
+    const storage = storageAdapter ? new StorageSubsystem(storageAdapter) : null
 
-    const networkSubsystem = new NetworkSubsystem(network, peerId)
-    this.networkSubsystem = networkSubsystem
+    // The network subsystem deals with sending and receiving messages to and from peers.
+    const network = new NetworkSubsystem(networkAdapters, peerId)
 
-    const synchronizer = new CollectionSynchronizer(this)
-    const ephemeralData = new EphemeralData()
-    this.ephemeralData = ephemeralData
+    network.on("peer", payload => {
+      const { peerId } = payload
 
-    // wire up the dependency synchronizers.
-    networkSubsystem.on("peer", ({ peerId }) => {
-      synchronizer.addPeer(peerId, sharePolicy(peerId))
+      this.log("peer connected", { peerId })
+      const generousPolicy = sharePolicy(peerId)
+      synchronizer.addPeer(peerId, generousPolicy)
+
+      this.emit("peer", payload)
     })
 
-    networkSubsystem.on("peer-disconnected", ({ peerId }) => {
+    network.on("peer-disconnected", payload => {
+      const { peerId } = payload
       synchronizer.removePeer(peerId)
+      this.emit("peer-disconnected", payload)
     })
 
-    this.on("document", ({ handle }) => {
-      synchronizer.addDocument(handle.documentId)
-    })
-
-    networkSubsystem.on("message", (msg) => {
-      const { senderId, channelId, message } = msg
-
-      // TODO: this demands a more principled way of associating channels with recipients
+    network.on("message", payload => {
+      const { senderId, channelId, message } = payload
+      // HACK: ephemeral messages go through channels starting with "m/"
       if (channelId.startsWith("m/")) {
+        // process ephemeral message
+        this.log(`receiving ephemeral message from ${senderId}`)
         ephemeralData.receive(senderId, channelId, message)
       } else {
-        synchronizer.onSyncMessage(senderId, channelId, message)
+        // process sync message
+        this.log(`receiving sync message from ${senderId}`)
+        synchronizer.receiveSyncMessage(senderId, channelId, message)
       }
+      this.emit("message", payload)
     })
+
+    // We establish a special channel for sync messages
+    network.join(SYNC_CHANNEL)
+
+    // The synchronizer uses the network subsystem to keep documents in sync with peers.
+    const synchronizer = new CollectionSynchronizer(this)
 
     synchronizer.on(
       "message",
       ({ targetId, channelId, message, broadcast }) => {
-        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
+        this.log(`sending sync message to ${targetId}`)
+        network.sendMessage(targetId, channelId, message, broadcast)
       }
     )
+
+    // The ephemeral data subsystem uses the network to send and receive messages that are not
+    // persisted to storage, e.g. cursor position, presence, etc.
+    const ephemeralData = new EphemeralData()
+    this.ephemeralData = ephemeralData
 
     ephemeralData.on(
       "message",
       ({ targetId, channelId, message, broadcast }) => {
-        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
+        this.log(`sending ephemeral message to ${targetId}`)
+        network.sendMessage(targetId, channelId, message, broadcast)
       }
     )
 
-    networkSubsystem.join("sync_channel" as ChannelId)
+    /**
+     * The `document` event is fired by the DocCollection any time we create a new document or look
+     * up a document by ID. We listen for it in order to wire up storage and network
+     * synchronization.
+     */
+    this.on("document", async ({ handle }) => {
+      if (!storage) {
+        // if we don't have any kind of storage, we will always wait for the document to come in from a peer. So much for "local-first"
+        handle.waitForSync()
+      } else {
+        // storage listens for changes and saves them
+        handle.on("change", ({ handle }) =>
+          storage.save(handle.documentId, handle.doc)
+        )
+
+        const binary = await storage.loadBinary(handle.documentId)
+        if (binary.byteLength > 0) {
+          handle.loadIncremental(binary)
+        } else {
+          handle.waitForSync()
+        }
+
+      // register the document with the synchronizer
+      synchronizer.addDocument(handle.documentId)
+    })
   }
 }
+
+export interface RepoConfig {
+  /** Our unique identifier */
+  peerId?: PeerId
+
+  // Q: Why is this optional? In what scenario would a local-first repo not have local storage?
+
+  /** A storage adapter can be provided, or not */
+  storage?: StorageAdapter
+
+  /** One or more network adapters can be provided */
+  network?: NetworkAdapter[]
+
+  /**
+   * Normal peers typically share generously with everyone (meaning we sync all our documents with
+   * all peers). A server only syncs documents that a peer explicitly requests by ID.
+   */
+  sharePolicy?: (peerId: PeerId) => boolean
+}
+
+/** By default, we share generously with all peers. */
+const GENEROUS_SHARE_POLICY = () => true
