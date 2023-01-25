@@ -21,7 +21,7 @@ app.use(express.static("public"))
 const config = {
   network: [new NodeWSServerAdapter(wsServer)],
   storage: new NodeFSStorageAdapter(),
-  peerId: `storage-server-${hostname}`,
+  peerId: `sync-server-${hostname}`,
 
   // Since this is a server, we don't share generously — meaning we only sync documents they already
   // know about and can ask for by ID.
