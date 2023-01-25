@@ -86,6 +86,7 @@ export class DocSynchronizer extends Synchronizer {
   #logMessage = (label: string, message: Uint8Array) => {
     const size = message.byteLength
     const logText = `${label} ${size}b`
+    if (!message || message.byteLength === 0) return
     const decoded = A.decodeSyncMessage(message)
 
     this.#conciseLog(logText)
@@ -138,6 +139,8 @@ export class DocSynchronizer extends Synchronizer {
     channelId: ChannelId,
     message: Uint8Array
   ) {
+    if (!message || message.byteLength === 0) return
+
     if ((channelId as string) !== (this.documentId as string))
       throw new Error(`channelId doesn't match documentId`)
 
@@ -145,6 +148,7 @@ export class DocSynchronizer extends Synchronizer {
 
     this.handle.updateDoc(doc => {
       const state = this.#getSyncState(peerId)
+
       const [newDoc, newState] = A.receiveSyncMessage(doc, state, message)
 
       this.#setSyncState(peerId, newState)
