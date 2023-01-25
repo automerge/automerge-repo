@@ -121,10 +121,10 @@ export class Repo extends Mixin(
         } else {
           handle.waitForSync()
         }
-
-        // register the document with the synchronizer
-        synchronizer.addDocument(handle.documentId)
       }
+
+      // register the document with the synchronizer
+      synchronizer.addDocument(handle.documentId)
     })
   }
 }
