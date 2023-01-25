@@ -14,12 +14,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
   #channels: ChannelId[]
 
-  peerId: PeerId
-
-  constructor(networkAdapters: NetworkAdapter[], peerId?: PeerId) {
+  constructor(
+    networkAdapters: NetworkAdapter[],
+    public peerId = `user-${Math.round(Math.random() * 100000)}` as PeerId
+  ) {
     super()
-    this.peerId =
-      peerId || (`user-${Math.round(Math.random() * 100000)}` as PeerId)
 
     this.#log = debug(`ar:network:${this.peerId}`)
 
