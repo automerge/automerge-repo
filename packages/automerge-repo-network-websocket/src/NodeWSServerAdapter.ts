@@ -2,7 +2,7 @@ import * as CBOR from "cbor-x"
 import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 
 import debug from "debug"
-const log = debug("WebsocketServer")
+const log = debug("ar:websocketserver")
 
 import {
   ChannelId,
