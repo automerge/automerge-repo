@@ -110,7 +110,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       senderId: this.peerId,
       targetId,
       channelId,
-      // type: "message",
+      type: "message",
       message,
       broadcast,
     }
