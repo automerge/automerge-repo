@@ -2,11 +2,11 @@ import * as CBOR from "cbor-x"
 import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 
 import debug from "debug"
-const log = debug("ar:websocketserver")
 
 import {
   ChannelId,
   InboundMessagePayload,
+  MessagePayload,
   NetworkAdapter,
   PeerId,
 } from "automerge-repo"
@@ -14,6 +14,26 @@ import {
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
   sockets: { [peerId: PeerId]: WebSocket } = {}
+  log = debug("ar:wsserver")
+
+  logMessage = (
+    direction: "send" | "receive",
+    payload: MessagePayload | InboundMessagePayload
+  ) => {
+    const {
+      type = "unknown type",
+      targetId = "?",
+      channelId = "?",
+      message,
+    } = payload as InboundMessagePayload
+    const arrow = direction === "send" ? "->" : "<-"
+    const channelIdShort = channelId.slice(0, 8)
+    this.log(
+      `${arrow} ${type} ${targetId} ${channelIdShort} | ${
+        message?.byteLength ?? 0
+      }b`
+    )
+  }
 
   constructor(server: WebSocketServer) {
     super()
@@ -39,12 +59,12 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     })
   }
 
-  join(docId: ChannelId) {
+  join(_: ChannelId) {
     // throw new Error("The server doesn't join channels.")
   }
 
-  leave(docId: ChannelId) {
-    // throw new Error("The server doesn't join channels.")
+  leave(_: ChannelId) {
+    // throw nebw Error("The server doesn't join channels.")
   }
 
   sendMessage(
@@ -53,15 +73,13 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     message: Uint8Array,
     broadcast: boolean
   ) {
-    if (message.byteLength === 0) {
+    if (message.byteLength === 0)
       throw new Error("tried to send a zero-length message")
-    }
     const senderId = this.peerId
-    if (!senderId) {
+    if (!senderId)
       throw new Error("No peerId set for the websocket server network adapter.")
-    }
     if (this.sockets[targetId] === undefined) {
-      log(`Tried to send message to disconnected peer: ${targetId}`)
+      this.log(`Tried to send message to disconnected peer: ${targetId}`)
       return
     }
 
@@ -73,6 +91,8 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       message,
       broadcast,
     }
+    this.logMessage("send", decoded)
+
     const encoded = CBOR.encode(decoded)
 
     // This incantation deals with websocket sending the whole
@@ -82,23 +102,23 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       encoded.byteOffset + encoded.byteLength
     )
 
-    log(
-      `[${senderId}->${targetId}@${channelId}] "sync" | ${arrayBuf.byteLength} bytes`
-    )
-
     this.sockets[targetId].send(arrayBuf)
   }
 
-  receiveMessage(message: Uint8Array, socket: WebSocket) {
-    const cbor = CBOR.decode(message)
-    const { type, channelId, senderId, targetId, data, broadcast } = cbor
+  receiveMessage(payload: Uint8Array, socket: WebSocket) {
+    const decoded = CBOR.decode(payload)
+    const { type, channelId, senderId, targetId, message, broadcast } = decoded
     const myPeerId = this.peerId
     if (!myPeerId) {
       throw new Error("Missing my peer ID.")
     }
-    log(
-      `[${senderId}->${myPeerId}@${channelId}] ${type} | ${message.byteLength} bytes`
-    )
+    this.logMessage("receive", {
+      type,
+      targetId: senderId,
+      message,
+      channelId,
+      broadcast,
+    })
     switch (type) {
       case "join":
         // Let the rest of the system know that we have a new connection.
@@ -122,12 +142,12 @@ export class NodeWSServerAdapter extends NetworkAdapter {
           senderId,
           targetId,
           channelId,
-          message: new Uint8Array(data),
+          message,
           broadcast,
         })
         break
       default:
-        // log("unrecognized message type")
+        this.log("unrecognized message type")
         break
     }
   }
