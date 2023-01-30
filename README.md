@@ -8,7 +8,7 @@ This is a monorepo containing the following packages:
 
 - [automerge-repo](/packages/automerge-repo/): The core library. Handles dispatch of events and
   provides shared functionality such as deciding which peers to connect to or when to write data out
-  to storage.
+  to storage. **This repository includes a Getting Started tutorial!**
 - [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter/): A React-based demonstration
   application.
 - [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
