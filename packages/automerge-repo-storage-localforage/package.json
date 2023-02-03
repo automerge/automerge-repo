@@ -1,6 +1,6 @@
 {
   "name": "automerge-repo-storage-localforage",
-  "version": "0.0.44",
+  "version": "0.0.45",
   "description": "LocalForage storage adapter for Automerge Repo",
   "repository": "https://github.com/pvh/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -13,7 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "automerge-repo": "^0.0.44",
+    "automerge-repo": "^0.0.45",
     "localforage": "^1.10.0"
   },
   "watch": {
