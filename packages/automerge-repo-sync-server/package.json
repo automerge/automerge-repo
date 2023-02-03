@@ -8,7 +8,7 @@
     "start": "node ./src/index.js"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.0.1-alpha.1",
+    "@automerge/automerge": "^2.0.2-alpha.1",
     "automerge-repo": "^0.0.44",
     "automerge-repo-network-websocket": "^0.0.44",
     "automerge-repo-storage-nodefs": "^0.0.44",
