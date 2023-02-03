@@ -1,7 +1,6 @@
-import { Doc } from "@automerge/automerge"
-import { DocumentId, DocHandleChangePayload } from "automerge-repo"
+import { ChangeFn, Doc } from "@automerge/automerge"
+import { DocHandleChangePayload, DocumentId } from "automerge-repo"
 import { useEffect, useState } from "react"
-import { ChangeFn } from "./types.js"
 import { useRepo } from "./useRepo.js"
 
 export function useDocument<T>(documentId?: DocumentId) {
