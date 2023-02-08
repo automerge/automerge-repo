@@ -1,6 +1,6 @@
 {
   "name": "automerge-repo-network-localfirstrelay",
-  "version": "0.0.43",
+  "version": "0.0.47",
   "description": "Local-First Relay network adapter for Automerge Repo",
   "repository": "https://github.com/pvh/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@localfirst/relay-client": "^3.6.2",
-    "automerge-repo": "^0.0.43"
+    "automerge-repo": "^0.0.47"
   },
   "watch": {
     "build": {
