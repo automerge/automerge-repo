@@ -110,13 +110,12 @@ describe("DocHandle", () => {
       "test-document-id" as DocumentId,
       true
     )
-    handle.on("patch", ({ /*handle,*/ patch, after }) => {
-      assert.deepEqual(patch, {
+    handle.on("patch", ({ patches, after }) => {
+      assert.deepEqual(patches, [{
         action: "put",
         path: ["foo"],
         value: "bar",
-        conflict: false,
-      })
+      }])
 
       assert(after.foo === "bar", "after message didn't match")
       done()

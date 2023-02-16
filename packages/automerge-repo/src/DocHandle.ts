@@ -47,10 +47,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.documentId = documentId
     this.doc = Automerge.init({
       patchCallback: (
-        patch: any, // Automerge.Patch,
+        patches: Automerge.Patch[],
         before: Automerge.Doc<T>,
         after: Automerge.Doc<T>
-      ) => this.__notifyPatchListeners(patch, before, after),
+      ) => this.__notifyPatchListeners(patches, before, after),
     })
 
     // new documents don't need to block on an initial value setting
@@ -112,11 +112,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   __notifyPatchListeners(
-    patch: any, //Automerge.Patch,
+    patches: Automerge.Patch[],
     before: Automerge.Doc<T>,
     after: Automerge.Doc<T>
   ) {
-    this.emit("patch", { handle: this, patch, before, after })
+    this.emit("patch", { handle: this, patches, before, after })
   }
 
   async value() {
@@ -168,7 +168,7 @@ export interface DocHandleChangeEvent<T> {
 
 export interface DocHandlePatchEvent<T> {
   handle: DocHandle<T>
-  patch: any // Automerge.Patch
+  patches: Automerge.Patch[]
   before: Automerge.Doc<T>
   after: Automerge.Doc<T>
 }
