@@ -27,7 +27,7 @@
     "http-server": "^14.1.0"
   },
   "peerDependencies": {
-    "@automerge/automerge": "*"
+    "@automerge/automerge": ">=2.0.2"
   },
   "dependencies": {
     "cbor-x": "^1.3.0",
