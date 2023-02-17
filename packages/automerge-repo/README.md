@@ -257,5 +257,5 @@ you'll need to manually copy the `rootDocId` value between the browsers.)
 
 ## Acknowledgements
 
-Originally authored by Peter van Hardenberg. Thanks to Herb Caudill and Jeremy Rose for their
-contributions to this repo.
+Originally authored by Peter van Hardenberg. Thanks to Herb Caudill, Jeremy Rose, and Alex Currie-Clark for their
+contributions.
