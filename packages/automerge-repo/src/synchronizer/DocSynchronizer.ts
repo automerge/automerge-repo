@@ -21,7 +21,7 @@ export class DocSynchronizer
 
   // we track peers separately from syncStates because we might have more syncStates than active peers
   peers: PeerId[] = []
-  syncStates: { [peerId: PeerId]: Automerge.SyncState } = {} // peer -> syncState
+  syncStates: { [peerId: PeerId]: Automerge.SyncState } = {} // peer -> syncState\
 
   constructor(handle: DocHandle<unknown>) {
     super()
@@ -29,6 +29,10 @@ export class DocSynchronizer
     handle.on("change", () => this.syncWithPeers())
   }
 
+  get documentId() {
+    return this.handle.documentId
+  }
+  
   getSyncState(peerId: PeerId) {
     if (!peerId) {
       throw new Error("Tried to load a missing peerId")

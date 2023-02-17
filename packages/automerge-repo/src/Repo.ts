@@ -8,12 +8,13 @@ import {
 } from "./network/NetworkSubsystem.js"
 import { StorageSubsystem, StorageAdapter } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
+import { DocumentId } from "./DocHandle"
 
 export interface RepoConfig {
   storage?: StorageAdapter
   network: NetworkAdapter[]
   peerId?: PeerId
-  sharePolicy?: (peerId: PeerId) => boolean // generous or no. this is a stand-in for a better API to test an idea.
+  sharePolicy?: (peerId: PeerId, documentId: DocumentId) => Promise<boolean> // generous or no. this is a stand-in for a better API to test an idea.
 }
 
 export class Repo extends DocCollection {
@@ -23,7 +24,9 @@ export class Repo extends DocCollection {
 
   constructor(config: RepoConfig) {
     super()
-    const { storage, network, peerId, sharePolicy = () => true } = config
+    const { storage, network, peerId, sharePolicy } = config
+
+    this.sharePolicy = sharePolicy || this.sharePolicy
 
     if (storage) {
       const storageSubsystem = new StorageSubsystem(storage)
@@ -55,7 +58,7 @@ export class Repo extends DocCollection {
 
     // wire up the dependency synchronizers.
     networkSubsystem.on("peer", ({ peerId }) => {
-      synchronizer.addPeer(peerId, sharePolicy(peerId))
+      synchronizer.addPeer(peerId)
     })
 
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
@@ -66,7 +69,7 @@ export class Repo extends DocCollection {
       synchronizer.addDocument(handle.documentId)
     })
 
-    networkSubsystem.on("message", (msg) => {
+    networkSubsystem.on("message", msg => {
       const { senderId, channelId, message } = msg
 
       // TODO: this demands a more principled way of associating channels with recipients

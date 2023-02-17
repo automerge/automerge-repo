@@ -1,20 +1,30 @@
 import EventEmitter from "eventemitter3"
 import { v4 } from "uuid"
 import { DocHandle, DocumentId } from "./DocHandle.js"
+import type { PeerId } from "./network/NetworkSubsystem"
 
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
-  handles: { [documentId: DocumentId]: DocHandle<unknown> } = {}
+  #handles: { [documentId: DocumentId]: DocHandle<unknown> } = {}
 
   constructor() {
     super()
   }
 
+  get handles(): { [documentId: DocumentId]: DocHandle<unknown> } {
+    return this.#handles
+  }
+
+  sharePolicy: (peerId: PeerId, documentId: DocumentId) => Promise<boolean> =
+    async () => {
+      return true
+    }
+
   cacheHandle(documentId: DocumentId, newDoc: boolean): DocHandle<unknown> {
-    if (this.handles[documentId]) {
-      return this.handles[documentId]
+    if (this.#handles[documentId]) {
+      return this.#handles[documentId]
     }
     const handle = new DocHandle<unknown>(documentId, newDoc)
-    this.handles[documentId] = handle
+    this.#handles[documentId] = handle
     return handle
   }
 
@@ -36,8 +46,8 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   find<T>(documentId: DocumentId): DocHandle<T> {
     // TODO: we want a way to make sure we don't yield
     //       intermediate document states during initial synchronization
-    if (this.handles[documentId]) {
-      return this.handles[documentId] as DocHandle<T>
+    if (this.#handles[documentId]) {
+      return this.#handles[documentId] as DocHandle<T>
     }
     const handle = this.cacheHandle(documentId, false)
 

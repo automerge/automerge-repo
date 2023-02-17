@@ -1,7 +1,7 @@
 import assert from "assert"
 import { MessageChannel } from "worker_threads"
 
-import { ChannelId, DocHandle, PeerId } from "../src"
+import { ChannelId, DocHandle, DocumentId, PeerId } from "../src"
 import { Repo } from "../src/Repo"
 
 import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
@@ -35,13 +35,13 @@ describe("Repo", () => {
     assert(handle.documentId != null)
   })
 
-  it("can change a document", (done) => {
+  it("can change a document", done => {
     const handle = repo.create<TestDoc>()
-    handle.change((d) => {
+    handle.change(d => {
       d.foo = "bar"
     })
     assert(handle.state === "ready")
-    handle.value().then((v) => {
+    handle.value().then(v => {
       try {
         assert(v.foo === "bar")
         done()
@@ -51,16 +51,16 @@ describe("Repo", () => {
     })
   })
 
-  it("can find a created document", (done) => {
+  it("can find a created document", done => {
     const handle = repo.create<TestDoc>()
-    handle.change((d) => {
+    handle.change(d => {
       d.foo = "bar"
     })
     assert(handle.state === "ready")
     const handle2 = repo.find<TestDoc>(handle.documentId)
     assert(handle === handle2)
     assert(handle2.ready())
-    handle2.value().then((v) => {
+    handle2.value().then(v => {
       try {
         assert(v.foo === "bar")
         done()
@@ -79,27 +79,41 @@ describe("Repo", () => {
     const mc2to3port1 = mc2to3.port1 as unknown as MessagePort
     const mc2to3port2 = mc2to3.port2 as unknown as MessagePort
 
+    const excludedDocuments: DocumentId[] = []
+    const excludedPeers: PeerId[] = []
+
+    const sharePolicy = async (peerId: PeerId, documentId: DocumentId) => {
+      // make sure that repo3 never gets excluded documents
+      if (excludedDocuments.includes(documentId) && peerId === "repo3") {
+        return false
+      }
+      return !excludedPeers.includes(peerId)
+    }
+
     // Set up three repos and have them communicate via MessageChannels
     const repo1 = new Repo({
       network: [new MessageChannelNetworkAdapter(mc1to2port1)],
       peerId: "repo1" as PeerId,
+      sharePolicy,
     })
+
+    // First test: create a document and ensure the second repo can find it
+    const handle1 = repo1.create<TestDoc>()
+    handle1.change(d => {
+      d.foo = "bar"
+    })
+
     const repo2 = new Repo({
       network: [
         new MessageChannelNetworkAdapter(mc1to2port2),
         new MessageChannelNetworkAdapter(mc2to3port1),
       ],
       peerId: "repo2" as PeerId,
+      sharePolicy,
     })
     const repo3 = new Repo({
       network: [new MessageChannelNetworkAdapter(mc2to3port2)],
       peerId: "repo3" as PeerId,
-    })
-
-    // First test: create a document and ensure the second repo can find it
-    const handle1 = repo1.create<TestDoc>()
-    handle1.change((d) => {
-      d.foo = "bar"
     })
 
     it("can load a document from repo1 on repo2", async () => {
@@ -114,7 +128,20 @@ describe("Repo", () => {
       assert.deepStrictEqual(doc3, { foo: "bar" })
     })
 
-    it("can broadcast a message", (done) => {
+    // create another document and make sure that repo2 *cannot* find it
+    const handle4 = repo1.create<TestDoc>()
+    excludedDocuments.push(handle4.documentId)
+
+    handle4.change(d => {
+      d.foo = "baz"
+    })
+
+    it("documents which are excluded by the share policy are not present in other repos", async () => {
+      assert(repo2.handles[handle4.documentId] !== undefined)
+      assert(repo3.handles[handle4.documentId] === undefined)
+    })
+
+    it("can broadcast a message", done => {
       const messageChannel = "m/broadcast" as ChannelId
       const data = { presence: "myUserId" }
 
@@ -133,7 +160,7 @@ describe("Repo", () => {
 
     it("can do some complicated sync thing without duplicating messages", () => {
       let lastMessage: any
-      repo1.networkSubsystem.on("message", (msg) => {
+      repo1.networkSubsystem.on("message", msg => {
         // assert.notDeepStrictEqual(msg, lastMessage)
         lastMessage = msg
       })
@@ -155,7 +182,7 @@ describe("Repo", () => {
             ? repo.create<TestDoc>()
             : (getRandomItem(repo.handles) as DocHandle<TestDoc>)
 
-        doc.change((d) => {
+        doc.change(d => {
           d.foo = Math.random().toString()
         })
       }

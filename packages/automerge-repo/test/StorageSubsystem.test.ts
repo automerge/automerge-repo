@@ -10,7 +10,7 @@ import {
   StorageSubsystem,
   StorageAdapter,
 } from "../src/storage/StorageSubsystem"
-import { DocumentId } from "../dist"
+import type { DocumentId } from "../src"
 
 describe("StorageSubsystem", () => {
   it("should accept a storage adapter at construction", () => {
@@ -24,7 +24,7 @@ describe("StorageSubsystem", () => {
   ) => {
     const storage = new StorageSubsystem(adapter)
 
-    const doc = Automerge.change(Automerge.init<any>(), "test", (d) => {
+    const doc = Automerge.change(Automerge.init<any>(), "test", d => {
       d.foo = "bar"
     })
 
