@@ -1,6 +1,7 @@
 import fs from "fs"
 import os from "os"
 import path from "path"
+
 import assert from "assert"
 
 import A from "@automerge/automerge"
@@ -24,11 +25,7 @@ describe("StorageSubsystem", () => {
       it("can store and retrieve an Automerge document", async () => {
         const storage = new StorageSubsystem(adapter)
 
-        // make a doc
-        const initialDoc = A.init<TestDoc>()
-
-        // make a change
-        const doc = A.change(initialDoc, d => {
+        const doc = A.change(A.init<any>(), "test", d => {
           d.foo = "bar"
         })
 

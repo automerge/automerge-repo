@@ -1,18 +1,19 @@
 import { DocCollection } from "./DocCollection"
 import { EphemeralData } from "./EphemeralData"
-import { NetworkSubsystem } from "./network/NetworkSubsystem"
-import { StorageSubsystem } from "./storage/StorageSubsystem"
-import { StorageAdapter } from "./storage/StorageAdapter"
-import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
-import { ChannelId, PeerId } from "./types"
 import { NetworkAdapter } from "./network/NetworkAdapter"
+import { NetworkSubsystem } from "./network/NetworkSubsystem"
+import { StorageAdapter } from "./storage/StorageAdapter"
+import { StorageSubsystem } from "./storage/StorageSubsystem"
+import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
+import { ChannelId, DocumentId, PeerId } from "./types"
 
 import debug from "debug"
 
 const SYNC_CHANNEL = "sync_channel" as ChannelId
 
 /** By default, we share generously with all peers. */
-const GENEROUS_SHARE_POLICY = () => true
+const GENEROUS_SHARE_POLICY = (async (_peerId, _documentId) =>
+  true) as SharePolicy
 
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {
@@ -31,6 +32,8 @@ export class Repo extends DocCollection {
     super()
 
     this.#log = debug(`automerge-repo:repo:${peerId}`)
+
+    this.sharePolicy = sharePolicy
 
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
@@ -73,7 +76,7 @@ export class Repo extends DocCollection {
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", ({ peerId }) => {
       this.#log("peer connected", { peerId })
-      synchronizer.addPeer(peerId, sharePolicy(peerId))
+      synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
@@ -81,10 +84,14 @@ export class Repo extends DocCollection {
       synchronizer.removePeer(peerId)
     })
 
-    // Handle incoming message from peers
-    networkSubsystem.on("message", payload => {
-      const { senderId, channelId, message } = payload
-      // HACK: ephemeral messages go through channels starting with "m/"
+    this.on("document", ({ handle }) => {
+      synchronizer.addDocument(handle.documentId)
+    })
+
+    networkSubsystem.on("message", msg => {
+      const { senderId, channelId, message } = msg
+
+      // TODO: this demands a more principled way of associating channels with recipients
       if (channelId.startsWith("m/")) {
         // Ephemeral message
         this.#log(`receiving ephemeral message from ${senderId}`)
@@ -119,6 +126,7 @@ export class Repo extends DocCollection {
   }
 }
 
+type SharePolicy = (peerId: PeerId, documentId: DocumentId) => Promise<boolean>
 export interface RepoConfig {
   /** Our unique identifier */
   peerId?: PeerId
@@ -133,5 +141,5 @@ export interface RepoConfig {
    * Normal peers typically share generously with everyone (meaning we sync all our documents with
    * all peers). A server only syncs documents that a peer explicitly requests by ID.
    */
-  sharePolicy?: (peerId: PeerId) => boolean
+  sharePolicy?: SharePolicy
 }

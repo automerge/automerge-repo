@@ -1,10 +1,18 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 import { isDeepStrictEqual } from "util"
-import { InboundMessagePayload } from "../src"
-import { ChannelId, DocHandle, HandleState, PeerId, Repo } from "../src"
+
+import {
+  ChannelId,
+  DocHandle,
+  DocumentId,
+  HandleState,
+  InboundMessagePayload,
+  PeerId,
+} from "../src"
 import { eventPromise } from "../src/helpers/eventPromise"
 import { pause } from "../src/helpers/pause"
+import { Repo } from "../src/Repo"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
 import { getRandomItem } from "./helpers/getRandomItem"
@@ -73,9 +81,21 @@ describe("Repo", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
+      const excludedDocuments: DocumentId[] = []
+      const excludedPeers: PeerId[] = []
+
+      const sharePolicy = async (peerId: PeerId, documentId: DocumentId) => {
+        // make sure that charlie never gets excluded documents
+        if (excludedDocuments.includes(documentId) && peerId === "charlie")
+          return false
+
+        return !excludedPeers.includes(peerId)
+      }
+
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
         peerId: "alice" as PeerId,
+        sharePolicy,
       })
 
       const bobRepo = new Repo({
@@ -84,11 +104,24 @@ describe("Repo", () => {
           new MessageChannelNetworkAdapter(bobToCharlie),
         ],
         peerId: "bob" as PeerId,
+        sharePolicy,
       })
 
       const charlieRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(charlieToBob)],
         peerId: "charlie" as PeerId,
+      })
+
+      const aliceHandle = aliceRepo.create<TestDoc>()
+      aliceHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      const notForCharlieHandle = aliceRepo.create<TestDoc>()
+      const notForCharlie = notForCharlieHandle.documentId
+      excludedDocuments.push(notForCharlie)
+      notForCharlieHandle.change(d => {
+        d.foo = "baz"
       })
 
       await Promise.all([
@@ -97,21 +130,23 @@ describe("Repo", () => {
         eventPromise(charlieRepo.networkSubsystem, "peer"),
       ])
 
-      const aliceHandle = aliceRepo.create<TestDoc>()
-
       const teardown = () => {
         aliceBobChannel.port1.close()
         bobCharlieChannel.port1.close()
       }
 
-      return { aliceRepo, bobRepo, charlieRepo, aliceHandle, teardown }
+      return {
+        aliceRepo,
+        bobRepo,
+        charlieRepo,
+        aliceHandle,
+        notForCharlie,
+        teardown,
+      }
     }
 
     it("changes are replicated from aliceRepo to bobRepo", async () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
-      aliceHandle.change(d => {
-        d.foo = "bar"
-      })
 
       const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
       const bobDoc = await bobHandle.value()
@@ -128,6 +163,22 @@ describe("Repo", () => {
       const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
       const doc3 = await handle3.value()
       assert.deepStrictEqual(doc3, { foo: "bar" })
+      teardown()
+    })
+
+    it("charlieRepo doesn't have a document it's not supposed to have", async () => {
+      const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
+        await setup()
+
+      await Promise.all([
+        eventPromise(bobRepo.networkSubsystem, "message"),
+        eventPromise(charlieRepo.networkSubsystem, "message"),
+      ])
+
+      assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
+      assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
+      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+
       teardown()
     })
 
