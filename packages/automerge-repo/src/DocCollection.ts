@@ -1,6 +1,6 @@
 import EventEmitter from "eventemitter3"
 import { v4 } from "uuid"
-import { DocHandle, DocumentId } from "./DocHandle.js"
+import { DocHandle, DocHandleOptions, DocumentId } from "./DocHandle.js"
 
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   handles: { [documentId: DocumentId]: DocHandle<unknown> } = {}
@@ -9,11 +9,15 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     super()
   }
 
-  cacheHandle(documentId: DocumentId, newDoc: boolean): DocHandle<unknown> {
+  cacheHandle(
+    documentId: DocumentId,
+    newDoc: boolean,
+    options: DocHandleOptions = {}
+  ): DocHandle<unknown> {
     if (this.handles[documentId]) {
       return this.handles[documentId]
     }
-    const handle = new DocHandle<unknown>(documentId, newDoc)
+    const handle = new DocHandle<unknown>(documentId, newDoc, options)
     this.handles[documentId] = handle
     return handle
   }
@@ -25,6 +29,15 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   create<T>(): DocHandle<T> {
     const documentId = v4() as DocumentId
     const handle = this.cacheHandle(documentId, true) as DocHandle<T>
+    this.emit("document", { handle })
+    return handle
+  }
+
+  createUnstable<T>(): DocHandle<T> {
+    const documentId = v4() as DocumentId
+    const handle = this.cacheHandle(documentId, true, {
+      unstable: true,
+    }) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }

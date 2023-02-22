@@ -1,12 +1,16 @@
 import EventEmitter from "eventemitter3"
 import * as Automerge from "@automerge/automerge"
-import { ChangeOptions, Doc } from "@automerge/automerge"
+import { ChangeOptions, Doc, Extend } from "@automerge/automerge"
 import { ChannelId, PeerId } from "."
 
 import debug from "debug"
 const log = debug("DocHandle")
 
 export type DocumentId = string & { __documentId: true }
+
+export type DocHandleOptions = {
+  unstable?: boolean
+}
 
 type HandleState = "loading" | "syncing" | "ready"
 /*
@@ -42,16 +46,27 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   documentId: DocumentId
   state: HandleState = "loading"
 
-  constructor(documentId: DocumentId, newDoc = false) {
+  constructor(
+    documentId: DocumentId,
+    newDoc = false,
+    options: DocHandleOptions = {}
+  ) {
     super()
     this.documentId = documentId
-    this.doc = Automerge.init({
+
+    const initOpts = {
       patchCallback: (
         patches: Automerge.Patch[],
         before: Automerge.Doc<T>,
         after: Automerge.Doc<T>
       ) => this.__notifyPatchListeners(patches, before, after),
-    })
+    }
+
+    if (options.unstable) {
+      this.doc = Automerge.unstable.init(initOpts)
+    } else {
+      this.doc = Automerge.init(initOpts)
+    }
 
     // new documents don't need to block on an initial value setting
     if (newDoc) {
@@ -148,7 +163,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.doc
   }
 
-  change(callback: (doc: T) => void, options: ChangeOptions<T> = {}) {
+  change(callback: (doc: Extend<T>) => void, options: ChangeOptions<T> = {}) {
     this.value().then(() => {
       const newDoc = Automerge.change<T>(this.doc, options, callback)
       this.__notifyChangeListeners(newDoc)

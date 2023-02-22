@@ -1,5 +1,5 @@
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer"
-import { DocCollection } from "../dist"
+import { DocCollection } from "../src"
 import assert from "assert"
 
 describe("CollectionSynchronizer", () => {

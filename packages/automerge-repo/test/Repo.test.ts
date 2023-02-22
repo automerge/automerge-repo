@@ -7,6 +7,7 @@ import { Repo } from "../src/Repo"
 import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
+import { unstable } from "@automerge/automerge"
 
 export interface TestDoc {
   foo: string
@@ -35,13 +36,36 @@ describe("Repo", () => {
     assert(handle.documentId != null)
   })
 
-  it("can change a document", (done) => {
+  it("can create and change a document using the unstable Automerge API", done => {
+    const handle = repo.createUnstable<TestDoc>()
+
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+
+    handle.change(doc => {
+      unstable.splice(doc, "foo", 2, 1, "z")
+    })
+
+    handle.value().then(v => {
+      try {
+        assert(v.foo === "baz")
+        done()
+      } catch (e) {
+        done(e)
+      }
+    })
+
+    assert(handle.documentId != null)
+  })
+
+  it("can change a document", done => {
     const handle = repo.create<TestDoc>()
-    handle.change((d) => {
+    handle.change(d => {
       d.foo = "bar"
     })
     assert(handle.state === "ready")
-    handle.value().then((v) => {
+    handle.value().then(v => {
       try {
         assert(v.foo === "bar")
         done()
@@ -51,16 +75,16 @@ describe("Repo", () => {
     })
   })
 
-  it("can find a created document", (done) => {
+  it("can find a created document", done => {
     const handle = repo.create<TestDoc>()
-    handle.change((d) => {
+    handle.change(d => {
       d.foo = "bar"
     })
     assert(handle.state === "ready")
     const handle2 = repo.find<TestDoc>(handle.documentId)
     assert(handle === handle2)
     assert(handle2.ready())
-    handle2.value().then((v) => {
+    handle2.value().then(v => {
       try {
         assert(v.foo === "bar")
         done()
@@ -98,7 +122,7 @@ describe("Repo", () => {
 
     // First test: create a document and ensure the second repo can find it
     const handle1 = repo1.create<TestDoc>()
-    handle1.change((d) => {
+    handle1.change(d => {
       d.foo = "bar"
     })
 
@@ -114,7 +138,7 @@ describe("Repo", () => {
       assert.deepStrictEqual(doc3, { foo: "bar" })
     })
 
-    it("can broadcast a message", (done) => {
+    it("can broadcast a message", done => {
       const messageChannel = "m/broadcast" as ChannelId
       const data = { presence: "myUserId" }
 
@@ -133,7 +157,7 @@ describe("Repo", () => {
 
     it("can do some complicated sync thing without duplicating messages", () => {
       let lastMessage: any
-      repo1.networkSubsystem.on("message", (msg) => {
+      repo1.networkSubsystem.on("message", msg => {
         // assert.notDeepStrictEqual(msg, lastMessage)
         lastMessage = msg
       })
@@ -155,7 +179,7 @@ describe("Repo", () => {
             ? repo.create<TestDoc>()
             : (getRandomItem(repo.handles) as DocHandle<TestDoc>)
 
-        doc.change((d) => {
+        doc.change(d => {
           d.foo = Math.random().toString()
         })
       }
