@@ -78,12 +78,17 @@ export interface Peer extends EventEmitter<InboundMessageDetails> {
 
 export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
   networkAdapters: NetworkAdapter[] = []
+  authProvider?: AuthProvider
 
   myPeerId: PeerId
   peerIdToAdapter: { [peerId: PeerId]: NetworkAdapter } = {}
   channels: ChannelId[]
 
-  constructor(networkAdapters: NetworkAdapter[], peerId?: PeerId) {
+  constructor(
+    networkAdapters: NetworkAdapter[],
+    authProvider: AuthProvider,
+    peerId?: PeerId
+  ) {
     super()
     this.myPeerId =
       peerId || (`user-${Math.round(Math.random() * 100000)}` as PeerId)
@@ -92,15 +97,27 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
     this.channels = []
 
     this.networkAdapters = networkAdapters
-    networkAdapters.forEach((a) => this.addNetworkAdapter(a))
+    networkAdapters.forEach(a => this.addNetworkAdapter(a))
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
     networkAdapter.connect(this.myPeerId)
+    // this code isn't very thoughtful about what to do if we have more than one connection
+    // or how to reestablish a connection we lose
     networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
       if (!this.peerIdToAdapter[peerId]) {
-        // TODO: handle losing a server here
-        this.peerIdToAdapter[peerId] = networkAdapter
+        // TODO: we don't actually have a socket, we want to be able to send & receive
+        //       messages from an unauthenticated peer over a network adapter
+        const authenticated = await this.authProvider.authenticate(
+          peerId,
+          socket
+        )
+        if (authenticated) {
+          // channelID????
+          this.peerIdToAdapter[peerId] = networkAdapter
+        } else {
+          throw new Error("Peer candidate failed authentication.")
+        }
       }
 
       this.emit("peer", { peerId, channelId })
@@ -110,7 +127,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
       this.emit("peer-disconnected", { peerId })
     })
 
-    networkAdapter.on("message", (msg) => {
+    networkAdapter.on("message", msg => {
       const { senderId, targetId, channelId, broadcast, message } = msg
       // If we receive a broadcast message from a network adapter
       // we need to re-broadcast it to all our other peers.
@@ -120,8 +137,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
       if (broadcast) {
         Object.entries(this.peerIdToAdapter)
           .filter(([id]) => id !== senderId)
-          .forEach(([id, peer]) => {
-            peer.sendMessage(id as PeerId, channelId, message, broadcast)
+          .forEach(([id, adapter]) => {
+            adapter.sendMessage(id as PeerId, channelId, message, broadcast)
           })
       }
 
@@ -136,7 +153,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
       })
     })
 
-    this.channels.forEach((c) => networkAdapter.join(c))
+    this.channels.forEach(c => networkAdapter.join(c))
   }
 
   sendMessage(
@@ -150,22 +167,22 @@ export class NetworkSubsystem extends EventEmitter<NetworkEvents> {
         peer.sendMessage(id as PeerId, channelId, message, true)
       })
     } else {
-      const peer = this.peerIdToAdapter[peerId]
-      if (!peer) {
+      const adapter = this.peerIdToAdapter[peerId]
+      if (!adapter) {
         log(`Tried to send message to disconnected peer: ${peerId}`)
         return
       }
-      peer.sendMessage(peerId, channelId, message, false)
+      adapter.sendMessage(peerId, channelId, message, false)
     }
   }
 
   join(channelId: ChannelId) {
     this.channels.push(channelId)
-    this.networkAdapters.forEach((a) => a.join(channelId))
+    this.networkAdapters.forEach(a => a.join(channelId))
   }
 
   leave(channelId: ChannelId) {
-    this.channels = this.channels.filter((c) => c !== channelId)
-    this.networkAdapters.forEach((a) => a.leave(channelId))
+    this.channels = this.channels.filter(c => c !== channelId)
+    this.networkAdapters.forEach(a => a.leave(channelId))
   }
 }
