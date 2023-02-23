@@ -37,13 +37,13 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
    * find() locates a document by id. It gets data from the local system, but also by sends a
    * 'document' event which a CollectionSynchronizer would use to advertise interest to other peers
    */
-  find<T>(documentId: DocumentId): DocHandle<T> {
+  find<T>(documentId: DocumentId, options?: DocHandleOptions): DocHandle<T> {
     // TODO: we want a way to make sure we don't yield
     //       intermediate document states during initial synchronization
     if (this.handles[documentId]) {
       return this.handles[documentId] as DocHandle<T>
     }
-    const handle = this.cacheHandle(documentId, false)
+    const handle = this.cacheHandle(documentId, false, options)
 
     // we don't directly initialize a value here because
     // the StorageSubsystem and Synchronizers go and get the data

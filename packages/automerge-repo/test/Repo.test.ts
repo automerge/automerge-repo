@@ -14,9 +14,12 @@ export interface TestDoc {
 }
 
 describe("Repo", () => {
+  const memoryStorageAdapter = new MemoryStorageAdapter()
+  const dummyNetworkAdapter = new DummyNetworkAdapter()
+
   const repo = new Repo({
-    storage: new MemoryStorageAdapter(),
-    network: [new DummyNetworkAdapter()],
+    storage: memoryStorageAdapter,
+    network: [dummyNetworkAdapter],
   })
 
   it("can instantiate a Repo", () => {
@@ -33,29 +36,6 @@ describe("Repo", () => {
 
   it("can create a document", () => {
     const handle = repo.create()
-    assert(handle.documentId != null)
-  })
-
-  it("can create and change a document using the unstable Automerge API", done => {
-    const handle = repo.create<TestDoc>({ unstable: true })
-
-    handle.change(doc => {
-      doc.foo = "bar"
-    })
-
-    handle.change(doc => {
-      unstable.splice(doc, "foo", 2, 1, "z")
-    })
-
-    handle.value().then(v => {
-      try {
-        assert(v.foo === "baz")
-        done()
-      } catch (e) {
-        done(e)
-      }
-    })
-
     assert(handle.documentId != null)
   })
 
@@ -91,6 +71,78 @@ describe("Repo", () => {
       } catch (e) {
         done(e)
       }
+    })
+  })
+
+  describe("unstable API", () => {
+    it("can create and change a document using the unstable Automerge API", done => {
+      const handle = repo.create<TestDoc>({ unstable: true })
+
+      handle.change(doc => {
+        doc.foo = "bar"
+      })
+
+      handle.change(doc => {
+        unstable.splice(doc, "foo", 2, 1, "z")
+      })
+
+      handle.value().then(v => {
+        try {
+          assert(v.foo === "baz")
+          done()
+        } catch (e) {
+          done(e)
+        }
+      })
+
+      assert(handle.documentId != null)
+    })
+
+    it("can find and change a document created with the unstable api", done => {
+      const handle = repo.create<TestDoc>({ unstable: true })
+
+      handle.change(doc => {
+        doc.foo = "bar"
+      })
+
+      handle.change(doc => {
+        unstable.splice(doc, "foo", 2, 1, "z")
+      })
+      assert(handle.state === "ready")
+
+      handle.value().then(() => {
+        const repo2 = new Repo({
+          storage: memoryStorageAdapter,
+          network: [dummyNetworkAdapter],
+        })
+
+        const handle2 = repo2.find<TestDoc & { test?: string }>(
+          handle.documentId,
+          {
+            unstable: true,
+          }
+        )
+        handle2.value().then(() => {
+          assert(handle2.ready())
+
+          handle2.change(doc => {
+            doc.test = "xyz"
+          })
+
+          handle2.change(doc => {
+            unstable.splice(doc, "test", 2, 1, "r")
+          })
+          handle2.value().then(v => {
+            try {
+              assert(v.foo === "baz")
+              assert(v.test === "xyr")
+              done()
+            } catch (e) {
+              done(e)
+            }
+          })
+        })
+      })
     })
   })
 
