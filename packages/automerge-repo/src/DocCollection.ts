@@ -26,18 +26,9 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   // (but: we need to make sure the storage system will collect it)
   // (next: we need to have some kind of reify function)
   // (then: cambria!)
-  create<T>(): DocHandle<T> {
+  create<T>(options?: DocHandleOptions): DocHandle<T> {
     const documentId = v4() as DocumentId
-    const handle = this.cacheHandle(documentId, true) as DocHandle<T>
-    this.emit("document", { handle })
-    return handle
-  }
-
-  createUnstable<T>(): DocHandle<T> {
-    const documentId = v4() as DocumentId
-    const handle = this.cacheHandle(documentId, true, {
-      unstable: true,
-    }) as DocHandle<T>
+    const handle = this.cacheHandle(documentId, true, options) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }

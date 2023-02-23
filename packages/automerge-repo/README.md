@@ -43,9 +43,11 @@ This library provides two main components: the `Repo` itself, and the `DocHandle
 
 A `Repo` exposes these methods:
 
-- `create<T>()`  
-  Creates a new, empty `Automerge.Doc` and returns a `DocHandle` for it.
-- `find<T>(docId: DocumentId)`  
+- `create<T>(options?: DocHandleOptions)`  
+  Creates a new, empty `Automerge.Doc` and returns a `DocHandle` for it. 
+  - `options` - Optional configuration object with properties:  
+    - `unstable` - Uses the unstable Automerge API
+- `find<T>(docId: DocumentId)`
   Looks up a given document either on the local machine or (if necessary) over any configured
   networks.
 - `.on("document", ({handle: DocHandle}) => void)`  
@@ -54,7 +56,7 @@ A `Repo` exposes these methods:
 A `DocHandle` is a wrapper around an `Automerge.Doc`. Its primary function is to dispatch changes to
 the document.
 
-- `handle.change((doc: T) => void)` Calls the provided callback with an instrumented mutable object
+- `handle.change((doc: Extend<T>) => void)` Calls the provided callback with an instrumented mutable object
   representing the document. Any changes made to the document will be recorded and distributed to
   other nodes.
 - `handle.value()` Returns a `Promise<Doc<T>>` that will contain the current value of the document.

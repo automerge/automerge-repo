@@ -37,7 +37,7 @@ describe("Repo", () => {
   })
 
   it("can create and change a document using the unstable Automerge API", done => {
-    const handle = repo.createUnstable<TestDoc>()
+    const handle = repo.create<TestDoc>({ unstable: true })
 
     handle.change(doc => {
       doc.foo = "bar"
