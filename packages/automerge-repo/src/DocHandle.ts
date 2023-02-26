@@ -2,6 +2,7 @@ import * as A from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
 import debug from "debug"
 import EventEmitter from "eventemitter3"
+import { headsAreSame } from "./helpers/headsAreSame"
 import { pause } from "./helpers/pause"
 import { ChannelId, DocumentId, PeerId } from "./types"
 
@@ -88,19 +89,10 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     const oldDoc = this.doc
     this.doc = newDoc
 
-    const equalArrays = (a: unknown[], b: unknown[]) =>
-      a.length === b.length && a.every((element, index) => element === b[index])
-
-    // we only need to emit a "change" if something changed as a result of the update
-    if (!equalArrays(A.getHeads(newDoc), A.getHeads(oldDoc))) {
-      if (this.state !== HandleState.READY) {
-        // only go to ready once
-        this.state = HandleState.READY
-        this.emit("ready")
-      }
-      this.emit("change", {
-        handle: this,
-      })
+    // we only need to emit a "change" if there actually were changes
+    if (!headsAreSame(newDoc, oldDoc)) {
+      this.#ready()
+      this.emit("change", { handle: this })
     }
   }
 
