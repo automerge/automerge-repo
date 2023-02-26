@@ -10,6 +10,29 @@ const log = debug("ar:dochandle")
 export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   doc: A.Doc<T>
   documentId: DocumentId
+
+  /**
+   * We need to carefully orchestrate document loading in order to avoid requesting data we already
+   * have or surfacing intermediate values to the consumer. The handle lifecycle looks like this:
+   * ```
+   *                        handle.state
+   * ┌───────────────┐      ┌────────────┐
+   * │new DocHandle()│  ┌──►│ LOADING    ├─┐
+   * ├─────────────┬─┘  │ ┌┤├────────────┤ │ via loadIncremental()
+   * ├─────────────┤    │ └►├────────────┤ │  or unblockSync()
+   * │find()       ├────┘ ┌─┤ REQUESTING │ │
+   * ├─────────────┤      │ ├────────────┤ │
+   * │create()     ├────┐ │ ├────────────┤ │ via receiveSyncMessage()
+   * └─────────────┘    └►└►│ READY      │►┘  or create()
+   *                        └────────────┘
+   *  ┌────────────┐
+   *  │value()     │ <- blocks until "ready"
+   *  ├────────────┤
+   *  │provisionalValue() │ <- blocks until "syncing"
+   *  └────────────┘
+   * ```
+   *
+   * */
   state: HandleState = HandleState.LOADING
 
   constructor(documentId: DocumentId, newDoc = false) {
