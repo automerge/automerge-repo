@@ -45,8 +45,12 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
         this.#notifyPatchListeners(patch, before, after),
     })
 
-    // new documents don't need to block on an initial value setting
-    if (newDoc) {
+    // If this is a freshly created document, we can immediately mark it as ready
+    if (newDoc) this.#ready()
+  }
+
+  #ready() {
+    if (this.state !== HandleState.READY) {
       this.state = HandleState.READY
       this.emit("ready")
     }
