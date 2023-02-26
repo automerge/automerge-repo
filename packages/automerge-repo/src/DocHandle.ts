@@ -1,10 +1,8 @@
 import * as A from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
+import debug from "debug"
 import EventEmitter from "eventemitter3"
 import { ChannelId, DocumentId, PeerId } from "./types"
-
-import debug from "debug"
-const log = debug("ar:dochandle")
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
@@ -35,9 +33,13 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * */
   state: HandleState = HandleState.LOADING
 
+  #log: debug.Debugger
+
   constructor(documentId: DocumentId, newDoc = false) {
     super()
     this.documentId = documentId
+    this.#log = debug(`ar:dochandle:${documentId}`)
+
     this.doc = A.init({
       patchCallback: (patch, before, after) =>
         this.#notifyPatchListeners(patch, before, after),
@@ -55,7 +57,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   loadIncremental(binary: Uint8Array) {
-    log(`[${this.documentId}]: loadIncremental`, this.doc)
+    this.#log(`[${this.documentId}]: loadIncremental`, this.doc)
     const newDoc = A.loadIncremental(this.doc, binary)
     if (this.state === HandleState.LOADING) {
       this.state = HandleState.READY
@@ -72,7 +74,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
-    log(`[${this.documentId}]: updateDoc`, this.doc)
+    this.#log(`[${this.documentId}]: updateDoc`, this.doc)
     // make sure doc is a new version of the old doc somehow...
     this.#notifyChangeListeners(callback(this.doc))
   }
@@ -107,12 +109,14 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
 
   async value() {
     if (!this.isReady()) {
-      log(`[${this.documentId}]: value: (${this.state}, waiting for ready)`)
+      this.#log(
+        `[${this.documentId}]: value: (${this.state}, waiting for ready)`
+      )
       await new Promise(resolve => this.once("ready", () => resolve(true)))
     } else {
       await new Promise(resolve => setTimeout(() => resolve(true), 0))
     }
-    log(`[${this.documentId}]: value:`, this.doc)
+    this.#log(`[${this.documentId}]: value:`, this.doc)
     return this.doc
   }
 
@@ -121,9 +125,11 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * during syncing when we don't want to share it with the frontend/user code.
    */
   async syncValue() {
-    log(`[${this.documentId}]: syncValue,`, this.doc)
+    this.#log(`[${this.documentId}]: syncValue,`, this.doc)
     if (this.state == HandleState.LOADING) {
-      log(`[${this.documentId}]: value: (${this.state}, waiting for syncing)`)
+      this.#log(
+        `[${this.documentId}]: value: (${this.state}, waiting for syncing)`
+      )
       await new Promise(resolve => {
         this.once("syncing", () => resolve(true))
         this.once("ready", () => resolve(true))
@@ -131,7 +137,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     } else {
       await new Promise(resolve => setTimeout(() => resolve(true), 0))
     }
-    log(`[${this.documentId}]: syncValue:`, this.doc)
+    this.#log(`[${this.documentId}]: syncValue:`, this.doc)
     return this.doc
   }
 
