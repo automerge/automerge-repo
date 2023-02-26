@@ -42,10 +42,10 @@ describe("Repo", () => {
       handle.change(d => {
         d.foo = "bar"
       })
-      assert(handle.state === HandleState.READY)
-
       const v = await handle.value()
-      assert(v.foo === "bar")
+      assert.equal(handle.state, HandleState.READY)
+
+      assert.equal(v.foo, "bar")
     })
 
     it("can find a created document", async () => {
@@ -57,11 +57,12 @@ describe("Repo", () => {
       assert(handle.state === HandleState.READY)
 
       const bobHandle = repo.find<TestDoc>(handle.documentId)
-      assert(handle === bobHandle)
-      assert(bobHandle.isReady())
+
+      assert.equal(handle, bobHandle)
+      assert.equal(handle.state, HandleState.READY)
 
       const v = await bobHandle.value()
-      assert(v.foo === "bar")
+      assert.equal(v.foo, "bar")
     })
   })
 
