@@ -39,12 +39,12 @@ export class Repo extends DocCollection {
         if (binary.byteLength > 0) {
           handle.loadIncremental(binary)
         } else {
-          handle.requestDocument()
+          handle.request()
         }
       })
     } else {
       this.on("document", async ({ handle }) => {
-        handle.requestDocument()
+        handle.request()
       })
     }
 
