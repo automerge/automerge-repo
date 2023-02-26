@@ -80,9 +80,10 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
-    this.#log(`[${this.documentId}]: updateDoc`, this.doc)
-    // make sure doc is a new version of the old doc somehow...
-    this.#notifyChangeListeners(callback(this.doc))
+    this.#log(`updateDoc`, this.doc)
+    // TODO: make sure doc is a new version of the old doc somehow...
+    const newDoc = callback(this.doc)
+    this.#notifyChangeListeners(newDoc)
   }
 
   #notifyChangeListeners(newDoc: A.Doc<T>) {
