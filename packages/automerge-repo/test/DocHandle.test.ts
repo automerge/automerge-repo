@@ -39,7 +39,7 @@ describe("DocHandle", () => {
     assert(doc.foo === "bar")
   })
 
-  it("should return syncValue following an incremental load on an existing document", async () => {
+  it("should return provisionalValue following an incremental load on an existing document", async () => {
     const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
     assert(handle.isReady() === false)
 
@@ -52,7 +52,7 @@ describe("DocHandle", () => {
       )
     )
 
-    const doc = await handle.syncValue()
+    const doc = await handle.provisionalValue()
     assert(handle.isReady() === true)
     assert(doc.foo === "bar")
   })

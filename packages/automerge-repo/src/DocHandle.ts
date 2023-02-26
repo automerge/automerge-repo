@@ -105,6 +105,13 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     this.emit("patch", { handle: this, patch, before, after })
   }
 
+  /**
+   * This is the current state of the document
+   *
+   * If a document isn't available locally, this will block until it gets it from the network.
+   *
+   * TODO: might be good for this to timeout if the document isn't available after a certain amount of time
+   */
   async value() {
     if (!this.isReady()) {
       this.#log(
@@ -119,11 +126,11 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * syncValue returns the value, but not until after loading is done. It will return the value
-   * during syncing when we don't want to share it with the frontend/user code.
+   * If a document isn't available locally, this will return an empty document while we're asking
+   * peers for it.
    */
-  async syncValue() {
-    this.#log(`[${this.documentId}]: syncValue,`, this.doc)
+  async provisionalValue() {
+    this.#log(`[${this.documentId}]: provisionalValue,`, this.doc)
     if (this.state == HandleState.LOADING) {
       this.#log(
         `[${this.documentId}]: value: (${this.state}, waiting for syncing)`
@@ -135,7 +142,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     } else {
       await pause(0)
     }
-    this.#log(`[${this.documentId}]: syncValue:`, this.doc)
+    this.#log(`[${this.documentId}]: provisionalValue:`, this.doc)
     return this.doc
   }
 
