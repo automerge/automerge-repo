@@ -26,7 +26,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    *  ┌────────────┐
    *  │value()     │ <- blocks until "ready"
    *  ├────────────┤
-   *  │provisionalValue() │ <- blocks until "syncing"
+   *  │provisionalValue() │ <- blocks until "requesting"
    *  └────────────┘
    * ```
    *
@@ -73,7 +73,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   requestDocument() {
     if (this.state === HandleState.LOADING) {
       this.state = HandleState.REQUESTING
-      this.emit("syncing")
+      this.emit("requesting")
     }
   }
 
@@ -135,7 +135,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
         `[${this.documentId}]: value: (${this.state}, waiting for syncing)`
       )
       await new Promise(resolve => {
-        this.once("syncing", () => resolve(true))
+        this.once("requesting", () => resolve(true))
         this.once("ready", () => resolve(true))
       })
     } else {
@@ -185,7 +185,7 @@ export interface DocHandlePatchPayload<T> {
 }
 
 export interface DocHandleEvents<T> {
-  syncing: () => void // HMM
+  requesting: () => void // HMM
   ready: () => void // HMM
   message: (payload: DocHandleMessagePayload) => void
   change: (payload: DocHandleChangePayload<T>) => void
