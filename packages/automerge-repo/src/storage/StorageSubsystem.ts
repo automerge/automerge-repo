@@ -1,4 +1,4 @@
-import * as Automerge from "@automerge/automerge"
+import * as A from "@automerge/automerge"
 import { DocumentId } from "../types"
 import { mergeArrays } from "../helpers/mergeArrays"
 import { StorageAdapter } from "./StorageAdapter"
@@ -11,8 +11,8 @@ export class StorageSubsystem {
     this.#storageAdapter = storageAdapter
   }
 
-  saveIncremental(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
-    const binary = Automerge.getBackend(doc).saveIncremental()
+  saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
+    const binary = A.getBackend(doc).saveIncremental()
     if (binary && binary.length > 0) {
       if (!this.#incrementalChangeCount[documentId]) {
         this.#incrementalChangeCount[documentId] = 0
@@ -27,8 +27,8 @@ export class StorageSubsystem {
     }
   }
 
-  saveTotal(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
-    const binary = Automerge.save(doc)
+  saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
+    const binary = A.save(doc)
     this.#storageAdapter.save(`${documentId}.snapshot`, binary)
 
     for (let i = 0; i < this.#incrementalChangeCount[documentId]; i++) {
@@ -58,7 +58,7 @@ export class StorageSubsystem {
     return mergeArrays(result)
   }
 
-  save(documentId: DocumentId, doc: Automerge.Doc<unknown>) {
+  save(documentId: DocumentId, doc: A.Doc<unknown>) {
     if (this.#shouldCompact(documentId)) {
       this.saveTotal(documentId, doc)
     } else {
