@@ -59,27 +59,34 @@ export class Repo extends DocCollection {
       synchronizer.addDocument(handle.documentId)
     })
 
+    // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", ({ peerId }) => {
       this.#log("peer connected", { peerId })
       synchronizer.addPeer(peerId, sharePolicy(peerId))
     })
 
+    // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
       synchronizer.removePeer(peerId)
     })
 
+    // Handle incoming message from peers
     networkSubsystem.on("message", payload => {
       const { senderId, channelId, message } = payload
       // TODO: this demands a more principled way of associating channels with recipients
+
       if (channelId.startsWith("m/")) {
+        // Ephemeral message
         this.#log(`receiving ephemeral message from ${senderId}`)
         ephemeralData.receive(senderId, channelId, message)
       } else {
+        // Sync message
         this.#log(`receiving sync message from ${senderId}`)
         synchronizer.onSyncMessage(senderId, channelId, message)
       }
     })
 
+    // Send sync messages to peers
     synchronizer.on(
       "message",
       ({ targetId, channelId, message, broadcast }) => {
@@ -88,6 +95,7 @@ export class Repo extends DocCollection {
       }
     )
 
+    // Send ephemeral messages to peers
     ephemeralData.on(
       "message",
       ({ targetId, channelId, message, broadcast }) => {
