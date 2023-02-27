@@ -32,19 +32,25 @@ export class Repo extends DocCollection {
 
     this.#log = debug(`ar:repo:${peerId}`)
 
+    // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
     this.storageSubsystem = storageSubsystem
 
+    // The network subsystem deals with sending and receiving messages to and from peers.
     const networkSubsystem = new NetworkSubsystem(network, peerId)
     this.networkSubsystem = networkSubsystem
 
+    // The ephemeral data subsystem uses the network to send and receive messages that are not
+    // persisted to storage, e.g. cursor position, presence, etc.
     const ephemeralData = new EphemeralData()
     this.ephemeralData = ephemeralData
 
-    // wire up the dependency synchronizers
+    // The synchronizer uses the network subsystem to keep documents in sync with peers.
     const synchronizer = new CollectionSynchronizer(this)
 
-    // DocCollection emits `document` when a document is created or requested
+    // The `document` event is fired by the DocCollection any time we create a new document or look
+    // up a document by ID. We listen for it in order to wire up storage and network
+    // synchronization.
     this.on("document", async ({ handle }) => {
       if (storageSubsystem) {
         // Try to load from disk
@@ -78,8 +84,7 @@ export class Repo extends DocCollection {
     // Handle incoming message from peers
     networkSubsystem.on("message", payload => {
       const { senderId, channelId, message } = payload
-      // TODO: this demands a more principled way of associating channels with recipients
-
+      // HACK: ephemeral messages go through channels starting with "m/"
       if (channelId.startsWith("m/")) {
         // Ephemeral message
         this.#log(`receiving ephemeral message from ${senderId}`)
@@ -109,13 +114,24 @@ export class Repo extends DocCollection {
       }
     )
 
+    // We establish a special channel for sync messages
     networkSubsystem.join(SYNC_CHANNEL)
   }
 }
 
 export interface RepoConfig {
-  storage?: StorageAdapter
-  network: NetworkAdapter[]
+  /** Our unique identifier */
   peerId?: PeerId
-  sharePolicy?: (peerId: PeerId) => boolean // generous or no. this is a stand-in for a better API to test an idea.
+
+  /** A storage adapter can be provided, or not */
+  storage?: StorageAdapter
+
+  /** One or more network adapters must be provided */
+  network: NetworkAdapter[]
+
+  /**
+   * Normal peers typically share generously with everyone (meaning we sync all our documents with
+   * all peers). A server only syncs documents that a peer explicitly requests by ID.
+   */
+  sharePolicy?: (peerId: PeerId) => boolean
 }
