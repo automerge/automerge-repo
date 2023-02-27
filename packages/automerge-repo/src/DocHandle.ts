@@ -73,6 +73,14 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     this.#notifyChangeListeners(newDoc)
   }
 
+  /**
+   * A Repo can call this when it doesn't have the document and has advertised our interest in it.
+   * This blocks access to the document until we get it from a peer.
+   *
+   * TODO: might be good for this to timeout and go to a "not found" state if the document isn't
+   * available after a certain amount of time. but not sure what we would do with a doc in that
+   * state. We'd also need to retry etc.
+   */
   waitForSync() {
     if (this.state === HandleState.LOADING) {
       this.state = HandleState.REQUESTING
@@ -87,6 +95,11 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     this.#notifyChangeListeners(newDoc)
   }
 
+  /**
+   * We emit a `change` event for the benefit of network and storage; they care about the full
+   * history of changes. Changes may or may not result in a patch, would result in something visible
+   * to the user.
+   */
   #notifyChangeListeners(newDoc: A.Doc<T>) {
     const oldDoc = this.doc
     this.doc = newDoc
@@ -98,6 +111,11 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     }
   }
 
+  /**
+   * We emit a `patch` event for the benefit of the front end; it cares about the changes that might
+   * be visible to the user. A patch is the result of one or more changes. It describes the
+   * difference between the state before and after the changes.
+   */
   #notifyPatchListeners(
     patch: any, //Automerge.Patch,
     before: A.Doc<T>,
@@ -107,11 +125,8 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * This is the current state of the document
-   *
-   * If a document isn't available locally, this will block until it gets it from the network.
-   *
-   * TODO: might be good for this to timeout if the document isn't available after a certain amount of time
+   * This is the current state of the document. If a document isn't available locally, this will
+   * block until until we get it from a peer. (As noted above, we should probably have a timeout.)
    */
   async value() {
     if (!this.isReady()) {
@@ -147,6 +162,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     return this.doc
   }
 
+  /** Applies an Automerge change function to the document. */
   async change(callback: A.ChangeFn<T>, options: ChangeOptions<T> = {}) {
     await this.value()
     const newDoc = A.change<T>(this.doc, options, callback)
