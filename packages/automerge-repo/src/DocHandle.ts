@@ -146,11 +146,11 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     return this.doc
   }
 
-  change(callback: (doc: T) => void, options: ChangeOptions<T> = {}) {
-    this.value().then(() => {
-      const newDoc = A.change<T>(this.doc, options, callback)
-      this.#notifyChangeListeners(newDoc)
-    })
+  async change(callback: A.ChangeFn<T>, options: ChangeOptions<T> = {}) {
+    await this.value()
+    const newDoc = A.change<T>(this.doc, options, callback)
+    this.#log(`change`, { oldDoc: this.doc, newDoc })
+    this.#notifyChangeListeners(newDoc)
   }
 }
 
