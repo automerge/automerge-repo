@@ -19,17 +19,17 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * ┌───────────────┐      ┌────────────┐
    * │new DocHandle()│  ┌──►│ LOADING    ├─┐
    * ├─────────────┬─┘  │ ┌┤├────────────┤ │ via loadIncremental()
-   * ├─────────────┤    │ └►├────────────┤ │  or unblockSync()
+   * ├─────────────┤    │ └►├────────────┤ │  or waitForSync()
    * │find()       ├────┘ ┌─┤ REQUESTING │ │
    * ├─────────────┤      │ ├────────────┤ │
    * │create()     ├────┐ │ ├────────────┤ │ via receiveSyncMessage()
    * └─────────────┘    └►└►│ READY      │►┘  or create()
    *                        └────────────┘
-   *  ┌────────────┐
-   *  │value()     │ <- blocks until "ready"
-   *  ├────────────┤
+   *  ┌───────────────────┐
+   *  │value()            │ <- blocks until "ready"
+   *  ├───────────────────┤
    *  │provisionalValue() │ <- blocks until "requesting"
-   *  └────────────┘
+   *  └───────────────────┘
    * ```
    *
    * */
