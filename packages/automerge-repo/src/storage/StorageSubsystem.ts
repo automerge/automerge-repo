@@ -11,7 +11,7 @@ export class StorageSubsystem {
     this.#storageAdapter = storageAdapter
   }
 
-  saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
+  #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
     const binary = A.getBackend(doc).saveIncremental()
     if (binary && binary.length > 0) {
       if (!this.#changeCount[documentId]) {
@@ -27,7 +27,7 @@ export class StorageSubsystem {
     }
   }
 
-  saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
+  #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
     const binary = A.save(doc)
     this.#storageAdapter.save(`${documentId}.snapshot`, binary)
 
@@ -60,9 +60,9 @@ export class StorageSubsystem {
 
   save(documentId: DocumentId, doc: A.Doc<unknown>) {
     if (this.#shouldCompact(documentId)) {
-      this.saveTotal(documentId, doc)
+      this.#saveTotal(documentId, doc)
     } else {
-      this.saveIncremental(documentId, doc)
+      this.#saveIncremental(documentId, doc)
     }
   }
 
