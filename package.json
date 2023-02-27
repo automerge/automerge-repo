@@ -15,6 +15,7 @@
     "pub": "lerna publish --yes",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace automerge-repo-sync-server start",
     "test": "lerna run test",
+    "test:watch": "lerna run test:watch",
     "test:coverage": "lerna run test:coverage",
     "watch": "lerna run watch --parallel"
   },
