@@ -5,7 +5,7 @@ import { StorageAdapter } from "./StorageAdapter"
 
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
-  #incrementalChangeCount: Record<DocumentId, number> = {}
+  #changeCount: Record<DocumentId, number> = {}
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
@@ -14,16 +14,16 @@ export class StorageSubsystem {
   saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
     const binary = A.getBackend(doc).saveIncremental()
     if (binary && binary.length > 0) {
-      if (!this.#incrementalChangeCount[documentId]) {
-        this.#incrementalChangeCount[documentId] = 0
+      if (!this.#changeCount[documentId]) {
+        this.#changeCount[documentId] = 0
       }
 
       this.#storageAdapter.save(
-        `${documentId}.incremental.${this.#incrementalChangeCount[documentId]}`,
+        `${documentId}.incremental.${this.#changeCount[documentId]}`,
         binary
       )
 
-      this.#incrementalChangeCount[documentId]++
+      this.#changeCount[documentId]++
     }
   }
 
@@ -31,11 +31,11 @@ export class StorageSubsystem {
     const binary = A.save(doc)
     this.#storageAdapter.save(`${documentId}.snapshot`, binary)
 
-    for (let i = 0; i < this.#incrementalChangeCount[documentId]; i++) {
+    for (let i = 0; i < this.#changeCount[documentId]; i++) {
       this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
     }
 
-    this.#incrementalChangeCount[documentId] = 0
+    this.#changeCount[documentId] = 0
   }
 
   async load(storageKey: string): Promise<Uint8Array> {
@@ -68,6 +68,6 @@ export class StorageSubsystem {
 
   // TODO: make this, you know, good.
   #shouldCompact(documentId: DocumentId) {
-    return this.#incrementalChangeCount[documentId] >= 20
+    return this.#changeCount[documentId] >= 20
   }
 }
