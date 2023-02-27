@@ -35,7 +35,7 @@ export class Repo extends DocCollection {
           storageSubsystem.save(handle.documentId, handle.doc)
         )
 
-        const binary = await storageSubsystem.load(handle.documentId)
+        const binary = await storageSubsystem.loadBinary(handle.documentId)
         if (binary.byteLength > 0) {
           handle.loadIncremental(binary)
         } else {

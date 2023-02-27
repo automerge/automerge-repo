@@ -38,9 +38,9 @@ export class StorageSubsystem {
     this.#changeCount[documentId] = 0
   }
 
-  async load(storageKey: string): Promise<Uint8Array> {
+  async loadBinary(documentId: string): Promise<Uint8Array> {
     const result = []
-    let binary = await this.#storageAdapter.load(`${storageKey}.snapshot`)
+    let binary = await this.#storageAdapter.load(`${documentId}.snapshot`)
     if (binary && binary.length > 0) {
       result.push(binary)
     }
@@ -48,7 +48,7 @@ export class StorageSubsystem {
     let index = 0
     while (
       (binary = await this.#storageAdapter.load(
-        `${storageKey}.incremental.${index}`
+        `${documentId}.incremental.${index}`
       ))
     ) {
       if (binary && binary.length > 0) result.push(binary)
