@@ -44,7 +44,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
 
     this.doc = A.init({
       patchCallback: (patch, before, after) =>
-        this.#notifyPatchListeners(patch, before, after),
+        this.#emitPatch(patch, before, after),
     })
 
     // If this is a freshly created document, we can immediately mark it as ready
@@ -70,7 +70,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
       this.state = HandleState.READY
       this.emit("ready")
     }
-    this.#notifyChangeListeners(newDoc)
+    this.#emitChange(newDoc)
   }
 
   /**
@@ -92,7 +92,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     this.#log(`updateDoc`, this.doc)
     // TODO: make sure doc is a new version of the old doc somehow...
     const newDoc = callback(this.doc)
-    this.#notifyChangeListeners(newDoc)
+    this.#emitChange(newDoc)
   }
 
   /**
@@ -100,7 +100,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * history of changes. Changes may or may not result in a patch, would result in something visible
    * to the user.
    */
-  #notifyChangeListeners(newDoc: A.Doc<T>) {
+  #emitChange(newDoc: A.Doc<T>) {
     const oldDoc = this.doc
     this.doc = newDoc
 
@@ -116,7 +116,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * be visible to the user. A patch is the result of one or more changes. It describes the
    * difference between the state before and after the changes.
    */
-  #notifyPatchListeners(
+  #emitPatch(
     patch: any, //Automerge.Patch,
     before: A.Doc<T>,
     after: A.Doc<T>
@@ -167,7 +167,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     await this.value()
     const newDoc = A.change<T>(this.doc, options, callback)
     this.#log(`change`, { oldDoc: this.doc, newDoc })
-    this.#notifyChangeListeners(newDoc)
+    this.#emitChange(newDoc)
   }
 }
 
