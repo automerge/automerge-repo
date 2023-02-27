@@ -27,26 +27,8 @@ export class Repo extends DocCollection {
 
     this.#log = debug(`ar:repo:${peerId}`)
 
-    if (storage) {
-      const storageSubsystem = new StorageSubsystem(storage)
-      this.storageSubsystem = storageSubsystem
-      this.on("document", async ({ handle }) => {
-        handle.on("change", ({ handle }) =>
-          storageSubsystem.save(handle.documentId, handle.doc)
-        )
-
-        const binary = await storageSubsystem.loadBinary(handle.documentId)
-        if (binary.byteLength > 0) {
-          handle.loadIncremental(binary)
-        } else {
-          handle.request()
-        }
-      })
-    } else {
-      this.on("document", async ({ handle }) => {
-        handle.request()
-      })
-    }
+    const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
+    this.storageSubsystem = storageSubsystem
 
     const networkSubsystem = new NetworkSubsystem(network, peerId)
     this.networkSubsystem = networkSubsystem
@@ -57,6 +39,26 @@ export class Repo extends DocCollection {
     // wire up the dependency synchronizers
     const synchronizer = new CollectionSynchronizer(this)
 
+    // DocCollection emits `document` when a document is created or requested
+    this.on("document", async ({ handle }) => {
+      if (storageSubsystem) {
+        // Try to load from disk
+        const binary = await storageSubsystem.loadBinary(handle.documentId)
+        handle.loadIncremental(binary)
+
+        // Save when the document changes
+        handle.on("change", ({ handle }) =>
+          storageSubsystem.save(handle.documentId, handle.doc)
+        )
+      }
+
+      // Advertise our interest in the document
+      handle.request()
+
+      // Register the document with the synchronizer
+      synchronizer.addDocument(handle.documentId)
+    })
+
     networkSubsystem.on("peer", ({ peerId }) => {
       this.#log("peer connected", { peerId })
       synchronizer.addPeer(peerId, sharePolicy(peerId))
@@ -64,10 +66,6 @@ export class Repo extends DocCollection {
 
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
       synchronizer.removePeer(peerId)
-    })
-
-    this.on("document", ({ handle }) => {
-      synchronizer.addDocument(handle.documentId)
     })
 
     networkSubsystem.on("message", payload => {
