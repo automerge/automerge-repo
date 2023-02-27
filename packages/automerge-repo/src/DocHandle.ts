@@ -73,7 +73,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
     this.#notifyChangeListeners(newDoc)
   }
 
-  request() {
+  waitForSync() {
     if (this.state === HandleState.LOADING) {
       this.state = HandleState.REQUESTING
       this.emit("requesting")
