@@ -9,6 +9,8 @@ import { NetworkAdapter } from "./network/NetworkAdapter"
 
 import debug from "debug"
 
+const SYNC_CHANNEL = "sync_channel" as ChannelId
+
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {
   #log: debug.Debugger
@@ -104,7 +106,7 @@ export class Repo extends DocCollection {
       }
     )
 
-    networkSubsystem.join("sync_channel" as ChannelId)
+    networkSubsystem.join(SYNC_CHANNEL)
   }
 }
 
