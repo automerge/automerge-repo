@@ -17,7 +17,7 @@
     "test": "lerna run test",
     "test:watch": "lerna run test:watch",
     "test:coverage": "lerna run test:coverage",
-    "watch": "lerna run watch --parallel"
+    "watch": "lerna run watch --parallel --stream"
   },
   "devDependencies": {
     "@types/mocha": "^9.1.1",
