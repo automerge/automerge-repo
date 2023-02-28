@@ -21,7 +21,7 @@ export class DocSynchronizer
 
   // we track peers separately from syncStates because we might have more syncStates than active peers
   peers: PeerId[] = []
-  syncStates: { [peerId: PeerId]: Automerge.SyncState } = {} // peer -> syncState\
+  syncStates: { [peerId: PeerId]: Automerge.SyncState } = {} // peer -> syncState
 
   constructor(handle: DocHandle<unknown>) {
     super()
@@ -32,12 +32,12 @@ export class DocSynchronizer
   get documentId() {
     return this.handle.documentId
   }
-  
+
   getSyncState(peerId: PeerId) {
     if (!peerId) {
       throw new Error("Tried to load a missing peerId")
     }
-    
+
     if (!this.peers.includes(peerId)) {
       log("adding a new peer", peerId)
       this.peers.push(peerId)
@@ -77,11 +77,16 @@ export class DocSynchronizer
         decoded
       )
 
-      conciseLog(`${peerId} ⬅️️  ${this.handle.documentId} (${message.byteLength} bytes)`)
-      if (opsLog.enabled) { // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
-        opsLog(decoded.changes.flatMap(change => {
-          return decodeChange(change).ops.map((op) => JSON.stringify(op))
-        }))
+      conciseLog(
+        `${peerId} ⬅️️  ${this.handle.documentId} (${message.byteLength} bytes)`
+      )
+      if (opsLog.enabled) {
+        // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
+        opsLog(
+          decoded.changes.flatMap(change => {
+            return decodeChange(change).ops.map(op => JSON.stringify(op))
+          })
+        )
       }
 
       const channelId = this.handle.documentId as unknown as ChannelId
@@ -119,7 +124,7 @@ export class DocSynchronizer
 
   endSync(peerId: PeerId) {
     log(`removing peer ${peerId}`)
-    this.peers = this.peers.filter((p) => p !== peerId)
+    this.peers = this.peers.filter(p => p !== peerId)
   }
 
   async onSyncMessage(
@@ -136,19 +141,24 @@ export class DocSynchronizer
     // We need to block receiving the syncMessages until we've checked local storage
     // TODO: this is kind of an opaque way of doing this...
     // await this.handle.syncValue()
-    this.handle.updateDoc((doc) => {
+    this.handle.updateDoc(doc => {
       const decoded = Automerge.decodeSyncMessage(message)
       log(
         `[${this.handle.documentId}]->[${peerId}]: receiveSync: ${message.byteLength}b`,
         decoded
       )
 
-      conciseLog(`${peerId} ➡️️️  ${this.handle.documentId} (${message.byteLength} bytes)`)
+      conciseLog(
+        `${peerId} ➡️️️  ${this.handle.documentId} (${message.byteLength} bytes)`
+      )
 
-      if (opsLog.enabled) { // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
-        opsLog(decoded.changes.flatMap(change => {
-          return decodeChange(change).ops.map((op) => JSON.stringify(op))
-        }))
+      if (opsLog.enabled) {
+        // guard opsLog, so decodeChange is not called unnecessarily, because it can be expensive
+        opsLog(
+          decoded.changes.flatMap(change => {
+            return decodeChange(change).ops.map(op => JSON.stringify(op))
+          })
+        )
       }
 
       const start = Date.now()
@@ -175,7 +185,7 @@ export class DocSynchronizer
     log(`[${this.handle.documentId}]: syncWithPeers`)
     const { documentId } = this.handle
     const doc = await this.handle.syncValue()
-    this.peers.forEach((peerId) => {
+    this.peers.forEach(peerId => {
       this.sendSyncMessage(peerId, documentId, doc)
     })
   }
