@@ -193,7 +193,7 @@ interface Doc {
   count: number
 }
 
-export function App(props: { documentId: DocumentId }) {
+export default function App(props: { documentId: DocumentId }) {
   const [doc, changeDoc] = useDocument<Doc>(props.documentId)
 
   return (
