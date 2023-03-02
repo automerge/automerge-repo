@@ -65,8 +65,6 @@ export class DocSynchronizer extends Synchronizer {
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
     this.#log(`sendSyncMessage ->${peerId}`)
 
-    // TODO: Right now this can send duplicate messages even if nothing has changed
-
     const syncState = this.#getSyncState(peerId)
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
     this.#setSyncState(peerId, newSyncState)
