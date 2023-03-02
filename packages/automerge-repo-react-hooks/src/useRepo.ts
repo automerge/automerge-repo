@@ -1,6 +1,7 @@
 import { Repo } from "automerge-repo"
-import { useContext } from "react"
-import { RepoContext } from "./RepoContext"
+import { createContext, useContext } from "react"
+
+const RepoContext = createContext<Repo | null>(null)
 
 export function useRepo(): Repo {
   const repo = useContext(RepoContext)
