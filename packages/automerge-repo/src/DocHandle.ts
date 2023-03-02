@@ -135,7 +135,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
       )
       await new Promise(resolve => this.once("ready", () => resolve(true)))
     } else {
-      await pause(0)
+      await pause()
     }
     this.#log(`[${this.documentId}]: value:`, this.doc)
     return this.doc
@@ -156,7 +156,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
         this.once("ready", () => resolve(true))
       })
     } else {
-      await pause(0)
+      await pause()
     }
     this.#log(`[${this.documentId}]: provisionalValue:`, this.doc)
     return this.doc
