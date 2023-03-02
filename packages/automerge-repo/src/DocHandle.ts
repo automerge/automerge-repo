@@ -116,12 +116,8 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * be visible to the user. A patch is the result of one or more changes. It describes the
    * difference between the state before and after the changes.
    */
-  #emitPatch(
-    patch: any, //Automerge.Patch,
-    before: A.Doc<T>,
-    after: A.Doc<T>
-  ) {
-    this.emit("patch", { handle: this, patch, before, after })
+  #emitPatch(patches: A.Patch[], before: A.Doc<T>, after: A.Doc<T>) {
+    this.emit("patch", { handle: this, patches, before, after })
   }
 
   /**
@@ -199,7 +195,7 @@ export interface DocHandleChangePayload<T> {
 
 export interface DocHandlePatchPayload<T> {
   handle: DocHandle<T>
-  patch: A.Patch
+  patches: A.Patch[]
   before: A.Doc<T>
   after: A.Doc<T>
 }

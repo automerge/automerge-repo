@@ -66,7 +66,7 @@ A `DocHandle` also emits these events:
 - `change({handle: DocHandle})`  
   Called any time changes are created or received on the document. Request the `value()` from the
   handle.
-- `patch({handle: DocHandle, before: Doc, after: Doc, patch: Patch})`  
+- `patch({handle: DocHandle, before: Doc, after: Doc, patches: Patch[]})`  
   Useful for manual increment maintenance of a video, most notably for text editors.
 
 ## Creating a repo
@@ -257,5 +257,5 @@ you'll need to manually copy the `rootDocId` value between the browsers.)
 
 ## Acknowledgements
 
-Originally authored by Peter van Hardenberg. Thanks to Herb Caudill and Jeremy Rose for their
-contributions to this repo.
+Originally authored by Peter van Hardenberg. Thanks to Herb Caudill, Jeremy Rose, and Alex Currie-Clark for their
+contributions.
