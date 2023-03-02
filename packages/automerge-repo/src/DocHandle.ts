@@ -164,6 +164,8 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Applies an Automerge change function to the document. */
   async change(callback: A.ChangeFn<T>, options: ChangeOptions<T> = {}) {
+    // TODO: we should note that this is blocking to make sure you don't call change() before you get an initial value by accident
+
     await this.value()
     const newDoc = A.change<T>(this.doc, options, callback)
     this.#log(`change`, { oldDoc: this.doc, newDoc })
