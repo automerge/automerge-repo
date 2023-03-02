@@ -23,13 +23,12 @@ export class CollectionSynchronizer extends Synchronizer {
   }
 
   /**
-   *
+   * When we receive a sync message for a document we haven't got in memory, we
+   * register it with the repo and start synchronizing
    */
   onSyncMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array) {
     const documentId = channelId as unknown as DocumentId
 
-    // if we receive a sync message for a document we haven't got in memory,
-    // we'll need to register it with the repo and start synchronizing
     const docSynchronizer = this.fetchDocSynchronizer(documentId)
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message}`)
     docSynchronizer.onSyncMessage(peerId, channelId, message)
