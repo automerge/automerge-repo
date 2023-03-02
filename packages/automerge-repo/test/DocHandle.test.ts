@@ -2,10 +2,7 @@ import * as Automerge from "@automerge/automerge"
 import assert from "assert"
 import { DocHandle, DocumentId } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise"
-
-interface TestDoc {
-  foo: string
-}
+import { TestDoc } from "./types"
 
 describe("DocHandle", () => {
   it("should take the UUID passed into it", () => {

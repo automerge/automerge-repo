@@ -32,7 +32,7 @@ export interface OpenPayload {
   network: NetworkAdapter
 }
 
-interface PeerCandidatePayload {
+export interface PeerCandidatePayload {
   peerId: PeerId
   channelId: ChannelId
 }

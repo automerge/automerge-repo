@@ -1,12 +1,21 @@
-export * from "./DocCollection"
-export * from "./DocHandle"
-export * from "./network/NetworkAdapter"
-export * from "./network/NetworkSubsystem"
-export * from "./Repo"
-export * from "./storage/StorageAdapter"
-export * from "./storage/StorageSubsystem"
-export * from "./synchronizer/CollectionSynchronizer"
+export { DocCollection } from "./DocCollection"
+export { DocHandle, HandleState } from "./DocHandle"
+export type {
+  DocHandleChangePayload,
+  DocHandleMessagePayload,
+  DocHandlePatchPayload,
+} from "./DocHandle"
+export { NetworkAdapter } from "./network/NetworkAdapter"
+export type {
+  InboundMessagePayload,
+  MessagePayload,
+  OpenPayload,
+  PeerCandidatePayload,
+  PeerDisconnectedPayload,
+} from "./network/NetworkAdapter"
+export { NetworkSubsystem } from "./network/NetworkSubsystem"
+export { Repo } from "./Repo"
+export { StorageAdapter } from "./storage/StorageAdapter"
+export { StorageSubsystem } from "./storage/StorageSubsystem"
+export { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
 export * from "./types"
-
-// Q: is there a reason this is exported with a different name?
-export { CollectionSynchronizer as DependencyCollectionSynchronizer } from "./synchronizer/CollectionSynchronizer"
