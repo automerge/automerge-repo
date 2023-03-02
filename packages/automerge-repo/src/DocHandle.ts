@@ -81,7 +81,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
    * available after a certain amount of time. but not sure what we would do with a doc in that
    * state. We'd also need to retry etc.
    */
-  waitForSync() {
+  requestSync() {
     if (this.state === HandleState.LOADING) {
       this.state = HandleState.REQUESTING
       this.emit("requesting")

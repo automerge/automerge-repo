@@ -64,7 +64,7 @@ export class Repo extends DocCollection {
       }
 
       // Advertise our interest in the document
-      handle.waitForSync()
+      handle.requestSync()
 
       // Register the document with the synchronizer
       synchronizer.addDocument(handle.documentId)
