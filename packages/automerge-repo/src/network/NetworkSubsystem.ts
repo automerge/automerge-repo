@@ -21,7 +21,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     this.peerId =
       peerId || (`user-${Math.round(Math.random() * 100000)}` as PeerId)
 
-    this.#log = debug(`ar:network:${this.peerId}`)
+    this.#log = debug(`automerge-repo:network:${this.peerId}`)
 
     this.#channels = []
 

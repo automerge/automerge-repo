@@ -30,7 +30,7 @@ export class Repo extends DocCollection {
   }: RepoConfig) {
     super()
 
-    this.#log = debug(`ar:repo:${peerId}`)
+    this.#log = debug(`automerge-repo:repo:${peerId}`)
 
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined

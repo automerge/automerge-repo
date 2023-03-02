@@ -40,7 +40,7 @@ export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
   constructor(documentId: DocumentId, newDoc = false) {
     super()
     this.documentId = documentId
-    this.#log = debug(`ar:dochandle:${documentId}`)
+    this.#log = debug(`automerge-repo:dochandle:${documentId}`)
 
     this.doc = A.init({
       patchCallback: (patch, before, after) =>

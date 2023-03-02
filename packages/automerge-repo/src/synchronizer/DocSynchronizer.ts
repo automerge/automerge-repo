@@ -23,9 +23,11 @@ export class DocSynchronizer extends Synchronizer {
     super()
     this.#handle = handle
 
-    this.#conciseLog = debug(`ar:concise:docsync:${this.documentId}`) // Only logs one line per receive/send
-    this.#log = debug(`ar:docsync:${this.documentId}`)
-    this.#opsLog = debug(`ar:ops:docsync:${this.documentId}`) // Log list of ops of each message
+    this.#conciseLog = debug(
+      `automerge-repo:concise:docsync:${this.documentId}`
+    ) // Only logs one line per receive/send
+    this.#log = debug(`automerge-repo:docsync:${this.documentId}`)
+    this.#opsLog = debug(`automerge-repo:ops:docsync:${this.documentId}`) // Log list of ops of each message
 
     handle.on("change", () => this.#syncWithPeers())
   }

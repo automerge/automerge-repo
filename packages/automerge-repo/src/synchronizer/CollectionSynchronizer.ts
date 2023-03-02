@@ -5,7 +5,7 @@ import { DocSynchronizer } from "./DocSynchronizer"
 import { Synchronizer } from "./Synchronizer"
 
 import debug from "debug"
-const log = debug("ar:collectionsync")
+const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
 export class CollectionSynchronizer extends Synchronizer {

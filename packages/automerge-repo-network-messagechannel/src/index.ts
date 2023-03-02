@@ -4,7 +4,7 @@ import { StrongMessagePortRef } from "./StrongMessagePortRef"
 import { WeakMessagePortRef } from "./WeakMessagePortRef"
 
 import debug from "debug"
-const log = debug("ar:messagechannel")
+const log = debug("automerge-repo:messagechannel")
 
 export class MessageChannelNetworkAdapter extends NetworkAdapter {
   channels = {}
