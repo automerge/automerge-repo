@@ -3,10 +3,7 @@ import { DocumentId, PeerId } from "../src/types"
 import { DocHandle } from "../src/DocHandle"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
 import { eventPromise } from "../src/helpers/eventPromise"
-
-type TestDoc = {
-  foo: string
-}
+import { TestDoc } from "./types"
 
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId

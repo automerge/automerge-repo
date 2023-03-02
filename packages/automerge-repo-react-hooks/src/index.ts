@@ -1,5 +1,4 @@
-export { RepoContext } from "./RepoContext"
+export * from "./types"
 export { useDocument } from "./useDocument"
 export { useHandle } from "./useHandle"
-export { useRepo } from "./useRepo"
-export * from "./types"
+export { RepoContext, useRepo } from "./useRepo"
