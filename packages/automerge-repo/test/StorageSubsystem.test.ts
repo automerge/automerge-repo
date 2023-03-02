@@ -5,7 +5,7 @@ import assert from "assert"
 
 import A from "@automerge/automerge"
 
-import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
 import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
 
 import { DocumentId, StorageSubsystem } from "../src"
@@ -15,7 +15,7 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
 describe("StorageSubsystem", () => {
   const adaptersToTest = {
-    memoryStorageAdapter: new MemoryStorageAdapter(),
+    dummyStorageAdapter: new DummyStorageAdapter(),
     nodeFSStorageAdapter: new NodeFSStorageAdapter(tempDir),
   }
 
