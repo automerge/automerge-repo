@@ -95,6 +95,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       const peer = this.#adaptersByPeer[peerId]
       if (!peer) {
         this.#log(`Tried to send message but peer not found: ${peerId}`)
+        return
       }
       this.#log(`Sending message to ${peerId}`)
       peer.sendMessage(peerId, channelId, message, false)
