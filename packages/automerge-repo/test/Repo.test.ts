@@ -85,13 +85,9 @@ describe("Repo", () => {
       const excludedPeers: PeerId[] = []
 
       const sharePolicy = async (peerId: PeerId, documentId: DocumentId) => {
-        // make sure that charlieRepo never gets excluded documents
-        if (
-          excludedDocuments.includes(documentId) &&
-          peerId === "charlieRepo"
-        ) {
+        // make sure that charlie never gets excluded documents
+        if (excludedDocuments.includes(documentId) && peerId === "charlie")
           return false
-        }
         return !excludedPeers.includes(peerId)
       }
 
@@ -115,13 +111,23 @@ describe("Repo", () => {
         peerId: "charlie" as PeerId,
       })
 
+      const aliceHandle = aliceRepo.create<TestDoc>()
+      aliceHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      const notForCharlieHandle = aliceRepo.create<TestDoc>()
+      const notForCharlie = notForCharlieHandle.documentId
+      excludedDocuments.push(notForCharlie)
+      notForCharlieHandle.change(d => {
+        d.foo = "baz"
+      })
+
       await Promise.all([
         eventPromise(aliceRepo.networkSubsystem, "peer"),
         eventPromise(bobRepo.networkSubsystem, "peer"),
         eventPromise(charlieRepo.networkSubsystem, "peer"),
       ])
-
-      const aliceHandle = aliceRepo.create<TestDoc>()
 
       const teardown = () => {
         aliceBobChannel.port1.close()
@@ -133,16 +139,13 @@ describe("Repo", () => {
         bobRepo,
         charlieRepo,
         aliceHandle,
-        excludedDocuments,
+        notForCharlie,
         teardown,
       }
     }
 
     it("changes are replicated from aliceRepo to bobRepo", async () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
-      aliceHandle.change(d => {
-        d.foo = "bar"
-      })
 
       const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
       const bobDoc = await bobHandle.value()
@@ -162,18 +165,20 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("documents which are excluded by the share policy are not present in other repos", async () => {
-      const { aliceRepo, bobRepo, charlieRepo, excludedDocuments } =
+    it("charlieRepo doesn't have a document it's not supposed to have", async () => {
+      const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
         await setup()
-      // create another document and make sure that bobRepo *cannot* find it
-      const handle4 = aliceRepo.create<TestDoc>()
-      excludedDocuments.push(handle4.documentId)
-      handle4.change(d => {
-        d.foo = "baz"
-      })
 
-      assert(bobRepo.handles[handle4.documentId] !== undefined)
-      assert(charlieRepo.handles[handle4.documentId] === undefined)
+      await Promise.all([
+        eventPromise(bobRepo.networkSubsystem, "message"),
+        eventPromise(charlieRepo.networkSubsystem, "message"),
+      ])
+
+      assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
+      assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
+      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+
+      teardown()
     })
 
     it("can broadcast a message", async () => {
