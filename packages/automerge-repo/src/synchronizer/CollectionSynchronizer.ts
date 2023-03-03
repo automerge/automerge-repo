@@ -31,12 +31,13 @@ export class CollectionSynchronizer extends Synchronizer {
     channelId: ChannelId,
     message: Uint8Array
   ) {
-    const documentId = channelId as unknown as DocumentId
-
-    const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message}`)
+
+    const documentId = channelId as unknown as DocumentId
+    const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
     docSynchronizer.onSyncMessage(peerId, channelId, message)
-    ;(await this.#documentGenerousPeers(documentId)).forEach(peerId => {
+    const peers = await this.#documentGenerousPeers(documentId)
+    peers.forEach(peerId => {
       if (!docSynchronizer.hasPeer(peerId)) {
         docSynchronizer.beginSync(peerId)
       }
@@ -59,11 +60,12 @@ export class CollectionSynchronizer extends Synchronizer {
   }
 
   /**
-   * Starts synchronizing the given document with all peers that we share generously with.
+   * Starts synchronizing the given document with all peers that we share it generously with.
    */
   async addDocument(documentId: DocumentId) {
     const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
-    ;(await this.#documentGenerousPeers(documentId)).forEach(peerId => {
+    const peers = await this.#documentGenerousPeers(documentId)
+    peers.forEach(peerId => {
       docSynchronizer.beginSync(peerId)
     })
   }
@@ -73,7 +75,7 @@ export class CollectionSynchronizer extends Synchronizer {
     throw new Error("not implemented")
   }
 
-  /** returns an array of peerIds that we share generously with */
+  /** returns an array of peerIds that we share this document generously with */
   async #documentGenerousPeers(documentId: DocumentId): Promise<PeerId[]> {
     const results = await Promise.all(
       [...this.#peers].map(peerId => this.repo.sharePolicy(peerId, documentId))
