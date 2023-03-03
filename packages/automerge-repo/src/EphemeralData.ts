@@ -1,46 +1,46 @@
-import * as CBOR from "cbor-x"
+import { decode, encode } from "cbor-x"
 import EventEmitter from "eventemitter3"
 import { ChannelId, PeerId } from "."
-import { OutboundMessageDetails } from "./network/NetworkSubsystem.js"
-// TODO: why did I need a .js here?
-
-export interface EphemeralDataDetails {
-  channelId: ChannelId
-  peerId: PeerId
-  data: unknown
-}
-
-export type EphemeralDataMessageEvents = {
-  message: (event: OutboundMessageDetails) => void
-  data: (event: EphemeralDataDetails) => void
-}
+import { MessagePayload } from "./network/NetworkAdapter"
 
 /**
- * Ephemeral Data
- * -----
- *
- * Not all that glitters is gold.
- *
- * It's useful to have a mechanism to send around short-lived data like cursor
- * positions, presence, or heartbeats. This kind of data is often high-bandwidth
- * and low-utility to persist so... this lets you communicate without that.
- *
+ * EphemeralData provides a mechanism to broadcast short-lived data — cursor positions, presence,
+ * heartbeats, etc. — that is useful in the moment but not worth persisting.
  */
 export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
-  // Send an ephemeral message to anyone listening to this DocHandle
+  /** Broadcast an ephemeral message */
   broadcast(channelId: ChannelId, message: unknown) {
-    const cbor = CBOR.encode(message)
+    const messageBytes = encode(message)
+
     this.emit("message", {
       targetId: "*" as PeerId, // TODO: we don't really need a targetId for broadcast
       channelId: ("m/" + channelId) as ChannelId,
-      message: cbor,
+      message: messageBytes,
       broadcast: true,
     })
   }
 
+  /** Receive an ephemeral message */
   receive(senderId: PeerId, grossChannelId: ChannelId, message: Uint8Array) {
-    const data = CBOR.decode(message)
+    const data = decode(message)
     const channelId = grossChannelId.slice(2) as ChannelId
-    this.emit("data", { peerId: senderId, channelId, data })
+    this.emit("data", {
+      peerId: senderId,
+      channelId,
+      data,
+    })
   }
+}
+
+// types
+
+export interface EphemeralDataPayload {
+  channelId: ChannelId
+  peerId: PeerId
+  data: { peerId: PeerId; channelId: ChannelId; data: unknown }
+}
+
+export type EphemeralDataMessageEvents = {
+  message: (event: MessagePayload) => void
+  data: (event: EphemeralDataPayload) => void
 }

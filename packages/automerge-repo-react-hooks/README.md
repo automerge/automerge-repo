@@ -29,7 +29,7 @@ async function getRepo(url: string): Promise<DocCollection> {
       new BroadcastChannelNetworkAdapter(),
       new LocalFirstRelayNetworkAdapter("wss://local-first-relay.glitch.me/"),
     ],
-    sharePolicy: (peerId) => peerId.includes("shared-worker"),
+    sharePolicy: peerId => peerId.includes("shared-worker"),
   })
 }
 
@@ -61,8 +61,8 @@ const queryString = window.location.search // Returns:'?q=123'
 const params = new URLSearchParams(queryString)
 const hostname = params.get("host") || "automerge-storage-demo.glitch.me"
 
-getRepo(`wss://${hostname}`).then((repo) => {
-  getRootDocument(repo, initFunction).then((rootDoc) => {
+getRepo(`wss://${hostname}`).then(repo => {
+  getRootDocument(repo, initFunction).then(rootDoc => {
     const rootElem = document.getElementById("root")
     if (!rootElem) {
       throw new Error("The 'root' element wasn't found in the host HTML doc.")

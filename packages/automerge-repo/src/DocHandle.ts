@@ -1,182 +1,209 @@
-import EventEmitter from "eventemitter3"
-import * as Automerge from "@automerge/automerge"
+import * as A from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
-import { ChannelId, PeerId } from "."
-
 import debug from "debug"
-const log = debug("DocHandle")
+import EventEmitter from "eventemitter3"
+import { headsAreSame } from "./helpers/headsAreSame"
+import { pause } from "./helpers/pause"
+import { ChannelId, DocumentId, PeerId } from "./types"
 
-export type DocumentId = string & { __documentId: true }
-
-type HandleState = "loading" | "syncing" | "ready"
-/*
- * Handle Lifecycle
- * We need to carefully orchestrate document loading in order
- * to avoid requesting data we already have or surfacing intermediate
- * values to the consumer above.
- *
- *                        handle.state
- * ┌───────────────┐      ┌─────────┐
- * │new DocHandle()│  ┌──►│ loading ├─┐
- * ├─────────────┬─┘  │ ┌┤├─────────┤ │ via loadIncremental()
- * ├─────────────┤    │ └►├─────────┤ │  or unblockSync()
- * │find()       ├────┘ ┌─┤ syncing │ │
- * ├─────────────┤      │ ├─────────┤ │
- * │create()     ├────┐ │ ├─────────┤ │ via receiveSyncMessage()
- * └─────────────┘    └►└►│ ready   │►┘  or create()
- *                        └─────────┘
- *  ┌────────────┐
- *  │value()     │ <- blocks until "ready"
- *  ├────────────┤
- *  │syncValue() │ <- blocks until "syncing"
- *  └────────────┘
- *
- */
-
-/**
- * DocHandle is a wrapper around a single Automerge document that allows us to listen for changes.
- *
- */
-export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
-  doc: Automerge.Doc<T>
+/** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
+export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
+  doc: A.Doc<T>
   documentId: DocumentId
-  state: HandleState = "loading"
+
+  /**
+   * We need to carefully orchestrate document loading in order to avoid requesting data we already
+   * have or surfacing intermediate values to the consumer. The handle lifecycle looks like this:
+   * ```
+   *                        handle.state
+   * ┌───────────────┐      ┌────────────┐
+   * │new DocHandle()│  ┌──►│ LOADING    ├─┐
+   * ├─────────────┬─┘  │ ┌┤├────────────┤ │ via loadIncremental()
+   * ├─────────────┤    │ └►├────────────┤ │  or waitForSync()
+   * │find()       ├────┘ ┌─┤ REQUESTING │ │
+   * ├─────────────┤      │ ├────────────┤ │
+   * │create()     ├────┐ │ ├────────────┤ │ via receiveSyncMessage()
+   * └─────────────┘    └►└►│ READY      │►┘  or create()
+   *                        └────────────┘
+   *  ┌───────────────────┐
+   *  │value()            │ <- blocks until "ready"
+   *  ├───────────────────┤
+   *  │provisionalValue() │ <- blocks until "requesting"
+   *  └───────────────────┘
+   * ```
+   *
+   * */
+  state: HandleState = HandleState.LOADING
+
+  #log: debug.Debugger
 
   constructor(documentId: DocumentId, newDoc = false) {
     super()
     this.documentId = documentId
-    this.doc = Automerge.init({
-      patchCallback: (
-        patches: Automerge.Patch[],
-        before: Automerge.Doc<T>,
-        after: Automerge.Doc<T>
-      ) => this.__notifyPatchListeners(patches, before, after),
+    this.#log = debug(`automerge-repo:dochandle:${documentId}`)
+
+    this.doc = A.init({
+      patchCallback: (patch, before, after) =>
+        this.#emitPatch(patch, before, after),
     })
 
-    // new documents don't need to block on an initial value setting
-    if (newDoc) {
-      this.state = "ready"
+    // If this is a freshly created document, we can immediately mark it as ready
+    if (newDoc) this.#ready()
+  }
+
+  #ready() {
+    if (this.state !== HandleState.READY) {
+      this.state = HandleState.READY
       this.emit("ready")
     }
   }
 
-  ready() {
-    return this.state === "ready"
+  isReady() {
+    return this.state === HandleState.READY
   }
 
   loadIncremental(binary: Uint8Array) {
-    log(`[${this.documentId}]: loadIncremental`, this.doc)
-    const newDoc = Automerge.loadIncremental(this.doc, binary)
-    if (this.state === "loading") {
-      this.state = "ready"
+    if (binary.byteLength === 0) return
+    this.#log(`[${this.documentId}]: loadIncremental`, this.doc)
+    const newDoc = A.loadIncremental(this.doc, binary)
+    if (this.state === HandleState.LOADING) {
+      this.state = HandleState.READY
       this.emit("ready")
     }
-    this.__notifyChangeListeners(newDoc)
+    this.#emitChange(newDoc)
   }
 
-  unblockSync() {
-    if (this.state === "loading") {
-      this.state = "syncing"
-      this.emit("syncing")
+  /**
+   * A Repo can call this when it doesn't have the document and has advertised our interest in it.
+   * This blocks access to the document until we get it from a peer.
+   *
+   * TODO: might be good for this to timeout and go to a "not found" state if the document isn't
+   * available after a certain amount of time. but not sure what we would do with a doc in that
+   * state. We'd also need to retry etc.
+   */
+  requestSync() {
+    if (this.state === HandleState.LOADING) {
+      this.state = HandleState.REQUESTING
+      this.emit("requesting")
     }
   }
 
   updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
-    log(`[${this.documentId}]: updateDoc`, this.doc)
-    // make sure doc is a new version of the old doc somehow...
-    this.__notifyChangeListeners(callback(this.doc))
+    this.#log(`updateDoc`, this.doc)
+    // TODO: make sure doc is a new version of the old doc somehow...
+    const newDoc = callback(this.doc)
+    this.#emitChange(newDoc)
   }
 
-  __notifyChangeListeners(newDoc: Automerge.Doc<T>) {
-    if ("then" in newDoc) {
-      throw new Error("this appears to be a promise")
-    }
-
+  /**
+   * We emit a `change` event for the benefit of network and storage; they care about the full
+   * history of changes. Changes may or may not result in a patch, would result in something visible
+   * to the user.
+   */
+  #emitChange(newDoc: A.Doc<T>) {
     const oldDoc = this.doc
     this.doc = newDoc
 
-    const equalArrays = (a: unknown[], b: unknown[]) =>
-      a.length === b.length && a.every((element, index) => element === b[index])
-
-    // we only need to emit a "change" if something changed as a result of the update
-    if (!equalArrays(Automerge.getHeads(newDoc), Automerge.getHeads(oldDoc))) {
-      if (this.state != "ready") {
-        // only go to ready once
-        this.state = "ready"
-        this.emit("ready")
-      }
-      this.emit("change", {
-        handle: this,
-      })
+    // we only need to emit a "change" if there actually were changes
+    if (!headsAreSame(newDoc, oldDoc)) {
+      this.#ready()
+      this.emit("change", { handle: this })
     }
   }
 
-  __notifyPatchListeners(
-    patches: Automerge.Patch[],
-    before: Automerge.Doc<T>,
-    after: Automerge.Doc<T>
-  ) {
+  /**
+   * We emit a `patch` event for the benefit of the front end; it cares about the changes that might
+   * be visible to the user. A patch is the result of one or more changes. It describes the
+   * difference between the state before and after the changes.
+   */
+  #emitPatch(patches: A.Patch[], before: A.Doc<T>, after: A.Doc<T>) {
     this.emit("patch", { handle: this, patches, before, after })
   }
 
+  /**
+   * This is the current state of the document. If a document isn't available locally, this will
+   * block until until we get it from a peer. (As noted above, we should probably have a timeout.)
+   */
   async value() {
-    if (!this.ready()) {
-      log(`[${this.documentId}]: value: (${this.state}, waiting for ready)`)
+    if (!this.isReady()) {
+      this.#log(
+        `[${this.documentId}]: value: (${this.state}, waiting for ready)`
+      )
       await new Promise(resolve => this.once("ready", () => resolve(true)))
     } else {
-      await new Promise(resolve => setTimeout(() => resolve(true), 0))
+      await pause()
     }
-    log(`[${this.documentId}]: value:`, this.doc)
+    this.#log(`[${this.documentId}]: value:`, this.doc)
     return this.doc
   }
 
-  // this returns the value but not until after loading is done
-  // but it will return the value during syncing when we don't want to share it
-  // with the frontend / user code
-  async syncValue() {
-    log(`[${this.documentId}]: syncValue,`, this.doc)
-    if (this.state == "loading") {
-      log(`[${this.documentId}]: value: (${this.state}, waiting for syncing)`)
+  /**
+   * If a document isn't available locally, this will return an empty document while we're asking
+   * peers for it.
+   */
+  async provisionalValue() {
+    this.#log(`[${this.documentId}]: provisionalValue,`, this.doc)
+    if (this.state == HandleState.LOADING) {
+      this.#log(
+        `[${this.documentId}]: value: (${this.state}, waiting for syncing)`
+      )
       await new Promise(resolve => {
-        this.once("syncing", () => resolve(true))
+        this.once("requesting", () => resolve(true))
         this.once("ready", () => resolve(true))
       })
     } else {
-      await new Promise(resolve => setTimeout(() => resolve(true), 0))
+      await pause()
     }
-    log(`[${this.documentId}]: syncValue:`, this.doc)
+    this.#log(`[${this.documentId}]: provisionalValue:`, this.doc)
     return this.doc
   }
 
-  change(callback: (doc: T) => void, options: ChangeOptions<T> = {}) {
-    this.value().then(() => {
-      const newDoc = Automerge.change<T>(this.doc, options, callback)
-      this.__notifyChangeListeners(newDoc)
-    })
+  /** Applies an Automerge change function to the document. */
+  async change(callback: A.ChangeFn<T>, options: ChangeOptions<T> = {}) {
+    // TODO: we should note that this is blocking to make sure you don't call change() before you get an initial value by accident
+
+    await this.value()
+    const newDoc = A.change<T>(this.doc, options, callback)
+    this.#log(`change`, { oldDoc: this.doc, newDoc })
+    this.#emitChange(newDoc)
   }
 }
 
-export interface DocHandleMessageEvent {
+export const HandleState = {
+  /** we're looking for the document on disk */
+  LOADING: "LOADING",
+  /** we don't have it on disk, we're asking the network **/
+  REQUESTING: "REQUESTING",
+  /** we have the document in memory  */
+  READY: "READY",
+} as const
+
+// avoiding enum https://maxheiber.medium.com/alternatives-to-typescript-enums-50e4c16600b1
+export type HandleState = typeof HandleState[keyof typeof HandleState]
+
+// types
+
+export interface DocHandleMessagePayload {
   destinationId: PeerId
   channelId: ChannelId
   data: Uint8Array
 }
 
-export interface DocHandleChangeEvent<T> {
+export interface DocHandleChangePayload<T> {
   handle: DocHandle<T>
 }
 
-export interface DocHandlePatchEvent<T> {
+export interface DocHandlePatchPayload<T> {
   handle: DocHandle<T>
-  patches: Automerge.Patch[]
-  before: Automerge.Doc<T>
-  after: Automerge.Doc<T>
+  patches: A.Patch[]
+  before: A.Doc<T>
+  after: A.Doc<T>
 }
 
 export interface DocHandleEvents<T> {
-  syncing: () => void // HMM
+  requesting: () => void // HMM
   ready: () => void // HMM
-  message: (event: DocHandleMessageEvent) => void
-  change: (event: DocHandleChangeEvent<T>) => void
-  patch: (event: DocHandlePatchEvent<T>) => void
+  message: (payload: DocHandleMessagePayload) => void
+  change: (payload: DocHandleChangePayload<T>) => void
+  patch: (payload: DocHandlePatchPayload<T>) => void
 }

@@ -13,7 +13,7 @@ export class WeakMessagePortRef
 
     this.weakRef = new WeakRef<MessagePort>(port)
 
-    port.addEventListener("message", (event) => {
+    port.addEventListener("message", event => {
       this.emit("message", event)
     })
   }

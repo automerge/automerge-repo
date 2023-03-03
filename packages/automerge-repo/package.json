@@ -10,8 +10,11 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch",
+    "watch": "npm-watch build",
+    "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text yarn test",
     "test": "mocha --no-warnings --experimental-specifier-resolution=node",
+    "test:watch": "npm-watch test",
+    "test:log": "cross-env DEBUG='automerge-repo:*' yarn test",
     "fuzz": "ts-node fuzz/fuzz.js"
   },
   "browser": {
@@ -23,7 +26,6 @@
     "@types/ws": "^8.5.3",
     "@typescript-eslint/eslint-plugin": "^5.33.0",
     "@typescript-eslint/parser": "^5.33.0",
-    "automerge-repo-storage-memory": "^0.0.48",
     "http-server": "^14.1.0"
   },
   "peerDependencies": {
@@ -40,6 +42,16 @@
   "watch": {
     "build": {
       "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    },
+    "test": {
+      "quiet": true,
+      "patterns": [
+        "./src/**/*",
+        "./test/**/*"
+      ],
       "extensions": [
         ".ts"
       ]

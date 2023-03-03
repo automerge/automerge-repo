@@ -1,14 +1,15 @@
 import EventEmitter from "eventemitter3"
-import {
-  ChannelId,
-  OutboundMessageDetails,
-  PeerId,
-} from "../network/NetworkSubsystem"
+import { ChannelId, PeerId } from "../types"
+import { MessagePayload } from "../network/NetworkAdapter"
 
-export interface SyncMessages {
-  message: (arg: OutboundMessageDetails) => void
+export abstract class Synchronizer extends EventEmitter<SynchronizerEvents> {
+  abstract onSyncMessage(
+    peerId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array
+  ): void
 }
 
-export interface Synchronizer extends EventEmitter<SyncMessages> {
-  onSyncMessage(peerId: PeerId, channelId: ChannelId, message: Uint8Array): void
+export interface SynchronizerEvents {
+  message: (arg: MessagePayload) => void
 }

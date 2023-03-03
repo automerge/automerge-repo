@@ -1,202 +1,250 @@
 import assert from "assert"
-import { MessageChannel } from "worker_threads"
-
-import { ChannelId, DocHandle, DocumentId, PeerId } from "../src"
-import { Repo } from "../src/Repo"
-
-import { MemoryStorageAdapter } from "automerge-repo-storage-memory"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
-import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
+import { isDeepStrictEqual } from "util"
 
-export interface TestDoc {
-  foo: string
-}
+import {
+  ChannelId,
+  DocHandle,
+  DocumentId,
+  HandleState,
+  InboundMessagePayload,
+  PeerId,
+} from "../src"
+import { eventPromise } from "../src/helpers/eventPromise"
+import { pause } from "../src/helpers/pause"
+import { Repo } from "../src/Repo"
+import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
+import { getRandomItem } from "./helpers/getRandomItem"
+import { TestDoc } from "./types"
 
 describe("Repo", () => {
-  const repo = new Repo({
-    storage: new MemoryStorageAdapter(),
-    network: [new DummyNetworkAdapter()],
-  })
-
-  it("can instantiate a Repo", () => {
-    assert(repo !== null)
-  })
-
-  it("has a network subsystem", () => {
-    assert(repo.networkSubsystem)
-  })
-
-  it("has a storage subsystem", () => {
-    assert(repo.storageSubsystem)
-  })
-
-  it("can create a document", () => {
-    const handle = repo.create()
-    assert(handle.documentId != null)
-  })
-
-  it("can change a document", done => {
-    const handle = repo.create<TestDoc>()
-    handle.change(d => {
-      d.foo = "bar"
-    })
-    assert(handle.state === "ready")
-    handle.value().then(v => {
-      try {
-        assert(v.foo === "bar")
-        done()
-      } catch (e) {
-        done(e)
-      }
-    })
-  })
-
-  it("can find a created document", done => {
-    const handle = repo.create<TestDoc>()
-    handle.change(d => {
-      d.foo = "bar"
-    })
-    assert(handle.state === "ready")
-    const handle2 = repo.find<TestDoc>(handle.documentId)
-    assert(handle === handle2)
-    assert(handle2.ready())
-    handle2.value().then(v => {
-      try {
-        assert(v.foo === "bar")
-        done()
-      } catch (e) {
-        done(e)
-      }
-    })
-  })
-
-  describe("sync between three repos", async () => {
-    const mc1to2 = new MessageChannel()
-    const mc2to3 = new MessageChannel()
-
-    const mc1to2port1 = mc1to2.port1 as unknown as MessagePort
-    const mc1to2port2 = mc1to2.port2 as unknown as MessagePort
-    const mc2to3port1 = mc2to3.port1 as unknown as MessagePort
-    const mc2to3port2 = mc2to3.port2 as unknown as MessagePort
-
-    const excludedDocuments: DocumentId[] = []
-    const excludedPeers: PeerId[] = []
-
-    const sharePolicy = async (peerId: PeerId, documentId: DocumentId) => {
-      // make sure that repo3 never gets excluded documents
-      if (excludedDocuments.includes(documentId) && peerId === "repo3") {
-        return false
-      }
-      return !excludedPeers.includes(peerId)
+  describe("single repo", () => {
+    const setup = () => {
+      const repo = new Repo({
+        storage: new DummyStorageAdapter(),
+        network: [new DummyNetworkAdapter()],
+      })
+      return { repo }
     }
 
-    // Set up three repos and have them communicate via MessageChannels
-    const repo1 = new Repo({
-      network: [new MessageChannelNetworkAdapter(mc1to2port1)],
-      peerId: "repo1" as PeerId,
-      sharePolicy,
+    it("can instantiate a Repo", () => {
+      const { repo } = setup()
+      assert.notEqual(repo, null)
+      assert(repo.networkSubsystem)
+      assert(repo.storageSubsystem)
     })
 
-    // First test: create a document and ensure the second repo can find it
-    const handle1 = repo1.create<TestDoc>()
-    handle1.change(d => {
-      d.foo = "bar"
+    it("can create a document", () => {
+      const { repo } = setup()
+      const handle = repo.create()
+      assert.notEqual(handle.documentId, null)
     })
 
-    const repo2 = new Repo({
-      network: [
-        new MessageChannelNetworkAdapter(mc1to2port2),
-        new MessageChannelNetworkAdapter(mc2to3port1),
-      ],
-      peerId: "repo2" as PeerId,
-      sharePolicy,
-    })
-    const repo3 = new Repo({
-      network: [new MessageChannelNetworkAdapter(mc2to3port2)],
-      peerId: "repo3" as PeerId,
+    it("can change a document", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      const v = await handle.value()
+      assert.equal(handle.state, HandleState.READY)
+
+      assert.equal(v.foo, "bar")
     })
 
-    it("can load a document from repo1 on repo2", async () => {
-      const handle2 = repo2.find<TestDoc>(handle1.documentId)
-      const doc2 = await handle2.value()
-      assert.deepStrictEqual(doc2, { foo: "bar" })
+    it("can find a created document", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert(handle.state === HandleState.READY)
+
+      const bobHandle = repo.find<TestDoc>(handle.documentId)
+
+      assert.equal(handle, bobHandle)
+      assert.equal(handle.state, HandleState.READY)
+
+      const v = await bobHandle.value()
+      assert.equal(v.foo, "bar")
+    })
+  })
+
+  describe("sync", async () => {
+    const setup = async () => {
+      // Set up three repos; connect Alice to Bob, and Bob to Charlie
+
+      const aliceBobChannel = new MessageChannel()
+      const bobCharlieChannel = new MessageChannel()
+
+      const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
+      const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
+
+      const excludedDocuments: DocumentId[] = []
+      const excludedPeers: PeerId[] = []
+
+      const sharePolicy = async (peerId: PeerId, documentId: DocumentId) => {
+        // make sure that charlieRepo never gets excluded documents
+        if (
+          excludedDocuments.includes(documentId) &&
+          peerId === "charlieRepo"
+        ) {
+          return false
+        }
+        return !excludedPeers.includes(peerId)
+      }
+
+      const aliceRepo = new Repo({
+        network: [new MessageChannelNetworkAdapter(aliceToBob)],
+        peerId: "alice" as PeerId,
+        sharePolicy,
+      })
+
+      const bobRepo = new Repo({
+        network: [
+          new MessageChannelNetworkAdapter(bobToAlice),
+          new MessageChannelNetworkAdapter(bobToCharlie),
+        ],
+        peerId: "bob" as PeerId,
+        sharePolicy,
+      })
+
+      const charlieRepo = new Repo({
+        network: [new MessageChannelNetworkAdapter(charlieToBob)],
+        peerId: "charlie" as PeerId,
+      })
+
+      await Promise.all([
+        eventPromise(aliceRepo.networkSubsystem, "peer"),
+        eventPromise(bobRepo.networkSubsystem, "peer"),
+        eventPromise(charlieRepo.networkSubsystem, "peer"),
+      ])
+
+      const aliceHandle = aliceRepo.create<TestDoc>()
+
+      const teardown = () => {
+        aliceBobChannel.port1.close()
+        bobCharlieChannel.port1.close()
+      }
+
+      return {
+        aliceRepo,
+        bobRepo,
+        charlieRepo,
+        aliceHandle,
+        excludedDocuments,
+        teardown,
+      }
+    }
+
+    it("changes are replicated from aliceRepo to bobRepo", async () => {
+      const { bobRepo, aliceHandle, teardown } = await setup()
+      aliceHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+      const bobDoc = await bobHandle.value()
+      assert.deepStrictEqual(bobDoc, { foo: "bar" })
+      teardown()
     })
 
-    it("can load a document from repo1 on repo3", async () => {
-      const handle3 = repo3.find<TestDoc>(handle1.documentId)
+    it("can load a document from aliceRepo on charlieRepo", async () => {
+      const { charlieRepo, aliceHandle, teardown } = await setup()
+      aliceHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
       const doc3 = await handle3.value()
       assert.deepStrictEqual(doc3, { foo: "bar" })
-    })
-
-    // create another document and make sure that repo2 *cannot* find it
-    const handle4 = repo1.create<TestDoc>()
-    excludedDocuments.push(handle4.documentId)
-
-    handle4.change(d => {
-      d.foo = "baz"
+      teardown()
     })
 
     it("documents which are excluded by the share policy are not present in other repos", async () => {
-      assert(repo2.handles[handle4.documentId] !== undefined)
-      assert(repo3.handles[handle4.documentId] === undefined)
+      const { aliceRepo, bobRepo, charlieRepo, excludedDocuments } =
+        await setup()
+      // create another document and make sure that bobRepo *cannot* find it
+      const handle4 = aliceRepo.create<TestDoc>()
+      excludedDocuments.push(handle4.documentId)
+      handle4.change(d => {
+        d.foo = "baz"
+      })
+
+      assert(bobRepo.handles[handle4.documentId] !== undefined)
+      assert(charlieRepo.handles[handle4.documentId] === undefined)
     })
 
-    it("can broadcast a message", done => {
-      const messageChannel = "m/broadcast" as ChannelId
-      const data = { presence: "myUserId" }
+    it("can broadcast a message", async () => {
+      const { aliceRepo, bobRepo, teardown } = await setup()
 
-      repo1.ephemeralData.on("data", ({ peerId, channelId, data }) => {
-        try {
-          const peerId = repo2.networkSubsystem.myPeerId
-          assert.deepEqual(data, data)
-          done()
-        } catch (e) {
-          done(e)
+      const channelId = "m/broadcast" as ChannelId
+      const data = { presence: "bob" }
+
+      bobRepo.ephemeralData.broadcast(channelId, data)
+      const d = await eventPromise(aliceRepo.ephemeralData, "data")
+
+      assert.deepStrictEqual(d.data, data)
+      teardown()
+    })
+
+    it("syncs a bunch of changes ~~without duplicating messages~~", async () => {
+      const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
+
+      // HACK: yield to give repos time to get the one doc that aliceRepo created
+      await pause(50)
+
+      let totalMessages = 0
+      let duplicateMessages = 0
+
+      let lastMsg: InboundMessagePayload
+      const listenForDuplicates = (msg: InboundMessagePayload) => {
+        totalMessages++
+        if (isDeepStrictEqual(msg, lastMsg)) {
+          duplicateMessages++
+          // console.log( "duplicate message", Automerge.decodeSyncMessage(msg.message) )
         }
-      })
-
-      repo2.ephemeralData.broadcast(messageChannel, data)
-    })
-
-    it("can do some complicated sync thing without duplicating messages", () => {
-      let lastMessage: any
-      repo1.networkSubsystem.on("message", msg => {
-        // assert.notDeepStrictEqual(msg, lastMessage)
-        lastMessage = msg
-      })
-
-      const CHANCE_OF_NEW_DOC = 0.05
-      const getRandomItem = (iterable: Record<string, unknown>) => {
-        const values = Object.values(iterable)
-        const idx = Math.floor(Math.random() * values.length)
-        return values[idx]
+        lastMsg = msg
       }
+      aliceRepo.networkSubsystem.on("message", listenForDuplicates)
 
-      const repos = [repo1, repo2, repo3]
-
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 100; i++) {
         // pick a repo
-        const repo = repos[Math.floor(Math.random() * repos.length)]
+        const repo = getRandomItem([aliceRepo, bobRepo, charlieRepo])
+        // pick a random doc, or create a new one
+        const docs = Object.values(repo.handles)
         const doc =
-          Math.random() < CHANCE_OF_NEW_DOC
+          Math.random() < 0.5
             ? repo.create<TestDoc>()
-            : (getRandomItem(repo.handles) as DocHandle<TestDoc>)
-
+            : (getRandomItem(docs) as DocHandle<TestDoc>)
+        // make a random change to it
         doc.change(d => {
           d.foo = Math.random().toString()
         })
       }
+      await pause(500)
 
-      repos.forEach((r, i) => {
-        console.log(`Repo ${i}: ${Object.keys(r.handles).length} documents.`)
-      })
+      aliceRepo.networkSubsystem.removeListener("message", listenForDuplicates)
+      teardown()
+
+      // I'm not sure what the 'no duplicates' part of this test is intended to demonstrate, but the
+      // duplicates are all empty Automerge sync messages (uncomment console.log above to see)
+      // ```
+      // {
+      //   heads: [],
+      //   need: [],
+      //   have: [ { lastSync: [], bloom: Uint8Array(0) [] } ],
+      //   changes: []
+      // }
+      // ```
+      // Is that bad? I don't know!!
+
+      // assert.equal(
+      //   duplicateMessages,
+      //   0,
+      //   `${duplicateMessages} of ${totalMessages} messages were duplicates`
+      // )
     })
-
-    /* TODO: there's a race condition here... gotta look into that */
-    setTimeout(() => {
-      // Close the message ports so that the script can exit.
-      mc1to2.port1.close()
-      mc2to3.port1.close()
-    }, 200)
   })
 })
