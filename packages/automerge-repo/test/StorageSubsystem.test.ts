@@ -6,11 +6,11 @@ import assert from "assert"
 
 import A from "@automerge/automerge"
 
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
 
 import { DocumentId, StorageSubsystem } from "../src"
-import { TestDoc } from "./types"
+import { TestDoc } from "./types.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 

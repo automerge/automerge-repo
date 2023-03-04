@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge"
-import { DocHandle } from "../DocHandle"
-import { ChannelId, PeerId } from "../types"
-import { Synchronizer } from "./Synchronizer"
+import { DocHandle } from "../DocHandle.js"
+import { ChannelId, PeerId } from "../types.js"
+import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
 /**

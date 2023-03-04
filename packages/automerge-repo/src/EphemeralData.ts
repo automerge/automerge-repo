@@ -1,7 +1,7 @@
 import { decode, encode } from "cbor-x"
 import EventEmitter from "eventemitter3"
 import { ChannelId, PeerId } from "."
-import { MessagePayload } from "./network/NetworkAdapter"
+import { MessagePayload } from "./network/NetworkAdapter.js"
 
 /**
  * EphemeralData provides a mechanism to broadcast short-lived data — cursor positions, presence,

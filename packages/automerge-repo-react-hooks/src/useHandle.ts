@@ -1,6 +1,6 @@
 import { DocHandle, DocumentId } from "automerge-repo"
 import { useState } from "react"
-import { useRepo } from "./useRepo"
+import { useRepo } from "./useRepo.js"
 
 export function useHandle<T>(documentId: DocumentId): DocHandle<T> {
   const repo = useRepo()

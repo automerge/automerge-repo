@@ -155,7 +155,7 @@ RepoContext. We also create a document and store its `documentId` in localStorag
 // src/main.tsx
 import React from "react"
 import ReactDOM from "react-dom/client"
-import App from "./App"
+import App from "./App.js"
 import { Repo } from "automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"

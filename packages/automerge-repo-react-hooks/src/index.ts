@@ -1,3 +1,3 @@
-export { useDocument } from "./useDocument"
-export { useHandle } from "./useHandle"
-export { RepoContext, useRepo } from "./useRepo"
+export { useDocument } from "./useDocument.js"
+export { useHandle } from "./useHandle.js"
+export { RepoContext, useRepo } from "./useRepo.js"

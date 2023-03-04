@@ -1,9 +1,9 @@
 import assert from "assert"
-import { DocumentId, PeerId } from "../src/types"
-import { DocHandle } from "../src/DocHandle"
-import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer"
-import { eventPromise } from "../src/helpers/eventPromise"
-import { TestDoc } from "./types"
+import { DocumentId, PeerId } from "../src/types.js"
+import { DocHandle } from "../src/DocHandle.js"
+import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
+import { eventPromise } from "../src/helpers/eventPromise.js"
+import { TestDoc } from "./types.js"
 
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId

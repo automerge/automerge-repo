@@ -2,9 +2,9 @@ import * as A from "@automerge/automerge"
 import { ChangeOptions, Doc } from "@automerge/automerge"
 import debug from "debug"
 import EventEmitter from "eventemitter3"
-import { headsAreSame } from "./helpers/headsAreSame"
-import { pause } from "./helpers/pause"
-import { ChannelId, DocumentId, PeerId } from "./types"
+import { headsAreSame } from "./helpers/headsAreSame.js"
+import { pause } from "./helpers/pause.js"
+import { ChannelId, DocumentId, PeerId } from "./types.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {

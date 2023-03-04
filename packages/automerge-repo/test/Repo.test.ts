@@ -10,13 +10,13 @@ import {
   InboundMessagePayload,
   PeerId,
 } from "../src"
-import { eventPromise } from "../src/helpers/eventPromise"
-import { pause } from "../src/helpers/pause"
-import { Repo } from "../src/Repo"
-import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter"
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter"
-import { getRandomItem } from "./helpers/getRandomItem"
-import { TestDoc } from "./types"
+import { eventPromise } from "../src/helpers/eventPromise.js"
+import { pause } from "../src/helpers/pause.js"
+import { Repo } from "../src/Repo.js"
+import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { getRandomItem } from "./helpers/getRandomItem.js"
+import { TestDoc } from "./types.js"
 
 describe("Repo", () => {
   describe("single repo", () => {

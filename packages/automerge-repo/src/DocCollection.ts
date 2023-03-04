@@ -1,7 +1,7 @@
 import EventEmitter from "eventemitter3"
 import { v4 as uuid } from "uuid"
-import { DocHandle } from "./DocHandle"
-import type { DocumentId, PeerId } from "./types"
+import { DocHandle } from "./DocHandle.js"
+import type { DocumentId, PeerId } from "./types.js"
 
 /**
  * A DocCollection is a collection of DocHandles. It supports creating new documents and finding

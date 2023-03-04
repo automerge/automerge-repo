@@ -1,8 +1,8 @@
 import * as Automerge from "@automerge/automerge"
 import assert from "assert"
 import { DocHandle, DocumentId } from "../src"
-import { eventPromise } from "../src/helpers/eventPromise"
-import { TestDoc } from "./types"
+import { eventPromise } from "../src/helpers/eventPromise.js"
+import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
   it("should take the UUID passed into it", () => {

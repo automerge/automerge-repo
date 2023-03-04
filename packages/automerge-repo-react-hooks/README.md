@@ -14,7 +14,7 @@ import { Repo, DocCollection } from "automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
 import { LocalFirstRelayNetworkAdapter } from "automerge-repo-network-localfirstrelay"
 
-import App, { RootDocument } from "./App"
+import App, { RootDocument } from "./App.js"
 import { RepoContext } from "automerge-repo-react-hooks"
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

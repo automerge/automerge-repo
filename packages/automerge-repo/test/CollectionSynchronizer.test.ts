@@ -1,8 +1,8 @@
-import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer"
+import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
 import { ChannelId, DocCollection, DocumentId, PeerId } from "../src"
 import assert from "assert"
 import { beforeEach } from "mocha"
-import { MessagePayload } from "../src/network/NetworkAdapter"
+import { MessagePayload } from "../src/network/NetworkAdapter.js"
 
 describe("CollectionSynchronizer", () => {
   let collection: DocCollection

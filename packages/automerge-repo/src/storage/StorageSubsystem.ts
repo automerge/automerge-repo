@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge"
-import { DocumentId } from "../types"
-import { mergeArrays } from "../helpers/mergeArrays"
-import { StorageAdapter } from "./StorageAdapter"
+import { DocumentId } from "../types.js"
+import { mergeArrays } from "../helpers/mergeArrays.js"
+import { StorageAdapter } from "./StorageAdapter.js"
 
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
