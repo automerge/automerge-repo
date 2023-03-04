@@ -1,7 +1,8 @@
 import EventEmitter from "eventemitter3"
 import { v4 as uuid } from "uuid"
 import { DocHandle } from "./DocHandle.js"
-import type { DocumentId, PeerId } from "./types.js"
+import { type DocumentId } from "./types.js"
+import { type SharePolicy } from "./Repo.js"
 
 /**
  * A DocCollection is a collection of DocHandles. It supports creating new documents and finding
@@ -10,14 +11,12 @@ import type { DocumentId, PeerId } from "./types.js"
 export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   #handleCache: Record<DocumentId, DocHandle<unknown>> = {}
 
+  /** By default, we share generously with all peers. */
+  sharePolicy: SharePolicy = async () => true
+
   constructor() {
     super()
   }
-
-  sharePolicy: (peerId: PeerId, documentId: DocumentId) => Promise<boolean> =
-    async () => {
-      return true
-    }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
   #handleFromCache(

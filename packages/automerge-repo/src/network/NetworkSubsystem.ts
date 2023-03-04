@@ -34,6 +34,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
     networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
       this.#log(`peer candidate: ${peerId} `)
+
       if (!this.#adaptersByPeer[peerId]) {
         // TODO: handle losing a server here
         this.#adaptersByPeer[peerId] = networkAdapter

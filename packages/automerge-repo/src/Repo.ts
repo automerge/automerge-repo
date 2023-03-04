@@ -11,10 +11,6 @@ import debug from "debug"
 
 const SYNC_CHANNEL = "sync_channel" as ChannelId
 
-/** By default, we share generously with all peers. */
-const GENEROUS_SHARE_POLICY = (async (_peerId, _documentId) =>
-  true) as SharePolicy
-
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {
   #log: debug.Debugger
@@ -23,17 +19,12 @@ export class Repo extends DocCollection {
   storageSubsystem?: StorageSubsystem
   ephemeralData: EphemeralData
 
-  constructor({
-    storage,
-    network,
-    peerId,
-    sharePolicy = GENEROUS_SHARE_POLICY,
-  }: RepoConfig) {
+  constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
     super()
 
     this.#log = debug(`automerge-repo:repo:${peerId}`)
 
-    this.sharePolicy = sharePolicy
+    this.sharePolicy = sharePolicy ?? this.sharePolicy
 
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
@@ -126,7 +117,6 @@ export class Repo extends DocCollection {
   }
 }
 
-type SharePolicy = (peerId: PeerId, documentId: DocumentId) => Promise<boolean>
 export interface RepoConfig {
   /** Our unique identifier */
   peerId?: PeerId
@@ -143,3 +133,8 @@ export interface RepoConfig {
    */
   sharePolicy?: SharePolicy
 }
+
+export type SharePolicy = (
+  peerId: PeerId,
+  documentId?: DocumentId
+) => Promise<boolean>

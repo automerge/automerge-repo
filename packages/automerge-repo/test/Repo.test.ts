@@ -9,6 +9,7 @@ import {
   HandleState,
   InboundMessagePayload,
   PeerId,
+  SharePolicy,
 } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
@@ -82,14 +83,15 @@ describe("Repo", () => {
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
       const excludedDocuments: DocumentId[] = []
-      const excludedPeers: PeerId[] = []
 
-      const sharePolicy = async (peerId: PeerId, documentId: DocumentId) => {
+      const sharePolicy: SharePolicy = async (peerId, documentId) => {
+        if (documentId === undefined) return false
+
         // make sure that charlie never gets excluded documents
         if (excludedDocuments.includes(documentId) && peerId === "charlie")
           return false
 
-        return !excludedPeers.includes(peerId)
+        return true
       }
 
       const aliceRepo = new Repo({

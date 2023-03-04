@@ -45,9 +45,7 @@ describe("CollectionSynchronizer", () => {
   it("should not synchronize to a peer which is excluded from the share policy", done => {
     const handle = collection.create()
 
-    collection.sharePolicy = async (peerId: PeerId, documentId: string) => {
-      return peerId !== "peer1"
-    }
+    collection.sharePolicy = async (peerId: PeerId) => peerId !== "peer1"
 
     synchronizer.addDocument(handle.documentId).then(() => {
       synchronizer.once("message", () => {
@@ -61,13 +59,12 @@ describe("CollectionSynchronizer", () => {
 
   it("should not synchronize a document which is excluded from the share policy", done => {
     const handle = collection.create()
-    collection.sharePolicy = async (_, documentId: DocumentId) => {
-      return documentId !== handle.documentId
-    }
+    collection.sharePolicy = async (_, documentId) =>
+      documentId !== handle.documentId
 
     synchronizer.addPeer("peer2" as PeerId)
 
-    synchronizer.once("message", event => {
+    synchronizer.once("message", () => {
       done(new Error("Should not have sent a message"))
     })
 
