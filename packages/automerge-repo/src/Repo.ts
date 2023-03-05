@@ -74,11 +74,6 @@ export class Repo extends DocCollection {
       synchronizer.removePeer(peerId)
     })
 
-    // When we get a new document, register it with the synchronizer
-    this.on("document", ({ handle }) => {
-      synchronizer.addDocument(handle.documentId)
-    })
-
     // Handle incoming messages
     networkSubsystem.on("message", msg => {
       const { senderId, channelId, message } = msg
