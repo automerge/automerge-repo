@@ -67,7 +67,7 @@ export class DocSynchronizer extends Synchronizer {
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
     this.#setSyncState(peerId, newSyncState)
     if (message) {
-      this.logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
+      this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
 
       const channelId = this.handle.documentId as string as ChannelId
       this.emit("message", {
@@ -81,7 +81,7 @@ export class DocSynchronizer extends Synchronizer {
     }
   }
 
-  logMessage = (label: string, message: Uint8Array) => {
+  #logMessage = (label: string, message: Uint8Array) => {
     const size = message.byteLength
     const logText = `${label} ${size}b`
     const decoded = A.decodeSyncMessage(message)
@@ -135,7 +135,7 @@ export class DocSynchronizer extends Synchronizer {
     // TODO: this is kind of an opaque way of doing this...
     // await this.handle.provisionalValue()
 
-    this.logMessage(`onSyncMessage 🡐 ${peerId}`, message)
+    this.#logMessage(`onSyncMessage 🡐 ${peerId}`, message)
 
     this.handle.updateDoc(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
