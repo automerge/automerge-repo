@@ -44,7 +44,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     })
 
     networkAdapter.on("message", msg => {
-      const { senderId, targetId, channelId, broadcast, message } = msg
+      const { senderId, channelId, broadcast, message } = msg
       this.#log(`message from ${senderId}`)
 
       // If we receive a broadcast message from a network adapter
