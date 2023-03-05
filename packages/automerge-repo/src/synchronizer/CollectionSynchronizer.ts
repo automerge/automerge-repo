@@ -51,6 +51,7 @@ export class CollectionSynchronizer extends Synchronizer {
     return this.#docSynchronizers[documentId]
   }
 
+  /** Creates a new docSynchronizer and sets it up to propagate messages */
   #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer(handle)
     docSynchronizer.on("message", event => this.emit("message", event))
