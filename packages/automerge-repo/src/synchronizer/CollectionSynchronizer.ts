@@ -45,7 +45,7 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
   async #fetchDocSynchronizer(documentId: DocumentId) {
     if (!this.#docSynchronizers[documentId]) {
-      const handle = await this.repo.find(documentId)
+      const handle = this.repo.find(documentId)
       this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
     }
     return this.#docSynchronizers[documentId]
