@@ -47,11 +47,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       const { senderId, channelId, broadcast, message } = msg
       this.#log(`message from ${senderId}`)
 
-      // If we receive a broadcast message from a network adapter
-      // we need to re-broadcast it to all our other peers.
-      // This is the world's worst gossip protocol.
-      // TODO: This relies on the network forming a tree!
-      //       If there are cycles, this approach will loop messages around forever.
+      // If we receive a broadcast message from a network adapter we need to re-broadcast it to all
+      // our other peers. This is the world's worst gossip protocol.
+
+      // TODO: This relies on the network forming a tree! If there are cycles, this approach will
+      // loop messages around forever.
       if (broadcast) {
         Object.entries(this.#adaptersByPeer)
           .filter(([id]) => id !== senderId)
