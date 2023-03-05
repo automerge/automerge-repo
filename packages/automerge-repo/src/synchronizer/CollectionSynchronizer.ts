@@ -34,12 +34,12 @@ export class CollectionSynchronizer extends Synchronizer {
     const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
 
     docSynchronizer.receiveSyncMessage(peerId, channelId, message)
+
+    // Initiate sync with any new peers
     const peers = await this.#documentGenerousPeers(documentId)
-    peers.forEach(peerId => {
-      if (!docSynchronizer.hasPeer(peerId)) {
-        docSynchronizer.beginSync(peerId)
-      }
-    })
+    peers
+      .filter(peerId => !docSynchronizer.hasPeer(peerId))
+      .forEach(peerId => docSynchronizer.beginSync(peerId))
   }
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
