@@ -75,11 +75,13 @@ export class CollectionSynchronizer extends Synchronizer {
 
   /** returns an array of peerIds that we share this document generously with */
   async #documentGenerousPeers(documentId: DocumentId): Promise<PeerId[]> {
-    const results = await Promise.all(
-      [...this.#peers].map(peerId => this.repo.sharePolicy(peerId, documentId))
-    )
-
-    return [...this.#peers].filter((_, index) => results[index])
+    const peers = Array.from(this.#peers)
+    const generousPeers: PeerId[] = []
+    for (const peerId of peers) {
+      const okToShare = await this.repo.sharePolicy(peerId, documentId)
+      if (okToShare) generousPeers.push(peerId)
+    }
+    return generousPeers
   }
 
   /** Adds a peer and maybe starts synchronizing with them */
