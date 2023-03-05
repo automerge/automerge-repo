@@ -111,6 +111,8 @@ export class DocSynchronizer extends Synchronizer {
     // HACK: if we have a sync state already, we round-trip it through the encoding system to make
     // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
     // messages during disconnection.
+
+    // TODO: cover that case with a test and remove this hack
     const syncStateRaw = this.#getSyncState(peerId)
     const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
     this.#setSyncState(peerId, syncState)
