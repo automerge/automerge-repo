@@ -10,23 +10,17 @@ import debug from "debug"
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
-  #adapters: NetworkAdapter[] = []
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
   #channels: ChannelId[]
 
-  peerId: PeerId
-
-  constructor(networkAdapters: NetworkAdapter[], peerId?: PeerId) {
+  constructor(
+    private adapters: NetworkAdapter[],
+    public peerId = randomPeerId()
+  ) {
     super()
-    this.peerId =
-      peerId || (`user-${Math.round(Math.random() * 100000)}` as PeerId)
-
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
-
     this.#channels = []
-
-    this.#adapters = networkAdapters
-    networkAdapters.forEach(a => this.addNetworkAdapter(a))
+    this.adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
@@ -106,14 +100,18 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   join(channelId: ChannelId) {
     this.#log(`Joining channel ${channelId}`)
     this.#channels.push(channelId)
-    this.#adapters.forEach(a => a.join(channelId))
+    this.adapters.forEach(a => a.join(channelId))
   }
 
   leave(channelId: ChannelId) {
     this.#log(`Leaving channel ${channelId}`)
     this.#channels = this.#channels.filter(c => c !== channelId)
-    this.#adapters.forEach(a => a.leave(channelId))
+    this.adapters.forEach(a => a.leave(channelId))
   }
+}
+
+function randomPeerId() {
+  return `user-${Math.round(Math.random() * 100000)}` as PeerId
 }
 
 // events & payloads
