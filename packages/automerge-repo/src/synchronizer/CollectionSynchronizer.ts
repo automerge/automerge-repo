@@ -19,6 +19,35 @@ export class CollectionSynchronizer extends Synchronizer {
     super()
   }
 
+  /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
+  async #fetchDocSynchronizer(documentId: DocumentId) {
+    if (!this.#docSynchronizers[documentId]) {
+      const handle = this.repo.find(documentId)
+      this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
+    }
+    return this.#docSynchronizers[documentId]
+  }
+
+  /** Creates a new docSynchronizer and sets it up to propagate messages */
+  #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
+    const docSynchronizer = new DocSynchronizer(handle)
+    docSynchronizer.on("message", event => this.emit("message", event))
+    return docSynchronizer
+  }
+
+  /** returns an array of peerIds that we share this document generously with */
+  async #documentGenerousPeers(documentId: DocumentId): Promise<PeerId[]> {
+    const peers = Array.from(this.#peers)
+    const generousPeers: PeerId[] = []
+    for (const peerId of peers) {
+      const okToShare = await this.repo.sharePolicy(peerId, documentId)
+      if (okToShare) generousPeers.push(peerId)
+    }
+    return generousPeers
+  }
+
+  // PUBLIC
+
   /**
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
@@ -42,22 +71,6 @@ export class CollectionSynchronizer extends Synchronizer {
       .forEach(peerId => docSynchronizer.beginSync(peerId))
   }
 
-  /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
-  async #fetchDocSynchronizer(documentId: DocumentId) {
-    if (!this.#docSynchronizers[documentId]) {
-      const handle = this.repo.find(documentId)
-      this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
-    }
-    return this.#docSynchronizers[documentId]
-  }
-
-  /** Creates a new docSynchronizer and sets it up to propagate messages */
-  #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
-    const docSynchronizer = new DocSynchronizer(handle)
-    docSynchronizer.on("message", event => this.emit("message", event))
-    return docSynchronizer
-  }
-
   /**
    * Starts synchronizing the given document with all peers that we share it generously with.
    */
@@ -72,17 +85,6 @@ export class CollectionSynchronizer extends Synchronizer {
   // TODO: implement this
   removeDocument(documentId: DocumentId) {
     throw new Error("not implemented")
-  }
-
-  /** returns an array of peerIds that we share this document generously with */
-  async #documentGenerousPeers(documentId: DocumentId): Promise<PeerId[]> {
-    const peers = Array.from(this.#peers)
-    const generousPeers: PeerId[] = []
-    for (const peerId of peers) {
-      const okToShare = await this.repo.sharePolicy(peerId, documentId)
-      if (okToShare) generousPeers.push(peerId)
-    }
-    return generousPeers
   }
 
   /** Adds a peer and maybe starts synchronizing with them */
