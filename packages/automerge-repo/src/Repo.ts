@@ -43,8 +43,7 @@ export class Repo extends DocCollection {
     const synchronizer = new CollectionSynchronizer(this)
 
     // The `document` event is fired by the DocCollection any time we create a new document or look
-    // up a document by ID. We listen for it in order to wire up storage and network
-    // synchronization.
+    // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle }) => {
       if (storageSubsystem) {
         // Try to load from disk
@@ -75,14 +74,18 @@ export class Repo extends DocCollection {
       synchronizer.removePeer(peerId)
     })
 
+    // When we get a new document, register it with the synchronizer
     this.on("document", ({ handle }) => {
       synchronizer.addDocument(handle.documentId)
     })
 
+    // Handle incoming messages
     networkSubsystem.on("message", msg => {
       const { senderId, channelId, message } = msg
 
       // TODO: this demands a more principled way of associating channels with recipients
+
+      // Ephemeral channel ids start with "m/"
       if (channelId.startsWith("m/")) {
         // Ephemeral message
         this.#log(`receiving ephemeral message from ${senderId}`)
