@@ -9,17 +9,14 @@ const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
 export class CollectionSynchronizer extends Synchronizer {
-  repo: DocCollection
-
-  /** ? */
+  /** The set of peers we are connected with */
   #peers: Set<PeerId> = new Set()
 
   /** A map of documentIds to their synchronizers */
   #syncPool: Record<DocumentId, DocSynchronizer> = {}
 
-  constructor(repo: DocCollection) {
+  constructor(private repo: DocCollection) {
     super()
-    this.repo = repo
   }
 
   /**
