@@ -22,12 +22,10 @@ export class DocSynchronizer extends Synchronizer {
 
   constructor(private handle: DocHandle) {
     super()
-
-    this.#conciseLog = debug(
-      `automerge-repo:concise:docsync:${this.documentId}`
-    ) // Only logs one line per receive/send
-    this.#log = debug(`automerge-repo:docsync:${this.documentId}`)
-    this.#opsLog = debug(`automerge-repo:ops:docsync:${this.documentId}`) // Log list of ops of each message
+    const { documentId } = handle
+    this.#conciseLog = debug(`automerge-repo:concise:docsync:${documentId}`) // Only logs one line per receive/send
+    this.#log = debug(`automerge-repo:docsync:${documentId}`)
+    this.#opsLog = debug(`automerge-repo:ops:docsync:${documentId}`) // Log list of ops of each message
 
     handle.on("change", () => this.#syncWithPeers())
   }
