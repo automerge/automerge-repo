@@ -37,7 +37,8 @@
     "eventemitter3": "^4.0.7",
     "tiny-typed-emitter": "^2.1.0",
     "ts-node": "^10.9.1",
-    "uuid": "^8.3.2"
+    "uuid": "^8.3.2",
+    "xstate": "^4.37.0"
   },
   "watch": {
     "build": {
