@@ -4,6 +4,7 @@ import { ChannelId, PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
+
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
  * to bring it inline with all other peers' versions.
@@ -13,15 +14,14 @@ export class DocSynchronizer extends Synchronizer {
   #conciseLog: debug.Debugger
   #opsLog: debug.Debugger
 
-  #handle: DocHandle
   /** Active peers */
   #peers: PeerId[] = []
+
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  constructor(handle: DocHandle) {
+  constructor(private handle: DocHandle) {
     super()
-    this.#handle = handle
 
     this.#conciseLog = debug(
       `automerge-repo:concise:docsync:${this.documentId}`
@@ -33,14 +33,14 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   get documentId() {
-    return this.#handle.documentId
+    return this.handle.documentId
   }
 
   /// PRIVATE
 
   async #syncWithPeers() {
     this.#log(`syncWithPeers`)
-    const doc = await this.#handle.provisionalValue()
+    const doc = await this.handle.provisionalValue()
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
@@ -71,7 +71,7 @@ export class DocSynchronizer extends Synchronizer {
     if (message) {
       this.logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
 
-      const channelId = this.#handle.documentId as string as ChannelId
+      const channelId = this.handle.documentId as string as ChannelId
       this.emit("message", {
         targetId: peerId,
         channelId,
@@ -108,7 +108,7 @@ export class DocSynchronizer extends Synchronizer {
 
   async beginSync(peerId: PeerId) {
     this.#log(`beginSync: ${peerId}`)
-    const doc = await this.#handle.provisionalValue()
+    const doc = await this.handle.provisionalValue()
 
     // HACK: if we have a sync state already, we round-trip it through the encoding system to make
     // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
@@ -139,7 +139,7 @@ export class DocSynchronizer extends Synchronizer {
 
     this.logMessage(`onSyncMessage 🡐 ${peerId}`, message)
 
-    this.#handle.updateDoc(doc => {
+    this.handle.updateDoc(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
         this.#getSyncState(peerId),
