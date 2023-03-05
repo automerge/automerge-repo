@@ -13,7 +13,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #peers: Set<PeerId> = new Set()
 
   /** A map of documentIds to their synchronizers */
-  #syncPool: Record<DocumentId, DocSynchronizer> = {}
+  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
 
   constructor(private repo: DocCollection) {
     super()
@@ -44,11 +44,11 @@ export class CollectionSynchronizer extends Synchronizer {
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
   async #fetchDocSynchronizer(documentId: DocumentId) {
-    if (!this.#syncPool[documentId]) {
+    if (!this.#docSynchronizers[documentId]) {
       const handle = await this.repo.find(documentId)
-      this.#syncPool[documentId] = this.#initDocSynchronizer(handle)
+      this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
     }
-    return this.#syncPool[documentId]
+    return this.#docSynchronizers[documentId]
   }
 
   #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
@@ -87,7 +87,7 @@ export class CollectionSynchronizer extends Synchronizer {
     log(`${peerId} added`)
     this.#peers.add(peerId)
     log(`sharing all open docs`)
-    Object.values(this.#syncPool).forEach(async docSynchronizer => {
+    Object.values(this.#docSynchronizers).forEach(async docSynchronizer => {
       if (await this.repo.sharePolicy(peerId, docSynchronizer.documentId)) {
         docSynchronizer.beginSync(peerId)
       }
@@ -99,7 +99,7 @@ export class CollectionSynchronizer extends Synchronizer {
     log(`removing peer ${peerId}`)
     this.#peers.delete(peerId)
 
-    for (const docSynchronizer of Object.values(this.#syncPool)) {
+    for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       docSynchronizer.endSync(peerId)
     }
   }
