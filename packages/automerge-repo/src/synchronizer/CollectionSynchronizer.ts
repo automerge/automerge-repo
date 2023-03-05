@@ -83,15 +83,14 @@ export class CollectionSynchronizer extends Synchronizer {
   }
 
   /** Adds a peer and maybe starts synchronizing with them */
-  addPeer(peerId: PeerId) {
-    log(`${peerId} added`)
+  async addPeer(peerId: PeerId) {
+    log(`adding ${peerId} & synchronizing with them`)
     this.#peers.add(peerId)
-    log(`sharing all open docs`)
-    Object.values(this.#docSynchronizers).forEach(async docSynchronizer => {
-      if (await this.repo.sharePolicy(peerId, docSynchronizer.documentId)) {
-        docSynchronizer.beginSync(peerId)
-      }
-    })
+    for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
+      const { documentId } = docSynchronizer
+      const okToShare = await this.repo.sharePolicy(peerId, documentId)
+      if (okToShare) docSynchronizer.beginSync(peerId)
+    }
   }
 
   /** Removes a peer and stops synchronizing with them */
