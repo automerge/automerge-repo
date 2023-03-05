@@ -123,7 +123,7 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  async onSyncMessage(
+  async receiveSyncMessage(
     peerId: PeerId,
     channelId: ChannelId,
     message: Uint8Array

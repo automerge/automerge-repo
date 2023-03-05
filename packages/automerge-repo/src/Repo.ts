@@ -90,7 +90,7 @@ export class Repo extends DocCollection {
       } else {
         // Sync message
         this.#log(`receiving sync message from ${senderId}`)
-        synchronizer.onSyncMessage(senderId, channelId, message)
+        synchronizer.receiveSyncMessage(senderId, channelId, message)
       }
     })
 

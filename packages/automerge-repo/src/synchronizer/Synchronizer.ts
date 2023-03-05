@@ -3,7 +3,7 @@ import { ChannelId, PeerId } from "../types.js"
 import { MessagePayload } from "../network/NetworkAdapter.js"
 
 export abstract class Synchronizer extends EventEmitter<SynchronizerEvents> {
-  abstract onSyncMessage(
+  abstract receiveSyncMessage(
     peerId: PeerId,
     channelId: ChannelId,
     message: Uint8Array

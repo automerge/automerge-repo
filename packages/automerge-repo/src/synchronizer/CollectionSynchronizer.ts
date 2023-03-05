@@ -26,7 +26,7 @@ export class CollectionSynchronizer extends Synchronizer {
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
    */
-  async onSyncMessage(
+  async receiveSyncMessage(
     peerId: PeerId,
     channelId: ChannelId,
     message: Uint8Array
@@ -36,7 +36,7 @@ export class CollectionSynchronizer extends Synchronizer {
     const documentId = channelId as unknown as DocumentId
     const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
 
-    docSynchronizer.onSyncMessage(peerId, channelId, message)
+    docSynchronizer.receiveSyncMessage(peerId, channelId, message)
     const peers = await this.#documentGenerousPeers(documentId)
     peers.forEach(peerId => {
       if (!docSynchronizer.hasPeer(peerId)) {
