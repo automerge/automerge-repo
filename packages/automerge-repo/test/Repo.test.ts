@@ -142,6 +142,7 @@ describe("Repo", () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
 
       const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+      await eventPromise(bobHandle, "change")
       const bobDoc = await bobHandle.value()
       assert.deepStrictEqual(bobDoc, { foo: "bar" })
       teardown()
@@ -149,11 +150,9 @@ describe("Repo", () => {
 
     it("can load a document from aliceRepo on charlieRepo", async () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
-      aliceHandle.change(d => {
-        d.foo = "bar"
-      })
 
       const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
+      await eventPromise(handle3, "change")
       const doc3 = await handle3.value()
       assert.deepStrictEqual(doc3, { foo: "bar" })
       teardown()
