@@ -1,187 +1,222 @@
 import * as A from "@automerge/automerge"
-import { ChangeOptions, Doc } from "@automerge/automerge"
 import debug from "debug"
 import EventEmitter from "eventemitter3"
-import { headsAreSame } from "./helpers/headsAreSame.js"
-import { pause } from "./helpers/pause.js"
-import { ChannelId, DocumentId, PeerId } from "./types.js"
+import {
+  assign,
+  BaseActionObject,
+  createMachine,
+  interpret,
+  Interpreter,
+  ResolveTypegenMeta,
+  ServiceMap,
+  TypegenDisabled,
+} from "xstate"
+import { headsAreSame } from "./helpers/headsAreSame"
+import { pause } from "./helpers/pause"
+import { ChannelId, DocumentId, PeerId } from "./types"
 
-/** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
-export class DocHandle<T = unknown> extends EventEmitter<DocHandleEvents<T>> {
-  doc: A.Doc<T>
-  documentId: DocumentId
-
-  /**
-   * We need to carefully orchestrate document loading in order to avoid requesting data we already
-   * have or surfacing intermediate values to the consumer. The handle lifecycle looks like this:
-   * ```
-   *                        handle.state
-   * ┌───────────────┐      ┌────────────┐
-   * │new DocHandle()│  ┌──►│ LOADING    ├─┐
-   * ├─────────────┬─┘  │ ┌┤├────────────┤ │ via loadIncremental()
-   * ├─────────────┤    │ └►├────────────┤ │  or waitForSync()
-   * │find()       ├────┘ ┌─┤ REQUESTING │ │
-   * ├─────────────┤      │ ├────────────┤ │
-   * │create()     ├────┐ │ ├────────────┤ │ via receiveSyncMessage()
-   * └─────────────┘    └►└►│ READY      │►┘  or create()
-   *                        └────────────┘
-   *  ┌───────────────────┐
-   *  │value()            │ <- blocks until "ready"
-   *  ├───────────────────┤
-   *  │provisionalValue() │ <- blocks until "requesting"
-   *  └───────────────────┘
-   * ```
-   *
-   * */
-  state: HandleState = HandleState.LOADING
-
+export class DocHandle<T> //
+  extends EventEmitter<DocHandleEvents<T>>
+{
   #log: debug.Debugger
 
-  constructor(documentId: DocumentId, newDoc = false) {
-    super()
-    this.documentId = documentId
-    this.#log = debug(`automerge-repo:dochandle:${documentId}`)
+  #machine: DocHandleXstateMachine<T>
 
-    this.doc = A.init({
-      patchCallback: (patch, before, after) =>
-        this.#emitPatch(patch, before, after),
+  constructor(public documentId: DocumentId, isNew: boolean = false) {
+    super()
+    this.#log = debug(`automerge-repo:dochandle:${documentId.slice(0, 5)}`)
+
+    // initial doc
+    const doc = A.init<T>({
+      patchCallback: (patches, before, after) =>
+        this.emit("patch", { handle: this, patches, before, after }),
     })
 
-    // If this is a freshly created document, we can immediately mark it as ready
-    if (newDoc) this.#ready()
+    this.#machine = interpret(
+      createMachine<DocHandleContext<T>, DocHandleEvent<T>>(
+        {
+          predictableActionArguments: true,
+
+          id: "docHandle",
+          initial: IDLE,
+          context: { documentId, doc },
+          states: {
+            idle: {
+              on: {
+                CREATE: { target: READY },
+                FIND: { target: LOADING },
+              },
+            },
+            loading: {
+              on: {
+                LOAD: { actions: "onLoad", target: READY },
+                UPDATE: { actions: "onUpdate", target: READY },
+                REQUEST: { target: REQUESTING },
+              },
+            },
+            requesting: {
+              on: {
+                UPDATE: { actions: "onUpdate", target: READY },
+              },
+              after: {
+                [TIMEOUT_DELAY]: { actions: "failTimeout", target: ERROR },
+              },
+            },
+            ready: {
+              on: {
+                UPDATE: { actions: "onUpdate", target: READY },
+              },
+            },
+            error: {},
+          },
+        },
+
+        {
+          actions: {
+            /** Apply the binary changes from storage and put the updated doc on context */
+            onLoad: assign((context, { payload }: LoadEvent) => {
+              const { binary } = payload
+              const { doc } = context
+              const newDoc = A.loadIncremental(doc, binary)
+              return { doc: newDoc }
+            }),
+
+            /** Put the updated doc on context; if it's different, emit a `change` event */
+            onUpdate: assign((context, { payload }: UpdateEvent<T>) => {
+              const { doc: oldDoc } = context
+              const { doc: newDoc } = payload
+              const docChanged = !headsAreSame(newDoc, oldDoc)
+              if (docChanged) this.emit("change", { handle: this })
+              return { doc: newDoc }
+            }),
+
+            failTimeout: _ => {},
+          },
+        }
+      )
+    )
+      .onTransition(({ value: state }, { type: event }) =>
+        this.#log(`${event} → ${state}`, this.doc)
+      )
+      .start()
+
+    this.#machine.send(isNew ? CREATE : FIND)
   }
 
-  #ready() {
-    if (this.state !== HandleState.READY) {
-      this.state = HandleState.READY
-      this.emit("ready")
-    }
+  // PUBLIC
+
+  get doc() {
+    return this.#machine?.getSnapshot().context.doc || ({} as A.Doc<T>)
+  }
+
+  get state() {
+    return this.#machine?.getSnapshot().value as HandleState
   }
 
   isReady() {
-    return this.state === HandleState.READY
+    return this.state === READY
   }
 
-  loadIncremental(binary: Uint8Array) {
-    if (binary.byteLength === 0) return
-    this.#log(`[${this.documentId}]: loadIncremental`, this.doc)
-    const newDoc = A.loadIncremental(this.doc, binary)
-    if (this.state === HandleState.LOADING) {
-      this.state = HandleState.READY
-      this.emit("ready")
-    }
-    this.#emitChange(newDoc)
-  }
-
-  /**
-   * A Repo can call this when it doesn't have the document and has advertised our interest in it.
-   * This blocks access to the document until we get it from a peer.
-   *
-   * TODO: might be good for this to timeout and go to a "not found" state if the document isn't
-   * available after a certain amount of time. but not sure what we would do with a doc in that
-   * state. We'd also need to retry etc.
-   */
-  requestSync() {
-    if (this.state === HandleState.LOADING) {
-      this.state = HandleState.REQUESTING
-      this.emit("requesting")
-    }
-  }
-
-  updateDoc(callback: (doc: Doc<T>) => Doc<T>) {
-    this.#log(`updateDoc`, this.doc)
-    // TODO: make sure doc is a new version of the old doc somehow...
-    const newDoc = callback(this.doc)
-    this.#emitChange(newDoc)
-  }
-
-  /**
-   * We emit a `change` event for the benefit of network and storage; they care about the full
-   * history of changes. Changes may or may not result in a patch, would result in something visible
-   * to the user.
-   */
-  #emitChange(newDoc: A.Doc<T>) {
-    const oldDoc = this.doc
-    this.doc = newDoc
-
-    // we only need to emit a "change" if there actually were changes
-    if (!headsAreSame(newDoc, oldDoc)) {
-      this.#ready()
-      this.emit("change", { handle: this })
-    }
-  }
-
-  /**
-   * We emit a `patch` event for the benefit of the front end; it cares about the changes that might
-   * be visible to the user. A patch is the result of one or more changes. It describes the
-   * difference between the state before and after the changes.
-   */
-  #emitPatch(patches: A.Patch[], before: A.Doc<T>, after: A.Doc<T>) {
-    this.emit("patch", { handle: this, patches, before, after })
-  }
-
-  /**
-   * This is the current state of the document. If a document isn't available locally, this will
-   * block until until we get it from a peer. (As noted above, we should probably have a timeout.)
-   */
-  async value() {
-    if (!this.isReady()) {
-      this.#log(
-        `[${this.documentId}]: value: (${this.state}, waiting for ready)`
+  async value(waitForState: HandleState[] = [READY]) {
+    if (waitForState.includes(this.state)) await pause()
+    else
+      await new Promise<void>(async resolve =>
+        this.#machine.onTransition(() => {
+          if (waitForState.includes(this.state)) resolve()
+        })
       )
-      await new Promise(resolve => this.once("ready", () => resolve(true)))
-    } else {
-      await pause()
-    }
-    this.#log(`[${this.documentId}]: value:`, this.doc)
-    return this.doc
+    return this.#machine.getSnapshot().context.doc
   }
 
-  /**
-   * If a document isn't available locally, this will return an empty document while we're asking
-   * peers for it.
-   */
   async provisionalValue() {
-    this.#log(`[${this.documentId}]: provisionalValue,`, this.doc)
-    if (this.state == HandleState.LOADING) {
-      this.#log(
-        `[${this.documentId}]: value: (${this.state}, waiting for syncing)`
-      )
-      await new Promise(resolve => {
-        this.once("requesting", () => resolve(true))
-        this.once("ready", () => resolve(true))
-      })
-    } else {
-      await pause()
-    }
-    this.#log(`[${this.documentId}]: provisionalValue:`, this.doc)
-    return this.doc
+    return this.value([READY, REQUESTING])
   }
 
-  /** Applies an Automerge change function to the document. */
-  async change(callback: A.ChangeFn<T>, options: ChangeOptions<T> = {}) {
-    // TODO: we should note that this is blocking to make sure you don't call change() before you get an initial value by accident
+  async loadIncremental(binary: Uint8Array) {
+    this.#machine.send(LOAD, { payload: { binary } })
+  }
 
-    await this.value()
-    const newDoc = A.change<T>(this.doc, options, callback)
-    this.#log(`change`, { oldDoc: this.doc, newDoc })
-    this.#emitChange(newDoc)
+  updateDoc(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+    const newDoc = callback(this.doc)
+    this.#machine.send(UPDATE, { payload: { doc: newDoc } })
+  }
+
+  async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+    const doc = await this.value()
+    const newDoc = A.change(doc, options, callback)
+    this.#machine.send(UPDATE, { payload: { doc: newDoc } })
+  }
+
+  requestSync() {
+    if (this.state === LOADING) this.#machine.send(REQUEST)
   }
 }
 
+// TYPES
+
 export const HandleState = {
-  /** we're looking for the document on disk */
-  LOADING: "LOADING",
-  /** we don't have it on disk, we're asking the network **/
-  REQUESTING: "REQUESTING",
-  /** we have the document in memory  */
-  READY: "READY",
+  IDLE: "idle",
+  LOADING: "loading",
+  REQUESTING: "requesting",
+  READY: "ready",
+  ERROR: "error",
 } as const
+export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
-// avoiding enum https://maxheiber.medium.com/alternatives-to-typescript-enums-50e4c16600b1
-export type HandleState = typeof HandleState[keyof typeof HandleState]
+type DocHandleMachineState = {
+  states: Record<(typeof HandleState)[keyof typeof HandleState], {}>
+}
 
-// types
+interface DocHandleContext<T> {
+  documentId: string
+  doc: A.Doc<T>
+}
+
+export const Event = {
+  CREATE: "CREATE",
+  LOAD: "LOAD",
+  FIND: "FIND",
+  REQUEST: "REQUEST",
+  UPDATE: "UPDATE",
+  TIMEOUT: "TIMEOUT",
+} as const
+type Event = (typeof Event)[keyof typeof Event]
+
+type CreateEvent = {
+  type: typeof CREATE
+  payload: { documentId: string }
+}
+
+type LoadEvent = {
+  type: typeof LOAD
+  payload: { binary: Uint8Array }
+}
+
+type FindEvent = {
+  type: typeof FIND
+  payload: { documentId: string }
+}
+
+type RequestEvent = {
+  type: typeof REQUEST
+}
+
+type UpdateEvent<T> = {
+  type: typeof UPDATE
+  payload: { doc: A.Doc<T> }
+}
+
+type TimeoutEvent = {
+  type: typeof TIMEOUT
+}
+
+type DocHandleEvent<T> =
+  | CreateEvent
+  | LoadEvent
+  | FindEvent
+  | RequestEvent
+  | UpdateEvent<T>
+  | TimeoutEvent
 
 export interface DocHandleMessagePayload {
   destinationId: PeerId
@@ -201,9 +236,28 @@ export interface DocHandlePatchPayload<T> {
 }
 
 export interface DocHandleEvents<T> {
-  requesting: () => void // HMM
-  ready: () => void // HMM
-  message: (payload: DocHandleMessagePayload) => void
   change: (payload: DocHandleChangePayload<T>) => void
   patch: (payload: DocHandlePatchPayload<T>) => void
 }
+
+type DocHandleXstateMachine<T> = Interpreter<
+  DocHandleContext<T>,
+  DocHandleMachineState,
+  DocHandleEvent<T>,
+  {
+    value: any
+    context: DocHandleContext<T>
+  },
+  ResolveTypegenMeta<
+    TypegenDisabled,
+    DocHandleEvent<T>,
+    BaseActionObject,
+    ServiceMap
+  >
+>
+
+// CONSTANTS
+
+const TIMEOUT_DELAY = 7000
+const { IDLE, LOADING, REQUESTING, READY, ERROR } = HandleState
+const { CREATE, LOAD, FIND, REQUEST, UPDATE, TIMEOUT } = Event
