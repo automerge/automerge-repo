@@ -8,8 +8,8 @@ import { type SharePolicy } from "./Repo.js"
  * A DocCollection is a collection of DocHandles. It supports creating new documents and finding
  * documents by ID.
  * */
-export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
-  #handleCache: Record<DocumentId, DocHandle<unknown>> = {}
+export class DocCollection extends EventEmitter<DocCollectionEvents> {
+  #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
   /** By default, we share generously with all peers. */
   sharePolicy: SharePolicy = async () => true
@@ -19,7 +19,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
-  #handleFromCache(
+  #handleFromCache<T>(
     /** The documentId of the handle to look up or create */
     documentId: DocumentId,
 
@@ -30,7 +30,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     if (this.#handleCache[documentId]) return this.#handleCache[documentId]
 
     // If not, create a new handle, cache it, and return it
-    const handle = new DocHandle<unknown>(documentId, isNew)
+    const handle = new DocHandle<T>(documentId, isNew)
     this.#handleCache[documentId] = handle
     return handle
   }
@@ -53,8 +53,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     // const myInitialValue = {
     //   tasks: [],
     //   filter: "all",
-    // }
-
+    //
     // const guaranteeInitialValue = (doc: any) => {
     // if (!doc.tasks) doc.tasks = []
     // if (!doc.filter) doc.filter = "all"
@@ -66,7 +65,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
     // - pass a "reify" function that takes a `<any>` and returns `<T>`
 
     const documentId = uuid() as DocumentId
-    const handle = this.#handleFromCache(documentId, true) as DocHandle<T>
+    const handle = this.#handleFromCache<T>(documentId, true) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }
@@ -86,7 +85,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
       return this.#handleCache[documentId] as DocHandle<T>
 
     // Otherwise, create a new handle
-    const handle = this.#handleFromCache(documentId, false) as DocHandle<T>
+    const handle = this.#handleFromCache<T>(documentId, false) as DocHandle<T>
 
     // we don't directly initialize a value here because the StorageSubsystem and Synchronizers go
     // and get the data asynchronously and block on read instead of on create
@@ -99,11 +98,10 @@ export class DocCollection extends EventEmitter<DocCollectionEvents<unknown>> {
 }
 
 // events & payloads
-
-export interface DocCollectionEvents<T> {
-  document: (arg: DocumentPayload<T>) => void
+interface DocCollectionEvents {
+  document: (arg: DocumentPayload) => void
 }
 
-export interface DocumentPayload<T> {
-  handle: DocHandle<T>
+interface DocumentPayload {
+  handle: DocHandle<any>
 }
