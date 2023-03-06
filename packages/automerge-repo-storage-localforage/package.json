@@ -13,7 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "automerge-repo": "^0.0.48",
+    "automerge-repo": "^0.0.49",
     "localforage": "^1.10.0"
   },
   "watch": {

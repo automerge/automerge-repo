@@ -1,6 +1,6 @@
 {
   "name": "automerge-repo-sync-server",
-  "version": "0.0.48",
+  "version": "0.0.49",
   "main": "src/index.js",
   "license": "MIT",
   "type": "module",
@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@automerge/automerge": "^2.0.1-alpha.1",
-    "automerge-repo": "^0.0.48",
-    "automerge-repo-network-websocket": "^0.0.48",
-    "automerge-repo-storage-nodefs": "^0.0.48",
+    "automerge-repo": "^0.0.49",
+    "automerge-repo-network-websocket": "^0.0.49",
+    "automerge-repo-storage-nodefs": "^0.0.49",
     "express": "^4.18.1",
     "ws": "^8.7.0"
   },

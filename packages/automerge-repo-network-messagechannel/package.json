@@ -1,6 +1,6 @@
 {
   "name": "automerge-repo-network-messagechannel",
-  "version": "0.0.48",
+  "version": "0.0.49",
   "description": "MessageChannel network adapter for Automerge Repo",
   "repository": "https://github.com/pvh/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -14,7 +14,7 @@
     "test": "mocha --no-warnings --experimental-specifier-resolution=node"
   },
   "dependencies": {
-    "automerge-repo": "^0.0.48"
+    "automerge-repo": "^0.0.49"
   },
   "watch": {
     "build": {
