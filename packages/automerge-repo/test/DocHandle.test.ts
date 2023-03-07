@@ -44,17 +44,6 @@ describe("DocHandle", () => {
     assert.equal(doc.foo, "bar")
   })
 
-  it("should return provisionalValue following an incremental load on an existing document", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
-    assert.equal(handle.isReady(), false)
-
-    handle.load(binaryFromMockStorage())
-
-    const provisionalDoc = await handle.provisionalValue()
-    assert.equal(handle.isReady(), true)
-    assert.equal(provisionalDoc.foo, "bar")
-  })
-
   it("should block changes until ready()", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
 
