@@ -1,4 +1,4 @@
-import { DocCollection } from "./DocCollection.js"
+import { DocCollection, IdGenerator } from "./DocCollection.js"
 import { EphemeralData } from "./EphemeralData.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
@@ -19,10 +19,18 @@ export class Repo extends DocCollection {
   storageSubsystem?: StorageSubsystem
   ephemeralData: EphemeralData
 
-  constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
+  constructor({
+    storage,
+    network,
+    peerId,
+    sharePolicy,
+    idGenerator,
+  }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
+
+    if (idGenerator) this.idGenerator = idGenerator
 
     // DOC COLLECTION
 
@@ -147,6 +155,8 @@ export interface RepoConfig {
    * all peers). A server only syncs documents that a peer explicitly requests by ID.
    */
   sharePolicy?: SharePolicy
+
+  idGenerator?: IdGenerator
 }
 
 export type SharePolicy = (

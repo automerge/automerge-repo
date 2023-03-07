@@ -136,6 +136,17 @@ describe("Repo", () => {
 
       repo.delete(handle.documentId)
     })
+
+    it("can use a custom id generator", () => {
+      const idGenerator = () => `foo-${Math.random()}` as DocumentId
+      const repo = new Repo({
+        storage: new DummyStorageAdapter(),
+        network: [new DummyNetworkAdapter()],
+        idGenerator,
+      })
+      const handle = repo.create<TestDoc>()
+      assert.equal(handle.documentId.slice(0, 3), "foo")
+    })
   })
 
   describe("sync", async () => {

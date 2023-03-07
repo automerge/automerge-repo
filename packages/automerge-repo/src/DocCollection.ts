@@ -11,6 +11,8 @@ import { type SharePolicy } from "./Repo.js"
 export class DocCollection extends EventEmitter<DocCollectionEvents> {
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
+  protected idGenerator = uuid as IdGenerator
+
   /** By default, we share generously with all peers. */
   sharePolicy: SharePolicy = async () => true
 
@@ -64,7 +66,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     // or
     // - pass a "reify" function that takes a `<any>` and returns `<T>`
 
-    const documentId = uuid() as DocumentId
+    const documentId = this.idGenerator()
     const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
     this.emit("document", { handle })
     return handle
@@ -121,3 +123,5 @@ interface DocumentPayload {
 interface DeleteDocumentPayload {
   documentId: DocumentId
 }
+
+export type IdGenerator = () => DocumentId
