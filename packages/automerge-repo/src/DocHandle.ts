@@ -15,6 +15,7 @@ import { headsAreSame } from "./helpers/headsAreSame"
 import { pause } from "./helpers/pause"
 import { ChannelId, DocumentId, PeerId } from "./types"
 
+/** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
   extends EventEmitter<DocHandleEvents<T>>
 {
@@ -32,6 +33,9 @@ export class DocHandle<T> //
         this.emit("patch", { handle: this, patches, before, after }),
     })
 
+    // Internally we use a state machine to orchestrate document loading, in order to avoid
+    // requesting data we already have, or surfacing intermediate values to the consumer.
+    // (See state chart here: https://stately.ai/viz/738bd853-8d80-4888-a83e-a140d92ce646 )
     this.#machine = interpret(
       createMachine<DocHandleContext<T>, DocHandleEvent<T>>(
         {
@@ -43,31 +47,42 @@ export class DocHandle<T> //
           states: {
             idle: {
               on: {
+                // If we're creating a new document, we don't need to load anything
                 CREATE: { target: READY },
+                // If we're accessing an existing document, we need to request it from storage
+                // and/or the network
                 FIND: { target: LOADING },
               },
             },
             loading: {
               on: {
+                // LOAD is called by the Repo if the document is found in storage
                 LOAD: { actions: "onLoad", target: READY },
+                // TODO: UPDATE doesn't belong here
                 UPDATE: { actions: "onUpdate", target: READY },
+                // REQUEST is called by the Repo if the document is not found in storage
                 REQUEST: { target: REQUESTING },
               },
             },
             requesting: {
               on: {
+                // UPDATE is called by the Repo when we receive changes from the network
                 UPDATE: { actions: "onUpdate", target: READY },
               },
               after: {
+                // If we don't get a response within a certain time, we... do something but not sure what
                 [TIMEOUT_DELAY]: { actions: "failTimeout", target: ERROR },
               },
             },
             ready: {
               on: {
+                // UPDATE is called by the Repo when we receive changes from the network
                 UPDATE: { actions: "onUpdate", target: READY },
               },
             },
-            error: {},
+            error: {
+              // TODO
+            },
           },
         },
 
@@ -105,10 +120,12 @@ export class DocHandle<T> //
 
   // PUBLIC
 
+  /** Returns the current document */
   get doc() {
     return this.#machine?.getSnapshot().context.doc || ({} as A.Doc<T>)
   }
 
+  /** Returns the docHandle's state (READY, ) */
   get state() {
     return this.#machine?.getSnapshot().value as HandleState
   }
@@ -117,17 +134,28 @@ export class DocHandle<T> //
     return this.state === READY
   }
 
+  /**
+   * Returns the current document, waiting for the handle to be ready if necessary.
+   * @param waitForState The states to wait for. Defaults to `READY`.
+   */
   async value(waitForState: HandleState[] = [READY]) {
-    if (waitForState.includes(this.state)) await pause()
-    else
+    if (waitForState.includes(this.state)) {
+      // we're already at one of the desired states; yield a tick
+      await pause()
+    } else {
+      // wait until we reach one of the desired states
       await new Promise<void>(async resolve =>
         this.#machine.onTransition(() => {
           if (waitForState.includes(this.state)) resolve()
         })
       )
-    return this.#machine.getSnapshot().context.doc
+    }
+    return this.doc
   }
 
+  /**
+   * Returns the current document, waiting for the handle to be either in READY or REQUESTING state.
+   */
   async provisionalValue() {
     return this.value([READY, REQUESTING])
   }
