@@ -109,28 +109,28 @@ export class DocHandle<T> //
       )
     )
       .onTransition(({ value: state }, { type: event }) =>
-        this.#log(`${event} → ${state}`, this.doc)
+        this.#log(`${event} → ${state}`, this.#doc)
       )
       .start()
 
     this.#machine.send(isNew ? CREATE : FIND)
   }
 
-  // PUBLIC
+  // PRIVATE
 
   /** Returns the current document */
-  get doc() {
-    return this.#machine?.getSnapshot().context.doc || ({} as A.Doc<T>)
+  get #doc() {
+    return this.#machine?.getSnapshot().context.doc
   }
 
   /** Returns the docHandle's state (READY, ) */
-  get state() {
+  get #state() {
     return this.#machine?.getSnapshot().value as HandleState
   }
 
-  isReady() {
-    return this.state === READY
-  }
+  // PUBLIC
+
+  isReady = () => this.#state === READY
 
   /**
    * Returns the current document, waiting for the handle to be ready if necessary.
@@ -147,7 +147,7 @@ export class DocHandle<T> //
         })
       )
     }
-    return this.doc
+    return this.#doc
   }
 
   /** `load` is called by the repo when the document is found in storage */
@@ -157,13 +157,13 @@ export class DocHandle<T> //
 
   /** `update` is called by the repo when we receive changes from the network */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    const newDoc = callback(this.doc)
+    const newDoc = callback(this.#doc)
     this.#machine.send(UPDATE, { payload: { doc: newDoc } })
   }
 
   /** `change` is called by the repo when the document is changed locally  */
   async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
-    if (this.state === LOADING) throw new Error("Cannot change while loading")
+    if (this.#state === LOADING) throw new Error("Cannot change while loading")
     const doc = await this.value()
     const newDoc = A.change(doc, options, callback)
     this.#machine.send(UPDATE, { payload: { doc: newDoc } })
@@ -171,7 +171,7 @@ export class DocHandle<T> //
 
   /** `request` is called by the repo when the document is not found in storage */
   request() {
-    if (this.state === LOADING) this.#machine.send(REQUEST)
+    if (this.#state === LOADING) this.#machine.send(REQUEST)
   }
 }
 

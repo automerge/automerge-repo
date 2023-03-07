@@ -35,9 +35,10 @@ export class Repo extends DocCollection {
         handle.load(binary)
 
         // Save when the document changes
-        handle.on("change", ({ handle }) =>
-          storageSubsystem.save(handle.documentId, handle.doc)
-        )
+        handle.on("change", async ({ handle }) => {
+          const doc = await handle.value()
+          storageSubsystem.save(handle.documentId, doc)
+        })
       }
 
       // Advertise our interest in the document

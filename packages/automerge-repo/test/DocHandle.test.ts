@@ -48,14 +48,14 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
 
     // can't make changes in LOADING state
-    assert.equal(handle.state, HandleState.LOADING)
+    assert.equal(handle.isReady(), false)
     assert.rejects(() => handle.change(d => (d.foo = "baz")))
 
     // simulate loading from storage
     handle.load(binaryFromMockStorage())
 
     // now we're in READY state so we can make changes
-    assert.equal(handle.state, HandleState.READY)
+    assert.equal(handle.isReady(), true)
     handle.change(d => (d.foo = "pizza"))
 
     const doc = await handle.value()
@@ -69,7 +69,8 @@ describe("DocHandle", () => {
     })
 
     await eventPromise(handle, "change")
-    assert.equal(handle.doc.foo, "bar")
+    const doc = await handle.value()
+    assert.equal(doc.foo, "bar")
   })
 
   it("should not emit a change message if no change happens via update", done => {
