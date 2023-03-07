@@ -138,7 +138,7 @@ export class DocHandle<T> //
 
   /** Returns the docHandle's state (READY, ) */
   get #state() {
-    return this.#machine?.getSnapshot().value as HandleState
+    return this.#machine?.getSnapshot().value
   }
 
   // PUBLIC
