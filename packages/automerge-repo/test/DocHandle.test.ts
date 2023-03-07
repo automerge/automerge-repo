@@ -7,33 +7,39 @@ import { TestDoc } from "./types.js"
 describe("DocHandle", () => {
   const TEST_ID = "test-document-id" as DocumentId
 
+  const binaryFromMockStorage = () => {
+    const doc = Automerge.change<{ foo: string }>(
+      Automerge.init(),
+      d => (d.foo = "bar")
+    )
+    const binary = Automerge.save(doc)
+    return binary
+  }
+
   it("should take the UUID passed into it", () => {
     const handle = new DocHandle(TEST_ID)
     assert.equal(handle.documentId, TEST_ID)
   })
 
-  it("should not be ready until update is called", () => {
+  it("should not be ready until document is loaded", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
-    // update is called by the sync / storage systems
-    // this call is just to simulate loading
-    handle.update(doc => Automerge.change(doc, d => (d.foo = "bar")))
+
+    // simulate loading from storage
+    handle.load(binaryFromMockStorage())
+
     assert.equal(handle.isReady(), true)
   })
 
-  it("should not return a value until ready()", async () => {
+  it("should not return a value until ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
-    let tooSoon = true as boolean
 
-    handle.update(doc => {
-      tooSoon = false
-      return Automerge.change(doc, d => (d.foo = "bar"))
-    })
+    // simulate loading from storage
+    handle.load(binaryFromMockStorage())
 
     const doc = await handle.value()
 
-    assert.equal(tooSoon, false)
     assert.equal(handle.isReady(), true)
     assert.equal(doc.foo, "bar")
   })
@@ -42,14 +48,8 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
-    handle.load(
-      Automerge.save(
-        Automerge.change<{ foo: string }>(
-          Automerge.init(),
-          d => (d.foo = "bar")
-        )
-      )
-    )
+    handle.load(binaryFromMockStorage())
+
     const provisionalDoc = await handle.provisionalValue()
     assert.equal(handle.isReady(), true)
     assert.equal(provisionalDoc.foo, "bar")
