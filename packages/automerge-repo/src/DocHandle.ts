@@ -134,28 +134,20 @@ export class DocHandle<T> //
 
   /**
    * Returns the current document, waiting for the handle to be ready if necessary.
-   * @param waitForState The states to wait for. Defaults to `READY`.
    */
-  async value(waitForState: HandleState[] = [READY]) {
-    if (waitForState.includes(this.state)) {
+  async value() {
+    if (this.isReady()) {
       // we're already at one of the desired states; yield a tick
       await pause()
     } else {
       // wait until we reach one of the desired states
       await new Promise<void>(async resolve =>
         this.#machine.onTransition(() => {
-          if (waitForState.includes(this.state)) resolve()
+          if (this.isReady()) resolve()
         })
       )
     }
     return this.doc
-  }
-
-  /**
-   * Returns the current document, waiting for the handle to be either in READY or REQUESTING state.
-   */
-  async provisionalValue() {
-    return this.value([READY, REQUESTING])
   }
 
   /** `load` is called by the repo when the document is found in storage */
