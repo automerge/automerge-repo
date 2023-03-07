@@ -23,7 +23,10 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
 
-  constructor(public documentId: DocumentId, isNew: boolean = false) {
+  constructor(
+    public documentId: DocumentId,
+    { isNew = false, timeoutDelay = 7000 }: DocHandleOptions = {}
+  ) {
     super()
     this.#log = debug(`automerge-repo:dochandle:${documentId.slice(0, 5)}`)
 
@@ -69,7 +72,7 @@ export class DocHandle<T> //
               },
               after: {
                 // If we don't get a response within a certain time, we... do something but not sure what
-                [TIMEOUT_DELAY]: { actions: "failTimeout", target: ERROR },
+                [timeoutDelay]: { actions: "failTimeout", target: ERROR },
               },
             },
             ready: {
@@ -177,6 +180,11 @@ export class DocHandle<T> //
 
 // TYPES
 
+interface DocHandleOptions {
+  isNew?: boolean
+  timeoutDelay?: number
+}
+
 export const HandleState = {
   IDLE: "idle",
   LOADING: "loading",
@@ -281,6 +289,5 @@ type DocHandleXstateMachine<T> = Interpreter<
 
 // CONSTANTS
 
-const TIMEOUT_DELAY = 7000
 const { IDLE, LOADING, REQUESTING, READY, ERROR } = HandleState
 const { CREATE, LOAD, FIND, REQUEST, UPDATE, TIMEOUT } = Event

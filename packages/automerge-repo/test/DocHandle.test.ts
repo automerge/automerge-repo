@@ -63,7 +63,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a change message when changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, true)
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
     handle.change(doc => {
       doc.foo = "bar"
     })
@@ -74,7 +74,7 @@ describe("DocHandle", () => {
   })
 
   it("should not emit a change message if no change happens via update", done => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, true)
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
     handle.on("change", () => {
       done(new Error("shouldn't have changed"))
     })
@@ -85,7 +85,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a patch message when changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, true)
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
     handle.change(doc => {
       doc.foo = "bar"
     })
@@ -95,7 +95,7 @@ describe("DocHandle", () => {
   })
 
   it("should not emit a patch message if no change happens", done => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, true)
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
     handle.on("patch", () => {
       done(new Error("shouldn't have patched"))
     })

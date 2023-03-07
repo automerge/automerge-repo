@@ -30,7 +30,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     if (this.#handleCache[documentId]) return this.#handleCache[documentId]
 
     // If not, create a new handle, cache it, and return it
-    const handle = new DocHandle<T>(documentId, isNew)
+    const handle = new DocHandle<T>(documentId, { isNew })
     this.#handleCache[documentId] = handle
     return handle
   }

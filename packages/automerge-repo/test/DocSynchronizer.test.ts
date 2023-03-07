@@ -13,7 +13,8 @@ describe("DocSynchronizer", () => {
   let docSynchronizer: DocSynchronizer
 
   const setup = () => {
-    handle = new DocHandle<{ foo: string }>("synced-doc" as DocumentId, true)
+    const docId = "synced-doc" as DocumentId
+    handle = new DocHandle<TestDoc>(docId, { isNew: true })
     docSynchronizer = new DocSynchronizer(handle)
     return { handle, docSynchronizer }
   }
