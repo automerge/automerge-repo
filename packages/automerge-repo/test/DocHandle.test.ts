@@ -5,13 +5,15 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
+  const TEST_ID = "test-document-id" as DocumentId
+
   it("should take the UUID passed into it", () => {
-    const handle = new DocHandle("test-document-id" as DocumentId)
-    assert.equal(handle.documentId, "test-document-id")
+    const handle = new DocHandle(TEST_ID)
+    assert.equal(handle.documentId, TEST_ID)
   })
 
   it("should not be ready until update is called", () => {
-    const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
+    const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
     // update is called by the sync / storage systems
     // this call is just to simulate loading
@@ -20,7 +22,7 @@ describe("DocHandle", () => {
   })
 
   it("should not return a value until ready()", async () => {
-    const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
+    const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
     let tooSoon = true as boolean
 
@@ -37,7 +39,7 @@ describe("DocHandle", () => {
   })
 
   it("should return provisionalValue following an incremental load on an existing document", async () => {
-    const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
+    const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
     handle.load(
@@ -54,7 +56,7 @@ describe("DocHandle", () => {
   })
 
   it("should block changes until ready()", done => {
-    const handle = new DocHandle<TestDoc>("test-document-id" as DocumentId)
+    const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
     let tooSoon = true
     handle.update(doc => {
@@ -73,10 +75,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a change message when changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(
-      "test-document-id" as DocumentId,
-      true
-    )
+    const handle = new DocHandle<TestDoc>(TEST_ID, true)
     handle.change(doc => {
       doc.foo = "bar"
     })
@@ -86,10 +85,7 @@ describe("DocHandle", () => {
   })
 
   it("should not emit a change message if no change happens via update", done => {
-    const handle = new DocHandle<TestDoc>(
-      "test-document-id" as DocumentId,
-      true
-    )
+    const handle = new DocHandle<TestDoc>(TEST_ID, true)
     handle.on("change", () => {
       done(new Error("shouldn't have changed"))
     })
@@ -100,10 +96,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a patch message when changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(
-      "test-document-id" as DocumentId,
-      true
-    )
+    const handle = new DocHandle<TestDoc>(TEST_ID, true)
     handle.change(doc => {
       doc.foo = "bar"
     })
@@ -113,10 +106,7 @@ describe("DocHandle", () => {
   })
 
   it("should not emit a patch message if no change happens", done => {
-    const handle = new DocHandle<TestDoc>(
-      "test-document-id" as DocumentId,
-      true
-    )
+    const handle = new DocHandle<TestDoc>(TEST_ID, true)
     handle.on("patch", () => {
       done(new Error("shouldn't have patched"))
     })
