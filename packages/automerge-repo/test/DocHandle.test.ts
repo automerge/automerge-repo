@@ -1,18 +1,17 @@
-import * as Automerge from "@automerge/automerge"
+import * as A from "@automerge/automerge"
 import assert from "assert"
+import { it } from "mocha"
 import { DocHandle, DocumentId, HandleState } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
+import { pause } from "../src/helpers/pause"
 import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
   const TEST_ID = "test-document-id" as DocumentId
 
   const binaryFromMockStorage = () => {
-    const doc = Automerge.change<{ foo: string }>(
-      Automerge.init(),
-      d => (d.foo = "bar")
-    )
-    const binary = Automerge.save(doc)
+    const doc = A.change<{ foo: string }>(A.init(), d => (d.foo = "bar"))
+    const binary = A.save(doc)
     return binary
   }
 
@@ -21,7 +20,7 @@ describe("DocHandle", () => {
     assert.equal(handle.documentId, TEST_ID)
   })
 
-  it("should not be ready until document is loaded", () => {
+  it("should become ready when a document is loaded", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
@@ -29,6 +28,8 @@ describe("DocHandle", () => {
     handle.load(binaryFromMockStorage())
 
     assert.equal(handle.isReady(), true)
+    const doc = await handle.value()
+    assert.equal(doc.foo, "bar")
   })
 
   it("should not return a value until ready", async () => {
@@ -60,6 +61,22 @@ describe("DocHandle", () => {
 
     const doc = await handle.value()
     assert.equal(doc.foo, "pizza")
+  })
+
+  it("should become ready if the document is updated by the network", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+
+    // we don't have it in storage, so we request it from the network
+    handle.request()
+
+    // simulate updating from the network
+    handle.update(doc => {
+      return A.change(doc, d => (d.foo = "bar"))
+    })
+
+    const doc = await handle.value()
+    assert.equal(handle.isReady(), true)
+    assert.equal(doc.foo, "bar")
   })
 
   it("should emit a change message when changes happen", async () => {
@@ -103,5 +120,59 @@ describe("DocHandle", () => {
       // do nothing
       setTimeout(done, 0)
     })
+  })
+
+  it("should time out if the document is not loaded", async () => {
+    // set docHandle time out after 5 ms
+    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
+
+    // we're not going to load
+    await pause(10)
+
+    // so it should time out
+    assert.rejects(handle.value, "DocHandle timed out")
+  })
+
+  it("should not time out if the document is loaded in time", async () => {
+    // set docHandle time out after 5 ms
+    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
+
+    // simulate loading from storage before the timeout expires
+    handle.load(binaryFromMockStorage())
+
+    // now it should not time out
+    const doc = await handle.value()
+    assert.equal(doc.foo, "bar")
+  })
+
+  it("should time out if the document is not updated from the network", async () => {
+    // set docHandle time out after 5 ms
+    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
+
+    // simulate requesting from the network
+    handle.request()
+
+    // there's no update
+    await pause(10)
+
+    // so it should time out
+    assert.rejects(handle.value, "DocHandle timed out")
+  })
+
+  it("should not time out if the document is updated in time", async () => {
+    // set docHandle time out after 5 ms
+    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
+
+    // simulate requesting from the network
+    handle.request()
+
+    // simulate updating from the network before the timeout expires
+    handle.update(doc => {
+      return A.change(doc, d => (d.foo = "bar"))
+    })
+
+    // now it should not time out
+    const doc = await handle.value()
+    assert.equal(doc.foo, "bar")
   })
 })

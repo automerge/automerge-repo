@@ -23,12 +23,14 @@ export class DocHandle<T> //
   #log: debug.Debugger
 
   #machine: DocHandleXstateMachine<T>
+  #timeoutDelay: number
 
   constructor(
     public documentId: DocumentId,
     { isNew = false, timeoutDelay = 7000 }: DocHandleOptions = {}
   ) {
     super()
+    this.#timeoutDelay = timeoutDelay
     this.#log = debug(`automerge-repo:dochandle:${documentId.slice(0, 5)}`)
 
     // initial doc
@@ -81,10 +83,6 @@ export class DocHandle<T> //
                 // UPDATE is called by the Repo when we receive changes from the network
                 UPDATE: { actions: "onUpdate", target: READY },
               },
-              after: {
-                // If we don't get a response within a certain time, we... do something but not sure what
-                [timeoutDelay]: { actions: "failTimeout", target: ERROR },
-              },
             },
             ready: {
               on: {
@@ -92,9 +90,7 @@ export class DocHandle<T> //
                 UPDATE: { actions: "onUpdate", target: READY },
               },
             },
-            error: {
-              // TODO
-            },
+            error: {},
           },
         },
 
@@ -116,8 +112,6 @@ export class DocHandle<T> //
               if (docChanged) this.emit("change", { handle: this })
               return { doc: newDoc }
             }),
-
-            failTimeout: _ => {},
           },
         }
       )
@@ -154,8 +148,15 @@ export class DocHandle<T> //
    * Returns the current document, waiting for the handle to be ready if necessary.
    */
   async value() {
-    if (this.isReady()) await pause()
-    else await this.#statePromise(READY)
+    await pause() // yield one tick because reasons
+    await Promise.race([
+      // once we're ready, we can return the document
+      this.#statePromise(READY),
+      // but if the delay expires and we're still not ready, we'll throw an error
+      pause(this.#timeoutDelay),
+    ])
+    if (!this.isReady())
+      throw new Error(`DocHandle timed out loading document ${this.documentId}`)
     return this.#doc
   }
 
@@ -184,12 +185,38 @@ export class DocHandle<T> //
   }
 }
 
-// TYPES
+// WRAPPER CLASS TYPES
 
 interface DocHandleOptions {
   isNew?: boolean
   timeoutDelay?: number
 }
+
+export interface DocHandleMessagePayload {
+  destinationId: PeerId
+  channelId: ChannelId
+  data: Uint8Array
+}
+
+export interface DocHandleChangePayload<T> {
+  handle: DocHandle<T>
+}
+
+export interface DocHandlePatchPayload<T> {
+  handle: DocHandle<T>
+  patches: A.Patch[]
+  before: A.Doc<T>
+  after: A.Doc<T>
+}
+
+export interface DocHandleEvents<T> {
+  change: (payload: DocHandleChangePayload<T>) => void
+  patch: (payload: DocHandlePatchPayload<T>) => void
+}
+
+// STATE MACHINE TYPES
+
+// state
 
 export const HandleState = {
   IDLE: "idle",
@@ -204,10 +231,14 @@ type DocHandleMachineState = {
   states: Record<(typeof HandleState)[keyof typeof HandleState], {}>
 }
 
+// context
+
 interface DocHandleContext<T> {
   documentId: string
   doc: A.Doc<T>
 }
+
+// events
 
 export const Event = {
   CREATE: "CREATE",
@@ -233,28 +264,6 @@ type DocHandleEvent<T> =
   | RequestEvent
   | UpdateEvent<T>
   | TimeoutEvent
-
-export interface DocHandleMessagePayload {
-  destinationId: PeerId
-  channelId: ChannelId
-  data: Uint8Array
-}
-
-export interface DocHandleChangePayload<T> {
-  handle: DocHandle<T>
-}
-
-export interface DocHandlePatchPayload<T> {
-  handle: DocHandle<T>
-  patches: A.Patch[]
-  before: A.Doc<T>
-  after: A.Doc<T>
-}
-
-export interface DocHandleEvents<T> {
-  change: (payload: DocHandleChangePayload<T>) => void
-  patch: (payload: DocHandlePatchPayload<T>) => void
-}
 
 type DocHandleXstateMachine<T> = Interpreter<
   DocHandleContext<T>,
