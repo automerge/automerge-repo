@@ -36,9 +36,19 @@ export class DocHandle<T> //
         this.emit("patch", { handle: this, patches, before, after }),
     })
 
-    // Internally we use a state machine to orchestrate document loading, in order to avoid
-    // requesting data we already have, or surfacing intermediate values to the consumer.
-    // (See state chart here: https://stately.ai/viz/738bd853-8d80-4888-a83e-a140d92ce646 )
+    /**
+     * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
+     * avoid requesting data we already have, or surfacing intermediate values to the consumer.
+     *
+     *                                                                      ┌─────────┐
+     *                                                   ┌─TIMEOUT─────────►│  error  │
+     *                      ┌─────────┐           ┌──────┴─────┐            └─────────┘
+     *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐
+     *  │ idle  ├──┤        └───┬─────┘           └────────────┘         │
+     *  └───────┘  │           LOAD                                      └─►┌─────────┐
+     *             │            └──────────────────────────────────────────►│  ready  │
+     *             └──CREATE───────────────────────────────────────────────►└─────────┘
+     */
     this.#machine = interpret(
       createMachine<DocHandleContext<T>, DocHandleEvent<T>>(
         {
