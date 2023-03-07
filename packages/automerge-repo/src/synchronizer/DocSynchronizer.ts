@@ -139,7 +139,7 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#logMessage(`onSyncMessage 🡐 ${peerId}`, message)
 
-    this.handle.updateDoc(doc => {
+    this.handle.update(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
         this.#getSyncState(peerId),

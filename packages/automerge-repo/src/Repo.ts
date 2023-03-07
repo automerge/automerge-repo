@@ -32,7 +32,7 @@ export class Repo extends DocCollection {
       if (storageSubsystem) {
         // Try to load from disk
         const binary = await storageSubsystem.loadBinary(handle.documentId)
-        handle.loadIncremental(binary)
+        handle.load(binary)
 
         // Save when the document changes
         handle.on("change", ({ handle }) =>
@@ -41,7 +41,7 @@ export class Repo extends DocCollection {
       }
 
       // Advertise our interest in the document
-      handle.requestSync()
+      handle.request()
 
       // Register the document with the synchronizer
       synchronizer.addDocument(handle.documentId)

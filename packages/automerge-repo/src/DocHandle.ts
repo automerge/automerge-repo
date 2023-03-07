@@ -160,22 +160,26 @@ export class DocHandle<T> //
     return this.value([READY, REQUESTING])
   }
 
-  async loadIncremental(binary: Uint8Array) {
+  /** `load` is called by the repo when the document is found in storage */
+  async load(binary: Uint8Array) {
     this.#machine.send(LOAD, { payload: { binary } })
   }
 
-  updateDoc(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+  /** `update` is called by the repo when we receive changes from the network */
+  update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
     const newDoc = callback(this.doc)
     this.#machine.send(UPDATE, { payload: { doc: newDoc } })
   }
 
+  /** `change` is called by the repo when the document is changed locally  */
   async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     const doc = await this.value()
     const newDoc = A.change(doc, options, callback)
     this.#machine.send(UPDATE, { payload: { doc: newDoc } })
   }
 
-  requestSync() {
+  /** `request` is called by the repo when the document is not found in storage */
+  request() {
     if (this.state === LOADING) this.#machine.send(REQUEST)
   }
 }
