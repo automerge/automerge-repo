@@ -19,7 +19,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
-  #handleFromCache<T>(
+  #getHandle<T>(
     /** The documentId of the handle to look up or create */
     documentId: DocumentId,
 
@@ -65,13 +65,13 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     // - pass a "reify" function that takes a `<any>` and returns `<T>`
 
     const documentId = uuid() as DocumentId
-    const handle = this.#handleFromCache<T>(documentId, true) as DocHandle<T>
+    const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }
 
   /**
-   * Retrieves a document by id. It gets data from the local system, but also by emits a `document`
+   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
    * event to advertise interest in the document.
    */
   find<T>(
@@ -85,7 +85,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
       return this.#handleCache[documentId] as DocHandle<T>
 
     // Otherwise, create a new handle
-    const handle = this.#handleFromCache<T>(documentId, false) as DocHandle<T>
+    const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
 
     // we don't directly initialize a value here because the StorageSubsystem and Synchronizers go
     // and get the data asynchronously and block on read instead of on create
