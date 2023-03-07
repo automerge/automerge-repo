@@ -11,6 +11,7 @@ import {
   ServiceMap,
   TypegenDisabled,
 } from "xstate"
+import { waitFor } from "xstate/lib/waitFor"
 import { headsAreSame } from "./helpers/headsAreSame"
 import { pause } from "./helpers/pause"
 import { ChannelId, DocumentId, PeerId } from "./types"
@@ -141,6 +142,10 @@ export class DocHandle<T> //
     return this.#machine?.getSnapshot().value
   }
 
+  #statePromise(state: HandleState) {
+    return waitFor(this.#machine, s => s.matches(state))
+  }
+
   // PUBLIC
 
   isReady = () => this.#state === READY
@@ -149,17 +154,8 @@ export class DocHandle<T> //
    * Returns the current document, waiting for the handle to be ready if necessary.
    */
   async value() {
-    if (this.isReady()) {
-      // we're already at one of the desired states; yield a tick
-      await pause()
-    } else {
-      // wait until we reach one of the desired states
-      await new Promise<void>(async resolve =>
-        this.#machine.onTransition(() => {
-          if (this.isReady()) resolve()
-        })
-      )
-    }
+    if (this.isReady()) await pause()
+    else await this.#statePromise(READY)
     return this.#doc
   }
 
