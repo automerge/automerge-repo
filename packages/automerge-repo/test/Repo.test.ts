@@ -1,16 +1,7 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
-import { isDeepStrictEqual } from "util"
 
-import {
-  ChannelId,
-  DocHandle,
-  DocumentId,
-  HandleState,
-  InboundMessagePayload,
-  PeerId,
-  SharePolicy,
-} from "../src"
+import { ChannelId, DocHandle, DocumentId, PeerId, SharePolicy } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
