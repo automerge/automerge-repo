@@ -223,33 +223,12 @@ export const Event = {
 } as const
 type Event = (typeof Event)[keyof typeof Event]
 
-type CreateEvent = {
-  type: typeof CREATE
-  payload: { documentId: string }
-}
-
-type LoadEvent = {
-  type: typeof LOAD
-  payload: { binary: Uint8Array }
-}
-
-type FindEvent = {
-  type: typeof FIND
-  payload: { documentId: string }
-}
-
-type RequestEvent = {
-  type: typeof REQUEST
-}
-
-type UpdateEvent<T> = {
-  type: typeof UPDATE
-  payload: { doc: A.Doc<T> }
-}
-
-type TimeoutEvent = {
-  type: typeof TIMEOUT
-}
+type CreateEvent = { type: typeof CREATE; payload: { documentId: string } }
+type LoadEvent = { type: typeof LOAD; payload: { binary: Uint8Array } }
+type FindEvent = { type: typeof FIND; payload: { documentId: string } }
+type RequestEvent = { type: typeof REQUEST }
+type UpdateEvent<T> = { type: typeof UPDATE; payload: { doc: A.Doc<T> } }
+type TimeoutEvent = { type: typeof TIMEOUT }
 
 type DocHandleEvent<T> =
   | CreateEvent
