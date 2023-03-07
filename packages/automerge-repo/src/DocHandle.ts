@@ -151,7 +151,7 @@ export class DocHandle<T> //
   }
 
   /** `load` is called by the repo when the document is found in storage */
-  async load(binary: Uint8Array) {
+  load(binary: Uint8Array) {
     this.#machine.send(LOAD, { payload: { binary } })
   }
 
