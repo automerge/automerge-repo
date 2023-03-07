@@ -58,8 +58,6 @@ export class DocHandle<T> //
               on: {
                 // LOAD is called by the Repo if the document is found in storage
                 LOAD: { actions: "onLoad", target: READY },
-                // TODO: UPDATE doesn't belong here
-                UPDATE: { actions: "onUpdate", target: READY },
                 // REQUEST is called by the Repo if the document is not found in storage
                 REQUEST: { target: REQUESTING },
               },
@@ -173,6 +171,7 @@ export class DocHandle<T> //
 
   /** `change` is called by the repo when the document is changed locally  */
   async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+    if (this.state === LOADING) throw new Error("Cannot change while loading")
     const doc = await this.value()
     const newDoc = A.change(doc, options, callback)
     this.#machine.send(UPDATE, { payload: { doc: newDoc } })

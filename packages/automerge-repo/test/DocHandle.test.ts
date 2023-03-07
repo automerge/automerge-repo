@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge"
 import assert from "assert"
-import { DocHandle, DocumentId } from "../src"
+import { DocHandle, DocumentId, HandleState } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { TestDoc } from "./types.js"
 
@@ -55,23 +55,22 @@ describe("DocHandle", () => {
     assert.equal(provisionalDoc.foo, "bar")
   })
 
-  it("should block changes until ready()", done => {
+  it("should block changes until ready()", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
-    assert.equal(handle.isReady(), false)
-    let tooSoon = true
-    handle.update(doc => {
-      tooSoon = false
-      return Automerge.change(doc, d => (d.foo = "bar"))
-    })
-    handle.change(() => {
-      try {
-        assert.equal(tooSoon, false)
-        assert.equal(handle.isReady(), true)
-        done()
-      } catch (e) {
-        done(e)
-      }
-    })
+
+    // can't make changes in LOADING state
+    assert.equal(handle.state, HandleState.LOADING)
+    assert.rejects(() => handle.change(d => (d.foo = "baz")))
+
+    // simulate loading from storage
+    handle.load(binaryFromMockStorage())
+
+    // now we're in READY state so we can make changes
+    assert.equal(handle.state, HandleState.READY)
+    handle.change(d => (d.foo = "pizza"))
+
+    const doc = await handle.value()
+    assert.equal(doc.foo, "pizza")
   })
 
   it("should emit a change message when changes happen", async () => {
