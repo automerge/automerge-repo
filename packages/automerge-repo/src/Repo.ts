@@ -21,7 +21,7 @@ export class Repo extends DocCollection {
 
   constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
     super()
-    this.#log = debug(`automerge-repo:repo:${peerId}`)
+    this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
     // DOC COLLECTION

@@ -82,6 +82,9 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #logMessage = (label: string, message: Uint8Array) => {
+    // This is real expensive...
+    return
+
     const size = message.byteLength
     const logText = `${label} ${size}b`
     const decoded = A.decodeSyncMessage(message)
@@ -106,7 +109,11 @@ export class DocSynchronizer extends Synchronizer {
 
   async beginSync(peerId: PeerId) {
     this.#log(`beginSync: ${peerId}`)
-    const doc = await this.handle.value()
+
+    // to HERB: at this point if we don't have anything in our Storage
+    //          we need to use an empty doc to sync with , but we don't
+    //          want to surface that state to the frontend
+    const doc = await this.handle.loadAttemptedValue()
 
     // HACK: if we have a sync state already, we round-trip it through the encoding system to make
     // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
@@ -135,9 +142,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // We need to block receiving the syncMessages until we've checked local storage
     // TODO: this is kind of an opaque way of doing this...
-    // await this.handle.value()
-
-    this.#logMessage(`onSyncMessage 🡐 ${peerId}`, message)
+    await this.handle.loadAttemptedValue()
 
     this.handle.update(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(

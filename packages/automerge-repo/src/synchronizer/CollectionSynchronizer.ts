@@ -57,7 +57,7 @@ export class CollectionSynchronizer extends Synchronizer {
     channelId: ChannelId,
     message: Uint8Array
   ) {
-    log(`onSyncMessage: ${peerId}, ${channelId}, ${message}`)
+    log(`onSyncMessage: ${peerId}, ${channelId}, ${message.byteLength}bytes`)
 
     const documentId = channelId as unknown as DocumentId
     const docSynchronizer = await this.#fetchDocSynchronizer(documentId)

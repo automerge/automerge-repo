@@ -27,7 +27,7 @@ export class DocHandle<T> //
 
   constructor(
     public documentId: DocumentId,
-    { isNew = false, timeoutDelay = 7000 }: DocHandleOptions = {}
+    { isNew = false, timeoutDelay = 700000 }: DocHandleOptions = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
@@ -160,6 +160,20 @@ export class DocHandle<T> //
     return this.#doc
   }
 
+  async loadAttemptedValue() {
+    await pause() // yield one tick because reasons
+    await Promise.race([
+      // once we're ready, we can return the document
+      this.#statePromise(REQUESTING),
+      this.#statePromise(READY),
+      // but if the delay expires and we're still not ready, we'll throw an error
+      pause(this.#timeoutDelay),
+    ])
+    if (!(this.isReady() || this.#state === REQUESTING))
+      throw new Error(`DocHandle timed out loading document ${this.documentId}`)
+    return this.#doc
+  }
+
   /** `load` is called by the repo when the document is found in storage */
   load(binary: Uint8Array) {
     this.#machine.send(LOAD, { payload: { binary } })
@@ -182,6 +196,8 @@ export class DocHandle<T> //
   /** `request` is called by the repo when the document is not found in storage */
   request() {
     if (this.#state === LOADING) this.#machine.send(REQUEST)
+    else
+      throw new Error("Probably shouldn't be requesting if you aren't LOADING.")
   }
 }
 
@@ -270,7 +286,7 @@ type DocHandleXstateMachine<T> = Interpreter<
   DocHandleMachineState,
   DocHandleEvent<T>,
   {
-    value: any
+    value: any // Should this be unknown or T?
     context: DocHandleContext<T>
   },
   ResolveTypegenMeta<
