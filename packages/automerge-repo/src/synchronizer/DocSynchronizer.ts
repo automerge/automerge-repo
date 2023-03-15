@@ -20,7 +20,7 @@ export class DocSynchronizer extends Synchronizer {
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  constructor(private handle: DocHandle<any>) {
+  constructor(private handle: DocHandle<unknown>) {
     super()
     const docId = handle.documentId.slice(0, 5)
     this.#conciseLog = debug(`automerge-repo:concise:docsync:${docId}`) // Only logs one line per receive/send

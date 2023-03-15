@@ -9,6 +9,8 @@ import {
   Interpreter,
   ResolveTypegenMeta,
   ServiceMap,
+  StateSchema,
+  StateValue,
   TypegenDisabled,
 } from "xstate"
 import { waitFor } from "xstate/lib/waitFor"
@@ -196,8 +198,6 @@ export class DocHandle<T> //
   /** `request` is called by the repo when the document is not found in storage */
   request() {
     if (this.#state === LOADING) this.#machine.send(REQUEST)
-    else
-      throw new Error("Probably shouldn't be requesting if you aren't LOADING.")
   }
 }
 
@@ -244,7 +244,10 @@ export const HandleState = {
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
 type DocHandleMachineState = {
-  states: Record<(typeof HandleState)[keyof typeof HandleState], {}>
+  states: Record<
+    (typeof HandleState)[keyof typeof HandleState],
+    StateSchema<HandleState>
+  >
 }
 
 // context
@@ -286,7 +289,7 @@ type DocHandleXstateMachine<T> = Interpreter<
   DocHandleMachineState,
   DocHandleEvent<T>,
   {
-    value: any // Should this be unknown or T?
+    value: StateValue // Should this be unknown or T?
     context: DocHandleContext<T>
   },
   ResolveTypegenMeta<
