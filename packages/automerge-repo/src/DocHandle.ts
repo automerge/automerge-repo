@@ -109,7 +109,10 @@ export class DocHandle<T> //
             /** Put the updated doc on context; if it's different, emit a `change` event */
             onUpdate: assign((context, { payload }: UpdateEvent<T>) => {
               const { doc: oldDoc } = context
-              const { doc: newDoc } = payload
+
+              const { callback } = payload
+              const newDoc = callback(oldDoc)
+
               const docChanged = !headsAreSame(newDoc, oldDoc)
               if (docChanged) this.emit("change", { handle: this })
               return { doc: newDoc }
@@ -183,16 +186,19 @@ export class DocHandle<T> //
 
   /** `update` is called by the repo when we receive changes from the network */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    const newDoc = callback(this.#doc)
-    this.#machine.send(UPDATE, { payload: { doc: newDoc } })
+    this.#machine.send(UPDATE, { payload: { callback } })
   }
 
   /** `change` is called by the repo when the document is changed locally  */
   async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (this.#state === LOADING) throw new Error("Cannot change while loading")
-    const doc = await this.value()
-    const newDoc = A.change(doc, options, callback)
-    this.#machine.send(UPDATE, { payload: { doc: newDoc } })
+    this.#machine.send(UPDATE, {
+      payload: {
+        callback: (doc: A.Doc<T>) => {
+          return A.change(doc, options, callback)
+        },
+      },
+    })
   }
 
   /** `request` is called by the repo when the document is not found in storage */
@@ -273,7 +279,10 @@ type CreateEvent = { type: typeof CREATE; payload: { documentId: string } }
 type LoadEvent = { type: typeof LOAD; payload: { binary: Uint8Array } }
 type FindEvent = { type: typeof FIND; payload: { documentId: string } }
 type RequestEvent = { type: typeof REQUEST }
-type UpdateEvent<T> = { type: typeof UPDATE; payload: { doc: A.Doc<T> } }
+type UpdateEvent<T> = {
+  type: typeof UPDATE
+  payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
+}
 type TimeoutEvent = { type: typeof TIMEOUT }
 
 type DocHandleEvent<T> =
