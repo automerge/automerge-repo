@@ -1,8 +1,7 @@
 import * as A from "@automerge/automerge"
 import assert from "assert"
 import { it } from "mocha"
-import { DocHandle, DocumentId, HandleState } from "../src"
-import { eventPromise } from "../src/helpers/eventPromise.js"
+import { DocHandle, DocumentId } from "../src"
 import { pause } from "../src/helpers/pause"
 import { TestDoc } from "./types.js"
 
@@ -81,11 +80,13 @@ describe("DocHandle", () => {
 
   it("should emit a change message when changes happen", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+
+    const p = new Promise(resolve => handle.once("change", d => resolve(d)))
+
     handle.change(doc => {
       doc.foo = "bar"
     })
 
-    await eventPromise(handle, "change")
     const doc = await handle.value()
     assert.equal(doc.foo, "bar")
   })
@@ -103,12 +104,15 @@ describe("DocHandle", () => {
 
   it("should emit a patch message when changes happen", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const p = new Promise(resolve => handle.once("patch", d => resolve(d)))
+
     handle.change(doc => {
       doc.foo = "bar"
     })
 
-    const { after } = await eventPromise(handle, "patch")
-    assert.equal(after.foo, "bar")
+    await p
+    const doc = await handle.value()
+    assert.equal(doc.foo, "bar")
   })
 
   it("should not emit a patch message if no change happens", done => {
