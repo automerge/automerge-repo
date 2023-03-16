@@ -170,17 +170,7 @@ export class DocHandle<T> //
   }
 
   async loadAttemptedValue() {
-    await pause() // yield one tick because reasons
-    await Promise.race([
-      // once we're ready, we can return the document
-      this.#statePromise(REQUESTING),
-      this.#statePromise(READY),
-      // but if the delay expires and we're still not ready, we'll throw an error
-      pause(this.#timeoutDelay),
-    ])
-    if (!(this.isReady() || this.#state === REQUESTING))
-      throw new Error(`DocHandle timed out loading document ${this.documentId}`)
-    return this.#doc
+    return this.value([READY, REQUESTING])
   }
 
   /** `load` is called by the repo when the document is found in storage */
