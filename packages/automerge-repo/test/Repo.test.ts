@@ -9,6 +9,7 @@ import { Repo } from "../src/Repo.js"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
+import { TestAuthProvider } from "./helpers/TestAuthProvider"
 import { TestDoc } from "./types.js"
 
 describe("Repo", () => {
@@ -86,10 +87,12 @@ describe("Repo", () => {
         return true
       }
 
+      const authProvider = new TestAuthProvider(sharePolicy)
+
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
         peerId: "alice" as PeerId,
-        sharePolicy,
+        authProvider,
       })
 
       const bobRepo = new Repo({
@@ -98,7 +101,7 @@ describe("Repo", () => {
           new MessageChannelNetworkAdapter(bobToCharlie),
         ],
         peerId: "bob" as PeerId,
-        sharePolicy,
+        authProvider,
       })
 
       const charlieRepo = new Repo({

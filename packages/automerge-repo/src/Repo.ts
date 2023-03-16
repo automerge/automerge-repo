@@ -20,18 +20,11 @@ export class Repo extends DocCollection {
   storageSubsystem?: StorageSubsystem
   ephemeralData: EphemeralData
 
-  constructor({
-    storage,
-    network,
-    peerId,
-    sharePolicy,
-    authProvider,
-    idGenerator,
-  }: RepoConfig) {
+  constructor({ storage, network, peerId, authProvider }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo:${peerId}`)
 
-    if (sharePolicy) this.sharePolicy = sharePolicy
+    if (authProvider) this.authProvider = authProvider
 
     // DOC COLLECTION
 
@@ -142,12 +135,6 @@ export interface RepoConfig {
 
   /** One or more network adapters must be provided */
   network: NetworkAdapter[]
-
-  /**
-   * Normal peers typically share generously with everyone (meaning we sync all our documents with
-   * all peers). A server only syncs documents that a peer explicitly requests by ID.
-   */
-  sharePolicy?: SharePolicy
 
   /** An auth provider can be provided, or not */
   authProvider?: AuthProvider

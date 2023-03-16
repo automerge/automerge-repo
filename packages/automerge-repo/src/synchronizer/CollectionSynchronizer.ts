@@ -40,7 +40,10 @@ export class CollectionSynchronizer extends Synchronizer {
     const peers = Array.from(this.#peers)
     const generousPeers: PeerId[] = []
     for (const peerId of peers) {
-      const okToShare = await this.repo.sharePolicy(peerId, documentId)
+      const okToShare = await this.repo.authProvider.okToAdvertise(
+        peerId,
+        documentId
+      )
       if (okToShare) generousPeers.push(peerId)
     }
     return generousPeers
@@ -93,7 +96,10 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
-      const okToShare = await this.repo.sharePolicy(peerId, documentId)
+      const okToShare = await this.repo.authProvider.okToAdvertise(
+        peerId,
+        documentId
+      )
       if (okToShare) docSynchronizer.beginSync(peerId)
     }
   }
