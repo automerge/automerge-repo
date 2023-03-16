@@ -20,10 +20,18 @@ export class Repo extends DocCollection {
   storageSubsystem?: StorageSubsystem
   ephemeralData: EphemeralData
 
-  constructor({ storage, network, peerId, authProvider }: RepoConfig) {
+  constructor({
+    storage,
+    network,
+    peerId,
+    sharePolicy,
+    authProvider,
+    idGenerator,
+  }: RepoConfig) {
     super()
-    this.#log = debug(`automerge-repo:repo`)
-    this.sharePolicy = sharePolicy ?? this.sharePolicy
+    this.#log = debug(`automerge-repo:repo:${peerId}`)
+
+    if (sharePolicy) this.sharePolicy = sharePolicy
 
     // DOC COLLECTION
 
