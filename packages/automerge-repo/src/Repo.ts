@@ -5,7 +5,8 @@ import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { ChannelId, DocumentId, PeerId } from "./types.js"
+import { ChannelId, PeerId } from "./types.js"
+import { AuthProvider, SharePolicy } from "./auth/AuthProvider.js"
 
 import debug from "debug"
 
@@ -140,8 +141,3 @@ export interface RepoConfig {
    */
   sharePolicy?: SharePolicy
 }
-
-export type SharePolicy = (
-  peerId: PeerId,
-  documentId?: DocumentId
-) => Promise<boolean>
