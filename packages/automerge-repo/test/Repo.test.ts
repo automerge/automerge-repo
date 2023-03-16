@@ -163,10 +163,8 @@ describe("Repo", () => {
       const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
         await setup()
 
-      await Promise.all([
-        eventPromise(bobRepo.networkSubsystem, "message"),
-        eventPromise(charlieRepo.networkSubsystem, "message"),
-      ])
+      // HACK: we don't know how long to wait before confirming the handle would have been advertised but wasn't
+      await pause(100)
 
       assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
       assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
