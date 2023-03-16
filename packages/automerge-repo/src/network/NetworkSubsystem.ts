@@ -7,6 +7,8 @@ import {
 import { ChannelId, PeerId } from "../types.js"
 
 import debug from "debug"
+import { GenerousAuthProvider } from "../auth/GenerousAuthProvider.js"
+import { AuthProvider } from "../auth/AuthProvider.js"
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
@@ -15,7 +17,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
   constructor(
     private adapters: NetworkAdapter[],
-    public peerId = randomPeerId()
+    public peerId = randomPeerId(),
+    private authProvider: AuthProvider = new GenerousAuthProvider()
   ) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
@@ -26,17 +29,22 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
     networkAdapter.connect(this.peerId)
 
-    networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
+    networkAdapter.on("peer-candidate", async ({ peerId, channelId }) => {
       this.#log(`peer candidate: ${peerId} `)
 
-      // TODO: This is where authentication would happen
+      const authResult = await this.authProvider.authenticate(
+        peerId /* todo: socket */
+      )
+      if (authResult.isValid) {
+        if (!this.#adaptersByPeer[peerId]) {
+          // TODO: handle losing a server here
+          this.#adaptersByPeer[peerId] = networkAdapter
+        }
 
-      if (!this.#adaptersByPeer[peerId]) {
-        // TODO: handle losing a server here
-        this.#adaptersByPeer[peerId] = networkAdapter
+        this.emit("peer", { peerId, channelId })
+      } else {
+        this.emit("error", { peerId, channelId, error: authResult.error })
       }
-
-      this.emit("peer", { peerId, channelId })
     })
 
     networkAdapter.on("peer-disconnected", ({ peerId }) => {
@@ -122,9 +130,16 @@ export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
   message: (payload: InboundMessagePayload) => void
+  error: (payload: ErrorPayload) => void
 }
 
 export interface PeerPayload {
   peerId: PeerId
   channelId: ChannelId
+}
+
+export interface ErrorPayload {
+  peerId: PeerId
+  channelId: ChannelId
+  error: Error
 }
