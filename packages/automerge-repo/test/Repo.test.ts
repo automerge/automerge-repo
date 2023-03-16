@@ -87,7 +87,7 @@ describe("Repo", () => {
         return true
       }
 
-      const authProvider = new TestAuthProvider(sharePolicy)
+      const authProvider = new TestAuthProvider({ sharePolicy })
 
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],

@@ -46,9 +46,9 @@ describe("CollectionSynchronizer", () => {
   it("should not synchronize to a peer which is excluded from the share policy", done => {
     const handle = collection.create()
 
-    collection.authProvider = new TestAuthProvider(
-      async (peerId: PeerId) => peerId !== "peer1"
-    )
+    collection.authProvider = new TestAuthProvider({
+      sharePolicy: async (peerId: PeerId) => peerId !== "peer1",
+    })
 
     synchronizer.addDocument(handle.documentId).then(() => {
       synchronizer.once("message", () => {
@@ -62,9 +62,9 @@ describe("CollectionSynchronizer", () => {
 
   it("should not synchronize a document which is excluded from the share policy", done => {
     const handle = collection.create()
-    collection.authProvider = new TestAuthProvider(
-      async (_, documentId) => documentId !== handle.documentId
-    )
+    collection.authProvider = new TestAuthProvider({
+      sharePolicy: async (_, documentId) => documentId !== handle.documentId,
+    })
 
     synchronizer.addPeer("peer2" as PeerId)
 

@@ -1,18 +1,24 @@
 import {
   ALWAYS,
+  AuthenticateFn,
   AuthProvider,
   SharePolicy,
   VALID,
 } from "../../src/auth/AuthProvider"
 
 export class TestAuthProvider extends AuthProvider {
-  authenticate = async () => VALID
-  okToAdvertise: SharePolicy
   okToSend = ALWAYS
   okToReceive = ALWAYS
 
-  constructor(sharePolicy: SharePolicy) {
+  constructor({
+    authenticate,
+    sharePolicy,
+  }: {
+    authenticate?: AuthenticateFn
+    sharePolicy?: SharePolicy
+  }) {
     super()
-    this.okToAdvertise = sharePolicy
+    this.authenticate = authenticate || (async () => VALID)
+    this.okToAdvertise = sharePolicy || ALWAYS
   }
 }
