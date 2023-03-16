@@ -8,6 +8,7 @@ import { pause } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { expectPromises } from "./helpers/expectPromises"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestAuthProvider } from "./helpers/TestAuthProvider"
 import { TestDoc } from "./types.js"
@@ -261,12 +262,11 @@ describe("Repo", () => {
       })
       const { aliceRepo, bobRepo, teardown } = await setup(authenticate)
 
-      await Promise.all([
+      await expectPromises(
         eventPromise(aliceRepo.networkSubsystem, "error"),
-        eventPromise(bobRepo.networkSubsystem, "error"),
-      ])
+        eventPromise(bobRepo.networkSubsystem, "error")
+      )
 
-      assert.ok(true, "made it here and didn't timeout")
       teardown()
     })
 
@@ -283,12 +283,11 @@ describe("Repo", () => {
       }
       const { aliceRepo, bobRepo, teardown } = await setup(authenticate)
 
-      await Promise.all([
+      await expectPromises(
         eventPromise(aliceRepo.networkSubsystem, "error"), // I am bob's failed attempt to connect
-        eventPromise(bobRepo.networkSubsystem, "peer"),
-      ])
+        eventPromise(bobRepo.networkSubsystem, "peer")
+      )
 
-      assert.ok(true, "made it here and didn't timeout")
       teardown()
     })
   })
