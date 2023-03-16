@@ -134,7 +134,7 @@ export class DocHandle<T> //
     return this.#machine?.getSnapshot().context.doc
   }
 
-  /** Returns the docHandle's state (READY, ) */
+  /** Returns the docHandle's state (READY, etc.) */
   get #state() {
     return this.#machine?.getSnapshot().value
   }
