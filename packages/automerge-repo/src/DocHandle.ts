@@ -45,13 +45,11 @@ export class DocHandle<T> //
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
      * avoid requesting data we already have, or surfacing intermediate values to the consumer.
      *
-     *                                                                      ┌─────────┐
-     *                                                   ┌─TIMEOUT─────────►│  error  │
-     *                      ┌─────────┐           ┌──────┴─────┐            └─────────┘
+     *                      ┌─────────┐           ┌────────────┐
      *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐
      *  │ idle  ├──┤        └───┬─────┘           └────────────┘         │
-     *  └───────┘  │           LOAD                                      └─►┌─────────┐
-     *             │            └──────────────────────────────────────────►│  ready  │
+     *  └───────┘  │            │                                        └─►┌─────────┐
+     *             │            └───────LOAD───────────────────────────────►│  ready  │
      *             └──CREATE───────────────────────────────────────────────►└─────────┘
      */
     this.#machine = interpret(
