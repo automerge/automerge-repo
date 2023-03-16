@@ -139,8 +139,12 @@ export class DocHandle<T> //
     return this.#machine?.getSnapshot().value
   }
 
-  #statePromise(state: HandleState) {
-    return waitFor(this.#machine, s => s.matches(state))
+  /** Returns a promise that resolves when the docHandle is in one of the given states */
+  #statePromise(awaitStates: HandleState | HandleState[]) {
+    if (!Array.isArray(awaitStates)) awaitStates = [awaitStates]
+    return Promise.any(
+      awaitStates.map(state => waitFor(this.#machine, s => s.matches(state)))
+    )
   }
 
   // PUBLIC
