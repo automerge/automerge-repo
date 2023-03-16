@@ -1,3 +1,7 @@
+/**
+ * If `promise` is resolved before `t` ms elapse, the timeout is cleared and the result of the
+ * promise is returned. If the timeout ends first, a `TimeoutError` is thrown.
+ */
 export const withTimeout = async <T>(
   promise: Promise<T>,
   t: number
@@ -15,6 +19,7 @@ export const withTimeout = async <T>(
     clearTimeout(timeoutId!)
   }
 }
+
 export class TimeoutError extends Error {
   constructor(message: string) {
     super(message)
