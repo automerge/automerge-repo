@@ -2,7 +2,7 @@ import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 
 import { ChannelId, DocHandle, DocumentId, PeerId } from "../src"
-import { SharePolicy } from "../src/auth/AuthProvider"
+import { AuthenticateFn, SharePolicy } from "../src/auth/AuthProvider"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
@@ -217,15 +217,12 @@ describe("Repo", () => {
   })
 
   describe("authentication", () => {
-    const setup = async () => {
+    const setup = async (authenticate: AuthenticateFn) => {
       const aliceBobChannel = new MessageChannel()
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
 
       const authProvider = new TestAuthProvider({
-        authenticate: async () => ({
-          isValid: false,
-          error: new Error("nope"),
-        }),
+        authenticate,
       })
 
       const aliceRepo = new Repo({
@@ -245,11 +242,6 @@ describe("Repo", () => {
         d.foo = "bar"
       })
 
-      await Promise.all([
-        eventPromise(aliceRepo.networkSubsystem, "error"),
-        eventPromise(bobRepo.networkSubsystem, "error"),
-      ])
-
       const teardown = () => {
         aliceBobChannel.port1.close()
       }
@@ -263,7 +255,39 @@ describe("Repo", () => {
     }
 
     it("doesn't connect when authentication fails", async () => {
-      const { teardown } = await setup()
+      const authenticate: AuthenticateFn = async () => ({
+        isValid: false,
+        error: new Error("nope"),
+      })
+      const { aliceRepo, bobRepo, teardown } = await setup(authenticate)
+
+      await Promise.all([
+        eventPromise(aliceRepo.networkSubsystem, "error"),
+        eventPromise(bobRepo.networkSubsystem, "error"),
+      ])
+
+      assert.ok(true, "made it here and didn't timeout")
+      teardown()
+    })
+
+    it("error message is emitted on the peer that denied connection", async () => {
+      const authenticate: AuthenticateFn = async (peerId: PeerId) => {
+        if (peerId == "alice") {
+          return { isValid: true }
+        } else {
+          return {
+            isValid: false,
+            error: new Error("you are not Alice"),
+          }
+        }
+      }
+      const { aliceRepo, bobRepo, teardown } = await setup(authenticate)
+
+      await Promise.all([
+        eventPromise(aliceRepo.networkSubsystem, "error"), // I am bob's failed attempt to connect
+        eventPromise(bobRepo.networkSubsystem, "peer"),
+      ])
+
       assert.ok(true, "made it here and didn't timeout")
       teardown()
     })
