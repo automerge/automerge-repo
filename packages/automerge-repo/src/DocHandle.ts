@@ -17,6 +17,7 @@ import { waitFor } from "xstate/lib/waitFor"
 import { headsAreSame } from "./helpers/headsAreSame"
 import { pause } from "./helpers/pause"
 import { ChannelId, DocumentId, PeerId } from "./types"
+import { withTimeout, TimeoutError } from "./helpers/withTimeout"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -154,16 +155,17 @@ export class DocHandle<T> //
   /**
    * Returns the current document, waiting for the handle to be ready if necessary.
    */
-  async value() {
+  async value(awaitStates: HandleState[] = [READY]) {
     await pause() // yield one tick because reasons
-    await Promise.race([
-      // once we're ready, we can return the document
-      this.#statePromise(READY),
-      // but if the delay expires and we're still not ready, we'll throw an error
-      pause(this.#timeoutDelay),
-    ])
-    if (!this.isReady())
-      throw new Error(`DocHandle timed out loading document ${this.documentId}`)
+    try {
+      // wait for the document to enter one of the desired states
+      await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+    } catch (error) {
+      if (error instanceof TimeoutError)
+        throw new Error(`DocHandle: timed out loading ${this.documentId}`)
+      else throw error
+    }
+    // Return the document
     return this.#doc
   }
 
