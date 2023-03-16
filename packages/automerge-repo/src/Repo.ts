@@ -6,7 +6,7 @@ import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import { ChannelId, PeerId } from "./types.js"
-import { AuthProvider, SharePolicy } from "./auth/AuthProvider.js"
+import { AuthProvider } from "./auth/AuthProvider.js"
 
 import debug from "debug"
 
@@ -73,7 +73,11 @@ export class Repo extends DocCollection {
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
 
-    const networkSubsystem = new NetworkSubsystem(network, peerId)
+    const networkSubsystem = new NetworkSubsystem(
+      network,
+      peerId,
+      this.authProvider
+    )
     this.networkSubsystem = networkSubsystem
 
     // When we get a new peer, register it with the synchronizer

@@ -215,4 +215,57 @@ describe("Repo", () => {
       teardown()
     })
   })
+
+  describe("authentication", () => {
+    const setup = async () => {
+      const aliceBobChannel = new MessageChannel()
+      const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
+
+      const authProvider = new TestAuthProvider({
+        authenticate: async () => ({
+          isValid: false,
+          error: new Error("nope"),
+        }),
+      })
+
+      const aliceRepo = new Repo({
+        network: [new MessageChannelNetworkAdapter(aliceToBob)],
+        peerId: "alice" as PeerId,
+        authProvider,
+      })
+
+      const bobRepo = new Repo({
+        network: [new MessageChannelNetworkAdapter(bobToAlice)],
+        peerId: "bob" as PeerId,
+        authProvider,
+      })
+
+      const aliceHandle = aliceRepo.create<TestDoc>()
+      aliceHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      await Promise.all([
+        eventPromise(aliceRepo.networkSubsystem, "error"),
+        eventPromise(bobRepo.networkSubsystem, "error"),
+      ])
+
+      const teardown = () => {
+        aliceBobChannel.port1.close()
+      }
+
+      return {
+        aliceRepo,
+        bobRepo,
+        aliceHandle,
+        teardown,
+      }
+    }
+
+    it("doesn't connect when authentication fails", async () => {
+      const { teardown } = await setup()
+      assert.ok(true, "made it here and didn't timeout")
+      teardown()
+    })
+  })
 })
