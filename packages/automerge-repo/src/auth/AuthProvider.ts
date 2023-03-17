@@ -53,8 +53,8 @@ export type AuthenticationResult =
 export type AuthenticateFn = (
   /** ID of the remote peer. */
   peerId: PeerId,
-  /** The provider implementation will use the provided socket to communicate with the peer. */
-  channel?: AuthChannel
+  /** The provider implementation will use the provided channel to communicate with the peer. */
+  channel: AuthChannel
 ) => Promise<AuthenticationResult>
 
 export type SharePolicy = (

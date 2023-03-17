@@ -13,10 +13,7 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
   constructor(private password: string) {
     super()
   }
-  authenticate: AuthenticateFn = async (peerId, channel?) => {
-    if (channel == null)
-      return authenticationError("I need a channel to authenticate")
-
+  authenticate: AuthenticateFn = async (peerId, channel) => {
     return new Promise<AuthenticationResult>(resolve => {
       // challenge
       channel.send(new TextEncoder().encode(challenge))
