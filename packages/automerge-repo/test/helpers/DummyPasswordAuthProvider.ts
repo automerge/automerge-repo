@@ -8,7 +8,11 @@ import { GenerousAuthProvider } from "../../src/auth/GenerousAuthProvider.js"
 
 const challenge = "what is the password?"
 
-/** Just an example... not for production use */
+
+/**
+ * This provider allows us to test the use of channels for implementing an authentication protocol.
+ * This is not a good example of how to implement password authentication!!
+ */
 export class DummyPasswordAuthProvider extends GenerousAuthProvider {
   constructor(private password: string) {
     super()

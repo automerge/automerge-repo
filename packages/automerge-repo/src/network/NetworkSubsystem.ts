@@ -34,18 +34,15 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.#log(`peer candidate: ${peerId} `)
 
       const authChannelId: ChannelId = `a/${channelId}` as ChannelId
-      const socket = new AuthChannel(message =>
+      const channel = new AuthChannel(message =>
         networkAdapter.sendMessage(peerId, authChannelId, message, false)
       )
       const receive = (msg: InboundMessagePayload) => {
-        if (msg.channelId == authChannelId) socket.emit("message", msg)
+        if (msg.channelId == authChannelId) channel.emit("message", msg)
       }
       networkAdapter.on("message", receive)
 
-      const authResult = await this.authProvider.authenticate(
-        peerId,
-        socket // todo: close socket? use it?
-      )
+      const authResult = await this.authProvider.authenticate(peerId, channel)
       networkAdapter.off("message", receive)
 
       if (authResult.isValid) {
