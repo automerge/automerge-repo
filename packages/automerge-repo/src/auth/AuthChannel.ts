@@ -35,3 +35,7 @@ const messageSummary = (payload: any) => {
     ...(message ? { message: message.byteLength } : {}),
   }
 }
+
+interface Channel {
+  send: (message: Uint8Array) => void
+}

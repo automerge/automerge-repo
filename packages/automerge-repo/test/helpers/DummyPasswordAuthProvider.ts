@@ -18,7 +18,7 @@ const PASSWORDS_TOP_SECRET: Record<string, string> = {
  * This is not a good example of how to implement password authentication!!
  */
 export class DummyPasswordAuthProvider extends GenerousAuthProvider {
-  constructor(private password: string) {
+  constructor(private passwordResponse: string) {
     super()
   }
   authenticate: AuthenticateFn = async (peerId, channel) => {
@@ -28,14 +28,18 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
 
       channel.on("message", msg => {
         const msgText = new TextDecoder().decode(msg)
+        console.log(`received message from ${peerId}`, msgText)
         if (msgText === CHALLENGE) {
           // received challenge, send password
-          channel.send(new TextEncoder().encode(this.password))
+          console.log("received challenge")
+          channel.send(new TextEncoder().encode(this.passwordResponse))
         } else if (msgText === PASSWORDS_TOP_SECRET[peerId]) {
           // received correct password
+          console.log("correct password")
           resolve(AUTHENTICATION_VALID)
         } else {
           // received incorrect password
+          console.log("incorrect password")
           resolve(authenticationError("that is not the password"))
         }
       })

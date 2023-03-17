@@ -1,9 +1,54 @@
-import { DocumentId, PeerId } from "../types.js"
+import { NetworkAdapter } from "../network/NetworkAdapter"
+import { ChannelId, DocumentId, PeerId } from "../types.js"
 import { AuthChannel } from "./AuthChannel"
 
 export abstract class AuthProvider {
   /** Can this peer prove their identity? */
   authenticate: AuthenticateFn = async () => NOT_IMPLEMENTED
+
+  wrapNetworkAdapter: NetworkAdapterWrapper = networkAdapter => {
+    // wire up authentication
+    const authenticate = this.authenticate
+
+    class WrappedAdapter extends NetworkAdapter {
+      connect = networkAdapter.connect
+
+      sendMessage = (
+        peerId: PeerId,
+        channelId: ChannelId,
+        message: Uint8Array,
+        broadcast: boolean
+      ) => {
+        // this is where we could encrypt the message or whatever
+        networkAdapter.sendMessage(peerId, channelId, message, broadcast)
+      }
+
+      join = networkAdapter.join
+      leave = networkAdapter.leave
+    }
+    const wrappedNetworkAdapter = new WrappedAdapter()
+
+    // when we meet a new peer, we try to authenticate them, if we succeed, then we forward the
+    // peer-candidate event
+    networkAdapter.on("peer-candidate", async ({ peerId, channelId }) => {
+      const channel = new AuthChannel(networkAdapter, peerId)
+      const authResult = await authenticate(peerId, channel)
+
+      if (authResult.isValid) {
+        wrappedNetworkAdapter.emit("peer-candidate", { peerId, channelId })
+      } else {
+        console.log("********************* authentication failed")
+      }
+    })
+
+    // when we get a new message, we forward it
+    networkAdapter.on("message", payload => {
+      // this is where we could decrypt the message or whatever
+      wrappedNetworkAdapter.emit("message", payload)
+    })
+
+    return networkAdapter
+  }
 
   /** Should we tell this peer about the existence of this document? */
   okToAdvertise: SharePolicy = NEVER_OK
@@ -57,6 +102,10 @@ export type AuthenticateFn = (
   channel: AuthChannel
 ) => Promise<AuthenticationResult>
 
+export type NetworkAdapterWrapper = (
+  networkAdapter: NetworkAdapter
+) => NetworkAdapter
+
 export type SharePolicy = (
   peerId: PeerId,
   documentId?: DocumentId
@@ -69,4 +118,5 @@ export const AUTHENTICATION_VALID: ValidAuthenticationResult = { isValid: true }
 export const ALWAYS_OK: SharePolicy = async () => true
 export const NEVER_OK: SharePolicy = async () => false
 
+export const IDENTITY_WRAPPER: NetworkAdapterWrapper = adapter => adapter
 const NOT_IMPLEMENTED = authenticationError("not implemented")

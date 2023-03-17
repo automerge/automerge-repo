@@ -1,9 +1,9 @@
 import {
   ALWAYS_OK,
-  AuthenticateFn,
   AuthProvider,
+  IDENTITY_WRAPPER,
+  NetworkAdapterWrapper,
   SharePolicy,
-  AUTHENTICATION_VALID,
 } from "../../src/auth/AuthProvider"
 
 export class DummyAuthProvider extends AuthProvider {
@@ -11,14 +11,14 @@ export class DummyAuthProvider extends AuthProvider {
   okToReceive = ALWAYS_OK
 
   constructor({
-    authenticate,
+    wrapNetworkAdapter,
     sharePolicy,
   }: {
-    authenticate?: AuthenticateFn
+    wrapNetworkAdapter?: NetworkAdapterWrapper
     sharePolicy?: SharePolicy
   }) {
     super()
-    this.authenticate = authenticate || (async () => AUTHENTICATION_VALID)
+    this.wrapNetworkAdapter = wrapNetworkAdapter || IDENTITY_WRAPPER
     this.okToAdvertise = sharePolicy || ALWAYS_OK
   }
 }

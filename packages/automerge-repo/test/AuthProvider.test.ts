@@ -9,6 +9,11 @@ import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
 import { DummyPasswordAuthProvider } from "./helpers/DummyPasswordAuthProvider.js"
 import { expectPromises } from "./helpers/expectPromises.js"
 import type { TestDoc } from "./types"
+import { ALWAYS_OK } from "../dist/auth/AuthProvider"
+import {
+  IDENTITY_WRAPPER,
+  NetworkAdapterWrapper,
+} from "../src/auth/AuthProvider"
 
 describe("AuthProvider", () => {
   describe("authorization", async () => {
@@ -147,18 +152,25 @@ describe("AuthProvider", () => {
     }
 
     it("doesn't connect when authentication fails", async () => {
-      const neverAuthProvider = new DummyAuthProvider({
-        authenticate: async () => ({
-          isValid: false,
-          error: new Error("nope"),
-        }),
-      })
-      const { aliceRepo, bobRepo, teardown } = await setup(neverAuthProvider)
+      class NeverAuthProvider extends AuthProvider {
+        okToSend = ALWAYS_OK
+        okToReceive = ALWAYS_OK
 
-      await expectPromises(
-        eventPromise(aliceRepo.networkSubsystem, "error"),
-        eventPromise(bobRepo.networkSubsystem, "error")
-      )
+        authenticate = async () => {
+          return {
+            isValid: false,
+            error: new Error("nope"),
+          }
+        }
+      }
+
+      const neverAuthProvider = new NeverAuthProvider()
+
+      const { bobRepo, aliceHandle, teardown } = await setup(neverAuthProvider)
+
+      await pause(50)
+      // bob doesn't have alice's document
+      assert.equal(bobRepo.handles[aliceHandle.documentId], undefined)
 
       teardown()
     })
@@ -184,21 +196,21 @@ describe("AuthProvider", () => {
       teardown()
     })
 
-    it("emits an error when authentication fails", async () => {
-      const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
+    it("doesn't connect when network authentication fails", async () => {
+      const { bobRepo, aliceHandle, teardown } = await setup({
         alice: new DummyPasswordAuthProvider("abracadabra"), // ✅
         bob: new DummyPasswordAuthProvider("asdfasdfasdf"), // ❌ wrong password
       })
 
-      await expectPromises(
-        eventPromise(aliceRepo.networkSubsystem, "error"), // Bob's failed attempt
-        eventPromise(bobRepo.networkSubsystem, "peer")
-      )
-
       await pause(50)
 
       // bob doesn't have alice's document
-      assert.equal(bobRepo.handles[aliceHandle.documentId], undefined)
+      const alicesDocumentForBob = bobRepo.handles[aliceHandle.documentId]
+      assert.equal(
+        alicesDocumentForBob,
+        undefined,
+        "bob doesn't have alice's document"
+      )
 
       teardown()
     })

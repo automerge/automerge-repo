@@ -30,22 +30,15 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
     networkAdapter.connect(this.peerId)
 
-    networkAdapter.on("peer-candidate", async ({ peerId, channelId }) => {
+    networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
       this.#log(`peer candidate: ${peerId} `)
 
-      const channel = new AuthChannel(networkAdapter, peerId)
-      const authResult = await this.authProvider.authenticate(peerId, channel)
-
-      if (authResult.isValid) {
-        if (!this.#adaptersByPeer[peerId]) {
-          // TODO: handle losing a server here
-          this.#adaptersByPeer[peerId] = networkAdapter
-        }
-
-        this.emit("peer", { peerId, channelId })
-      } else {
-        this.emit("error", { peerId, channelId, error: authResult.error })
+      if (!this.#adaptersByPeer[peerId]) {
+        // TODO: handle losing a server here
+        this.#adaptersByPeer[peerId] = networkAdapter
       }
+
+      this.emit("peer", { peerId, channelId })
     })
 
     networkAdapter.on("peer-disconnected", ({ peerId }) => {

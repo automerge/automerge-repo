@@ -20,7 +20,12 @@ export class Repo extends DocCollection {
   storageSubsystem?: StorageSubsystem
   ephemeralData: EphemeralData
 
-  constructor({ storage, network, peerId, authProvider }: RepoConfig) {
+  constructor({
+    storage,
+    network: networkAdapters,
+    peerId,
+    authProvider,
+  }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo:${peerId}`)
 
@@ -73,8 +78,12 @@ export class Repo extends DocCollection {
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
 
+    const authenticatedNetworkAdapters = authProvider
+      ? networkAdapters.map(adapter => authProvider.wrapNetworkAdapter(adapter))
+      : networkAdapters
+
     const networkSubsystem = new NetworkSubsystem(
-      network,
+      authenticatedNetworkAdapters,
       peerId,
       this.authProvider
     )
