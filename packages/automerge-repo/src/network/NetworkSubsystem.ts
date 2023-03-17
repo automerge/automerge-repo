@@ -1,14 +1,14 @@
+import debug from "debug"
 import EventEmitter from "eventemitter3"
+
+import { AuthChannel, AuthProvider } from "../auth/AuthProvider.js"
+import { GenerousAuthProvider } from "../auth/GenerousAuthProvider.js"
+import { ChannelId, PeerId } from "../types.js"
 import {
   InboundMessagePayload,
   NetworkAdapter,
   PeerDisconnectedPayload,
 } from "./NetworkAdapter.js"
-import { ChannelId, PeerId } from "../types.js"
-
-import debug from "debug"
-import { GenerousAuthProvider } from "../auth/GenerousAuthProvider.js"
-import { AuthChannel, AuthProvider } from "../auth/AuthProvider.js"
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
