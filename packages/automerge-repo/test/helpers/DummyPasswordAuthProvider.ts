@@ -23,7 +23,7 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
 
       channel.on("message", ({ message }) => {
         const text = new TextDecoder().decode(message)
-        if (text == challenge) {
+        if (text === challenge) {
           channel.send(new TextEncoder().encode(this.password))
         } else if (text === this.password) {
           resolve(VALID)
