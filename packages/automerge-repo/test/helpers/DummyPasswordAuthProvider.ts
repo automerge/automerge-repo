@@ -3,8 +3,8 @@ import {
   authenticationError,
   AuthenticationResult,
   VALID,
-} from "../../src/auth/AuthProvider"
-import { GenerousAuthProvider } from "../../src/auth/GenerousAuthProvider"
+} from "../../src/auth/AuthProvider.js"
+import { GenerousAuthProvider } from "../../src/auth/GenerousAuthProvider.js"
 
 const challenge = "what is the password?"
 
