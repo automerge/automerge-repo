@@ -2,7 +2,7 @@ import {
   AuthenticateFn,
   authenticationError,
   AuthenticationResult,
-  VALID,
+  AUTHENTICATION_VALID,
 } from "../../src/auth/AuthProvider.js"
 import { GenerousAuthProvider } from "../../src/auth/GenerousAuthProvider.js"
 
@@ -26,7 +26,7 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
         if (text === challenge) {
           channel.send(new TextEncoder().encode(this.password))
         } else if (text === this.password) {
-          resolve(VALID)
+          resolve(AUTHENTICATION_VALID)
         } else {
           resolve(authenticationError("that is not the password"))
         }

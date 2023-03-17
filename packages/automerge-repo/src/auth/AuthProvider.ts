@@ -6,10 +6,10 @@ export abstract class AuthProvider {
   authenticate: AuthenticateFn = async () => NOT_IMPLEMENTED
 
   /** Should we tell this peer about the existence of this document? */
-  okToAdvertise: SharePolicy = NEVER
+  okToAdvertise: SharePolicy = NEVER_OK
 
   /** Should we provide this document (and changes to it) to this peer when asked for it by ID? */
-  okToSend: SharePolicy = NEVER
+  okToSend: SharePolicy = NEVER_OK
 
   /**
    * Should we accept changes to this document from this peer?
@@ -18,7 +18,7 @@ export abstract class AuthProvider {
    * by someone else. In most cases this will just return `true` (since by that point the peer has
    * been authenticated).
    */
-  okToReceive: SharePolicy = NEVER
+  okToReceive: SharePolicy = NEVER_OK
 }
 
 // helper
@@ -64,9 +64,9 @@ export type SharePolicy = (
 
 // constants
 
-export const VALID: ValidAuthenticationResult = { isValid: true }
+export const AUTHENTICATION_VALID: ValidAuthenticationResult = { isValid: true }
 
-export const ALWAYS: SharePolicy = async () => true
-export const NEVER: SharePolicy = async () => false
+export const ALWAYS_OK: SharePolicy = async () => true
+export const NEVER_OK: SharePolicy = async () => false
 
 const NOT_IMPLEMENTED = authenticationError("not implemented")

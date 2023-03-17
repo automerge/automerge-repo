@@ -1,14 +1,14 @@
 import {
-  ALWAYS,
+  ALWAYS_OK,
   AuthenticateFn,
   AuthProvider,
   SharePolicy,
-  VALID,
+  AUTHENTICATION_VALID,
 } from "../../src/auth/AuthProvider"
 
 export class DummyAuthProvider extends AuthProvider {
-  okToSend = ALWAYS
-  okToReceive = ALWAYS
+  okToSend = ALWAYS_OK
+  okToReceive = ALWAYS_OK
 
   constructor({
     authenticate,
@@ -18,7 +18,7 @@ export class DummyAuthProvider extends AuthProvider {
     sharePolicy?: SharePolicy
   }) {
     super()
-    this.authenticate = authenticate || (async () => VALID)
-    this.okToAdvertise = sharePolicy || ALWAYS
+    this.authenticate = authenticate || (async () => AUTHENTICATION_VALID)
+    this.okToAdvertise = sharePolicy || ALWAYS_OK
   }
 }
