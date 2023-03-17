@@ -1,3 +1,15 @@
+export {
+  AuthProvider,
+  authenticationError,
+  type ValidAuthenticationResult,
+  type InvalidAuthenticationResult,
+  type AuthenticateFn,
+  type SharePolicy,
+  AUTHENTICATION_VALID as VALID,
+  ALWAYS_OK as ALWAYS,
+  NEVER_OK as NEVER,
+} from "./auth/AuthProvider.js"
+
 export { DocCollection } from "./DocCollection.js"
 export { DocHandle, HandleState } from "./DocHandle.js"
 export type {
