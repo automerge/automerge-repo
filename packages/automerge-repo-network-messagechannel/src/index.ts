@@ -46,7 +46,6 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
           this.announceConnection(channelId, origin)
           break
         case "welcome":
-          this.announceConnection(channelId, origin)
           break
         case "message":
           this.emit("message", {
