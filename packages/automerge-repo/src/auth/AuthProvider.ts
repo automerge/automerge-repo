@@ -11,7 +11,7 @@ export abstract class AuthProvider {
     const authenticate = this.authenticate
 
     class WrappedAdapter extends NetworkAdapter {
-      connect = networkAdapter.connect
+      connect = (url?: string) => networkAdapter.connect(url)
 
       sendMessage = (
         peerId: PeerId,
@@ -23,8 +23,8 @@ export abstract class AuthProvider {
         networkAdapter.sendMessage(peerId, channelId, message, broadcast)
       }
 
-      join = networkAdapter.join
-      leave = networkAdapter.leave
+      join = (channelId: ChannelId) => networkAdapter.join(channelId)
+      leave = (channelId: ChannelId) => networkAdapter.leave(channelId)
     }
     const wrappedNetworkAdapter = new WrappedAdapter()
 
@@ -47,7 +47,7 @@ export abstract class AuthProvider {
       wrappedNetworkAdapter.emit("message", payload)
     })
 
-    return networkAdapter
+    return wrappedNetworkAdapter
   }
 
   /** Should we tell this peer about the existence of this document? */

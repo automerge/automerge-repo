@@ -9,7 +9,7 @@ import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
 import { DummyPasswordAuthProvider } from "./helpers/DummyPasswordAuthProvider.js"
 import { expectPromises } from "./helpers/expectPromises.js"
 import type { TestDoc } from "./types"
-import { ALWAYS_OK } from "../dist/auth/AuthProvider"
+import { ALWAYS_OK } from "../src/auth/AuthProvider"
 import {
   IDENTITY_WRAPPER,
   NetworkAdapterWrapper,
