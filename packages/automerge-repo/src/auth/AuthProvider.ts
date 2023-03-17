@@ -39,6 +39,7 @@ export abstract class AuthProvider {
       } else {
         console.log("********************* authentication failed")
       }
+      channel.close()
     })
 
     // when we get a new message, we forward it
