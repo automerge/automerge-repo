@@ -28,7 +28,7 @@ export class DummyPasswordAuthProvider extends AuthProvider {
         const text = new TextDecoder().decode(message)
         if (text == challenge) {
           socket.send(new TextEncoder().encode(this.password))
-        } else if (text == this.password) {
+        } else if (text === this.password) {
           resolve({ isValid: true })
         } else {
           resolve({
