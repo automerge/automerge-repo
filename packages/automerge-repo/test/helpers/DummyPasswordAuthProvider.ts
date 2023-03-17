@@ -1,6 +1,8 @@
 import {
   AuthenticateFn,
+  authenticationError,
   AuthenticationResult,
+  VALID,
 } from "../../src/auth/AuthProvider"
 import { GenerousAuthProvider } from "../../src/auth/GenerousAuthProvider"
 
@@ -13,10 +15,7 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
   }
   authenticate: AuthenticateFn = async (peerId, channel?) => {
     if (channel == null)
-      return {
-        isValid: false,
-        error: new Error("I need a socket"),
-      }
+      return authenticationError("I need a channel to authenticate")
 
     return new Promise<AuthenticationResult>(resolve => {
       // challenge
@@ -27,12 +26,9 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
         if (text == challenge) {
           channel.send(new TextEncoder().encode(this.password))
         } else if (text === this.password) {
-          resolve({ isValid: true })
+          resolve(VALID)
         } else {
-          resolve({
-            isValid: false,
-            error: new Error("that is not the password"),
-          })
+          resolve(authenticationError("that is not the password"))
         }
       })
     })
