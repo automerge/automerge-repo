@@ -12,7 +12,7 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
     super()
   }
   authenticate: AuthenticateFn = async (peerId, channel?) => {
-    if (channel === undefined)
+    if (channel == null)
       return {
         isValid: false,
         error: new Error("I need a socket"),
