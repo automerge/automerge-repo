@@ -1,7 +1,8 @@
 import debug from "debug"
 import EventEmitter from "eventemitter3"
 
-import { AuthChannel, AuthProvider } from "../auth/AuthProvider.js"
+import { AuthProvider } from "../auth/AuthProvider.js"
+import { AuthChannel } from "../auth/AuthChannel.js"
 import { GenerousAuthProvider } from "../auth/GenerousAuthProvider.js"
 import { ChannelId, PeerId } from "../types.js"
 import {

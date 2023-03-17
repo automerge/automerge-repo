@@ -1,6 +1,5 @@
-import EventEmitter from "eventemitter3"
-import { InboundMessagePayload } from "../network/NetworkAdapter.js"
 import { DocumentId, PeerId } from "../types.js"
+import { AuthChannel } from "./AuthChannel"
 
 export abstract class AuthProvider {
   /** Can this peer prove their identity? */
@@ -30,7 +29,7 @@ export type ValidAuthenticationResult = {
    * communication with this peer. (For example, in localfirst/auth two peers negotiate a shared
    * secret and and use that to create an encrypted channel.)
    */
-  channel?: WebSocket
+  channel?: AuthChannel
 }
 
 export type InvalidAuthenticationResult = {
@@ -48,7 +47,7 @@ export type AuthenticateFn = (
   /** ID of the remote peer. */
   peerId: PeerId,
   /** The provider implementation will use the provided socket to communicate with the peer. */
-  socket?: AuthChannel
+  channel?: AuthChannel
 ) => Promise<AuthenticationResult>
 
 export type SharePolicy = (
