@@ -1,19 +1,17 @@
-import { PeerId } from "../../src/types"
 import {
-  ALWAYS,
-  AuthChannel,
+  AuthenticateFn,
   AuthenticationResult,
-  AuthProvider,
 } from "../../src/auth/AuthProvider"
+import { GenerousAuthProvider } from "../../src/auth/GenerousAuthProvider"
 
 const challenge = "what is the password?"
 
 /** Just an example... not for production use */
-export class DummyPasswordAuthProvider extends AuthProvider {
+export class DummyPasswordAuthProvider extends GenerousAuthProvider {
   constructor(private password: string) {
     super()
   }
-  authenticate = async (peerId: PeerId, socket?: AuthChannel) => {
+  authenticate: AuthenticateFn = async (peerId, socket?) => {
     if (socket == null)
       return {
         isValid: false,
@@ -39,7 +37,4 @@ export class DummyPasswordAuthProvider extends AuthProvider {
       })
     })
   }
-  okToAdvertise = ALWAYS
-  okToSend = ALWAYS
-  okToReceive = ALWAYS
 }
