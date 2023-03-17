@@ -11,8 +11,8 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
   constructor(private password: string) {
     super()
   }
-  authenticate: AuthenticateFn = async (peerId, socket?) => {
-    if (socket == null)
+  authenticate: AuthenticateFn = async (peerId, channel?) => {
+    if (channel === undefined)
       return {
         isValid: false,
         error: new Error("I need a socket"),
@@ -20,12 +20,12 @@ export class DummyPasswordAuthProvider extends GenerousAuthProvider {
 
     return new Promise<AuthenticationResult>(resolve => {
       // challenge
-      socket.send(new TextEncoder().encode(challenge))
+      channel.send(new TextEncoder().encode(challenge))
 
-      socket.on("message", ({ message }) => {
+      channel.on("message", ({ message }) => {
         const text = new TextDecoder().decode(message)
         if (text == challenge) {
-          socket.send(new TextEncoder().encode(this.password))
+          channel.send(new TextEncoder().encode(this.password))
         } else if (text === this.password) {
           resolve({ isValid: true })
         } else {
