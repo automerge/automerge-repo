@@ -6,6 +6,7 @@ import {
   AuthenticateFn,
   AuthProvider,
   SharePolicy,
+  VALID,
 } from "../src/auth/AuthProvider.js"
 import { DummyPasswordAuthProvider } from "./helpers/DummyPasswordAuthProvider.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
@@ -257,13 +258,13 @@ describe("Repo", () => {
     }
 
     it("doesn't connect when authentication fails", async () => {
-      const authenticate: AuthenticateFn = async () => ({
-        isValid: false,
-        error: new Error("nope"),
+      const neverAuthProvider = new DummyAuthProvider({
+        authenticate: async () => ({
+          isValid: false,
+          error: new Error("nope"),
+        }),
       })
-      const { aliceRepo, bobRepo, teardown } = await setup(
-        new DummyAuthProvider({ authenticate })
-      )
+      const { aliceRepo, bobRepo, teardown } = await setup(neverAuthProvider)
 
       await expectPromises(
         eventPromise(aliceRepo.networkSubsystem, "error"),
@@ -274,19 +275,19 @@ describe("Repo", () => {
     })
 
     it("error message is emitted on the peer that denied connection", async () => {
-      const authenticate: AuthenticateFn = async (peerId: PeerId) => {
-        if (peerId == "alice") {
-          return { isValid: true }
-        } else {
-          return {
-            isValid: false,
-            error: new Error("you are not Alice"),
+      const aliceAuthProvider = new DummyAuthProvider({
+        authenticate: async (peerId: PeerId) => {
+          if (peerId == "alice") {
+            return VALID
+          } else {
+            return {
+              isValid: false,
+              error: new Error("you are not Alice"),
+            }
           }
-        }
-      }
-      const { aliceRepo, bobRepo, teardown } = await setup(
-        new DummyAuthProvider({ authenticate })
-      )
+        },
+      })
+      const { aliceRepo, bobRepo, teardown } = await setup(aliceAuthProvider)
 
       await expectPromises(
         eventPromise(aliceRepo.networkSubsystem, "error"), // I am bob's failed attempt to connect
