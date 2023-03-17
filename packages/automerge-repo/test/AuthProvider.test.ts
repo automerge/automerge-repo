@@ -1,19 +1,14 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 
-import { ChannelId, DocHandle, DocumentId, PeerId, Repo } from "../src"
-import {
-  AuthProvider,
-  SharePolicy,
-  AUTHENTICATION_VALID,
-} from "../src/auth/AuthProvider"
-import { eventPromise } from "../src/helpers/eventPromise"
-import { pause } from "../src/helpers/pause"
-import { DummyAuthProvider } from "./helpers/DummyAuthProvider"
-import { DummyPasswordAuthProvider } from "./helpers/DummyPasswordAuthProvider"
-import { expectPromises } from "./helpers/expectPromises"
-import { getRandomItem } from "./helpers/getRandomItem"
-import { TestDoc } from "./types"
+import type { DocumentId, PeerId, SharePolicy } from "../src/index.js"
+import { AuthProvider, Repo } from "../src/index.js"
+import { eventPromise } from "../src/helpers/eventPromise.js"
+import { pause } from "../src/helpers/pause.js"
+import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
+import { DummyPasswordAuthProvider } from "./helpers/DummyPasswordAuthProvider.js"
+import { expectPromises } from "./helpers/expectPromises.js"
+import type { TestDoc } from "./types"
 
 describe("AuthProvider", () => {
   describe("authorization", async () => {
@@ -98,7 +93,7 @@ describe("AuthProvider", () => {
         await setup()
 
       // HACK: we don't know how long to wait before confirming the handle would have been advertised but wasn't
-      await pause(100)
+      await pause(50)
 
       assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
       assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
@@ -109,20 +104,28 @@ describe("AuthProvider", () => {
   })
 
   describe("authentication", () => {
-    const setup = async (authProvider: AuthProvider) => {
+    const setup = async (
+      authProvider: AuthProvider | Record<string, AuthProvider>
+    ) => {
+      if (authProvider instanceof AuthProvider)
+        authProvider = {
+          alice: authProvider,
+          bob: authProvider,
+        }
+
       const aliceBobChannel = new MessageChannel()
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
 
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
         peerId: "alice" as PeerId,
-        authProvider,
+        authProvider: authProvider.alice,
       })
 
       const bobRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(bobToAlice)],
         peerId: "bob" as PeerId,
-        authProvider,
+        authProvider: authProvider.bob,
       })
 
       const aliceHandle = aliceRepo.create<TestDoc>()
@@ -131,7 +134,8 @@ describe("AuthProvider", () => {
       })
 
       const teardown = () => {
-        aliceBobChannel.port1.close()
+        aliceToBob.close()
+        bobToAlice.close()
       }
 
       return {
@@ -159,38 +163,42 @@ describe("AuthProvider", () => {
       teardown()
     })
 
-    it("error message is emitted on the peer that denied connection", async () => {
-      const aliceAuthProvider = new DummyAuthProvider({
-        authenticate: async (peerId: PeerId) => {
-          if (peerId == "alice") {
-            return AUTHENTICATION_VALID
-          } else {
-            return {
-              isValid: false,
-              error: new Error("you are not Alice"),
-            }
-          }
-        },
-      })
-      const { aliceRepo, bobRepo, teardown } = await setup(aliceAuthProvider)
-
-      await expectPromises(
-        eventPromise(aliceRepo.networkSubsystem, "error"), // I am bob's failed attempt to connect
-        eventPromise(bobRepo.networkSubsystem, "peer")
-      )
-
-      teardown()
-    })
-
     it("can communicate over the network to authenticate", async () => {
-      const { aliceRepo, bobRepo, teardown } = await setup(
-        new DummyPasswordAuthProvider("password")
-      )
+      const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
+        alice: new DummyPasswordAuthProvider("abracadabra"), // ✅
+        bob: new DummyPasswordAuthProvider("bucaramanga"), // ✅
+      })
 
+      // if these resolve, we've been authenticated
       await expectPromises(
         eventPromise(aliceRepo.networkSubsystem, "peer"),
         eventPromise(bobRepo.networkSubsystem, "peer")
       )
+
+      // bob should now receive alice's document
+      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+      await eventPromise(bobHandle, "change")
+      const doc = await bobHandle.value()
+      assert.equal(doc.foo, "bar")
+
+      teardown()
+    })
+
+    it("emits an error when authentication fails", async () => {
+      const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
+        alice: new DummyPasswordAuthProvider("abracadabra"), // ✅
+        bob: new DummyPasswordAuthProvider("asdfasdfasdf"), // ❌ wrong password
+      })
+
+      await expectPromises(
+        eventPromise(aliceRepo.networkSubsystem, "error"), // Bob's failed attempt
+        eventPromise(bobRepo.networkSubsystem, "peer")
+      )
+
+      await pause(50)
+
+      // bob doesn't have alice's document
+      assert.equal(bobRepo.handles[aliceHandle.documentId], undefined)
 
       teardown()
     })
