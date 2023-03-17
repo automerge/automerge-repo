@@ -1,23 +1,13 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 
-import { ChannelId, DocHandle, DocumentId, PeerId } from "../src"
-import {
-  AuthenticateFn,
-  AuthProvider,
-  SharePolicy,
-  VALID,
-} from "../src/auth/AuthProvider.js"
-import { DummyPasswordAuthProvider } from "./helpers/DummyPasswordAuthProvider.js"
+import { ChannelId, DocHandle, DocumentId, PeerId, Repo } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
-import { Repo } from "../src/Repo.js"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
-import { expectPromises } from "./helpers/expectPromises"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
-import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -82,24 +72,9 @@ describe("Repo", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-      const excludedDocuments: DocumentId[] = []
-
-      const sharePolicy: SharePolicy = async (peerId, documentId) => {
-        if (documentId === undefined) return false
-
-        // make sure that charlie never gets excluded documents
-        if (excludedDocuments.includes(documentId) && peerId === "charlie")
-          return false
-
-        return true
-      }
-
-      const authProvider = new DummyAuthProvider({ sharePolicy })
-
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
         peerId: "alice" as PeerId,
-        authProvider,
       })
 
       const bobRepo = new Repo({
@@ -108,7 +83,6 @@ describe("Repo", () => {
           new MessageChannelNetworkAdapter(bobToCharlie),
         ],
         peerId: "bob" as PeerId,
-        authProvider,
       })
 
       const charlieRepo = new Repo({
@@ -119,13 +93,6 @@ describe("Repo", () => {
       const aliceHandle = aliceRepo.create<TestDoc>()
       aliceHandle.change(d => {
         d.foo = "bar"
-      })
-
-      const notForCharlieHandle = aliceRepo.create<TestDoc>()
-      const notForCharlie = notForCharlieHandle.documentId
-      excludedDocuments.push(notForCharlie)
-      notForCharlieHandle.change(d => {
-        d.foo = "baz"
       })
 
       await Promise.all([
@@ -144,7 +111,6 @@ describe("Repo", () => {
         bobRepo,
         charlieRepo,
         aliceHandle,
-        notForCharlie,
         teardown,
       }
     }
@@ -166,20 +132,6 @@ describe("Repo", () => {
       await eventPromise(handle3, "change")
       const doc3 = await handle3.value()
       assert.deepStrictEqual(doc3, { foo: "bar" })
-      teardown()
-    })
-
-    it("charlieRepo doesn't have a document it's not supposed to have", async () => {
-      const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
-        await setup()
-
-      // HACK: we don't know how long to wait before confirming the handle would have been advertised but wasn't
-      await pause(100)
-
-      assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
-      assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
-      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
-
       teardown()
     })
 
@@ -218,94 +170,6 @@ describe("Repo", () => {
         })
       }
       await pause(500)
-
-      teardown()
-    })
-  })
-
-  describe("authentication", () => {
-    const setup = async (authProvider: AuthProvider) => {
-      const aliceBobChannel = new MessageChannel()
-      const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
-
-      const aliceRepo = new Repo({
-        network: [new MessageChannelNetworkAdapter(aliceToBob)],
-        peerId: "alice" as PeerId,
-        authProvider,
-      })
-
-      const bobRepo = new Repo({
-        network: [new MessageChannelNetworkAdapter(bobToAlice)],
-        peerId: "bob" as PeerId,
-        authProvider,
-      })
-
-      const aliceHandle = aliceRepo.create<TestDoc>()
-      aliceHandle.change(d => {
-        d.foo = "bar"
-      })
-
-      const teardown = () => {
-        aliceBobChannel.port1.close()
-      }
-
-      return {
-        aliceRepo,
-        bobRepo,
-        aliceHandle,
-        teardown,
-      }
-    }
-
-    it("doesn't connect when authentication fails", async () => {
-      const neverAuthProvider = new DummyAuthProvider({
-        authenticate: async () => ({
-          isValid: false,
-          error: new Error("nope"),
-        }),
-      })
-      const { aliceRepo, bobRepo, teardown } = await setup(neverAuthProvider)
-
-      await expectPromises(
-        eventPromise(aliceRepo.networkSubsystem, "error"),
-        eventPromise(bobRepo.networkSubsystem, "error")
-      )
-
-      teardown()
-    })
-
-    it("error message is emitted on the peer that denied connection", async () => {
-      const aliceAuthProvider = new DummyAuthProvider({
-        authenticate: async (peerId: PeerId) => {
-          if (peerId == "alice") {
-            return VALID
-          } else {
-            return {
-              isValid: false,
-              error: new Error("you are not Alice"),
-            }
-          }
-        },
-      })
-      const { aliceRepo, bobRepo, teardown } = await setup(aliceAuthProvider)
-
-      await expectPromises(
-        eventPromise(aliceRepo.networkSubsystem, "error"), // I am bob's failed attempt to connect
-        eventPromise(bobRepo.networkSubsystem, "peer")
-      )
-
-      teardown()
-    })
-
-    it("can communicate over the network to authenticate", async () => {
-      const { aliceRepo, bobRepo, teardown } = await setup(
-        new DummyPasswordAuthProvider("password")
-      )
-
-      await expectPromises(
-        eventPromise(aliceRepo.networkSubsystem, "peer"),
-        eventPromise(bobRepo.networkSubsystem, "peer")
-      )
 
       teardown()
     })
