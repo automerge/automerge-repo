@@ -36,8 +36,6 @@ export abstract class AuthProvider {
 
       if (authResult.isValid) {
         wrappedNetworkAdapter.emit("peer-candidate", { peerId, channelId })
-      } else {
-        console.log("********************* authentication failed")
       }
       channel.close()
     })
