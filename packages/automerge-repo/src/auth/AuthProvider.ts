@@ -1,3 +1,5 @@
+import EventEmitter from "eventemitter3"
+import { InboundMessagePayload } from "../network/NetworkAdapter.js"
 import { DocumentId, PeerId } from "../types.js"
 
 export abstract class AuthProvider {
@@ -46,7 +48,7 @@ export type AuthenticateFn = (
   /** ID of the remote peer. */
   peerId: PeerId,
   /** The provider implementation will use the provided socket to communicate with the peer. */
-  socket?: WebSocket
+  socket?: AuthChannel
 ) => Promise<AuthenticationResult>
 
 export type SharePolicy = (
@@ -60,4 +62,14 @@ export const NEVER: SharePolicy = async () => false
 const NOT_IMPLEMENTED: InvalidAuthenticationResult = {
   isValid: false,
   error: new Error("Not implemented"),
+}
+
+export class AuthChannel extends EventEmitter<AuthChannelEvents> {
+  constructor(public send: (message: Uint8Array) => void) {
+    super()
+  }
+}
+
+export interface AuthChannelEvents {
+  message: (payload: InboundMessagePayload) => void
 }

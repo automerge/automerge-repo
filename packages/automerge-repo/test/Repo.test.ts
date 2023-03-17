@@ -2,7 +2,11 @@ import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 
 import { ChannelId, DocHandle, DocumentId, PeerId } from "../src"
-import { AuthenticateFn, SharePolicy } from "../src/auth/AuthProvider"
+import {
+  AuthChannel,
+  AuthenticateFn,
+  SharePolicy,
+} from "../src/auth/AuthProvider"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
@@ -222,9 +226,7 @@ describe("Repo", () => {
       const aliceBobChannel = new MessageChannel()
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
 
-      const authProvider = new TestAuthProvider({
-        authenticate,
-      })
+      const authProvider = new TestAuthProvider({ authenticate })
 
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
@@ -285,6 +287,47 @@ describe("Repo", () => {
 
       await expectPromises(
         eventPromise(aliceRepo.networkSubsystem, "error"), // I am bob's failed attempt to connect
+        eventPromise(bobRepo.networkSubsystem, "peer")
+      )
+
+      teardown()
+    })
+
+    it("can communicate over the network to authenticate", async () => {
+      const authenticate: AuthenticateFn = async (
+        peerId: PeerId,
+        socket?: AuthChannel
+      ) => {
+        if (socket == null)
+          return {
+            isValid: false,
+            error: new Error("I need a socket"),
+          }
+
+        return new Promise(resolve => {
+          // challenge
+          socket.send(new TextEncoder().encode("what is the password?"))
+
+          socket.on("message", ({ message }) => {
+            const text = new TextDecoder().decode(message)
+            if (text == "what is the password?") {
+              socket.send(new TextEncoder().encode("password"))
+            } else if (text == "password") {
+              resolve({ isValid: true })
+            } else {
+              resolve({
+                isValid: false,
+                error: new Error("that is not the password"),
+              })
+            }
+          })
+        })
+      }
+
+      const { aliceRepo, bobRepo, teardown } = await setup(authenticate)
+
+      await expectPromises(
+        eventPromise(aliceRepo.networkSubsystem, "peer"),
         eventPromise(bobRepo.networkSubsystem, "peer")
       )
 

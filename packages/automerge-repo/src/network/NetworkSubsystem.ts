@@ -8,7 +8,7 @@ import { ChannelId, PeerId } from "../types.js"
 
 import debug from "debug"
 import { GenerousAuthProvider } from "../auth/GenerousAuthProvider.js"
-import { AuthProvider } from "../auth/AuthProvider.js"
+import { AuthChannel, AuthProvider } from "../auth/AuthProvider.js"
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
@@ -32,9 +32,21 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     networkAdapter.on("peer-candidate", async ({ peerId, channelId }) => {
       this.#log(`peer candidate: ${peerId} `)
 
-      const authResult = await this.authProvider.authenticate(
-        peerId /* todo: socket */
+      const authChannelId: ChannelId = `a/${channelId}` as ChannelId
+      const socket = new AuthChannel(message =>
+        networkAdapter.sendMessage(peerId, authChannelId, message, false)
       )
+      const receive = (msg: InboundMessagePayload) => {
+        if (msg.channelId == authChannelId) socket.emit("message", msg)
+      }
+      networkAdapter.on("message", receive)
+
+      const authResult = await this.authProvider.authenticate(
+        peerId,
+        socket // todo: close socket? use it?
+      )
+      networkAdapter.off("message", receive)
+
       if (authResult.isValid) {
         if (!this.#adaptersByPeer[peerId]) {
           // TODO: handle losing a server here
@@ -69,6 +81,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
             peer.sendMessage(id as PeerId, channelId, message, broadcast)
           })
       }
+
+      // ignore auth messages... could maybe also emit them idk
+      if (channelId.startsWith("a/")) return
 
       this.emit("message", msg)
     })
