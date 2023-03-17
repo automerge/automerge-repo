@@ -21,6 +21,15 @@ export abstract class AuthProvider {
   okToReceive: SharePolicy = NEVER
 }
 
+// helper
+
+export const authenticationError = (msg: string) => ({
+  isValid: false,
+  error: new Error(msg),
+})
+
+// types
+
 export type ValidAuthenticationResult = {
   isValid: true
 
@@ -41,8 +50,6 @@ export type AuthenticationResult =
   | ValidAuthenticationResult
   | InvalidAuthenticationResult
 
-export const VALID: ValidAuthenticationResult = { isValid: true }
-
 export type AuthenticateFn = (
   /** ID of the remote peer. */
   peerId: PeerId,
@@ -55,20 +62,11 @@ export type SharePolicy = (
   documentId?: DocumentId
 ) => Promise<boolean>
 
+// constants
+
+export const VALID: ValidAuthenticationResult = { isValid: true }
+
 export const ALWAYS: SharePolicy = async () => true
 export const NEVER: SharePolicy = async () => false
 
-const NOT_IMPLEMENTED: InvalidAuthenticationResult = {
-  isValid: false,
-  error: new Error("Not implemented"),
-}
-
-export class AuthChannel extends EventEmitter<AuthChannelEvents> {
-  constructor(public send: (message: Uint8Array) => void) {
-    super()
-  }
-}
-
-export interface AuthChannelEvents {
-  message: (payload: InboundMessagePayload) => void
-}
+const NOT_IMPLEMENTED = authenticationError("not implemented")
