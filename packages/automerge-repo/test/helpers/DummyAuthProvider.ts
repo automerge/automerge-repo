@@ -6,7 +6,7 @@ import {
   VALID,
 } from "../../src/auth/AuthProvider"
 
-export class TestAuthProvider extends AuthProvider {
+export class DummyAuthProvider extends AuthProvider {
   okToSend = ALWAYS
   okToReceive = ALWAYS
 

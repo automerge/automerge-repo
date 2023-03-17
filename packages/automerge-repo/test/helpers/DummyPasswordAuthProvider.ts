@@ -1,15 +1,15 @@
-import { PeerId } from "../types"
+import { PeerId } from "../../src/types"
 import {
   ALWAYS,
   AuthChannel,
   AuthenticationResult,
   AuthProvider,
-} from "./AuthProvider"
+} from "../../src/auth/AuthProvider"
 
 const challenge = "what is the password?"
 
 /** Just an example... not for production use */
-export class PasswordAuthProvider extends AuthProvider {
+export class DummyPasswordAuthProvider extends AuthProvider {
   constructor(private password: string) {
     super()
   }

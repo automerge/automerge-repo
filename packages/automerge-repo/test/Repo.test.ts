@@ -6,8 +6,8 @@ import {
   AuthenticateFn,
   AuthProvider,
   SharePolicy,
-} from "../src/auth/AuthProvider"
-import { PasswordAuthProvider } from "../src/auth/PasswordAuthProvider"
+} from "../src/auth/AuthProvider.js"
+import { DummyPasswordAuthProvider } from "./helpers/DummyPasswordAuthProvider.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
@@ -15,8 +15,8 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { expectPromises } from "./helpers/expectPromises"
 import { getRandomItem } from "./helpers/getRandomItem.js"
-import { TestAuthProvider } from "./helpers/TestAuthProvider"
 import { TestDoc } from "./types.js"
+import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -93,7 +93,7 @@ describe("Repo", () => {
         return true
       }
 
-      const authProvider = new TestAuthProvider({ sharePolicy })
+      const authProvider = new DummyAuthProvider({ sharePolicy })
 
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
@@ -262,7 +262,7 @@ describe("Repo", () => {
         error: new Error("nope"),
       })
       const { aliceRepo, bobRepo, teardown } = await setup(
-        new TestAuthProvider({ authenticate })
+        new DummyAuthProvider({ authenticate })
       )
 
       await expectPromises(
@@ -285,7 +285,7 @@ describe("Repo", () => {
         }
       }
       const { aliceRepo, bobRepo, teardown } = await setup(
-        new TestAuthProvider({ authenticate })
+        new DummyAuthProvider({ authenticate })
       )
 
       await expectPromises(
@@ -298,7 +298,7 @@ describe("Repo", () => {
 
     it("can communicate over the network to authenticate", async () => {
       const { aliceRepo, bobRepo, teardown } = await setup(
-        new PasswordAuthProvider("password")
+        new DummyPasswordAuthProvider("password")
       )
 
       await expectPromises(

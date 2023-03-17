@@ -3,7 +3,7 @@ import { ChannelId, DocCollection, PeerId } from "../src"
 import assert from "assert"
 import { beforeEach } from "mocha"
 import { MessagePayload } from "../src/network/NetworkAdapter.js"
-import { TestAuthProvider } from "./helpers/TestAuthProvider.js"
+import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
 
 describe("CollectionSynchronizer", () => {
   let collection: DocCollection
@@ -46,7 +46,7 @@ describe("CollectionSynchronizer", () => {
   it("should not synchronize to a peer which is excluded from the share policy", done => {
     const handle = collection.create()
 
-    collection.authProvider = new TestAuthProvider({
+    collection.authProvider = new DummyAuthProvider({
       sharePolicy: async (peerId: PeerId) => peerId !== "peer1",
     })
 
@@ -62,7 +62,7 @@ describe("CollectionSynchronizer", () => {
 
   it("should not synchronize a document which is excluded from the share policy", done => {
     const handle = collection.create()
-    collection.authProvider = new TestAuthProvider({
+    collection.authProvider = new DummyAuthProvider({
       sharePolicy: async (_, documentId) => documentId !== handle.documentId,
     })
 
