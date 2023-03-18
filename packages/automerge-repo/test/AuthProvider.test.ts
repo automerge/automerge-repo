@@ -16,7 +16,6 @@ import {
   PeerId,
   Repo,
   SharePolicy,
-  VALID,
 } from "../src/index.js"
 import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
 import { expectPromises } from "./helpers/expectPromises.js"
@@ -184,7 +183,7 @@ describe("AuthProvider", () => {
 
       it("a maximally permissive auth provider authenticates everyone", async () => {
         class PermissiveAuthProvider extends GenerousAuthProvider {
-          authenticate = async () => VALID
+          authenticate = async () => AUTHENTICATION_VALID
         }
 
         const permissive = new PermissiveAuthProvider()

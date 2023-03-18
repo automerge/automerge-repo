@@ -5,9 +5,9 @@ export {
   type InvalidAuthenticationResult,
   type AuthenticateFn,
   type SharePolicy,
-  AUTHENTICATION_VALID as VALID,
-  ALWAYS_OK as ALWAYS,
-  NEVER_OK as NEVER,
+  AUTHENTICATION_VALID,
+  ALWAYS_OK,
+  NEVER_OK,
 } from "./auth/AuthProvider.js"
 
 export { DocCollection } from "./DocCollection.js"
