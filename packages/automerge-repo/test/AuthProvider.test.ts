@@ -304,8 +304,12 @@ describe("AuthProvider", () => {
           const secretKey = this.secretKey
 
           class WrappedAdapter extends NetworkAdapter {
+            // pass through these methods
             connect = (url?: string) => baseAdapter.connect(url)
+            join = (channelId: ChannelId) => baseAdapter.join(channelId)
+            leave = (channelId: ChannelId) => baseAdapter.leave(channelId)
 
+            // encrypt messages before sending
             sendMessage = (
               peerId: PeerId,
               channelId: ChannelId,
@@ -315,9 +319,6 @@ describe("AuthProvider", () => {
               const encrypted = encrypt(message, secretKey)
               baseAdapter.sendMessage(peerId, channelId, encrypted, broadcast)
             }
-
-            join = (channelId: ChannelId) => baseAdapter.join(channelId)
-            leave = (channelId: ChannelId) => baseAdapter.leave(channelId)
           }
           const wrappedAdapter = new WrappedAdapter()
 
