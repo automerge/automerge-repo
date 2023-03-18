@@ -1,9 +1,6 @@
 import debug from "debug"
 import EventEmitter from "eventemitter3"
 
-import { AuthProvider } from "../auth/AuthProvider.js"
-import { AuthChannel } from "../auth/AuthChannel.js"
-import { GenerousAuthProvider } from "../auth/GenerousAuthProvider.js"
 import { ChannelId, PeerId } from "../types.js"
 import {
   InboundMessagePayload,
@@ -18,8 +15,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
   constructor(
     private adapters: NetworkAdapter[],
-    public peerId = randomPeerId(),
-    private authProvider: AuthProvider = new GenerousAuthProvider()
+    public peerId = randomPeerId()
   ) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
