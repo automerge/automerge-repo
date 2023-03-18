@@ -1,6 +1,5 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
-import { AuthChannel } from "../src/auth/AuthChannel"
 
 import {
   AuthenticateFn,
@@ -22,10 +21,9 @@ import {
   Repo,
   SharePolicy,
 } from "../src/index.js"
-import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
+import { decrypt, encrypt } from "./helpers/encrypt"
 import { expectPromises } from "./helpers/expectPromises.js"
 import type { TestDoc } from "./types"
-import { encrypt, decrypt } from "./helpers/encrypt"
 
 describe("AuthProvider", () => {
   describe("authorization", async () => {
@@ -38,19 +36,17 @@ describe("AuthProvider", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-      const excludedDocuments: DocumentId[] = []
-
-      const sharePolicy: SharePolicy = async (peerId, documentId) => {
-        if (documentId === undefined) return false
-
-        // make sure that charlie never gets excluded documents
-        if (excludedDocuments.includes(documentId) && peerId === "charlie")
-          return false
-
-        return true
+      class ExcludeCharlieAuthProvider extends GenerousAuthProvider {
+        excludedDocs: DocumentId[] = []
+        okToAdvertise: SharePolicy = async (peerId, documentId) => {
+          // make sure that charlie never learns about excluded documents
+          if (this.excludedDocs.includes(documentId!) && peerId === "charlie")
+            return false
+          return true
+        }
       }
 
-      const authProvider = new DummyAuthProvider({ sharePolicy })
+      const authProvider = new ExcludeCharlieAuthProvider()
 
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
@@ -79,7 +75,8 @@ describe("AuthProvider", () => {
 
       const notForCharlieHandle = aliceRepo.create<TestDoc>()
       const notForCharlie = notForCharlieHandle.documentId
-      excludedDocuments.push(notForCharlie)
+      authProvider.excludedDocs.push(notForCharlie)
+
       notForCharlieHandle.change(d => {
         d.foo = "baz"
       })
@@ -164,7 +161,7 @@ describe("AuthProvider", () => {
     }
 
     describe("without network communication", () => {
-      it("a maximally restrictive  auth provider won't authenticate anyone", async () => {
+      it("a maximally restrictive auth provider won't authenticate anyone", async () => {
         class RestrictiveAuthProvider extends GenerousAuthProvider {
           authenticate = async () => {
             return {
@@ -209,36 +206,38 @@ describe("AuthProvider", () => {
       // a password challenge, and compares the password returned to a
       // hard-coded password list.
 
-      const CHALLENGE = "what is the password?"
-
-      const PASSWORDS_TOP_SECRET: Record<string, string> = {
-        alice: "abracadabra",
-        bob: "bucaramanga",
-      }
-
       // The auth provider is initialized with a password response, which
       // it will provide when challenged.
-      class DummyPasswordAuthProvider extends GenerousAuthProvider {
+      class PasswordAuthProvider extends GenerousAuthProvider {
         constructor(private passwordResponse: string) {
           super()
+        }
+
+        #challenge = "what is the password?"
+
+        #passwords: Record<string, string> = {
+          alice: "abracadabra",
+          bob: "bucaramanga",
         }
 
         authenticate: AuthenticateFn = async (peerId, channel) => {
           return new Promise<AuthenticationResult>(resolve => {
             // send challenge
-            channel.send(new TextEncoder().encode(CHALLENGE))
+            channel.send(new TextEncoder().encode(this.#challenge))
 
             channel.on("message", msg => {
               const msgText = new TextDecoder().decode(msg)
               switch (msgText) {
-                case CHALLENGE:
+                case this.#challenge:
                   // received challenge, send password
                   channel.send(new TextEncoder().encode(this.passwordResponse))
                   break
-                case PASSWORDS_TOP_SECRET[peerId]:
+
+                case this.#passwords[peerId]:
                   // received correct password
                   resolve(AUTHENTICATION_VALID)
                   break
+
                 default:
                   // received incorrect password
                   resolve(authenticationError("that is not the password"))
@@ -251,8 +250,8 @@ describe("AuthProvider", () => {
 
       it("should sync with bob if he provides the right password", async () => {
         const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
-          alice: new DummyPasswordAuthProvider("abracadabra"), // ✅ alice gives the correct password
-          bob: new DummyPasswordAuthProvider("bucaramanga"), // ✅ bob gives the correct password
+          alice: new PasswordAuthProvider("abracadabra"), // ✅ alice gives the correct password
+          bob: new PasswordAuthProvider("bucaramanga"), // ✅ bob gives the correct password
         })
 
         // if these resolve, we've been authenticated
@@ -272,8 +271,8 @@ describe("AuthProvider", () => {
 
       it("shouldn't sync with bob if he provides the wrong password", async () => {
         const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
-          alice: new DummyPasswordAuthProvider("abracadabra"), // ✅ alice gives the correct password
-          bob: new DummyPasswordAuthProvider("asdfasdfasdf"), // ❌ bob gives the wrong password
+          alice: new PasswordAuthProvider("abracadabra"), // ✅ alice gives the correct password
+          bob: new PasswordAuthProvider("asdfasdfasdf"), // ❌ bob gives the wrong password
         })
 
         await expectPromises(
