@@ -14,7 +14,7 @@ export class AuthChannel extends EventEmitter<AuthChannelEvents> {
   constructor(private networkAdapter: NetworkAdapter, private peerId: PeerId) {
     super()
     this.#log = debug(`automerge-repo:authchannel:${peerId}`)
-    this.networkAdapter.on("message", this.#fn)
+    this.networkAdapter.on("message", this.#onMessage)
   }
 
   send(message: Uint8Array) {
@@ -25,11 +25,11 @@ export class AuthChannel extends EventEmitter<AuthChannelEvents> {
 
   close() {
     this.removeAllListeners()
-    this.networkAdapter.off("message", this.#fn)
+    this.networkAdapter.off("message", this.#onMessage)
     this.#closed = true
   }
 
-  #fn = (payload: InboundMessagePayload) => {
+  #onMessage = (payload: InboundMessagePayload) => {
     if (payload.channelId === AUTH_CHANNEL) {
       this.#log("received %o", messageSummary(payload))
       this.emit("message", payload.message)
