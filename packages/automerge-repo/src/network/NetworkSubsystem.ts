@@ -64,8 +64,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
           })
       }
 
-      // ignore auth messages... could maybe also emit them idk
-      if (channelId.startsWith("a/")) return
+      // HACK -- the name of the auth channel isn't something we should know or care about
+      if (channelId === "auth_channel") return
 
       this.emit("message", msg)
     })
