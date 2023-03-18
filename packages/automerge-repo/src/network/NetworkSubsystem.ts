@@ -70,6 +70,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.emit("message", msg)
     })
 
+    networkAdapter.on("error", payload => {
+      const { peerId, channelId, error } = payload
+      this.#log(`adapter error %o`, { peerId, channelId, error: error.message })
+      this.emit("error", payload)
+    })
+
     networkAdapter.on("close", () => {
       this.#log("adapter closed")
       Object.entries(this.#adaptersByPeer).forEach(([peerId, other]) => {
