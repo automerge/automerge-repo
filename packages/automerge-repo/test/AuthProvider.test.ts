@@ -1,18 +1,23 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
+import { AuthChannel } from "../src/auth/AuthChannel"
 
 import {
   AuthenticateFn,
   authenticationError,
   AuthenticationResult,
   AUTHENTICATION_VALID,
+  NetworkAdapterWrapper,
 } from "../src/auth/AuthProvider.js"
 import { GenerousAuthProvider } from "../src/auth/GenerousAuthProvider.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
+import { withTimeout } from "../src/helpers/withTimeout"
 import {
   AuthProvider,
+  ChannelId,
   DocumentId,
+  NetworkAdapter,
   PeerId,
   Repo,
   SharePolicy,
@@ -20,9 +25,7 @@ import {
 import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
 import { expectPromises } from "./helpers/expectPromises.js"
 import type { TestDoc } from "./types"
-
-const { encode } = new TextEncoder()
-const { decode } = new TextDecoder()
+import { encrypt, decrypt } from "./helpers/encrypt"
 
 describe("AuthProvider", () => {
   describe("authorization", async () => {
@@ -280,21 +283,106 @@ describe("AuthProvider", () => {
 
         // bob doesn't have alice's document
         const alicesDocumentForBob = bobRepo.handles[aliceHandle.documentId]
-        assert.equal(
-          alicesDocumentForBob,
-          undefined,
-          "bob doesn't have alice's document"
-        )
+        assert.equal(alicesDocumentForBob, undefined)
 
         teardown()
       })
     })
 
     describe("adding encryption to the network adapter", () => {
-      it("encrypts outgoing messages and decrypts incoming messages", () => {
-        // class EncryptingAuthProvider extends GenerousAuthProvider {
-        //   authenticate = async () => VALID
-        // }
+      // The idea here is that rather than authenticate peers, the auth provider
+      // encrypts and decrypts messages using a secret key that each peer knows.
+      // No keys are revealed, but the peers can only communicate if they know the
+      // secret key.
+
+      class EncryptingAuthProvider extends GenerousAuthProvider {
+        constructor(private secretKey: string) {
+          super()
+        }
+
+        wrapNetworkAdapter: NetworkAdapterWrapper = baseAdapter => {
+          const secretKey = this.secretKey
+
+          class WrappedAdapter extends NetworkAdapter {
+            connect = (url?: string) => baseAdapter.connect(url)
+
+            sendMessage = (
+              peerId: PeerId,
+              channelId: ChannelId,
+              message: Uint8Array,
+              broadcast: boolean
+            ) => {
+              const encrypted = encrypt(message, secretKey)
+              baseAdapter.sendMessage(peerId, channelId, encrypted, broadcast)
+            }
+
+            join = (channelId: ChannelId) => baseAdapter.join(channelId)
+            leave = (channelId: ChannelId) => baseAdapter.leave(channelId)
+          }
+          const wrappedAdapter = new WrappedAdapter()
+
+          // forward the peer-candidate event
+          baseAdapter.on("peer-candidate", async ({ peerId, channelId }) => {
+            wrappedAdapter.emit("peer-candidate", { peerId, channelId })
+          })
+
+          baseAdapter.on("message", payload => {
+            const { senderId: peerId, channelId, message } = payload
+            try {
+              const decrypted = decrypt(message, secretKey)
+              wrappedAdapter.emit("message", { ...payload, message: decrypted })
+            } catch (e) {
+              wrappedAdapter.emit("error", {
+                peerId,
+                channelId,
+                error: new Error("decryption failed"),
+              })
+            }
+          })
+
+          return wrappedAdapter
+        }
+      }
+
+      it("encrypts outgoing messages and decrypts incoming messages", async () => {
+        const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
+          alice: new EncryptingAuthProvider("BatteryHorseCorrectStaple"),
+          bob: new EncryptingAuthProvider("BatteryHorseCorrectStaple"),
+        })
+
+        await expectPromises(
+          eventPromise(aliceRepo.networkSubsystem, "peer"), // ✅
+          eventPromise(bobRepo.networkSubsystem, "peer") // ✅
+        )
+
+        // bob has alice's document
+        const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+        await eventPromise(bobHandle, "change")
+        const doc = await bobHandle.value()
+        assert.equal(doc.foo, "bar")
+
+        teardown()
+      })
+
+      it("doesn't sync if both peers don't use the same secret key", async () => {
+        const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
+          alice: new EncryptingAuthProvider("BatteryHorseCorrectStaple"),
+          bob: new EncryptingAuthProvider("asdfasdfasdfasdfadsf"),
+        })
+
+        // one of these will throw an error, the other will hang
+        await withTimeout(
+          Promise.race([
+            eventPromise(aliceRepo.networkSubsystem, "error"),
+            eventPromise(bobRepo.networkSubsystem, "error"),
+          ]),
+          50
+        )
+
+        // bob doesn't have alice's document
+        assert.equal(bobRepo.handles[aliceHandle.documentId], undefined)
+
+        teardown()
       })
     })
   })
