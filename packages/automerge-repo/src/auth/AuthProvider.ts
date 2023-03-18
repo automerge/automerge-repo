@@ -95,13 +95,6 @@ export const authenticationError = (msg: string) => ({
 
 export type ValidAuthenticationResult = {
   isValid: true
-
-  /**
-   * An AuthProvider can optionally return a channel that the Repo should use for subsequent
-   * communication with this peer. (For example, in localfirst/auth two peers negotiate a shared
-   * secret and and use that to create an encrypted channel.)
-   */
-  channel?: AuthChannel
 }
 
 export type InvalidAuthenticationResult = {
