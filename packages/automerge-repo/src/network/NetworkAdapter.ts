@@ -1,5 +1,6 @@
 import EventEmitter from "eventemitter3"
 import { PeerId, ChannelId } from "../types.js"
+import { ErrorPayload } from "./NetworkSubsystem"
 
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
@@ -26,6 +27,7 @@ export interface NetworkAdapterEvents {
   "peer-candidate": (payload: PeerCandidatePayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
   message: (payload: InboundMessagePayload) => void
+  error: (payload: ErrorPayload) => void
 }
 
 export interface OpenPayload {
