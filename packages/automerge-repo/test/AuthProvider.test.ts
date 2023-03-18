@@ -1,19 +1,29 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
 
-import type { DocumentId, PeerId, SharePolicy } from "../src/index.js"
-import { AuthProvider, Repo } from "../src/index.js"
+import {
+  AuthenticateFn,
+  authenticationError,
+  AuthenticationResult,
+  AUTHENTICATION_VALID,
+} from "../src/auth/AuthProvider.js"
+import { GenerousAuthProvider } from "../src/auth/GenerousAuthProvider.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
+import {
+  AuthProvider,
+  DocumentId,
+  PeerId,
+  Repo,
+  SharePolicy,
+  VALID,
+} from "../src/index.js"
 import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
-import { DummyPasswordAuthProvider } from "./helpers/DummyPasswordAuthProvider.js"
 import { expectPromises } from "./helpers/expectPromises.js"
 import type { TestDoc } from "./types"
-import { ALWAYS_OK } from "../src/auth/AuthProvider"
-import {
-  IDENTITY_WRAPPER,
-  NetworkAdapterWrapper,
-} from "../src/auth/AuthProvider"
+
+const { encode } = new TextEncoder()
+const { decode } = new TextDecoder()
 
 describe("AuthProvider", () => {
   describe("authorization", async () => {
@@ -151,68 +161,142 @@ describe("AuthProvider", () => {
       }
     }
 
-    it("doesn't connect when authentication fails", async () => {
-      class NeverAuthProvider extends AuthProvider {
-        okToSend = ALWAYS_OK
-        okToReceive = ALWAYS_OK
-
-        authenticate = async () => {
-          return {
-            isValid: false,
-            error: new Error("nope"),
+    describe("without network communication", () => {
+      it("a maximally restrictive  auth provider won't authenticate anyone", async () => {
+        class RestrictiveAuthProvider extends GenerousAuthProvider {
+          authenticate = async () => {
+            return {
+              isValid: false,
+              error: new Error("nope"),
+            }
           }
+        }
+
+        const restrictive = new RestrictiveAuthProvider()
+        const { bobRepo, aliceHandle, teardown } = await setup(restrictive)
+
+        await pause(50)
+        // bob doesn't have alice's document
+        assert.equal(bobRepo.handles[aliceHandle.documentId], undefined)
+
+        teardown()
+      })
+
+      it("a maximally permissive auth provider authenticates everyone", async () => {
+        class PermissiveAuthProvider extends GenerousAuthProvider {
+          authenticate = async () => VALID
+        }
+
+        const permissive = new PermissiveAuthProvider()
+        const { bobRepo, aliceHandle, teardown } = await setup(permissive)
+
+        await pause(50)
+        // bob has alice's document
+        assert.notEqual(bobRepo.handles[aliceHandle.documentId], undefined)
+
+        teardown()
+      })
+
+      it("a custom auth provider might just authenticate based on peerId", async () => {
+        // TODO
+      })
+    })
+
+    describe("with network communication", () => {
+      // We'll make a (very insecure) password auth provider that sends
+      // a password challenge, and compares the password returned to a
+      // hard-coded password list.
+
+      const CHALLENGE = "what is the password?"
+
+      const PASSWORDS_TOP_SECRET: Record<string, string> = {
+        alice: "abracadabra",
+        bob: "bucaramanga",
+      }
+
+      // The auth provider is initialized with a password response, which
+      // it will provide when challenged.
+      class DummyPasswordAuthProvider extends GenerousAuthProvider {
+        constructor(private passwordResponse: string) {
+          super()
+        }
+
+        authenticate: AuthenticateFn = async (peerId, channel) => {
+          return new Promise<AuthenticationResult>(resolve => {
+            // send challenge
+            channel.send(new TextEncoder().encode(CHALLENGE))
+
+            channel.on("message", msg => {
+              const msgText = new TextDecoder().decode(msg)
+              switch (msgText) {
+                case CHALLENGE:
+                  // received challenge, send password
+                  channel.send(new TextEncoder().encode(this.passwordResponse))
+                  break
+                case PASSWORDS_TOP_SECRET[peerId]:
+                  // received correct password
+                  resolve(AUTHENTICATION_VALID)
+                  break
+                default:
+                  // received incorrect password
+                  resolve(authenticationError("that is not the password"))
+                  break
+              }
+            })
+          })
         }
       }
 
-      const neverAuthProvider = new NeverAuthProvider()
+      it("should sync with bob if he provides the right password", async () => {
+        const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
+          alice: new DummyPasswordAuthProvider("abracadabra"), // ✅ alice gives the correct password
+          bob: new DummyPasswordAuthProvider("bucaramanga"), // ✅ bob gives the correct password
+        })
 
-      const { bobRepo, aliceHandle, teardown } = await setup(neverAuthProvider)
+        // if these resolve, we've been authenticated
+        await expectPromises(
+          eventPromise(aliceRepo.networkSubsystem, "peer"), // ✅
+          eventPromise(bobRepo.networkSubsystem, "peer") // ✅
+        )
 
-      await pause(50)
-      // bob doesn't have alice's document
-      assert.equal(bobRepo.handles[aliceHandle.documentId], undefined)
+        // bob should now receive alice's document
+        const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+        await eventPromise(bobHandle, "change")
+        const doc = await bobHandle.value()
+        assert.equal(doc.foo, "bar")
 
-      teardown()
-    })
-
-    it("can communicate over the network to authenticate", async () => {
-      const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
-        alice: new DummyPasswordAuthProvider("abracadabra"), // ✅
-        bob: new DummyPasswordAuthProvider("bucaramanga"), // ✅
+        teardown()
       })
 
-      // if these resolve, we've been authenticated
-      await expectPromises(
-        eventPromise(aliceRepo.networkSubsystem, "peer"),
-        eventPromise(bobRepo.networkSubsystem, "peer")
-      )
+      it("shouldn't sync with bob if he provides the wrong password", async () => {
+        const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
+          alice: new DummyPasswordAuthProvider("abracadabra"), // ✅ alice gives the correct password
+          bob: new DummyPasswordAuthProvider("asdfasdfasdf"), // ❌ bob gives the wrong password
+        })
 
-      // bob should now receive alice's document
-      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
-      await eventPromise(bobHandle, "change")
-      const doc = await bobHandle.value()
-      assert.equal(doc.foo, "bar")
+        await expectPromises(
+          eventPromise(aliceRepo.networkSubsystem, "error"), // ❌ alice doesn't authenticate bob, because his password was wrong
+          eventPromise(bobRepo.networkSubsystem, "peer") // ✅ bob authenticates alice
+        )
 
-      teardown()
+        // bob doesn't have alice's document
+        const alicesDocumentForBob = bobRepo.handles[aliceHandle.documentId]
+        assert.equal(
+          alicesDocumentForBob,
+          undefined,
+          "bob doesn't have alice's document"
+        )
+
+        teardown()
+      })
     })
 
-    it("doesn't connect when network authentication fails", async () => {
-      const { bobRepo, aliceHandle, teardown } = await setup({
-        alice: new DummyPasswordAuthProvider("abracadabra"), // ✅
-        bob: new DummyPasswordAuthProvider("asdfasdfasdf"), // ❌ wrong password
+    describe("adding encryption to the network adapter", () => {
+      it("encrypts outgoing messages and decrypts incoming messages", () => {
+        // class EncryptingAuthProvider extends GenerousAuthProvider {
+        //   authenticate = async () => VALID
+        // }
       })
-
-      await pause(50)
-
-      // bob doesn't have alice's document
-      const alicesDocumentForBob = bobRepo.handles[aliceHandle.documentId]
-      assert.equal(
-        alicesDocumentForBob,
-        undefined,
-        "bob doesn't have alice's document"
-      )
-
-      teardown()
     })
   })
 })
