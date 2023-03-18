@@ -78,15 +78,13 @@ export class Repo extends DocCollection {
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
 
-    const authenticatedNetworkAdapters = authProvider
+    // The auth provider works by wrapping our network adapters. If we don't have an auth provider,
+    // we just use each network adapter as-is.
+    const wrappedAdapters = authProvider
       ? networkAdapters.map(adapter => authProvider.wrapNetworkAdapter(adapter))
       : networkAdapters
 
-    const networkSubsystem = new NetworkSubsystem(
-      authenticatedNetworkAdapters,
-      peerId,
-      this.authProvider
-    )
+    const networkSubsystem = new NetworkSubsystem(wrappedAdapters, peerId)
     this.networkSubsystem = networkSubsystem
 
     // When we get a new peer, register it with the synchronizer
