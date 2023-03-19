@@ -27,17 +27,21 @@ describe("AuthProvider", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-      class ExcludeCharlieAuthProvider extends AuthProvider {
+      class NotForCharlieAuthProvider extends AuthProvider {
         excludedDocs: DocumentId[] = []
-        okToAdvertise: SharePolicy = async (peerId, documentId) => {
-          // make sure that charlie never learns about excluded documents
+
+        // make sure that charlie never learns about excluded documents
+        notForCharlie: SharePolicy = async (peerId, documentId) => {
           if (this.excludedDocs.includes(documentId!) && peerId === "charlie")
             return false
           return true
         }
+
+        okToAdvertise = this.notForCharlie
+        okToSync = this.notForCharlie
       }
 
-      const authProvider = new ExcludeCharlieAuthProvider()
+      const authProvider = new NotForCharlieAuthProvider()
 
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
@@ -93,7 +97,7 @@ describe("AuthProvider", () => {
       }
     }
 
-    it("charlieRepo doesn't have a document it's not supposed to have", async () => {
+    it("charlie doesn't learn about a document he's not supposed to have", async () => {
       const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
         await setup()
 
@@ -103,6 +107,23 @@ describe("AuthProvider", () => {
       assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
       assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
       assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+
+      teardown()
+    })
+
+    it("charlie doesn't get a document he's not supposed to have even if he learns its id", async () => {
+      const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
+        await setup()
+
+      const aliceHandle = aliceRepo.find(notForCharlie)
+      const bobHandle = bobRepo.find(notForCharlie)
+      const charlieHandle = charlieRepo.find(notForCharlie)
+
+      await pause(50)
+
+      assert.equal(aliceHandle.isReady(), true, "alice yes")
+      assert.equal(bobHandle.isReady(), true, "bob yes")
+      assert.equal(charlieHandle.isReady(), false, "charlie no")
 
       teardown()
     })

@@ -40,11 +40,11 @@ export class CollectionSynchronizer extends Synchronizer {
     const peers = Array.from(this.#peers)
     const generousPeers: PeerId[] = []
     for (const peerId of peers) {
-      const okToShare = await this.repo.authProvider.okToAdvertise(
+      const okToAdvertise = await this.repo.authProvider.okToAdvertise(
         peerId,
         documentId
       )
-      if (okToShare) generousPeers.push(peerId)
+      if (okToAdvertise) generousPeers.push(peerId)
     }
     return generousPeers
   }
@@ -63,6 +63,11 @@ export class CollectionSynchronizer extends Synchronizer {
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message.byteLength}bytes`)
 
     const documentId = channelId as unknown as DocumentId
+
+    // Make sure it's ok to sync this document with this peer
+    const okToSync = await this.repo.authProvider.okToSync(peerId, documentId)
+    if (!okToSync) return
+
     const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
 
     docSynchronizer.receiveSyncMessage(peerId, channelId, message)
@@ -96,11 +101,11 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
-      const okToShare = await this.repo.authProvider.okToAdvertise(
+      const okToAdvertise = await this.repo.authProvider.okToAdvertise(
         peerId,
         documentId
       )
-      if (okToShare) docSynchronizer.beginSync(peerId)
+      if (okToAdvertise) docSynchronizer.beginSync(peerId)
     }
   }
 
