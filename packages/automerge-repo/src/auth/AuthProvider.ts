@@ -31,8 +31,8 @@ export class AuthProvider {
   /** Should we tell this peer about the existence of this document? */
   okToAdvertise: SharePolicy = ALWAYS_OK
 
-  /** Should we provide this document (and changes to it) to this peer when asked for it by ID? */
-  okToSend: SharePolicy = ALWAYS_OK
+  /** Should we provide this document & changes to it if requested? */
+  okToSync: SharePolicy = ALWAYS_OK
 
   constructor(config: AuthProviderConfig = {}) {
     return Object.assign(this, config)
@@ -139,7 +139,7 @@ export interface AuthProviderConfig {
   authenticate?: AuthenticateFn
   transform?: Transform
   okToAdvertise?: SharePolicy
-  okToSend?: SharePolicy
+  okToSync?: SharePolicy
 }
 
 // authentication
