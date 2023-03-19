@@ -60,9 +60,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
           })
       }
 
-      // HACK -- the name of the auth channel isn't something we should know or care about
-      if (channelId === "auth_channel") return
-
       this.emit("message", msg)
     })
 

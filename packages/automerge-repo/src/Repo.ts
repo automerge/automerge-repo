@@ -109,6 +109,8 @@ export class Repo extends DocCollection {
         // Ephemeral message
         this.#log(`receiving ephemeral message from ${senderId}`)
         ephemeralData.receive(senderId, channelId, message)
+      } else if (channelId === "auth_channel") {
+        // do nothing
       } else {
         // Sync message
         this.#log(`receiving sync message from ${senderId}`)
