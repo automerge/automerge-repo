@@ -2,8 +2,7 @@ import EventEmitter from "eventemitter3"
 import { v4 as uuid } from "uuid"
 import { DocHandle } from "./DocHandle.js"
 import { type DocumentId } from "./types.js"
-import { type AuthProvider } from "./auth/AuthProvider.js"
-import { GenerousAuthProvider } from "./auth/GenerousAuthProvider.js"
+import { AuthProvider } from "./auth/AuthProvider.js"
 
 /**
  * A DocCollection is a collection of DocHandles. It supports creating new documents and finding
@@ -13,7 +12,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
   /** By default, we share generously with all peers. */
-  authProvider: AuthProvider = new GenerousAuthProvider()
+  authProvider: AuthProvider = new AuthProvider()
 
   constructor() {
     super()

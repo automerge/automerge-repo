@@ -1,14 +1,6 @@
-import {
-  ALWAYS_OK,
-  AuthProvider,
-  NEVER_OK,
-  AUTHENTICATION_VALID,
-} from "./AuthProvider"
+import { AuthProvider, NEVER_OK } from "./AuthProvider"
 
-/** Just like the GenerousAuthProvider, but doesn't advertise anything */
+/** Just like the base AuthProvider, but doesn't advertise anything */
 export class SyncServerAuthProvider extends AuthProvider {
-  authenticate = async () => AUTHENTICATION_VALID
   okToAdvertise = NEVER_OK
-  okToSend = ALWAYS_OK
-  okToReceive = ALWAYS_OK
 }

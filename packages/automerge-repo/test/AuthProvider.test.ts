@@ -6,18 +6,12 @@ import {
   authenticationError,
   AuthenticationResult,
   AUTHENTICATION_VALID,
+  AuthProvider,
 } from "../src/auth/AuthProvider.js"
-import { GenerousAuthProvider } from "../src/auth/GenerousAuthProvider.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { withTimeout } from "../src/helpers/withTimeout"
-import {
-  AuthProvider,
-  DocumentId,
-  PeerId,
-  Repo,
-  SharePolicy,
-} from "../src/index.js"
+import { DocumentId, PeerId, Repo, SharePolicy } from "../src/index.js"
 import { decrypt, encrypt } from "./helpers/encrypt"
 import { expectPromises } from "./helpers/expectPromises.js"
 import type { TestDoc } from "./types"
@@ -33,7 +27,7 @@ describe("AuthProvider", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-      class ExcludeCharlieAuthProvider extends GenerousAuthProvider {
+      class ExcludeCharlieAuthProvider extends AuthProvider {
         excludedDocs: DocumentId[] = []
         okToAdvertise: SharePolicy = async (peerId, documentId) => {
           // make sure that charlie never learns about excluded documents
@@ -159,7 +153,7 @@ describe("AuthProvider", () => {
 
     describe("without network communication", () => {
       it("a maximally restrictive auth provider won't authenticate anyone", async () => {
-        class RestrictiveAuthProvider extends GenerousAuthProvider {
+        class RestrictiveAuthProvider extends AuthProvider {
           authenticate = async () => {
             return {
               isValid: false,
