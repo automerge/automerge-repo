@@ -8,9 +8,14 @@ import debug from "debug"
 
 const AUTH_CHANNEL = "auth_channel" as ChannelId
 
+/**
+ * An AuthChannel is a channel that is used to exchange authentication messages over a network adapter. It is created by
+ * the AuthProvider.
+ */
 export class AuthChannel extends EventEmitter<AuthChannelEvents> {
   #log: debug.Debugger
   #closed = false
+
   constructor(private networkAdapter: NetworkAdapter, private peerId: PeerId) {
     super()
     this.#log = debug(`automerge-repo:authchannel:${peerId}`)
