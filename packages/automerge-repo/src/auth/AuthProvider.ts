@@ -34,15 +34,6 @@ export class AuthProvider {
   /** Should we provide this document (and changes to it) to this peer when asked for it by ID? */
   okToSend: SharePolicy = ALWAYS_OK
 
-  /**
-   * Should we accept changes to this document from this peer?
-   *
-   * Note: This isn't useful for authorization, since the peer might be passing on changes authored
-   * by someone else. In most cases this will just return `true` (since by that point the peer has
-   * been authenticated).
-   */
-  okToReceive: SharePolicy = ALWAYS_OK
-
   constructor(config: AuthProviderConfig = {}) {
     return Object.assign(this, config)
   }
@@ -149,7 +140,6 @@ export interface AuthProviderConfig {
   transform?: Transform
   okToAdvertise?: SharePolicy
   okToSend?: SharePolicy
-  okToReceive?: SharePolicy
 }
 
 // authentication
