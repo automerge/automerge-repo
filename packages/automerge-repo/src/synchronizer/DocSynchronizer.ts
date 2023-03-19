@@ -11,8 +11,6 @@ import debug from "debug"
  */
 export class DocSynchronizer extends Synchronizer {
   #log: debug.Debugger
-  #conciseLog: debug.Debugger
-  #opsLog: debug.Debugger
 
   /** Active peers */
   #peers: PeerId[] = []
@@ -23,9 +21,7 @@ export class DocSynchronizer extends Synchronizer {
   constructor(private handle: DocHandle<any>) {
     super()
     const docId = handle.documentId.slice(0, 5)
-    this.#conciseLog = debug(`automerge-repo:concise:docsync:${docId}`) // Only logs one line per receive/send
     this.#log = debug(`automerge-repo:docsync:${docId}`)
-    this.#opsLog = debug(`automerge-repo:ops:docsync:${docId}`) // Log list of ops of each message
 
     handle.on("change", () => this.#syncWithPeers())
   }
@@ -61,14 +57,11 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
-    this.#log(`sendSyncMessage ->${peerId}`)
-
     const syncState = this.#getSyncState(peerId)
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
     this.#setSyncState(peerId, newSyncState)
     if (message) {
-      this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
-
+      this.#log(`sendSyncMessage → ${peerId} ${message.byteLength}b`)
       const channelId = this.handle.documentId as string as ChannelId
       this.emit("message", {
         targetId: peerId,
@@ -77,28 +70,8 @@ export class DocSynchronizer extends Synchronizer {
         broadcast: false,
       })
     } else {
-      this.#log(`sendSyncMessage ->${peerId} [no message generated]`)
+      this.#log(`sendSyncMessage → ${peerId} [no message generated]`)
     }
-  }
-
-  #logMessage = (label: string, message: Uint8Array) => {
-    // This is real expensive...
-    return
-
-    const size = message.byteLength
-    const logText = `${label} ${size}b`
-    const decoded = A.decodeSyncMessage(message)
-
-    this.#conciseLog(logText)
-    this.#log(logText, decoded)
-
-    // expanding is expensive, so only do it if we're logging at this level
-    const expanded = this.#opsLog.enabled
-      ? decoded.changes.flatMap(change =>
-          A.decodeChange(change).ops.map(op => JSON.stringify(op))
-        )
-      : null
-    this.#opsLog(logText, expanded)
   }
 
   /// PUBLIC
@@ -137,6 +110,8 @@ export class DocSynchronizer extends Synchronizer {
     channelId: ChannelId,
     message: Uint8Array
   ) {
+    this.#log(`receiveSyncMessage ← ${peerId} ${message.byteLength}b`)
+
     if ((channelId as string) !== (this.documentId as string))
       throw new Error(`channelId doesn't match documentId`)
 
