@@ -4,8 +4,7 @@ import EventEmitter, {
   ValidEventTypes,
 } from "eventemitter3"
 
-// helpers
-
+/** Forwards the given list of events from one EventEmitter to another of the same type */
 export const forwardEvents = <
   T extends ValidEventTypes,
   K extends EventNames<T>[]
