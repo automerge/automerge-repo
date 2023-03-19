@@ -23,11 +23,10 @@ export class AuthProvider {
   /**
    * An AuthProvider can optionally transform incoming and outgoing messages. For example,
    * authentication might involve encrypting and decrypting messages using a shared secret.
+   *
+   * By default, messages are not transformed.
    */
-  transform: Transform = {
-    inbound: payload => payload,
-    outbound: payload => payload,
-  }
+  transform: Transform = { inbound: p => p, outbound: p => p }
 
   /** Should we tell this peer about the existence of this document? */
   okToAdvertise: SharePolicy = ALWAYS_OK
