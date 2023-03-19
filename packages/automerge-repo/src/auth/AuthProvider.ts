@@ -1,4 +1,9 @@
-import { NetworkAdapter } from "../network/NetworkAdapter"
+import { forwardEvents } from "../helpers/forwardEvents"
+import {
+  InboundMessagePayload,
+  MessagePayload,
+  NetworkAdapter,
+} from "../network/NetworkAdapter"
 import { ChannelId, DocumentId, PeerId } from "../types.js"
 import { AuthChannel } from "./AuthChannel"
 
@@ -6,43 +11,56 @@ import { AuthChannel } from "./AuthChannel"
  * An AuthProvider is responsible for authentication (proving that a peer is who they say they are)
  * and authorization (deciding whether a peer is allowed to access a document).
  *
- * This abstract class must be extended to provide a concrete implementation.
+ * By default, an AuthProvider is maximally permissive: it allows any peer to access any document.
+ *
+ * An AuthProvider can be configured by passing a config object to the constructor, or by extending
+ * the class and overriding methods.
  */
-export abstract class AuthProvider {
+export class AuthProvider {
+  /** Is this peer who they say they are? */
+  authenticate: AuthenticateFn = async () => AUTHENTICATION_VALID
+
   /**
-   * Can this peer prove their identity?
+   * An AuthProvider can optionally transform incoming and outgoing messages. For example,
+   * authentication might involve encrypting and decrypting messages using a shared secret.
+   */
+  transform: Transform = {
+    inbound: payload => payload,
+    outbound: payload => payload,
+  }
+
+  /** Should we tell this peer about the existence of this document? */
+  okToAdvertise: SharePolicy = ALWAYS_OK
+
+  /** Should we provide this document (and changes to it) to this peer when asked for it by ID? */
+  okToSend: SharePolicy = ALWAYS_OK
+
+  /**
+   * Should we accept changes to this document from this peer?
    *
-   * An AuthProvider must implement this method to provide authentication.
+   * Note: This isn't useful for authorization, since the peer might be passing on changes authored
+   * by someone else. In most cases this will just return `true` (since by that point the peer has
+   * been authenticated).
    */
-  authenticate: AuthenticateFn = async () => NOT_IMPLEMENTED
+  okToReceive: SharePolicy = ALWAYS_OK
+
+  constructor(config: AuthProviderConfig = {}) {
+    return Object.assign(this, config)
+  }
 
   /**
-   * An AuthProvider can optionally implement this method to intercept messages sent and received by
-   * the network adapter.
+   * The repo uses the AuthProvider to wrap each network adapter in order to authenticate new peers
+   * and transform inbound and outbound messages.
+   * @param baseAdapter
+   * @returns
    */
-  wrapNetworkAdapter: NetworkAdapterWrapper = baseAdapter => {
+  wrapNetworkAdapter = (baseAdapter: NetworkAdapter) => {
     const authenticate = this.authenticate
+    const transform = this.transform
 
-    class WrappedAdapter extends NetworkAdapter {
-      connect = (url?: string) => baseAdapter.connect(url)
+    const wrappedAdapter = new WrappedAdapter(baseAdapter, transform)
 
-      sendMessage = (
-        peerId: PeerId,
-        channelId: ChannelId,
-        message: Uint8Array,
-        broadcast: boolean
-      ) => {
-        // this is where we could encrypt the message or whatever
-        baseAdapter.sendMessage(peerId, channelId, message, broadcast)
-      }
-
-      join = (channelId: ChannelId) => baseAdapter.join(channelId)
-      leave = (channelId: ChannelId) => baseAdapter.leave(channelId)
-    }
-    const wrappedAdapter = new WrappedAdapter()
-
-    // when the baseAdapter emits a new peer, we try to authenticate them.
-    // If we succeed, then we forward the peer-candidate event
+    // try to authenticate new peers; if we succeed, we forward the peer-candidate event
     baseAdapter.on("peer-candidate", async ({ peerId, channelId }) => {
       const channel = new AuthChannel(baseAdapter, peerId)
       const authResult = await authenticate(peerId, channel)
@@ -53,45 +71,89 @@ export abstract class AuthProvider {
         const { error } = authResult
         wrappedAdapter.emit("error", { peerId, channelId, error })
       }
-
-      // Note that some adapters might want to leave the channel open here, e.g. in case the peer's
-      // authentication is revoked
-      channel.close()
     })
 
-    // when the base adapter gets a new message, we forward it as-is
+    // transform incoming messages
     baseAdapter.on("message", payload => {
-      // this is where we could decrypt the message or whatever
-      wrappedAdapter.emit("message", payload)
+      try {
+        const transformedPayload = transform.inbound(payload)
+        wrappedAdapter.emit("message", transformedPayload)
+      } catch (e) {
+        wrappedAdapter.emit("error", {
+          peerId: payload.senderId,
+          channelId: payload.channelId,
+          error: e as Error,
+        })
+      }
     })
+
+    // forward all other events
+    forwardEvents(baseAdapter, wrappedAdapter, [
+      "open",
+      "close",
+      "peer-disconnected",
+      "error",
+    ])
 
     return wrappedAdapter
   }
-
-  /** Should we tell this peer about the existence of this document? */
-  okToAdvertise: SharePolicy = NEVER_OK
-
-  /** Should we provide this document (and changes to it) to this peer when asked for it by ID? */
-  okToSend: SharePolicy = NEVER_OK
-
-  /**
-   * Should we accept changes to this document from this peer?
-   *
-   * Note: This isn't useful for authorization, since the peer might be passing on changes authored
-   * by someone else. In most cases this will just return `true` (since by that point the peer has
-   * been authenticated).
-   */
-  okToReceive: SharePolicy = NEVER_OK
 }
 
-// helper
+// HELPERS
+
+/**
+ * A WrappedAdapter is a NetworkAdapter that wraps another NetworkAdapter and
+ * transforms outbound messages.
+ */
+class WrappedAdapter extends NetworkAdapter {
+  constructor(
+    private baseAdapter: NetworkAdapter,
+    private transform: Transform
+  ) {
+    super()
+  }
+
+  // passthrough methods
+  connect = (url?: string) => this.baseAdapter.connect(url)
+  join = (channelId: ChannelId) => this.baseAdapter.join(channelId)
+  leave = (channelId: ChannelId) => this.baseAdapter.leave(channelId)
+  sendMessage = (
+    targetId: PeerId,
+    channelId: ChannelId,
+    message: Uint8Array,
+    broadcast: boolean
+  ) => {
+    const transformedPayload = this.transform.outbound({
+      targetId,
+      channelId,
+      message,
+      broadcast,
+    })
+    this.baseAdapter.sendMessage(
+      transformedPayload.targetId,
+      transformedPayload.channelId,
+      transformedPayload.message,
+      transformedPayload.broadcast
+    )
+  }
+}
 
 export const authenticationError = (msg: string) => ({
   isValid: false,
   error: new Error(msg),
 })
 
-// types
+// TYPES
+
+export interface AuthProviderConfig {
+  authenticate?: AuthenticateFn
+  transform?: Transform
+  okToAdvertise?: SharePolicy
+  okToSend?: SharePolicy
+  okToReceive?: SharePolicy
+}
+
+// authentication
 
 export type ValidAuthenticationResult = {
   isValid: true
@@ -113,21 +175,23 @@ export type AuthenticateFn = (
   channel: AuthChannel
 ) => Promise<AuthenticationResult>
 
-export type NetworkAdapterWrapper = (
-  networkAdapter: NetworkAdapter
-) => NetworkAdapter
+// transformation
+
+export type Transform = {
+  inbound: (p: InboundMessagePayload) => InboundMessagePayload
+  outbound: (p: MessagePayload) => MessagePayload
+}
+
+// authorization
 
 export type SharePolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
 
-// constants
+// CONSTANTS
 
 export const AUTHENTICATION_VALID: ValidAuthenticationResult = { isValid: true }
 
 export const ALWAYS_OK: SharePolicy = async () => true
 export const NEVER_OK: SharePolicy = async () => false
-
-export const IDENTITY_WRAPPER: NetworkAdapterWrapper = adapter => adapter
-const NOT_IMPLEMENTED = authenticationError("not implemented")

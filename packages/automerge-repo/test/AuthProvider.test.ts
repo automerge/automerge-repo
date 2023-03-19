@@ -6,7 +6,6 @@ import {
   authenticationError,
   AuthenticationResult,
   AUTHENTICATION_VALID,
-  NetworkAdapterWrapper,
 } from "../src/auth/AuthProvider.js"
 import { GenerousAuthProvider } from "../src/auth/GenerousAuthProvider.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
@@ -14,9 +13,7 @@ import { pause } from "../src/helpers/pause.js"
 import { withTimeout } from "../src/helpers/withTimeout"
 import {
   AuthProvider,
-  ChannelId,
   DocumentId,
-  NetworkAdapter,
   PeerId,
   Repo,
   SharePolicy,
@@ -182,11 +179,7 @@ describe("AuthProvider", () => {
       })
 
       it("a maximally permissive auth provider authenticates everyone", async () => {
-        class PermissiveAuthProvider extends GenerousAuthProvider {
-          authenticate = async () => AUTHENTICATION_VALID
-        }
-
-        const permissive = new PermissiveAuthProvider()
+        const permissive = new AuthProvider() // AuthProvider is maximally permissive by default
         const { bobRepo, aliceHandle, teardown } = await setup(permissive)
 
         await pause(50)
@@ -202,13 +195,11 @@ describe("AuthProvider", () => {
     })
 
     describe("with network communication", () => {
-      // We'll make a (very insecure) password auth provider that sends
-      // a password challenge, and compares the password returned to a
-      // hard-coded password list.
-
-      // The auth provider is initialized with a password response, which
-      // it will provide when challenged.
-      class PasswordAuthProvider extends GenerousAuthProvider {
+      // We'll make a (very insecure) password auth provider that sends a password challenge, and
+      // compares the password returned to a hard-coded password list.
+      class PasswordAuthProvider extends AuthProvider {
+        // The auth provider is initialized with a password response, which it will provide when
+        // challenged.
         constructor(private passwordResponse: string) {
           super()
         }
@@ -294,60 +285,25 @@ describe("AuthProvider", () => {
       // No keys are revealed, but the peers can only communicate if they know the
       // secret key.
 
-      class EncryptingAuthProvider extends GenerousAuthProvider {
-        constructor(private secretKey: string) {
-          super()
-        }
-
-        wrapNetworkAdapter: NetworkAdapterWrapper = baseAdapter => {
-          const secretKey = this.secretKey
-
-          class WrappedAdapter extends NetworkAdapter {
-            // pass through these methods
-            connect = (url?: string) => baseAdapter.connect(url)
-            join = (channelId: ChannelId) => baseAdapter.join(channelId)
-            leave = (channelId: ChannelId) => baseAdapter.leave(channelId)
-
-            // encrypt messages before sending
-            sendMessage = (
-              peerId: PeerId,
-              channelId: ChannelId,
-              message: Uint8Array,
-              broadcast: boolean
-            ) => {
-              const encrypted = encrypt(message, secretKey)
-              baseAdapter.sendMessage(peerId, channelId, encrypted, broadcast)
-            }
-          }
-          const wrappedAdapter = new WrappedAdapter()
-
-          // forward the peer-candidate event
-          baseAdapter.on("peer-candidate", async ({ peerId, channelId }) => {
-            wrappedAdapter.emit("peer-candidate", { peerId, channelId })
-          })
-
-          baseAdapter.on("message", payload => {
-            const { senderId: peerId, channelId, message } = payload
-            try {
-              const decrypted = decrypt(message, secretKey)
-              wrappedAdapter.emit("message", { ...payload, message: decrypted })
-            } catch (e) {
-              wrappedAdapter.emit("error", {
-                peerId,
-                channelId,
-                error: new Error("decryption failed"),
-              })
-            }
-          })
-
-          return wrappedAdapter
-        }
+      function encryptingAuthProvider(secretKey: string) {
+        return new AuthProvider({
+          transform: {
+            inbound: payload => {
+              const decrypted = decrypt(payload.message, secretKey)
+              return { ...payload, message: decrypted }
+            },
+            outbound: payload => {
+              const encrypted = encrypt(payload.message, secretKey)
+              return { ...payload, message: encrypted }
+            },
+          },
+        })
       }
 
       it("encrypts outgoing messages and decrypts incoming messages", async () => {
         const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
-          alice: new EncryptingAuthProvider("BatteryHorseCorrectStaple"),
-          bob: new EncryptingAuthProvider("BatteryHorseCorrectStaple"),
+          alice: encryptingAuthProvider("BatteryHorseCorrectStaple"),
+          bob: encryptingAuthProvider("BatteryHorseCorrectStaple"),
         })
 
         await expectPromises(
@@ -366,8 +322,8 @@ describe("AuthProvider", () => {
 
       it("doesn't sync if both peers don't use the same secret key", async () => {
         const { aliceRepo, bobRepo, aliceHandle, teardown } = await setup({
-          alice: new EncryptingAuthProvider("BatteryHorseCorrectStaple"),
-          bob: new EncryptingAuthProvider("asdfasdfasdfasdfadsf"),
+          alice: encryptingAuthProvider("BatteryHorseCorrectStaple"),
+          bob: encryptingAuthProvider("asdfasdfasdfasdfadsf"),
         })
 
         // one of these will throw an error, the other will hang

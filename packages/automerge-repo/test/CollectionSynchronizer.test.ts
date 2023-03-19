@@ -1,9 +1,8 @@
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
-import { ChannelId, DocCollection, PeerId } from "../src"
+import { AuthProvider, ChannelId, DocCollection, PeerId } from "../src"
 import assert from "assert"
 import { beforeEach } from "mocha"
 import { MessagePayload } from "../src/network/NetworkAdapter.js"
-import { DummyAuthProvider } from "./helpers/DummyAuthProvider.js"
 
 describe("CollectionSynchronizer", () => {
   let collection: DocCollection
@@ -46,8 +45,8 @@ describe("CollectionSynchronizer", () => {
   it("should not synchronize to a peer which is excluded from the share policy", done => {
     const handle = collection.create()
 
-    collection.authProvider = new DummyAuthProvider({
-      sharePolicy: async (peerId: PeerId) => peerId !== "peer1",
+    collection.authProvider = new AuthProvider({
+      okToAdvertise: async (peerId: PeerId) => peerId !== "peer1",
     })
 
     synchronizer.addDocument(handle.documentId).then(() => {
@@ -62,8 +61,8 @@ describe("CollectionSynchronizer", () => {
 
   it("should not synchronize a document which is excluded from the share policy", done => {
     const handle = collection.create()
-    collection.authProvider = new DummyAuthProvider({
-      sharePolicy: async (_, documentId) => documentId !== handle.documentId,
+    collection.authProvider = new AuthProvider({
+      okToAdvertise: async (_, documentId) => documentId !== handle.documentId,
     })
 
     synchronizer.addPeer("peer2" as PeerId)
