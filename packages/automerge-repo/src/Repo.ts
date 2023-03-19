@@ -75,7 +75,7 @@ export class Repo extends DocCollection {
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
     this.storageSubsystem = storageSubsystem
 
-    // NETWORK
+    // NETWORK & AUTH
     // The network subsystem deals with sending and receiving messages to and from peers.
 
     // The auth provider works by wrapping our network adapters. If we don't have an auth provider,
