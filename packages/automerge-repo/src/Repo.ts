@@ -9,6 +9,7 @@ import { ChannelId, PeerId } from "./types.js"
 import { AuthProvider } from "./auth/AuthProvider.js"
 
 import debug from "debug"
+import { AUTH_CHANNEL } from "./auth/AuthChannel"
 
 const SYNC_CHANNEL = "sync_channel" as ChannelId
 
@@ -109,7 +110,7 @@ export class Repo extends DocCollection {
         // Ephemeral message
         this.#log(`receiving ephemeral message from ${senderId}`)
         ephemeralData.receive(senderId, channelId, message)
-      } else if (channelId === "auth_channel") {
+      } else if (channelId === AUTH_CHANNEL) {
         // do nothing
       } else {
         // Sync message

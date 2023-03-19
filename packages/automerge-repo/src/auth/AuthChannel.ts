@@ -6,11 +6,11 @@ import {
 import type { ChannelId, PeerId } from "../types"
 import debug from "debug"
 
-const AUTH_CHANNEL = "auth_channel" as ChannelId
+export const AUTH_CHANNEL = "auth_channel" as ChannelId
 
 /**
- * An AuthChannel is a channel that is used to exchange authentication messages over a network adapter. It is created by
- * the AuthProvider.
+ * An AuthChannel is a channel that is used to exchange authentication messages over a network
+ * adapter. It is created by the AuthProvider.
  */
 export class AuthChannel extends EventEmitter<AuthChannelEvents> {
   #log: debug.Debugger

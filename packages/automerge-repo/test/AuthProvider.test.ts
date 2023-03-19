@@ -174,16 +174,16 @@ describe("AuthProvider", () => {
 
     describe("without network communication", () => {
       it("a maximally restrictive auth provider won't authenticate anyone", async () => {
-        class RestrictiveAuthProvider extends AuthProvider {
-          authenticate = async () => {
+        const restrictive = new AuthProvider({
+          authenticate: async () => {
             return {
               isValid: false,
               error: new Error("nope"),
             }
-          }
-        }
-
-        const restrictive = new RestrictiveAuthProvider()
+          },
+          okToAdvertise: async () => false,
+          okToSync: async () => false,
+        })
         const { bobRepo, aliceHandle, teardown } = await setup(restrictive)
 
         await pause(50)
