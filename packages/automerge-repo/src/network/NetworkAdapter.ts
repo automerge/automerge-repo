@@ -3,8 +3,7 @@ import { PeerId, ChannelId } from "../types.js"
 import { ErrorPayload } from "./NetworkSubsystem"
 
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
-  // TODO: is it safe to remove this?
-  peerId?: PeerId // hmmm, maybe not
+  peerId?: PeerId
 
   abstract connect(url?: string): void
 
