@@ -13,11 +13,13 @@ import { TestDoc } from "./types.js"
 describe("Repo", () => {
   describe("single repo", () => {
     const setup = () => {
+      const storageAdapter = new DummyStorageAdapter()
+
       const repo = new Repo({
-        storage: new DummyStorageAdapter(),
+        storage: storageAdapter,
         network: [new DummyNetworkAdapter()],
       })
-      return { repo }
+      return { repo, storageAdapter }
     }
 
     it("can instantiate a Repo", () => {
@@ -57,6 +59,29 @@ describe("Repo", () => {
 
       assert.equal(handle, bobHandle)
       assert.equal(handle.isReady(), true)
+
+      const v = await bobHandle.value()
+      assert.equal(v.foo, "bar")
+    })
+
+    it("saves the document when changed and can find it again", async () => {
+      const { repo, storageAdapter } = setup()
+      const handle = repo.create<TestDoc>()
+
+      handle.change(d => {
+        d.foo = "bar"
+      })
+
+      assert.equal(handle.isReady(), true)
+
+      await pause()
+
+      const repo2 = new Repo({
+        storage: storageAdapter,
+        network: [],
+      })
+
+      const bobHandle = repo2.find<TestDoc>(handle.documentId)
 
       const v = await bobHandle.value()
       assert.equal(v.foo, "bar")

@@ -30,15 +30,15 @@ export class Repo extends DocCollection {
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle }) => {
       if (storageSubsystem) {
-        // Try to load from disk
-        const binary = await storageSubsystem.loadBinary(handle.documentId)
-        handle.load(binary)
-
         // Save when the document changes
         handle.on("change", async ({ handle }) => {
           const doc = await handle.value()
           storageSubsystem.save(handle.documentId, doc)
         })
+
+        // Try to load from disk
+        const binary = await storageSubsystem.loadBinary(handle.documentId)
+        handle.load(binary)
       }
 
       // Advertise our interest in the document
