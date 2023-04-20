@@ -15,7 +15,7 @@
     "test": "mocha --no-warnings --experimental-specifier-resolution=node",
     "test:watch": "npm-watch test",
     "test:log": "cross-env DEBUG='automerge-repo:*' yarn test",
-    "fuzz": "ts-node fuzz/fuzz.js"
+    "fuzz": "ts-node --esm --experimentalSpecifierResolution=node fuzz/fuzz.ts"
   },
   "browser": {
     "crypto": false
