@@ -179,4 +179,16 @@ describe("DocHandle", () => {
     const doc = await handle.value()
     assert.equal(doc.foo, "bar")
   })
+
+  it("should emit a delete event when deleted", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+
+    const p = new Promise<void>(resolve =>
+      handle.once("delete", () => resolve())
+    )
+    handle.delete()
+    await p
+
+    assert.equal(handle.isDeleted(), true)
+  })
 })

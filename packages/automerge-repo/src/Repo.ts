@@ -49,6 +49,7 @@ export class Repo extends DocCollection {
     })
 
     this.on("delete-document", ({ documentId }) => {
+      // TODO Pass the delete on to the network
       // synchronizer.removeDocument(documentId)
 
       if (storageSubsystem) {

@@ -99,23 +99,27 @@ describe("Repo", () => {
       assert.equal(v.foo, "bar")
     })
 
-    it("can delete an existing document", async done => {
+    it("can delete an existing document", done => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
       assert.equal(handle.isReady(), true)
+      handle.value().then(async () => {
+        repo.delete(handle.documentId)
 
-      repo.delete(handle.documentId)
+        assert(handle.isDeleted())
 
-      const bobHandle = repo.find<TestDoc>(handle.documentId)
+        const bobHandle = repo.find<TestDoc>(handle.documentId)
+        bobHandle.value().then(() => {
+          done(new Error("Document should have been deleted"))
+        })
+        await pause(10)
 
-      bobHandle.value().then(() => {
-        done(new Error("Document should have been deleted"))
+        assert(!bobHandle.isReady())
+        done()
       })
-
-      await pause(500)
     })
 
     it("deleting a document emits an event", async done => {
