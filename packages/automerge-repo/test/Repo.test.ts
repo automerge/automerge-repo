@@ -47,6 +47,18 @@ describe("Repo", () => {
       assert.equal(v.foo, "bar")
     })
 
+    it("doesn't find a document that doesn't exist", async () => {
+      const { repo } = setup()
+      const handle = repo.find<TestDoc>("does-not-exist" as DocumentId)
+      assert.equal(handle.isReady(), false)
+
+      handle.value().then(() => {
+        throw new Error("This document should not exist")
+      })
+
+      await pause(500)
+    })
+
     it("can find a created document", async () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
