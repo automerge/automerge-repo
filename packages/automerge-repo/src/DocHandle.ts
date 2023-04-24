@@ -13,10 +13,10 @@ import {
   StateValue,
   TypegenDisabled,
 } from "xstate"
-import { waitFor } from "xstate/lib/waitFor"
-import { headsAreSame } from "./helpers/headsAreSame"
-import { pause } from "./helpers/pause"
-import { ChannelId, DocumentId, PeerId } from "./types"
+import { waitFor } from "xstate/lib/waitFor.js"
+import { headsAreSame } from "./helpers/headsAreSame.js"
+import { pause } from "./helpers/pause.js"
+import type { ChannelId, DocumentId, PeerId } from "./types.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
