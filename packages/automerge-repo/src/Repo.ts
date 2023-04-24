@@ -48,6 +48,14 @@ export class Repo extends DocCollection {
       synchronizer.addDocument(handle.documentId)
     })
 
+    this.on("delete-document", ({ documentId }) => {
+      // synchronizer.removeDocument(documentId)
+
+      if (storageSubsystem) {
+        storageSubsystem.remove(documentId)
+      }
+    })
+
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
 

@@ -74,6 +74,14 @@ export class StorageSubsystem {
     }
   }
 
+  remove(documentId: DocumentId) {
+    this.#storageAdapter.remove(`${documentId}.snapshot`)
+
+    for (let i = 0; i < this.#changeCount[documentId]; i++) {
+      this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
+    }
+  }
+
   // TODO: make this, you know, good.
   #shouldCompact(documentId: DocumentId) {
     return this.#changeCount[documentId] >= 20
