@@ -37,7 +37,7 @@ export class DocHandle<T> //
 
     // initial doc
     const doc = A.init<T>({
-      patchCallback: (patches, before, after) =>
+      patchCallback: (patches, { before, after }) =>
         this.emit("patch", { handle: this, patches, before, after }),
     })
 
