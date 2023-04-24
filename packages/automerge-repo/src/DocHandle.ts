@@ -70,6 +70,7 @@ export class DocHandle<T> //
                 // If we're accessing an existing document, we need to request it from storage
                 // and/or the network
                 FIND: { target: LOADING },
+                DELETE: { actions: "onDelete", target: DELETED },
               },
             },
             loading: {
@@ -78,21 +79,25 @@ export class DocHandle<T> //
                 LOAD: { actions: "onLoad", target: READY },
                 // REQUEST is called by the Repo if the document is not found in storage
                 REQUEST: { target: REQUESTING },
+                DELETE: { actions: "onDelete", target: DELETED },
               },
             },
             requesting: {
               on: {
                 // UPDATE is called by the Repo when we receive changes from the network
                 UPDATE: { actions: "onUpdate", target: READY },
+                DELETE: { actions: "onDelete", target: DELETED },
               },
             },
             ready: {
               on: {
                 // UPDATE is called by the Repo when we receive changes from the network
                 UPDATE: { actions: "onUpdate", target: READY },
+                DELETE: { actions: "onDelete", target: DELETED },
               },
             },
             error: {},
+            deleted: {},
           },
         },
 
@@ -116,6 +121,10 @@ export class DocHandle<T> //
               const docChanged = !headsAreSame(newDoc, oldDoc)
               if (docChanged) this.emit("change", { handle: this })
               return { doc: newDoc }
+            }),
+            onDelete: assign(() => {
+              this.emit("delete", { handle: this })
+              return { doc: undefined }
             }),
           },
         }
@@ -148,6 +157,8 @@ export class DocHandle<T> //
   // PUBLIC
 
   isReady = () => this.#state === READY
+
+  isDeleted = () => this.#state === DELETED
 
   /**
    * Returns the current document, waiting for the handle to be ready if necessary.
@@ -207,6 +218,11 @@ export class DocHandle<T> //
   request() {
     if (this.#state === LOADING) this.#machine.send(REQUEST)
   }
+
+  /** `delete` is called by the repo when the document is deleted */
+  delete() {
+    this.#machine.send(DELETE)
+  }
 }
 
 // WRAPPER CLASS TYPES
@@ -236,6 +252,7 @@ export interface DocHandlePatchPayload<T> {
 export interface DocHandleEvents<T> {
   change: (payload: DocHandleChangePayload<T>) => void
   patch: (payload: DocHandlePatchPayload<T>) => void
+  delete: (payload: DocHandleChangePayload<T>) => void
 }
 
 // STATE MACHINE TYPES
@@ -248,6 +265,7 @@ export const HandleState = {
   REQUESTING: "requesting",
   READY: "ready",
   ERROR: "error",
+  DELETED: "deleted",
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
@@ -274,6 +292,7 @@ export const Event = {
   REQUEST: "REQUEST",
   UPDATE: "UPDATE",
   TIMEOUT: "TIMEOUT",
+  DELETE: "DELETE",
 } as const
 type Event = (typeof Event)[keyof typeof Event]
 
@@ -281,6 +300,7 @@ type CreateEvent = { type: typeof CREATE; payload: { documentId: string } }
 type LoadEvent = { type: typeof LOAD; payload: { binary: Uint8Array } }
 type FindEvent = { type: typeof FIND; payload: { documentId: string } }
 type RequestEvent = { type: typeof REQUEST }
+type DeleteEvent = { type: typeof DELETE }
 type UpdateEvent<T> = {
   type: typeof UPDATE
   payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
@@ -294,6 +314,7 @@ type DocHandleEvent<T> =
   | RequestEvent
   | UpdateEvent<T>
   | TimeoutEvent
+  | DeleteEvent
 
 type DocHandleXstateMachine<T> = Interpreter<
   DocHandleContext<T>,
@@ -313,5 +334,5 @@ type DocHandleXstateMachine<T> = Interpreter<
 
 // CONSTANTS
 
-const { IDLE, LOADING, REQUESTING, READY, ERROR } = HandleState
-const { CREATE, LOAD, FIND, REQUEST, UPDATE, TIMEOUT } = Event
+const { IDLE, LOADING, REQUESTING, READY, ERROR, DELETED } = HandleState
+const { CREATE, LOAD, FIND, REQUEST, UPDATE, TIMEOUT, DELETE } = Event

@@ -100,8 +100,10 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     /** The documentId of the handle to delete */
     documentId: DocumentId
   ) {
-    delete this.#handleCache[documentId]
+    const handle = this.#getHandle(documentId, false)
+    handle.delete()
 
+    delete this.#handleCache[documentId]
     this.emit("delete-document", { documentId })
   }
 }
