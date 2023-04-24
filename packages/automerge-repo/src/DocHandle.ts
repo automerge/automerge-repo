@@ -181,7 +181,9 @@ export class DocHandle<T> //
 
   /** `load` is called by the repo when the document is found in storage */
   load(binary: Uint8Array) {
-    this.#machine.send(LOAD, { payload: { binary } })
+    if (binary.length) {
+      this.#machine.send(LOAD, { payload: { binary } })
+    }
   }
 
   /** `update` is called by the repo when we receive changes from the network */
