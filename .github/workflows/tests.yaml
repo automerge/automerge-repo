@@ -4,10 +4,12 @@ on:
     branches:
       - main
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, review_requested]
     branches:
       - main
 jobs:
   run-tests:
+    if: github.event.pull_request.draft == false
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
@@ -21,7 +23,7 @@ jobs:
           ref: ${{ github.ref }}
       - name: Install and Build
         run: |
-          yarn install
+          yarn install --no-lockfile
           lerna link --force-local
           yarn build
       - name: Run Tests
