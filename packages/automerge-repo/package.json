@@ -12,7 +12,7 @@
     "build": "tsc",
     "watch": "npm-watch build",
     "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text yarn test",
-    "test": "mocha --no-warnings --experimental-specifier-resolution=node",
+    "test": "mocha --no-warnings --experimental-specifier-resolution=node --exit",
     "test:watch": "npm-watch test",
     "test:log": "cross-env DEBUG='automerge-repo:*' yarn test",
     "fuzz": "ts-node --esm --experimentalSpecifierResolution=node fuzz/fuzz.ts"
