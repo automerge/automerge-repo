@@ -1,6 +1,8 @@
-import { expect } from "chai"
-import { ChannelId, PeerId } from "automerge-repo"
+import { assert, expect } from "chai"
+import { ChannelId, PeerId, Repo } from "automerge-repo"
 import { MessageChannelNetworkAdapter } from "../src"
+import { eventPromise } from "automerge-repo/src/helpers/eventPromise"
+import { pause } from "automerge-repo/src/helpers/pause"
 
 describe("MessageChannel", () => {
   it("sends message", async () => {
@@ -25,6 +27,37 @@ describe("MessageChannel", () => {
     aliceAdapter.sendMessage(bob, channel, message, false)
     alicePort.close()
     bobPort.close()
+  })
+
+  it("can sync a document from one repo to another", async () => {
+    const aliceBobChannel = new MessageChannel()
+
+    const { port1: aliceToCharlie, port2: charlieToAlice } = aliceBobChannel
+
+    const aliceRepo = new Repo({
+      network: [new MessageChannelNetworkAdapter(aliceToCharlie)],
+      peerId: "alice" as PeerId,
+    })
+
+    const charlieRepo = new Repo({
+      network: [new MessageChannelNetworkAdapter(charlieToAlice)],
+      peerId: "charlie" as PeerId,
+    })
+
+    const p = eventPromise(charlieRepo, "document")
+
+    const handle = aliceRepo.create<{ foo: string }>()
+    handle.change(d => {
+      d.foo = "bar"
+    })
+
+    await p
+
+    const charlieHandle = charlieRepo.find<{ foo: string }>(handle.documentId)
+    await eventPromise(charlieHandle, "change")
+    const v = await charlieHandle.value()
+
+    assert.equal(v.foo, "bar")
   })
 })
 
