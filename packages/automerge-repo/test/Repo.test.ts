@@ -56,7 +56,7 @@ describe("Repo", () => {
         throw new Error("This document should not exist")
       })
 
-      await pause(500)
+      await pause(100)
     })
 
     it("can find a created document", async () => {
@@ -97,6 +97,47 @@ describe("Repo", () => {
 
       const v = await bobHandle.value()
       assert.equal(v.foo, "bar")
+    })
+
+    it("can delete an existing document", done => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert.equal(handle.isReady(), true)
+      handle.value().then(async () => {
+        repo.delete(handle.documentId)
+
+        assert(handle.isDeleted())
+        assert.equal(repo.handles[handle.documentId], undefined)
+
+        const bobHandle = repo.find<TestDoc>(handle.documentId)
+        bobHandle.value().then(() => {
+          done(new Error("Document should have been deleted"))
+        })
+        await pause(10)
+
+        assert(!bobHandle.isReady())
+        done()
+      })
+    })
+
+    it("deleting a document emits an event", async done => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert.equal(handle.isReady(), true)
+
+      repo.on("delete-document", ({ documentId }) => {
+        assert.equal(documentId, handle.documentId)
+
+        done()
+      })
+
+      repo.delete(handle.documentId)
     })
   })
 
@@ -207,6 +248,28 @@ describe("Repo", () => {
       assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
       assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
       assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+
+      teardown()
+    })
+
+    it("a deleted document from charlieRepo can be refetched", async () => {
+      const { charlieRepo, aliceHandle, teardown } = await setup()
+
+      const deletePromise = eventPromise(charlieRepo, "delete-document")
+      charlieRepo.delete(aliceHandle.documentId)
+      await deletePromise
+
+      const changePromise = eventPromise(aliceHandle, "change")
+      aliceHandle.change(d => {
+        d.foo = "baz"
+      })
+      await changePromise
+
+      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
+      await eventPromise(handle3, "change")
+      const doc3 = await handle3.value()
+
+      assert.deepStrictEqual(doc3, { foo: "baz" })
 
       teardown()
     })
