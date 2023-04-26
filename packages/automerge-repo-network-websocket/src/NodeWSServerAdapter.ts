@@ -90,8 +90,17 @@ export class NodeWSServerAdapter extends NetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {
-    const cbor = CBOR.decode(message)
-    const { type, channelId, senderId, targetId, data, broadcast } = cbor
+    const cbor: InboundMessagePayload = CBOR.decode(message)
+
+    const {
+      type,
+      channelId,
+      senderId,
+      targetId,
+      message: data,
+      broadcast,
+    } = cbor
+
     const myPeerId = this.peerId
     if (!myPeerId) {
       throw new Error("Missing my peer ID.")
