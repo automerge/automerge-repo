@@ -37,8 +37,16 @@ export class DocHandle<T> //
 
     // initial doc
     const doc = A.init<T>({
-      patchCallback: (patches, { before, after }) =>
-        this.emit("patch", { handle: this, patches, before, after }),
+      patchCallback: (patches, { before, after }) => {
+        this.emit("patch", { handle: this, patches, before, after })
+
+        this.emit("change", {
+          handle: this,
+          after,
+          patches,
+          before,
+        })
+      },
     })
 
     /**
@@ -120,12 +128,8 @@ export class DocHandle<T> //
               const { callback } = payload
               const newDoc = callback(oldDoc)
 
-              const docChanged = !headsAreSame(newDoc, oldDoc)
-              if (docChanged) {
-                this.emit("change", { handle: this })
-                if (!this.isReady()) {
-                  this.#machine.send(REQUEST_COMPLETE)
-                }
+              if (!this.isReady() && !headsAreSame(newDoc, oldDoc)) {
+                this.#machine.send(REQUEST_COMPLETE)
               }
               return { doc: newDoc }
             }),
@@ -247,6 +251,13 @@ export interface DocHandleMessagePayload {
 
 export interface DocHandleChangePayload<T> {
   handle: DocHandle<T>
+  patches: A.Patch[]
+  before: A.Doc<T>
+  after: A.Doc<T>
+}
+
+export interface DocHandleDeletePayload<T> {
+  handle: DocHandle<T>
 }
 
 export interface DocHandlePatchPayload<T> {
@@ -258,8 +269,11 @@ export interface DocHandlePatchPayload<T> {
 
 export interface DocHandleEvents<T> {
   change: (payload: DocHandleChangePayload<T>) => void
+  /**
+   * @deprecated
+   */
   patch: (payload: DocHandlePatchPayload<T>) => void
-  delete: (payload: DocHandleChangePayload<T>) => void
+  delete: (payload: DocHandleDeletePayload<T>) => void
 }
 
 // STATE MACHINE TYPES
