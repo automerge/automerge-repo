@@ -110,7 +110,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       senderId: this.peerId,
       targetId,
       channelId,
-      // type: "message",
+      type: "message",
       message,
       broadcast,
     }
@@ -140,9 +140,8 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array) {
-    const decoded = CBOR.decode(
-      new Uint8Array(message)
-    ) as InboundMessagePayload
+    const decoded: InboundMessagePayload = CBOR.decode(new Uint8Array(message))
+
     const {
       type,
       senderId,
