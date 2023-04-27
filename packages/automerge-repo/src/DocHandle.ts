@@ -85,7 +85,9 @@ export class DocHandle<T> //
             requesting: {
               on: {
                 // UPDATE is called by the Repo when we receive changes from the network
-                UPDATE: { actions: "onUpdate", target: READY },
+                UPDATE: { actions: "onUpdate" },
+                // REQUEST_COMPLETE is called from `onUpdate` when the doc has been fully loaded from the network
+                REQUEST_COMPLETE: { target: READY },
                 DELETE: { actions: "onDelete", target: DELETED },
               },
             },
@@ -119,7 +121,12 @@ export class DocHandle<T> //
               const newDoc = callback(oldDoc)
 
               const docChanged = !headsAreSame(newDoc, oldDoc)
-              if (docChanged) this.emit("change", { handle: this })
+              if (docChanged) {
+                this.emit("change", { handle: this })
+                if (!this.isReady()) {
+                  this.#machine.send(REQUEST_COMPLETE)
+                }
+              }
               return { doc: newDoc }
             }),
             onDelete: assign(() => {
@@ -290,6 +297,7 @@ export const Event = {
   LOAD: "LOAD",
   FIND: "FIND",
   REQUEST: "REQUEST",
+  REQUEST_COMPLETE: "REQUEST_COMPLETE",
   UPDATE: "UPDATE",
   TIMEOUT: "TIMEOUT",
   DELETE: "DELETE",
@@ -300,6 +308,7 @@ type CreateEvent = { type: typeof CREATE; payload: { documentId: string } }
 type LoadEvent = { type: typeof LOAD; payload: { binary: Uint8Array } }
 type FindEvent = { type: typeof FIND; payload: { documentId: string } }
 type RequestEvent = { type: typeof REQUEST }
+type RequestCompleteEvent = { type: typeof REQUEST_COMPLETE }
 type DeleteEvent = { type: typeof DELETE }
 type UpdateEvent<T> = {
   type: typeof UPDATE
@@ -312,6 +321,7 @@ type DocHandleEvent<T> =
   | LoadEvent
   | FindEvent
   | RequestEvent
+  | RequestCompleteEvent
   | UpdateEvent<T>
   | TimeoutEvent
   | DeleteEvent
@@ -335,4 +345,13 @@ type DocHandleXstateMachine<T> = Interpreter<
 // CONSTANTS
 
 const { IDLE, LOADING, REQUESTING, READY, ERROR, DELETED } = HandleState
-const { CREATE, LOAD, FIND, REQUEST, UPDATE, TIMEOUT, DELETE } = Event
+const {
+  CREATE,
+  LOAD,
+  FIND,
+  REQUEST,
+  UPDATE,
+  TIMEOUT,
+  DELETE,
+  REQUEST_COMPLETE,
+} = Event

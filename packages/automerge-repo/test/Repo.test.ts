@@ -151,13 +151,21 @@ describe("Repo", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-      const excludedDocuments: DocumentId[] = []
+      const charlieExcludedDocuments: DocumentId[] = []
+      const bobExcludedDocuments: DocumentId[] = []
 
       const sharePolicy: SharePolicy = async (peerId, documentId) => {
         if (documentId === undefined) return false
 
         // make sure that charlie never gets excluded documents
-        if (excludedDocuments.includes(documentId) && peerId === "charlie")
+        if (
+          charlieExcludedDocuments.includes(documentId) &&
+          peerId === "charlie"
+        )
+          return false
+
+        // make sure that charlie never gets excluded documents
+        if (bobExcludedDocuments.includes(documentId) && peerId === "bob")
           return false
 
         return true
@@ -190,9 +198,16 @@ describe("Repo", () => {
 
       const notForCharlieHandle = aliceRepo.create<TestDoc>()
       const notForCharlie = notForCharlieHandle.documentId
-      excludedDocuments.push(notForCharlie)
+      charlieExcludedDocuments.push(notForCharlie)
       notForCharlieHandle.change(d => {
         d.foo = "baz"
+      })
+
+      const notForBobHandle = aliceRepo.create<TestDoc>()
+      const notForBob = notForBobHandle.documentId
+      bobExcludedDocuments.push(notForBob)
+      notForBobHandle.change(d => {
+        d.foo = "bap"
       })
 
       await Promise.all([
@@ -212,6 +227,7 @@ describe("Repo", () => {
         charlieRepo,
         aliceHandle,
         notForCharlie,
+        notForBob,
         teardown,
       }
     }
@@ -250,6 +266,39 @@ describe("Repo", () => {
       assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
 
       teardown()
+    })
+
+    it("charlieRepo can request a document not initially shared with it", async () => {
+      const { charlieRepo, notForCharlie, teardown } = await setup()
+
+      const handle = charlieRepo.find<TestDoc>(notForCharlie)
+      const doc = await handle.value()
+
+      assert.deepStrictEqual(doc, { foo: "baz" })
+
+      teardown()
+    })
+
+    it("charlieRepo can request a document across a network of multiple peers", async () => {
+      const { charlieRepo, notForBob, teardown } = await setup()
+
+      const handle = charlieRepo.find<TestDoc>(notForBob)
+      const doc = await handle.value()
+      assert.deepStrictEqual(doc, { foo: "bap" })
+
+      teardown()
+    })
+
+    it("doesn't find a document which doesn't exist anywhere on the network", async () => {
+      const { charlieRepo } = await setup()
+      const handle = charlieRepo.find<TestDoc>("does-not-exist" as DocumentId)
+      assert.equal(handle.isReady(), false)
+
+      handle.value().then(() => {
+        throw new Error("This document should not exist")
+      })
+
+      await pause(100)
     })
 
     it("a deleted document from charlieRepo can be refetched", async () => {
