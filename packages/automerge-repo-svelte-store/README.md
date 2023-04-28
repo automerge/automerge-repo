@@ -14,7 +14,7 @@ For a working example, see the [Svelte counter demo](../automerge-repo-demo-coun
 
   const repo = new Repo({ /* repo config */ })
 
-  // Make the `Repo` available to child components (via Svelte's `setContext`). 
+  // Make the `Repo` available to child components (via Svelte's `setContext`).
   setContextRepo(repo)
 
   const docId = repo.create()
