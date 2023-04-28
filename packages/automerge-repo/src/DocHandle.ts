@@ -210,7 +210,10 @@ export class DocHandle<T> //
   }
 
   /** `change` is called by the repo when the document is changed locally  */
-  async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+  async change(
+    callback: A.ChangeFn<T>,
+    options: DocHandleChangeOptions<T> = {}
+  ) {
     if (this.#state === LOADING) throw new Error("Cannot change while loading")
     this.#machine.send(UPDATE, {
       payload: {
@@ -231,6 +234,8 @@ export class DocHandle<T> //
     this.#machine.send(DELETE)
   }
 }
+
+type DocHandleChangeOptions<T> = Omit<A.ChangeOptions<T>, "patchCallback">
 
 // WRAPPER CLASS TYPES
 
