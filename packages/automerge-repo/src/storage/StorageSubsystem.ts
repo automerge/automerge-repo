@@ -63,7 +63,9 @@ export class StorageSubsystem {
     documentId: DocumentId,
     prevDoc: A.Doc<T> = A.init<T>()
   ): Promise<A.Doc<T>> {
-    return A.loadIncremental(prevDoc, await this.loadBinary(documentId))
+    const doc = A.loadIncremental(prevDoc, await this.loadBinary(documentId))
+    A.saveIncremental(doc)
+    return doc
   }
 
   save(documentId: DocumentId, doc: A.Doc<unknown>) {
