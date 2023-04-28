@@ -9,12 +9,23 @@ This is a monorepo containing the following packages:
 - [automerge-repo](/packages/automerge-repo/): The core library. Handles dispatch of events and
   provides shared functionality such as deciding which peers to connect to or when to write data out
   to storage.
-- [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter/): A React-based demonstration
-  application.
-- [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
-  React.
 - [automerge-repo-sync-server](/packages/automerge-repo-sync-server/): A small synchronization
   server that facilitates asynchronous communication between peers
+
+#### Demos
+
+- [automerge-repo-demo-todo](/packages/automerge-repo-demo-todo/): A React-based to-do list.
+- [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter/): A React-based demonstration
+  application.
+- [automerge-repo-demo-counter-svelte](/packages/automerge-repo-demo-counter-svelte/): A Svelte-based
+  example project.
+
+#### Front-end adapters
+
+- [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
+  React.
+- [automerge-repo-svelte-store](/packages/automerge-repo-svelte-store/): A custom store for use with
+  Svelte.
 
 #### Storage adapters
 
