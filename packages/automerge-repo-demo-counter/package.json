@@ -8,7 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.0.1-alpha.2",
+    "@automerge/automerge": "^2.0.3",
     "automerge-repo": "^0.0.50",
     "automerge-repo-network-broadcastchannel": "^0.0.50",
     "automerge-repo-network-websocket": "^0.0.50",
