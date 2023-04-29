@@ -1,0 +1,27 @@
+{
+  "name": "automerge-repo-svelte-store",
+  "version": "0.0.50",
+  "description": "A Svelte store containing your automerge documentsj",
+  "repository": "https://github.com/pvh/automerge-repo",
+  "author": "Dylan MacKenzie <ecstaticmorse@gmail.com",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "npm-watch"
+  },
+  "dependencies": {
+    "automerge-repo": "0.0.50",
+    "svelte": "^3.0.0"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
+  }
+}
