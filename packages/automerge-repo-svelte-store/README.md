@@ -1,4 +1,4 @@
-# Svelte store for Automrege Repo
+# Svelte store for Automerge Repo
 
 ## Example Usage
 
@@ -30,7 +30,7 @@ For a working example, see the [Svelte counter demo](../automerge-repo-demo-coun
 `Counter.svelte`
 
 ```svelte
-<script lang="ts>
+<script lang="ts">
   import type { DocumentId } from "automerge-repo"
   import { document } from "automerge-repo-svelte-store"
 
@@ -47,3 +47,6 @@ For a working example, see the [Svelte counter demo](../automerge-repo-demo-coun
   count is {$doc?.count || 0}
 </button>
 ```
+
+## Contributers
+Originally written by Dylan MacKenzie ([@ecstatic-morse](https://github.com/ecstatic-morse)).
