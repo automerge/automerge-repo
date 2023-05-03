@@ -9,6 +9,7 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
+import shuffle from "lodash.shuffle"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -41,6 +42,15 @@ describe("Repo", () => {
       handle.change(d => {
         d.foo = "bar"
       })
+      const v = await handle.value()
+      assert.equal(handle.isReady(), true)
+
+      assert.equal(v.foo, "bar")
+    })
+
+    it("can create a document with an initial schema", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>({ schema: { foo: "bar" } })
       const v = await handle.value()
       assert.equal(handle.isReady(), true)
 
@@ -360,6 +370,126 @@ describe("Repo", () => {
       await pause(500)
 
       teardown()
+    })
+  })
+
+  describe("sync pair", async () => {
+    let aliceRepo: Repo
+    let bobRepo: Repo
+    let aliceBobChannel: MessageChannel
+
+    beforeEach(() => {
+      aliceBobChannel = new MessageChannel()
+      const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
+
+      aliceRepo = new Repo({
+        network: [new MessageChannelNetworkAdapter(aliceToBob)],
+        peerId: "alice" as PeerId,
+      })
+
+      bobRepo = new Repo({
+        network: [new MessageChannelNetworkAdapter(bobToAlice)],
+        peerId: "bob" as PeerId,
+      })
+    })
+
+    afterEach(() => {
+      aliceBobChannel.port1.close()
+      aliceBobChannel.port2.close()
+    })
+
+    it("can sync a document with a simple initial schema", async () => {
+      type D = { things: string[] }
+      const sharedDocId = "d" as DocumentId
+      const aliceDoc = aliceRepo.create<D>({
+        schema: { things: [] },
+        documentId: sharedDocId,
+      })
+      const bobDoc = bobRepo.create<D>({
+        schema: { things: [] },
+        documentId: sharedDocId,
+      })
+      await Promise.all([
+        aliceDoc.change(d => {
+          d.things.push("alice")
+        }),
+        bobDoc.change(d => {
+          d.things.push("bob")
+        }),
+      ])
+
+      // HACK: yield to give repos time to sync
+      await pause(50)
+
+      const [aliceVal, bobVal] = await Promise.all([
+        aliceDoc.value(),
+        bobDoc.value(),
+      ])
+
+      assert.deepStrictEqual(
+        aliceVal,
+        bobVal,
+        "documents out of sync (pause too short?)",
+      )
+      assert.deepStrictEqual([...aliceVal.things].sort(), ["alice", "bob"])
+    })
+
+    it("can sync a document with a complex initial schema", async () => {
+      enum Fields {
+        A = "a",
+        B = "b",
+        C = "c",
+        D = "d",
+        E = "e",
+        F = "f",
+        G = "g",
+        H = "h",
+      }
+      type D = Record<Fields, Record<Fields, string[]>>
+
+      // Shuffle the fields to ensure we can still merge regardless of object
+      // property insertion order (which determines iteration order).
+      function mk<T>(v: () => T): Record<Fields, T> {
+        const fields = Object.values(Fields).map(f => [f, v()])
+        shuffle(fields)
+        return Object.fromEntries(fields) as Record<Fields, T>
+      }
+
+      const sharedDocId = "d" as DocumentId
+      const aliceDoc = aliceRepo.create<D>({
+        schema: mk(() => mk(() => [])),
+        documentId: sharedDocId,
+      })
+      const bobDoc = bobRepo.create<D>({
+        schema: mk(() => mk(() => [])),
+        documentId: sharedDocId,
+      })
+      await Promise.all([
+        aliceDoc.change(d => {
+          d.f.g.push("alice.f.g")
+          d.a.c.push("alice.a.c")
+        }),
+        bobDoc.change(d => {
+          d.f.g.push("bob.f.g")
+          d.a.c.push("bob.a.c")
+        }),
+      ])
+
+      // HACK: yield to give repos time to sync
+      await pause(50)
+
+      const [aliceVal, bobVal] = await Promise.all([
+        aliceDoc.value(),
+        bobDoc.value(),
+      ])
+
+      assert.deepStrictEqual(
+        aliceVal,
+        bobVal,
+        "documents out of sync (pause too short?)",
+      )
+      assert.deepStrictEqual([...aliceVal.a.c].sort(), ["alice.a.c", "bob.a.c"])
+      assert.deepStrictEqual([...aliceVal.f.g].sort(), ["alice.f.g", "bob.f.g"])
     })
   })
 })
