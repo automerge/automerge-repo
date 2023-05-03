@@ -26,7 +26,9 @@
     "@types/ws": "^8.5.3",
     "@typescript-eslint/eslint-plugin": "^5.33.0",
     "@typescript-eslint/parser": "^5.33.0",
-    "http-server": "^14.1.0"
+    "@types/lodash.shuffle": "^4.2.7",
+    "http-server": "^14.1.0",
+    "lodash.shuffle": "^4.2.0"
   },
   "peerDependencies": {
     "@automerge/automerge": "^2.0.3"
