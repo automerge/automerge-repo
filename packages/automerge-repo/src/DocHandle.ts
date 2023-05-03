@@ -26,12 +26,18 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
+  #schema?: T
 
   constructor(
     public documentId: DocumentId,
-    { isNew = false, timeoutDelay = 700000 }: DocHandleOptions = {}
+    {
+      isNew = false,
+      schema,
+      timeoutDelay = 700000,
+    }: DocHandleOptions<T> = {},
   ) {
     super()
+    this.#schema = schema
     this.#timeoutDelay = timeoutDelay
     this.#log = debug(`automerge-repo:dochandle:${documentId.slice(0, 5)}`)
 
@@ -66,7 +72,7 @@ export class DocHandle<T> //
             idle: {
               on: {
                 // If we're creating a new document, we don't need to load anything
-                CREATE: { target: READY },
+                CREATE: { actions: "onCreate", target: READY },
                 // If we're accessing an existing document, we need to request it from storage
                 // and/or the network
                 FIND: { target: LOADING },
@@ -105,6 +111,25 @@ export class DocHandle<T> //
 
         {
           actions: {
+            onCreate: assign((context, { payload }: CreateEvent) => {
+              const schema = this.#schema
+              if (schema == null) return context
+
+              // Use the trick described in https://automerge.org/docs/cookbook/modeling-data/#setting-up-an-initial-document-structure
+              // to set up in the initial document structure in such a way that two documents in two separate repos can still be merged.
+              const { doc } = context
+              const schemaDoc = A.change(
+                A.init<T>({ actor: "deadbeef" }),
+                { time: 0 },
+                d => {
+                  // Currently the root proxy is always an object
+                  deepAssignStable(d as object, schema)
+                },
+              )
+              const initChange = A.getLastLocalChange(schemaDoc)!
+              const [newDoc] = A.applyChanges(doc, [initChange])
+              return { doc: newDoc }
+            }),
             /** Apply the binary changes from storage and put the updated doc on context */
             onLoad: assign((context, { payload }: LoadEvent) => {
               const { binary } = payload
@@ -234,8 +259,10 @@ export class DocHandle<T> //
 
 // WRAPPER CLASS TYPES
 
-interface DocHandleOptions {
+export interface DocHandleOptions<T> {
+  /** If we know we're creating a new document, specify this so we can have access to it immediately */
   isNew?: boolean
+  schema?: T & object
   timeoutDelay?: number
 }
 
@@ -355,3 +382,54 @@ const {
   DELETE,
   REQUEST_COMPLETE,
 } = Event
+
+/**
+ * Recursively copies all *string* properties from `src` into `targ`, ensuring that each
+ * assignment into `targ` happens in a fixed order.
+ *
+ * Specifically, if `assert.deepEqual(src1, src2)` is true, then two calls to
+ * `deepAssignStable` with `src1` and `src2` as arguments will result in
+ * the same order of assignments to the target object. This might not be true for
+ * off-the-shelf `deepMerge` implementations, since object property iteration
+ * may differ for two otherwise equal objects.
+ *
+ * @param targ The target object, typically a proxy object from `Automerge.change`
+ * @param src The source object
+ */
+function deepAssignStable(targ: object, src: object) {
+  // Sort the object properties lexigraphically, otherwise the order depends on
+  // how `src` was constructed.
+  for (const p of Object.getOwnPropertyNames(src).sort()) {
+    deepAssignStable_(targ, src, p, [src])
+  }
+}
+
+function deepAssignStable_(
+  targ: any,
+  src: any,
+  p: string | number,
+  stack: any[],
+) {
+  const tmp = src[p]
+  if (tmp === undefined) return
+  if (stack.includes(tmp))
+    throw new Error("Tried to deep assign recursive object")
+
+  if (tmp instanceof Array) {
+    targ[p] = []
+
+    // No need to sort here, `keys` are always monotonically increasing.
+    for (const i of tmp.keys()) {
+      deepAssignStable_(targ[p], tmp, i, [...stack, tmp])
+    }
+  } else if (tmp instanceof Object) {
+    targ[p] = {}
+
+    // Sort the object properties, same as above.
+    for (const q of Object.getOwnPropertyNames(tmp).sort()) {
+      deepAssignStable_(targ[p], tmp, q, [...stack, tmp])
+    }
+  } else {
+    targ[p] = tmp
+  }
+}
