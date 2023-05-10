@@ -20,7 +20,7 @@ export class CollectionSynchronizer extends Synchronizer {
   }
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
-  async #fetchDocSynchronizer(documentId: DocumentId) {
+  #fetchDocSynchronizer(documentId: DocumentId) {
     if (!this.#docSynchronizers[documentId]) {
       const handle = this.repo.find(documentId)
       this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
@@ -62,7 +62,7 @@ export class CollectionSynchronizer extends Synchronizer {
     const documentId = channelId as unknown as DocumentId
     const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
 
-    docSynchronizer.receiveSyncMessage(peerId, channelId, message)
+    await docSynchronizer.receiveSyncMessage(peerId, channelId, message)
 
     // Initiate sync with any new peers
     const peers = await this.#documentGenerousPeers(documentId)
@@ -74,11 +74,12 @@ export class CollectionSynchronizer extends Synchronizer {
   /**
    * Starts synchronizing the given document with all peers that we share it generously with.
    */
-  async addDocument(documentId: DocumentId) {
-    const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
-    const peers = await this.#documentGenerousPeers(documentId)
-    peers.forEach(peerId => {
-      docSynchronizer.beginSync(peerId)
+  addDocument(documentId: DocumentId) {
+    const docSynchronizer = this.#fetchDocSynchronizer(documentId)
+    void this.#documentGenerousPeers(documentId).then(peers => {
+      peers.forEach(peerId => {
+        docSynchronizer.beginSync(peerId)
+      })
     })
   }
 
@@ -88,13 +89,14 @@ export class CollectionSynchronizer extends Synchronizer {
   }
 
   /** Adds a peer and maybe starts synchronizing with them */
-  async addPeer(peerId: PeerId) {
+  addPeer(peerId: PeerId) {
     log(`adding ${peerId} & synchronizing with them`)
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
-      const okToShare = await this.repo.sharePolicy(peerId, documentId)
-      if (okToShare) docSynchronizer.beginSync(peerId)
+      void this.repo.sharePolicy(peerId, documentId).then(okToShare => {
+        if (okToShare) docSynchronizer.beginSync(peerId)
+      })
     }
   }
 

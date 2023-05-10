@@ -45,7 +45,7 @@ export class Repo extends DocCollection {
       handle.request()
 
       // Register the document with the synchronizer
-      synchronizer.addDocument(handle.documentId)
+      await synchronizer.addDocument(handle.documentId)
     })
 
     this.on("delete-document", ({ documentId }) => {
@@ -84,9 +84,9 @@ export class Repo extends DocCollection {
     this.networkSubsystem = networkSubsystem
 
     // When we get a new peer, register it with the synchronizer
-    networkSubsystem.on("peer", ({ peerId }) => {
+    networkSubsystem.on("peer", async ({ peerId }) => {
       this.#log("peer connected", { peerId })
-      synchronizer.addPeer(peerId)
+      await synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
@@ -95,7 +95,7 @@ export class Repo extends DocCollection {
     })
 
     // Handle incoming messages
-    networkSubsystem.on("message", msg => {
+    networkSubsystem.on("message", async msg => {
       const { senderId, channelId, message } = msg
 
       // TODO: this demands a more principled way of associating channels with recipients
@@ -108,7 +108,7 @@ export class Repo extends DocCollection {
       } else {
         // Sync message
         this.#log(`receiving sync message from ${senderId}`)
-        synchronizer.receiveSyncMessage(senderId, channelId, message)
+        await synchronizer.receiveSyncMessage(senderId, channelId, message)
       }
     })
 

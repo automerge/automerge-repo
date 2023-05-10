@@ -199,7 +199,7 @@ describe("DocHandle", () => {
     await pause(10)
 
     // so it should time out
-    assert.rejects(handle.value, "DocHandle timed out")
+    return assert.rejects(handle.value, "DocHandle timed out")
   })
 
   it("should not time out if the document is loaded in time", async () => {
@@ -225,7 +225,7 @@ describe("DocHandle", () => {
     await pause(10)
 
     // so it should time out
-    assert.rejects(handle.value, "DocHandle timed out")
+    return assert.rejects(handle.value, "DocHandle timed out")
   })
 
   it("should not time out if the document is updated in time", async () => {
