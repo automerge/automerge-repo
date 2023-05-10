@@ -3,7 +3,7 @@ import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechan
 
 import { ChannelId, DocHandle, DocumentId, PeerId, SharePolicy } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
-import { pause } from "../src/helpers/pause.js"
+import { pause, rejectOnTimeout } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
@@ -52,11 +52,10 @@ describe("Repo", () => {
       const handle = repo.find<TestDoc>("does-not-exist" as DocumentId)
       assert.equal(handle.isReady(), false)
 
-      handle.value().then(() => {
-        throw new Error("This document should not exist")
-      })
-
-      await pause(100)
+      return assert.rejects(
+        rejectOnTimeout(handle.value(), 100),
+        "This document should not exist"
+      )
     })
 
     it("can find a created document", async () => {
@@ -99,28 +98,26 @@ describe("Repo", () => {
       assert.equal(v.foo, "bar")
     })
 
-    it("can delete an existing document", done => {
+    it("can delete an existing document", async () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
       assert.equal(handle.isReady(), true)
-      handle.value().then(async () => {
-        repo.delete(handle.documentId)
+      await handle.value()
+      repo.delete(handle.documentId)
 
-        assert(handle.isDeleted())
-        assert.equal(repo.handles[handle.documentId], undefined)
+      assert(handle.isDeleted())
+      assert.equal(repo.handles[handle.documentId], undefined)
 
-        const bobHandle = repo.find<TestDoc>(handle.documentId)
-        bobHandle.value().then(() => {
-          done(new Error("Document should have been deleted"))
-        })
-        await pause(10)
+      const bobHandle = repo.find<TestDoc>(handle.documentId)
+      await assert.rejects(
+        rejectOnTimeout(bobHandle.value(), 10),
+        "document should have been deleted"
+      )
 
-        assert(!bobHandle.isReady())
-        done()
-      })
+      assert(!bobHandle.isReady())
     })
 
     it("deleting a document emits an event", async done => {
@@ -294,11 +291,10 @@ describe("Repo", () => {
       const handle = charlieRepo.find<TestDoc>("does-not-exist" as DocumentId)
       assert.equal(handle.isReady(), false)
 
-      handle.value().then(() => {
-        throw new Error("This document should not exist")
-      })
-
-      await pause(100)
+      return assert.rejects(
+        rejectOnTimeout(handle.value(), 100),
+        "This document should not exist"
+      )
     })
 
     it("a deleted document from charlieRepo can be refetched", async () => {

@@ -210,7 +210,7 @@ export class DocHandle<T> //
   }
 
   /** `change` is called by the repo when the document is changed locally  */
-  async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+  change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (this.#state === LOADING) throw new Error("Cannot change while loading")
     this.#machine.send(UPDATE, {
       payload: {

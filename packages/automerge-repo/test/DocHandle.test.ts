@@ -49,7 +49,7 @@ describe("DocHandle", () => {
 
     // can't make changes in LOADING state
     assert.equal(handle.isReady(), false)
-    assert.rejects(() => handle.change(d => (d.foo = "baz")))
+    assert.throws(() => handle.change(d => (d.foo = "baz")))
 
     // simulate loading from storage
     handle.load(binaryFromMockStorage())
@@ -134,7 +134,7 @@ describe("DocHandle", () => {
     await pause(10)
 
     // so it should time out
-    assert.rejects(handle.value, "DocHandle timed out")
+    return assert.rejects(handle.value, "DocHandle timed out")
   })
 
   it("should not time out if the document is loaded in time", async () => {
@@ -160,7 +160,7 @@ describe("DocHandle", () => {
     await pause(10)
 
     // so it should time out
-    assert.rejects(handle.value, "DocHandle timed out")
+    return assert.rejects(handle.value, "DocHandle timed out")
   })
 
   it("should not time out if the document is updated in time", async () => {
