@@ -12,6 +12,7 @@
   "parser": "@typescript-eslint/parser",
   "plugins": ["@typescript-eslint", "mocha"],
   "parserOptions": {
+    "project": "./tsconfig.json",
     "ecmaVersion": "latest",
     "sourceType": "module"
   },
@@ -19,6 +20,7 @@
     "semi": ["error", "never"],
     "import/extensions": 0,
     "lines-between-class-members": 0,
+    "@typescript-eslint/no-floating-promises": "error",
     "no-param-reassign": 0,
     "no-use-before-define": 0
   }
