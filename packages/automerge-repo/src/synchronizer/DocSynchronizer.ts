@@ -175,10 +175,10 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #processAllPendingSyncMessages() {
-      for (const { peerId, message } of this.#pendingSyncMessages) {
-        this.#processSyncMessage(peerId, message)
-      }
+    for (const { peerId, message } of this.#pendingSyncMessages) {
+      this.#processSyncMessage(peerId, message)
+    }
 
-      this.#pendingSyncMessages = []
+    this.#pendingSyncMessages = []
   }
 }
