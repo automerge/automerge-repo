@@ -178,5 +178,7 @@ export class DocSynchronizer extends Synchronizer {
     for (const { peerId, message } of this.#pendingSyncMessages) {
       this.#processSyncMessage(peerId, message)
     }
+
+    this.#pendingSyncMessages = []
   }
 }
