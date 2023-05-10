@@ -165,6 +165,8 @@ export class DocHandle<T> //
 
   isReady = () => this.#state === READY
 
+  isReadyOrRequesting = () => this.#state === READY || this.#state === REQUESTING
+
   isDeleted = () => this.#state === DELETED
 
   /**

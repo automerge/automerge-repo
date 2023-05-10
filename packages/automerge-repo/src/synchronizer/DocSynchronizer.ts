@@ -20,6 +20,8 @@ export class DocSynchronizer extends Synchronizer {
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
+  #pendingSyncMessages: Array<{peerId: PeerId, message: Uint8Array}> = []
+
   constructor(private handle: DocHandle<any>) {
     super()
     const docId = handle.documentId.slice(0, 5)
@@ -28,6 +30,12 @@ export class DocSynchronizer extends Synchronizer {
     this.#opsLog = debug(`automerge-repo:ops:docsync:${docId}`) // Log list of ops of each message
 
     handle.on("change", () => this.#syncWithPeers())
+
+    // Process pending sync messages immediately after the handle becomes ready.
+    void (async () => {
+      await handle.loadAttemptedValue()
+      this.#processAllPendingSyncMessages()
+    })()
   }
 
   get documentId() {
@@ -132,7 +140,7 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  async receiveSyncMessage(
+  receiveSyncMessage(
     peerId: PeerId,
     channelId: ChannelId,
     message: Uint8Array
@@ -141,9 +149,16 @@ export class DocSynchronizer extends Synchronizer {
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
-    // TODO: this is kind of an opaque way of doing this...
-    await this.handle.loadAttemptedValue()
+    if (!this.handle.isReadyOrRequesting()) {
+      this.#pendingSyncMessages.push({ peerId, message })
+      return
+    }
 
+    this.#processAllPendingSyncMessages()
+    this.#processSyncMessage(peerId, message)
+  }
+
+  #processSyncMessage(peerId: PeerId, message: Uint8Array) {
     this.handle.update(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
@@ -157,5 +172,11 @@ export class DocSynchronizer extends Synchronizer {
       this.#sendSyncMessage(peerId, doc)
       return newDoc
     })
+  }
+
+  #processAllPendingSyncMessages() {
+      for (const { peerId, message } of this.#pendingSyncMessages) {
+        this.#processSyncMessage(peerId, message)
+      }
   }
 }
