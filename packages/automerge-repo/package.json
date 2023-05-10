@@ -26,8 +26,8 @@
     "@types/ws": "^8.5.3",
     "@typescript-eslint/eslint-plugin": "^5.33.0",
     "@typescript-eslint/parser": "^5.33.0",
-    "automerge-repo-network-messagechannel": "^0.0.50",
-    "automerge-repo-storage-nodefs": "^0.0.50",
+    "@types/automerge-repo-network-messagechannel": "^0.0.50",
+    "@types/automerge-repo-storage-nodefs": "^0.0.50",
     "http-server": "^14.1.0"
   },
   "peerDependencies": {
