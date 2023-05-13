@@ -174,7 +174,6 @@ export class DocHandle<T> //
   // PUBLIC
 
   isReady = () => this.#state === READY
-
   isDeleted = () => this.#state === DELETED
 
   /**
@@ -220,8 +219,12 @@ export class DocHandle<T> //
   }
 
   /** `change` is called by the repo when the document is changed locally  */
-  async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
-    if (this.#state === LOADING) throw new Error("Cannot change while loading")
+  change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+    if (!this.isReady()) {
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+      )
+    }
     this.#machine.send(UPDATE, {
       payload: {
         callback: (doc: A.Doc<T>) => {

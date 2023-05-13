@@ -67,7 +67,7 @@ describe("DocHandle", () => {
 
     // can't make changes in LOADING state
     assert.equal(handle.isReady(), false)
-    assert.rejects(() => handle.change(d => (d.foo = "baz")))
+    assert.throws(() => handle.change(d => (d.foo = "baz")))
 
     // simulate loading from storage
     handle.load(binaryFromMockStorage())
@@ -78,6 +78,17 @@ describe("DocHandle", () => {
 
     const doc = await handle.value()
     assert.equal(doc.foo, "pizza")
+  })
+
+  it("should not be ready while requesting from the network", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+
+    // we don't have it in storage, so we request it from the network
+    handle.request()
+
+    assert.throws(() => handle.doc)
+    assert.equal(handle.isReady(), false)
+    assert.throws(() => handle.change(h => {}))
   })
 
   it("should become ready if the document is updated by the network", async () => {
