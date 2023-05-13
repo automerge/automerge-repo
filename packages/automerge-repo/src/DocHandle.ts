@@ -122,7 +122,7 @@ export class DocHandle<T> //
 
               const docChanged = !headsAreSame(newDoc, oldDoc)
               if (docChanged) {
-                this.emit("change", { handle: this })
+                this.emit("change", { handle: this, doc: newDoc })
                 if (!this.isReady()) {
                   this.#machine.send(REQUEST_COMPLETE)
                 }
@@ -257,6 +257,11 @@ export interface DocHandleMessagePayload {
 
 export interface DocHandleChangePayload<T> {
   handle: DocHandle<T>
+  doc: A.Doc<T>
+}
+
+export interface DocHandleDeletePayload<T> {
+  handle: DocHandle<T>
 }
 
 export interface DocHandlePatchPayload<T> {
@@ -269,7 +274,7 @@ export interface DocHandlePatchPayload<T> {
 export interface DocHandleEvents<T> {
   change: (payload: DocHandleChangePayload<T>) => void
   patch: (payload: DocHandlePatchPayload<T>) => void
-  delete: (payload: DocHandleChangePayload<T>) => void
+  delete: (payload: DocHandleDeletePayload<T>) => void
 }
 
 // STATE MACHINE TYPES

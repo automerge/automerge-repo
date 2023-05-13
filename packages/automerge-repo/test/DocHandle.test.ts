@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge"
 import assert from "assert"
 import { it } from "mocha"
-import { DocHandle, DocumentId } from "../src"
+import { DocHandle, DocHandleChangePayload, DocumentId } from "../src"
 import { pause } from "../src/helpers/pause"
 import { TestDoc } from "./types.js"
 
@@ -99,7 +99,9 @@ describe("DocHandle", () => {
   it("should emit a change message when changes happen", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
 
-    const p = new Promise(resolve => handle.once("change", d => resolve(d)))
+    const p = new Promise<DocHandleChangePayload<TestDoc>>(resolve =>
+      handle.once("change", d => resolve(d))
+    )
 
     handle.change(doc => {
       doc.foo = "bar"
@@ -107,17 +109,51 @@ describe("DocHandle", () => {
 
     const doc = await handle.value()
     assert.equal(doc.foo, "bar")
+
+    const changePayload = await p
+    assert.deepStrictEqual(changePayload.doc, doc)
+    assert.deepStrictEqual(changePayload.handle, handle)
   })
 
   it("should not emit a change message if no change happens via update", done => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-    handle.on("change", () => {
+    handle.once("change", () => {
       done(new Error("shouldn't have changed"))
     })
     handle.update(d => {
       setTimeout(done, 0)
       return d
     })
+  })
+
+  it("should emit distinct change messages when consecutive changes happen", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+
+    let calls = 0
+    const p = new Promise(resolve =>
+      handle.on("change", async ({ doc: d }) => {
+        if (calls === 0) {
+          assert.equal(d.foo, "bar")
+          calls++
+          return
+        }
+        assert.equal(d.foo, "baz")
+        resolve(d)
+      })
+    )
+
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+
+    handle.change(doc => {
+      doc.foo = "baz"
+    })
+
+    const doc = await handle.value()
+    assert.equal(doc.foo, "baz")
+
+    return p
   })
 
   it("should emit a patch message when changes happen", async () => {
