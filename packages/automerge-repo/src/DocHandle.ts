@@ -145,6 +145,16 @@ export class DocHandle<T> //
     this.#machine.send(isNew ? CREATE : FIND)
   }
 
+  get doc() {
+    if (!this.isReady()) {
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+      )
+    }
+
+    return this.#doc
+  }
+
   // PRIVATE
 
   /** Returns the current document */
