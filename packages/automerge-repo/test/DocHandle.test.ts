@@ -35,15 +35,18 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
-    // document should be empty until loaded
-    assert.deepEqual({}, handle.doc)
-
     // simulate loading from storage
     handle.load(binaryFromMockStorage())
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.value()
     assert.deepEqual(doc, handle.doc)
+  })
+
+  it("should throws an error if we accessing the doc before ready", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+
+    assert.throws(() => handle.doc)
   })
 
   it("should not return a value until ready", async () => {

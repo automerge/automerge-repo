@@ -43,38 +43,48 @@ This library provides two main components: the `Repo` itself, and the `DocHandle
 
 A `Repo` exposes these methods:
 
-- `create<T>()`  
+- `create<T>()`
   Creates a new, empty `Automerge.Doc` and returns a `DocHandle` for it.
-- `find<T>(docId: DocumentId)`  
+- `find<T>(docId: DocumentId)`
   Looks up a given document either on the local machine or (if necessary) over any configured
   networks.
-- `delete(docId: DocumentId)`  
+- `delete(docId: DocumentId)`
   Deletes the local copy of a document from the local cache and local storage. _This does not currently delete the document from any other peers_.
-- `.on("document", ({handle: DocHandle}) => void)`  
+- `.on("document", ({handle: DocHandle}) => void)`
   Registers a callback to be fired each time a new document is loaded or created.
-- `.on("delete-document", ({handle: DocHandle}) => void)`  
+- `.on("delete-document", ({handle: DocHandle}) => void)`
   Registers a callback to be fired each time a new document is loaded or created.
 
 A `DocHandle` is a wrapper around an `Automerge.Doc`. Its primary function is to dispatch changes to
 the document.
 
-- `handle.change((doc: T) => void)`  
+- `handle.change((doc: T) => void)`
   Calls the provided callback with an instrumented mutable object
   representing the document. Any changes made to the document will be recorded and distributed to
   other nodes.
-- `handle.value()`  
+- `handle.value()`
   Returns a `Promise<Doc<T>>` that will contain the current value of the document.
   it waits until the document has finished loading and/or synchronizing over the network before
   returning a value.
 
+When required, you can also access the underlying document directly, but only after the handle is ready:
+
+```ts
+if (handle.ready()) {
+  doc = handle.doc
+} else {
+  doc = await handle.value()
+}
+```
+
 A `DocHandle` also emits these events:
 
-- `change({handle: DocHandle})`  
+- `change({handle: DocHandle})`
   Called any time changes are created or received on the document. Request the `value()` from the
   handle.
-- `patch({handle: DocHandle, before: Doc, after: Doc, patches: Patch[]})`  
+- `patch({handle: DocHandle, before: Doc, after: Doc, patches: Patch[]})`
   Useful for manual increment maintenance of a video, most notably for text editors.
-- `delete`  
+- `delete`
   Called when the document is deleted locally.
 
 ## Creating a repo
@@ -100,7 +110,7 @@ const repo = new Repo({
 ### Share Policy
 The share policy is used to determine which document in your repo should be _automatically_ shared with other peers. **The default setting is to share all documents with all peers.**
 
-> **Warning**  
+> **Warning**
 > If your local repo has deleted a document, a connecting peer with the default share policy will still share that document with you.
 
 You can override this by providing a custom share policy. The function should return a promise resolving to a boolean value indicating whether the document should be shared with the peer.

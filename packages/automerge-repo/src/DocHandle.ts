@@ -146,6 +146,12 @@ export class DocHandle<T> //
   }
 
   get doc() {
+    if (!this.isReady()) {
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+      )
+    }
+
     return this.#doc
   }
 
