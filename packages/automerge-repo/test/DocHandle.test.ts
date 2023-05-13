@@ -31,6 +31,21 @@ describe("DocHandle", () => {
     assert.equal(doc.foo, "bar")
   })
 
+  it("should allow sync access to the doc", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+    assert.equal(handle.isReady(), false)
+
+    // document should be empty until loaded
+    assert.deepEqual({}, handle.doc)
+
+    // simulate loading from storage
+    handle.load(binaryFromMockStorage())
+
+    assert.equal(handle.isReady(), true)
+    const doc = await handle.value()
+    assert.deepEqual(doc, handle.doc)
+  })
+
   it("should not return a value until ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)

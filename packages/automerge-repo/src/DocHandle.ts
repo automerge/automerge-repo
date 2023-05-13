@@ -145,6 +145,10 @@ export class DocHandle<T> //
     this.#machine.send(isNew ? CREATE : FIND)
   }
 
+  get doc() {
+    return this.#doc
+  }
+
   // PRIVATE
 
   /** Returns the current document */
