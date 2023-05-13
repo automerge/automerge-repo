@@ -1,7 +1,7 @@
 {
   "name": "automerge-repo-demo-counter-svelte",
   "private": true,
-  "version": "0.0.51",
+  "version": "0.0.52",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,11 +11,11 @@
   },
   "dependencies": {
     "@automerge/automerge": "^2.0.3",
-    "automerge-repo": "^0.0.51",
-    "automerge-repo-network-broadcastchannel": "^0.0.51",
-    "automerge-repo-network-websocket": "^0.0.51",
-    "automerge-repo-storage-localforage": "^0.0.51",
-    "automerge-repo-svelte-store": "^0.0.51",
+    "automerge-repo": "^0.0.52",
+    "automerge-repo-network-broadcastchannel": "^0.0.52",
+    "automerge-repo-network-websocket": "^0.0.52",
+    "automerge-repo-storage-localforage": "^0.0.52",
+    "automerge-repo-svelte-store": "^0.0.52",
     "svelte": "^3.49.0"
   },
   "devDependencies": {
