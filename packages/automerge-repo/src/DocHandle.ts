@@ -17,6 +17,7 @@ import { waitFor } from "xstate/lib/waitFor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { pause } from "./helpers/pause.js"
 import type { ChannelId, DocumentId, PeerId } from "./types.js"
+import { withTimeout, TimeoutError } from "./helpers/withTimeout"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -45,13 +46,11 @@ export class DocHandle<T> //
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
      * avoid requesting data we already have, or surfacing intermediate values to the consumer.
      *
-     *                                                                      ┌─────────┐
-     *                                                   ┌─TIMEOUT─────────►│  error  │
-     *                      ┌─────────┐           ┌──────┴─────┐            └─────────┘
+     *                      ┌─────────┐           ┌────────────┐
      *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐
      *  │ idle  ├──┤        └───┬─────┘           └────────────┘         │
-     *  └───────┘  │           LOAD                                      └─►┌─────────┐
-     *             │            └──────────────────────────────────────────►│  ready  │
+     *  └───────┘  │            │                                        └─►┌─────────┐
+     *             │            └───────LOAD───────────────────────────────►│  ready  │
      *             └──CREATE───────────────────────────────────────────────►└─────────┘
      */
     this.#machine = interpret(
@@ -162,13 +161,17 @@ export class DocHandle<T> //
     return this.#machine?.getSnapshot().context.doc
   }
 
-  /** Returns the docHandle's state (READY, ) */
+  /** Returns the docHandle's state (READY, etc.) */
   get #state() {
     return this.#machine?.getSnapshot().value
   }
 
-  #statePromise(state: HandleState) {
-    return waitFor(this.#machine, s => s.matches(state))
+  /** Returns a promise that resolves when the docHandle is in one of the given states */
+  #statePromise(awaitStates: HandleState | HandleState[]) {
+    if (!Array.isArray(awaitStates)) awaitStates = [awaitStates]
+    return Promise.any(
+      awaitStates.map(state => waitFor(this.#machine, s => s.matches(state)))
+    )
   }
 
   // PUBLIC
@@ -179,31 +182,22 @@ export class DocHandle<T> //
   /**
    * Returns the current document, waiting for the handle to be ready if necessary.
    */
-  async value() {
+  async value(awaitStates: HandleState[] = [READY]) {
     await pause() // yield one tick because reasons
-    await Promise.race([
-      // once we're ready, we can return the document
-      this.#statePromise(READY),
-      // but if the delay expires and we're still not ready, we'll throw an error
-      pause(this.#timeoutDelay),
-    ])
-    if (!this.isReady())
-      throw new Error(`DocHandle timed out loading document ${this.documentId}`)
+    try {
+      // wait for the document to enter one of the desired states
+      await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+    } catch (error) {
+      if (error instanceof TimeoutError)
+        throw new Error(`DocHandle: timed out loading ${this.documentId}`)
+      else throw error
+    }
+    // Return the document
     return this.#doc
   }
 
   async loadAttemptedValue() {
-    await pause() // yield one tick because reasons
-    await Promise.race([
-      // once we're ready, we can return the document
-      this.#statePromise(REQUESTING),
-      this.#statePromise(READY),
-      // but if the delay expires and we're still not ready, we'll throw an error
-      pause(this.#timeoutDelay),
-    ])
-    if (!(this.isReady() || this.#state === REQUESTING))
-      throw new Error(`DocHandle timed out loading document ${this.documentId}`)
-    return this.#doc
+    return this.value([READY, REQUESTING])
   }
 
   /** `load` is called by the repo when the document is found in storage */
