@@ -289,5 +289,11 @@ you'll need to manually copy the `rootDocId` value between the browsers.)
 
 ## Acknowledgements
 
-Originally authored by Peter van Hardenberg. Thanks to Herb Caudill, Jeremy Rose, and Alex Currie-Clark for their
-contributions.
+Originally authored by Peter van Hardenberg. 
+
+With gratitude for contributions by:
+ - Herb Caudill
+ - Jeremy Rose
+ - Alex Currie-Clark
+ - Dylan Mackenzie
+
