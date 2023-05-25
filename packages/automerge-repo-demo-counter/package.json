@@ -1,7 +1,7 @@
 {
   "name": "automerge-repo-demo-counter",
   "private": true,
-  "version": "0.0.53",
+  "version": "0.0.54",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
@@ -9,11 +9,11 @@
   },
   "dependencies": {
     "@automerge/automerge": "^2.0.3",
-    "automerge-repo": "^0.0.53",
-    "automerge-repo-network-broadcastchannel": "^0.0.53",
-    "automerge-repo-network-websocket": "^0.0.53",
-    "automerge-repo-react-hooks": "^0.0.53",
-    "automerge-repo-storage-localforage": "^0.0.53",
+    "automerge-repo": "^0.0.54",
+    "automerge-repo-network-broadcastchannel": "^0.0.54",
+    "automerge-repo-network-websocket": "^0.0.54",
+    "automerge-repo-react-hooks": "^0.0.54",
+    "automerge-repo-storage-localforage": "^0.0.54",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
