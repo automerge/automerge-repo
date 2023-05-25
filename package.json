@@ -49,5 +49,8 @@
     "singleQuote": false,
     "trailingComma": "es5",
     "arrowParens": "avoid"
+  },
+  "dependencies": {
+    "@automerge/automerge": "2.1.0-alpha.1"
   }
 }

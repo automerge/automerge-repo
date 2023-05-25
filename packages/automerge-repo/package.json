@@ -21,8 +21,6 @@
     "crypto": false
   },
   "devDependencies": {
-    "@types/automerge-repo-network-messagechannel": "^0.0.50",
-    "@types/automerge-repo-storage-nodefs": "^0.0.50",
     "@types/debug": "^4.1.7",
     "@types/uuid": "^8.3.4",
     "@types/ws": "^8.5.3",

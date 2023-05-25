@@ -108,7 +108,9 @@ export class DocHandle<T> //
             onLoad: assign((context, { payload }: LoadEvent) => {
               const { binary } = payload
               const { doc } = context
-              const newDoc = A.loadIncremental(doc, binary)
+              const workaroundDoc = A.load(binary, { unchecked: true } as any)
+              const secondBinary = A.save(workaroundDoc)
+              const newDoc = A.loadIncremental(doc, secondBinary)
               return { doc: newDoc }
             }),
 
