@@ -348,6 +348,12 @@ describe("Repo", () => {
               repo.create<TestDoc>()
             : // tails, pick a random doc
               (getRandomItem(docs) as DocHandle<TestDoc>)
+
+        // make sure the doc is ready
+        if (!doc.isReady()) {
+          await doc.value()
+        }
+
         // make a random change to it
         doc.change(d => {
           d.foo = Math.random().toString()
