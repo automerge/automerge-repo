@@ -121,13 +121,6 @@ export class DocHandle<T> //
               const { callback } = payload
               const newDoc = callback(oldDoc)
 
-              const docChanged = !headsAreSame(newDoc, oldDoc)
-              if (docChanged) {
-                this.emit("change", { handle: this, doc: newDoc })
-                if (!this.isReady()) {
-                  this.#machine.send(REQUEST_COMPLETE)
-                }
-              }
               return { doc: newDoc }
             }),
             onDelete: assign(() => {
@@ -138,9 +131,19 @@ export class DocHandle<T> //
         }
       )
     )
-      .onTransition(({ value: state }, { type: event }) =>
+      .onTransition(({ value: state, history, context }, event) => {
+        const oldDoc = history?.context?.doc
+        const newDoc = context.doc
+
+        const docChanged = newDoc && oldDoc && !headsAreSame(newDoc, oldDoc)
+        if (docChanged) {
+          this.emit("change", { handle: this, doc: newDoc })
+          if (!this.isReady()) {
+            this.#machine.send(REQUEST_COMPLETE)
+          }
+        }
         this.#log(`${event} → ${state}`, this.#doc)
-      )
+      })
       .start()
 
     this.#machine.send(isNew ? CREATE : FIND)
