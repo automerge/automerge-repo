@@ -137,6 +137,24 @@ describe("DocHandle", () => {
     })
   })
 
+  it("should update the internal doc prior to emitting the change message", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+
+    const p = new Promise<void>(resolve =>
+      handle.once("change", ({ handle, doc }) => {
+        assert.equal(handle.doc.foo, doc.foo)
+
+        resolve()
+      })
+    )
+
+    handle.change(doc => {
+      doc.foo = "baz"
+    })
+
+    return p
+  })
+
   it("should emit distinct change messages when consecutive changes happen", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
 
