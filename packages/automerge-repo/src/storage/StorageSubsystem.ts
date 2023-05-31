@@ -12,7 +12,7 @@ export class StorageSubsystem {
   }
 
   #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
-    const binary = A.getBackend(doc).saveIncremental()
+    const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
       if (!this.#changeCount[documentId]) {
         this.#changeCount[documentId] = 0
