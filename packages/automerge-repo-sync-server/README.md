@@ -56,6 +56,10 @@ $ cd packages/automerge-repo-sync-server
 $ PORT=<your preferred port> yarn start
 ```
 
+## Adding SSL support
+
+The server can have an SSL certificate added. Simply place your `{cert,key}.pem` files in the root of the server's directory and they should get picked up. The server will bind to port 443 for secure traffic.
+
 ## Contributors
 
 Originally written by @pvh.
