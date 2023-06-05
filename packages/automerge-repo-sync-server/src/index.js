@@ -1,3 +1,4 @@
+// @ts-check
 import fs from "fs"
 import express from "express"
 import { WebSocketServer } from "ws"
@@ -21,10 +22,11 @@ app.use(express.static("public"))
 const config = {
   network: [new NodeWSServerAdapter(wsServer)],
   storage: new NodeFSStorageAdapter(),
+  /** @ts-ignore @type {(import("automerge-repo").PeerId)}  */
   peerId: `storage-server-${hostname}`,
   // Since this is a server, we don't share generously — meaning we only sync documents they already
   // know about and can ask for by ID.
-  sharePolicy: (peerId) => false,
+  sharePolicy: async () => false,
 }
 const serverRepo = new Repo(config)
 
