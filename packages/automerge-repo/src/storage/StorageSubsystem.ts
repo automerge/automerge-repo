@@ -12,7 +12,7 @@ export class StorageSubsystem {
   }
 
   #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
-    const binary = A.getBackend(doc).saveIncremental()
+    const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
       if (!this.#changeCount[documentId]) {
         this.#changeCount[documentId] = 0
@@ -38,7 +38,7 @@ export class StorageSubsystem {
     this.#changeCount[documentId] = 0
   }
 
-  async loadBinary(documentId: string): Promise<Uint8Array> {
+  async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
     const result = []
     let binary = await this.#storageAdapter.load(`${documentId}.snapshot`)
     if (binary && binary.length > 0) {
@@ -51,6 +51,7 @@ export class StorageSubsystem {
         `${documentId}.incremental.${index}`
       ))
     ) {
+      this.#changeCount[documentId] = index + 1
       if (binary && binary.length > 0) result.push(binary)
       index += 1
     }
@@ -62,7 +63,9 @@ export class StorageSubsystem {
     documentId: DocumentId,
     prevDoc: A.Doc<T> = A.init<T>()
   ): Promise<A.Doc<T>> {
-    return A.loadIncremental(prevDoc, await this.loadBinary(documentId))
+    const doc = A.loadIncremental(prevDoc, await this.loadBinary(documentId))
+    A.saveIncremental(doc)
+    return doc
   }
 
   save(documentId: DocumentId, doc: A.Doc<unknown>) {
@@ -70,6 +73,14 @@ export class StorageSubsystem {
       this.#saveTotal(documentId, doc)
     } else {
       this.#saveIncremental(documentId, doc)
+    }
+  }
+
+  remove(documentId: DocumentId) {
+    this.#storageAdapter.remove(`${documentId}.snapshot`)
+
+    for (let i = 0; i < this.#changeCount[documentId]; i++) {
+      this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
     }
   }
 

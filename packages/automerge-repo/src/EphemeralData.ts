@@ -1,6 +1,6 @@
 import { decode, encode } from "cbor-x"
 import EventEmitter from "eventemitter3"
-import { ChannelId, PeerId } from "."
+import { ChannelId, PeerId } from "./index.js"
 import { MessagePayload } from "./network/NetworkAdapter.js"
 
 /**

@@ -30,22 +30,31 @@ export class Repo extends DocCollection {
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle }) => {
       if (storageSubsystem) {
-        // Try to load from disk
-        const binary = await storageSubsystem.loadBinary(handle.documentId)
-        handle.load(binary)
-
         // Save when the document changes
         handle.on("change", async ({ handle }) => {
           const doc = await handle.value()
           storageSubsystem.save(handle.documentId, doc)
         })
+
+        // Try to load from disk
+        const binary = await storageSubsystem.loadBinary(handle.documentId)
+        handle.load(binary)
       }
 
       // Advertise our interest in the document
       handle.request()
 
       // Register the document with the synchronizer
-      synchronizer.addDocument(handle.documentId)
+      await synchronizer.addDocument(handle.documentId)
+    })
+
+    this.on("delete-document", ({ documentId }) => {
+      // TODO Pass the delete on to the network
+      // synchronizer.removeDocument(documentId)
+
+      if (storageSubsystem) {
+        storageSubsystem.remove(documentId)
+      }
     })
 
     // SYNCHRONIZER
@@ -75,9 +84,9 @@ export class Repo extends DocCollection {
     this.networkSubsystem = networkSubsystem
 
     // When we get a new peer, register it with the synchronizer
-    networkSubsystem.on("peer", ({ peerId }) => {
+    networkSubsystem.on("peer", async ({ peerId }) => {
       this.#log("peer connected", { peerId })
-      synchronizer.addPeer(peerId)
+      await synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
@@ -86,7 +95,7 @@ export class Repo extends DocCollection {
     })
 
     // Handle incoming messages
-    networkSubsystem.on("message", msg => {
+    networkSubsystem.on("message", async msg => {
       const { senderId, channelId, message } = msg
 
       // TODO: this demands a more principled way of associating channels with recipients
@@ -99,7 +108,7 @@ export class Repo extends DocCollection {
       } else {
         // Sync message
         this.#log(`receiving sync message from ${senderId}`)
-        synchronizer.receiveSyncMessage(senderId, channelId, message)
+        await synchronizer.receiveSyncMessage(senderId, channelId, message)
       }
     })
 

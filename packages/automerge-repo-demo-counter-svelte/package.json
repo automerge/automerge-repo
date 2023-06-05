@@ -1,0 +1,30 @@
+{
+  "name": "automerge-repo-demo-counter-svelte",
+  "private": true,
+  "version": "0.0.54",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@automerge/automerge": "^2.0.3",
+    "automerge-repo": "^0.0.54",
+    "automerge-repo-network-broadcastchannel": "^0.0.54",
+    "automerge-repo-network-websocket": "^0.0.54",
+    "automerge-repo-storage-localforage": "^0.0.54",
+    "automerge-repo-svelte-store": "^0.0.54",
+    "svelte": "^3.49.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^2.0.0",
+    "@tsconfig/svelte": "^4.0.0",
+    "svelte-check": "^2.10.0",
+    "typescript": "^4.9.3",
+    "vite": "^4.0.0",
+    "vite-plugin-top-level-await": "^1.2.2",
+    "vite-plugin-wasm": "^3.1.0"
+  }
+}

@@ -95,13 +95,29 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
 
     return handle
   }
+
+  delete(
+    /** The documentId of the handle to delete */
+    documentId: DocumentId
+  ) {
+    const handle = this.#getHandle(documentId, false)
+    handle.delete()
+
+    delete this.#handleCache[documentId]
+    this.emit("delete-document", { documentId })
+  }
 }
 
 // events & payloads
 interface DocCollectionEvents {
   document: (arg: DocumentPayload) => void
+  "delete-document": (arg: DeleteDocumentPayload) => void
 }
 
 interface DocumentPayload {
   handle: DocHandle<any>
+}
+
+interface DeleteDocumentPayload {
+  documentId: DocumentId
 }

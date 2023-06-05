@@ -13,10 +13,11 @@ import {
   StateValue,
   TypegenDisabled,
 } from "xstate"
-import { waitFor } from "xstate/lib/waitFor"
-import { headsAreSame } from "./helpers/headsAreSame"
-import { pause } from "./helpers/pause"
-import { ChannelId, DocumentId, PeerId } from "./types"
+import { waitFor } from "xstate/lib/waitFor.js"
+import { headsAreSame } from "./helpers/headsAreSame.js"
+import { pause } from "./helpers/pause.js"
+import type { ChannelId, DocumentId, PeerId } from "./types.js"
+import { withTimeout, TimeoutError } from "./helpers/withTimeout.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -37,7 +38,7 @@ export class DocHandle<T> //
 
     // initial doc
     const doc = A.init<T>({
-      patchCallback: (patches, before, after) =>
+      patchCallback: (patches, { before, after }) =>
         this.emit("patch", { handle: this, patches, before, after }),
     })
 
@@ -45,13 +46,11 @@ export class DocHandle<T> //
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
      * avoid requesting data we already have, or surfacing intermediate values to the consumer.
      *
-     *                                                                      ┌─────────┐
-     *                                                   ┌─TIMEOUT─────────►│  error  │
-     *                      ┌─────────┐           ┌──────┴─────┐            └─────────┘
+     *                      ┌─────────┐           ┌────────────┐
      *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐
      *  │ idle  ├──┤        └───┬─────┘           └────────────┘         │
-     *  └───────┘  │           LOAD                                      └─►┌─────────┐
-     *             │            └──────────────────────────────────────────►│  ready  │
+     *  └───────┘  │            │                                        └─►┌─────────┐
+     *             │            └───────LOAD───────────────────────────────►│  ready  │
      *             └──CREATE───────────────────────────────────────────────►└─────────┘
      */
     this.#machine = interpret(
@@ -70,6 +69,7 @@ export class DocHandle<T> //
                 // If we're accessing an existing document, we need to request it from storage
                 // and/or the network
                 FIND: { target: LOADING },
+                DELETE: { actions: "onDelete", target: DELETED },
               },
             },
             loading: {
@@ -78,21 +78,27 @@ export class DocHandle<T> //
                 LOAD: { actions: "onLoad", target: READY },
                 // REQUEST is called by the Repo if the document is not found in storage
                 REQUEST: { target: REQUESTING },
+                DELETE: { actions: "onDelete", target: DELETED },
               },
             },
             requesting: {
               on: {
                 // UPDATE is called by the Repo when we receive changes from the network
-                UPDATE: { actions: "onUpdate", target: READY },
+                UPDATE: { actions: "onUpdate" },
+                // REQUEST_COMPLETE is called from `onUpdate` when the doc has been fully loaded from the network
+                REQUEST_COMPLETE: { target: READY },
+                DELETE: { actions: "onDelete", target: DELETED },
               },
             },
             ready: {
               on: {
                 // UPDATE is called by the Repo when we receive changes from the network
                 UPDATE: { actions: "onUpdate", target: READY },
+                DELETE: { actions: "onDelete", target: DELETED },
               },
             },
             error: {},
+            deleted: {},
           },
         },
 
@@ -114,8 +120,17 @@ export class DocHandle<T> //
               const newDoc = callback(oldDoc)
 
               const docChanged = !headsAreSame(newDoc, oldDoc)
-              if (docChanged) this.emit("change", { handle: this })
+              if (docChanged) {
+                this.emit("change", { handle: this, doc: newDoc })
+                if (!this.isReady()) {
+                  this.#machine.send(REQUEST_COMPLETE)
+                }
+              }
               return { doc: newDoc }
+            }),
+            onDelete: assign(() => {
+              this.emit("delete", { handle: this })
+              return { doc: undefined }
             }),
           },
         }
@@ -129,6 +144,16 @@ export class DocHandle<T> //
     this.#machine.send(isNew ? CREATE : FIND)
   }
 
+  get doc() {
+    if (!this.isReady()) {
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+      )
+    }
+
+    return this.#doc
+  }
+
   // PRIVATE
 
   /** Returns the current document */
@@ -136,52 +161,52 @@ export class DocHandle<T> //
     return this.#machine?.getSnapshot().context.doc
   }
 
-  /** Returns the docHandle's state (READY, ) */
+  /** Returns the docHandle's state (READY, etc.) */
   get #state() {
     return this.#machine?.getSnapshot().value
   }
 
-  #statePromise(state: HandleState) {
-    return waitFor(this.#machine, s => s.matches(state))
+  /** Returns a promise that resolves when the docHandle is in one of the given states */
+  #statePromise(awaitStates: HandleState | HandleState[]) {
+    if (!Array.isArray(awaitStates)) awaitStates = [awaitStates]
+    return Promise.any(
+      awaitStates.map(state => waitFor(this.#machine, s => s.matches(state)))
+    )
   }
 
   // PUBLIC
 
   isReady = () => this.#state === READY
+  isReadyOrRequesting = () =>
+    this.#state === READY || this.#state === REQUESTING
+  isDeleted = () => this.#state === DELETED
 
   /**
    * Returns the current document, waiting for the handle to be ready if necessary.
    */
-  async value() {
+  async value(awaitStates: HandleState[] = [READY]) {
     await pause() // yield one tick because reasons
-    await Promise.race([
-      // once we're ready, we can return the document
-      this.#statePromise(READY),
-      // but if the delay expires and we're still not ready, we'll throw an error
-      pause(this.#timeoutDelay),
-    ])
-    if (!this.isReady())
-      throw new Error(`DocHandle timed out loading document ${this.documentId}`)
+    try {
+      // wait for the document to enter one of the desired states
+      await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+    } catch (error) {
+      if (error instanceof TimeoutError)
+        throw new Error(`DocHandle: timed out loading ${this.documentId}`)
+      else throw error
+    }
+    // Return the document
     return this.#doc
   }
 
   async loadAttemptedValue() {
-    await pause() // yield one tick because reasons
-    await Promise.race([
-      // once we're ready, we can return the document
-      this.#statePromise(REQUESTING),
-      this.#statePromise(READY),
-      // but if the delay expires and we're still not ready, we'll throw an error
-      pause(this.#timeoutDelay),
-    ])
-    if (!(this.isReady() || this.#state === REQUESTING))
-      throw new Error(`DocHandle timed out loading document ${this.documentId}`)
-    return this.#doc
+    return this.value([READY, REQUESTING])
   }
 
   /** `load` is called by the repo when the document is found in storage */
   load(binary: Uint8Array) {
-    this.#machine.send(LOAD, { payload: { binary } })
+    if (binary.length) {
+      this.#machine.send(LOAD, { payload: { binary } })
+    }
   }
 
   /** `update` is called by the repo when we receive changes from the network */
@@ -190,8 +215,12 @@ export class DocHandle<T> //
   }
 
   /** `change` is called by the repo when the document is changed locally  */
-  async change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
-    if (this.#state === LOADING) throw new Error("Cannot change while loading")
+  change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+    if (!this.isReady()) {
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+      )
+    }
     this.#machine.send(UPDATE, {
       payload: {
         callback: (doc: A.Doc<T>) => {
@@ -204,6 +233,11 @@ export class DocHandle<T> //
   /** `request` is called by the repo when the document is not found in storage */
   request() {
     if (this.#state === LOADING) this.#machine.send(REQUEST)
+  }
+
+  /** `delete` is called by the repo when the document is deleted */
+  delete() {
+    this.#machine.send(DELETE)
   }
 }
 
@@ -222,6 +256,11 @@ export interface DocHandleMessagePayload {
 
 export interface DocHandleChangePayload<T> {
   handle: DocHandle<T>
+  doc: A.Doc<T>
+}
+
+export interface DocHandleDeletePayload<T> {
+  handle: DocHandle<T>
 }
 
 export interface DocHandlePatchPayload<T> {
@@ -234,6 +273,7 @@ export interface DocHandlePatchPayload<T> {
 export interface DocHandleEvents<T> {
   change: (payload: DocHandleChangePayload<T>) => void
   patch: (payload: DocHandlePatchPayload<T>) => void
+  delete: (payload: DocHandleDeletePayload<T>) => void
 }
 
 // STATE MACHINE TYPES
@@ -246,6 +286,7 @@ export const HandleState = {
   REQUESTING: "requesting",
   READY: "ready",
   ERROR: "error",
+  DELETED: "deleted",
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
@@ -270,8 +311,10 @@ export const Event = {
   LOAD: "LOAD",
   FIND: "FIND",
   REQUEST: "REQUEST",
+  REQUEST_COMPLETE: "REQUEST_COMPLETE",
   UPDATE: "UPDATE",
   TIMEOUT: "TIMEOUT",
+  DELETE: "DELETE",
 } as const
 type Event = (typeof Event)[keyof typeof Event]
 
@@ -279,6 +322,8 @@ type CreateEvent = { type: typeof CREATE; payload: { documentId: string } }
 type LoadEvent = { type: typeof LOAD; payload: { binary: Uint8Array } }
 type FindEvent = { type: typeof FIND; payload: { documentId: string } }
 type RequestEvent = { type: typeof REQUEST }
+type RequestCompleteEvent = { type: typeof REQUEST_COMPLETE }
+type DeleteEvent = { type: typeof DELETE }
 type UpdateEvent<T> = {
   type: typeof UPDATE
   payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
@@ -290,8 +335,10 @@ type DocHandleEvent<T> =
   | LoadEvent
   | FindEvent
   | RequestEvent
+  | RequestCompleteEvent
   | UpdateEvent<T>
   | TimeoutEvent
+  | DeleteEvent
 
 type DocHandleXstateMachine<T> = Interpreter<
   DocHandleContext<T>,
@@ -311,5 +358,14 @@ type DocHandleXstateMachine<T> = Interpreter<
 
 // CONSTANTS
 
-const { IDLE, LOADING, REQUESTING, READY, ERROR } = HandleState
-const { CREATE, LOAD, FIND, REQUEST, UPDATE, TIMEOUT } = Event
+const { IDLE, LOADING, REQUESTING, READY, ERROR, DELETED } = HandleState
+const {
+  CREATE,
+  LOAD,
+  FIND,
+  REQUEST,
+  UPDATE,
+  TIMEOUT,
+  DELETE,
+  REQUEST_COMPLETE,
+} = Event

@@ -41,4 +41,38 @@ describe("StorageSubsystem", () => {
       })
     })
   })
+
+  it("correctly stores incremental changes following a load", async () => {
+    const adapter = new DummyStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+
+    const doc = A.change(A.init<any>(), "test", d => {
+      d.foo = "bar"
+    })
+
+    // save it to storage
+    const key = "test-key" as DocumentId
+    storage.save(key, doc)
+
+    // create new storage subsystem to simulate a new process
+    const storage2 = new StorageSubsystem(adapter)
+
+    // reload it from storage
+    const reloadedDoc = await storage2.load<TestDoc>(key)
+
+    // make a change
+    const changedDoc = A.change(reloadedDoc, "test 2", d => {
+      d.foo = "baz"
+    })
+
+    // save it to storage
+    storage2.save(key, changedDoc)
+
+    // check that the storage adapter contains the correct keys
+    assert(adapter.keys().some(k => k.endsWith("1")))
+
+    // check that the last incrementalSave is not a full save
+    const bin = await adapter.load((key + ".incremental.1") as DocumentId)
+    assert.throws(() => A.load(bin!))
+  })
 })

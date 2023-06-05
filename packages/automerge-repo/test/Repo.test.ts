@@ -3,7 +3,7 @@ import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechan
 
 import { ChannelId, DocHandle, DocumentId, PeerId, SharePolicy } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
-import { pause } from "../src/helpers/pause.js"
+import { pause, rejectOnTimeout } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
@@ -13,11 +13,13 @@ import { TestDoc } from "./types.js"
 describe("Repo", () => {
   describe("single repo", () => {
     const setup = () => {
+      const storageAdapter = new DummyStorageAdapter()
+
       const repo = new Repo({
-        storage: new DummyStorageAdapter(),
+        storage: storageAdapter,
         network: [new DummyNetworkAdapter()],
       })
-      return { repo }
+      return { repo, storageAdapter }
     }
 
     it("can instantiate a Repo", () => {
@@ -45,6 +47,17 @@ describe("Repo", () => {
       assert.equal(v.foo, "bar")
     })
 
+    it("doesn't find a document that doesn't exist", async () => {
+      const { repo } = setup()
+      const handle = repo.find<TestDoc>("does-not-exist" as DocumentId)
+      assert.equal(handle.isReady(), false)
+
+      return assert.rejects(
+        rejectOnTimeout(handle.value(), 100),
+        "This document should not exist"
+      )
+    })
+
     it("can find a created document", async () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
@@ -61,6 +74,68 @@ describe("Repo", () => {
       const v = await bobHandle.value()
       assert.equal(v.foo, "bar")
     })
+
+    it("saves the document when changed and can find it again", async () => {
+      const { repo, storageAdapter } = setup()
+      const handle = repo.create<TestDoc>()
+
+      handle.change(d => {
+        d.foo = "bar"
+      })
+
+      assert.equal(handle.isReady(), true)
+
+      await pause()
+
+      const repo2 = new Repo({
+        storage: storageAdapter,
+        network: [],
+      })
+
+      const bobHandle = repo2.find<TestDoc>(handle.documentId)
+
+      const v = await bobHandle.value()
+      assert.equal(v.foo, "bar")
+    })
+
+    it("can delete an existing document", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert.equal(handle.isReady(), true)
+      await handle.value()
+      repo.delete(handle.documentId)
+
+      assert(handle.isDeleted())
+      assert.equal(repo.handles[handle.documentId], undefined)
+
+      const bobHandle = repo.find<TestDoc>(handle.documentId)
+      await assert.rejects(
+        rejectOnTimeout(bobHandle.value(), 10),
+        "document should have been deleted"
+      )
+
+      assert(!bobHandle.isReady())
+    })
+
+    it("deleting a document emits an event", async done => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert.equal(handle.isReady(), true)
+
+      repo.on("delete-document", ({ documentId }) => {
+        assert.equal(documentId, handle.documentId)
+
+        done()
+      })
+
+      repo.delete(handle.documentId)
+    })
   })
 
   describe("sync", async () => {
@@ -73,13 +148,21 @@ describe("Repo", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-      const excludedDocuments: DocumentId[] = []
+      const charlieExcludedDocuments: DocumentId[] = []
+      const bobExcludedDocuments: DocumentId[] = []
 
       const sharePolicy: SharePolicy = async (peerId, documentId) => {
         if (documentId === undefined) return false
 
         // make sure that charlie never gets excluded documents
-        if (excludedDocuments.includes(documentId) && peerId === "charlie")
+        if (
+          charlieExcludedDocuments.includes(documentId) &&
+          peerId === "charlie"
+        )
+          return false
+
+        // make sure that charlie never gets excluded documents
+        if (bobExcludedDocuments.includes(documentId) && peerId === "bob")
           return false
 
         return true
@@ -112,9 +195,16 @@ describe("Repo", () => {
 
       const notForCharlieHandle = aliceRepo.create<TestDoc>()
       const notForCharlie = notForCharlieHandle.documentId
-      excludedDocuments.push(notForCharlie)
+      charlieExcludedDocuments.push(notForCharlie)
       notForCharlieHandle.change(d => {
         d.foo = "baz"
+      })
+
+      const notForBobHandle = aliceRepo.create<TestDoc>()
+      const notForBob = notForBobHandle.documentId
+      bobExcludedDocuments.push(notForBob)
+      notForBobHandle.change(d => {
+        d.foo = "bap"
       })
 
       await Promise.all([
@@ -134,6 +224,7 @@ describe("Repo", () => {
         charlieRepo,
         aliceHandle,
         notForCharlie,
+        notForBob,
         teardown,
       }
     }
@@ -174,6 +265,60 @@ describe("Repo", () => {
       teardown()
     })
 
+    it("charlieRepo can request a document not initially shared with it", async () => {
+      const { charlieRepo, notForCharlie, teardown } = await setup()
+
+      const handle = charlieRepo.find<TestDoc>(notForCharlie)
+      const doc = await handle.value()
+
+      assert.deepStrictEqual(doc, { foo: "baz" })
+
+      teardown()
+    })
+
+    it("charlieRepo can request a document across a network of multiple peers", async () => {
+      const { charlieRepo, notForBob, teardown } = await setup()
+
+      const handle = charlieRepo.find<TestDoc>(notForBob)
+      const doc = await handle.value()
+      assert.deepStrictEqual(doc, { foo: "bap" })
+
+      teardown()
+    })
+
+    it("doesn't find a document which doesn't exist anywhere on the network", async () => {
+      const { charlieRepo } = await setup()
+      const handle = charlieRepo.find<TestDoc>("does-not-exist" as DocumentId)
+      assert.equal(handle.isReady(), false)
+
+      return assert.rejects(
+        rejectOnTimeout(handle.value(), 100),
+        "This document should not exist"
+      )
+    })
+
+    it("a deleted document from charlieRepo can be refetched", async () => {
+      const { charlieRepo, aliceHandle, teardown } = await setup()
+
+      const deletePromise = eventPromise(charlieRepo, "delete-document")
+      charlieRepo.delete(aliceHandle.documentId)
+      await deletePromise
+
+      const changePromise = eventPromise(aliceHandle, "change")
+      aliceHandle.change(d => {
+        d.foo = "baz"
+      })
+      await changePromise
+
+      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
+      await eventPromise(handle3, "change")
+      const doc3 = await handle3.value()
+
+      assert.deepStrictEqual(doc3, { foo: "baz" })
+
+      teardown()
+    })
+
     it("can broadcast a message", async () => {
       const { aliceRepo, bobRepo, teardown } = await setup()
 
@@ -203,6 +348,12 @@ describe("Repo", () => {
               repo.create<TestDoc>()
             : // tails, pick a random doc
               (getRandomItem(docs) as DocHandle<TestDoc>)
+
+        // make sure the doc is ready
+        if (!doc.isReady()) {
+          await doc.value()
+        }
+
         // make a random change to it
         doc.change(d => {
           d.foo = Math.random().toString()

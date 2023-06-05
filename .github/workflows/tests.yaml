@@ -1,0 +1,30 @@
+name: Tests
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, review_requested]
+    branches:
+      - main
+jobs:
+  run-tests:
+    if: github.event.pull_request.draft == false
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '16.x'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+      - name: Install and Build
+        run: |
+          yarn install --no-lockfile
+          lerna link --force-local
+          yarn build
+      - name: Run Tests
+        run: yarn test

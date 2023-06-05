@@ -16,4 +16,8 @@ export class DummyStorageAdapter implements StorageAdapter {
   remove(docId: DocumentId) {
     delete this.#data[docId]
   }
+
+  keys() {
+    return Object.keys(this.#data)
+  }
 }

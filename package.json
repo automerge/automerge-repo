@@ -11,6 +11,7 @@
   "scripts": {
     "build": "lerna run build",
     "dev:demo": "yarn workspace automerge-repo-demo-todo dev",
+    "dev:svelte-demo": "yarn workspace automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
     "pub": "lerna publish --yes",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace automerge-repo-sync-server start",
@@ -48,5 +49,8 @@
     "singleQuote": false,
     "trailingComma": "es5",
     "arrowParens": "avoid"
+  },
+  "dependencies": {
+    "@automerge/automerge": "2.1.0-alpha.1"
   }
 }
