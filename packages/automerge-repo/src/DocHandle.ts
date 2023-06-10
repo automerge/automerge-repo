@@ -248,12 +248,6 @@ interface DocHandleOptions {
   timeoutDelay?: number
 }
 
-export interface DocHandleMessagePayload {
-  destinationId: PeerId
-  channelId: ChannelId
-  data: Uint8Array
-}
-
 export interface DocHandleChangePayload<T> {
   handle: DocHandle<T>
   doc: A.Doc<T>
