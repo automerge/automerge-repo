@@ -54,8 +54,10 @@ export class CollectionSynchronizer extends Synchronizer {
    */
   async receiveSyncMessage(message: SyncMessage) {
     const { senderId, payload } = message
-    const { documentId, automergeSyncMessage: syncMessage } = payload
-    log(`onSyncMessage: ${senderId}, ${documentId}, ${payload.byteLength}B`)
+    const { documentId, automergeSyncMessage } = payload
+    log(
+      `receiveSyncMessage: ${senderId}, ${documentId}, ${automergeSyncMessage.byteLength}B`
+    )
 
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
     docSynchronizer.receiveSyncMessage(message)

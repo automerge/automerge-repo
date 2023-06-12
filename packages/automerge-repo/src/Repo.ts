@@ -66,7 +66,7 @@ export class Repo extends DocCollection {
     // When the synchronizer emits sync messages, send them to peers
     synchronizer.on("message", message => {
       this.#log(`sending sync message to ${message.recipientId}`)
-      networkSubsystem.sendMessage({ type: message })
+      networkSubsystem.sendMessage(message)
     })
 
     // STORAGE
@@ -115,15 +115,18 @@ export class Repo extends DocCollection {
     this.ephemeralData = ephemeralData
 
     // Listen for new ephemeral messages and pass them to peers
-    ephemeralData.on("message", ({ documentId, encodedMessage: payload }) => {
+    ephemeralData.on("sending", ({ documentId, encodedMessage }) => {
       const message: EphemeralMessage = {
         type: "EPHEMERAL_MESSAGE",
         senderId: peerId,
-        payload,
-        documentId,
+        recipientId: BROADCAST,
+        payload: {
+          documentId,
+          encodedMessage,
+        },
       }
       this.#log(`sending ephemeral message`)
-      networkSubsystem.sendMessage({ type: message })
+      networkSubsystem.sendMessage(message)
     })
   }
 }
@@ -149,3 +152,5 @@ export type SharePolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
+
+export const BROADCAST = "*" as PeerId

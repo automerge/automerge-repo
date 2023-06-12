@@ -141,7 +141,8 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   receiveSyncMessage(message: SyncMessage) {
-    if (message.documentId !== (this.documentId as string))
+    const { payload } = message
+    if (payload.documentId !== (this.documentId as string))
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
@@ -156,9 +157,10 @@ export class DocSynchronizer extends Synchronizer {
 
   #processSyncMessage(message: SyncMessage) {
     const { senderId, payload } = message
+    const { automergeSyncMessage: syncMessage } = payload
     const state = this.#getSyncState(senderId)
     this.handle.update(doc => {
-      const [newDoc, newState] = A.receiveSyncMessage(doc, state, payload)
+      const [newDoc, newState] = A.receiveSyncMessage(doc, state, syncMessage)
       // update our syncstate for this peer
       this.#setSyncState(senderId, newState)
 

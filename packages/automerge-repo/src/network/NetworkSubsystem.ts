@@ -74,18 +74,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     })
   }
 
-  sendMessage({
-    type,
-    payload,
-    recipientId,
-    broadcast = false,
-  }: Omit<Message, "senderId">) {
+  sendMessage({ type, payload, recipientId }: Omit<Message, "senderId">) {
     const message = {
       type,
       payload,
       senderId: this.peerId,
       recipientId,
-      broadcast,
     } as Message
 
     switch (message.type) {
