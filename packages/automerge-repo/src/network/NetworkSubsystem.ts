@@ -1,25 +1,23 @@
 import EventEmitter from "eventemitter3"
 import {
-  InboundMessagePayload,
-  NetworkAdapter,
-  PeerDisconnectedPayload,
-} from "./NetworkAdapter.js"
-import { ChannelId, PeerId } from "../types.js"
+  EphemeralMessage,
+  Message,
+  MessagePayload,
+  MessageType,
+  PeerId,
+  SyncMessage,
+} from "../types.js"
+import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
 
 import debug from "debug"
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
-  #channels: ChannelId[]
 
-  constructor(
-    private adapters: NetworkAdapter[],
-    public peerId = randomPeerId()
-  ) {
+  constructor(private adapters: NetworkAdapter[], public peerId: PeerId) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
-    this.#channels = []
     this.adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
@@ -45,24 +43,25 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.emit("peer-disconnected", { peerId })
     })
 
-    networkAdapter.on("message", msg => {
-      const { senderId, channelId, broadcast, message } = msg
+    networkAdapter.on("message", message => {
+      const { senderId } = message
       this.#log(`message from ${senderId}`)
 
-      // If we receive a broadcast message from a network adapter we need to re-broadcast it to all
+      // If we receive an ephemeral message from a network adapter we need to re-broadcast it to all
       // our other peers. This is the world's worst gossip protocol.
 
       // TODO: This relies on the network forming a tree! If there are cycles, this approach will
       // loop messages around forever.
-      if (broadcast) {
+      if (message.type === "EPHEMERAL_MESSAGE") {
         Object.entries(this.#adaptersByPeer)
-          .filter(([id]) => id !== senderId)
+          .filter(([id]) => id !== senderId) // Don't send the message back to the original sender
           .forEach(([id, peer]) => {
-            peer.sendMessage(id as PeerId, channelId, message, broadcast)
+            peer.sendMessage(message)
           })
       }
 
-      this.emit("message", msg)
+      // we emit the message so the Repo can handle it
+      this.emit("message", message)
     })
 
     networkAdapter.on("close", () => {
@@ -73,47 +72,45 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         }
       })
     })
-
-    this.#channels.forEach(c => networkAdapter.join(c))
   }
 
-  sendMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array,
-    broadcast: boolean
-  ) {
-    if (broadcast) {
-      Object.entries(this.#adaptersByPeer).forEach(([id, peer]) => {
-        this.#log(`sending broadcast to ${id}`)
-        peer.sendMessage(id as PeerId, channelId, message, true)
-      })
-    } else {
-      const peer = this.#adaptersByPeer[peerId]
-      if (!peer) {
-        this.#log(`Tried to send message but peer not found: ${peerId}`)
-        return
+  sendMessage({
+    type,
+    payload,
+    recipientId,
+    broadcast = false,
+  }: Omit<Message, "senderId">) {
+    const message = {
+      type,
+      payload,
+      senderId: this.peerId,
+      recipientId,
+      broadcast,
+    } as Message
+
+    switch (message.type) {
+      case "SYNC_MESSAGE": {
+        // Send message to a specific peer
+        const peer = this.#adaptersByPeer[recipientId]
+        if (!peer) {
+          // TODO: This should never happen — shouldn't we throw an error instead?
+          this.#log(`Tried to send message but peer not found: ${recipientId}`)
+          return
+        }
+        this.#log(`Sending message to ${recipientId}`)
+        peer.sendMessage(message)
+        break
       }
-      this.#log(`Sending message to ${peerId}`)
-      peer.sendMessage(peerId, channelId, message, false)
+      case "EPHEMERAL_MESSAGE": {
+        // Broadcast message to all peers
+        Object.entries(this.#adaptersByPeer).forEach(([recipientId, peer]) => {
+          this.#log(`sending broadcast to ${recipientId}`)
+          peer.sendMessage(message)
+        })
+        break
+      }
     }
   }
-
-  join(channelId: ChannelId) {
-    this.#log(`Joining channel ${channelId}`)
-    this.#channels.push(channelId)
-    this.adapters.forEach(a => a.join(channelId))
-  }
-
-  leave(channelId: ChannelId) {
-    this.#log(`Leaving channel ${channelId}`)
-    this.#channels = this.#channels.filter(c => c !== channelId)
-    this.adapters.forEach(a => a.leave(channelId))
-  }
-}
-
-function randomPeerId() {
-  return `user-${Math.round(Math.random() * 100000)}` as PeerId
 }
 
 // events & payloads
@@ -121,10 +118,10 @@ function randomPeerId() {
 export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
-  message: (payload: InboundMessagePayload) => void
+  message: (payload: Message) => void
 }
 
 export interface PeerPayload {
   peerId: PeerId
-  channelId: ChannelId
+  channelId: string // TODO
 }

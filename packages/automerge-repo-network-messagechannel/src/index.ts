@@ -1,4 +1,4 @@
-import { ChannelId, NetworkAdapter, PeerId } from "automerge-repo"
+import { NetworkAdapter, PeerId } from "automerge-repo"
 import { MessagePortRef } from "./MessagePortRef.js"
 import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
 import { WeakMessagePortRef } from "./WeakMessagePortRef.js"
@@ -31,11 +31,13 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
       log("message port received", e.data)
       const { origin, destination, type, channelId, message, broadcast } =
         e.data
+
       if (destination && !(destination === this.peerId || broadcast)) {
         throw new Error(
           "MessagePortNetwork should never receive messages for a different peer."
         )
       }
+
       switch (type) {
         case "arrive":
           this.messagePortRef.postMessage({
@@ -50,11 +52,11 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
           break
         case "message":
           this.emit("message", {
+            type: "SYNC_MESSAGE", // TODO
             senderId: origin,
-            targetId: destination,
-            channelId,
-            message: new Uint8Array(message),
-            broadcast,
+            recipientId: destination,
+            documentId: channelId,
+            payload: new Uint8Array(message),
           })
           break
         default:
@@ -121,3 +123,6 @@ interface MessageChannelNetworkAdapterConfig {
    */
   useWeakRef?: boolean
 }
+
+// TODO
+type ChannelId = string

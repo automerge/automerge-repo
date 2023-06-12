@@ -1,15 +1,13 @@
 import EventEmitter from "eventemitter3"
-import { ChannelId, PeerId } from "../types.js"
-import { MessagePayload } from "../network/NetworkAdapter.js"
+import { SyncMessage } from "../types.js"
 
 export abstract class Synchronizer extends EventEmitter<SynchronizerEvents> {
-  abstract receiveSyncMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array
-  ): void
+  abstract receiveSyncMessage(message: SyncMessage): void
 }
 
 export interface SynchronizerEvents {
-  message: (arg: MessagePayload) => void
+  message: (message: SyncMessageWithoutSenderId) => void
 }
+
+// the network subsystem will add the senderId
+type SyncMessageWithoutSenderId = Omit<SyncMessage, "senderId">

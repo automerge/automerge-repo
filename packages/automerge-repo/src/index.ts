@@ -4,16 +4,15 @@ export type {
   DocHandleChangePayload,
   DocHandlePatchPayload,
 } from "./DocHandle.js"
+export { Repo, type SharePolicy } from "./Repo.js"
+export { bufferToArrayBuffer } from "./helpers/bufferToArrayBuffer.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export type {
-  InboundMessagePayload,
-  MessagePayload,
   OpenPayload,
   PeerCandidatePayload,
   PeerDisconnectedPayload,
 } from "./network/NetworkAdapter.js"
 export { NetworkSubsystem } from "./network/NetworkSubsystem.js"
-export { Repo, type SharePolicy } from "./Repo.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
 export { StorageSubsystem } from "./storage/StorageSubsystem.js"
 export { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"

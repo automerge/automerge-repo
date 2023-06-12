@@ -27,8 +27,8 @@ describe("DocSynchronizer", () => {
   it("emits a syncMessage when beginSync is called", async () => {
     const { docSynchronizer } = setup()
     docSynchronizer.beginSync(alice)
-    const { targetId } = await eventPromise(docSynchronizer, "message")
-    assert.equal(targetId, "alice")
+    const { recipientId } = await eventPromise(docSynchronizer, "message")
+    assert.equal(recipientId, "alice")
   })
 
   it("emits a syncMessage to peers when the handle is updated", async () => {
@@ -37,8 +37,8 @@ describe("DocSynchronizer", () => {
     handle.change(doc => {
       doc.foo = "bar"
     })
-    const { targetId } = await eventPromise(docSynchronizer, "message")
-    assert.equal(targetId, "alice")
+    const { recipientId } = await eventPromise(docSynchronizer, "message")
+    assert.equal(recipientId, "alice")
   })
 
   it("still syncs with a peer after it disconnects and reconnects", async () => {
@@ -46,23 +46,23 @@ describe("DocSynchronizer", () => {
 
     // first connection
     {
-      await docSynchronizer.beginSync(bob)
+      docSynchronizer.beginSync(bob)
       handle.change(doc => {
         doc.foo = "a change"
       })
-      const { targetId } = await eventPromise(docSynchronizer, "message")
-      assert.equal(targetId, "bob")
+      const { recipientId } = await eventPromise(docSynchronizer, "message")
+      assert.equal(recipientId, "bob")
       docSynchronizer.endSync(bob)
     }
 
     // second connection
     {
-      await docSynchronizer.beginSync(bob)
+      docSynchronizer.beginSync(bob)
       handle.change(doc => {
         doc.foo = "another change"
       })
-      const { targetId } = await eventPromise(docSynchronizer, "message")
-      assert.equal(targetId, "bob")
+      const { recipientId } = await eventPromise(docSynchronizer, "message")
+      assert.equal(recipientId, "bob")
     }
   })
 })

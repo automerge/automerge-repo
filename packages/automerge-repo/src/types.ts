@@ -1,22 +1,29 @@
 export type DocumentId = string & { __documentId: true }
 export type PeerId = string & { __peerId: false }
-export type ChannelId = string & { __channelId: false }
 
 // Messages
 
-export type SyncMessage = {
-  type: "SYNC_MESSAGE"
+export type MessageEnvelope = {
   senderId: PeerId
   recipientId: PeerId
-  documentId: DocumentId
-  payload: Uint8Array // Automerge binary sync message
 }
 
-export type EphemeralMessage = {
+export type SyncMessage = MessageEnvelope & {
+  type: "SYNC_MESSAGE"
+  payload: {
+    documentId: DocumentId
+    automergeSyncMessage: Uint8Array
+  }
+}
+
+export type EphemeralMessage = MessageEnvelope & {
   type: "EPHEMERAL_MESSAGE"
-  senderId: PeerId
-  documentId: DocumentId
-  payload: Uint8Array // CBOR-encoded payload
+  payload: {
+    documentId: DocumentId
+    encodedMessage: Uint8Array // CBOR-encoded message created by application
+  }
 }
 
 export type Message = SyncMessage | EphemeralMessage
+export type MessageType = Message["type"]
+export type MessagePayload = Message["payload"]

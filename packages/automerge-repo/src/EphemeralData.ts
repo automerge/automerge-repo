@@ -1,46 +1,48 @@
 import { decode, encode } from "cbor-x"
 import EventEmitter from "eventemitter3"
-import { ChannelId, PeerId } from "./index.js"
-import { MessagePayload } from "./network/NetworkAdapter.js"
+import { DocumentId, EphemeralMessage, PeerId } from "./index.js"
 
 /**
  * EphemeralData provides a mechanism to broadcast short-lived data — cursor positions, presence,
  * heartbeats, etc. — that is useful in the moment but not worth persisting.
  */
 export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
-  /** Broadcast an ephemeral message */
-  broadcast(channelId: ChannelId, message: unknown) {
-    const messageBytes = encode(message)
-
-    this.emit("message", {
-      targetId: "*" as PeerId, // TODO: we don't really need a targetId for broadcast
-      channelId: ("m/" + channelId) as ChannelId,
-      message: messageBytes,
-      broadcast: true,
+  /** Encodes an ephemeral message and emits a `message` event so the network subsystem will broadcast it */
+  broadcast(documentId: DocumentId, message: any) {
+    const encodedMessage = encode(message)
+    this.emit("sending", {
+      documentId,
+      encodedMessage,
     })
   }
 
-  /** Receive an ephemeral message */
-  receive(senderId: PeerId, grossChannelId: ChannelId, message: Uint8Array) {
-    const data = decode(message)
-    const channelId = grossChannelId.slice(2) as ChannelId
-    this.emit("data", {
-      peerId: senderId,
-      channelId,
-      data,
-    })
+  /** Decodes an ephemeral message and emits a `data` event to alert the application */
+  receive(message: EphemeralMessage) {
+    const { senderId, payload } = message
+    const { documentId, encodedMessage } = payload
+    const decodedMessage = decode(encodedMessage)
+    this.emit("receiving", { documentId, senderId, message: decodedMessage })
   }
 }
 
 // types
 
-export interface EphemeralDataPayload {
-  channelId: ChannelId
-  peerId: PeerId
-  data: { peerId: PeerId; channelId: ChannelId; data: unknown }
+export type EphemeralDataMessageEvents = {
+  // we raise this event when we're sending a message
+  sending: (payload: OutgoingPayload) => void
+  // we raise this event when we've received and decoded a message
+  receiving: (payload: IncomingPayload) => void
 }
 
-export type EphemeralDataMessageEvents = {
-  message: (event: MessagePayload) => void
-  data: (event: EphemeralDataPayload) => void
+// sending
+export type OutgoingPayload = {
+  documentId: DocumentId
+  encodedMessage: Uint8Array
+}
+
+// receiving
+export interface IncomingPayload {
+  documentId: DocumentId
+  senderId: PeerId
+  message: any // decoded
 }

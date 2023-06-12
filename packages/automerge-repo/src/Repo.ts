@@ -5,11 +5,9 @@ import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { ChannelId, DocumentId, PeerId } from "./types.js"
+import { DocumentId, EphemeralMessage, PeerId, SyncMessage } from "./types.js"
 
 import debug from "debug"
-
-const SYNC_CHANNEL = "sync_channel" as ChannelId
 
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {
@@ -19,7 +17,12 @@ export class Repo extends DocCollection {
   storageSubsystem?: StorageSubsystem
   ephemeralData: EphemeralData
 
-  constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
+  constructor({
+    storage,
+    network,
+    peerId = "WHY DON'T YOU HAVE A PEER ID" as PeerId,
+    sharePolicy,
+  }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
@@ -45,16 +48,14 @@ export class Repo extends DocCollection {
       handle.request()
 
       // Register the document with the synchronizer
-      await synchronizer.addDocument(handle.documentId)
+      synchronizer.addDocument(handle.documentId)
     })
 
     this.on("delete-document", ({ documentId }) => {
       // TODO Pass the delete on to the network
       // synchronizer.removeDocument(documentId)
 
-      if (storageSubsystem) {
-        storageSubsystem.remove(documentId)
-      }
+      storageSubsystem?.remove(documentId)
     })
 
     // SYNCHRONIZER
@@ -63,13 +64,10 @@ export class Repo extends DocCollection {
     const synchronizer = new CollectionSynchronizer(this)
 
     // When the synchronizer emits sync messages, send them to peers
-    synchronizer.on(
-      "message",
-      ({ targetId, channelId, message, broadcast }) => {
-        this.#log(`sending sync message to ${targetId}`)
-        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
-      }
-    )
+    synchronizer.on("message", message => {
+      this.#log(`sending sync message to ${message.recipientId}`)
+      networkSubsystem.sendMessage({ type: message })
+    })
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
@@ -95,25 +93,19 @@ export class Repo extends DocCollection {
     })
 
     // Handle incoming messages
-    networkSubsystem.on("message", async msg => {
-      const { senderId, channelId, message } = msg
+    networkSubsystem.on("message", async message => {
+      switch (message.type) {
+        case "SYNC_MESSAGE":
+          this.#log(`receiving sync message from ${message.senderId}`)
+          await synchronizer.receiveSyncMessage(message)
+          break
 
-      // TODO: this demands a more principled way of associating channels with recipients
-
-      // Ephemeral channel ids start with "m/"
-      if (channelId.startsWith("m/")) {
-        // Ephemeral message
-        this.#log(`receiving ephemeral message from ${senderId}`)
-        ephemeralData.receive(senderId, channelId, message)
-      } else {
-        // Sync message
-        this.#log(`receiving sync message from ${senderId}`)
-        await synchronizer.receiveSyncMessage(senderId, channelId, message)
+        case "EPHEMERAL_MESSAGE":
+          this.#log(`receiving ephemeral message from ${message.senderId}`)
+          ephemeralData.receive(message)
+          break
       }
     })
-
-    // We establish a special channel for sync messages
-    networkSubsystem.join(SYNC_CHANNEL)
 
     // EPHEMERAL DATA
     // The ephemeral data subsystem uses the network to send and receive messages that are not
@@ -122,20 +114,23 @@ export class Repo extends DocCollection {
     const ephemeralData = new EphemeralData()
     this.ephemeralData = ephemeralData
 
-    // Send ephemeral messages to peers
-    ephemeralData.on(
-      "message",
-      ({ targetId, channelId, message, broadcast }) => {
-        this.#log(`sending ephemeral message to ${targetId}`)
-        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
+    // Listen for new ephemeral messages and pass them to peers
+    ephemeralData.on("message", ({ documentId, encodedMessage: payload }) => {
+      const message: EphemeralMessage = {
+        type: "EPHEMERAL_MESSAGE",
+        senderId: peerId,
+        payload,
+        documentId,
       }
-    )
+      this.#log(`sending ephemeral message`)
+      networkSubsystem.sendMessage({ type: message })
+    })
   }
 }
 
 export interface RepoConfig {
   /** Our unique identifier */
-  peerId?: PeerId
+  peerId?: PeerId // TODO this should be required
 
   /** A storage adapter can be provided, or not */
   storage?: StorageAdapter

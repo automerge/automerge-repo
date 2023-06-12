@@ -1,6 +1,6 @@
 import * as A from "@automerge/automerge"
 import { DocHandle } from "../DocHandle.js"
-import { ChannelId, PeerId } from "../types.js"
+import { PeerId, SyncMessage } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
@@ -20,7 +20,7 @@ export class DocSynchronizer extends Synchronizer {
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  #pendingSyncMessages: Array<{ peerId: PeerId; message: Uint8Array }> = []
+  #pendingSyncMessages: Array<SyncMessage> = []
 
   constructor(private handle: DocHandle<any>) {
     super()
@@ -71,18 +71,20 @@ export class DocSynchronizer extends Synchronizer {
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
     this.#log(`sendSyncMessage ->${peerId}`)
 
+    // Get a sync message from Automerge
     const syncState = this.#getSyncState(peerId)
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
     this.#setSyncState(peerId, newSyncState)
     if (message) {
       this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
-
-      const channelId = this.handle.documentId as string as ChannelId
+      // This event is handled by Repo
       this.emit("message", {
-        targetId: peerId,
-        channelId,
-        message,
-        broadcast: false,
+        type: "SYNC_MESSAGE",
+        recipientId: peerId,
+        payload: {
+          documentId: this.documentId,
+          automergeSyncMessage: message,
+        },
       })
     } else {
       this.#log(`sendSyncMessage ->${peerId} [no message generated]`)
@@ -138,44 +140,37 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  receiveSyncMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array
-  ) {
-    if ((channelId as string) !== (this.documentId as string))
+  receiveSyncMessage(message: SyncMessage) {
+    if (message.documentId !== (this.documentId as string))
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
     if (!this.handle.isReadyOrRequesting()) {
-      this.#pendingSyncMessages.push({ peerId, message })
+      this.#pendingSyncMessages.push(message)
       return
     }
 
     this.#processAllPendingSyncMessages()
-    this.#processSyncMessage(peerId, message)
+    this.#processSyncMessage(message)
   }
 
-  #processSyncMessage(peerId: PeerId, message: Uint8Array) {
+  #processSyncMessage(message: SyncMessage) {
+    const { senderId, payload } = message
+    const state = this.#getSyncState(senderId)
     this.handle.update(doc => {
-      const [newDoc, newSyncState] = A.receiveSyncMessage(
-        doc,
-        this.#getSyncState(peerId),
-        message
-      )
+      const [newDoc, newState] = A.receiveSyncMessage(doc, state, payload)
+      // update our syncstate for this peer
+      this.#setSyncState(senderId, newState)
 
-      this.#setSyncState(peerId, newSyncState)
-
-      // respond to just this peer (as required)
-      this.#sendSyncMessage(peerId, doc)
+      // respond to this peer (as required)
+      this.#sendSyncMessage(senderId, doc)
       return newDoc
     })
   }
 
   #processAllPendingSyncMessages() {
-    for (const { peerId, message } of this.#pendingSyncMessages) {
-      this.#processSyncMessage(peerId, message)
-    }
+    for (const message of this.#pendingSyncMessages)
+      this.#processSyncMessage(message)
 
     this.#pendingSyncMessages = []
   }

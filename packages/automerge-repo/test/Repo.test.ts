@@ -1,10 +1,9 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
-
-import { ChannelId, DocHandle, DocumentId, PeerId, SharePolicy } from "../src"
+import { DocHandle, DocumentId, PeerId } from "../src"
+import { Repo, SharePolicy } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause, rejectOnTimeout } from "../src/helpers/pause.js"
-import { Repo } from "../src/Repo.js"
 import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
@@ -322,7 +321,7 @@ describe("Repo", () => {
     it("can broadcast a message", async () => {
       const { aliceRepo, bobRepo, teardown } = await setup()
 
-      const channelId = "m/broadcast" as ChannelId
+      const channelId = "my_document_id" as DocumentId
       const data = { presence: "bob" }
 
       bobRepo.ephemeralData.broadcast(channelId, data)
