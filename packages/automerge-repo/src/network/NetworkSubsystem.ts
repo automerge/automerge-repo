@@ -52,7 +52,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
       // TODO: This relies on the network forming a tree! If there are cycles, this approach will
       // loop messages around forever.
-      if (message.type === "EPHEMERAL_MESSAGE") {
+      if (message.type === "EPHEMERAL") {
         Object.entries(this.#adaptersByPeer)
           .filter(([id]) => id !== senderId) // Don't send the message back to the original sender
           .forEach(([id, peer]) => {
@@ -83,7 +83,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     } as Message
 
     switch (message.type) {
-      case "SYNC_MESSAGE": {
+      case "SYNC": {
         // Send message to a specific peer
         const peer = this.#adaptersByPeer[recipientId]
         if (!peer) {
@@ -95,7 +95,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         peer.sendMessage(message)
         break
       }
-      case "EPHEMERAL_MESSAGE": {
+      case "EPHEMERAL": {
         // Broadcast message to all peers
         Object.entries(this.#adaptersByPeer).forEach(([recipientId, peer]) => {
           this.#log(`sending broadcast to ${recipientId}`)

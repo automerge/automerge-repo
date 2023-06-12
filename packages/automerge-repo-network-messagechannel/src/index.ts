@@ -52,7 +52,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
           break
         case "message":
           this.emit("message", {
-            type: "SYNC_MESSAGE", // TODO
+            type: "SYNC", // TODO
             senderId: origin,
             recipientId: destination,
             documentId: channelId,

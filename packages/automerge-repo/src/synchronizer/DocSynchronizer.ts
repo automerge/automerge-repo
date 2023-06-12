@@ -79,11 +79,11 @@ export class DocSynchronizer extends Synchronizer {
       this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
       // This event is handled by Repo
       this.emit("message", {
-        type: "SYNC_MESSAGE",
+        type: "SYNC",
         recipientId: peerId,
         payload: {
           documentId: this.documentId,
-          automergeSyncMessage: message,
+          syncPayload: message,
         },
       })
     } else {
@@ -157,7 +157,7 @@ export class DocSynchronizer extends Synchronizer {
 
   #processSyncMessage(message: SyncMessage) {
     const { senderId, payload } = message
-    const { automergeSyncMessage: syncMessage } = payload
+    const { syncPayload: syncMessage } = payload
     const state = this.#getSyncState(senderId)
     this.handle.update(doc => {
       const [newDoc, newState] = A.receiveSyncMessage(doc, state, syncMessage)

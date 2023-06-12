@@ -8,20 +8,43 @@ export type MessageEnvelope = {
   recipientId: PeerId
 }
 
+export type HelloMessage = MessageEnvelope & {
+  type: "HELLO"
+}
+
 export type SyncMessage = MessageEnvelope & {
-  type: "SYNC_MESSAGE"
+  type: "SYNC"
   payload: {
     documentId: DocumentId
-    automergeSyncMessage: Uint8Array
+    syncPayload: Uint8Array
   }
 }
 
 export type EphemeralMessage = MessageEnvelope & {
-  type: "EPHEMERAL_MESSAGE"
+  type: "EPHEMERAL"
   payload: {
     documentId: DocumentId
     encodedMessage: Uint8Array // CBOR-encoded message created by application
   }
+}
+
+// export type AuthMessage = MessageEnvelope & {
+//   type: "AUTH"
+//   payload: {
+//     shareId: ShareId
+//     authPayload: any
+//   }
+// }
+
+export type DocumentNotFoundMessage = MessageEnvelope & {
+  type: "DOCUMENT_NOT_FOUND"
+  payload: {
+    documentId: DocumentId
+  }
+}
+
+export type GoodbyeMessage = MessageEnvelope & {
+  type: "GOODBYE"
 }
 
 export type Message = SyncMessage | EphemeralMessage

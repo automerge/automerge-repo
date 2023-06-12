@@ -27,7 +27,7 @@ describe("EphemeralData", () => {
     })
 
     ephemeral.receive({
-      type: "EPHEMERAL_MESSAGE",
+      type: "EPHEMERAL",
       senderId: bob,
       documentId: testDocumentId,
       payload: CBOR.encode(testPayload),

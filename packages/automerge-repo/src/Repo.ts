@@ -95,12 +95,12 @@ export class Repo extends DocCollection {
     // Handle incoming messages
     networkSubsystem.on("message", async message => {
       switch (message.type) {
-        case "SYNC_MESSAGE":
+        case "SYNC":
           this.#log(`receiving sync message from ${message.senderId}`)
           await synchronizer.receiveSyncMessage(message)
           break
 
-        case "EPHEMERAL_MESSAGE":
+        case "EPHEMERAL":
           this.#log(`receiving ephemeral message from ${message.senderId}`)
           ephemeralData.receive(message)
           break
@@ -117,7 +117,7 @@ export class Repo extends DocCollection {
     // Listen for new ephemeral messages and pass them to peers
     ephemeralData.on("sending", ({ documentId, encodedMessage }) => {
       const message: EphemeralMessage = {
-        type: "EPHEMERAL_MESSAGE",
+        type: "EPHEMERAL",
         senderId: peerId,
         recipientId: BROADCAST,
         payload: {
