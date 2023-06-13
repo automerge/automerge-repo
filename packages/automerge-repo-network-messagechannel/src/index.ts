@@ -23,6 +23,8 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
       : new StrongMessagePortRef(messagePort)
   }
 
+  // NEXT: update these message types
+
   connect(peerId: PeerId) {
     log("messageport connecting")
     this.peerId = peerId
