@@ -43,6 +43,9 @@ export type DocumentNotFoundMessage = {
   }
 }
 
-export type Message = SyncMessage | EphemeralMessage
+export type Message =
+  | HelloMessage
+  | SyncMessage
+  | EphemeralMessage
+  | DocumentNotFoundMessage
 export type MessageType = Message["type"]
-export type MessagePayload = Message["payload"]

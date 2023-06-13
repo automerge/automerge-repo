@@ -66,7 +66,7 @@ export class Repo extends DocCollection {
     // When the synchronizer emits sync messages, send them to peers
     synchronizer.on("message", message => {
       this.#log(`sending sync message to ${message.recipientId}`)
-      networkSubsystem.sendMessage(message)
+      networkSubsystem.send(message)
     })
 
     // STORAGE
@@ -126,14 +126,14 @@ export class Repo extends DocCollection {
         },
       }
       this.#log(`sending ephemeral message`)
-      networkSubsystem.sendMessage(message)
+      networkSubsystem.send(message)
     })
   }
 }
 
 export interface RepoConfig {
-  /** Our unique identifier */
-  peerId?: PeerId // TODO this should be required
+  /** This repo's unique identifier */
+  peerId: PeerId
 
   /** A storage adapter can be provided, or not */
   storage?: StorageAdapter
@@ -152,5 +152,3 @@ export type SharePolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
-
-export const BROADCAST = "*" as PeerId

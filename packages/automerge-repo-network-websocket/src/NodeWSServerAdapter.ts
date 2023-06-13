@@ -4,12 +4,7 @@ import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 import debug from "debug"
 const log = debug("WebsocketServer")
 
-import {
-  ChannelId,
-  InboundMessagePayload,
-  NetworkAdapter,
-  PeerId,
-} from "automerge-repo"
+import { NetworkAdapter, PeerId } from "automerge-repo"
 
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer

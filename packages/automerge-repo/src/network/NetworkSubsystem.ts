@@ -12,95 +12,85 @@ import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
 import debug from "debug"
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
-  #log: debug.Debugger
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
 
   constructor(private adapters: NetworkAdapter[], public peerId: PeerId) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
-    this.adapters.forEach(a => this.addNetworkAdapter(a))
+    this.adapters.forEach(a => this.#addNetworkAdapter(a))
   }
 
-  addNetworkAdapter(networkAdapter: NetworkAdapter) {
-    networkAdapter.connect(this.peerId)
-
-    networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
-      this.#log(`peer candidate: ${peerId} `)
-
-      // TODO: This is where authentication would happen
-
-      if (!this.#adaptersByPeer[peerId]) {
-        // TODO: handle losing a server here
-        this.#adaptersByPeer[peerId] = networkAdapter
-      }
-
-      this.emit("peer", { peerId, channelId })
-    })
-
-    networkAdapter.on("peer-disconnected", ({ peerId }) => {
-      this.#log(`peer disconnected: ${peerId} `)
-      delete this.#adaptersByPeer[peerId]
-      this.emit("peer-disconnected", { peerId })
-    })
-
+  #addNetworkAdapter(networkAdapter: NetworkAdapter) {
     networkAdapter.on("message", message => {
-      const { senderId } = message
-      this.#log(`message from ${senderId}`)
-
-      // If we receive an ephemeral message from a network adapter we need to re-broadcast it to all
-      // our other peers. This is the world's worst gossip protocol.
-
-      // TODO: This relies on the network forming a tree! If there are cycles, this approach will
-      // loop messages around forever.
-      if (message.type === "EPHEMERAL") {
-        Object.entries(this.#adaptersByPeer)
-          .filter(([id]) => id !== senderId) // Don't send the message back to the original sender
-          .forEach(([id, peer]) => {
-            peer.sendMessage(message)
-          })
-      }
-
-      // we emit the message so the Repo can handle it
-      this.emit("message", message)
+      this.#receive(message, networkAdapter)
     })
+
+    // Say hello. They'll say hello back, and then we have a peer.
+    networkAdapter.send({ type: "HELLO", senderId: this.peerId })
+  }
+
+  #receive(message: Message, networkAdapter: NetworkAdapter) {
+    if (
+      "recipientId" in message &&
+      message.recipientId !== undefined &&
+      message.recipientId !== this.peerId
+    )
+      throw new Error(`Not our message: ${message.recipientId}`)
+
+    if (message.type === "HELLO")
+      this.#connect(networkAdapter, message.senderId)
+
+    if (message.type === "EPHEMERAL") {
+      this.#broadcast(message)
+      // SEE: #92 Improve gossip protocol for ephemeral messages http://github.com/automerge/automerge-repo/issues/92
+    }
+
+    // pass the message on to the repo
+    this.emit("message", message)
+  }
+
+  #connect(networkAdapter: NetworkAdapter, peerId: PeerId) {
+    this.#adaptersByPeer[peerId] = networkAdapter
 
     networkAdapter.on("close", () => {
-      this.#log("adapter closed")
-      Object.entries(this.#adaptersByPeer).forEach(([peerId, other]) => {
-        if (other === networkAdapter) {
-          delete this.#adaptersByPeer[peerId as PeerId]
-        }
-      })
+      this.#disconnect(peerId)
+    })
+
+    this.emit("peer", peerId)
+  }
+
+  #disconnect(peerId: PeerId) {
+    delete this.#adaptersByPeer[peerId]
+    this.emit("peer-disconnected", peerId)
+  }
+
+  #broadcast(message: Message) {
+    Object.entries(this.#adaptersByPeer).forEach(([id, peer]) => {
+      if (id !== message.senderId)
+        // Don't send the message back to the original sender
+        peer.send(message)
     })
   }
 
-  sendMessage({ type, payload, recipientId }: Omit<Message, "senderId">) {
+  // PUBLIC
+
+  send(_message: Omit<SyncMessage | EphemeralMessage, "senderId">) {
     const message = {
-      type,
-      payload,
+      ..._message,
       senderId: this.peerId,
-      recipientId,
-    } as Message
+    } as SyncMessage | EphemeralMessage
 
     switch (message.type) {
       case "SYNC": {
-        // Send message to a specific peer
-        const peer = this.#adaptersByPeer[recipientId]
-        if (!peer) {
-          // TODO: This should never happen — shouldn't we throw an error instead?
-          this.#log(`Tried to send message but peer not found: ${recipientId}`)
-          return
-        }
-        this.#log(`Sending message to ${recipientId}`)
-        peer.sendMessage(message)
+        const peerId = message.recipientId
+        const peer = this.#adaptersByPeer[peerId]
+        if (!peer) throw new Error(`Couldn't send, peer not found: ${peerId}`)
+
+        peer.send(message)
         break
       }
       case "EPHEMERAL": {
-        // Broadcast message to all peers
-        Object.entries(this.#adaptersByPeer).forEach(([recipientId, peer]) => {
-          this.#log(`sending broadcast to ${recipientId}`)
-          peer.sendMessage(message)
-        })
+        this.#broadcast(message)
         break
       }
     }
@@ -110,12 +100,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 // events & payloads
 
 export interface NetworkSubsystemEvents {
-  peer: (payload: PeerPayload) => void
-  "peer-disconnected": (payload: PeerDisconnectedPayload) => void
+  peer: (peerId: PeerId) => void
+  "peer-disconnected": (peerId: PeerId) => void
   message: (payload: Message) => void
-}
-
-export interface PeerPayload {
-  peerId: PeerId
-  channelId: string // TODO
 }
