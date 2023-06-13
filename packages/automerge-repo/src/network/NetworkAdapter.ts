@@ -6,6 +6,7 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
 }
 
 export interface NetworkAdapterEvents {
+  open: () => void
   close: () => void
   message: (payload: Message) => void
 }

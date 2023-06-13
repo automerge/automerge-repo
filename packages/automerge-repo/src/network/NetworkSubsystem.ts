@@ -1,17 +1,11 @@
 import EventEmitter from "eventemitter3"
-import {
-  EphemeralMessage,
-  Message,
-  MessagePayload,
-  MessageType,
-  PeerId,
-  SyncMessage,
-} from "../types.js"
-import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
+import { EphemeralMessage, Message, PeerId, SyncMessage } from "../types.js"
+import { NetworkAdapter } from "./NetworkAdapter.js"
 
 import debug from "debug"
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
+  #log: debug.Debugger
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
 
   constructor(private adapters: NetworkAdapter[], public peerId: PeerId) {
@@ -25,8 +19,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.#receive(message, networkAdapter)
     })
 
-    // Say hello. They'll say hello back, and then we have a peer.
-    networkAdapter.send({ type: "HELLO", senderId: this.peerId })
+    // Wait for the network adapter to be ready
+    networkAdapter.on("open", () => {
+      // Say hello. They'll say hello back, and then we have a peer.
+      networkAdapter.send({ type: "HELLO", senderId: this.peerId })
+    })
   }
 
   #receive(message: Message, networkAdapter: NetworkAdapter) {
@@ -34,8 +31,10 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       "recipientId" in message &&
       message.recipientId !== undefined &&
       message.recipientId !== this.peerId
-    )
-      throw new Error(`Not our message: ${message.recipientId}`)
+    ) {
+      this.#log(`message not for us, ignoring`, message)
+      return // not for us
+    }
 
     if (message.type === "HELLO")
       this.#connect(networkAdapter, message.senderId)
