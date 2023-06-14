@@ -10,7 +10,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch"
+    "watch": "npm-watch",
+    "test": "mocha --no-warnings --experimental-specifier-resolution=node --exit"
   },
   "dependencies": {
     "automerge-repo": "^0.0.56"
@@ -22,5 +23,8 @@
         ".ts"
       ]
     }
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.4"
   }
 }
