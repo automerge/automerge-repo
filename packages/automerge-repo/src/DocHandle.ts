@@ -230,6 +230,21 @@ export class DocHandle<T> //
     })
   }
 
+  changeAt(heads: A.Heads, callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+    if (!this.isReady()) {
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+      )
+    }
+    this.#machine.send(UPDATE, {
+      payload: {
+        callback: (doc: A.Doc<T>) => {
+          return A.changeAt(doc, heads, options, callback)
+        },
+      },
+    })
+  }
+
   /** `request` is called by the repo when the document is not found in storage */
   request() {
     if (this.#state === LOADING) this.#machine.send(REQUEST)
