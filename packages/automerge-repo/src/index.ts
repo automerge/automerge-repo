@@ -1,4 +1,3 @@
-export { DocCollection } from "./DocCollection.js"
 export { DocHandle, HandleState } from "./DocHandle.js"
 export type {
   DocHandleChangePayload,

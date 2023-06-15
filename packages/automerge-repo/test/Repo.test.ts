@@ -33,6 +33,7 @@ describe("Repo", () => {
       const { repo } = setup()
       const handle = repo.create()
       assert.notEqual(handle.documentId, null)
+      assert.equal(handle.isReady(), true)
     })
 
     it("can change a document", async () => {

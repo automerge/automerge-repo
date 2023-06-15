@@ -1,4 +1,4 @@
-import { DocCollection } from "../DocCollection.js"
+import { Repo } from "../Repo.js"
 import { DocHandle } from "../DocHandle.js"
 import { ChannelId, DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
@@ -15,7 +15,7 @@ export class CollectionSynchronizer extends Synchronizer {
   /** A map of documentIds to their synchronizers */
   #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
 
-  constructor(private repo: DocCollection) {
+  constructor(private repo: Repo) {
     super()
   }
 

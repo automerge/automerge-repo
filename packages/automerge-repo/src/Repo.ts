@@ -1,4 +1,3 @@
-import { DocCollection } from "./DocCollection.js"
 import { EphemeralData } from "./EphemeralData.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
@@ -6,95 +5,72 @@ import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import { ChannelId, DocumentId, PeerId } from "./types.js"
+import { v4 as uuid } from "uuid"
 
 import debug from "debug"
+import { DocHandle } from "./DocHandle.js"
+import EventEmitter from "eventemitter3"
 
 const SYNC_CHANNEL = "sync_channel" as ChannelId
 
-/** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
-export class Repo extends DocCollection {
+/** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
+export class Repo extends EventEmitter<DocCollectionEvents> {
   #log: debug.Debugger
 
-  networkSubsystem: NetworkSubsystem
-  storageSubsystem?: StorageSubsystem
-  ephemeralData: EphemeralData
+  #networkSubsystem: NetworkSubsystem
+  #storageSubsystem?: StorageSubsystem
+  #ephemeralData: EphemeralData
+  #synchronizer: CollectionSynchronizer
+
+  #handleCache: Record<DocumentId, DocHandle<any>> = {}
+
+  /** By default, we share generously with all peers. */
+  sharePolicy: SharePolicy = async () => true
 
   constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
-    // DOC COLLECTION
-
-    // The `document` event is fired by the DocCollection any time we create a new document or look
-    // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-    this.on("document", async ({ handle }) => {
-      if (storageSubsystem) {
-        // Save when the document changes
-        handle.on("change", async ({ handle }) => {
-          const doc = await handle.value()
-          storageSubsystem.save(handle.documentId, doc)
-        })
-
-        // Try to load from disk
-        const binary = await storageSubsystem.loadBinary(handle.documentId)
-        handle.load(binary)
-      }
-
-      handle.request()
-
-      // Register the document with the synchronizer. This advertises our interest in the document.
-      synchronizer.addDocument(handle.documentId)
-    })
-
-    this.on("delete-document", ({ documentId }) => {
-      // TODO Pass the delete on to the network
-      // synchronizer.removeDocument(documentId)
-
-      if (storageSubsystem) {
-        storageSubsystem.remove(documentId)
-      }
-    })
-
-    // SYNCHRONIZER
-    // The synchronizer uses the network subsystem to keep documents in sync with peers.
-
-    const synchronizer = new CollectionSynchronizer(this)
-
-    // When the synchronizer emits sync messages, send them to peers
-    synchronizer.on(
-      "message",
-      ({ targetId, channelId, message, broadcast }) => {
-        this.#log(`sending sync message to ${targetId}`)
-        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
-      }
-    )
-
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
-
-    const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
-    this.storageSubsystem = storageSubsystem
+    this.#storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
 
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
+    this.#networkSubsystem = new NetworkSubsystem(network, peerId)
 
-    const networkSubsystem = new NetworkSubsystem(network, peerId)
-    this.networkSubsystem = networkSubsystem
+    // SYNCHRONIZER
+    // The synchronizer uses the network subsystem to keep documents in sync with peers.
+    this.#synchronizer = new CollectionSynchronizer(this)
+
+    // When the synchronizer emits sync messages, send them to peers
+    this.#synchronizer.on(
+      "message",
+      ({ targetId, channelId, message, broadcast }) => {
+        this.#log(`sending sync message to ${targetId}`)
+        this.#networkSubsystem.sendMessage(
+          targetId,
+          channelId,
+          message,
+          broadcast
+        )
+      }
+    )
 
     // When we get a new peer, register it with the synchronizer
-    networkSubsystem.on("peer", async ({ peerId }) => {
+    this.#networkSubsystem.on("peer", async ({ peerId }) => {
       this.#log("peer connected", { peerId })
-      await synchronizer.addPeer(peerId)
+      this.#synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
-    networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      synchronizer.removePeer(peerId)
+    this.#networkSubsystem.on("peer-disconnected", ({ peerId }) => {
+      this.#synchronizer.removePeer(peerId)
     })
 
     // Handle incoming messages
-    networkSubsystem.on("message", async msg => {
+    this.#networkSubsystem.on("message", async msg => {
       const { senderId, channelId, message } = msg
 
       // TODO: this demands a more principled way of associating channels with recipients
@@ -103,32 +79,154 @@ export class Repo extends DocCollection {
       if (channelId.startsWith("m/")) {
         // Ephemeral message
         this.#log(`receiving ephemeral message from ${senderId}`)
-        ephemeralData.receive(senderId, channelId, message)
+        this.#ephemeralData.receive(senderId, channelId, message)
       } else {
         // Sync message
         this.#log(`receiving sync message from ${senderId}`)
-        await synchronizer.receiveSyncMessage(senderId, channelId, message)
+        await this.#synchronizer.receiveSyncMessage(
+          senderId,
+          channelId,
+          message
+        )
       }
     })
 
     // We establish a special channel for sync messages
-    networkSubsystem.join(SYNC_CHANNEL)
+    this.#networkSubsystem.join(SYNC_CHANNEL)
 
     // EPHEMERAL DATA
     // The ephemeral data subsystem uses the network to send and receive messages that are not
     // persisted to storage, e.g. cursor position, presence, etc.
-
-    const ephemeralData = new EphemeralData()
-    this.ephemeralData = ephemeralData
+    this.#ephemeralData = new EphemeralData()
 
     // Send ephemeral messages to peers
-    ephemeralData.on(
+    this.#ephemeralData.on(
       "message",
       ({ targetId, channelId, message, broadcast }) => {
         this.#log(`sending ephemeral message to ${targetId}`)
-        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
+        this.#networkSubsystem.sendMessage(
+          targetId,
+          channelId,
+          message,
+          broadcast
+        )
       }
     )
+  }
+
+  /** Returns an existing handle if we have it; creates one otherwise. */
+  #getHandle<T>(
+    /** The documentId of the handle to look up or create */
+    documentId: DocumentId,
+
+    /** If we know we're creating a new document, specify this so we can have access to it immediately */
+    isNew: boolean
+  ) {
+    // If we have the handle cached, return it
+    if (this.#handleCache[documentId]) return this.#handleCache[documentId]
+
+    // If not, create a new handle, cache it, and return it
+    const handle = new DocHandle<T>(documentId, { isNew })
+    this.#handleCache[documentId] = handle
+    return handle
+  }
+
+  /** Returns all the handles we have cached. */
+  get handles() {
+    return this.#handleCache
+  }
+
+  /**
+   * Creates a new document and returns a handle to it. The initial value of the document is
+   * an empty object `{}`. Its documentId is generated by the system. we emit a `document` event
+   * to advertise interest in the document.
+   */
+  create<T>(): DocHandle<T> {
+    const documentId = uuid() as DocumentId
+    const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
+
+    void this.addDocument(handle)
+
+    this.emit("document", { handle })
+    return handle
+  }
+
+  /**
+   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
+   * event to advertise interest in the document.
+   */
+  find<T>(
+    /** The documentId of the handle to retrieve */
+    documentId: DocumentId
+  ): DocHandle<T> {
+    // TODO: we want a way to make sure we don't yield intermediate document states during initial synchronization
+
+    // If we already have a handle, return it
+    if (this.#handleCache[documentId])
+      return this.#handleCache[documentId] as DocHandle<T>
+
+    // Otherwise, create a new handle
+    const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
+
+    // we don't directly initialize a value here because the StorageSubsystem and Synchronizers go
+    // and get the data asynchronously and block on read instead of on create
+
+    void this.addDocument(handle)
+
+    // emit a document event to advertise interest in this document
+    this.emit("document", { handle })
+
+    return handle
+  }
+
+  delete(
+    /** The documentId of the handle to delete */
+    documentId: DocumentId
+  ) {
+    const handle = this.#getHandle(documentId, false)
+    handle.delete()
+
+    delete this.#handleCache[documentId]
+
+    // TODO Pass the delete on to the network
+    // synchronizer.removeDocument(documentId)
+
+    if (this.#storageSubsystem) {
+      this.#storageSubsystem.remove(documentId)
+    }
+
+    this.emit("delete-document", { documentId })
+  }
+
+  private async addDocument<T>(handle: DocHandle<T>) {
+    if (this.#storageSubsystem) {
+      // Save when the document changes
+      handle.on("change", async ({ handle }) => {
+        const doc = await handle.value()
+        this.#storageSubsystem?.save(handle.documentId, doc)
+      })
+
+      // Try to load from disk
+      const binary = await this.#storageSubsystem.loadBinary(handle.documentId)
+      handle.load(binary)
+    }
+
+    handle.request()
+
+    // Register the document with the synchronizer. This advertises our interest in the document.
+    this.#synchronizer.addDocument(handle.documentId)
+  }
+
+  get storageSubsystem() {
+    return this.#storageSubsystem
+  }
+
+  get networkSubsystem() {
+    return this.#networkSubsystem
+  }
+
+  get ephemeralData() {
+    return this.#ephemeralData
   }
 }
 
@@ -153,3 +251,17 @@ export type SharePolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
+
+// events & payloads
+interface DocCollectionEvents {
+  document: (arg: DocumentPayload) => void
+  "delete-document": (arg: DeleteDocumentPayload) => void
+}
+
+interface DocumentPayload {
+  handle: DocHandle<any>
+}
+
+interface DeleteDocumentPayload {
+  documentId: DocumentId
+}
