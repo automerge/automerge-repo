@@ -24,7 +24,6 @@ jobs:
       - name: Install and Build
         run: |
           yarn install --no-lockfile
-          lerna link --force-local
           yarn build
       - name: Run Tests
         run: yarn test
