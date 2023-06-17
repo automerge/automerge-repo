@@ -8,6 +8,10 @@ demonstration purposes at this point; you probably don't want to use it for anyt
 isn't a great way to operate (or the only way) but it's a useful demonstration of what a
 client/server deployment might look like.
 
+## Setting up
+
+Before getting started, make sure you've run `yarn`, and `yarn build` at the root of the monorepo. This will install all your dependencies and make sure the other libraries are compiled.
+
 ## Run the sync server
 
 `yarn start:syncserver`
