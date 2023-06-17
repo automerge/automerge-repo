@@ -1,5 +1,5 @@
 {
-  "name": "automerge-repo-network-broadcastchannel",
+  "name": "@automerge/automerge-repo-network-broadcastchannel",
   "version": "0.0.57-alpha.0",
   "description": "BroadcastChannel network adapter for Automerge Repo",
   "repository": "https://github.com/pvh/automerge-repo",
@@ -13,7 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "automerge-repo": "^0.0.57-alpha.0"
+    "@automerge/automerge-repo": "^0.0.57-alpha.0"
   },
   "watch": {
     "build": {

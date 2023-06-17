@@ -1,6 +1,6 @@
 import assert from "assert"
-import { PeerId, Repo } from "automerge-repo"
-import { eventPromise } from "automerge-repo/src/helpers/eventPromise"
+import { PeerId, Repo } from "@automerge/automerge-repo"
+import { eventPromise } from "@automerge/automerge-repo/src/helpers/eventPromise"
 import ws from "isomorphic-ws"
 import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter"

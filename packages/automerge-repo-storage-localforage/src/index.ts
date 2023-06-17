@@ -1,5 +1,5 @@
 import * as localforage from "localforage"
-import { StorageAdapter } from "automerge-repo"
+import { StorageAdapter } from "@automerge/automerge-repo"
 
 /** Saving & loading via localforage. Very naive but probably fine for blob-storage.  */
 export class LocalForageStorageAdapter extends StorageAdapter {

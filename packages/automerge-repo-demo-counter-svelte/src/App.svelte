@@ -4,10 +4,10 @@
   import Counter from "./lib/Counter.svelte"
 
   import { Repo } from "automerge-repo"
-  import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
-  import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
-  import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
-  import { setContextRepo } from "automerge-repo-svelte-store"
+  import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
+  import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
+  import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
+  import { setContextRepo } from "@automerge/automerge-repo-svelte-store"
 
   const repo = new Repo({
     network: [
