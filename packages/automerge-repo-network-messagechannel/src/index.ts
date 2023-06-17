@@ -1,4 +1,4 @@
-import { ChannelId, NetworkAdapter, PeerId } from "automerge-repo"
+import { ChannelId, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 import { MessagePortRef } from "./MessagePortRef.js"
 import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
 import { WeakMessagePortRef } from "./WeakMessagePortRef.js"

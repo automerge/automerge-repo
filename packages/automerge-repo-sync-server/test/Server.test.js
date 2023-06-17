@@ -4,8 +4,8 @@ import assert from "assert"
 import { beforeEach } from "mocha"
 import { WebSocket } from "ws"
 
-import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
-import { Repo } from "automerge-repo"
+import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
+import { Repo } from "@automerge/automerge-repo"
 
 describe("Sync Server Tests", () => {
   const PORT =

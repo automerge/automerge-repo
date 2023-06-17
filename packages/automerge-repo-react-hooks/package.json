@@ -1,5 +1,5 @@
 {
-  "name": "automerge-repo-react-hooks",
+  "name": "@automerge/automerge-repo-react-hooks",
   "version": "0.1.0",
   "description": "Hooks to access an Automerge Repo from your react app.",
   "repository": "https://github.com/pvh/automerge-repo",
@@ -13,7 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "automerge-repo": "^0.1.0"
+    "@automerge/automerge-repo": "^0.1.0"
   },
   "watch": {
     "build": {

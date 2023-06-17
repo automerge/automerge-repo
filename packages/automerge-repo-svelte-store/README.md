@@ -8,9 +8,9 @@ For a working example, see the [Svelte counter demo](../automerge-repo-demo-coun
 
 ```svelte
 <script lang="ts">
-  import { Repo } from "automerge-repo"
+  import { Repo } from "@automerge/automerge-repo"
   import Counter from './lib/Counter.svelte'
-  import { setContextRepo } from "automerge-repo-svelte-store"
+  import { setContextRepo } from "@automerge/automerge-repo-svelte-store"
 
   const repo = new Repo({ /* repo config */ })
 
@@ -31,8 +31,8 @@ For a working example, see the [Svelte counter demo](../automerge-repo-demo-coun
 
 ```svelte
 <script lang="ts">
-  import type { DocumentId } from "automerge-repo"
-  import { document } from "automerge-repo-svelte-store"
+  import type { DocumentId } from "@automerge/automerge-repo"
+  import { document } from "@automerge/automerge-repo-svelte-store"
 
   export let docId: DocumentId
 

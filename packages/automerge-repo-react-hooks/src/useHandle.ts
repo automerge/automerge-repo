@@ -1,4 +1,4 @@
-import { DocHandle, DocumentId } from "automerge-repo"
+import { DocHandle, DocumentId } from "@automerge/automerge-repo"
 import { useState } from "react"
 import { useRepo } from "./useRepo.js"
 

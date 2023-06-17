@@ -1,5 +1,5 @@
 import { Doc, ChangeFn } from "@automerge/automerge"
-import { DocumentId, DocHandlePatchPayload } from "automerge-repo"
+import { DocumentId, DocHandlePatchPayload } from "@automerge/automerge-repo"
 import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo"
 

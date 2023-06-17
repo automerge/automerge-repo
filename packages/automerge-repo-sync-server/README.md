@@ -1,7 +1,7 @@
 # Automerge Repo Sync Server
 
 A very simple automerge-repo synchronization server. It pairs with the websocket client protocol
-found in `automerge-repo-network-websocket`.
+found in `@automerge/automerge-repo-network-websocket`.
 
 The server is an unsecured [Express](https://expressjs.com/) app. It is really just for
 demonstration purposes at this point; you probably don't want to use it for anything real yet. This

@@ -1,4 +1,4 @@
-import { DocumentId } from "automerge-repo"
+import { DocumentId } from "@automerge/automerge-repo"
 
 /** Inside an Automerge change function, any arrays found on the document have these utility functions */
 export interface ExtendedArray<T> extends Array<T> {

@@ -9,11 +9,11 @@ deciding which peers to connect to or when to write data out to storage.
 
 Other packages in this monorepo include:
 
-- [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter/): A React-based demonstration
+- [@automerge/automerge-repo-demo-counter](/packages/@automerge/automerge-repo-demo-counter/): A React-based demonstration
   application.
-- [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
+- [@automerge/automerge-repo-react-hooks](/packages/@automerge/automerge-repo-react-hooks/): Example hooks for use with
   React.
-- [automerge-repo-sync-server](/packages/automerge-repo-sync-server/): A small synchronization
+- [@automerge/automerge-repo-sync-server](/packages/@automerge/automerge-repo-sync-server/): A small synchronization
   server that facilitates asynchronous communication between peers
 
 #### Storage adapters

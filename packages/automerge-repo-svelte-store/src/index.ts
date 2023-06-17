@@ -1,7 +1,7 @@
 import type { Doc, ChangeFn } from "@automerge/automerge"
 import { setContext, getContext } from "svelte"
 import { writable } from "svelte/store"
-import { Repo, DocumentId, DocHandlePatchPayload } from "automerge-repo"
+import { Repo, DocumentId, DocHandlePatchPayload } from "@automerge/automerge-repo"
 
 const ContextRepoKey = Symbol("svelte-context-automerge-repo")
 
