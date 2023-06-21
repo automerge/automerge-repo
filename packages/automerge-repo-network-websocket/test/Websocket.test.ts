@@ -1,72 +1,33 @@
-import assert from "assert"
-import { PeerId, Repo } from "automerge-repo"
-import { eventPromise } from "automerge-repo/src/helpers/eventPromise"
-import ws from "isomorphic-ws"
+import { runAdapterTests } from "automerge-repo-network-acceptance-tests"
 import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter"
 import { startServer } from "./utilities/WebSockets"
 
-describe("Websocket Tests", () => {
-  let repos: {
-    serverRepo: Repo
-    clientRepo: Repo
-    server: ws.Server
-  }
+describe("Websocket adapters", async () => {
+  let port = 8080
 
-  const port = 8080
-  before(async () => {
+  const setup = async () => {
+    port += 1 // Increment port to avoid conflicts
     const { socket, server } = await startServer(port)
 
-    const serverRepo = new Repo({
-      network: [new NodeWSServerAdapter(socket)],
-      peerId: "server" as PeerId,
-      sharePolicy: async () => false,
-    })
+    const serverAdapter = new NodeWSServerAdapter(socket)
+    const clientAdapter = new BrowserWebSocketClientAdapter(
+      `ws://localhost:${port}`
+    )
+    const teardown = () => {
+      server.close()
+    }
 
-    const clientRepo = new Repo({
-      network: [new BrowserWebSocketClientAdapter("ws://localhost:" + port)],
-      peerId: "client" as PeerId,
-    })
+    return { clientAdapter, serverAdapter, teardown }
+  }
 
-    repos = { serverRepo, clientRepo, server: server as unknown as ws.Server }
-  })
+  runAdapterTests(async () => {
+    const { clientAdapter, serverAdapter, teardown } = await setup()
+    return { adapters: [clientAdapter, serverAdapter], teardown }
+  }, "forwards")
 
-  after(() => repos.server.close())
-
-  it("can sync a document from the client to the server", async () => {
-    const { serverRepo, clientRepo } = repos
-
-    const p = eventPromise(serverRepo, "document")
-
-    const handle = clientRepo.create<{ foo: string }>()
-    handle.change(d => {
-      d.foo = "bar"
-    })
-
-    await p
-
-    const serverHandle = serverRepo.find<{ foo: string }>(handle.documentId)
-    await eventPromise(serverHandle, "change")
-    const v = await serverHandle.value()
-
-    assert.equal(v.foo, "bar")
-  })
-
-  it("can sync a document from a server (with a strict share policy) to the client when requested", async () => {
-    const { serverRepo, clientRepo } = repos
-
-    const handle = serverRepo.create<{ foo: string }>()
-    const p = eventPromise(handle, "change")
-    handle.change(d => {
-      d.foo = "bach"
-    })
-
-    await p
-
-    const clientHandle = clientRepo.find<{ foo: string }>(handle.documentId)
-    await eventPromise(clientHandle, "change")
-    const v = await clientHandle.value()
-
-    assert.equal(v.foo, "bach")
-  })
+  runAdapterTests(async () => {
+    const { clientAdapter, serverAdapter, teardown } = await setup()
+    return { adapters: [serverAdapter, clientAdapter], teardown }
+  }, "backwards")
 })

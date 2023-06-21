@@ -23,8 +23,5 @@
         ".ts"
       ]
     }
-  },
-  "devDependencies": {
-    "@types/chai": "^4.3.4"
   }
 }
