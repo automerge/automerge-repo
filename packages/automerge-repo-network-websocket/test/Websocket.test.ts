@@ -6,28 +6,17 @@ import { startServer } from "./utilities/WebSockets"
 describe("Websocket adapters", async () => {
   let port = 8080
 
-  const setup = async () => {
+  runAdapterTests(async () => {
     port += 1 // Increment port to avoid conflicts
     const { socket, server } = await startServer(port)
-
+    const serverUrl = `ws://localhost:${port}`
     const serverAdapter = new NodeWSServerAdapter(socket)
-    const clientAdapter = new BrowserWebSocketClientAdapter(
-      `ws://localhost:${port}`
-    )
-    const teardown = () => {
-      server.close()
-    }
 
-    return { clientAdapter, serverAdapter, teardown }
-  }
+    const aliceAdapter = new BrowserWebSocketClientAdapter(serverUrl)
+    const bobAdapter = new BrowserWebSocketClientAdapter(serverUrl)
 
-  runAdapterTests(async () => {
-    const { clientAdapter, serverAdapter, teardown } = await setup()
-    return { adapters: [clientAdapter, serverAdapter], teardown }
-  }, "forwards")
+    const teardown = () => server.close()
 
-  runAdapterTests(async () => {
-    const { clientAdapter, serverAdapter, teardown } = await setup()
-    return { adapters: [serverAdapter, clientAdapter], teardown }
-  }, "backwards")
+    return { adapters: [serverAdapter, aliceAdapter, bobAdapter], teardown }
+  })
 })
