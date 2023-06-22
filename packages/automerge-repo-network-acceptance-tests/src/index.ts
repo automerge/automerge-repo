@@ -1,5 +1,8 @@
 import { PeerId, Repo, type NetworkAdapter } from "automerge-repo"
-import { eventPromise } from "automerge-repo/src/helpers/eventPromise"
+import {
+  eventPromise,
+  eventPromises,
+} from "automerge-repo/src/helpers/eventPromise"
 import { assert } from "chai"
 import { describe, it } from "mocha"
 
@@ -21,20 +24,17 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
   }
 
   describe(`Adapter acceptance tests ${title ? `(${title})` : ""}`, () => {
-    it("can sync documents between two repos", async () => {
-      const doTest = async (
-        aliceAdapters: NetworkAdapter[],
-        bobAdapters: NetworkAdapter[]
-      ) => {
-        const aliceRepo = new Repo({ network: aliceAdapters, peerId: alice })
-        const bobRepo = new Repo({ network: bobAdapters, peerId: bob })
+    it("can sync a document between two repos", async () => {
+      const doTest = async (a: NetworkAdapter[], b: NetworkAdapter[]) => {
+        const aliceRepo = new Repo({ network: a, peerId: alice })
+        const bobRepo = new Repo({ network: b, peerId: bob })
 
         // Alice creates a document
         const aliceHandle = aliceRepo.create<TestDoc>()
 
         // Bob receives the document
         await eventPromise(bobRepo, "document")
-        const BobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+        const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
 
         // Alice changes the document
         aliceHandle.change(d => {
@@ -42,19 +42,19 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
         })
 
         // Bob receives the change
-        await eventPromise(BobHandle, "change")
-        const v1 = await BobHandle.value()
-        assert.equal(v1.foo, "bar")
+        await eventPromise(bobHandle, "change")
+        assert.equal((await bobHandle.value()).foo, "bar")
 
         // Bob changes the document
-        BobHandle.change(d => {
+        bobHandle.change(d => {
           d.foo = "baz"
         })
 
         // Alice receives the change
         await eventPromise(aliceHandle, "change")
-        const v2 = await aliceHandle.value()
-        assert.equal(v2.foo, "baz")
+        assert.equal((await aliceHandle.value()).foo, "baz")
+
+        const v = await aliceHandle.value()
       }
 
       // Run the test in both directions, in case they're different types of adapters
@@ -72,17 +72,57 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
       }
     })
 
-    it("something else", async () => {
-      assert.isTrue(true)
+    it("can sync a document across three repos", async () => {
+      const { adapters, teardown = NO_OP } = await setup()
+      const [a, b, c] = adapters
+
+      const aliceRepo = new Repo({ network: a, peerId: alice })
+      const bobRepo = new Repo({ network: b, peerId: bob })
+      const charlieRepo = new Repo({ network: c, peerId: charlie })
+
+      // Alice creates a document
+      const aliceHandle = aliceRepo.create<TestDoc>()
+      const documentId = aliceHandle.documentId
+
+      // Bob receives the document
+      await eventPromise(bobRepo, "document")
+      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+
+      // Charlie receives the document
+      await eventPromise(charlieRepo, "document")
+      const charlieHandle = charlieRepo.find<TestDoc>(aliceHandle.documentId)
+
+      // Alice changes the document
+      aliceHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      // Bob and Charlie receive the change
+      await eventPromises([bobHandle, charlieHandle], "change")
+      assert.equal((await bobHandle.value()).foo, "bar")
+      assert.equal((await charlieHandle.value()).foo, "bar")
+
+      // Charlie changes the document
+      charlieHandle.change(d => {
+        d.foo = "baz"
+      })
+
+      // Alice and Bob receive the change
+      await eventPromises([aliceHandle, bobHandle], "change")
+      assert.equal((await bobHandle.value()).foo, "baz")
+      assert.equal((await charlieHandle.value()).foo, "baz")
+
+      teardown()
     })
   })
 }
 
 const NO_OP = () => {}
 
-type NetworkAdapters = NetworkAdapter | NetworkAdapter[]
+type Network = NetworkAdapter | NetworkAdapter[]
+
 export type SetupFn = () => Promise<{
-  adapters: [NetworkAdapters, NetworkAdapters, NetworkAdapters]
+  adapters: [Network, Network, Network]
   teardown?: () => void
 }>
 
