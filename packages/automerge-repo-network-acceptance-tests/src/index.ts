@@ -6,48 +6,70 @@ import { describe, it } from "mocha"
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId
 const charlie = "charlie" as PeerId
+
 /**
- * Runs a series of
+ * Runs a series of tests against a set of three peers, each represented by one or more instantiated network adapters
  */
-export function runAdapterTests(setup: SetupFn, title?: string): void {
+export function runAdapterTests(_setup: SetupFn, title?: string): void {
+  const setup = async () => {
+    const { adapters, teardown } = await _setup()
+
+    // these might be individual adapters or arrays of adapters; normalize them to arrays
+    const [a, b, c] = adapters.map(toArray)
+
+    return { adapters: [a, b, c], teardown }
+  }
+
   describe(`Adapter acceptance tests ${title ? `(${title})` : ""}`, () => {
-    it("can sync a document from one repo to another", async () => {
-      const {
-        adapters: [aliceAdapter, bobAdapter],
-        teardown = NO_OP,
-      } = await setup()
+    it("can sync documents between two repos", async () => {
+      const doTest = async (
+        aliceAdapters: NetworkAdapter[],
+        bobAdapters: NetworkAdapter[]
+      ) => {
+        const aliceRepo = new Repo({ network: aliceAdapters, peerId: alice })
+        const bobRepo = new Repo({ network: bobAdapters, peerId: bob })
 
-      const aliceRepo = new Repo({ network: [aliceAdapter], peerId: alice })
-      const bobRepo = new Repo({ network: [bobAdapter], peerId: bob })
+        // Alice creates a document
+        const aliceHandle = aliceRepo.create<TestDoc>()
 
-      // Alice creates a document
-      const aliceHandle = aliceRepo.create<{ foo: string }>()
+        // Bob receives the document
+        await eventPromise(bobRepo, "document")
+        const BobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
 
-      // Bob receives the document
-      await eventPromise(bobRepo, "document")
-      const bobHandle = bobRepo.find<{ foo: string }>(aliceHandle.documentId)
+        // Alice changes the document
+        aliceHandle.change(d => {
+          d.foo = "bar"
+        })
 
-      // Alice changes the document
-      aliceHandle.change(d => {
-        d.foo = "bar"
-      })
+        // Bob receives the change
+        await eventPromise(BobHandle, "change")
+        const v1 = await BobHandle.value()
+        assert.equal(v1.foo, "bar")
 
-      // Bob receives the change
-      await eventPromise(bobHandle, "change")
-      const v = await bobHandle.value()
-      assert.equal(v.foo, "bar")
+        // Bob changes the document
+        BobHandle.change(d => {
+          d.foo = "baz"
+        })
 
-      // Bob changes the document
-      bobHandle.change(d => {
-        d.foo = "baz"
-      })
+        // Alice receives the change
+        await eventPromise(aliceHandle, "change")
+        const v2 = await aliceHandle.value()
+        assert.equal(v2.foo, "baz")
+      }
 
-      // Alice receives the change
-      await eventPromise(aliceHandle, "change")
-      const v2 = await aliceHandle.value()
-      assert.equal(v2.foo, "baz")
-
-      teardown()
+      // Run the test in both directions, in case they're different types of adapters
+      {
+        const { adapters, teardown = NO_OP } = await setup()
+        const [x, y] = adapters
+        await doTest(x, y) // x is Alice
+        teardown()
+      }
+      {
+        const { adapters, teardown = NO_OP } = await setup()
+        const [x, y] = adapters
+        await doTest(y, x) // y is Alice
+        teardown()
+      }
     })
 
     it("something else", async () => {
@@ -56,9 +78,16 @@ export function runAdapterTests(setup: SetupFn, title?: string): void {
   })
 }
 
+const NO_OP = () => {}
+
+type NetworkAdapters = NetworkAdapter | NetworkAdapter[]
 export type SetupFn = () => Promise<{
-  adapters: [NetworkAdapter, NetworkAdapter]
+  adapters: [NetworkAdapters, NetworkAdapters, NetworkAdapters]
   teardown?: () => void
 }>
 
-const NO_OP = () => {}
+type TestDoc = {
+  foo: string
+}
+
+const toArray = <T>(x: T | T[]) => (Array.isArray(x) ? x : [x])

@@ -5,7 +5,8 @@ describe("BroadcastChannel", () => {
   const setup: SetupFn = async () => {
     const a = new BroadcastChannelNetworkAdapter()
     const b = new BroadcastChannelNetworkAdapter()
-    return { adapters: [a, b] }
+    const c = new BroadcastChannelNetworkAdapter()
+    return { adapters: [a, b, c] }
   }
 
   runAdapterTests(setup)
