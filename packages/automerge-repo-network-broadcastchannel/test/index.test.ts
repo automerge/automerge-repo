@@ -1,6 +1,6 @@
 import { BroadcastChannelNetworkAdapter } from "../src"
 import {
-  SetupFn,
+  type SetupFn,
   runAdapterTests,
 } from "automerge-repo-network-acceptance-tests"
 
