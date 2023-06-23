@@ -8,7 +8,6 @@ import { ChannelId, PeerId } from "../types.js"
 
 import debug from "debug"
 
-let i = 0
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
