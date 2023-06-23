@@ -7,7 +7,7 @@
   "license": "MIT",
   "private": false,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "test/index.ts",
   "dependencies": {
     "automerge-repo": "^0.1.0"
   },
