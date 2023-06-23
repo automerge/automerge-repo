@@ -14,7 +14,12 @@ describe("MessageChannelNetworkAdapter", () => {
     const b = [new Adapter(bobToAlice), new Adapter(bobToCharlie)]
     const c = new Adapter(charlieToBob)
 
-    return { adapters: [a, b, c] }
+    const teardown = () => {
+      const ports = [aliceToBob, bobToAlice, bobToCharlie, charlieToBob]
+      ports.forEach(port => port.close())
+    }
+
+    return { adapters: [a, b, c], teardown }
   }, "hub and spoke")
 
   // all 3 peers connected directly to each other
@@ -32,12 +37,15 @@ describe("MessageChannelNetworkAdapter", () => {
     const c = [new Adapter(charlieToBob), new Adapter(charlieToAlice)]
 
     const teardown = () => {
-      aliceBobChannel.port1.close()
-      aliceBobChannel.port2.close()
-      bobCharlieChannel.port1.close()
-      bobCharlieChannel.port2.close()
-      aliceCharlieChannel.port1.close()
-      aliceCharlieChannel.port2.close()
+      const ports = [
+        aliceToBob,
+        bobToAlice,
+        bobToCharlie,
+        charlieToBob,
+        aliceToCharlie,
+        charlieToAlice,
+      ]
+      ports.forEach(port => port.close())
     }
 
     return { adapters: [a, b, c], teardown }
