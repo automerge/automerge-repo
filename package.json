@@ -21,6 +21,7 @@
     "watch": "lerna run watch --parallel --stream"
   },
   "devDependencies": {
+    "@types/chai": "^4.3.4",
     "@types/mocha": "^9.1.1",
     "c8": "^7.12.0",
     "chai": "^4.3.7",
