@@ -9,13 +9,16 @@ describe("Websocket adapters", async () => {
   runAdapterTests(async () => {
     port += 1 // Increment port to avoid conflicts
     const { socket, server } = await startServer(port)
-    const serverUrl = `ws://localhost:${port}`
     const serverAdapter = new NodeWSServerAdapter(socket)
+
+    const serverUrl = `ws://localhost:${port}`
 
     const aliceAdapter = new BrowserWebSocketClientAdapter(serverUrl)
     const bobAdapter = new BrowserWebSocketClientAdapter(serverUrl)
 
-    const teardown = () => server.close()
+    const teardown = () => {
+      server.close()
+    }
 
     return { adapters: [serverAdapter, aliceAdapter, bobAdapter], teardown }
   })

@@ -85,7 +85,7 @@ export class Repo extends DocCollection {
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId }) => {
       this.#log("peer connected", { peerId })
-      await synchronizer.addPeer(peerId)
+      synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
