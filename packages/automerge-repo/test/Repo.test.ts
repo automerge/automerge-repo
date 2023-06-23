@@ -319,7 +319,7 @@ describe("Repo", () => {
       teardown()
     })
 
-    it.only("can broadcast a message", async () => {
+    it("can broadcast a message", async () => {
       const { aliceRepo, bobRepo, teardown } = await setup()
 
       const channelId = "broadcast" as ChannelId
