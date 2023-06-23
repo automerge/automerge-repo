@@ -6,12 +6,17 @@ import {
 import { assert } from "chai"
 import { describe, it } from "mocha"
 
-const alice = "alice" as PeerId
-const bob = "bob" as PeerId
-const charlie = "charlie" as PeerId
-
 /**
- * Runs a series of tests against a set of three peers, each represented by one or more instantiated network adapters
+ * Runs a series of tests against a set of three peers, each represented by one or more instantiated
+ * network adapters.
+ *
+ * The adapter `setup` function should return an object with the following properties:
+ *
+ * - `adapters`: A tuple representing three peers' network configuration. Each element can be either
+ *   a single adapter or an array of adapters. Each will be used to instantiate a Repo for that
+ *   peer.
+ * - `teardown`: An optional function that will be called after the tests have run. This can be used
+ *   to clean up any resources that were created during the test.
  */
 export function runAdapterTests(_setup: SetupFn, title?: string): void {
   const setup = async () => {
@@ -53,8 +58,6 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
         // Alice receives the change
         await eventPromise(aliceHandle, "change")
         assert.equal((await aliceHandle.value()).foo, "baz")
-
-        const v = await aliceHandle.value()
       }
 
       // Run the test in both directions, in case they're different types of adapters
@@ -138,18 +141,17 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
     })
   })
 }
-
 const NO_OP = () => {}
-
 type Network = NetworkAdapter | NetworkAdapter[]
 
 export type SetupFn = () => Promise<{
   adapters: [Network, Network, Network]
   teardown?: () => void
 }>
-
 type TestDoc = {
   foo: string
 }
-
 const toArray = <T>(x: T | T[]) => (Array.isArray(x) ? x : [x])
+const alice = "alice" as PeerId
+const bob = "bob" as PeerId
+const charlie = "charlie" as PeerId
