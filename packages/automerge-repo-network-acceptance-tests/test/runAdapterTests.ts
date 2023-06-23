@@ -19,6 +19,7 @@ import { describe, it } from "mocha"
  *   to clean up any resources that were created during the test.
  */
 export function runAdapterTests(_setup: SetupFn, title?: string): void {
+  // Wrap the provided setup function
   const setup = async () => {
     const { adapters, teardown = NO_OP } = await _setup()
 
@@ -141,17 +142,22 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
     })
   })
 }
+
 const NO_OP = () => {}
+
 type Network = NetworkAdapter | NetworkAdapter[]
 
 export type SetupFn = () => Promise<{
   adapters: [Network, Network, Network]
   teardown?: () => void
 }>
+
 type TestDoc = {
   foo: string
 }
+
 const toArray = <T>(x: T | T[]) => (Array.isArray(x) ? x : [x])
+
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId
 const charlie = "charlie" as PeerId
