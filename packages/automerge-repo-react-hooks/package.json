@@ -13,7 +13,8 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "automerge-repo": "^0.1.0"
+    "automerge-repo": "^0.1.0",
+    "react-use": "^17.4.0"
   },
   "watch": {
     "build": {
