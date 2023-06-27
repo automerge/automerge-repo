@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-svelte-store",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A Svelte store containing your automerge documentsj",
   "repository": "https://github.com/pvh/automerge-repo",
   "license": "MIT",
@@ -12,7 +12,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^0.0.1",
+    "@automerge/automerge-repo": "^0.1.0",
     "svelte": "^3.0.0"
   },
   "watch": {
