@@ -3,7 +3,7 @@
   "version": "0.1.1-alpha.0",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
-  "repository": "https://github.com/pvh/automerge-repo",
+  "repository": "https://github.com/automerge/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
   "private": true,
@@ -40,7 +40,7 @@
     "typescript": "^4.7.4"
   },
   "engines": {
-    "node": ">= 16.x"
+    "node": ">= 18.x"
   },
   "workspaces": [
     "packages/*"
