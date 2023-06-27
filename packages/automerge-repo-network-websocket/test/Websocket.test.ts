@@ -1,4 +1,4 @@
-import { runAdapterTests } from "@automerge/automerge-repo"
+import { runAdapterTests } from "../../automerge-repo/src/helpers/tests/network-adapter-tests"
 import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter"
 import { startServer } from "./utilities/WebSockets"

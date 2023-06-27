@@ -1,5 +1,8 @@
 import { BroadcastChannelNetworkAdapter } from "../src"
-import { type SetupFn, runAdapterTests } from "@automerge/automerge-repo"
+import {
+  type SetupFn,
+  runAdapterTests,
+} from "../../automerge-repo/src/helpers/tests/network-adapter-tests"
 
 describe("BroadcastChannel", () => {
   const setup: SetupFn = async () => {
