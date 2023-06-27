@@ -1,8 +1,8 @@
-import { PeerId, Repo, type NetworkAdapter, ChannelId } from "automerge-repo"
+import { PeerId, Repo, type NetworkAdapter, ChannelId } from "../index.js"
 import {
   eventPromise,
   eventPromises,
-} from "automerge-repo/src/helpers/eventPromise"
+} from "../helpers/eventPromise.js"
 import { assert } from "chai"
 import { describe, it } from "mocha"
 
@@ -143,7 +143,7 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
   })
 }
 
-const NO_OP = () => {}
+const NO_OP = () => { }
 
 type Network = NetworkAdapter | NetworkAdapter[]
 
