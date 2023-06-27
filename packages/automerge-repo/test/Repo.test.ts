@@ -322,7 +322,7 @@ describe("Repo", () => {
     it("can broadcast a message", async () => {
       const { aliceRepo, bobRepo, teardown } = await setup()
 
-      const channelId = "m/broadcast" as ChannelId
+      const channelId = "broadcast" as ChannelId
       const data = { presence: "bob" }
 
       bobRepo.ephemeralData.broadcast(channelId, data)

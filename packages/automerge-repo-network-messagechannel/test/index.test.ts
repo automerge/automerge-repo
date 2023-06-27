@@ -1,67 +1,53 @@
-import { assert, expect } from "chai"
-import { ChannelId, PeerId, Repo } from "@automerge/automerge-repo"
-import { MessageChannelNetworkAdapter } from "../src"
-import { eventPromise } from "@automerge/automerge-repo/src/helpers/eventPromise"
-import { pause } from "@automerge/automerge-repo/src/helpers/pause"
+import { runAdapterTests } from "@automerge/automerge-repo"
+import { MessageChannelNetworkAdapter as Adapter } from "../src"
 
-describe("MessageChannel", () => {
-  it("sends message", async () => {
-    const messageChannel = new MessageChannel()
+// bob is the hub, alice and charlie are spokes
+describe("MessageChannelNetworkAdapter", () => {
+  runAdapterTests(async () => {
+    const aliceBobChannel = new MessageChannel()
+    const bobCharlieChannel = new MessageChannel()
 
-    const alicePort = messageChannel.port1
-    const bobPort = messageChannel.port2
+    const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
+    const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-    const aliceAdapter = new MessageChannelNetworkAdapter(alicePort)
+    const a = new Adapter(aliceToBob)
+    const b = [new Adapter(bobToAlice), new Adapter(bobToCharlie)]
+    const c = new Adapter(charlieToBob)
 
-    const alice = "alice" as PeerId
-    const bob = "bob" as PeerId
-    const channel = "channel" as ChannelId
-
-    const message = stringToBytes("hello")
-
-    bobPort.onmessage = ({ data }) => {
-      expect(data.message).to.equal(message)
+    const teardown = () => {
+      const ports = [aliceToBob, bobToAlice, bobToCharlie, charlieToBob]
+      ports.forEach(port => port.close())
     }
 
-    aliceAdapter.connect(alice)
-    aliceAdapter.sendMessage(bob, channel, message, false)
-    alicePort.close()
-    bobPort.close()
-  })
+    return { adapters: [a, b, c], teardown }
+  }, "hub and spoke")
 
-  it("can sync a document from one repo to another", async () => {
+  // all 3 peers connected directly to each other
+  runAdapterTests(async () => {
     const aliceBobChannel = new MessageChannel()
+    const bobCharlieChannel = new MessageChannel()
+    const aliceCharlieChannel = new MessageChannel()
 
-    const { port1: aliceToCharlie, port2: charlieToAlice } = aliceBobChannel
+    const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
+    const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
+    const { port1: aliceToCharlie, port2: charlieToAlice } = aliceCharlieChannel
 
-    const aliceRepo = new Repo({
-      network: [new MessageChannelNetworkAdapter(aliceToCharlie)],
-      peerId: "alice" as PeerId,
-    })
+    const a = [new Adapter(aliceToBob), new Adapter(aliceToCharlie)]
+    const b = [new Adapter(bobToAlice), new Adapter(bobToCharlie)]
+    const c = [new Adapter(charlieToBob), new Adapter(charlieToAlice)]
 
-    const charlieRepo = new Repo({
-      network: [new MessageChannelNetworkAdapter(charlieToAlice)],
-      peerId: "charlie" as PeerId,
-    })
+    const teardown = () => {
+      const ports = [
+        aliceToBob,
+        bobToAlice,
+        bobToCharlie,
+        charlieToBob,
+        aliceToCharlie,
+        charlieToAlice,
+      ]
+      ports.forEach(port => port.close())
+    }
 
-    const p = eventPromise(charlieRepo, "document")
-
-    const handle = aliceRepo.create<{ foo: string }>()
-    handle.change(d => {
-      d.foo = "bar"
-    })
-
-    await p
-
-    const charlieHandle = charlieRepo.find<{ foo: string }>(handle.documentId)
-    await eventPromise(charlieHandle, "change")
-    const v = await charlieHandle.value()
-
-    assert.equal(v.foo, "bar")
-  })
+    return { adapters: [a, b, c], teardown }
+  }, "all-to-all")
 })
-
-function stringToBytes(str: string): Uint8Array {
-  const encoder = new TextEncoder()
-  return encoder.encode(str)
-}
