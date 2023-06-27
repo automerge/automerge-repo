@@ -12,7 +12,6 @@ import localforage from "localforage"
 import { Repo, DocCollection } from "@automerge/automerge-repo"
 
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-import { LocalFirstRelayNetworkAdapter } from "@automerge/automerge-repo-network-localfirstrelay"
 
 import App, { RootDocument } from "./App.js"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"
@@ -23,11 +22,10 @@ const sharedWorker = new SharedWorker(
   { type: "module", name: "@automerge/automerge-repo-shared-worker" }
 )
 
-async function getRepo(url: string): Promise<DocCollection> {
+async function getRepo(): Promise<DocCollection> {
   return await Repo({
     network: [
       new BroadcastChannelNetworkAdapter(),
-      new LocalFirstRelayNetworkAdapter("wss://local-first-relay.glitch.me/"),
     ],
     sharePolicy: peerId => peerId.includes("shared-worker"),
   })
@@ -61,7 +59,7 @@ const queryString = window.location.search // Returns:'?q=123'
 const params = new URLSearchParams(queryString)
 const hostname = params.get("host") || "automerge-storage-demo.glitch.me"
 
-getRepo(`wss://${hostname}`).then(repo => {
+getRepo().then(repo => {
   getRootDocument(repo, initFunction).then(rootDoc => {
     const rootElem = document.getElementById("root")
     if (!rootElem) {
