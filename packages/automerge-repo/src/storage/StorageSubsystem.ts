@@ -6,6 +6,7 @@ import { StorageAdapter } from "./StorageAdapter.js"
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
   #changeCount: Record<DocumentId, number> = {}
+  #compactedAt: number = 0
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
@@ -35,6 +36,7 @@ export class StorageSubsystem {
       this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
     }
 
+    this.#compactedAt = Date.now().valueOf()
     this.#changeCount[documentId] = 0
   }
 
@@ -84,8 +86,11 @@ export class StorageSubsystem {
     }
   }
 
-  // TODO: make this, you know, good.
+  // compact after a minute or a thousand changes, whichever comes first
   #shouldCompact(documentId: DocumentId) {
-    return this.#changeCount[documentId] >= 20
+    return (
+      this.#changeCount[documentId] >= 1000 &&
+      this.#compactedAt < Date.now().valueOf() - 6000
+    )
   }
 }

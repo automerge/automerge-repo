@@ -75,4 +75,34 @@ describe("StorageSubsystem", () => {
     const bin = await adapter.load((key + ".incremental.1") as DocumentId)
     assert.throws(() => A.load(bin!))
   })
+
+  it.only("compacts after one thousand changes or one minute, but not before", async () => {
+    //  1. that the storage subsystem calls the storage adapter's saveTotal
+    //    method when it should
+    // 2. that the storage subsystem calls the storage adapter's saveIncremental
+    //   method when it should
+    // 3. that the storage subsystem calls the storage adapter's remove method
+    //  when it should
+
+    // begin implementation of 1.
+    // create a storage subsystem with a dummy storage adapter
+    const adapter = new DummyStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+
+    // create a document
+    const doc = A.change(A.init<any>(), "test", d => {
+      d.foo = "bar"
+    })
+
+    // save it to the storage subsystem
+    const key = "test-key" as DocumentId
+    storage.save(key, doc)
+
+    // check that the storage adapter contains the correct keys
+    assert(adapter.keys().some(k => k.endsWith("1")))
+
+    // check that the last incrementalSave is not a full save
+    const bin = await adapter.load((key + ".incremental.1") as DocumentId)
+    assert.throws(() => A.load(bin!))
+  })
 })
