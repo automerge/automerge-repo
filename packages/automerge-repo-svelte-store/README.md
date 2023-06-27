@@ -48,5 +48,5 @@ For a working example, see the [Svelte counter demo](../automerge-repo-demo-coun
 </button>
 ```
 
-## Contributers
+## Contributors
 Originally written by Dylan MacKenzie ([@ecstatic-morse](https://github.com/ecstatic-morse)).
