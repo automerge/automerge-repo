@@ -7,7 +7,7 @@ import assert from "assert"
 import A from "@automerge/automerge"
 
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
-import { NodeFSStorageAdapter } from "automerge-repo-storage-nodefs"
+import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
 import { DocumentId, StorageSubsystem } from "../src"
 import { TestDoc } from "./types.js"

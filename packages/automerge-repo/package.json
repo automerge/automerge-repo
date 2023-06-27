@@ -1,5 +1,5 @@
 {
-  "name": "automerge-repo",
+  "name": "@automerge/automerge-repo",
   "version": "0.1.0",
   "description": "A repository object to manage a collection of automerge documents",
   "repository": "https://github.com/pvh/automerge-repo",
@@ -57,5 +57,8 @@
         ".ts"
       ]
     }
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

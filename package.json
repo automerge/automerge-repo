@@ -1,5 +1,5 @@
 {
-  "name": "automerge-repo-monorepo",
+  "name": "@automerge/automerge-repo-monorepo",
   "version": "0.0.57-alpha.0",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",

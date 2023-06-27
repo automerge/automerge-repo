@@ -1,5 +1,5 @@
 {
-  "name": "automerge-repo-storage-localforage",
+  "name": "@automerge/automerge-repo-storage-localforage",
   "version": "0.1.0",
   "description": "LocalForage storage adapter for Automerge Repo",
   "repository": "https://github.com/pvh/automerge-repo",
@@ -13,7 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "automerge-repo": "^0.1.0",
+    "@automerge/automerge-repo": "^0.1.0",
     "localforage": "^1.10.0"
   },
   "watch": {
@@ -23,5 +23,8 @@
         ".ts"
       ]
     }
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

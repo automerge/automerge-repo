@@ -1,5 +1,5 @@
-import { DocumentId } from "automerge-repo"
-import { useDocument, useRepo } from "automerge-repo-react-hooks"
+import { DocumentId } from "@automerge/automerge-repo"
+import { useDocument, useRepo } from "@automerge/automerge-repo-react-hooks"
 import cx from "classnames"
 import { useRef, useState } from "react"
 

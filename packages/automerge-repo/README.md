@@ -9,11 +9,11 @@ deciding which peers to connect to or when to write data out to storage.
 
 Other packages in this monorepo include:
 
-- [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter/): A React-based demonstration
+- [@automerge/automerge-repo-demo-counter](/packages/@automerge/automerge-repo-demo-counter/): A React-based demonstration
   application.
-- [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
+- [@automerge/automerge-repo-react-hooks](/packages/@automerge/automerge-repo-react-hooks/): Example hooks for use with
   React.
-- [automerge-repo-sync-server](/packages/automerge-repo-sync-server/): A small synchronization
+- [@automerge/automerge-repo-sync-server](/packages/@automerge/automerge-repo-sync-server/): A small synchronization
   server that facilitates asynchronous communication between peers
 
 #### Storage adapters
@@ -188,10 +188,10 @@ RepoContext. We also create a document and store its `documentId` in localStorag
 import React from "react"
 import ReactDOM from "react-dom/client"
 import App from "./App.js"
-import { Repo } from "automerge-repo"
-import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
-import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
-import { RepoContext } from "automerge-repo-react-hooks"
+import { Repo } from "@automerge/automerge-repo"
+import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
+import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
+import { RepoContext } from "@automerge/automerge-repo-react-hooks"
 
 const repo = new Repo({
   network: [new BroadcastChannelNetworkAdapter()],
@@ -218,8 +218,8 @@ the document to render a button that increments the count.
 
 ```tsx
 // App.tsx
-import { useDocument } from "automerge-repo-react-hooks"
-import { DocumentId } from "automerge-repo"
+import { useDocument } from "@automerge/automerge-repo-react-hooks"
+import { DocumentId } from "@automerge/automerge-repo"
 
 interface Doc {
   count: number
@@ -268,7 +268,7 @@ Now import it and add it to your list of network adapters:
 
 ```ts
 // main.tsx
-import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket" // <-- add this line
+import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket" // <-- add this line
 
 // ...
 
@@ -289,11 +289,10 @@ you'll need to manually copy the `rootDocId` value between the browsers.)
 
 ## Acknowledgements
 
-Originally authored by Peter van Hardenberg. 
+Originally authored by Peter van Hardenberg.
 
 With gratitude for contributions by:
  - Herb Caudill
  - Jeremy Rose
  - Alex Currie-Clark
  - Dylan Mackenzie
-

@@ -1,11 +1,11 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
-import { Repo } from "automerge-repo"
-import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel"
-import { LocalForageStorageAdapter } from "automerge-repo-storage-localforage"
-import { RepoContext } from "automerge-repo-react-hooks"
-import { BrowserWebSocketClientAdapter } from "automerge-repo-network-websocket"
+import { Repo } from "@automerge/automerge-repo"
+import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
+import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
+import { RepoContext } from "@automerge/automerge-repo-react-hooks"
+import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 
 const repo = new Repo({
   network: [
