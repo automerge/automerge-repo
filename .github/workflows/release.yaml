@@ -62,7 +62,7 @@ jobs:
             echo "Is pre-release version"
             EXTRA_ARGS="$EXTRA_ARGS --dist-tag next"
           fi
-          yarn pub ${VERSION} $EXTRA_ARGS
+          npx lerna publish ${VERSION} --yes --force-publish $EXTRA_ARGS
         env:
           VERSION: ${{ needs.check_if_version_upgraded.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
