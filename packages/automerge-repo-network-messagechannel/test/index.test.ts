@@ -1,4 +1,4 @@
-import { runAdapterTests } from "automerge-repo-network-acceptance-tests"
+import { runAdapterTests } from "automerge-repo"
 import { MessageChannelNetworkAdapter as Adapter } from "../src"
 
 // bob is the hub, alice and charlie are spokes

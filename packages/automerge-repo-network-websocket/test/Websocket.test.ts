@@ -1,4 +1,4 @@
-import { runAdapterTests } from "automerge-repo-network-acceptance-tests"
+import { runAdapterTests } from "automerge-repo"
 import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter"
 import { startServer } from "./utilities/WebSockets"

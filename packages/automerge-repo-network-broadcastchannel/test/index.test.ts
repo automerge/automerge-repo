@@ -2,7 +2,7 @@ import { BroadcastChannelNetworkAdapter } from "../src"
 import {
   type SetupFn,
   runAdapterTests,
-} from "automerge-repo-network-acceptance-tests"
+} from "automerge-repo"
 
 describe("BroadcastChannel", () => {
   const setup: SetupFn = async () => {
