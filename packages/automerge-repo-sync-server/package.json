@@ -6,8 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node ./src/index.js",
-    "test": "bash ./scripts/tests.sh",
-    "test:run": "mocha --no-warnings --experimental-specifier-resolution=node --exit"
+    "test": "mocha --no-warnings --experimental-specifier-resolution=node --exit"
   },
   "dependencies": {
     "@automerge/automerge": "^2.1.0-alpha.7",

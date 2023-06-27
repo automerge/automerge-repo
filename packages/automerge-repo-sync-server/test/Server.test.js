@@ -1,17 +1,27 @@
 // @ts-check
 
 import assert from "assert"
-import { beforeEach } from "mocha"
+import { before, after } from "mocha"
 import { WebSocket } from "ws"
 
 import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { Repo } from "@automerge/automerge-repo"
+import { Server } from "../src/server.js"
 
 describe("Sync Server Tests", () => {
+  let server
+
   const PORT =
     process.env.PORT !== undefined ? parseInt(process.env.PORT) : 3030
+  before(async () => {
+    server = new Server()
 
-  beforeEach(() => {})
+    await server.ready()
+  })
+
+  after(() => {
+    server.close()
+  })
 
   it("runs the server correctly", (done) => {
     const ws = new WebSocket(`ws://localhost:${PORT}`)
