@@ -57,5 +57,8 @@
         ".ts"
       ]
     }
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
