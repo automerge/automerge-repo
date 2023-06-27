@@ -15,12 +15,12 @@ import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-networ
 import { LocalFirstRelayNetworkAdapter } from "@automerge/automerge-repo-network-localfirstrelay"
 
 import App, { RootDocument } from "./App.js"
-import { RepoContext } from "automerge-repo-react-hooks"
+import { RepoContext } from "@automerge/automerge-repo-react-hooks"
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const sharedWorker = new SharedWorker(
   new URL("./shared-worker.js", import.meta.url),
-  { type: "module", name: "automerge-repo-shared-worker" }
+  { type: "module", name: "@automerge/automerge-repo-shared-worker" }
 )
 
 async function getRepo(url: string): Promise<DocCollection> {

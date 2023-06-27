@@ -1,5 +1,5 @@
-import { PeerId, Repo } from "automerge-repo"
-import { eventPromise } from "automerge-repo/src/helpers/eventPromise"
+import { PeerId, Repo } from "@automerge/automerge-repo"
+import { eventPromise } from "@automerge/automerge-repo/src/helpers/eventPromise"
 import { assert } from "chai"
 import { BroadcastChannelNetworkAdapter } from "../src"
 

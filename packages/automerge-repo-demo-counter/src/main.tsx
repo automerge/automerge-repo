@@ -1,7 +1,7 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
-import { Repo } from "automerge-repo"
+import { Repo } from "@automerge/automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"

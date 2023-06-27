@@ -1,7 +1,7 @@
 import { assert, expect } from "chai"
 import { ChannelId, PeerId, Repo } from "@automerge/automerge-repo"
 import { MessageChannelNetworkAdapter } from "../src"
-import { eventPromise } from "automerge-repo/src/helpers/eventPromise"
+import { eventPromise } from "@automerge/automerge-repo/src/helpers/eventPromise"
 import { pause } from "@automerge/automerge-repo/src/helpers/pause"
 
 describe("MessageChannel", () => {
