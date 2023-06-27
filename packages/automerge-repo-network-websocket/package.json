@@ -26,5 +26,8 @@
         ".ts"
       ]
     }
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

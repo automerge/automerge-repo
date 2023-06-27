@@ -24,5 +24,8 @@
   },
   "prettier": {
     "semi": false
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
