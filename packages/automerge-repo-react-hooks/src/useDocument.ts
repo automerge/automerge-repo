@@ -14,7 +14,7 @@ export function useDocument<T>(documentId?: DocumentId) {
 
     handle.value().then(v => setDoc(v))
 
-    const onPatch = (h: DocHandlePatchPayload<T>) => setDoc(h.after)
+    const onPatch = (h: DocHandlePatchPayload<T>) => setDoc(h.patchInfo.after)
     handle.on("patch", onPatch)
     const cleanup = () => {
       handle.removeListener("patch", onPatch)

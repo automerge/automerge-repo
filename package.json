@@ -52,6 +52,6 @@
     "arrowParens": "avoid"
   },
   "dependencies": {
-    "@automerge/automerge": "2.1.0-alpha.7"
+    "@automerge/automerge": "2.1.0-alpha.8"
   }
 }
