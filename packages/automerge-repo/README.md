@@ -81,7 +81,7 @@ A `DocHandle` also emits these events:
 - `change({handle: DocHandle, doc: Doc<T>})`  
   Called any time changes are created or received on the document. Request the `value()` from the
   handle.
-- `patch({handle: DocHandle, before: Doc, after: Doc, patches: Patch[]})`  
+- `patch({handle: DocHandle, patches: Patch[], patchInfo: PatchInfo})` 
   Useful for manual increment maintenance of a video, most notably for text editors.
 - `delete`  
   Called when the document is deleted locally.
