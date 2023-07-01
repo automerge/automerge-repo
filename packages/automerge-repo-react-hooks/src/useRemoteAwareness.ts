@@ -42,7 +42,7 @@ export const useRemoteAwareness = (
         if (event.channelId !== channelId) return;
         const [userId, state] = event.data;
         if (userId === localUserId) return;
-        if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event); // Let useRemoteAwareness know we've seen a new peer
+        if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event); // Let useLocalAwareness know we've seen a new peer
         setPeerStates({
           ...peerStatesRef.current,
           [userId]: state,
