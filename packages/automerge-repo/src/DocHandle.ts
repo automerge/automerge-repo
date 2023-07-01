@@ -38,8 +38,8 @@ export class DocHandle<T> //
 
     // initial doc
     const doc = A.init<T>({
-      patchCallback: (patches, { before, after }) =>
-        this.emit("patch", { handle: this, patches, before, after }),
+      patchCallback: (patches, patchInfo) =>
+        this.emit("patch", { handle: this, patches, patchInfo }),
     })
 
     /**
@@ -288,8 +288,7 @@ export interface DocHandleDeletePayload<T> {
 export interface DocHandlePatchPayload<T> {
   handle: DocHandle<T>
   patches: A.Patch[]
-  before: A.Doc<T>
-  after: A.Doc<T>
+  patchInfo: A.PatchInfo<T>
 }
 
 export interface DocHandleEvents<T> {
