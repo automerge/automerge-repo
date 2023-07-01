@@ -30,17 +30,19 @@ export const useRemoteAwareness = (
     getTime = () => new Date().getTime(),
   } = {}
 ) => {
+  // TODO: You should be able to use multiple instances of this hook on the same channelID (write test)
   const channelId = CHANNEL_ID_PREFIX + channelIdUnprefixed;
   const [peerStates, setPeerStates, peerStatesRef] = useStateRef({});
   const [heartbeats, setHeartbeats, heartbeatsRef] = useStateRef({});
-  const { ephemeralData } = useRepo();
+  const { ephemeralData } = useRepo(); // EphemeralData API lets us send messages to peers on the automerge document
   useEffect(() => {
+    // Receive incoming message
     const handleIncomingUpdate = (event) => {
       try {
         if (event.channelId !== channelId) return;
         const [userId, state] = event.data;
         if (userId === localUserId) return;
-        if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event);
+        if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event); // Let useRemoteAwareness know we've seen a new peer
         setPeerStates({
           ...peerStatesRef.current,
           [userId]: state,
@@ -53,6 +55,7 @@ export const useRemoteAwareness = (
         return;
       }
     };
+    // Remove peers we haven't seen recently
     const pruneOfflinePeers = () => {
       const peerStates = peerStatesRef.current;
       const heartbeats = heartbeatsRef.current;
@@ -67,6 +70,7 @@ export const useRemoteAwareness = (
       setHeartbeats(heartbeats);
     };
     ephemeralData.on("data", handleIncomingUpdate);
+    // Check for offline peers every `offlineTimeout` ms
     const pruneOfflinePeersIntervalId = setInterval(
       pruneOfflinePeers,
       offlineTimeout

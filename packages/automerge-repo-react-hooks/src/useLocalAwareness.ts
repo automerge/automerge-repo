@@ -37,7 +37,7 @@ export const useLocalAwareness = (
         ? stateOrUpdater(localStateRef.current)
         : stateOrUpdater;
     setLocalState(state);
-    // TODO: Send deltas
+    // TODO: Send deltas instead of entire state
     ephemeralData.broadcast(channelId, [userId, state]);
   };
 
@@ -73,7 +73,7 @@ export const useLocalAwareness = (
 
   // TODO: Send an "offline" message on unmount
   // useEffect(
-  //   () => () => void ephemeralData.broadcast(channelId, userId), // UserID as a string = offline signal
+  //   () => () => void ephemeralData.broadcast(channelId, null), // Same as Yjs awareness
   //   []
   // );
 
