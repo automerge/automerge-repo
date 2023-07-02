@@ -137,6 +137,24 @@ describe("DocHandle", () => {
     })
   })
 
+  it("should update the internal doc prior to emitting the change message", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+
+    const p = new Promise<void>(resolve =>
+      handle.once("change", ({ handle, doc }) => {
+        assert.equal(handle.doc.foo, doc.foo)
+
+        resolve()
+      })
+    )
+
+    handle.change(doc => {
+      doc.foo = "baz"
+    })
+
+    return p
+  })
+
   it("should emit distinct change messages when consecutive changes happen", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
 
@@ -255,5 +273,27 @@ describe("DocHandle", () => {
     await p
 
     assert.equal(handle.isDeleted(), true)
+  })
+
+  it("should allow changing at old heads", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+
+    const headsBefore = A.getHeads(handle.doc)
+
+    handle.change(doc => {
+      doc.foo = "rab"
+    })
+
+    let wasBar = false
+    handle.changeAt(headsBefore, doc => {
+      wasBar = doc.foo === "bar"
+      doc.foo = "baz"
+    })
+
+    assert(wasBar, "foo should have been bar as we changed at the old heads")
   })
 })

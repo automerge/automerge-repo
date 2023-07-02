@@ -1,4 +1,4 @@
-import { ChannelId, NetworkAdapter, PeerId } from "automerge-repo"
+import { ChannelId, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 
 export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel

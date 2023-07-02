@@ -9,7 +9,7 @@ import {
   InboundMessagePayload,
   NetworkAdapter,
   PeerId,
-} from "automerge-repo"
+} from "@automerge/automerge-repo"
 
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer

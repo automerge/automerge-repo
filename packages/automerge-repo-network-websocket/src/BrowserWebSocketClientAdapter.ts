@@ -3,7 +3,7 @@ import {
   InboundMessagePayload,
   NetworkAdapter,
   PeerId,
-} from "automerge-repo"
+} from "@automerge/automerge-repo"
 import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
 

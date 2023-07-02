@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { document } from "automerge-repo-svelte-store"
-  import { type DocumentId } from "automerge-repo"
+  import { document } from "@automerge/automerge-repo-svelte-store"
+  import { type DocumentId } from "@automerge/automerge-repo"
 
   export let documentId: DocumentId
 

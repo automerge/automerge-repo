@@ -1,5 +1,5 @@
 import assert from "assert"
-import { MessageChannelNetworkAdapter } from "automerge-repo-network-messagechannel"
+import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import * as Automerge from "@automerge/automerge"
 
 import { ChannelId, DocHandle, DocumentId, PeerId, SharePolicy } from "../src"

@@ -1,8 +1,8 @@
 {
-  "name": "automerge-repo-react-hooks",
-  "version": "0.0.54",
+  "name": "@automerge/automerge-repo-react-hooks",
+  "version": "0.1.2",
   "description": "Hooks to access an Automerge Repo from your react app.",
-  "repository": "https://github.com/pvh/automerge-repo",
+  "repository": "https://github.com/automerge/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
   "private": false,
@@ -13,7 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "automerge-repo": "^0.0.54",
+    "automerge-repo": "^0.1.2",
     "eventemitter3": "^5.0.0",
     "react": "^18.2.0",
     "react-usestateref": "^1.0.8"
@@ -25,5 +25,8 @@
         ".ts"
       ]
     }
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

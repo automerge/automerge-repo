@@ -20,8 +20,8 @@ There are a number of problems with the current design which I will briefly enum
 - NetworkSubsystem
 - peer candidate selection -> do we trust this peer? (see Network.js peer-candidate)
 - handle disconnections -> try another protocol
-- one websocket per peer per document. seems expensive
 - syncstates aren't persisted... but neither are client-ids. should they be?
+
 - StorageSubsystem
 - customizable save intervals / manual-only saving
 - separate backends for incremental vs. full document saves
@@ -29,7 +29,7 @@ There are a number of problems with the current design which I will briefly enum
 
 - Repo Design Problems
 - sending cursors / ephemeral data
-- we should decide what to sync with a peer based on the peer, not the docId
+- we should decide what to sync with a peer based on the peer, not just the docId
 - no way of discovering documents as a batch or requesting synchronization for multiple documents.
 
 - SyncProtocol work

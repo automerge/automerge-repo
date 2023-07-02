@@ -41,11 +41,10 @@ export class Repo extends DocCollection {
         handle.load(binary)
       }
 
-      // Advertise our interest in the document
       handle.request()
 
-      // Register the document with the synchronizer
-      await synchronizer.addDocument(handle.documentId)
+      // Register the document with the synchronizer. This advertises our interest in the document.
+      synchronizer.addDocument(handle.documentId)
     })
 
     this.on("delete-document", ({ documentId }) => {
@@ -86,7 +85,7 @@ export class Repo extends DocCollection {
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId }) => {
       this.#log("peer connected", { peerId })
-      await synchronizer.addPeer(peerId)
+      synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer

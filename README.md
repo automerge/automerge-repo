@@ -8,7 +8,7 @@ This is a monorepo containing the following packages:
 
 - [automerge-repo](/packages/automerge-repo/): The core library. Handles dispatch of events and
   provides shared functionality such as deciding which peers to connect to or when to write data out
-  to storage.
+  to storage. Start here.
 - [automerge-repo-sync-server](/packages/automerge-repo-sync-server/): A small synchronization
   server that facilitates asynchronous communication between peers
 
@@ -38,9 +38,6 @@ This is a monorepo containing the following packages:
 
 - [automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/): Network adapters
   for both sides of a client/server configuration over websocket
-- [automerge-repo-network-localfirstrelay](/packages/automerge-repo-network-localfirstrelay/): A
-  network client that uses [@localfirst/relay](https://github.com/local-first-web/relay) to relay
-  traffic between peers
 - [automerge-repo-network-messagechannel](/packages/automerge-repo-network-messagechannel/): A
   network adapter that uses the [MessageChannel
   API](https://developer.mozilla.org/en-US/docs/Web/API/MessageChannel) to communicate between tabs

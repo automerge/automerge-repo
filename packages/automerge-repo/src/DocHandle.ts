@@ -16,8 +16,8 @@ import {
 import { waitFor } from "xstate/lib/waitFor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { pause } from "./helpers/pause.js"
+import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
 import type { ChannelId, DocumentId, PeerId } from "./types.js"
-import { withTimeout, TimeoutError } from "./helpers/withTimeout.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -119,13 +119,6 @@ export class DocHandle<T> //
               const { callback } = payload
               const newDoc = callback(oldDoc)
 
-              const docChanged = !headsAreSame(newDoc, oldDoc)
-              if (docChanged) {
-                this.emit("change", { handle: this, doc: newDoc })
-                if (!this.isReady()) {
-                  this.#machine.send(REQUEST_COMPLETE)
-                }
-              }
               return { doc: newDoc }
             }),
             onDelete: assign(() => {
@@ -136,9 +129,19 @@ export class DocHandle<T> //
         }
       )
     )
-      .onTransition(({ value: state }, { type: event }) =>
+      .onTransition(({ value: state, history, context }, event) => {
+        const oldDoc = history?.context?.doc
+        const newDoc = context.doc
+
+        const docChanged = newDoc && oldDoc && !headsAreSame(newDoc, oldDoc)
+        if (docChanged) {
+          this.emit("change", { handle: this, doc: newDoc })
+          if (!this.isReady()) {
+            this.#machine.send(REQUEST_COMPLETE)
+          }
+        }
         this.#log(`${event} → ${state}`, this.#doc)
-      )
+      })
       .start()
 
     this.#machine.send(isNew ? CREATE : FIND)
@@ -225,6 +228,25 @@ export class DocHandle<T> //
       payload: {
         callback: (doc: A.Doc<T>) => {
           return A.change(doc, options, callback)
+        },
+      },
+    })
+  }
+
+  changeAt(
+    heads: A.Heads,
+    callback: A.ChangeFn<T>,
+    options: A.ChangeOptions<T> = {}
+  ) {
+    if (!this.isReady()) {
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+      )
+    }
+    this.#machine.send(UPDATE, {
+      payload: {
+        callback: (doc: A.Doc<T>) => {
+          return A.changeAt(doc, heads, options, callback)
         },
       },
     })

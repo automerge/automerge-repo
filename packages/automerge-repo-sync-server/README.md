@@ -1,12 +1,16 @@
 # Automerge Repo Sync Server
 
 A very simple automerge-repo synchronization server. It pairs with the websocket client protocol
-found in `automerge-repo-network-websocket`.
+found in `@automerge/automerge-repo-network-websocket`.
 
 The server is an unsecured [Express](https://expressjs.com/) app. It is really just for
 demonstration purposes at this point; you probably don't want to use it for anything real yet. This
 isn't a great way to operate (or the only way) but it's a useful demonstration of what a
 client/server deployment might look like.
+
+## Setting up
+
+Before getting started, make sure you've run `yarn`, and `yarn build` at the root of the monorepo. This will install all your dependencies and make sure the other libraries are compiled.
 
 ## Run the sync server
 
