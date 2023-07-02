@@ -31,6 +31,7 @@ export const useRemoteAwareness = (
   } = {}
 ) => {
   // TODO: You should be able to use multiple instances of this hook on the same channelID (write test)
+  // TODO: This should support some kind of caching or memoization when switching between channelIDs
   const channelId = CHANNEL_ID_PREFIX + channelIdUnprefixed;
   const [peerStates, setPeerStates, peerStatesRef] = useStateRef({});
   const [heartbeats, setHeartbeats, heartbeatsRef] = useStateRef({});
