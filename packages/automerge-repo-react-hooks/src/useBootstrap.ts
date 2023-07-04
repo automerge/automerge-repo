@@ -1,10 +1,18 @@
 import { useRepo } from "automerge-repo-react-hooks";
-import { DocumentId } from "automerge-repo";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 // Set URL hash
-export const setHash = (hash: string, pushState = false) =>
-  void history[pushState ? "pushState" : "replaceState"]("", "", "#" + hash);
+export const setHash = (hash: string, pushState = false) => {
+  // Update URL hash
+  history[pushState ? "pushState" : "replaceState"]("", "", "#" + hash);
+  // Send fake hashchange event
+  window.dispatchEvent(
+    new HashChangeEvent("hashchange", {
+      newURL: window.location.origin + window.location.pathname + hash,
+      oldURL: window.location.href,
+    })
+  );
+};
 
 // Get current URL hash
 export const useHash = () => {
