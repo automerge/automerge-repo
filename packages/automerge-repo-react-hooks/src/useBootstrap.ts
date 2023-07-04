@@ -37,8 +37,8 @@ export const createDocument = (repo, onCreate) => {
 
 export const useBootstrap = ({
   onCreate = () => {},
-  hashRouteKey = "id",
-  localStorageKey = "documentId",
+  hashRouteKey = "documentId",
+  localStorageKey = hashRouteKey,
   getDocumentId = (hash) =>
     getQueryParamValue(hashRouteKey, hash) ??
     (localStorageKey && localStorage.getItem(localStorageKey)),
