@@ -44,11 +44,12 @@ export const useBootstrap = ({
   const repo = useRepo();
   const hash = useHash();
 
-  const existingDocumentId = getDocumentId(hash) as DocumentId | undefined;
-
-  const handle = existingDocumentId
-    ? repo.find(existingDocumentId) // TODO: Handle bad existingDocumentId
-    : createDocument(repo, onCreate);
+  const handle = useMemo(() => {
+    const existingDocumentId = getDocumentId(hash);
+    return existingDocumentId
+      ? repo.find(existingDocumentId) // TODO: Handle bad existingDocumentId
+      : createDocument(repo, onCreate);
+  }, [hash, repo, onCreate]);
 
   // Update hashroute & localStorage on changes
   useEffect(() => setDocumentId(handle.documentId), [hash, handle.documentId]);
