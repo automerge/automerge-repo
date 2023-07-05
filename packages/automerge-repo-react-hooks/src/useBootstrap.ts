@@ -89,6 +89,8 @@ export const useBootstrap = ({
     } catch (error) {
       // Presumably the documentId was invalid
       if (existingDocumentId) return onInvalidDocumentId(error)(repo, onCreate);
+      // Forward other errors
+      throw error;
     }
   }, [hash, repo, onCreate]);
 
