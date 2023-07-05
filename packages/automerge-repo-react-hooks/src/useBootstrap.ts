@@ -53,7 +53,7 @@ export const createDocument = (repo, onCreate) => {
  * @param {string?} props.localStorageKey Key to use in localStorage; set to falsy to disable localStorage
  * @param {function?} props.getDocumentId Function to get documentId from hash or localStorage
  * @param {function?} props.setDocumentId Function to set documentId in hash and localStorage
- * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid
+ * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid; signature (error) => (repo, onCreate)
  * @returns documentId
  */
 export const useBootstrap = ({
@@ -71,7 +71,10 @@ export const useBootstrap = ({
     }
     if (localStorageKey) localStorage.setItem(localStorageKey, documentId);
   },
-  onInvalidDocumentId = (e) => createDocument,
+  onInvalidDocumentId = (error) => {
+    console.warn("Invalid document ID", error);
+    return createDocument;
+  },
 } = {}) => {
   const repo = useRepo();
   const hash = useHash();
@@ -83,9 +86,9 @@ export const useBootstrap = ({
       return existingDocumentId
         ? repo.find(existingDocumentId)
         : createDocument(repo, onCreate);
-    } catch (e) {
+    } catch (error) {
       // Presumably the documentId was invalid
-      if (existingDocumentId) return onInvalidDocumentId(e)?.(repo, onCreate);
+      if (existingDocumentId) return onInvalidDocumentId(error)(repo, onCreate);
     }
   }, [hash, repo, onCreate]);
 
