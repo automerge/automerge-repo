@@ -29,12 +29,32 @@ export const useHash = () => {
 export const getQueryParamValue = (key: string, hash) =>
   hash.match(new RegExp(`${key}=([^&]*)`))?.[1];
 
+// Create a new document
 export const createDocument = (repo, onCreate) => {
   const handle = repo.create(); // Create a new document
   if (onCreate) handle.change(onCreate); // Set initial state
   return handle;
 };
 
+/**
+ * This hook is used to set up a single document as the base of an app session.
+ * This is a common pattern for multiplayer apps with shareable URLs.
+ * 
+ * It will first check for the document ID in the URL hash:
+ *   //myapp/#documentId=[document ID]
+ * Failing that, it will check for a `documentId` key in localStorage.
+ * Failing that, it will create a new document (and call onCreate with it).
+ * The URL hash and localStorage will then be updated.
+ * 
+ * Finally, it will return the document ~~handle~~ ID.
+ *
+ * @param {function?} props.onCreate Function to call with doc, on doc creation
+ * @param {string?} props.hashRouteKey Key to use in the URL hash - set to falsy to disable hash read/write
+ * @param {string?} props.localStorageKey Key to use in localStorage - set to falsy to disable localStorage read/write
+ * @param {function?} props.getDocumentId Function to get documentId from hash or localStorage
+ * @param {function?} props.setDocumentId Function to set documentId in hash and localStorage
+ * @returns documentId
+ */
 export const useBootstrap = ({
   onCreate = () => {},
   hashRouteKey = "documentId",
@@ -52,6 +72,7 @@ export const useBootstrap = ({
   const repo = useRepo();
   const hash = useHash();
 
+  // Try to get existing document; otherwise, create a new one
   const handle = useMemo(() => {
     const existingDocumentId = getDocumentId(hash);
     return existingDocumentId
