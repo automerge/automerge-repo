@@ -48,6 +48,13 @@ export const createDocument = (repo, onCreate) => {
  * The URL and localStorage will then be updated.
  * Finally, it will return the document ID.
  *
+ * Tip: If a document is already loaded, but you want to create a new one:
+ *   import { createDocument, setHash } from './useBootstrap'
+ *   const createNewDocument = (repo, onCreate) => {
+ *     const { documentId } = createDocument(repo, onCreate)
+ *     setHash(documentId)
+ *   }
+ *
  * @param {string?} props.urlHashKey Key to use in the URL hash; set to falsy to disable URL hash
  * @param {string?} props.localStorageKey Key to use in localStorage; set to falsy to disable localStorage
  * @param {function?} props.onCreate Function to call with doc, on doc creation
