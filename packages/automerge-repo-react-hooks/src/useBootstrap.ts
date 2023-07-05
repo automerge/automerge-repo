@@ -39,12 +39,12 @@ export const createDocument = (repo, onCreate) => {
 /**
  * This hook is used to set up a single document as the base of an app session.
  * This is a common pattern for multiplayer apps with shareable URLs.
- * 
+ *
  * It will first check for the document ID in the URL hash:
  *   //myapp/#documentId=[document ID]
  * Failing that, it will check for a `documentId` key in localStorage.
  * Failing that, it will create a new document (and call onCreate with it).
- * 
+ *
  * The URL and localStorage will then be updated.
  * Finally, it will return the document ID.
  *
@@ -61,12 +61,14 @@ export const useBootstrap = ({
   urlHashKey = "documentId",
   localStorageKey = urlHashKey || "documentId",
   getDocumentId = (hash) =>
-    getQueryParamValue(urlHashKey, hash) ??
+    (urlHashKey && getQueryParamValue(urlHashKey, hash)) ||
     (localStorageKey && localStorage.getItem(localStorageKey)),
   setDocumentId = (documentId) => {
-    // Only set URL hash if document ID changed
-    if (documentId !== getQueryParamValue(urlHashKey, window.location.hash))
-      setHash(`${urlHashKey}=${documentId}`);
+    if (urlHashKey) {
+      // Only set URL hash if document ID changed
+      if (documentId !== getQueryParamValue(urlHashKey, window.location.hash))
+        setHash(`${urlHashKey}=${documentId}`);
+    }
     if (localStorageKey) localStorage.setItem(localStorageKey, documentId);
   },
   onInvalidDocumentId = (e) => createDocument,
