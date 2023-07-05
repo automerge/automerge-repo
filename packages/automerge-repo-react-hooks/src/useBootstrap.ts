@@ -25,7 +25,7 @@ export const useHash = () => {
   return hashValue;
 };
 
-// Get a key from a query-param-style hash URL
+// Get a key from a query-param-style URL hash
 export const getQueryParamValue = (key: string, hash) =>
   hash.match(new RegExp(`${key}=([^&]*)`))?.[1];
 
@@ -44,39 +44,39 @@ export const createDocument = (repo, onCreate) => {
  *   //myapp/#documentId=[document ID]
  * Failing that, it will check for a `documentId` key in localStorage.
  * Failing that, it will create a new document (and call onCreate with it).
- * The URL hash and localStorage will then be updated.
  * 
- * Finally, it will return the document ~~handle~~ ID.
+ * The URL and localStorage will then be updated.
+ * Finally, it will return the document ID.
  *
  * @param {function?} props.onCreate Function to call with doc, on doc creation
- * @param {string?} props.hashRouteKey Key to use in the URL hash - set to falsy to disable hash read/write
- * @param {string?} props.localStorageKey Key to use in localStorage - set to falsy to disable localStorage read/write
+ * @param {string?} props.urlHashKey Key to use in the URL hash; set to falsy to disable URL hash
+ * @param {string?} props.localStorageKey Key to use in localStorage; set to falsy to disable localStorage
  * @param {function?} props.getDocumentId Function to get documentId from hash or localStorage
  * @param {function?} props.setDocumentId Function to set documentId in hash and localStorage
  * @returns documentId
  */
 export const useBootstrap = ({
   onCreate = () => {},
-  hashRouteKey = "documentId",
-  localStorageKey = hashRouteKey || "documentId",
+  urlHashKey = "documentId",
+  localStorageKey = urlHashKey || "documentId",
   getDocumentId = (hash) =>
-    getQueryParamValue(hashRouteKey, hash) ??
+    getQueryParamValue(urlHashKey, hash) ??
     (localStorageKey && localStorage.getItem(localStorageKey)),
   setDocumentId = (documentId) => {
-    // Only set hashroute if document ID changed
-    if (documentId !== getQueryParamValue(hashRouteKey, window.location.hash))
-      setHash(`${hashRouteKey}=${documentId}`);
+    // Only set URL hash if document ID changed
+    if (documentId !== getQueryParamValue(urlHashKey, window.location.hash))
+      setHash(`${urlHashKey}=${documentId}`);
     if (localStorageKey) localStorage.setItem(localStorageKey, documentId);
   },
 } = {}) => {
   const repo = useRepo();
   const hash = useHash();
 
-  // Try to get existing document; otherwise, create a new one
+  // Try to get existing document; else create a new one
   const handle = useMemo(() => {
     const existingDocumentId = getDocumentId(hash);
     return existingDocumentId
-      ? repo.find(existingDocumentId) // TODO: Handle bad existingDocumentId
+      ? repo.find(existingDocumentId)
       : createDocument(repo, onCreate);
   }, [hash, repo, onCreate]);
 
