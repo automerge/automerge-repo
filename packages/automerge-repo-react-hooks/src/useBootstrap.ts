@@ -53,6 +53,7 @@ export const createDocument = (repo, onCreate) => {
  * @param {string?} props.localStorageKey Key to use in localStorage; set to falsy to disable localStorage
  * @param {function?} props.getDocumentId Function to get documentId from hash or localStorage
  * @param {function?} props.setDocumentId Function to set documentId in hash and localStorage
+ * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid
  * @returns documentId
  */
 export const useBootstrap = ({
@@ -68,6 +69,7 @@ export const useBootstrap = ({
       setHash(`${urlHashKey}=${documentId}`);
     if (localStorageKey) localStorage.setItem(localStorageKey, documentId);
   },
+  onInvalidDocumentId = (e) => createDocument,
 } = {}) => {
   const repo = useRepo();
   const hash = useHash();
@@ -75,9 +77,14 @@ export const useBootstrap = ({
   // Try to get existing document; else create a new one
   const handle = useMemo(() => {
     const existingDocumentId = getDocumentId(hash);
-    return existingDocumentId
-      ? repo.find(existingDocumentId)
-      : createDocument(repo, onCreate);
+    try {
+      return existingDocumentId
+        ? repo.find(existingDocumentId)
+        : createDocument(repo, onCreate);
+    } catch (e) {
+      // Presumably the documentId was invalid
+      if (existingDocumentId) return onInvalidDocumentId(e)?.(repo, onCreate);
+    }
   }, [hash, repo, onCreate]);
 
   // Update hashroute & localStorage on changes
