@@ -48,18 +48,22 @@ export const createDocument = (repo, onCreate) => {
  * The URL and localStorage will then be updated.
  * Finally, it will return the document ID.
  *
- * @param {function?} props.onCreate Function to call with doc, on doc creation
  * @param {string?} props.urlHashKey Key to use in the URL hash; set to falsy to disable URL hash
  * @param {string?} props.localStorageKey Key to use in localStorage; set to falsy to disable localStorage
+ * @param {function?} props.onCreate Function to call with doc, on doc creation
+ * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid; signature (error) => (repo, onCreate)
  * @param {function?} props.getDocumentId Function to get documentId from hash or localStorage
  * @param {function?} props.setDocumentId Function to set documentId in hash and localStorage
- * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid; signature (error) => (repo, onCreate)
  * @returns documentId
  */
 export const useBootstrap = ({
-  onCreate = () => {},
   urlHashKey = "documentId",
   localStorageKey = urlHashKey || "documentId",
+  onCreate = () => {},
+  onInvalidDocumentId = (error) => {
+    // console.warn("Invalid document ID", error);
+    return createDocument;
+  },
   getDocumentId = (hash) =>
     (urlHashKey && getQueryParamValue(urlHashKey, hash)) ||
     (localStorageKey && localStorage.getItem(localStorageKey)),
@@ -70,10 +74,6 @@ export const useBootstrap = ({
         setHash(`${urlHashKey}=${documentId}`);
     }
     if (localStorageKey) localStorage.setItem(localStorageKey, documentId);
-  },
-  onInvalidDocumentId = (error) => {
-    console.warn("Invalid document ID", error);
-    return createDocument;
   },
 } = {}) => {
   const repo = useRepo();
