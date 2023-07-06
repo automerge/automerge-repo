@@ -126,7 +126,12 @@ export class NodeWSServerAdapter extends NetworkAdapter {
         // TODO: confirm this
         // ?
         break
+
+      // We accept both "message" and "sync" because a previous version of this
+      // codebase sent sync messages in the BrowserWebSocketClientAdapter as
+      // type "message" and we want to stay backwards compatible
       case "message":
+      case "sync":
         this.emit("message", {
           senderId,
           targetId,
@@ -136,7 +141,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
         })
         break
       default:
-        // log("unrecognized message type")
+        log(`unrecognized message type ${type}`)
         break
     }
   }
