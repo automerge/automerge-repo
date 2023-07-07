@@ -1,40 +1,40 @@
-import { useRepo } from "automerge-repo-react-hooks";
-import { useEffect, useState, useMemo } from "react";
+import { useRepo } from "automerge-repo-react-hooks"
+import { useEffect, useState, useMemo } from "react"
 
 // Set URL hash
 export const setHash = (hash: string, pushState = false) => {
   // Update URL hash
-  history[pushState ? "pushState" : "replaceState"]("", "", "#" + hash);
+  history[pushState ? "pushState" : "replaceState"]("", "", "#" + hash)
   // Send fake hashchange event
   window.dispatchEvent(
     new HashChangeEvent("hashchange", {
       newURL: window.location.origin + window.location.pathname + hash,
       oldURL: window.location.href,
     })
-  );
-};
+  )
+}
 
 // Get current URL hash
 export const useHash = () => {
-  const [hashValue, setHashValue] = useState(window.location.hash);
+  const [hashValue, setHashValue] = useState(window.location.hash)
   useEffect(() => {
-    const handler = () => void setHashValue(window.location.hash);
-    window.addEventListener("hashchange", handler);
-    return () => void window.removeEventListener("hashchange", handler);
-  }, []);
-  return hashValue;
-};
+    const handler = () => void setHashValue(window.location.hash)
+    window.addEventListener("hashchange", handler)
+    return () => void window.removeEventListener("hashchange", handler)
+  }, [])
+  return hashValue
+}
 
 // Get a key from a query-param-style URL hash
 export const getQueryParamValue = (key: string, hash) =>
-  hash.match(new RegExp(`${key}=([^&]*)`))?.[1];
+  hash.match(new RegExp(`${key}=([^&]*)`))?.[1]
 
 // Create a new document
 export const createDocument = (repo, onCreate) => {
-  const handle = repo.create(); // Create a new document
-  if (onCreate) handle.change(onCreate); // Set initial state
-  return handle;
-};
+  const handle = repo.create() // Create a new document
+  if (onCreate) handle.change(onCreate) // Set initial state
+  return handle
+}
 
 /**
  * This hook is used to set up a single document as the base of an app session.
@@ -67,43 +67,43 @@ export const useBootstrap = ({
   urlHashKey = "documentId",
   localStorageKey = urlHashKey || "documentId",
   onCreate = () => {},
-  onInvalidDocumentId = (error) => {
+  onInvalidDocumentId = error => {
     // console.warn("Invalid document ID", error);
-    return createDocument;
+    return createDocument
   },
-  getDocumentId = (hash) =>
+  getDocumentId = hash =>
     (urlHashKey && getQueryParamValue(urlHashKey, hash)) ||
     (localStorageKey && localStorage.getItem(localStorageKey)),
-  setDocumentId = (documentId) => {
+  setDocumentId = documentId => {
     if (urlHashKey) {
       // Only set URL hash if document ID changed
       if (documentId !== getQueryParamValue(urlHashKey, window.location.hash))
-        setHash(`${urlHashKey}=${documentId}`);
+        setHash(`${urlHashKey}=${documentId}`)
     }
-    if (localStorageKey) localStorage.setItem(localStorageKey, documentId);
+    if (localStorageKey) localStorage.setItem(localStorageKey, documentId)
   },
 } = {}) => {
-  const repo = useRepo();
-  const hash = useHash();
+  const repo = useRepo()
+  const hash = useHash()
 
   // Try to get existing document; else create a new one
   const handle = useMemo(() => {
-    const existingDocumentId = getDocumentId(hash);
+    const existingDocumentId = getDocumentId(hash)
     try {
       return existingDocumentId
         ? repo.find(existingDocumentId)
-        : createDocument(repo, onCreate);
+        : createDocument(repo, onCreate)
     } catch (error) {
       // Presumably the documentId was invalid
-      if (existingDocumentId) return onInvalidDocumentId(error)(repo, onCreate);
+      if (existingDocumentId) return onInvalidDocumentId(error)(repo, onCreate)
       // Forward other errors
-      throw error;
+      throw error
     }
-  }, [hash, repo, onCreate]);
+  }, [hash, repo, onCreate])
 
   // Update hashroute & localStorage on changes
-  useEffect(() => setDocumentId(handle.documentId), [hash, handle.documentId]);
+  useEffect(() => setDocumentId(handle.documentId), [hash, handle.documentId])
 
   // TODO: Should we return a handle, not a documentID?
-  return handle.documentId;
-};
+  return handle.documentId
+}
