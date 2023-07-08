@@ -1,5 +1,6 @@
-import { useRepo } from "automerge-repo-react-hooks"
+import { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo"
 import { useEffect, useState, useMemo } from "react"
+import { useRepo } from "./useRepo.js"
 
 // Set URL hash
 export const setHash = (hash: string, pushState = false) => {
@@ -26,14 +27,25 @@ export const useHash = () => {
 }
 
 // Get a key from a query-param-style URL hash
-export const getQueryParamValue = (key: string, hash) =>
-  hash.match(new RegExp(`${key}=([^&]*)`))?.[1]
+const getQueryParamValue = (key: string, hash) =>
+  new URLSearchParams(hash.substr(1)).get(key)
 
-// Create a new document
-export const createDocument = (repo, onCreate) => {
-  const handle = repo.create() // Create a new document
-  if (onCreate) handle.change(onCreate) // Set initial state
-  return handle
+const setQueryParamValue = (key: string, value, hash): string => {
+  const u = new URLSearchParams(hash.substr(1))
+  u.set(key, value)
+  return u.toString()
+}
+
+const getDocumentId = (key, hash) =>
+  key && (getQueryParamValue(key, hash) || localStorage.getItem(key))
+
+const setDocumentId = (key, documentId) => {
+  if (key) {
+    // Only set URL hash if document ID changed
+    if (documentId !== getQueryParamValue(key, window.location.hash))
+      setHash(setQueryParamValue(key, documentId, window.location.hash))
+  }
+  if (key) localStorage.setItem(key, documentId)
 }
 
 /**
@@ -48,62 +60,47 @@ export const createDocument = (repo, onCreate) => {
  * The URL and localStorage will then be updated.
  * Finally, it will return the document ID.
  *
- * Tip: If a document is already loaded, but you want to create a new one:
- *   import { createDocument, setHash } from './useBootstrap'
- *   const createNewDocument = (repo, onCreate) => {
- *     const { documentId } = createDocument(repo, onCreate)
- *     setHash(documentId)
- *   }
- *
- * @param {string?} props.urlHashKey Key to use in the URL hash; set to falsy to disable URL hash
- * @param {string?} props.localStorageKey Key to use in localStorage; set to falsy to disable localStorage
- * @param {function?} props.onCreate Function to call with doc, on doc creation
+ * @param {string?} props.key Key to use in the URL hash and localStorage
+ * @param {function?} props.fallback Function returning a document handle called if lookup fails. Defaults to repo.create()
  * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid; signature (error) => (repo, onCreate)
- * @param {function?} props.getDocumentId Function to get documentId from hash or localStorage
- * @param {function?} props.setDocumentId Function to set documentId in hash and localStorage
- * @returns documentId
+ * @returns {DocHandle} The document handle
  */
-export const useBootstrap = ({
-  urlHashKey = "documentId",
-  localStorageKey = urlHashKey || "documentId",
-  onCreate = () => {},
-  onInvalidDocumentId = error => {
-    // console.warn("Invalid document ID", error);
-    return createDocument
-  },
-  getDocumentId = hash =>
-    (urlHashKey && getQueryParamValue(urlHashKey, hash)) ||
-    (localStorageKey && localStorage.getItem(localStorageKey)),
-  setDocumentId = documentId => {
-    if (urlHashKey) {
-      // Only set URL hash if document ID changed
-      if (documentId !== getQueryParamValue(urlHashKey, window.location.hash))
-        setHash(`${urlHashKey}=${documentId}`)
-    }
-    if (localStorageKey) localStorage.setItem(localStorageKey, documentId)
-  },
-} = {}) => {
+interface UseBootstrapOptions<T> {
+  key?: string
+  onNoDocument?: (repo: Repo) => DocHandle<T>
+  onInvalidDocumentId?(repo: Repo, error: Error): DocHandle<T> | void
+}
+
+export const useBootstrap = <T>({
+  key = "documentId",
+  onNoDocument = repo => repo.create(),
+  onInvalidDocumentId,
+}: UseBootstrapOptions<T>): DocHandle<T> | void => {
   const repo = useRepo()
   const hash = useHash()
 
   // Try to get existing document; else create a new one
-  const handle = useMemo(() => {
-    const existingDocumentId = getDocumentId(hash)
+  const handle = useMemo((): DocHandle<T> | void => {
+    const existingDocumentId = getDocumentId(key, hash)
     try {
       return existingDocumentId
-        ? repo.find(existingDocumentId)
-        : createDocument(repo, onCreate)
+        ? repo.find(existingDocumentId as DocumentId)
+        : onNoDocument(repo)
     } catch (error) {
       // Presumably the documentId was invalid
-      if (existingDocumentId) return onInvalidDocumentId(error)(repo, onCreate)
+      if (existingDocumentId && onInvalidDocumentId)
+        return onInvalidDocumentId(repo, error)
       // Forward other errors
       throw error
     }
-  }, [hash, repo, onCreate])
+  }, [hash, repo, onNoDocument, onInvalidDocumentId])
 
   // Update hashroute & localStorage on changes
-  useEffect(() => setDocumentId(handle.documentId), [hash, handle.documentId])
+  useEffect(() => {
+    if (handle) {
+      setDocumentId(key, handle.documentId)
+    }
+  }, [hash, handle])
 
-  // TODO: Should we return a handle, not a documentID?
-  return handle.documentId
+  return handle
 }
