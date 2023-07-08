@@ -1,5 +1,9 @@
 import { DocumentId } from "@automerge/automerge-repo"
-import { useDocument, useRepo } from "@automerge/automerge-repo-react-hooks"
+import {
+  useBootstrap,
+  useDocument,
+  useRepo,
+} from "@automerge/automerge-repo-react-hooks"
 import cx from "classnames"
 import { useRef, useState } from "react"
 
@@ -7,15 +11,20 @@ import { Todo } from "./Todo.js"
 
 import { ExtendedArray, Filter, State, TodoData } from "./types.js"
 
-export function App(props: { rootId: DocumentId }) {
+export function App() {
+  const { documentId } = useBootstrap({
+    onNoDocument: repo => {
+      const handle = repo.create<State>()
+      handle.change(d => (d.todos = []))
+      return handle
+    },
+  })
+  const [state, changeState] = useDocument<State>(documentId)
+
   const newTodoInput = useRef<HTMLInputElement>(null)
   const [filter, setFilter] = useState<Filter>(Filter.all)
 
   const repo = useRepo()
-
-  const { rootId: documentId } = props
-
-  const [state, changeState] = useDocument<State>(documentId)
 
   const destroy = (id: DocumentId) => {
     changeState(s => {

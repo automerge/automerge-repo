@@ -50,17 +50,17 @@ const setDocumentId = (key, documentId) => {
 
 /**
  * This hook is used to set up a single document as the base of an app session.
- * This is a common pattern for multiplayer apps with shareable URLs.
+ * This is a common pattern for simple multiplayer apps with shareable URLs.
  *
  * It will first check for the document ID in the URL hash:
  *   //myapp/#documentId=[document ID]
  * Failing that, it will check for a `documentId` key in localStorage.
- * Failing that, it will create a new document (and call onCreate with it).
+ * Failing that, it will call onNoDocument, expecting a handle to be returned.
  *
  * The URL and localStorage will then be updated.
  * Finally, it will return the document ID.
  *
- * @param {string?} props.key Key to use in the URL hash and localStorage
+ * @param {string?} props.key Key to use for the URL hash and localStorage
  * @param {function?} props.fallback Function returning a document handle called if lookup fails. Defaults to repo.create()
  * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid; signature (error) => (repo, onCreate)
  * @returns {DocHandle} The document handle
@@ -68,19 +68,19 @@ const setDocumentId = (key, documentId) => {
 interface UseBootstrapOptions<T> {
   key?: string
   onNoDocument?: (repo: Repo) => DocHandle<T>
-  onInvalidDocumentId?(repo: Repo, error: Error): DocHandle<T> | void
+  onInvalidDocumentId?(repo: Repo, error: Error): DocHandle<T>
 }
 
 export const useBootstrap = <T>({
   key = "documentId",
   onNoDocument = repo => repo.create(),
   onInvalidDocumentId,
-}: UseBootstrapOptions<T>): DocHandle<T> | void => {
+}: UseBootstrapOptions<T> = {}): DocHandle<T> => {
   const repo = useRepo()
   const hash = useHash()
 
   // Try to get existing document; else create a new one
-  const handle = useMemo((): DocHandle<T> | void => {
+  const handle = useMemo((): DocHandle<T> => {
     const existingDocumentId = getDocumentId(key, hash)
     try {
       return existingDocumentId
