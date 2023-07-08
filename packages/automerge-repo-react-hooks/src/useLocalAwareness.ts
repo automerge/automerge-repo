@@ -1,4 +1,5 @@
-import { useRepo } from "automerge-repo-react-hooks";
+// @ts-nocheck
+import { useRepo } from "./useRepo";
 import { useEffect } from "react";
 import useStateRef from "react-usestateref";
 import { peerEvents, CHANNEL_ID_PREFIX } from "./useRemoteAwareness";
@@ -14,19 +15,18 @@ import { peerEvents, CHANNEL_ID_PREFIX } from "./useRemoteAwareness";
  * Note that userIds aren't secure (yet). Any client can lie about theirs.
  * ChannelID is usually just your documentID with some extra characters.
  *
- * @param {string} userId Unique user ID. Clients can lie about this.
- * @param {string} channelId Which channel to send messages on. This *must* be unique.
- * @param {any} initialState Initial state object/primitive
- * @param {object?} options
- * @param {number?1500} options.heartbeatTime How often to send a heartbeat (in ms)
+ * @param {string} props.userId Unique user ID. Clients can lie about this.
+ * @param {string} props.channelId Which channel to send messages on. This *must* be unique.
+ * @param {any} props.initialState Initial state object/primitive
+ * @param {number?1500} props.heartbeatTime How often to send a heartbeat (in ms)
  * @returns [state, setState]
  */
-export const useLocalAwareness = (
+export const useLocalAwareness = ({
   userId,
-  channelIdUnprefixed,
+  channelId: channelIdUnprefixed,
   initialState,
-  { heartbeatTime = 15000 } = {}
-) => {
+  heartbeatTime = 15000
+} = {}) => {
   const channelId = CHANNEL_ID_PREFIX + channelIdUnprefixed;
   const [localState, setLocalState, localStateRef] = useStateRef(initialState);
   const { ephemeralData } = useRepo();

@@ -1,4 +1,5 @@
-import { useRepo } from "automerge-repo-react-hooks";
+// @ts-nocheck
+import { useRepo } from "./useRepo";
 import { useEffect } from "react";
 import useStateRef from "react-usestateref";
 import EventEmitter from "eventemitter3";
@@ -15,21 +16,18 @@ export const peerEvents = new EventEmitter();
  * It also returns their heartbeat status.
  * It is intended to be used alongside useLocalAwareness.
  *
- * @param {string} channelId Which channel to send messages on. This *must* be unique.
- * @param {object?} options
- * @param {string?} options.localUserId Automerge BroadcastChannel sometimes sends us our own messages; optionally filters them
- * @param {number?30000} options.offlineTimeout How long to wait (in ms) before marking a peer as offline
- * @param {function?} options.getTime Function to provide current epoch time (used for testing)
+ * @param {string} props.channelId Which channel to send messages on. This *must* be unique.
+ * @param {string?} props.localUserId Automerge BroadcastChannel sometimes sends us our own messages; optionally filters them
+ * @param {number?30000} props.offlineTimeout How long to wait (in ms) before marking a peer as offline
+ * @param {function?} props.getTime Function to provide current epoch time (used for testing)
  * @returns [ peerStates: { [userId]: state, ... }, { [userId]: heartbeatEpochTime, ...} ]
  */
-export const useRemoteAwareness = (
-  channelIdUnprefixed,
-  {
-    localUserId,
-    offlineTimeout = 30000,
-    getTime = () => new Date().getTime(),
-  } = {}
-) => {
+export const useRemoteAwareness = ({
+  channelId: channelIdUnprefixed,
+  localUserId,
+  offlineTimeout = 30000,
+  getTime = () => new Date().getTime(),
+} = {}) => {
   // TODO: You should be able to use multiple instances of this hook on the same channelID (write test)
   // TODO: This should support some kind of caching or memoization when switching between channelIDs
   const channelId = CHANNEL_ID_PREFIX + channelIdUnprefixed;
