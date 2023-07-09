@@ -1,3 +1,6 @@
+/// <reference types="vitest" />
+/// <reference types="vite/client" />
+
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import wasm from 'vite-plugin-wasm'
@@ -16,11 +19,6 @@ export default defineConfig({
     ]
   },
   test: {
-    browser: {
-      enabled: true,
-      headless: true,
-      provider: 'playwright',
-      name: 'chromium', // Navigation API only supported in Chrome; check FF polyfill works
-    }
+    environment: 'jsdom'
   },
 })
