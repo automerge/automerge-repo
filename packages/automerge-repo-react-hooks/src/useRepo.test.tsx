@@ -1,22 +1,33 @@
 // @ts-nocheck
-import { describe, expect, test } from 'vitest'
-import { act, renderHook } from '@testing-library/react'
-import { RepoContext, useRepo } from './useRepo'
-import { Repo } from '@automerge/automerge-repo'
+/// <reference types="vitest" />
+import { describe, expect, test, vi } from "vitest"
+import { act, renderHook, render } from "@testing-library/react"
+import { RepoContext, useRepo } from "./useRepo"
+import { Repo } from "@automerge/automerge-repo"
 
-describe('useRepo', () => {
+describe("useRepo", () => {
   const repo = new Repo({
-    network: []
-  });
+    network: [],
+  })
+  expect(repo).toBeInstanceOf(Repo)
 
-  // const wrapper = props => (<RepoContext.Provider {...props} value={repo} />)
-  test('should return repo from context', () => {
-    expect(repo).toBeInstanceOf(Repo)
-  //   const { result } = renderHook(() => useRepo(), { wrapper })
+  test("should error when context unavailable", () => {
+    // Prevent console spam by swallowing console.error "uncaught error" message
+    const spy = vi.spyOn(console, "error")
+    spy.mockImplementation(() => {})
 
-  //   console.log(result)
+    expect(() => renderHook(() => useRepo())).toThrow(
+      /Repo was not found on RepoContext/
+    )
 
-  //   expect(result).toBeInstanceOf(Repo)
+    spy.mockRestore()
   })
 
+  test.skip("should return repo from context", () => {
+    const wrapper = ({ children }) => (
+      <RepoContext value={repo} children={children} />
+    )
+    const { result } = renderHook(() => useRepo(), { wrapper })
+    expect(result).toBeInstanceOf(Repo)
+  })
 })
