@@ -173,7 +173,11 @@ export class DocHandle<T> //
   #statePromise(awaitStates: HandleState | HandleState[]) {
     if (!Array.isArray(awaitStates)) awaitStates = [awaitStates]
     return Promise.any(
-      awaitStates.map(state => waitFor(this.#machine, s => s.matches(state)))
+      awaitStates.map(state =>
+        waitFor(this.#machine, s => s.matches(state), {
+          timeout: this.#timeoutDelay, // match the delay above
+        })
+      )
     )
   }
 
