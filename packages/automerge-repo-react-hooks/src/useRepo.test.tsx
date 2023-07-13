@@ -1,9 +1,12 @@
 // @ts-nocheck
 /// <reference types="vitest" />
-import { describe, expect, test, vi } from "vitest"
 import { act, renderHook, render } from "@testing-library/react"
 import { RepoContext, useRepo } from "./useRepo"
 import { Repo } from "@automerge/automerge-repo"
+
+
+// TODO: @pvh: Move this test to automerge-repo
+test.skip("should `new Repo({ network: [] })` work")
 
 describe("useRepo", () => {
   const repo = new Repo({
@@ -23,11 +26,11 @@ describe("useRepo", () => {
     spy.mockRestore()
   })
 
-  test.skip("should return repo from context", () => {
+  test("should return repo from context", () => {
     const wrapper = ({ children }) => (
-      <RepoContext value={repo} children={children} />
+      <RepoContext.Provider value={repo} children={children} />
     )
     const { result } = renderHook(() => useRepo(), { wrapper })
-    expect(result).toBeInstanceOf(Repo)
+    expect(result.current).toBeInstanceOf(Repo)
   })
 })
