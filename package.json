@@ -10,11 +10,11 @@
   "type": "module",
   "scripts": {
     "build": "lerna run build",
-    "dev:demo": "yarn workspace automerge-repo-demo-todo dev",
-    "dev:svelte-demo": "yarn workspace automerge-repo-demo-counter-svelte dev",
+    "dev:demo": "yarn workspace @automerge/automerge-repo-demo-todo dev",
+    "dev:svelte-demo": "yarn workspace @automerge/automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
     "pub": "lerna publish --yes",
-    "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace automerge-repo-sync-server start",
+    "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/automerge-repo-sync-server start",
     "test": "lerna run test",
     "test:watch": "lerna run test:watch",
     "test:coverage": "lerna run test:coverage",
@@ -40,7 +40,8 @@
     "typescript": "^4.7.4"
   },
   "engines": {
-    "node": ">= 18.x"
+    "node": ">= 18.x",
+    "yarn": "^1.0.0"
   },
   "workspaces": [
     "packages/*"
