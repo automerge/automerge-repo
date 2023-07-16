@@ -8,7 +8,7 @@ describe("useRepo", () => {
   const repo = new Repo({
     network: [],
   })
-  
+
   expect(repo).toBeInstanceOf(Repo)
   // TODO: @pvh: Move this test to automerge-repo
   test.skip("should `new Repo({ network: [] })` work")
@@ -30,6 +30,6 @@ describe("useRepo", () => {
       <RepoContext.Provider value={repo} children={children} />
     )
     const { result } = renderHook(() => useRepo(), { wrapper })
-    expect(result.current).toBeInstanceOf(Repo)
+    expect(result.current).toBe(repo)
   })
 })
