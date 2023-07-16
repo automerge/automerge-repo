@@ -4,15 +4,14 @@ import { act, renderHook, render } from "@testing-library/react"
 import { RepoContext, useRepo } from "./useRepo"
 import { Repo } from "@automerge/automerge-repo"
 
-
-// TODO: @pvh: Move this test to automerge-repo
-test.skip("should `new Repo({ network: [] })` work")
-
 describe("useRepo", () => {
   const repo = new Repo({
     network: [],
   })
+  
   expect(repo).toBeInstanceOf(Repo)
+  // TODO: @pvh: Move this test to automerge-repo
+  test.skip("should `new Repo({ network: [] })` work")
 
   test("should error when context unavailable", () => {
     // Prevent console spam by swallowing console.error "uncaught error" message
