@@ -1,8 +1,8 @@
-// @ts-nocheck
-/// <reference types="vitest" />
-import { act, renderHook, render } from "@testing-library/react"
+import { renderHook } from "@testing-library/react"
+import { describe, expect, test, vi } from 'vitest'
 import { RepoContext, useRepo } from "./useRepo"
 import { Repo } from "@automerge/automerge-repo"
+import React from "react"
 
 describe("useRepo", () => {
   const repo = new Repo({
