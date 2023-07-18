@@ -1,77 +1,63 @@
 import * as A from "@automerge/automerge"
 import { DocumentId } from "../types.js"
-import { mergeArrays } from "../helpers/mergeArrays.js"
 import { StorageAdapter } from "./StorageAdapter.js"
+import { mergeArrays } from "../helpers/mergeArrays.js"
+
+// stick in helpers before merging
+async function hashUint8Array(data: Uint8Array): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("")
+  return hashHex
+}
 
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
-  #changeCount: Record<DocumentId, number> = {}
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
   }
 
-  #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
+  async #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
-      if (!this.#changeCount[documentId]) {
-        this.#changeCount[documentId] = 0
-      }
-
       this.#storageAdapter.save(
-        [documentId, "incremental", this.#changeCount[documentId].toString()],
+        [documentId, "incremental", await hashUint8Array(binary)],
         binary
       )
-
-      this.#changeCount[documentId]++
     }
   }
 
-  #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
+  async #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
+    console.log("saving total", documentId, doc)
     const binary = A.save(doc)
+    // this is still racy if two nodes are both writing to the store
     this.#storageAdapter.save([documentId, "snapshot"], binary)
-
-    // TODO: we should assume range support and let adapters without it take this approach
-    for (let i = 0; i < this.#changeCount[documentId]; i++) {
-      this.#storageAdapter.remove([documentId, "incremental", i.toString()])
-    }
-
-    this.#changeCount[documentId] = 0
+    this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 
   async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
-    const result = []
-    let binary = await this.#storageAdapter.load([documentId, "snapshot"])
-    if (binary && binary.length > 0) {
-      result.push(binary)
-    }
+    // it would probably be best to ensure .snapshot comes back first
+    // prevent the race condition with saveIncremental
+    const binaries: Uint8Array[] = await this.#storageAdapter.loadRange([
+      documentId,
+    ])
 
-    let index = 0
-    while (
-      (binary = await this.#storageAdapter.load([
-        documentId,
-        "incremental",
-        index.toString(),
-      ]))
-    ) {
-      this.#changeCount[documentId] = index + 1
-      if (binary && binary.length > 0) result.push(binary)
-      index += 1
-    }
-
-    return mergeArrays(result)
+    console.log("binaries", binaries)
+    return mergeArrays(binaries)
   }
 
   async load<T>(
     documentId: DocumentId,
     prevDoc: A.Doc<T> = A.init<T>()
   ): Promise<A.Doc<T>> {
+    console.log("coming in via load", documentId, prevDoc)
     const doc = A.loadIncremental(prevDoc, await this.loadBinary(documentId))
     A.saveIncremental(doc)
     return doc
   }
 
-  save(documentId: DocumentId, doc: A.Doc<unknown>) {
+  async save(documentId: DocumentId, doc: A.Doc<unknown>) {
     if (this.#shouldCompact(documentId)) {
       this.#saveTotal(documentId, doc)
     } else {
@@ -79,16 +65,14 @@ export class StorageSubsystem {
     }
   }
 
-  remove(documentId: DocumentId) {
+  async remove(documentId: DocumentId) {
     this.#storageAdapter.remove([documentId, "snapshot"])
-
-    for (let i = 0; i < this.#changeCount[documentId]; i++) {
-      this.#storageAdapter.remove([documentId, "incremental", i.toString()])
-    }
+    this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 
   // TODO: make this, you know, good.
+  // this is probably fine
   #shouldCompact(documentId: DocumentId) {
-    return this.#changeCount[documentId] >= 20
+    return Math.random() < 0.05 // this.#changeCount[documentId] >= 20
   }
 }
