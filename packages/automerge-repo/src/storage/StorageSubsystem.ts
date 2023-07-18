@@ -19,7 +19,7 @@ export class StorageSubsystem {
       }
 
       this.#storageAdapter.save(
-        `${documentId}.incremental.${this.#changeCount[documentId]}`,
+        [documentId, "incremental", this.#changeCount[documentId].toString()],
         binary
       )
 
@@ -29,10 +29,11 @@ export class StorageSubsystem {
 
   #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
     const binary = A.save(doc)
-    this.#storageAdapter.save(`${documentId}.snapshot`, binary)
+    this.#storageAdapter.save([documentId, "snapshot"], binary)
 
+    // TODO: we should assume range support and let adapters without it take this approach
     for (let i = 0; i < this.#changeCount[documentId]; i++) {
-      this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
+      this.#storageAdapter.remove([documentId, "incremental", i.toString()])
     }
 
     this.#changeCount[documentId] = 0
@@ -40,16 +41,18 @@ export class StorageSubsystem {
 
   async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
     const result = []
-    let binary = await this.#storageAdapter.load(`${documentId}.snapshot`)
+    let binary = await this.#storageAdapter.load([documentId, "snapshot"])
     if (binary && binary.length > 0) {
       result.push(binary)
     }
 
     let index = 0
     while (
-      (binary = await this.#storageAdapter.load(
-        `${documentId}.incremental.${index}`
-      ))
+      (binary = await this.#storageAdapter.load([
+        documentId,
+        "incremental",
+        index.toString(),
+      ]))
     ) {
       this.#changeCount[documentId] = index + 1
       if (binary && binary.length > 0) result.push(binary)
@@ -77,10 +80,10 @@ export class StorageSubsystem {
   }
 
   remove(documentId: DocumentId) {
-    this.#storageAdapter.remove(`${documentId}.snapshot`)
+    this.#storageAdapter.remove([documentId, "snapshot"])
 
     for (let i = 0; i < this.#changeCount[documentId]; i++) {
-      this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
+      this.#storageAdapter.remove([documentId, "incremental", i.toString()])
     }
   }
 

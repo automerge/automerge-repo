@@ -4,34 +4,35 @@ import { StorageAdapter } from "@automerge/automerge-repo"
 export class NodeFSStorageAdapter implements StorageAdapter {
   directory: string
 
-  constructor(directory = ".amrg") {
+  constructor(directory = "automerge-repo") {
     this.directory = directory
   }
 
-  fileName(docId: string) {
-    return `${this.directory}/${docId}.amrg`
+  fileName(key: string[]) {
+    const keyString = key.join(".")
+    return `${this.directory}/${keyString}.amrg`
   }
 
-  load(docId: string): Promise<Uint8Array | null> {
+  load(key: string[]): Promise<Uint8Array | null> {
     return new Promise<Uint8Array | null>(resolve => {
-      fs.readFile(this.fileName(docId), (err, data) => {
+      fs.readFile(this.fileName(key), (err, data) => {
         if (err) resolve(null)
         else resolve(data)
       })
     })
   }
 
-  save(docId: string, binary: Uint8Array): void {
-    fs.writeFile(this.fileName(docId), binary, err => {
+  save(key: string[], binary: Uint8Array): void {
+    fs.writeFile(this.fileName(key), binary, err => {
       // TODO: race condition if a load happens before the save is complete.
       // use an in-memory cache while save is in progress
       if (err) throw err
     })
   }
 
-  remove(docId: string): void {
-    fs.rm(this.fileName(docId), err => {
-      if (err) console.log("removed a file that does not exist: " + docId)
+  remove(key: string[]): void {
+    fs.rm(this.fileName(key), err => {
+      if (err) console.log("removed a file that does not exist: " + key)
     })
   }
 }
