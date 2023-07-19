@@ -2,14 +2,13 @@ import * as A from "@automerge/automerge"
 import { DocumentId } from "../types.js"
 import { StorageAdapter } from "./StorageAdapter.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
-import * as crypto from "crypto"
+import sha256 from "fast-sha256"
 
-// stick in helpers before merging
-function hashUint8Array(data: Uint8Array): string {
-  const hash = crypto.createHash("sha256")
-  hash.update(Buffer.from(data.buffer))
-  const result = hash.digest("hex")
-  return result
+function keyHash(binary: Uint8Array) {
+  const hash = sha256(binary)
+  const hashArray = Array.from(new Uint8Array(hash)) // convert buffer to byte array
+  const hashHex = hashArray.map(b => ("00" + b.toString(16)).slice(-2)).join("") // convert bytes to hex string
+  return hashHex
 }
 
 export class StorageSubsystem {
@@ -22,10 +21,11 @@ export class StorageSubsystem {
   async #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
-      const key = [documentId, "incremental", await hashUint8Array(binary)]
+      const key = [documentId, "incremental", keyHash(binary)]
       return await this.#storageAdapter.save(key, binary)
+    } else {
+      Promise.resolve()
     }
-    Promise.resolve(undefined)
   }
 
   async #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
