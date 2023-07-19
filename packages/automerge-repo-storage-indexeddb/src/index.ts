@@ -2,10 +2,11 @@ import { StorageAdapter } from "@automerge/automerge-repo"
 
 export class IndexedDBStorageAdapter extends StorageAdapter {
   private dbPromise: Promise<IDBDatabase>
-  database = "automerge"
-  store = "documents"
 
-  constructor() {
+  constructor(
+    private database: string = "automerge",
+    private store: string = "documents"
+  ) {
     super()
     this.dbPromise = this.createDatabasePromise()
   }
