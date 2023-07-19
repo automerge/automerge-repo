@@ -8,10 +8,31 @@ export class NodeFSStorageAdapter implements StorageAdapter {
     this.directory = directory
   }
   loadRange(keyPrefix: string[]): Promise<Uint8Array[]> {
-    throw new Error("Method not implemented.")
+    const keyString = keyPrefix.join(".")
+    return new Promise<Uint8Array[]>(resolve => {
+      fs.readdir(this.directory, (err, files) => {
+        files
+          .filter(file => file.startsWith(keyString))
+          .map(file => {
+            fs.readFile(`${this.directory}/${file}.amrg`, (err, data) => {
+              if (err) throw err
+              resolve([data])
+            })
+          })
+      })
+    })
   }
   removeRange(keyPrefix: string[]): void {
-    throw new Error("Method not implemented.")
+    const keyString = keyPrefix.join(".")
+    fs.readdir(this.directory, (err, files) => {
+      files
+        .filter(file => file.startsWith(keyString))
+        .map(file => {
+          fs.rm(`${this.directory}/${file}.amrg`, err => {
+            if (err) throw err
+          })
+        })
+    })
   }
 
   fileName(key: string[]) {

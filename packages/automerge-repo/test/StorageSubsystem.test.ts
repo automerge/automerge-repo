@@ -72,6 +72,7 @@ describe("StorageSubsystem", () => {
     assert(adapter.keys().some(k => k.endsWith("1")))
 
     // check that the last incrementalSave is not a full save
+    // TODO: THIS TEST IS NO LONGER GOOD
     const bin = await adapter.load([key, "incremental", "1"])
     assert.throws(() => A.load(bin!))
   })
