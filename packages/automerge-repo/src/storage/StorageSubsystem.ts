@@ -2,10 +2,10 @@ import * as A from "@automerge/automerge"
 import { DocumentId } from "../types.js"
 import { StorageAdapter } from "./StorageAdapter.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
-import sha256 from "fast-sha256"
+import * as sha256 from "fast-sha256"
 
 function keyHash(binary: Uint8Array) {
-  const hash = sha256(binary)
+  const hash = sha256.hash(binary)
   const hashArray = Array.from(new Uint8Array(hash)) // convert buffer to byte array
   const hashHex = hashArray.map(b => ("00" + b.toString(16)).slice(-2)).join("") // convert bytes to hex string
   return hashHex
