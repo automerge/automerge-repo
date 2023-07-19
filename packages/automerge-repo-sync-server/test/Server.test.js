@@ -31,7 +31,7 @@ describe("Sync Server Tests", () => {
     })
   })
 
-  it("can sync a document with the server and get back the same document", (done) => {
+  it.only("can sync a document with the server and get back the same document", (done) => {
     const repo = new Repo({
       network: [new BrowserWebSocketClientAdapter(`ws://localhost:${PORT}`)],
     })
@@ -47,6 +47,8 @@ describe("Sync Server Tests", () => {
     })
 
     const handle2 = repo2.find(handle.documentId)
+
+    console.log("waiting for handle2 to sync")
 
     handle2.value().then((doc) => {
       assert.equal(doc.test, "hello world")

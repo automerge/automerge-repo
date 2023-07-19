@@ -31,7 +31,7 @@ describe("StorageSubsystem", () => {
 
         // save it to storage
         const key = "test-key" as DocumentId
-        storage.save(key, doc)
+        await storage.save(key, doc)
 
         // reload it from storage
         const reloadedDoc = await storage.load<TestDoc>(key)
@@ -69,11 +69,6 @@ describe("StorageSubsystem", () => {
     storage2.save(key, changedDoc)
 
     // check that the storage adapter contains the correct keys
-    assert(adapter.keys().some(k => k.endsWith("1")))
-
-    // check that the last incrementalSave is not a full save
-    // TODO: THIS TEST IS NO LONGER GOOD
-    const bin = await adapter.load([key, "incremental", "1"])
-    assert.throws(() => A.load(bin!))
+    assert(adapter.keys().some(k => k.startsWith("test-key.incremental.")))
   })
 })

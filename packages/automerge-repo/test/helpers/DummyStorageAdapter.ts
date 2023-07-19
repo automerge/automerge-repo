@@ -2,36 +2,31 @@ import { StorageAdapter } from "../../src"
 
 export class DummyStorageAdapter implements StorageAdapter {
   #data: Record<string, Uint8Array> = {}
+
   #keyToString(key: string[]) {
     return key.join(".")
   }
 
   async loadRange(keyPrefix: string[]): Promise<Uint8Array[]> {
-    return Object.entries(this.#data)
-      .filter(([key, _]) => {
-        key.startsWith(this.#keyToString(keyPrefix))
-      })
+    const range = Object.entries(this.#data)
+      .filter(([key, _]) => key.startsWith(this.#keyToString(keyPrefix)))
       .map(([_, value]) => value)
+    return Promise.resolve(range)
   }
 
-  removeRange(keyPrefix: string[]): void {
+  async removeRange(keyPrefix: string[]): Promise<void> {
     Object.entries(this.#data)
-      .filter(([key, _]) => {
-        key.startsWith(this.#keyToString(keyPrefix))
-      })
-      .forEach(([key, _]) => {
-        delete this.#data[key]
-      })
+      .filter(([key, _]) => key.startsWith(this.#keyToString(keyPrefix)))
+      .forEach(([key, _]) => delete this.#data[key])
   }
 
-  async load(key: string[]) {
-    return new Promise<Uint8Array | undefined>(resolve =>
-      resolve(this.#data[this.#keyToString(key)])
-    )
+  async load(key: string[]): Promise<Uint8Array | undefined> {
+    return new Promise(resolve => resolve(this.#data[this.#keyToString(key)]))
   }
 
   async save(key: string[], binary: Uint8Array) {
     this.#data[this.#keyToString(key)] = binary
+    return Promise.resolve()
   }
 
   async remove(key: string[]) {

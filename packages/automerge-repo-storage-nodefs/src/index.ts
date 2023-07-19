@@ -1,65 +1,121 @@
-import * as fs from "fs"
 import { StorageAdapter } from "@automerge/automerge-repo"
+import fs from "fs"
+import path from "path"
+import { promisify } from "util"
+import rimraf from "rimraf"
 
-export class NodeFSStorageAdapter implements StorageAdapter {
-  directory: string
+// Convert rimraf to use promises
+const rimrafAsync = promisify(rimraf)
 
-  constructor(directory = "automerge-repo") {
-    this.directory = directory
-  }
-  loadRange(keyPrefix: string[]): Promise<Uint8Array[]> {
-    const keyString = keyPrefix.join(".")
-    return new Promise<Uint8Array[]>(resolve => {
-      fs.readdir(this.directory, (err, files) => {
-        files
-          .filter(file => file.startsWith(keyString))
-          .map(file => {
-            fs.readFile(`${this.directory}/${file}.amrg`, (err, data) => {
-              if (err) throw err
-              resolve([data])
-            })
-          })
-      })
-    })
-  }
-  removeRange(keyPrefix: string[]): void {
-    const keyString = keyPrefix.join(".")
-    fs.readdir(this.directory, (err, files) => {
-      files
-        .filter(file => file.startsWith(keyString))
-        .map(file => {
-          fs.rm(`${this.directory}/${file}.amrg`, err => {
-            if (err) throw err
-          })
-        })
-    })
+export class NodeFSStorageAdapter extends StorageAdapter {
+  private baseDirectory: string
+  private cache: { [key: string]: Uint8Array } = {}
+
+  constructor(baseDirectory: string = "automerge-repo-data") {
+    super()
+    this.baseDirectory = baseDirectory
   }
 
-  fileName(key: string[]) {
-    const keyString = key.join(".")
-    return `${this.directory}/${keyString}.amrg`
+  async load(keyArray: string[]): Promise<Uint8Array | undefined> {
+    const key = this.getKey(keyArray)
+    if (this.cache[key]) {
+      return this.cache[key]
+    }
+
+    const filePath = this.getFilePath(keyArray)
+
+    try {
+      const fileContent = await fs.promises.readFile(filePath)
+      return new Uint8Array(fileContent)
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        // file not found
+        return undefined
+      } else {
+        throw error
+      }
+    }
   }
 
-  load(key: string[]): Promise<Uint8Array | undefined> {
-    return new Promise<Uint8Array | null>(resolve => {
-      fs.readFile(this.fileName(key), (err, data) => {
-        if (err) resolve(null)
-        else resolve(data)
-      })
-    })
+  async save(keyArray: string[], binary: Uint8Array): Promise<void> {
+    const key = this.getKey(keyArray)
+    this.cache[key] = binary
+
+    const filePath = this.getFilePath(keyArray)
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.promises.writeFile(filePath, binary)
   }
 
-  save(key: string[], binary: Uint8Array): void {
-    fs.writeFile(this.fileName(key), binary, err => {
-      // TODO: race condition if a load happens before the save is complete.
-      // use an in-memory cache while save is in progress
-      if (err) throw err
-    })
+  async remove(keyArray: string[]): Promise<void> {
+    const filePath = this.getFilePath(keyArray)
+
+    try {
+      await fs.promises.unlink(filePath)
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        // only throw if error is not file not found
+        throw error
+      }
+    }
   }
 
-  remove(key: string[]): void {
-    fs.rm(this.fileName(key), err => {
-      if (err) console.log("removed a file that does not exist: " + key)
-    })
+  async loadRange(keyPrefix: string[]): Promise<Uint8Array[]> {
+    const dirPath = this.getFilePath(keyPrefix)
+    const keyPrefixString = this.getKey(keyPrefix)
+
+    // Get the list of all cached keys that match the prefix
+    const cachedKeys = Object.keys(this.cache).filter(key =>
+      key.startsWith(keyPrefixString)
+    )
+
+    // Read filenames from disk
+    let diskFiles
+    try {
+      diskFiles = await fs.promises.readdir(dirPath, { withFileTypes: true })
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        // Directory not found, initialize as empty
+        diskFiles = []
+      } else {
+        throw error
+      }
+    }
+
+    const diskKeys = diskFiles
+      .filter(file => file.isFile())
+      .map(file =>
+        this.getKey([
+          path.relative(this.baseDirectory, path.join(dirPath, file.name)),
+        ])
+      )
+
+    // Combine and deduplicate the lists of keys
+    const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
+
+    // Load all files
+    return Promise.all(allKeys.map(key => this.load(key.split(path.sep))))
+  }
+
+  async removeRange(keyPrefix: string[]): Promise<void> {
+    const dirPath = this.getFilePath(keyPrefix)
+
+    // Warning: This method will recursively delete the directory and all its contents!
+    // Be absolutely sure this is what you want.
+    await rimrafAsync(dirPath)
+  }
+
+  private getKey(keyArray: string[]): string {
+    return path.join(...keyArray)
+  }
+
+  private getFilePath(keyArray: string[]): string {
+    const [firstKey, ...remainingKeys] = keyArray
+    const firstKeyDir = path.join(
+      this.baseDirectory,
+      firstKey.slice(0, 2),
+      firstKey.slice(2)
+    )
+
+    return path.join(firstKeyDir, ...remainingKeys)
   }
 }

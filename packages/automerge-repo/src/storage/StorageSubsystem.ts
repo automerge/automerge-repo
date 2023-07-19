@@ -2,13 +2,14 @@ import * as A from "@automerge/automerge"
 import { DocumentId } from "../types.js"
 import { StorageAdapter } from "./StorageAdapter.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
+import * as crypto from "crypto"
 
 // stick in helpers before merging
-async function hashUint8Array(data: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("")
-  return hashHex
+function hashUint8Array(data: Uint8Array): string {
+  const hash = crypto.createHash("sha256")
+  hash.update(Buffer.from(data.buffer))
+  const result = hash.digest("hex")
+  return result
 }
 
 export class StorageSubsystem {
@@ -21,18 +22,20 @@ export class StorageSubsystem {
   async #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
-      this.#storageAdapter.save(
-        [documentId, "incremental", await hashUint8Array(binary)],
-        binary
-      )
+      const key = [documentId, "incremental", await hashUint8Array(binary)]
+      return await this.#storageAdapter.save(key, binary)
     }
+    Promise.resolve(undefined)
   }
 
   async #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
     const binary = A.save(doc)
-    // this is still racy if two nodes are both writing to the store
-    this.#storageAdapter.save([documentId, "snapshot"], binary)
-    this.#storageAdapter.removeRange([documentId, "incremental"])
+
+    // TODO: this is still racy if two nodes are both writing to the store
+    await this.#storageAdapter.save([documentId, "snapshot"], binary)
+
+    // don't start deleting the incremental keys until save is done!
+    return this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 
   async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
@@ -56,9 +59,9 @@ export class StorageSubsystem {
 
   async save(documentId: DocumentId, doc: A.Doc<unknown>) {
     if (this.#shouldCompact(documentId)) {
-      this.#saveTotal(documentId, doc)
+      return this.#saveTotal(documentId, doc)
     } else {
-      this.#saveIncremental(documentId, doc)
+      return this.#saveIncremental(documentId, doc)
     }
   }
 
