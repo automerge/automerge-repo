@@ -18,7 +18,7 @@ Other packages in this monorepo include:
 
 #### Storage adapters
 
-- [@automerge/automerge-repo-storage-localforage](/packages/automerge-repo-storage-localforage/): A storage
+- [@automerge/automerge-repo-storage-indexeddb](/packages/automerge-repo-storage-indexeddb/): A storage
   adapter to persist data in a browser
 - [@automerge/automerge-repo-storage-nodefs](/packages/automerge-repo-storage-nodefs/): A storage adapter to
   write changes to the filesystem
@@ -95,13 +95,13 @@ Multiple network adapters (even of the same type) can be added to a repo, even a
 
 A repo currently only supports a single storage adapter, and it must be provided at creation.
 
-Here is an example of creating a repo with a localforage storage adapter and a broadcast channel
+Here is an example of creating a repo with a indexeddb storage adapter and a broadcast channel
 network adapter:
 
 ```ts
 const repo = new Repo({
   network: [new BroadcastChannelNetworkAdapter()],
-  storage: new LocalForageStorageAdapter(),
+  storage: new IndexedDBStorageAdapter(),
   sharePolicy: async (peerId: PeerId, documentId: DocumentId) => true // this is the default
 })
 ```
@@ -136,7 +136,7 @@ yarn create vite
 
 cd hello-automerge-repo
 yarn
-yarn add @automerge/automerge @automerge/automerge-repo-react-hooks @automerge/automerge-repo-network-broadcastchannel @automerge/automerge-repo-storage-localforage vite-plugin-wasm vite-plugin-top-level-await
+yarn add @automerge/automerge @automerge/automerge-repo-react-hooks @automerge/automerge-repo-network-broadcastchannel @automerge/automerge-repo-storage-indexeddb vite-plugin-wasm vite-plugin-top-level-await
 ```
 
 Edit the `vite.config.ts`. (This is all need to work around packaging hiccups due to WASM. We look
@@ -187,12 +187,12 @@ import ReactDOM from "react-dom/client"
 import App from "./App.js"
 import { Repo } from "@automerge/automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"
 
 const repo = new Repo({
   network: [new BroadcastChannelNetworkAdapter()],
-  storage: new LocalForageStorageAdapter(),
+  storage: new IndexedDBStorageAdapter(),
 })
 
 let rootDocId = localStorage.rootDocId
@@ -274,7 +274,7 @@ const repo = new Repo({
     new BroadcastChannelNetworkAdapter(),
     new BrowserWebSocketClientAdapter("ws://localhost:3030"), // <-- add this line
   ],
-  storage: new LocalForageStorageAdapter(),
+  storage: new IndexedDBStorageAdapter(),
 })
 
 // ...

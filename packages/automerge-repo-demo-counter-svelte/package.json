@@ -13,7 +13,7 @@
     "@automerge/automerge-repo": "^0.1.4",
     "@automerge/automerge-repo-network-broadcastchannel": "^0.1.4",
     "@automerge/automerge-repo-network-websocket": "^0.1.4",
-    "@automerge/automerge-repo-storage-localforage": "^0.1.4",
+    "@automerge/automerge-repo-storage-indexeddb": "^0.1.4",
     "@automerge/automerge-repo-svelte-store": "^0.1.4",
     "svelte": "^3.49.0"
   },

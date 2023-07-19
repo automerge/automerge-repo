@@ -3,7 +3,7 @@ declare const self: SharedWorkerGlobalScope
 
 import { DocumentId, PeerId, Repo } from "@automerge/automerge-repo"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
-import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 
 console.log("shared-worker starting up")
@@ -23,7 +23,7 @@ export type SharedWorkerMessage = FrontendConnection // room to grow
 // $ yarn start
 const url = "ws://localhost:3030" // local sync server
 const repo = new Repo({
-  storage: new LocalForageStorageAdapter(),
+  storage: new IndexedDBStorageAdapter(),
   network: [new BrowserWebSocketClientAdapter(url)],
   peerId: ("shared-worker-" + Math.round(Math.random() * 10000)) as PeerId,
   sharePolicy: async peerId => peerId.includes("storage-server"),

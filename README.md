@@ -29,7 +29,7 @@ This is a monorepo containing the following packages:
 
 #### Storage adapters
 
-- [automerge-repo-storage-localforage](/packages/automerge-repo-storage-localforage/): A storage
+- [automerge-repo-storage-indexeddb](/packages/automerge-repo-storage-indexeddb/): A storage
   adapter to persist data in a browser
 - [automerge-repo-storage-nodefs](/packages/automerge-repo-storage-nodefs/): A storage adapter to
   write changes to the filesystem
