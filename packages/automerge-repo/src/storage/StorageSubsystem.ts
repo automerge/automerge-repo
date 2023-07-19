@@ -29,7 +29,6 @@ export class StorageSubsystem {
   }
 
   async #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
-    console.log("saving total", documentId, doc)
     const binary = A.save(doc)
     // this is still racy if two nodes are both writing to the store
     this.#storageAdapter.save([documentId, "snapshot"], binary)
@@ -43,7 +42,6 @@ export class StorageSubsystem {
       documentId,
     ])
 
-    console.log("binaries", binaries)
     return mergeArrays(binaries)
   }
 
@@ -51,7 +49,6 @@ export class StorageSubsystem {
     documentId: DocumentId,
     prevDoc: A.Doc<T> = A.init<T>()
   ): Promise<A.Doc<T>> {
-    console.log("coming in via load", documentId, prevDoc)
     const doc = A.loadIncremental(prevDoc, await this.loadBinary(documentId))
     A.saveIncremental(doc)
     return doc
