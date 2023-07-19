@@ -19,7 +19,7 @@ export class NodeFSStorageAdapter implements StorageAdapter {
     return `${this.directory}/${keyString}.amrg`
   }
 
-  load(key: string[]): Promise<Uint8Array | null> {
+  load(key: string[]): Promise<Uint8Array | undefined> {
     return new Promise<Uint8Array | null>(resolve => {
       fs.readFile(this.fileName(key), (err, data) => {
         if (err) resolve(null)

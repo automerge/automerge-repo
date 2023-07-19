@@ -72,7 +72,7 @@ describe("StorageSubsystem", () => {
     assert(adapter.keys().some(k => k.endsWith("1")))
 
     // check that the last incrementalSave is not a full save
-    const bin = await adapter.load((key + ".incremental.1") as DocumentId)
+    const bin = await adapter.load([key, "incremental", "1"])
     assert.throws(() => A.load(bin!))
   })
 })
