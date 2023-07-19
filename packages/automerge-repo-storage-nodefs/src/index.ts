@@ -7,6 +7,12 @@ export class NodeFSStorageAdapter implements StorageAdapter {
   constructor(directory = "automerge-repo") {
     this.directory = directory
   }
+  loadRange(keyPrefix: string[]): Promise<Uint8Array[]> {
+    throw new Error("Method not implemented.")
+  }
+  removeRange(keyPrefix: string[]): void {
+    throw new Error("Method not implemented.")
+  }
 
   fileName(key: string[]) {
     const keyString = key.join(".")

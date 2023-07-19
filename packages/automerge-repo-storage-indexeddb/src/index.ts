@@ -7,7 +7,11 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
   constructor() {
     super()
-    this.dbPromise = new Promise((resolve, reject) => {
+    this.dbPromise = this.createDatabasePromise()
+  }
+
+  private createDatabasePromise(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.database, 1)
 
       request.onerror = () => {
@@ -16,7 +20,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
       request.onupgradeneeded = event => {
         const db = (event.target as IDBOpenDBRequest).result
-        db.createObjectStore(this.store) // No keyPath specified here.
+        db.createObjectStore(this.store)
       }
 
       request.onsuccess = event => {
@@ -29,39 +33,38 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
   async load(keyArray: string[]): Promise<Uint8Array | undefined> {
     const db = await this.dbPromise
 
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([this.store])
-      const objectStore = transaction.objectStore(this.store)
-      const request = objectStore.get(keyArray)
+    const transaction = db.transaction(this.store)
+    const objectStore = transaction.objectStore(this.store)
+    const request = objectStore.get(keyArray)
 
-      request.onerror = () => {
+    return new Promise((resolve, reject) => {
+      transaction.onerror = () => {
         reject(new Error("Unable to retrieve data from database!"))
       }
 
       request.onsuccess = event => {
-        resolve(
-          ((event.target as IDBRequest).result as { binary: Uint8Array })
-            ?.binary
-        )
+        const result = (event.target as IDBRequest).result
+        if (result && typeof result === "object" && "binary" in result) {
+          resolve((result as { binary: Uint8Array }).binary)
+        } else {
+          resolve(undefined)
+        }
       }
     })
   }
 
   async save(keyArray: string[], binary: Uint8Array): Promise<void> {
     const db = await this.dbPromise
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([this.store], "readwrite")
-      const objectStore = transaction.objectStore(this.store)
-      const request = objectStore.put(
-        { key: keyArray, binary: binary },
-        keyArray
-      )
 
-      request.onerror = () => {
+    const transaction = db.transaction(this.store, "readwrite")
+    const objectStore = transaction.objectStore(this.store)
+    objectStore.put({ key: keyArray, binary: binary }, keyArray)
+
+    return new Promise((resolve, reject) => {
+      transaction.onerror = () => {
         reject(new Error("Unable to save data to database!"))
       }
-
-      request.onsuccess = () => {
+      transaction.oncomplete = () => {
         resolve()
       }
     })
@@ -69,16 +72,16 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
   async remove(keyArray: string[]): Promise<void> {
     const db = await this.dbPromise
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([this.store], "readwrite")
-      const objectStore = transaction.objectStore(this.store)
-      const request = objectStore.delete(keyArray)
 
-      request.onerror = () => {
+    const transaction = db.transaction(this.store, "readwrite")
+    const objectStore = transaction.objectStore(this.store)
+    objectStore.delete(keyArray)
+
+    return new Promise((resolve, reject) => {
+      transaction.onerror = () => {
         reject(new Error("Unable to delete data from database!"))
       }
-
-      request.onsuccess = () => {
+      transaction.oncomplete = () => {
         resolve()
       }
     })
@@ -90,20 +93,19 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
     const upperBound = [...keyPrefix, "\uffff"]
     const range = IDBKeyRange.bound(lowerBound, upperBound)
 
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([this.store])
-      const objectStore = transaction.objectStore(this.store)
-      const request = objectStore.openCursor(range)
-      const arrays: Uint8Array[] = []
+    const transaction = db.transaction(this.store)
+    const objectStore = transaction.objectStore(this.store)
+    const request = objectStore.openCursor(range)
+    const arrays: Uint8Array[] = []
 
-      request.onerror = () => {
+    return new Promise((resolve, reject) => {
+      transaction.onerror = () => {
         reject(new Error("Unable to retrieve data from database!"))
       }
 
       request.onsuccess = event => {
         const cursor = (event.target as IDBRequest).result as IDBCursorWithValue
         if (cursor) {
-          console.log(cursor.value.key)
           arrays.push((cursor.value as { binary: Uint8Array }).binary)
           cursor.continue()
         } else {
@@ -119,17 +121,16 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
     const upperBound = [...keyPrefix, "\uffff"]
     const range = IDBKeyRange.bound(lowerBound, upperBound)
 
+    const transaction = db.transaction(this.store, "readwrite")
+    const objectStore = transaction.objectStore(this.store)
+    objectStore.delete(range)
+
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([this.store], "readwrite")
-      const objectStore = transaction.objectStore(this.store)
-      const request = objectStore.delete(range)
-
-      request.onsuccess = (event: Event) => {
-        resolve()
-      }
-
-      request.onerror = (event: Event) => {
+      transaction.onerror = () => {
         reject(new Error("Unable to remove data from database!"))
+      }
+      transaction.oncomplete = () => {
+        resolve()
       }
     })
   }
