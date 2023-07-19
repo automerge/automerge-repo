@@ -16,7 +16,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
       const request = indexedDB.open(this.database, 1)
 
       request.onerror = () => {
-        reject(new Error("Database error: " + request.error))
+        reject(request.error)
       }
 
       request.onupgradeneeded = event => {
@@ -40,7 +40,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
     return new Promise((resolve, reject) => {
       transaction.onerror = () => {
-        reject(new Error("Unable to retrieve data from database!"))
+        reject(request.error)
       }
 
       request.onsuccess = event => {
@@ -63,7 +63,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
     return new Promise((resolve, reject) => {
       transaction.onerror = () => {
-        reject(new Error("Unable to save data to database!"))
+        reject(transaction.error)
       }
       transaction.oncomplete = () => {
         resolve()
@@ -80,7 +80,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
     return new Promise((resolve, reject) => {
       transaction.onerror = () => {
-        reject(new Error("Unable to delete data from database!"))
+        reject(transaction.error)
       }
       transaction.oncomplete = () => {
         resolve()
@@ -101,7 +101,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
     return new Promise((resolve, reject) => {
       transaction.onerror = () => {
-        reject(new Error("Unable to retrieve data from database!"))
+        reject(request.error)
       }
 
       request.onsuccess = event => {
@@ -128,7 +128,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
     return new Promise((resolve, reject) => {
       transaction.onerror = () => {
-        reject(new Error("Unable to remove data from database!"))
+        reject(transaction.error)
       }
       transaction.oncomplete = () => {
         resolve()
