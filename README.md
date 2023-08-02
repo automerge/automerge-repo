@@ -9,8 +9,6 @@ This is a monorepo containing the following packages:
 - [automerge-repo](/packages/automerge-repo/): The core library. Handles dispatch of events and
   provides shared functionality such as deciding which peers to connect to or when to write data out
   to storage. Start here.
-- [automerge-repo-sync-server](/packages/automerge-repo-sync-server/): A small synchronization
-  server that facilitates asynchronous communication between peers
 
 #### Demos
 

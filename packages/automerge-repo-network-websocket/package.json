@@ -19,6 +19,9 @@
     "eventemitter3": "^4.0.7",
     "isomorphic-ws": "^5.0.0"
   },
+  "devDependencies": {
+    "ws": "^8.7.0"
+  },
   "watch": {
     "build": {
       "patterns": "./src/**/*",
