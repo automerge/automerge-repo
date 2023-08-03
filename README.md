@@ -42,3 +42,7 @@ This is a monorepo containing the following packages:
 - [automerge-repo-network-broadcastchannel](/packages/automerge-repo-network-broadcastchannel/):
   Likely only useful for experimentation, but allows simple (inefficient) tab-to-tab data
   synchronization
+
+Please note that a reference sync-server peer which demonstrates the use of 
+[automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/)
+is available at [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server).
