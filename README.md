@@ -10,12 +10,12 @@ This is a monorepo containing the following packages:
   provides shared functionality such as deciding which peers to connect to or when to write data out
   to storage. Start here.
 
-#### Demos
+#### Demos / Example Code
 
-- [automerge-repo-demo-todo](/packages/automerge-repo-demo-todo/): A React-based to-do list.
-- [automerge-repo-demo-counter](/packages/automerge-repo-demo-counter/): A React-based demonstration
+- [automerge-repo-demo-todo](/examples/automerge-repo-demo-todo/): A React-based to-do list.
+- [automerge-repo-demo-counter](/examples/automerge-repo-demo-counter/): A React-based demonstration
   application.
-- [automerge-repo-demo-counter-svelte](/packages/automerge-repo-demo-counter-svelte/): A Svelte-based
+- [automerge-repo-demo-counter-svelte](/examples/automerge-repo-demo-counter-svelte/): A Svelte-based
   example project.
 
 #### Front-end adapters
