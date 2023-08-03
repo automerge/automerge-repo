@@ -39,7 +39,12 @@ export class DocHandle<T> //
     // initial doc
     const doc = A.init<T>({
       patchCallback: (patches, patchInfo) =>
-        this.emit("patch", { handle: this, patches, patchInfo }),
+        this.emit("change", {
+          handle: this,
+          doc: this.#doc,
+          patches,
+          patchInfo,
+        }),
     })
 
     /**
@@ -135,7 +140,7 @@ export class DocHandle<T> //
 
         const docChanged = newDoc && oldDoc && !headsAreSame(newDoc, oldDoc)
         if (docChanged) {
-          this.emit("change", { handle: this, doc: newDoc })
+          this.emit("binaryChange", { handle: this, doc: newDoc })
           if (!this.isReady()) {
             this.#machine.send(REQUEST_COMPLETE)
           }
@@ -147,17 +152,9 @@ export class DocHandle<T> //
     this.#machine.send(isNew ? CREATE : FIND)
   }
 
-  get syncValue() {
-    if (!this.isReady()) {
-      return undefined
-    }
-
-    return this.#doc
-  }
-
   // PRIVATE
 
-  /** Returns the current document */
+  /** Returns the current document, regardless of state */
   get #doc() {
     return this.#machine?.getSnapshot().context.doc
   }
@@ -181,15 +178,40 @@ export class DocHandle<T> //
 
   // PUBLIC
 
-  isReady = () => this.#state === READY
-  isReadyOrRequesting = () =>
-    this.#state === READY || this.#state === REQUESTING
-  isDeleted = () => this.#state === DELETED
+  /**
+   * Checks if the document is ready for accessing or changes.
+   * Note that for documents already stored locally this occurs before synchronization
+   * with any peers. We do not currently have an equivalent `whenSynced()`.
+   */
+  isReady = () => this.inState([HandleState.READY])
+  /**
+   * Checks if this document has been marked as deleted.
+   * Deleted documents are removed from local storage and the sync process.
+   * It's not currently possible at runtime to undelete a document.
+   * @returns true if the document has been marked as deleted
+   */
+  isDeleted = () => this.inState([HandleState.DELETED])
+  inState = (awaitStates: HandleState[]) =>
+    awaitStates.some(state => this.#machine?.getSnapshot().matches(state))
 
   /**
-   * Returns the current document, waiting for the handle to be ready if necessary.
+   * Use this to block until the document handle has finished loading.
+   * The async equivalent to checking `inState()`.
+   * @param awaitStates = [READY]
+   * @returns
    */
-  async value(awaitStates: HandleState[] = [READY]) {
+  async whenReady(awaitStates: HandleState[] = [READY]): Promise<void> {
+    await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+  }
+
+  /**
+   * Returns the current state of the Automerge document this handle manages.
+   * Note that this waits for the handle to be ready if necessary, and currently, if
+   * loading (or synchronization) fails, will never resolve.
+   *
+   * @param {awaitStates=[READY]} optional states to wait for, such as "LOADING". mostly for internal use.
+   */
+  async doc(awaitStates: HandleState[] = [READY]): Promise<A.Doc<T>> {
     await pause() // yield one tick because reasons
     try {
       // wait for the document to enter one of the desired states
@@ -203,8 +225,22 @@ export class DocHandle<T> //
     return this.#doc
   }
 
-  async loadAttemptedValue() {
-    return this.value([READY, REQUESTING])
+  /**
+   * Returns the current state of the Automerge document this handle manages, or undefined.
+   * Useful in a synchronous context. Consider using `await handle.doc()` instead, check `isReady()`,
+   * or use `whenReady()` if you want to make sure loading is complete first.
+   *
+   * Do not confuse this with the SyncState of the document, which describes the state of the synchronization process.
+   *
+   * Note that `undefined` is not a valid Automerge document so the return from this function is unambigous.
+   * @returns the current document, or undefined if the document is not ready
+   */
+  docSync(): A.Doc<T> | undefined {
+    if (!this.isReady()) {
+      return undefined
+    }
+
+    return this.#doc
   }
 
   /** `load` is called by the repo when the document is found in storage */
@@ -216,7 +252,9 @@ export class DocHandle<T> //
 
   /** `update` is called by the repo when we receive changes from the network */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    this.#machine.send(UPDATE, { payload: { callback } })
+    this.#machine.send(UPDATE, {
+      payload: { callback },
+    })
   }
 
   /** `change` is called by the repo when the document is changed locally  */
@@ -247,7 +285,7 @@ export class DocHandle<T> //
     }
     this.#machine.send(UPDATE, {
       payload: {
-        callback: (doc: A.Doc<T>) => {
+        DocHandleChangePayload: (doc: A.Doc<T>) => {
           return A.changeAt(doc, heads, options, callback)
         },
       },
@@ -278,7 +316,7 @@ export interface DocHandleMessagePayload {
   data: Uint8Array
 }
 
-export interface DocHandleChangePayload<T> {
+export interface DocHandleBinaryChangePayload<T> {
   handle: DocHandle<T>
   doc: A.Doc<T>
 }
@@ -287,15 +325,16 @@ export interface DocHandleDeletePayload<T> {
   handle: DocHandle<T>
 }
 
-export interface DocHandlePatchPayload<T> {
+export interface DocHandleChangePayload<T> {
   handle: DocHandle<T>
+  doc: A.Doc<T>
   patches: A.Patch[]
   patchInfo: A.PatchInfo<T>
 }
 
 export interface DocHandleEvents<T> {
+  binaryChange: (payload: DocHandleBinaryChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
-  patch: (payload: DocHandlePatchPayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
 }
 
@@ -381,7 +420,7 @@ type DocHandleXstateMachine<T> = Interpreter<
 
 // CONSTANTS
 
-const { IDLE, LOADING, REQUESTING, READY, ERROR, DELETED } = HandleState
+export const { IDLE, LOADING, REQUESTING, READY, ERROR, DELETED } = HandleState
 const {
   CREATE,
   LOAD,

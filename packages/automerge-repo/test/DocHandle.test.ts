@@ -27,7 +27,7 @@ describe("DocHandle", () => {
     handle.load(binaryFromMockStorage())
 
     assert.equal(handle.isReady(), true)
-    const doc = await handle.value()
+    const doc = await handle.doc()
     assert.equal(doc.foo, "bar")
   })
 
@@ -39,24 +39,24 @@ describe("DocHandle", () => {
     handle.load(binaryFromMockStorage())
 
     assert.equal(handle.isReady(), true)
-    const doc = await handle.value()
-    assert.deepEqual(doc, handle.syncValue)
+    const doc = await handle.doc()
+    assert.deepEqual(doc, handle.docSync())
   })
 
   it("should return undefined if we accessing the doc before ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
 
-    assert.equal(handle.syncValue, undefined)
+    assert.equal(handle.docSync(), undefined)
   })
 
-  it("should not return a value until ready", async () => {
+  it("should not return a doc until ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
     handle.load(binaryFromMockStorage())
 
-    const doc = await handle.value()
+    const doc = await handle.doc()
 
     assert.equal(handle.isReady(), true)
     assert.equal(doc.foo, "bar")
@@ -76,7 +76,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), true)
     handle.change(d => (d.foo = "pizza"))
 
-    const doc = await handle.value()
+    const doc = await handle.doc()
     assert.equal(doc.foo, "pizza")
   })
 
@@ -86,7 +86,7 @@ describe("DocHandle", () => {
     // we don't have it in storage, so we request it from the network
     handle.request()
 
-    assert.equal(handle.syncValue, undefined)
+    assert.equal(handle.docSync(), undefined)
     assert.equal(handle.isReady(), false)
     assert.throws(() => handle.change(h => {}))
   })
@@ -102,7 +102,7 @@ describe("DocHandle", () => {
       return A.change(doc, d => (d.foo = "bar"))
     })
 
-    const doc = await handle.value()
+    const doc = await handle.doc()
     assert.equal(handle.isReady(), true)
     assert.equal(doc.foo, "bar")
   })
@@ -118,7 +118,7 @@ describe("DocHandle", () => {
       doc.foo = "bar"
     })
 
-    const doc = await handle.value()
+    const doc = await handle.doc()
     assert.equal(doc.foo, "bar")
 
     const changePayload = await p
@@ -142,7 +142,7 @@ describe("DocHandle", () => {
 
     const p = new Promise<void>(resolve =>
       handle.once("change", ({ handle, doc }) => {
-        assert.equal(handle.syncValue?.foo, doc.foo)
+        assert.equal(handle.docSync()?.foo, doc.foo)
 
         resolve()
       })
@@ -179,29 +179,29 @@ describe("DocHandle", () => {
       doc.foo = "baz"
     })
 
-    const doc = await handle.value()
+    const doc = await handle.doc()
     assert.equal(doc.foo, "baz")
 
     return p
   })
 
-  it("should emit a patch message when changes happen", async () => {
+  it("should emit a change message when changes happen", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-    const p = new Promise(resolve => handle.once("patch", d => resolve(d)))
+    const p = new Promise(resolve => handle.once("change", d => resolve(d)))
 
     handle.change(doc => {
       doc.foo = "bar"
     })
 
     await p
-    const doc = await handle.value()
+    const doc = await handle.doc()
     assert.equal(doc.foo, "bar")
   })
 
   it("should not emit a patch message if no change happens", done => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-    handle.on("patch", () => {
-      done(new Error("shouldn't have patched"))
+    handle.on("change", () => {
+      done(new Error("shouldn't have changed"))
     })
     handle.change(_doc => {
       // do nothing
@@ -217,7 +217,7 @@ describe("DocHandle", () => {
     await pause(10)
 
     // so it should time out
-    return assert.rejects(handle.value, "DocHandle timed out")
+    return assert.rejects(handle.doc, "DocHandle timed out")
   })
 
   it("should not time out if the document is loaded in time", async () => {
@@ -228,7 +228,7 @@ describe("DocHandle", () => {
     handle.load(binaryFromMockStorage())
 
     // now it should not time out
-    const doc = await handle.value()
+    const doc = await handle.doc()
     assert.equal(doc.foo, "bar")
   })
 
@@ -243,7 +243,7 @@ describe("DocHandle", () => {
     await pause(10)
 
     // so it should time out
-    return assert.rejects(handle.value, "DocHandle timed out")
+    return assert.rejects(handle.doc, "DocHandle timed out")
   })
 
   it("should not time out if the document is updated in time", async () => {
@@ -259,7 +259,7 @@ describe("DocHandle", () => {
     })
 
     // now it should not time out
-    const doc = await handle.value()
+    const doc = await handle.doc()
     assert.equal(doc.foo, "bar")
   })
 
@@ -282,7 +282,7 @@ describe("DocHandle", () => {
       doc.foo = "bar"
     })
 
-    const headsBefore = A.getHeads(handle.syncValue!)
+    const headsBefore = A.getHeads(handle.docSync()!)
 
     handle.change(doc => {
       doc.foo = "rab"

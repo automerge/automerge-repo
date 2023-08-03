@@ -1,9 +1,6 @@
 export { DocCollection } from "./DocCollection.js"
 export { DocHandle, HandleState } from "./DocHandle.js"
-export type {
-  DocHandleChangePayload,
-  DocHandlePatchPayload,
-} from "./DocHandle.js"
+export type { DocHandleChangePayload } from "./DocHandle.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export type {
   InboundMessagePayload,

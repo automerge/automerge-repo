@@ -1,5 +1,5 @@
 import * as A from "@automerge/automerge"
-import { DocHandle } from "../DocHandle.js"
+import { DocHandle, READY, REQUESTING } from "../DocHandle.js"
 import { ChannelId, PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
@@ -33,7 +33,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // Process pending sync messages immediately after the handle becomes ready.
     void (async () => {
-      await handle.loadAttemptedValue()
+      await handle.doc([READY, REQUESTING])
       this.#processAllPendingSyncMessages()
     })()
   }
@@ -46,7 +46,7 @@ export class DocSynchronizer extends Synchronizer {
 
   async #syncWithPeers() {
     this.#log(`syncWithPeers`)
-    const doc = await this.handle.value()
+    const doc = await this.handle.doc()
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
@@ -120,7 +120,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
-    void this.handle.loadAttemptedValue().then(doc => {
+    void this.handle.doc([READY, REQUESTING]).then(doc => {
       // HACK: if we have a sync state already, we round-trip it through the encoding system to make
       // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
       // messages during disconnection.
@@ -147,7 +147,7 @@ export class DocSynchronizer extends Synchronizer {
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
-    if (!this.handle.isReadyOrRequesting()) {
+    if (!this.handle.inState([READY, REQUESTING])) {
       this.#pendingSyncMessages.push({ peerId, message })
       return
     }
