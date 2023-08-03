@@ -13,8 +13,6 @@ Other packages in this monorepo include:
   application.
 - [@automerge/automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
   React.
-- [@automerge/automerge-repo-sync-server](/packages/automerge-repo-sync-server/): A small synchronization
-  server that facilitates asynchronous communication between peers
 
 #### Storage adapters
 
@@ -251,7 +249,7 @@ dev:demo`.
 ### Adding a sync server
 
 First, get a sync-server running locally, following the instructions for the
-[automerge-repo-sync-server](/packages/automerge-repo-sync-server/) package.
+[automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server) package.
 
 Next, update your application to synchronize with it:
 

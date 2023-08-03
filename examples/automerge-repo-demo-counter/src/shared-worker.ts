@@ -18,9 +18,8 @@ export interface ServiceWorkerConnection {
 export type SharedWorkerMessage = FrontendConnection // room to grow
 
 // BYO sync-server instructions:
-// $ cd automerge-repo/packages/automerge-repo-sync-server
-// $ yarn
-// $ yarn start
+// $ yarn install automerge-repo-sync-server
+// $ PORT=3030 npx automerge-repo-sync-server
 const url = "ws://localhost:3030" // local sync server
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter(),
