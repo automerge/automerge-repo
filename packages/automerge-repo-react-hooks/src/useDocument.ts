@@ -1,4 +1,4 @@
-import { Doc, ChangeFn } from "@automerge/automerge"
+import { Doc, ChangeFn, ChangeOptions } from "@automerge/automerge"
 import { DocumentId, DocHandlePatchPayload } from "@automerge/automerge-repo"
 import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo"
@@ -14,7 +14,7 @@ export function useDocument<T>(documentId?: DocumentId) {
 
     handle.value().then(v => setDoc(v))
 
-    const onPatch = (h: DocHandlePatchPayload<T>) => setDoc(h.after)
+    const onPatch = (h: DocHandlePatchPayload<T>) => setDoc(h.patchInfo.after)
     handle.on("patch", onPatch)
     const cleanup = () => {
       handle.removeListener("patch", onPatch)
@@ -23,9 +23,9 @@ export function useDocument<T>(documentId?: DocumentId) {
     return cleanup
   }, [handle])
 
-  const changeDoc = (changeFn: ChangeFn<T>) => {
+  const changeDoc = (changeFn: ChangeFn<T>, options?: ChangeOptions<T> | undefined) => {
     if (!handle) return
-    handle.change(changeFn)
+    handle.change(changeFn, options)
   }
 
   return [doc, changeDoc] as [Doc<T>, (changeFn: ChangeFn<T>) => void]

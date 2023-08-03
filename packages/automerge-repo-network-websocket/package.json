@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-network-websocket",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "isomorphic node/browser Websocket network adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -14,10 +14,13 @@
     "test": "mocha --no-warnings --experimental-specifier-resolution=node --exit"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^0.1.2",
+    "@automerge/automerge-repo": "^0.1.4",
     "cbor-x": "^1.3.0",
     "eventemitter3": "^4.0.7",
     "isomorphic-ws": "^5.0.0"
+  },
+  "devDependencies": {
+    "ws": "^8.7.0"
   },
   "watch": {
     "build": {

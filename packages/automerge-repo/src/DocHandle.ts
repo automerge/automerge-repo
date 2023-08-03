@@ -38,8 +38,8 @@ export class DocHandle<T> //
 
     // initial doc
     const doc = A.init<T>({
-      patchCallback: (patches, { before, after }) =>
-        this.emit("patch", { handle: this, patches, before, after }),
+      patchCallback: (patches, patchInfo) =>
+        this.emit("patch", { handle: this, patches, patchInfo }),
     })
 
     /**
@@ -173,7 +173,11 @@ export class DocHandle<T> //
   #statePromise(awaitStates: HandleState | HandleState[]) {
     if (!Array.isArray(awaitStates)) awaitStates = [awaitStates]
     return Promise.any(
-      awaitStates.map(state => waitFor(this.#machine, s => s.matches(state)))
+      awaitStates.map(state =>
+        waitFor(this.#machine, s => s.matches(state), {
+          timeout: this.#timeoutDelay, // match the delay above
+        })
+      )
     )
   }
 
@@ -288,8 +292,7 @@ export interface DocHandleDeletePayload<T> {
 export interface DocHandlePatchPayload<T> {
   handle: DocHandle<T>
   patches: A.Patch[]
-  before: A.Doc<T>
-  after: A.Doc<T>
+  patchInfo: A.PatchInfo<T>
 }
 
 export interface DocHandleEvents<T> {

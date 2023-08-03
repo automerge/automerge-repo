@@ -1,19 +1,19 @@
 {
   "name": "@automerge/automerge-repo-demo-todo",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.4",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.1.0-alpha.7",
-    "@automerge/automerge-repo": "^0.1.2",
-    "@automerge/automerge-repo-network-broadcastchannel": "^0.1.2",
-    "@automerge/automerge-repo-network-websocket": "^0.1.2",
-    "@automerge/automerge-repo-react-hooks": "^0.1.2",
-    "@automerge/automerge-repo-storage-localforage": "^0.1.2",
+    "@automerge/automerge": "^2.1.0-alpha.8",
+    "@automerge/automerge-repo": "^0.1.4",
+    "@automerge/automerge-repo-network-broadcastchannel": "^0.1.4",
+    "@automerge/automerge-repo-network-websocket": "^0.1.4",
+    "@automerge/automerge-repo-react-hooks": "^0.1.4",
+    "@automerge/automerge-repo-storage-localforage": "^0.1.4",
     "@ibm/plex": "^6.1.1",
     "autoprefixer": "^10.4.13",
     "classnames": "^2.3.2",
