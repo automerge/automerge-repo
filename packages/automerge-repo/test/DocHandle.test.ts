@@ -40,13 +40,13 @@ describe("DocHandle", () => {
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.value()
-    assert.deepEqual(doc, handle.doc)
+    assert.deepEqual(doc, handle.syncValue)
   })
 
-  it("should throws an error if we accessing the doc before ready", async () => {
+  it("should return undefined if we accessing the doc before ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
 
-    assert.throws(() => handle.doc)
+    assert.equal(handle.syncValue, undefined)
   })
 
   it("should not return a value until ready", async () => {
@@ -86,7 +86,7 @@ describe("DocHandle", () => {
     // we don't have it in storage, so we request it from the network
     handle.request()
 
-    assert.throws(() => handle.doc)
+    assert.equal(handle.syncValue, undefined)
     assert.equal(handle.isReady(), false)
     assert.throws(() => handle.change(h => {}))
   })
@@ -142,7 +142,7 @@ describe("DocHandle", () => {
 
     const p = new Promise<void>(resolve =>
       handle.once("change", ({ handle, doc }) => {
-        assert.equal(handle.doc.foo, doc.foo)
+        assert.equal(handle.syncValue?.foo, doc.foo)
 
         resolve()
       })
@@ -282,7 +282,7 @@ describe("DocHandle", () => {
       doc.foo = "bar"
     })
 
-    const headsBefore = A.getHeads(handle.doc)
+    const headsBefore = A.getHeads(handle.syncValue!)
 
     handle.change(doc => {
       doc.foo = "rab"

@@ -147,11 +147,9 @@ export class DocHandle<T> //
     this.#machine.send(isNew ? CREATE : FIND)
   }
 
-  get doc() {
+  get syncValue() {
     if (!this.isReady()) {
-      throw new Error(
-        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
-      )
+      return undefined
     }
 
     return this.#doc
