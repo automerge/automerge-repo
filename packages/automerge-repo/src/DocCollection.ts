@@ -64,7 +64,8 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     // or
     // - pass a "reify" function that takes a `<any>` and returns `<T>`
 
-    const documentId = uuid() as DocumentId
+    // Generate a new UUID and store it in the buffer
+
     const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
     this.emit("document", { handle })
     return handle
