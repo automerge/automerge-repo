@@ -1,21 +1,21 @@
-import { StorageAdapter } from "@automerge/automerge-repo"
+import { StorageAdapter, type StorageKey } from "@automerge/automerge-repo"
 import fs from "fs"
 import path from "path"
 import { rimraf } from "rimraf"
 
 export class NodeFSStorageAdapter extends StorageAdapter {
   private baseDirectory: string
-  private cache: { [key: string]: Uint8Array } = {}
+  private cache: { [key: string]: {storageKey: StorageKey, data: Uint8Array }} = {}
 
   constructor(baseDirectory: string = "automerge-repo-data") {
     super()
     this.baseDirectory = baseDirectory
   }
 
-  async load(keyArray: string[]): Promise<Uint8Array | undefined> {
-    const key = this.getKey(keyArray)
+  async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
+    const key = cacheKey(keyArray)
     if (this.cache[key]) {
-      return this.cache[key]
+      return this.cache[key].data
     }
 
     const filePath = this.getFilePath(keyArray)
@@ -33,9 +33,9 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     }
   }
 
-  async save(keyArray: string[], binary: Uint8Array): Promise<void> {
-    const key = this.getKey(keyArray)
-    this.cache[key] = binary
+  async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
+    const key = cacheKey(keyArray)
+    this.cache[key] = {data: binary, storageKey: keyArray}
 
     const filePath = this.getFilePath(keyArray)
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
@@ -55,13 +55,13 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     }
   }
 
-  async loadRange(keyPrefix: string[]): Promise<Uint8Array[]> {
+  async loadRange(keyPrefix: StorageKey): Promise<{data: Uint8Array, key: StorageKey}[]> {
     const dirPath = this.getFilePath(keyPrefix)
-    const keyPrefixString = this.getKey(keyPrefix)
+    const cacheKeyPrefixString = cacheKey(keyPrefix)
 
     // Get the list of all cached keys that match the prefix
-    const cachedKeys = Object.keys(this.cache).filter(key =>
-      key.startsWith(keyPrefixString)
+    const cachedKeys: string[] = Object.keys(this.cache).filter(key =>
+      key.startsWith(cacheKeyPrefixString)
     )
 
     // Read filenames from disk
@@ -77,7 +77,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
       }
     }
 
-    const diskKeys = diskFiles
+    const diskKeys: string[] = diskFiles
       .filter(file => file.isFile())
       .map(file =>
         this.getKey([
@@ -89,7 +89,13 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
 
     // Load all files
-    return Promise.all(allKeys.map(key => this.load(key.split(path.sep))))
+    return Promise.all(allKeys.map(async keyString => {
+        const key: StorageKey = keyString.split(path.sep)
+        return {
+            data: await this.load(key),
+            key,
+        }
+    }))
   }
 
   async removeRange(keyPrefix: string[]): Promise<void> {
@@ -100,8 +106,8 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     await rimraf(dirPath)
   }
 
-  private getKey(keyArray: string[]): string {
-    return path.join(...keyArray)
+  private getKey(key: StorageKey): string {
+    return path.join(...key)
   }
 
   private getFilePath(keyArray: string[]): string {
@@ -114,4 +120,8 @@ export class NodeFSStorageAdapter extends StorageAdapter {
 
     return path.join(firstKeyDir, ...remainingKeys)
   }
+}
+
+function cacheKey(key: StorageKey): string {
+  return path.join(...key)
 }

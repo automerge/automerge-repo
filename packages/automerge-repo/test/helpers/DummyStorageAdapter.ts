@@ -1,16 +1,20 @@
-import { StorageAdapter } from "../../src"
+import { StorageAdapter, type StorageKey } from "../../src"
 
 export class DummyStorageAdapter implements StorageAdapter {
   #data: Record<string, Uint8Array> = {}
 
-  #keyToString(key: string[]) {
+  #keyToString(key: string[]): string {
     return key.join(".")
   }
 
-  async loadRange(keyPrefix: string[]): Promise<Uint8Array[]> {
+  #stringToKey(key: string): string[] {
+    return key.split(".")
+  }
+
+  async loadRange(keyPrefix: StorageKey): Promise<{data: Uint8Array, key: StorageKey}[]> {
     const range = Object.entries(this.#data)
       .filter(([key, _]) => key.startsWith(this.#keyToString(keyPrefix)))
-      .map(([_, value]) => value)
+      .map(([key, data]) => ({key: this.#stringToKey(key), data}))
     return Promise.resolve(range)
   }
 
