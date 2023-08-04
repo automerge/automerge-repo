@@ -30,7 +30,7 @@ export class DocHandle<T> //
 
   constructor(
     public documentId: DocumentId,
-    { isNew = false, timeoutDelay = 700000 }: DocHandleOptions = {}
+    { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
@@ -192,7 +192,7 @@ export class DocHandle<T> //
     return Promise.any(
       awaitStates.map(state =>
         waitFor(this.#machine, s => s.matches(state), {
-          timeout: this.#timeoutDelay, // match the delay above
+          timeout: this.#timeoutDelay * 2000, // longer than the delay above for testing
         })
       )
     )
@@ -215,6 +215,9 @@ export class DocHandle<T> //
   isDeleted = () => this.inState([HandleState.DELETED])
   inState = (states: HandleState[]) =>
     states.some(state => this.#machine?.getSnapshot().matches(state))
+  get state() {
+    return this.#machine?.getSnapshot().value
+  }
 
   /**
    * Use this to block until the document handle has finished loading.
@@ -237,7 +240,7 @@ export class DocHandle<T> //
     await pause() // yield one tick because reasons
     try {
       // wait for the document to enter one of the desired states
-      await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+      await this.#statePromise(awaitStates)
     } catch (error) {
       if (error instanceof TimeoutError)
         throw new Error(`DocHandle: timed out loading ${this.documentId}`)

@@ -7,6 +7,7 @@ import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
   const TEST_ID = "test-document-id" as DocumentId
+  const BOGUS_ID = "AN INVALID ID" as DocumentId
 
   const binaryFromMockStorage = () => {
     const doc = A.change<{ foo: string }>(A.init(), d => (d.foo = "bar"))
@@ -209,12 +210,23 @@ describe("DocHandle", () => {
     })
   })
 
+  it.skip("should fail if the documentId is invalid", async () => {
+    // set docHandle time out after 5 ms
+    const handle = new DocHandle<TestDoc>(BOGUS_ID)
+    assert.equal(handle.state, "failed")
+
+    // so it should time out
+    return assert.rejects(handle.doc, "DocHandle timed out")
+  })
+
   it("should time out if the document is not loaded", async () => {
     // set docHandle time out after 5 ms
     const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
 
     // we're not going to load
     await pause(10)
+
+    assert.equal(handle.state, "failed")
 
     // so it should time out
     return assert.rejects(handle.doc, "DocHandle timed out")
