@@ -4,7 +4,7 @@ import { writable } from "svelte/store"
 import {
   Repo,
   DocumentId,
-  DocHandlePatchPayload,
+  DocHandleChangePayload,
 } from "@automerge/automerge-repo"
 
 const ContextRepoKey = Symbol("svelte-context-automerge-repo")
@@ -21,9 +21,9 @@ export function document<T>(documentId: DocumentId) {
   const repo = getContextRepo()
   const handle = repo.find<T>(documentId)
   const { set, subscribe } = writable<Doc<T>>(null, () => {
-    const onPatch = (h: DocHandlePatchPayload<T>) => set(h.patchInfo.after)
-    handle.addListener("patch", onPatch)
-    return () => handle.removeListener("patch", onPatch)
+    const onChange = (h: DocHandleChangePayload<T>) => set(h.doc)
+    handle.addListener("change", onChange)
+    return () => handle.removeListener("change", onChange)
   })
 
   return {

@@ -8,6 +8,7 @@ import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js
 import { ChannelId, DocumentId, PeerId } from "./types.js"
 
 import debug from "debug"
+import { waitFor } from "xstate/lib/waitFor.js"
 
 const SYNC_CHANNEL = "sync_channel" as ChannelId
 
@@ -31,8 +32,7 @@ export class Repo extends DocCollection {
     this.on("document", async ({ handle }) => {
       if (storageSubsystem) {
         // Save when the document changes
-        handle.on("change", async ({ handle }) => {
-          const doc = await handle.value()
+        handle.on("heads-changed", async ({ handle, doc }) => {
           storageSubsystem.save(handle.documentId, doc)
         })
 
