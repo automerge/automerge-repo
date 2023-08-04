@@ -285,7 +285,7 @@ export class DocHandle<T> //
     }
     this.#machine.send(UPDATE, {
       payload: {
-        DocHandleChangePayload: (doc: A.Doc<T>) => {
+        callback: (doc: A.Doc<T>) => {
           return A.changeAt(doc, heads, options, callback)
         },
       },
