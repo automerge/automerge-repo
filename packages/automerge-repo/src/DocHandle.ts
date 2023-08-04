@@ -43,12 +43,13 @@ export class DocHandle<T> //
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
      * avoid requesting data we already have, or surfacing intermediate values to the consumer.
      *
-     *                      ┌─────────┐           ┌────────────┐
-     *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐
+     *                          ┌─────────────────────┬─────────TIMEOUT────►┌────────┐
+     *                      ┌───┴─────┐           ┌───┴────────┐            │ failed │
+     *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐  └────────┘
      *  │ idle  ├──┤        └───┬─────┘           └────────────┘         │
-     *  └───────┘  │            │                                        └─►┌─────────┐
-     *             │            └───────LOAD───────────────────────────────►│  ready  │
-     *             └──CREATE───────────────────────────────────────────────►└─────────┘
+     *  └───────┘  │            │                                        └─►┌────────┐
+     *             │            └───────LOAD───────────────────────────────►│ ready  │
+     *             └──CREATE───────────────────────────────────────────────►└────────┘
      */
     this.#machine = interpret(
       createMachine<DocHandleContext<T>, DocHandleEvent<T>>(
@@ -77,6 +78,12 @@ export class DocHandle<T> //
                 REQUEST: { target: REQUESTING },
                 DELETE: { actions: "onDelete", target: DELETED },
               },
+              after: [
+                {
+                  delay: this.#timeoutDelay,
+                  target: FAILED,
+                },
+              ],
             },
             requesting: {
               on: {
@@ -86,6 +93,12 @@ export class DocHandle<T> //
                 REQUEST_COMPLETE: { target: READY },
                 DELETE: { actions: "onDelete", target: DELETED },
               },
+              after: [
+                {
+                  delay: this.#timeoutDelay,
+                  target: FAILED,
+                },
+              ],
             },
             ready: {
               on: {
@@ -94,8 +107,12 @@ export class DocHandle<T> //
                 DELETE: { actions: "onDelete", target: DELETED },
               },
             },
-            error: {},
-            deleted: {},
+            failed: {
+              type: "final",
+            },
+            deleted: {
+              type: "final",
+            },
           },
         },
 
@@ -196,8 +213,8 @@ export class DocHandle<T> //
    * @returns true if the document has been marked as deleted
    */
   isDeleted = () => this.inState([HandleState.DELETED])
-  inState = (awaitStates: HandleState[]) =>
-    awaitStates.some(state => this.#machine?.getSnapshot().matches(state))
+  inState = (states: HandleState[]) =>
+    states.some(state => this.#machine?.getSnapshot().matches(state))
 
   /**
    * Use this to block until the document handle has finished loading.
@@ -352,7 +369,7 @@ export const HandleState = {
   LOADING: "loading",
   REQUESTING: "requesting",
   READY: "ready",
-  ERROR: "error",
+  FAILED: "failed",
   DELETED: "deleted",
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
@@ -425,7 +442,7 @@ type DocHandleXstateMachine<T> = Interpreter<
 
 // CONSTANTS
 
-export const { IDLE, LOADING, REQUESTING, READY, ERROR, DELETED } = HandleState
+export const { IDLE, LOADING, REQUESTING, READY, FAILED, DELETED } = HandleState
 const {
   CREATE,
   LOAD,

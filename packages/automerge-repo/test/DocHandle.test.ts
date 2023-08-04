@@ -248,7 +248,7 @@ describe("DocHandle", () => {
 
   it("should not time out if the document is updated in time", async () => {
     // set docHandle time out after 5 ms
-    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
+    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 1 })
 
     // simulate requesting from the network
     handle.request()
@@ -259,6 +259,8 @@ describe("DocHandle", () => {
     })
 
     // now it should not time out
+    await pause(5)
+
     const doc = await handle.doc()
     assert.equal(doc.foo, "bar")
   })

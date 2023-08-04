@@ -53,7 +53,7 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
-        rejectOnTimeout(handle.doc(), 100),
+        rejectOnTimeout(handle.doc(), 10),
         "This document should not exist"
       )
     })
@@ -292,7 +292,7 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
-        rejectOnTimeout(handle.doc(), 100),
+        rejectOnTimeout(handle.doc(), 10),
         "This document should not exist"
       )
     })
