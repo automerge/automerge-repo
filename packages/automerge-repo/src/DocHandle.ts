@@ -214,7 +214,8 @@ export class DocHandle<T> //
    */
   isDeleted = () => this.inState([HandleState.DELETED])
   inState = (states: HandleState[]) =>
-    states.some(state => this.#machine?.getSnapshot().matches(state))
+    states.some(this.#machine?.getSnapshot().matches)
+
   get state() {
     return this.#machine?.getSnapshot().value
   }
