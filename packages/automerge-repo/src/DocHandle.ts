@@ -37,15 +37,7 @@ export class DocHandle<T> //
     this.#log = debug(`automerge-repo:dochandle:${documentId.slice(0, 5)}`)
 
     // initial doc
-    const doc = A.init<T>({
-      patchCallback: (patches, patchInfo) =>
-        this.emit("change", {
-          handle: this,
-          doc: this.#doc,
-          patches,
-          patchInfo,
-        }),
-    })
+    const doc = A.init<T>()
 
     /**
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
@@ -138,14 +130,27 @@ export class DocHandle<T> //
         const oldDoc = history?.context?.doc
         const newDoc = context.doc
 
+        this.#log(`${event} → ${state}`, newDoc)
+
         const docChanged = newDoc && oldDoc && !headsAreSame(newDoc, oldDoc)
         if (docChanged) {
-          this.emit("binaryChange", { handle: this, doc: newDoc })
+          this.emit("heads-changed", { handle: this, doc: newDoc })
+
+          const patches = A.diff(newDoc, A.getHeads(oldDoc), A.getHeads(newDoc))
+          if (patches.length > 0) {
+            const source = "change" // TODO: pass along the source (load/change/network)
+            this.emit("change", {
+              handle: this,
+              doc: newDoc,
+              patches,
+              patchInfo: { before: oldDoc, after: newDoc, source },
+            })
+          }
+
           if (!this.isReady()) {
             this.#machine.send(REQUEST_COMPLETE)
           }
         }
-        this.#log(`${event} → ${state}`, this.#doc)
       })
       .start()
 
@@ -316,7 +321,7 @@ export interface DocHandleMessagePayload {
   data: Uint8Array
 }
 
-export interface DocHandleBinaryChangePayload<T> {
+export interface DocHandleEncodedChangePayload<T> {
   handle: DocHandle<T>
   doc: A.Doc<T>
 }
@@ -333,7 +338,7 @@ export interface DocHandleChangePayload<T> {
 }
 
 export interface DocHandleEvents<T> {
-  binaryChange: (payload: DocHandleBinaryChangePayload<T>) => void
+  "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
 }

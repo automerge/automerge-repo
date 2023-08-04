@@ -32,7 +32,7 @@ export class Repo extends DocCollection {
     this.on("document", async ({ handle }) => {
       if (storageSubsystem) {
         // Save when the document changes
-        handle.on("binaryChange", async ({ handle, doc }) => {
+        handle.on("heads-changed", async ({ handle, doc }) => {
           storageSubsystem.save(handle.documentId, doc)
         })
 
