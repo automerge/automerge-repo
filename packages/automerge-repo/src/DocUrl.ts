@@ -1,15 +1,41 @@
-import { DocumentUrl, DocumentId, StringDocumentId } from "./types"
+import { AutomergeUrl, DocumentId, StringDocumentId } from "./types"
 import { v4 as uuid } from "uuid"
 import Base58 from "bs58check"
 
-export const documentIdFromUrl = (link: DocumentUrl) => {
+export const parseAutomergeUrl = (link: AutomergeUrl) => {
   const { stringDocumentId } = parts(link)
-  const documentId = Base58.decodeUnsafe(stringDocumentId)
+  const documentId = Base58.decodeUnsafe(stringDocumentId) as
+    | DocumentId
+    | undefined
   if (!documentId) throw new Error("Invalid document URL: " + link)
-  return documentId as DocumentId
+  return { documentId }
 }
 
-export const isValidAutomergeUrl = (str: string): str is DocumentUrl => {
+interface UrlFromStringIdOptions {
+  stringDocumentId: StringDocumentId
+  documentId?: never
+}
+interface UrlFromBinaryIdOptions {
+  stringDocumentId?: never
+  documentId: DocumentId
+}
+
+type GenerateAutomergeUrlOptions =
+  | UrlFromStringIdOptions
+  | UrlFromBinaryIdOptions
+
+export const generateAutomergeUrl = (
+  opts: GenerateAutomergeUrlOptions
+): AutomergeUrl => {
+  if (opts.stringDocumentId)
+    return ("automerge:" + opts.stringDocumentId) as AutomergeUrl
+  else if (opts.documentId) {
+    return ("automerge:" + encode(opts.documentId)) as AutomergeUrl
+  }
+  throw new Error("Invalid options: " + opts)
+}
+
+export const isValidAutomergeUrl = (str: string): str is AutomergeUrl => {
   const { stringDocumentId } = parts(str)
   const documentId = Base58.decodeUnsafe(stringDocumentId)
   return documentId ? true : false
@@ -24,18 +50,11 @@ export const generate = (): DocumentId =>
   Uint8Array.from(uuid(null, new Uint8Array(16))) as DocumentId
 
 export const encode = (id: DocumentId): StringDocumentId => {
-  if (id.length != 16) {
-    console.trace("encode", id)
-  }
-
   return Base58.encode(id) as StringDocumentId
 }
 
 export const decode = (id: StringDocumentId): DocumentId => {
-  const decoded = Base58.decode(id) as DocumentId
+  const decoded: DocumentId = Base58.decode(id) as DocumentId
   if (decoded.length != 16) throw new Error("Invalid document ID: " + id)
   return decoded
 }
-
-export const urlForDocumentId = (id: DocumentId): DocumentUrl =>
-  ("automerge:" + encode(id)) as DocumentUrl

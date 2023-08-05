@@ -1,9 +1,8 @@
 import EventEmitter from "eventemitter3"
-import { v4 as uuid } from "uuid"
 import { DocHandle } from "./DocHandle.js"
-import { StringDocumentId, type DocumentId } from "./types.js"
+import { StringDocumentId, type DocumentId, AutomergeUrl } from "./types.js"
 import { type SharePolicy } from "./Repo.js"
-import { encode, generate } from "./DocUrl.js"
+import { decode, encode, generate, parseAutomergeUrl } from "./DocUrl.js"
 
 /**
  * A DocCollection is a collection of DocHandles. It supports creating new documents and finding
@@ -80,16 +79,17 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
    */
   find<T>(
     /** The documentId of the handle to retrieve */
-    binaryDocumentId: DocumentId
+    automergeUrl: AutomergeUrl
   ): DocHandle<T> {
+    const { documentId } = parseAutomergeUrl(automergeUrl)
     // TODO: we want a way to make sure we don't yield intermediate document states during initial synchronization
-    const documentId = encode(binaryDocumentId)
+    const stringDocumentId = encode(documentId)
     // If we already have a handle, return it
-    if (this.#handleCache[documentId])
-      return this.#handleCache[documentId] as DocHandle<T>
+    if (this.#handleCache[stringDocumentId])
+      return this.#handleCache[stringDocumentId] as DocHandle<T>
 
     // Otherwise, create a new handle
-    const handle = this.#getHandle<T>(binaryDocumentId, false) as DocHandle<T>
+    const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
 
     // we don't directly initialize a value here because the StorageSubsystem and Synchronizers go
     // and get the data asynchronously and block on read instead of on create

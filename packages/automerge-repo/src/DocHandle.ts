@@ -22,8 +22,9 @@ import type {
   ChannelId,
   StringDocumentId,
   PeerId,
+  AutomergeUrl,
 } from "./types.js"
-import { encode } from "./DocUrl.js"
+import { encode, generateAutomergeUrl } from "./DocUrl.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -36,6 +37,10 @@ export class DocHandle<T> //
 
   get stringDocumentId(): StringDocumentId {
     return encode(this.documentId) as StringDocumentId
+  }
+
+  get url(): AutomergeUrl {
+    return generateAutomergeUrl({ documentId: this.documentId })
   }
 
   constructor(

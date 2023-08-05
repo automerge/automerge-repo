@@ -1,6 +1,6 @@
 import { DocCollection } from "../DocCollection.js"
 import { DocHandle } from "../DocHandle.js"
-import { decode, encode } from "../DocUrl.js"
+import { decode, encode, generateAutomergeUrl } from "../DocUrl.js"
 import { ChannelId, DocumentId, PeerId, StringDocumentId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
@@ -24,7 +24,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #fetchDocSynchronizer(documentId: DocumentId) {
     const stringDocumentId = encode(documentId)
     if (!this.#docSynchronizers[stringDocumentId]) {
-      const handle = this.repo.find(documentId)
+      const handle = this.repo.find(generateAutomergeUrl({ documentId }))
       this.#docSynchronizers[stringDocumentId] =
         this.#initDocSynchronizer(handle)
     }
