@@ -1,17 +1,19 @@
 import * as A from "@automerge/automerge"
-import { DocumentId } from "../types.js"
+import { DocumentId, StringDocumentId } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 import { StorageAdapter } from "./StorageAdapter.js"
+import { encode } from "../DocUrl.js"
 
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
-  #changeCount: Record<DocumentId, number> = {}
+  #changeCount: Record<StringDocumentId, number> = {}
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
   }
 
-  #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
+  #saveIncremental(binaryDocumentId: DocumentId, doc: A.Doc<unknown>) {
+    const documentId = encode(binaryDocumentId)
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
       if (!this.#changeCount[documentId]) {
@@ -27,7 +29,8 @@ export class StorageSubsystem {
     }
   }
 
-  #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
+  #saveTotal(binaryDocumentId: DocumentId, doc: A.Doc<unknown>) {
+    const documentId = encode(binaryDocumentId)
     const binary = A.save(doc)
     this.#storageAdapter.save(`${documentId}.snapshot`, binary)
 
@@ -38,7 +41,8 @@ export class StorageSubsystem {
     this.#changeCount[documentId] = 0
   }
 
-  async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
+  async loadBinary(binaryDocumentId: DocumentId): Promise<Uint8Array> {
+    const documentId = encode(binaryDocumentId)
     const result = []
     let binary = await this.#storageAdapter.load(`${documentId}.snapshot`)
     if (binary && binary.length > 0) {
@@ -76,7 +80,8 @@ export class StorageSubsystem {
     }
   }
 
-  remove(documentId: DocumentId) {
+  remove(binaryDocumentId: DocumentId) {
+    const documentId = encode(binaryDocumentId)
     this.#storageAdapter.remove(`${documentId}.snapshot`)
 
     for (let i = 0; i < this.#changeCount[documentId]; i++) {
@@ -85,7 +90,8 @@ export class StorageSubsystem {
   }
 
   // TODO: make this, you know, good.
-  #shouldCompact(documentId: DocumentId) {
+  #shouldCompact(binaryDocumentId: DocumentId) {
+    const documentId = encode(binaryDocumentId)
     return this.#changeCount[documentId] >= 20
   }
 }

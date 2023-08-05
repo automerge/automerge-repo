@@ -8,8 +8,6 @@ import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js
 import { ChannelId, DocumentId, PeerId } from "./types.js"
 
 import debug from "debug"
-import { waitFor } from "xstate/lib/waitFor.js"
-
 const SYNC_CHANNEL = "sync_channel" as ChannelId
 
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */

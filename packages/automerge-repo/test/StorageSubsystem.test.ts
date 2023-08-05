@@ -11,6 +11,7 @@ import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
 import { DocumentId, StorageSubsystem } from "../src"
 import { TestDoc } from "./types.js"
+import { generate } from "../src/DocUrl.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -30,7 +31,7 @@ describe("StorageSubsystem", () => {
         })
 
         // save it to storage
-        const key = "test-key" as DocumentId
+        const key = generate()
         storage.save(key, doc)
 
         // reload it from storage
@@ -51,7 +52,7 @@ describe("StorageSubsystem", () => {
     })
 
     // save it to storage
-    const key = "test-key" as DocumentId
+    const key = generate()
     storage.save(key, doc)
 
     // create new storage subsystem to simulate a new process
@@ -72,7 +73,7 @@ describe("StorageSubsystem", () => {
     assert(adapter.keys().some(k => k.endsWith("1")))
 
     // check that the last incrementalSave is not a full save
-    const bin = await adapter.load((key + ".incremental.1") as DocumentId)
+    const bin = await adapter.load(key + ".incremental.1")
     assert.throws(() => A.load(bin!))
   })
 })

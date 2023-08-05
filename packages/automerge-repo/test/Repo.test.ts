@@ -9,6 +9,7 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
+import { encode, generate } from "../src/DocUrl"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -49,7 +50,7 @@ describe("Repo", () => {
 
     it("doesn't find a document that doesn't exist", async () => {
       const { repo } = setup()
-      const handle = repo.find<TestDoc>("does-not-exist" as DocumentId)
+      const handle = repo.find<TestDoc>(generate())
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
@@ -109,7 +110,7 @@ describe("Repo", () => {
       repo.delete(handle.documentId)
 
       assert(handle.isDeleted())
-      assert.equal(repo.handles[handle.documentId], undefined)
+      assert.equal(repo.handles[encode(handle.documentId)], undefined)
 
       const bobHandle = repo.find<TestDoc>(handle.documentId)
       await assert.rejects(
@@ -258,9 +259,21 @@ describe("Repo", () => {
         eventPromise(charlieRepo.networkSubsystem, "message"),
       ])
 
-      assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
-      assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
-      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+      assert.notEqual(
+        aliceRepo.handles[encode(notForCharlie)],
+        undefined,
+        "alice yes"
+      )
+      assert.notEqual(
+        bobRepo.handles[encode(notForCharlie)],
+        undefined,
+        "bob yes"
+      )
+      assert.equal(
+        charlieRepo.handles[encode(notForCharlie)],
+        undefined,
+        "charlie no"
+      )
 
       teardown()
     })
@@ -288,7 +301,7 @@ describe("Repo", () => {
 
     it("doesn't find a document which doesn't exist anywhere on the network", async () => {
       const { charlieRepo } = await setup()
-      const handle = charlieRepo.find<TestDoc>("does-not-exist" as DocumentId)
+      const handle = charlieRepo.find<TestDoc>(generate())
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(

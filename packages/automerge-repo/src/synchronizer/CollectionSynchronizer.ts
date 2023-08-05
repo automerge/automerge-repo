@@ -1,6 +1,7 @@
 import { DocCollection } from "../DocCollection.js"
 import { DocHandle } from "../DocHandle.js"
-import { ChannelId, DocumentId, PeerId } from "../types.js"
+import { decode, encode } from "../DocUrl.js"
+import { ChannelId, DocumentId, PeerId, StringDocumentId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
@@ -13,7 +14,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #peers: Set<PeerId> = new Set()
 
   /** A map of documentIds to their synchronizers */
-  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
+  #docSynchronizers: Record<StringDocumentId, DocSynchronizer> = {}
 
   constructor(private repo: DocCollection) {
     super()
@@ -21,11 +22,13 @@ export class CollectionSynchronizer extends Synchronizer {
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
   #fetchDocSynchronizer(documentId: DocumentId) {
-    if (!this.#docSynchronizers[documentId]) {
+    const stringDocumentId = encode(documentId)
+    if (!this.#docSynchronizers[stringDocumentId]) {
       const handle = this.repo.find(documentId)
-      this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
+      this.#docSynchronizers[stringDocumentId] =
+        this.#initDocSynchronizer(handle)
     }
-    return this.#docSynchronizers[documentId]
+    return this.#docSynchronizers[stringDocumentId]
   }
 
   /** Creates a new docSynchronizer and sets it up to propagate messages */
@@ -59,7 +62,7 @@ export class CollectionSynchronizer extends Synchronizer {
   ) {
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message.byteLength}bytes`)
 
-    const documentId = channelId as unknown as DocumentId
+    const documentId = decode(channelId as unknown as StringDocumentId)
     const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
 
     await docSynchronizer.receiveSyncMessage(peerId, channelId, message)

@@ -1,7 +1,6 @@
 import * as A from "@automerge/automerge"
 import debug from "debug"
 import EventEmitter from "eventemitter3"
-import * as bs58check from "bs58check"
 import {
   assign,
   BaseActionObject,
@@ -19,11 +18,12 @@ import { headsAreSame } from "./helpers/headsAreSame.js"
 import { pause } from "./helpers/pause.js"
 import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
 import type {
-  BinaryDocumentId,
-  ChannelId,
   DocumentId,
+  ChannelId,
+  StringDocumentId,
   PeerId,
 } from "./types.js"
+import { encode } from "./DocUrl.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -34,17 +34,19 @@ export class DocHandle<T> //
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
 
-  get documentId(): DocumentId {
-    return bs58check.encode(this.binaryDocumentId) as DocumentId
+  get stringDocumentId(): StringDocumentId {
+    return encode(this.documentId) as StringDocumentId
   }
 
   constructor(
-    public binaryDocumentId: BinaryDocumentId,
+    public documentId: DocumentId,
     { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
-    this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
+    this.#log = debug(
+      `automerge-repo:dochandle:${this.stringDocumentId.slice(0, 5)}`
+    )
 
     // initial doc
     const doc = A.init<T>()
@@ -398,7 +400,7 @@ type DocHandleMachineState = {
 // context
 
 interface DocHandleContext<T> {
-  documentId: string
+  documentId: DocumentId
   doc: A.Doc<T>
 }
 

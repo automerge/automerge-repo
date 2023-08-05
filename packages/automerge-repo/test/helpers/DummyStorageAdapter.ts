@@ -1,19 +1,19 @@
-import { DocumentId, StorageAdapter } from "../../src"
+import { StorageAdapter } from "../../src"
 
 export class DummyStorageAdapter implements StorageAdapter {
-  #data: Record<DocumentId, Uint8Array> = {}
+  #data: Record<string, Uint8Array> = {}
 
-  load(docId: DocumentId) {
+  load(docId: string) {
     return new Promise<Uint8Array | null>(resolve =>
       resolve(this.#data[docId] || null)
     )
   }
 
-  save(docId: DocumentId, binary: Uint8Array) {
+  save(docId: string, binary: Uint8Array) {
     this.#data[docId] = binary
   }
 
-  remove(docId: DocumentId) {
+  remove(docId: string) {
     delete this.#data[docId]
   }
 

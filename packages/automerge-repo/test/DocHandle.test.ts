@@ -4,10 +4,11 @@ import { it } from "mocha"
 import { DocHandle, DocHandleChangePayload, DocumentId } from "../src"
 import { pause } from "../src/helpers/pause"
 import { TestDoc } from "./types.js"
+import { generate } from "../src/DocUrl"
 
 describe("DocHandle", () => {
-  const TEST_ID = "test-document-id" as DocumentId
-  const BOGUS_ID = "AN INVALID ID" as DocumentId
+  const TEST_ID = generate()
+  const BOGUS_ID = generate()
 
   const binaryFromMockStorage = () => {
     const doc = A.change<{ foo: string }>(A.init(), d => (d.foo = "bar"))
