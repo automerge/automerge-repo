@@ -10,7 +10,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "test-browser": "vitest",
+    "test": "vitest run",
     "watch": "npm-watch"
   },
   "dependencies": {
