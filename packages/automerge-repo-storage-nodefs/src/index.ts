@@ -1,11 +1,7 @@
 import { StorageAdapter } from "@automerge/automerge-repo"
 import fs from "fs"
 import path from "path"
-import { promisify } from "util"
-import rimraf from "rimraf"
-
-// Convert rimraf to use promises
-const rimrafAsync = promisify(rimraf)
+import { rimraf } from "rimraf"
 
 export class NodeFSStorageAdapter extends StorageAdapter {
   private baseDirectory: string
@@ -101,7 +97,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
 
     // Warning: This method will recursively delete the directory and all its contents!
     // Be absolutely sure this is what you want.
-    await rimrafAsync(dirPath)
+    await rimraf(dirPath)
   }
 
   private getKey(keyArray: string[]): string {

@@ -41,7 +41,7 @@ describe("Repo", () => {
       handle.change(d => {
         d.foo = "bar"
       })
-      const v = await handle.value()
+      const v = await handle.doc()
       assert.equal(handle.isReady(), true)
 
       assert.equal(v.foo, "bar")
@@ -53,7 +53,7 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
-        rejectOnTimeout(handle.value(), 100),
+        rejectOnTimeout(handle.doc(), 10),
         "This document should not exist"
       )
     })
@@ -71,7 +71,7 @@ describe("Repo", () => {
       assert.equal(handle, bobHandle)
       assert.equal(handle.isReady(), true)
 
-      const v = await bobHandle.value()
+      const v = await bobHandle.doc()
       assert.equal(v.foo, "bar")
     })
 
@@ -94,7 +94,7 @@ describe("Repo", () => {
 
       const bobHandle = repo2.find<TestDoc>(handle.documentId)
 
-      const v = await bobHandle.value()
+      const v = await bobHandle.doc()
       assert.equal(v.foo, "bar")
     })
 
@@ -105,7 +105,7 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       assert.equal(handle.isReady(), true)
-      await handle.value()
+      await handle.doc()
       repo.delete(handle.documentId)
 
       assert(handle.isDeleted())
@@ -113,7 +113,7 @@ describe("Repo", () => {
 
       const bobHandle = repo.find<TestDoc>(handle.documentId)
       await assert.rejects(
-        rejectOnTimeout(bobHandle.value(), 10),
+        rejectOnTimeout(bobHandle.doc(), 10),
         "document should have been deleted"
       )
 
@@ -234,7 +234,7 @@ describe("Repo", () => {
 
       const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
       await eventPromise(bobHandle, "change")
-      const bobDoc = await bobHandle.value()
+      const bobDoc = await bobHandle.doc()
       assert.deepStrictEqual(bobDoc, { foo: "bar" })
       teardown()
     })
@@ -244,7 +244,7 @@ describe("Repo", () => {
 
       const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
       await eventPromise(handle3, "change")
-      const doc3 = await handle3.value()
+      const doc3 = await handle3.doc()
       assert.deepStrictEqual(doc3, { foo: "bar" })
       teardown()
     })
@@ -269,7 +269,7 @@ describe("Repo", () => {
       const { charlieRepo, notForCharlie, teardown } = await setup()
 
       const handle = charlieRepo.find<TestDoc>(notForCharlie)
-      const doc = await handle.value()
+      const doc = await handle.doc()
 
       assert.deepStrictEqual(doc, { foo: "baz" })
 
@@ -280,7 +280,7 @@ describe("Repo", () => {
       const { charlieRepo, notForBob, teardown } = await setup()
 
       const handle = charlieRepo.find<TestDoc>(notForBob)
-      const doc = await handle.value()
+      const doc = await handle.doc()
       assert.deepStrictEqual(doc, { foo: "bap" })
 
       teardown()
@@ -292,7 +292,7 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
-        rejectOnTimeout(handle.value(), 100),
+        rejectOnTimeout(handle.doc(), 10),
         "This document should not exist"
       )
     })
@@ -312,7 +312,7 @@ describe("Repo", () => {
 
       const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
       await eventPromise(handle3, "change")
-      const doc3 = await handle3.value()
+      const doc3 = await handle3.doc()
 
       assert.deepStrictEqual(doc3, { foo: "baz" })
 
@@ -351,7 +351,7 @@ describe("Repo", () => {
 
         // make sure the doc is ready
         if (!doc.isReady()) {
-          await doc.value()
+          await doc.doc()
         }
 
         // make a random change to it

@@ -10,11 +10,14 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "test-browser": "vitest",
+    "test": "vitest run",
     "watch": "npm-watch"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^0.2.1"
+    "@automerge/automerge-repo": "^0.2.1",
+    "eventemitter3": "^5.0.0",
+    "react": "^18.2.0",
+    "react-usestateref": "^1.0.8"
   },
   "devDependencies": {
     "@testing-library/react": "^14.0.0",

@@ -53,34 +53,19 @@ A `Repo` exposes these methods:
 A `DocHandle` is a wrapper around an `Automerge.Doc`. Its primary function is to dispatch changes to
 the document.
 
+- `handle.doc()` or `handle.docSync()`
+  Returns a `Promise<Doc<T>>` that will contain the current value of the document.
+  it waits until the document has finished loading and/or synchronizing over the network before
+  returning a value.
 - `handle.change((doc: T) => void)`  
   Calls the provided callback with an instrumented mutable object
   representing the document. Any changes made to the document will be recorded and distributed to
   other nodes.
-- `handle.value()`  
-  Returns a `Promise<Doc<T>>` that will contain the current value of the document.
-  it waits until the document has finished loading and/or synchronizing over the network before
-  returning a value.
-
-When required, you can also access the underlying document directly, but only after the handle is ready:
-
-```ts
-if (handle.ready()) {
-  doc = handle.doc
-} else {
-  handle.value().then(d => {
-    doc = d
-  })
-}
-```
 
 A `DocHandle` also emits these events:
 
-- `change({handle: DocHandle, doc: Doc<T>})`  
-  Called any time changes are created or received on the document. Request the `value()` from the
-  handle.
-- `patch({handle: DocHandle, patches: Patch[], patchInfo: PatchInfo})` 
-  Useful for manual increment maintenance of a video, most notably for text editors.
+- `change({handle: DocHandle, patches: Patch[], patchInfo: PatchInfo})` 
+  Called whenever the document changes, the handle's .doc
 - `delete`  
   Called when the document is deleted locally.
 

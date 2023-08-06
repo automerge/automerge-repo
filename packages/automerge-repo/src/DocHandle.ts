@@ -30,28 +30,26 @@ export class DocHandle<T> //
 
   constructor(
     public documentId: DocumentId,
-    { isNew = false, timeoutDelay = 700000 }: DocHandleOptions = {}
+    { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
     this.#log = debug(`automerge-repo:dochandle:${documentId.slice(0, 5)}`)
 
     // initial doc
-    const doc = A.init<T>({
-      patchCallback: (patches, patchInfo) =>
-        this.emit("patch", { handle: this, patches, patchInfo }),
-    })
+    const doc = A.init<T>()
 
     /**
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
      * avoid requesting data we already have, or surfacing intermediate values to the consumer.
      *
-     *                      ┌─────────┐           ┌────────────┐
-     *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐
+     *                          ┌─────────────────────┬─────────TIMEOUT────►┌────────┐
+     *                      ┌───┴─────┐           ┌───┴────────┐            │ failed │
+     *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐  └────────┘
      *  │ idle  ├──┤        └───┬─────┘           └────────────┘         │
-     *  └───────┘  │            │                                        └─►┌─────────┐
-     *             │            └───────LOAD───────────────────────────────►│  ready  │
-     *             └──CREATE───────────────────────────────────────────────►└─────────┘
+     *  └───────┘  │            │                                        └─►┌────────┐
+     *             │            └───────LOAD───────────────────────────────►│ ready  │
+     *             └──CREATE───────────────────────────────────────────────►└────────┘
      */
     this.#machine = interpret(
       createMachine<DocHandleContext<T>, DocHandleEvent<T>>(
@@ -80,6 +78,12 @@ export class DocHandle<T> //
                 REQUEST: { target: REQUESTING },
                 DELETE: { actions: "onDelete", target: DELETED },
               },
+              after: [
+                {
+                  delay: this.#timeoutDelay,
+                  target: FAILED,
+                },
+              ],
             },
             requesting: {
               on: {
@@ -89,6 +93,12 @@ export class DocHandle<T> //
                 REQUEST_COMPLETE: { target: READY },
                 DELETE: { actions: "onDelete", target: DELETED },
               },
+              after: [
+                {
+                  delay: this.#timeoutDelay,
+                  target: FAILED,
+                },
+              ],
             },
             ready: {
               on: {
@@ -97,8 +107,12 @@ export class DocHandle<T> //
                 DELETE: { actions: "onDelete", target: DELETED },
               },
             },
-            error: {},
-            deleted: {},
+            failed: {
+              type: "final",
+            },
+            deleted: {
+              type: "final",
+            },
           },
         },
 
@@ -133,33 +147,36 @@ export class DocHandle<T> //
         const oldDoc = history?.context?.doc
         const newDoc = context.doc
 
+        this.#log(`${event} → ${state}`, newDoc)
+
         const docChanged = newDoc && oldDoc && !headsAreSame(newDoc, oldDoc)
         if (docChanged) {
-          this.emit("change", { handle: this, doc: newDoc })
+          this.emit("heads-changed", { handle: this, doc: newDoc })
+
+          const patches = A.diff(newDoc, A.getHeads(oldDoc), A.getHeads(newDoc))
+          if (patches.length > 0) {
+            const source = "change" // TODO: pass along the source (load/change/network)
+            this.emit("change", {
+              handle: this,
+              doc: newDoc,
+              patches,
+              patchInfo: { before: oldDoc, after: newDoc, source },
+            })
+          }
+
           if (!this.isReady()) {
             this.#machine.send(REQUEST_COMPLETE)
           }
         }
-        this.#log(`${event} → ${state}`, this.#doc)
       })
       .start()
 
     this.#machine.send(isNew ? CREATE : FIND)
   }
 
-  get doc() {
-    if (!this.isReady()) {
-      throw new Error(
-        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
-      )
-    }
-
-    return this.#doc
-  }
-
   // PRIVATE
 
-  /** Returns the current document */
+  /** Returns the current document, regardless of state */
   get #doc() {
     return this.#machine?.getSnapshot().context.doc
   }
@@ -175,7 +192,7 @@ export class DocHandle<T> //
     return Promise.any(
       awaitStates.map(state =>
         waitFor(this.#machine, s => s.matches(state), {
-          timeout: this.#timeoutDelay, // match the delay above
+          timeout: this.#timeoutDelay * 2000, // longer than the delay above for testing
         })
       )
     )
@@ -183,19 +200,48 @@ export class DocHandle<T> //
 
   // PUBLIC
 
-  isReady = () => this.#state === READY
-  isReadyOrRequesting = () =>
-    this.#state === READY || this.#state === REQUESTING
-  isDeleted = () => this.#state === DELETED
+  /**
+   * Checks if the document is ready for accessing or changes.
+   * Note that for documents already stored locally this occurs before synchronization
+   * with any peers. We do not currently have an equivalent `whenSynced()`.
+   */
+  isReady = () => this.inState([HandleState.READY])
+  /**
+   * Checks if this document has been marked as deleted.
+   * Deleted documents are removed from local storage and the sync process.
+   * It's not currently possible at runtime to undelete a document.
+   * @returns true if the document has been marked as deleted
+   */
+  isDeleted = () => this.inState([HandleState.DELETED])
+  inState = (states: HandleState[]) =>
+    states.some(this.#machine?.getSnapshot().matches)
+
+  get state() {
+    return this.#machine?.getSnapshot().value
+  }
 
   /**
-   * Returns the current document, waiting for the handle to be ready if necessary.
+   * Use this to block until the document handle has finished loading.
+   * The async equivalent to checking `inState()`.
+   * @param awaitStates = [READY]
+   * @returns
    */
-  async value(awaitStates: HandleState[] = [READY]) {
+  async whenReady(awaitStates: HandleState[] = [READY]): Promise<void> {
+    await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+  }
+
+  /**
+   * Returns the current state of the Automerge document this handle manages.
+   * Note that this waits for the handle to be ready if necessary, and currently, if
+   * loading (or synchronization) fails, will never resolve.
+   *
+   * @param {awaitStates=[READY]} optional states to wait for, such as "LOADING". mostly for internal use.
+   */
+  async doc(awaitStates: HandleState[] = [READY]): Promise<A.Doc<T>> {
     await pause() // yield one tick because reasons
     try {
       // wait for the document to enter one of the desired states
-      await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+      await this.#statePromise(awaitStates)
     } catch (error) {
       if (error instanceof TimeoutError)
         throw new Error(`DocHandle: timed out loading ${this.documentId}`)
@@ -205,8 +251,22 @@ export class DocHandle<T> //
     return this.#doc
   }
 
-  async loadAttemptedValue() {
-    return this.value([READY, REQUESTING])
+  /**
+   * Returns the current state of the Automerge document this handle manages, or undefined.
+   * Useful in a synchronous context. Consider using `await handle.doc()` instead, check `isReady()`,
+   * or use `whenReady()` if you want to make sure loading is complete first.
+   *
+   * Do not confuse this with the SyncState of the document, which describes the state of the synchronization process.
+   *
+   * Note that `undefined` is not a valid Automerge document so the return from this function is unambigous.
+   * @returns the current document, or undefined if the document is not ready
+   */
+  docSync(): A.Doc<T> | undefined {
+    if (!this.isReady()) {
+      return undefined
+    }
+
+    return this.#doc
   }
 
   /** `load` is called by the repo when the document is found in storage */
@@ -218,7 +278,9 @@ export class DocHandle<T> //
 
   /** `update` is called by the repo when we receive changes from the network */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    this.#machine.send(UPDATE, { payload: { callback } })
+    this.#machine.send(UPDATE, {
+      payload: { callback },
+    })
   }
 
   /** `change` is called by the repo when the document is changed locally  */
@@ -280,7 +342,7 @@ export interface DocHandleMessagePayload {
   data: Uint8Array
 }
 
-export interface DocHandleChangePayload<T> {
+export interface DocHandleEncodedChangePayload<T> {
   handle: DocHandle<T>
   doc: A.Doc<T>
 }
@@ -289,15 +351,16 @@ export interface DocHandleDeletePayload<T> {
   handle: DocHandle<T>
 }
 
-export interface DocHandlePatchPayload<T> {
+export interface DocHandleChangePayload<T> {
   handle: DocHandle<T>
+  doc: A.Doc<T>
   patches: A.Patch[]
   patchInfo: A.PatchInfo<T>
 }
 
 export interface DocHandleEvents<T> {
+  "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
-  patch: (payload: DocHandlePatchPayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
 }
 
@@ -310,7 +373,7 @@ export const HandleState = {
   LOADING: "loading",
   REQUESTING: "requesting",
   READY: "ready",
-  ERROR: "error",
+  FAILED: "failed",
   DELETED: "deleted",
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
@@ -383,7 +446,7 @@ type DocHandleXstateMachine<T> = Interpreter<
 
 // CONSTANTS
 
-const { IDLE, LOADING, REQUESTING, READY, ERROR, DELETED } = HandleState
+export const { IDLE, LOADING, REQUESTING, READY, FAILED, DELETED } = HandleState
 const {
   CREATE,
   LOAD,
