@@ -10,6 +10,8 @@ import {
   NetworkAdapter,
   PeerId,
 } from "@automerge/automerge-repo"
+import {ProtocolV1, ProtocolVersion} from "./protocolVersion"
+import {InboundWebSocketMessage} from "./message"
 
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
@@ -90,7 +92,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {
-    const cbor: InboundMessagePayload = CBOR.decode(message)
+    const cbor: InboundWebSocketMessage = CBOR.decode(message)
 
     const {
       type,
@@ -99,6 +101,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       targetId,
       message: data,
       broadcast,
+      supportedProtocolVersions,
     } = cbor
 
     const myPeerId = this.peerId
@@ -116,7 +119,20 @@ export class NodeWSServerAdapter extends NetworkAdapter {
 
         // In this client-server connection, there's only ever one peer: us!
         // (and we pretend to be joined to every channel)
-        socket.send(CBOR.encode({ type: "peer", senderId: this.peerId }))
+        const selectedProtocolVersion = selectProtocol(supportedProtocolVersions)
+        if (selectedProtocolVersion === null) {
+          socket.send(CBOR.encode({ type: "error", errorMessage: "unsupported protocol version"}))
+          this.sockets[senderId].close()
+          delete this.sockets[senderId]
+        } else {
+          socket.send(
+            CBOR.encode({
+              type: "peer",
+              senderId: this.peerId,
+              selectedProtocolVersion: ProtocolV1,
+            })
+          )
+        }
         break
       case "leave":
         // It doesn't seem like this gets called;
@@ -143,4 +159,14 @@ export class NodeWSServerAdapter extends NetworkAdapter {
         break
     }
   }
+}
+
+function selectProtocol(versions?: ProtocolVersion[]): ProtocolVersion | null {
+  if (versions === undefined) {
+    return ProtocolV1
+  }
+  if (versions.includes(ProtocolV1)) {
+    return ProtocolV1
+  }
+  return null
 }
