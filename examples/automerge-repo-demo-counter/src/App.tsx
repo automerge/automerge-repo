@@ -1,12 +1,12 @@
 import { useDocument } from "@automerge/automerge-repo-react-hooks"
-import { DocumentId } from "@automerge/automerge-repo"
+import { AutomergeUrl } from "@automerge/automerge-repo"
 
 interface Doc {
   count: number
 }
 
-export function App(props: { documentId: DocumentId }) {
-  const [doc, changeDoc] = useDocument<Doc>(props.documentId)
+export function App(props: { documentUrl: AutomergeUrl }) {
+  const [doc, changeDoc] = useDocument<Doc>(props.documentUrl)
 
   return (
     <button

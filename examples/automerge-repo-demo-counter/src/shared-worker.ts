@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 declare const self: SharedWorkerGlobalScope
 
-import { DocumentId, PeerId, Repo } from "@automerge/automerge-repo"
+import { type PeerId, Repo } from "@automerge/automerge-repo"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"

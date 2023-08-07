@@ -3,11 +3,11 @@ import { AutomergeUrl, DocHandleChangePayload } from "@automerge/automerge-repo"
 import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo"
 
-export function useDocument<T>(documentId?: AutomergeUrl) {
+export function useDocument<T>(documentUrl?: AutomergeUrl) {
   const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()
 
-  const handle = documentId ? repo.find<T>(documentId) : null
+  const handle = documentUrl ? repo.find<T>(documentUrl) : null
 
   useEffect(() => {
     if (!handle) return

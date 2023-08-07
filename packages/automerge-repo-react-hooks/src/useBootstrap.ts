@@ -5,7 +5,7 @@ import {
   EncodedDocumentId,
   generateAutomergeUrl,
 } from "@automerge/automerge-repo"
-import {stringifyAutomergeUrl} from "@automerge/automerge-repo/dist/DocUrl.js"
+import { stringifyAutomergeUrl } from "@automerge/automerge-repo/dist/DocUrl.js"
 import { useEffect, useState, useMemo } from "react"
 import { useRepo } from "./useRepo.js"
 
@@ -93,7 +93,7 @@ export const useBootstrap = <T>({
       | undefined
     try {
       return encodedDocumentId
-        ? repo.find(stringifyAutomergeUrl({ documentId: encodedDocumentId }))
+        ? repo.find(generateAutomergeUrl({ documentId: encodedDocumentId }))
         : onNoDocument(repo)
     } catch (error) {
       // Presumably the documentId was invalid
