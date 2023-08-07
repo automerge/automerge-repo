@@ -1,4 +1,5 @@
 import { DocCollection } from "./DocCollection.js"
+import { encodeDocumentId } from "./DocUrl.js"
 import { EphemeralData } from "./EphemeralData.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
@@ -8,8 +9,6 @@ import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js
 import { ChannelId, DocumentId, PeerId } from "./types.js"
 
 import debug from "debug"
-import { waitFor } from "xstate/lib/waitFor.js"
-
 const SYNC_CHANNEL = "sync_channel" as ChannelId
 
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
@@ -33,12 +32,14 @@ export class Repo extends DocCollection {
       if (storageSubsystem) {
         // Save when the document changes
         handle.on("heads-changed", async ({ handle, doc }) => {
-          await storageSubsystem.save(handle.documentId, doc)
+          await storageSubsystem.save(handle.encodedDocumentId, doc)
         })
 
         // Try to load from disk
-        const data = await storageSubsystem.loadBinary(handle.documentId)
-        handle.load(data)
+        const binary = await storageSubsystem.loadBinary(
+          handle.encodedDocumentId
+        )
+        handle.load(binary)
       }
 
       handle.request()
@@ -47,12 +48,12 @@ export class Repo extends DocCollection {
       synchronizer.addDocument(handle.documentId)
     })
 
-    this.on("delete-document", ({ documentId }) => {
+    this.on("delete-document", ({ encodedDocumentId }) => {
       // TODO Pass the delete on to the network
       // synchronizer.removeDocument(documentId)
 
       if (storageSubsystem) {
-        storageSubsystem.remove(documentId)
+        storageSubsystem.remove(encodedDocumentId)
       }
     })
 

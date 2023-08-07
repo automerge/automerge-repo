@@ -1,11 +1,11 @@
-import type { Doc, ChangeFn } from "@automerge/automerge"
-import { setContext, getContext } from "svelte"
-import { writable } from "svelte/store"
+import type { ChangeFn, Doc } from "@automerge/automerge"
 import {
-  Repo,
-  DocumentId,
+  AutomergeUrl,
   DocHandleChangePayload,
+  Repo,
 } from "@automerge/automerge-repo"
+import { getContext, setContext } from "svelte"
+import { writable } from "svelte/store"
 
 const ContextRepoKey = Symbol("svelte-context-automerge-repo")
 
@@ -17,7 +17,7 @@ export function setContextRepo(repo: Repo) {
   setContext(ContextRepoKey, repo)
 }
 
-export function document<T>(documentId: DocumentId) {
+export function document<T>(documentId: AutomergeUrl) {
   const repo = getContextRepo()
   const handle = repo.find<T>(documentId)
   const { set, subscribe } = writable<Doc<T>>(null, () => {

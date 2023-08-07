@@ -1,6 +1,11 @@
 import { DocCollection } from "../DocCollection.js"
 import { DocHandle } from "../DocHandle.js"
-import { ChannelId, DocumentId, PeerId } from "../types.js"
+import {
+  decodeDocumentId,
+  encodeDocumentId,
+  stringifyAutomergeUrl,
+} from "../DocUrl.js"
+import { ChannelId, DocumentId, PeerId, EncodedDocumentId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
@@ -13,7 +18,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #peers: Set<PeerId> = new Set()
 
   /** A map of documentIds to their synchronizers */
-  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
+  #docSynchronizers: Record<EncodedDocumentId, DocSynchronizer> = {}
 
   constructor(private repo: DocCollection) {
     super()
@@ -21,11 +26,13 @@ export class CollectionSynchronizer extends Synchronizer {
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
   #fetchDocSynchronizer(documentId: DocumentId) {
-    if (!this.#docSynchronizers[documentId]) {
-      const handle = this.repo.find(documentId)
-      this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
+    const encodedDocumentId = encodeDocumentId(documentId)
+    if (!this.#docSynchronizers[encodedDocumentId]) {
+      const handle = this.repo.find(stringifyAutomergeUrl({ documentId }))
+      this.#docSynchronizers[encodedDocumentId] =
+        this.#initDocSynchronizer(handle)
     }
-    return this.#docSynchronizers[documentId]
+    return this.#docSynchronizers[encodedDocumentId]
   }
 
   /** Creates a new docSynchronizer and sets it up to propagate messages */
@@ -59,7 +66,12 @@ export class CollectionSynchronizer extends Synchronizer {
   ) {
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message.byteLength}bytes`)
 
-    const documentId = channelId as unknown as DocumentId
+    const documentId = decodeDocumentId(
+      channelId as unknown as EncodedDocumentId
+    )
+    if (!documentId) {
+      throw new Error("received a message with an invalid documentId")
+    }
     const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
 
     await docSynchronizer.receiveSyncMessage(peerId, channelId, message)

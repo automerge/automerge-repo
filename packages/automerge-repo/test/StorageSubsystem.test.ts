@@ -9,8 +9,9 @@ import A from "@automerge/automerge"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
-import { DocumentId, StorageSubsystem } from "../src"
+import { StorageSubsystem } from "../src"
 import { TestDoc } from "./types.js"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -30,7 +31,7 @@ describe("StorageSubsystem", () => {
         })
 
         // save it to storage
-        const key = "test-key" as DocumentId
+        const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
         await storage.save(key, doc)
 
         // reload it from storage
@@ -52,7 +53,7 @@ describe("StorageSubsystem", () => {
     })
 
     // save it to storage
-    const key = "test-key" as DocumentId
+    const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
     storage.save(key, doc)
 
     // create new storage subsystem to simulate a new process
@@ -71,6 +72,6 @@ describe("StorageSubsystem", () => {
     storage2.save(key, changedDoc)
 
     // check that the storage adapter contains the correct keys
-    assert(adapter.keys().some(k => k.startsWith("test-key.incremental.")))
+    assert(adapter.keys().some(k => k.startsWith(`${key}.incremental.`)))
   })
 })
