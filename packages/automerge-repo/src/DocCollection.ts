@@ -88,6 +88,10 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     automergeUrl: AutomergeUrl
   ): DocHandle<T> {
     const { encodedDocumentId } = parseAutomergeUrl(automergeUrl)
+    // If we have the handle cached, return it
+    if (this.#handleCache[encodedDocumentId])
+      return this.#handleCache[encodedDocumentId]
+
     const handle = this.#getHandle<T>(encodedDocumentId, false) as DocHandle<T>
     this.emit("document", { handle })
     return handle
