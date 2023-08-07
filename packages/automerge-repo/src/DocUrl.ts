@@ -2,6 +2,8 @@ import { AutomergeUrl, DocumentId, EncodedDocumentId } from "./types"
 import { v4 as uuid } from "uuid"
 import bs58check from "bs58check"
 
+export const urlPrefix = "automerge:"
+
 /**
  * given an Automerge URL, return a decoded DocumentId (and the encoded DocumentId)
  *
@@ -29,10 +31,10 @@ export const stringifyAutomergeUrl = ({
   documentId,
 }: StringifyAutomergeUrlOptions): AutomergeUrl => {
   if (documentId instanceof Uint8Array)
-    return ("automerge:" +
+    return (urlPrefix +
       encodeDocumentId(documentId as DocumentId)) as AutomergeUrl
   else if (typeof documentId === "string") {
-    return ("automerge:" + documentId) as AutomergeUrl
+    return (urlPrefix + documentId) as AutomergeUrl
   }
   throw new Error("Invalid documentId: " + documentId)
 }
@@ -44,6 +46,8 @@ export const stringifyAutomergeUrl = ({
  * @returns boolean
  */
 export const isValidAutomergeUrl = (str: string): str is AutomergeUrl => {
+  if (!str.startsWith(urlPrefix)) return false
+
   const { documentId } = parts(str)
   return documentId ? true : false
 }
@@ -73,7 +77,8 @@ export const encodeDocumentId = (docId: DocumentId): EncodedDocumentId =>
  * @returns
  */
 const parts = (str: string) => {
-  const [m, docMatch] = str.match(/^automerge:(\w+)$/) || []
+  const regex = new RegExp(`^${urlPrefix}(\\w+)$`)
+  const [m, docMatch] = str.match(regex) || []
   const encodedDocumentId = docMatch as EncodedDocumentId
   const documentId = decodeDocumentId(encodedDocumentId)
   return { documentId, encodedDocumentId }

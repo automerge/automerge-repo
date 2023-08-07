@@ -90,7 +90,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.docSync(), undefined)
     assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(h => {}))
+    assert.throws(() => handle.change(h => { }))
   })
 
   it("should become ready if the document is updated by the network", async () => {
@@ -209,15 +209,6 @@ describe("DocHandle", () => {
       // do nothing
       setTimeout(done, 0)
     })
-  })
-
-  it.skip("should fail if the documentId is invalid", async () => {
-    // set docHandle time out after 5 ms
-    const handle = new DocHandle<TestDoc>(BOGUS_ID)
-    assert.equal(handle.state, "failed")
-
-    // so it should time out
-    return assert.rejects(handle.doc, "DocHandle timed out")
   })
 
   it("should time out if the document is not loaded", async () => {

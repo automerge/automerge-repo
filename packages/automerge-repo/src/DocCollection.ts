@@ -6,6 +6,7 @@ import {
   decodeDocumentId,
   encodeDocumentId,
   generateAutomergeUrl,
+  isValidAutomergeUrl,
   parseAutomergeUrl,
 } from "./DocUrl.js"
 
@@ -87,6 +88,10 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     /** The documentId of the handle to retrieve */
     automergeUrl: AutomergeUrl
   ): DocHandle<T> {
+    if (!isValidAutomergeUrl(automergeUrl)) {
+      throw new Error(`Invalid AutomergeUrl: '${automergeUrl}'`)
+    }
+
     const { encodedDocumentId } = parseAutomergeUrl(automergeUrl)
     // If we have the handle cached, return it
     if (this.#handleCache[encodedDocumentId])
