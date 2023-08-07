@@ -17,7 +17,14 @@ import { waitFor } from "xstate/lib/waitFor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { pause } from "./helpers/pause.js"
 import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
-import type { ChannelId, DocumentId, PeerId } from "./types.js"
+import type {
+  DocumentId,
+  ChannelId,
+  EncodedDocumentId,
+  PeerId,
+  AutomergeUrl,
+} from "./types.js"
+import { encodeDocumentId, stringifyAutomergeUrl } from "./DocUrl.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -27,14 +34,28 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
+  #encodedDocumentId: EncodedDocumentId
+
+  get encodedDocumentId(): EncodedDocumentId {
+    return this.#encodedDocumentId
+  }
+
+  get url(): AutomergeUrl {
+    return stringifyAutomergeUrl({ documentId: this.documentId })
+  }
 
   constructor(
     public documentId: DocumentId,
     { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
   ) {
     super()
+    this.#encodedDocumentId = encodeDocumentId(
+      this.documentId
+    ) as EncodedDocumentId
     this.#timeoutDelay = timeoutDelay
-    this.#log = debug(`automerge-repo:dochandle:${documentId.slice(0, 5)}`)
+    this.#log = debug(
+      `automerge-repo:dochandle:${this.encodedDocumentId.slice(0, 5)}`
+    )
 
     // initial doc
     const doc = A.init<T>()
@@ -58,7 +79,7 @@ export class DocHandle<T> //
 
           id: "docHandle",
           initial: IDLE,
-          context: { documentId, doc },
+          context: { documentId: this.documentId, doc },
           states: {
             idle: {
               on: {
@@ -388,7 +409,7 @@ type DocHandleMachineState = {
 // context
 
 interface DocHandleContext<T> {
-  documentId: string
+  documentId: DocumentId
   doc: A.Doc<T>
 }
 

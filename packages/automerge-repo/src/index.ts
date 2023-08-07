@@ -14,4 +14,9 @@ export { Repo, type SharePolicy } from "./Repo.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
 export { StorageSubsystem } from "./storage/StorageSubsystem.js"
 export { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
+export {
+  parseAutomergeUrl,
+  isValidAutomergeUrl,
+  stringifyAutomergeUrl as generateAutomergeUrl,
+} from "./DocUrl"
 export * from "./types.js"

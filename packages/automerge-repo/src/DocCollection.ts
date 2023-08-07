@@ -1,15 +1,20 @@
 import EventEmitter from "eventemitter3"
-import { v4 as uuid } from "uuid"
 import { DocHandle } from "./DocHandle.js"
-import { type DocumentId } from "./types.js"
+import { EncodedDocumentId, type DocumentId, AutomergeUrl } from "./types.js"
 import { type SharePolicy } from "./Repo.js"
+import {
+  decodeDocumentId,
+  encodeDocumentId,
+  generateAutomergeUrl,
+  parseAutomergeUrl,
+} from "./DocUrl.js"
 
 /**
  * A DocCollection is a collection of DocHandles. It supports creating new documents and finding
  * documents by ID.
  * */
 export class DocCollection extends EventEmitter<DocCollectionEvents> {
-  #handleCache: Record<DocumentId, DocHandle<any>> = {}
+  #handleCache: Record<EncodedDocumentId, DocHandle<any>> = {}
 
   /** By default, we share generously with all peers. */
   sharePolicy: SharePolicy = async () => true
@@ -21,17 +26,20 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
   /** Returns an existing handle if we have it; creates one otherwise. */
   #getHandle<T>(
     /** The documentId of the handle to look up or create */
-    documentId: DocumentId,
+    encodedDocumentId: EncodedDocumentId,
 
     /** If we know we're creating a new document, specify this so we can have access to it immediately */
     isNew: boolean
   ) {
     // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) return this.#handleCache[documentId]
+    if (this.#handleCache[encodedDocumentId])
+      return this.#handleCache[encodedDocumentId]
 
     // If not, create a new handle, cache it, and return it
+    const documentId = decodeDocumentId(encodedDocumentId)
+    if (!documentId) throw new Error(`Invalid documentId ${encodedDocumentId}`)
     const handle = new DocHandle<T>(documentId, { isNew })
-    this.#handleCache[documentId] = handle
+    this.#handleCache[encodedDocumentId] = handle
     return handle
   }
 
@@ -64,8 +72,9 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     // or
     // - pass a "reify" function that takes a `<any>` and returns `<T>`
 
-    const documentId = uuid() as DocumentId
-    const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
+    // Generate a new UUID and store it in the buffer
+    const { encodedDocumentId } = parseAutomergeUrl(generateAutomergeUrl())
+    const handle = this.#getHandle<T>(encodedDocumentId, true) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }
@@ -76,35 +85,29 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
    */
   find<T>(
     /** The documentId of the handle to retrieve */
-    documentId: DocumentId
+    automergeUrl: AutomergeUrl
   ): DocHandle<T> {
-    // TODO: we want a way to make sure we don't yield intermediate document states during initial synchronization
+    const { encodedDocumentId } = parseAutomergeUrl(automergeUrl)
+    // If we have the handle cached, return it
+    if (this.#handleCache[encodedDocumentId])
+      return this.#handleCache[encodedDocumentId]
 
-    // If we already have a handle, return it
-    if (this.#handleCache[documentId])
-      return this.#handleCache[documentId] as DocHandle<T>
-
-    // Otherwise, create a new handle
-    const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
-
-    // we don't directly initialize a value here because the StorageSubsystem and Synchronizers go
-    // and get the data asynchronously and block on read instead of on create
-
-    // emit a document event to advertise interest in this document
+    const handle = this.#getHandle<T>(encodedDocumentId, false) as DocHandle<T>
     this.emit("document", { handle })
-
     return handle
   }
 
   delete(
     /** The documentId of the handle to delete */
-    documentId: DocumentId
+    encodedDocumentId: EncodedDocumentId
   ) {
-    const handle = this.#getHandle(documentId, false)
+    const handle = this.#getHandle(encodedDocumentId, false)
     handle.delete()
 
-    delete this.#handleCache[documentId]
-    this.emit("delete-document", { documentId })
+    delete this.#handleCache[encodedDocumentId]
+    this.emit("delete-document", {
+      encodedDocumentId: encodedDocumentId,
+    })
   }
 }
 
@@ -119,5 +122,5 @@ interface DocumentPayload {
 }
 
 interface DeleteDocumentPayload {
-  documentId: DocumentId
+  encodedDocumentId: EncodedDocumentId
 }

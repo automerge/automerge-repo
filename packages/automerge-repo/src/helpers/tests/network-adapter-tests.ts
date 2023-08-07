@@ -37,7 +37,7 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
 
         // Bob receives the document
         await eventPromise(bobRepo, "document")
-        const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+        const bobHandle = bobRepo.find<TestDoc>(aliceHandle.url)
 
         // Alice changes the document
         aliceHandle.change(d => {
@@ -83,12 +83,12 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
 
       // Alice creates a document
       const aliceHandle = aliceRepo.create<TestDoc>()
-      const documentId = aliceHandle.documentId
+      const docUrl = aliceHandle.url
 
       // Bob and Charlie receive the document
       await eventPromises([bobRepo, charlieRepo], "document")
-      const bobHandle = bobRepo.find<TestDoc>(documentId)
-      const charlieHandle = charlieRepo.find<TestDoc>(documentId)
+      const bobHandle = bobRepo.find<TestDoc>(docUrl)
+      const charlieHandle = charlieRepo.find<TestDoc>(docUrl)
 
       // Alice changes the document
       aliceHandle.change(d => {

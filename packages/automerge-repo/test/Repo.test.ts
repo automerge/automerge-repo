@@ -9,6 +9,11 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
+import {
+  encodeDocumentId,
+  generateAutomergeUrl,
+  stringifyAutomergeUrl,
+} from "../src/DocUrl"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -49,7 +54,7 @@ describe("Repo", () => {
 
     it("doesn't find a document that doesn't exist", async () => {
       const { repo } = setup()
-      const handle = repo.find<TestDoc>("does-not-exist" as DocumentId)
+      const handle = repo.find<TestDoc>(generateAutomergeUrl())
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
@@ -66,7 +71,7 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
 
-      const bobHandle = repo.find<TestDoc>(handle.documentId)
+      const bobHandle = repo.find<TestDoc>(handle.url)
 
       assert.equal(handle, bobHandle)
       assert.equal(handle.isReady(), true)
@@ -92,7 +97,7 @@ describe("Repo", () => {
         network: [],
       })
 
-      const bobHandle = repo2.find<TestDoc>(handle.documentId)
+      const bobHandle = repo2.find<TestDoc>(handle.url)
 
       const v = await bobHandle.doc()
       assert.equal(v.foo, "bar")
@@ -106,12 +111,12 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
       await handle.doc()
-      repo.delete(handle.documentId)
+      repo.delete(handle.encodedDocumentId)
 
       assert(handle.isDeleted())
-      assert.equal(repo.handles[handle.documentId], undefined)
+      assert.equal(repo.handles[handle.encodedDocumentId], undefined)
 
-      const bobHandle = repo.find<TestDoc>(handle.documentId)
+      const bobHandle = repo.find<TestDoc>(handle.url)
       await assert.rejects(
         rejectOnTimeout(bobHandle.doc(), 10),
         "document should have been deleted"
@@ -128,13 +133,13 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
 
-      repo.on("delete-document", ({ documentId }) => {
-        assert.equal(documentId, handle.documentId)
+      repo.on("delete-document", ({ encodedDocumentId }) => {
+        assert.equal(encodedDocumentId, handle.encodedDocumentId)
 
         done()
       })
 
-      repo.delete(handle.documentId)
+      repo.delete(handle.encodedDocumentId)
     })
   })
 
@@ -232,7 +237,7 @@ describe("Repo", () => {
     it("changes are replicated from aliceRepo to bobRepo", async () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
 
-      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.documentId)
+      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.url)
       await eventPromise(bobHandle, "change")
       const bobDoc = await bobHandle.doc()
       assert.deepStrictEqual(bobDoc, { foo: "bar" })
@@ -242,7 +247,7 @@ describe("Repo", () => {
     it("can load a document from aliceRepo on charlieRepo", async () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
 
-      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
+      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.url)
       await eventPromise(handle3, "change")
       const doc3 = await handle3.doc()
       assert.deepStrictEqual(doc3, { foo: "bar" })
@@ -258,9 +263,21 @@ describe("Repo", () => {
         eventPromise(charlieRepo.networkSubsystem, "message"),
       ])
 
-      assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
-      assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
-      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+      assert.notEqual(
+        aliceRepo.handles[encodeDocumentId(notForCharlie)],
+        undefined,
+        "alice yes"
+      )
+      assert.notEqual(
+        bobRepo.handles[encodeDocumentId(notForCharlie)],
+        undefined,
+        "bob yes"
+      )
+      assert.equal(
+        charlieRepo.handles[encodeDocumentId(notForCharlie)],
+        undefined,
+        "charlie no"
+      )
 
       teardown()
     })
@@ -268,7 +285,9 @@ describe("Repo", () => {
     it("charlieRepo can request a document not initially shared with it", async () => {
       const { charlieRepo, notForCharlie, teardown } = await setup()
 
-      const handle = charlieRepo.find<TestDoc>(notForCharlie)
+      const handle = charlieRepo.find<TestDoc>(
+        stringifyAutomergeUrl({ documentId: notForCharlie })
+      )
       const doc = await handle.doc()
 
       assert.deepStrictEqual(doc, { foo: "baz" })
@@ -279,7 +298,9 @@ describe("Repo", () => {
     it("charlieRepo can request a document across a network of multiple peers", async () => {
       const { charlieRepo, notForBob, teardown } = await setup()
 
-      const handle = charlieRepo.find<TestDoc>(notForBob)
+      const handle = charlieRepo.find<TestDoc>(
+        stringifyAutomergeUrl({ documentId: notForBob })
+      )
       const doc = await handle.doc()
       assert.deepStrictEqual(doc, { foo: "bap" })
 
@@ -288,7 +309,7 @@ describe("Repo", () => {
 
     it("doesn't find a document which doesn't exist anywhere on the network", async () => {
       const { charlieRepo } = await setup()
-      const handle = charlieRepo.find<TestDoc>("does-not-exist" as DocumentId)
+      const handle = charlieRepo.find<TestDoc>(generateAutomergeUrl())
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
@@ -301,7 +322,7 @@ describe("Repo", () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
 
       const deletePromise = eventPromise(charlieRepo, "delete-document")
-      charlieRepo.delete(aliceHandle.documentId)
+      charlieRepo.delete(aliceHandle.encodedDocumentId)
       await deletePromise
 
       const changePromise = eventPromise(aliceHandle, "change")
@@ -310,7 +331,7 @@ describe("Repo", () => {
       })
       await changePromise
 
-      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.documentId)
+      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.url)
       await eventPromise(handle3, "change")
       const doc3 = await handle3.doc()
 

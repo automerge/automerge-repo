@@ -1,4 +1,10 @@
-import { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo"
+import {
+  DocHandle,
+  DocumentId,
+  Repo,
+  EncodedDocumentId,
+  generateAutomergeUrl,
+} from "@automerge/automerge-repo"
 import { useEffect, useState, useMemo } from "react"
 import { useRepo } from "./useRepo.js"
 
@@ -81,14 +87,16 @@ export const useBootstrap = <T>({
 
   // Try to get existing document; else create a new one
   const handle = useMemo((): DocHandle<T> => {
-    const existingDocumentId = getDocumentId(key, hash)
+    const encodedDocumentId = getDocumentId(key, hash) as
+      | EncodedDocumentId
+      | undefined
     try {
-      return existingDocumentId
-        ? repo.find(existingDocumentId as DocumentId)
+      return encodedDocumentId
+        ? repo.find(generateAutomergeUrl({ encodedDocumentId }))
         : onNoDocument(repo)
     } catch (error) {
       // Presumably the documentId was invalid
-      if (existingDocumentId && onInvalidDocumentId)
+      if (encodedDocumentId && onInvalidDocumentId)
         return onInvalidDocumentId(repo, error)
       // Forward other errors
       throw error
