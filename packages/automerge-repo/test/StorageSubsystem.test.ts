@@ -9,7 +9,7 @@ import A from "@automerge/automerge"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
-import { DocumentId, StorageSubsystem } from "../src"
+import { StorageSubsystem } from "../src"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
 
@@ -32,10 +32,11 @@ describe("StorageSubsystem", () => {
 
         // save it to storage
         const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
-        storage.save(key, doc)
+        await storage.save(key, doc)
 
         // reload it from storage
-        const reloadedDoc = await storage.load<TestDoc>(key)
+        const reloadedDocBinary = await storage.loadBinary(key)
+        const reloadedDoc = A.load<TestDoc>(reloadedDocBinary)
 
         // check that it's the same doc
         assert.deepStrictEqual(reloadedDoc, doc)
@@ -59,10 +60,11 @@ describe("StorageSubsystem", () => {
     const storage2 = new StorageSubsystem(adapter)
 
     // reload it from storage
-    const reloadedDoc = await storage2.load<TestDoc>(key)
+    const reloadedDocBinary = await storage2.loadBinary(key)
+    const reloadedDoc = A.load<TestDoc>(reloadedDocBinary)
 
     // make a change
-    const changedDoc = A.change(reloadedDoc, "test 2", d => {
+    const changedDoc = A.change<any>(reloadedDoc, "test 2", d => {
       d.foo = "baz"
     })
 
@@ -70,10 +72,6 @@ describe("StorageSubsystem", () => {
     storage2.save(key, changedDoc)
 
     // check that the storage adapter contains the correct keys
-    assert(adapter.keys().some(k => k.endsWith("1")))
-
-    // check that the last incrementalSave is not a full save
-    const bin = await adapter.load(key + ".incremental.1")
-    assert.throws(() => A.load(bin!))
+    assert(adapter.keys().some(k => k.startsWith(`${key}.incremental.`)))
   })
 })

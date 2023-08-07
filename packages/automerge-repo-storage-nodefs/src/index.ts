@@ -1,37 +1,127 @@
-import * as fs from "fs"
-import { StorageAdapter } from "@automerge/automerge-repo"
+import { StorageAdapter, type StorageKey } from "@automerge/automerge-repo"
+import fs from "fs"
+import path from "path"
+import { rimraf } from "rimraf"
 
-export class NodeFSStorageAdapter implements StorageAdapter {
-  directory: string
+export class NodeFSStorageAdapter extends StorageAdapter {
+  private baseDirectory: string
+  private cache: { [key: string]: {storageKey: StorageKey, data: Uint8Array }} = {}
 
-  constructor(directory = ".amrg") {
-    this.directory = directory
+  constructor(baseDirectory: string = "automerge-repo-data") {
+    super()
+    this.baseDirectory = baseDirectory
   }
 
-  fileName(docId: string) {
-    return `${this.directory}/${docId}.amrg`
+  async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
+    const key = cacheKey(keyArray)
+    if (this.cache[key]) {
+      return this.cache[key].data
+    }
+
+    const filePath = this.getFilePath(keyArray)
+
+    try {
+      const fileContent = await fs.promises.readFile(filePath)
+      return new Uint8Array(fileContent)
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        // file not found
+        return undefined
+      } else {
+        throw error
+      }
+    }
   }
 
-  load(docId: string): Promise<Uint8Array | null> {
-    return new Promise<Uint8Array | null>(resolve => {
-      fs.readFile(this.fileName(docId), (err, data) => {
-        if (err) resolve(null)
-        else resolve(data)
-      })
-    })
+  async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
+    const key = cacheKey(keyArray)
+    this.cache[key] = {data: binary, storageKey: keyArray}
+
+    const filePath = this.getFilePath(keyArray)
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.promises.writeFile(filePath, binary)
   }
 
-  save(docId: string, binary: Uint8Array): void {
-    fs.writeFile(this.fileName(docId), binary, err => {
-      // TODO: race condition if a load happens before the save is complete.
-      // use an in-memory cache while save is in progress
-      if (err) throw err
-    })
+  async remove(keyArray: string[]): Promise<void> {
+    const filePath = this.getFilePath(keyArray)
+
+    try {
+      await fs.promises.unlink(filePath)
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        // only throw if error is not file not found
+        throw error
+      }
+    }
   }
 
-  remove(docId: string): void {
-    fs.rm(this.fileName(docId), err => {
-      if (err) console.log("removed a file that does not exist: " + docId)
-    })
+  async loadRange(keyPrefix: StorageKey): Promise<{data: Uint8Array, key: StorageKey}[]> {
+    const dirPath = this.getFilePath(keyPrefix)
+    const cacheKeyPrefixString = cacheKey(keyPrefix)
+
+    // Get the list of all cached keys that match the prefix
+    const cachedKeys: string[] = Object.keys(this.cache).filter(key =>
+      key.startsWith(cacheKeyPrefixString)
+    )
+
+    // Read filenames from disk
+    let diskFiles
+    try {
+      diskFiles = await fs.promises.readdir(dirPath, { withFileTypes: true })
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        // Directory not found, initialize as empty
+        diskFiles = []
+      } else {
+        throw error
+      }
+    }
+
+    const diskKeys: string[] = diskFiles
+      .filter(file => file.isFile())
+      .map(file =>
+        this.getKey([
+          path.relative(this.baseDirectory, path.join(dirPath, file.name)),
+        ])
+      )
+
+    // Combine and deduplicate the lists of keys
+    const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
+
+    // Load all files
+    return Promise.all(allKeys.map(async keyString => {
+        const key: StorageKey = keyString.split(path.sep)
+        return {
+            data: await this.load(key),
+            key,
+        }
+    }))
   }
+
+  async removeRange(keyPrefix: string[]): Promise<void> {
+    const dirPath = this.getFilePath(keyPrefix)
+
+    // Warning: This method will recursively delete the directory and all its contents!
+    // Be absolutely sure this is what you want.
+    await rimraf(dirPath)
+  }
+
+  private getKey(key: StorageKey): string {
+    return path.join(...key)
+  }
+
+  private getFilePath(keyArray: string[]): string {
+    const [firstKey, ...remainingKeys] = keyArray
+    const firstKeyDir = path.join(
+      this.baseDirectory,
+      firstKey.slice(0, 2),
+      firstKey.slice(2)
+    )
+
+    return path.join(firstKeyDir, ...remainingKeys)
+  }
+}
+
+function cacheKey(key: StorageKey): string {
+  return path.join(...key)
 }

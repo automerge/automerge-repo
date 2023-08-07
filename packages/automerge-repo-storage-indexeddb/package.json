@@ -1,7 +1,7 @@
 {
-  "name": "@automerge/automerge-repo-storage-localforage",
-  "version": "0.1.4",
-  "description": "LocalForage storage adapter for Automerge Repo",
+  "name": "@automerge/automerge-repo-storage-indexeddb",
+  "version": "0.2.1",
+  "description": "IndexedDB storage adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
@@ -13,8 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^0.1.4",
-    "localforage": "^1.10.0"
+    "@automerge/automerge-repo": "^0.2.1"
   },
   "watch": {
     "build": {

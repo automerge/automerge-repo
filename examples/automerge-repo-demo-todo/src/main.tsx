@@ -5,7 +5,7 @@ import {
   RepoContext,
   useBootstrap,
 } from "@automerge/automerge-repo-react-hooks"
-import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
@@ -17,7 +17,7 @@ const repo = new Repo({
     new BroadcastChannelNetworkAdapter(),
     new BrowserWebSocketClientAdapter("ws://localhost:3030"),
   ],
-  storage: new LocalForageStorageAdapter(),
+  storage: new IndexedDBStorageAdapter(),
 })
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
