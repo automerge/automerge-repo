@@ -32,7 +32,7 @@ export class Repo extends DocCollection {
       if (storageSubsystem) {
         // Save when the document changes
         handle.on("heads-changed", async ({ handle, doc }) => {
-          storageSubsystem.save(handle.encodedDocumentId, doc)
+          await storageSubsystem.save(handle.encodedDocumentId, doc)
         })
 
         // Try to load from disk

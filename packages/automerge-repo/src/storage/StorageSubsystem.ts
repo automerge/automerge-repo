@@ -1,98 +1,134 @@
 import * as A from "@automerge/automerge"
+import {StorageAdapter, StorageKey} from "./StorageAdapter.js"
+import * as sha256 from "fast-sha256"
 import { type EncodedDocumentId } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
-import { StorageAdapter } from "./StorageAdapter.js"
+
+// Metadata about a chunk of data loaded from storage. This is stored on the 
+// StorageSubsystem so when we are compacting we know what chunks we can safely delete
+type StorageChunkInfo = {
+  key: StorageKey,
+  type: ChunkType,
+  size: number,
+}
+
+export type ChunkType = "snapshot" | "incremental"
+
+function keyHash(binary: Uint8Array) {
+  const hash = sha256.hash(binary)
+  const hashArray = Array.from(new Uint8Array(hash)) // convert buffer to byte array
+  const hashHex = hashArray.map(b => ("00" + b.toString(16)).slice(-2)).join("") // convert bytes to hex string
+  return hashHex
+}
+
+function headsHash(heads: A.Heads): string {
+  let encoder = new TextEncoder()
+  let headsbinary = mergeArrays(heads.map(h => encoder.encode(h)))
+  return keyHash(headsbinary)
+
+}
 
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
-  #changeCount: Record<EncodedDocumentId, number> = {}
+  #chunkInfos: Map<EncodedDocumentId, StorageChunkInfo[]> = new Map()
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
   }
 
-  #saveIncremental(encodedDocumentId: EncodedDocumentId, doc: A.Doc<unknown>) {
+  async #saveIncremental(documentId: EncodedDocumentId, doc: A.Doc<unknown>): Promise<void> {
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
-      if (!this.#changeCount[encodedDocumentId]) {
-        this.#changeCount[encodedDocumentId] = 0
+      const key = [documentId, "incremental", keyHash(binary)]
+      await this.#storageAdapter.save(key, binary)
+      if (!this.#chunkInfos.has(documentId)) {
+        this.#chunkInfos.set(documentId, [])
       }
-
-      this.#storageAdapter.save(
-        `${encodedDocumentId}.incremental.${
-          this.#changeCount[encodedDocumentId]
-        }`,
-        binary
-      )
-
-      this.#changeCount[encodedDocumentId]++
-    }
-  }
-
-  #saveTotal(encodedDocumentId: EncodedDocumentId, doc: A.Doc<unknown>) {
-    const binary = A.save(doc)
-    this.#storageAdapter.save(`${encodedDocumentId}.snapshot`, binary)
-
-    for (let i = 0; i < this.#changeCount[encodedDocumentId]; i++) {
-      this.#storageAdapter.remove(`${encodedDocumentId}.incremental.${i}`)
-    }
-
-    this.#changeCount[encodedDocumentId] = 0
-  }
-
-  async loadBinary(encodedDocumentId: EncodedDocumentId): Promise<Uint8Array> {
-    const result = []
-    let binary = await this.#storageAdapter.load(
-      `${encodedDocumentId}.snapshot`
-    )
-    if (binary && binary.length > 0) {
-      result.push(binary)
-    }
-
-    let index = 0
-    while (
-      (binary = await this.#storageAdapter.load(
-        `${encodedDocumentId}.incremental.${index}`
-      ))
-    ) {
-      this.#changeCount[encodedDocumentId] = index + 1
-      if (binary && binary.length > 0) result.push(binary)
-      index += 1
-    }
-
-    return mergeArrays(result)
-  }
-
-  async load<T>(
-    encodedDocumentId: EncodedDocumentId,
-    prevDoc: A.Doc<T> = A.init<T>()
-  ): Promise<A.Doc<T>> {
-    const doc = A.loadIncremental(
-      prevDoc,
-      await this.loadBinary(encodedDocumentId)
-    )
-    A.saveIncremental(doc)
-    return doc
-  }
-
-  save(encodedDocumentId: EncodedDocumentId, doc: A.Doc<unknown>) {
-    if (this.#shouldCompact(encodedDocumentId)) {
-      this.#saveTotal(encodedDocumentId, doc)
+      this.#chunkInfos.get(documentId)!!.push({
+        key,
+        type: "incremental",
+        size: binary.length
+      })
     } else {
-      this.#saveIncremental(encodedDocumentId, doc)
+      return Promise.resolve()
     }
   }
 
-  remove(encodedDocumentId: EncodedDocumentId) {
-    this.#storageAdapter.remove(`${encodedDocumentId}.snapshot`)
+  async #saveTotal(documentId: EncodedDocumentId, doc: A.Doc<unknown>, sourceChunks: StorageChunkInfo[]): Promise<void> {
+    const binary = A.save(doc)
+    const key = [documentId, "snapshot", headsHash(A.getHeads(doc))]
+    const oldKeys = new Set(sourceChunks.map(c => c.key))
 
-    for (let i = 0; i < this.#changeCount[encodedDocumentId]; i++) {
-      this.#storageAdapter.remove(`${encodedDocumentId}.incremental.${i}`)
+    await this.#storageAdapter.save(key, binary)
+
+    for (const key of oldKeys) {
+      await this.#storageAdapter.remove(key)
+    }
+    const newChunkInfos = this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
+    newChunkInfos.push({key, type: "snapshot", size: binary.length})
+    this.#chunkInfos.set(documentId, newChunkInfos)
+  }
+
+  async loadBinary(documentId: EncodedDocumentId): Promise<Uint8Array> {
+    const loaded = await this.#storageAdapter.loadRange([
+      documentId,
+    ])
+    const binaries = []
+    const chunkInfos: StorageChunkInfo[] = []
+    for (const chunk of loaded) {
+      const chunkType = chunkTypeFromKey(chunk.key)
+      if (chunkType == null) {
+        continue
+      }
+      chunkInfos.push({
+        key: chunk.key,
+        type: chunkType,
+        size: chunk.data.length
+      })
+      binaries.push(chunk.data)
+    }
+    this.#chunkInfos.set(documentId, chunkInfos)
+    return mergeArrays(binaries)
+  }
+
+  async save(documentId: EncodedDocumentId, doc: A.Doc<unknown>): Promise<void> {
+    let sourceChunks = this.#chunkInfos.get(documentId) ?? []
+    if (this.#shouldCompact(sourceChunks)) {
+      this.#saveTotal(documentId, doc, sourceChunks)
+    } else {
+      this.#saveIncremental(documentId, doc)
     }
   }
 
-  // TODO: make this, you know, good.
-  #shouldCompact(encodedDocumentId: EncodedDocumentId) {
-    return this.#changeCount[encodedDocumentId] >= 20
+  async remove(documentId: EncodedDocumentId) {
+    this.#storageAdapter.remove([documentId, "snapshot"])
+    this.#storageAdapter.removeRange([documentId, "incremental"])
+  }
+
+  #shouldCompact(sourceChunks: StorageChunkInfo[]) {
+    // compact if the incremental size is greater than the snapshot size
+    let snapshotSize = 0
+    let incrementalSize = 0
+    for (const chunk of sourceChunks) {
+      if (chunk.type === "snapshot") {
+        snapshotSize += chunk.size
+      } else {
+        incrementalSize += chunk.size
+      }
+    }
+    return incrementalSize > snapshotSize
+  }
+}
+
+function chunkTypeFromKey(key: StorageKey): ChunkType | null {
+  if (key.length < 2) {
+    return null
+  }
+  const chunkTypeStr = key[key.length - 2]
+  if (chunkTypeStr === "snapshot" || chunkTypeStr === "incremental") {
+    const chunkType: ChunkType = chunkTypeStr
+    return chunkType
+  } else {
+    return null
   }
 }

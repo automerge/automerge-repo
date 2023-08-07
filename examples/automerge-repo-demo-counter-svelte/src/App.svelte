@@ -5,7 +5,7 @@
 
   import { Repo } from "@automerge/automerge-repo"
   import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-  import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
+  import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
   import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
   import { setContextRepo } from "@automerge/automerge-repo-svelte-store"
 
@@ -14,7 +14,7 @@
       new BroadcastChannelNetworkAdapter(),
       new BrowserWebSocketClientAdapter("ws://localhost:3030"),
     ],
-    storage: new LocalForageStorageAdapter(),
+    storage: new IndexedDBStorageAdapter(),
   })
 
   setContextRepo(repo)

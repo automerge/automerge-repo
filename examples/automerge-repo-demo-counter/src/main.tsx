@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
 import { Repo } from "@automerge/automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-import { LocalForageStorageAdapter } from "@automerge/automerge-repo-storage-localforage"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"
 import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
@@ -40,7 +40,7 @@ function createSharedWorker(): Promise<SharedWorker> {
   })
 }
 
-function setupSharedWorkerAndRepo() {
+function setupSharedWorkerAndRepo(): Repo {
   const repoNetworkChannel = new MessageChannel()
   sharedWorker.port.postMessage({ repoNetworkPort: repoNetworkChannel.port2 }, [
     repoNetworkChannel.port2,
