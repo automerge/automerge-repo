@@ -34,7 +34,8 @@ describe("StorageSubsystem", () => {
         await storage.save(key, doc)
 
         // reload it from storage
-        const reloadedDoc = await storage.load<TestDoc>(key)
+        const reloadedDocBinary = await storage.loadBinary(key)
+        const reloadedDoc = A.load<TestDoc>(reloadedDocBinary)
 
         // check that it's the same doc
         assert.deepStrictEqual(reloadedDoc, doc)
@@ -58,10 +59,11 @@ describe("StorageSubsystem", () => {
     const storage2 = new StorageSubsystem(adapter)
 
     // reload it from storage
-    const reloadedDoc = await storage2.load<TestDoc>(key)
+    const reloadedDocBinary = await storage2.loadBinary(key)
+    const reloadedDoc = A.load<TestDoc>(reloadedDocBinary)
 
     // make a change
-    const changedDoc = A.change(reloadedDoc, "test 2", d => {
+    const changedDoc = A.change<any>(reloadedDoc, "test 2", d => {
       d.foo = "baz"
     })
 

@@ -1,8 +1,18 @@
 import * as A from "@automerge/automerge"
-import { DocumentId } from "../types.js"
-import { StorageAdapter } from "./StorageAdapter.js"
-import { mergeArrays } from "../helpers/mergeArrays.js"
+import {DocumentId} from "../types.js"
+import {StorageAdapter, StorageKey} from "./StorageAdapter.js"
+import {mergeArrays} from "../helpers/mergeArrays.js"
 import * as sha256 from "fast-sha256"
+
+// Metadata about a chunk of data loaded from storage. This is stored on the 
+// StorageSubsystem so when we are compacting we know what chunks we can safely delete
+type StorageChunkInfo = {
+  key: StorageKey,
+  type: ChunkType,
+  size: number,
+}
+
+export type ChunkType = "snapshot" | "incremental"
 
 function keyHash(binary: Uint8Array) {
   const hash = sha256.hash(binary)
@@ -11,57 +21,82 @@ function keyHash(binary: Uint8Array) {
   return hashHex
 }
 
+function headsHash(heads: A.Heads): string {
+  let encoder = new TextEncoder()
+  let headsbinary = mergeArrays(heads.map(h => encoder.encode(h)))
+  return keyHash(headsbinary)
+
+}
+
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
+  #chunkInfos: Map<DocumentId, StorageChunkInfo[]> = new Map()
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
   }
 
-  async #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>) {
+  async #saveIncremental(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
-      return await this.#storageAdapter.save(key, binary)
+      await this.#storageAdapter.save(key, binary)
+      if (!this.#chunkInfos.has(documentId)) {
+        this.#chunkInfos.set(documentId, [])
+      }
+      this.#chunkInfos.get(documentId)!!.push({
+        key,
+        type: "incremental",
+        size: binary.length
+      })
     } else {
-      Promise.resolve()
+      return Promise.resolve()
     }
   }
 
-  async #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>) {
+  async #saveTotal(documentId: DocumentId, doc: A.Doc<unknown>, sourceChunks: StorageChunkInfo[]): Promise<void> {
     const binary = A.save(doc)
+    const key = [documentId, "snapshot", headsHash(A.getHeads(doc))]
+    const oldKeys = new Set(sourceChunks.map(c => c.key))
 
-    // TODO: this is still racy if two nodes are both writing to the store
-    await this.#storageAdapter.save([documentId, "snapshot"], binary)
+    await this.#storageAdapter.save(key, binary)
 
-    // don't start deleting the incremental keys until save is done!
-    return this.#storageAdapter.removeRange([documentId, "incremental"])
+    for (const key of oldKeys) {
+      await this.#storageAdapter.remove(key)
+    }
+    const newChunkInfos = this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
+    newChunkInfos.push({key, type: "snapshot", size: binary.length})
+    this.#chunkInfos.set(documentId, newChunkInfos)
   }
 
   async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
-    // it would probably be best to ensure .snapshot comes back first
-    // prevent the race condition with saveIncremental
-    const binaries: Uint8Array[] = await this.#storageAdapter.loadRange([
+    const loaded = await this.#storageAdapter.loadRange([
       documentId,
     ])
-
+    const binaries = []
+    const chunkInfos: StorageChunkInfo[] = []
+    for (const chunk of loaded) {
+      const chunkType = chunkTypeFromKey(chunk.key)
+      if (chunkType == null) {
+        continue
+      }
+      chunkInfos.push({
+        key: chunk.key,
+        type: chunkType,
+        size: chunk.data.length
+      })
+      binaries.push(chunk.data)
+    }
+    this.#chunkInfos.set(documentId, chunkInfos)
     return mergeArrays(binaries)
   }
 
-  async load<T>(
-    documentId: DocumentId,
-    prevDoc: A.Doc<T> = A.init<T>()
-  ): Promise<A.Doc<T>> {
-    const doc = A.loadIncremental(prevDoc, await this.loadBinary(documentId))
-    A.saveIncremental(doc)
-    return doc
-  }
-
-  async save(documentId: DocumentId, doc: A.Doc<unknown>) {
-    if (this.#shouldCompact(documentId)) {
-      return this.#saveTotal(documentId, doc)
+  async save(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+    let sourceChunks = this.#chunkInfos.get(documentId) ?? []
+    if (this.#shouldCompact(sourceChunks)) {
+      this.#saveTotal(documentId, doc, sourceChunks)
     } else {
-      return this.#saveIncremental(documentId, doc)
+      this.#saveIncremental(documentId, doc)
     }
   }
 
@@ -70,9 +105,30 @@ export class StorageSubsystem {
     this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 
-  // TODO: make this, you know, good.
-  // this is probably fine
-  #shouldCompact(documentId: DocumentId) {
-    return Math.random() < 0.05 // this.#changeCount[documentId] >= 20
+  #shouldCompact(sourceChunks: StorageChunkInfo[]) {
+    // compact if the incremental size is greater than the snapshot size
+    let snapshotSize = 0
+    let incrementalSize = 0
+    for (const chunk of sourceChunks) {
+      if (chunk.type === "snapshot") {
+        snapshotSize += chunk.size
+      } else {
+        incrementalSize += chunk.size
+      }
+    }
+    return incrementalSize > snapshotSize
+  }
+}
+
+function chunkTypeFromKey(key: StorageKey): ChunkType | null {
+  if (key.length < 2) {
+    return null
+  }
+  const chunkTypeStr = key[key.length - 2]
+  if (chunkTypeStr === "snapshot" || chunkTypeStr === "incremental") {
+    const chunkType: ChunkType = chunkTypeStr
+    return chunkType
+  } else {
+    return null
   }
 }

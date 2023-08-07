@@ -11,7 +11,7 @@ export type {
 } from "./network/NetworkAdapter.js"
 export { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 export { Repo, type SharePolicy } from "./Repo.js"
-export { StorageAdapter } from "./storage/StorageAdapter.js"
+export { StorageAdapter, type StorageKey } from "./storage/StorageAdapter.js"
 export { StorageSubsystem } from "./storage/StorageSubsystem.js"
 export { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 export * from "./types.js"

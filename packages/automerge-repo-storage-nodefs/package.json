@@ -13,7 +13,8 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^0.2.1"
+    "@automerge/automerge-repo": "^0.2.1",
+    "rimraf": "^5.0.1"
   },
   "watch": {
     "build": {

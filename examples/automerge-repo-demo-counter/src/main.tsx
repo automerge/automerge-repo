@@ -40,7 +40,7 @@ function createSharedWorker(): Promise<SharedWorker> {
   })
 }
 
-function setupSharedWorkerAndRepo() {
+function setupSharedWorkerAndRepo(): Repo {
   const repoNetworkChannel = new MessageChannel()
   sharedWorker.port.postMessage({ repoNetworkPort: repoNetworkChannel.port2 }, [
     repoNetworkChannel.port2,
