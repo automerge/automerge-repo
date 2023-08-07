@@ -133,8 +133,8 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
 
-      repo.on("delete-document", ({ documentId }) => {
-        assert.equal(documentId, handle.documentId)
+      repo.on("delete-document", ({ encodedDocumentId }) => {
+        assert.equal(encodedDocumentId, handle.encodedDocumentId)
 
         done()
       })

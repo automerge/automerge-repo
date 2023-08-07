@@ -48,12 +48,12 @@ export class Repo extends DocCollection {
       synchronizer.addDocument(handle.documentId)
     })
 
-    this.on("delete-document", ({ documentId }) => {
+    this.on("delete-document", ({ encodedDocumentId }) => {
       // TODO Pass the delete on to the network
       // synchronizer.removeDocument(documentId)
 
       if (storageSubsystem) {
-        storageSubsystem.remove(encodeDocumentId(documentId))
+        storageSubsystem.remove(encodedDocumentId)
       }
     })
 

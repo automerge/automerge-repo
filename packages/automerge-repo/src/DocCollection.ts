@@ -106,7 +106,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
 
     delete this.#handleCache[encodedDocumentId]
     this.emit("delete-document", {
-      documentId: decodeDocumentId(encodedDocumentId)!,
+      encodedDocumentId: encodedDocumentId,
     })
   }
 }
@@ -122,5 +122,5 @@ interface DocumentPayload {
 }
 
 interface DeleteDocumentPayload {
-  documentId: DocumentId
+  encodedDocumentId: EncodedDocumentId
 }
