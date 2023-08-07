@@ -13,6 +13,9 @@
     "test": "vitest run",
     "watch": "npm-watch"
   },
+  "peerDependencies": {
+    "@automerge/automerge": "^2.1.0-alpha.8"
+  },
   "dependencies": {
     "@automerge/automerge-repo": "^0.2.1",
     "eventemitter3": "^5.0.0",

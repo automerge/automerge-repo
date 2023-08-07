@@ -2,6 +2,9 @@
   "name": "@automerge/automerge-repo-network-websocket",
   "version": "0.2.1",
   "description": "isomorphic node/browser Websocket network adapter for Automerge Repo",
+  "peerDependencies": {
+    "@automerge/automerge": "^2.1.0-alpha.8"
+  },
   "repository": "https://github.com/automerge/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
@@ -17,9 +20,7 @@
     "@automerge/automerge-repo": "^0.2.1",
     "cbor-x": "^1.3.0",
     "eventemitter3": "^4.0.7",
-    "isomorphic-ws": "^5.0.0"
-  },
-  "devDependencies": {
+    "isomorphic-ws": "^5.0.0",
     "ws": "^8.7.0"
   },
   "watch": {
