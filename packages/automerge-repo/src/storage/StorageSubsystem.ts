@@ -1,50 +1,50 @@
 import * as A from "@automerge/automerge"
-import { DocumentId, StringDocumentId } from "../types.js"
+import { type EncodedDocumentId } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 import { StorageAdapter } from "./StorageAdapter.js"
-import { encode } from "../DocUrl.js"
 
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
-  #changeCount: Record<StringDocumentId, number> = {}
+  #changeCount: Record<EncodedDocumentId, number> = {}
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
   }
 
-  #saveIncremental(binaryDocumentId: DocumentId, doc: A.Doc<unknown>) {
-    const documentId = encode(binaryDocumentId)
+  #saveIncremental(encodedDocumentId: EncodedDocumentId, doc: A.Doc<unknown>) {
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
-      if (!this.#changeCount[documentId]) {
-        this.#changeCount[documentId] = 0
+      if (!this.#changeCount[encodedDocumentId]) {
+        this.#changeCount[encodedDocumentId] = 0
       }
 
       this.#storageAdapter.save(
-        `${documentId}.incremental.${this.#changeCount[documentId]}`,
+        `${encodedDocumentId}.incremental.${
+          this.#changeCount[encodedDocumentId]
+        }`,
         binary
       )
 
-      this.#changeCount[documentId]++
+      this.#changeCount[encodedDocumentId]++
     }
   }
 
-  #saveTotal(binaryDocumentId: DocumentId, doc: A.Doc<unknown>) {
-    const documentId = encode(binaryDocumentId)
+  #saveTotal(encodedDocumentId: EncodedDocumentId, doc: A.Doc<unknown>) {
     const binary = A.save(doc)
-    this.#storageAdapter.save(`${documentId}.snapshot`, binary)
+    this.#storageAdapter.save(`${encodedDocumentId}.snapshot`, binary)
 
-    for (let i = 0; i < this.#changeCount[documentId]; i++) {
-      this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
+    for (let i = 0; i < this.#changeCount[encodedDocumentId]; i++) {
+      this.#storageAdapter.remove(`${encodedDocumentId}.incremental.${i}`)
     }
 
-    this.#changeCount[documentId] = 0
+    this.#changeCount[encodedDocumentId] = 0
   }
 
-  async loadBinary(binaryDocumentId: DocumentId): Promise<Uint8Array> {
-    const documentId = encode(binaryDocumentId)
+  async loadBinary(encodedDocumentId: EncodedDocumentId): Promise<Uint8Array> {
     const result = []
-    let binary = await this.#storageAdapter.load(`${documentId}.snapshot`)
+    let binary = await this.#storageAdapter.load(
+      `${encodedDocumentId}.snapshot`
+    )
     if (binary && binary.length > 0) {
       result.push(binary)
     }
@@ -52,10 +52,10 @@ export class StorageSubsystem {
     let index = 0
     while (
       (binary = await this.#storageAdapter.load(
-        `${documentId}.incremental.${index}`
+        `${encodedDocumentId}.incremental.${index}`
       ))
     ) {
-      this.#changeCount[documentId] = index + 1
+      this.#changeCount[encodedDocumentId] = index + 1
       if (binary && binary.length > 0) result.push(binary)
       index += 1
     }
@@ -64,34 +64,35 @@ export class StorageSubsystem {
   }
 
   async load<T>(
-    documentId: DocumentId,
+    encodedDocumentId: EncodedDocumentId,
     prevDoc: A.Doc<T> = A.init<T>()
   ): Promise<A.Doc<T>> {
-    const doc = A.loadIncremental(prevDoc, await this.loadBinary(documentId))
+    const doc = A.loadIncremental(
+      prevDoc,
+      await this.loadBinary(encodedDocumentId)
+    )
     A.saveIncremental(doc)
     return doc
   }
 
-  save(documentId: DocumentId, doc: A.Doc<unknown>) {
-    if (this.#shouldCompact(documentId)) {
-      this.#saveTotal(documentId, doc)
+  save(encodedDocumentId: EncodedDocumentId, doc: A.Doc<unknown>) {
+    if (this.#shouldCompact(encodedDocumentId)) {
+      this.#saveTotal(encodedDocumentId, doc)
     } else {
-      this.#saveIncremental(documentId, doc)
+      this.#saveIncremental(encodedDocumentId, doc)
     }
   }
 
-  remove(binaryDocumentId: DocumentId) {
-    const documentId = encode(binaryDocumentId)
-    this.#storageAdapter.remove(`${documentId}.snapshot`)
+  remove(encodedDocumentId: EncodedDocumentId) {
+    this.#storageAdapter.remove(`${encodedDocumentId}.snapshot`)
 
-    for (let i = 0; i < this.#changeCount[documentId]; i++) {
-      this.#storageAdapter.remove(`${documentId}.incremental.${i}`)
+    for (let i = 0; i < this.#changeCount[encodedDocumentId]; i++) {
+      this.#storageAdapter.remove(`${encodedDocumentId}.incremental.${i}`)
     }
   }
 
   // TODO: make this, you know, good.
-  #shouldCompact(binaryDocumentId: DocumentId) {
-    const documentId = encode(binaryDocumentId)
-    return this.#changeCount[documentId] >= 20
+  #shouldCompact(encodedDocumentId: EncodedDocumentId) {
+    return this.#changeCount[encodedDocumentId] >= 20
   }
 }

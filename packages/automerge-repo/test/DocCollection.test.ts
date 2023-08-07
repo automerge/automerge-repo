@@ -1,9 +1,9 @@
 import assert from "assert"
 import { DocCollection, DocumentId } from "../src"
 import { TestDoc } from "./types.js"
-import { generate, generateAutomergeUrl } from "../src/DocUrl"
+import { generate, stringifyAutomergeUrl } from "../src/DocUrl"
 
-const MISSING_DOCID = generateAutomergeUrl({ documentId: generate() })
+const MISSING_DOCID = stringifyAutomergeUrl({ documentId: generate() })
 
 describe("DocCollection", () => {
   it("can create documents which are ready to go", async () => {

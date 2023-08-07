@@ -17,6 +17,6 @@ export { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js
 export {
   parseAutomergeUrl,
   isValidAutomergeUrl,
-  generateAutomergeUrl,
+  stringifyAutomergeUrl as generateAutomergeUrl,
 } from "./DocUrl"
 export * from "./types.js"

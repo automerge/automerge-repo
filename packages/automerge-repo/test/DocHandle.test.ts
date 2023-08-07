@@ -4,11 +4,11 @@ import { it } from "mocha"
 import { DocHandle, DocHandleChangePayload, DocumentId } from "../src"
 import { pause } from "../src/helpers/pause"
 import { TestDoc } from "./types.js"
-import { generate } from "../src/DocUrl"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl"
 
 describe("DocHandle", () => {
-  const TEST_ID = generate()
-  const BOGUS_ID = generate()
+  const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
+  const BOGUS_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   const binaryFromMockStorage = () => {
     const doc = A.change<{ foo: string }>(A.init(), d => (d.foo = "bar"))

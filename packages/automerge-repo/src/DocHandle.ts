@@ -20,11 +20,11 @@ import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
 import type {
   DocumentId,
   ChannelId,
-  StringDocumentId,
+  EncodedDocumentId,
   PeerId,
   AutomergeUrl,
 } from "./types.js"
-import { encode, generateAutomergeUrl } from "./DocUrl.js"
+import { encodeDocumentId, stringifyAutomergeUrl } from "./DocUrl.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -34,13 +34,14 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
+  #encodedDocumentId: EncodedDocumentId
 
-  get stringDocumentId(): StringDocumentId {
-    return encode(this.documentId) as StringDocumentId
+  get encodedDocumentId(): EncodedDocumentId {
+    return this.#encodedDocumentId
   }
 
   get url(): AutomergeUrl {
-    return generateAutomergeUrl({ documentId: this.documentId })
+    return stringifyAutomergeUrl({ documentId: this.documentId })
   }
 
   constructor(
@@ -48,9 +49,12 @@ export class DocHandle<T> //
     { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
   ) {
     super()
+    this.#encodedDocumentId = encodeDocumentId(
+      this.documentId
+    ) as EncodedDocumentId
     this.#timeoutDelay = timeoutDelay
     this.#log = debug(
-      `automerge-repo:dochandle:${this.stringDocumentId.slice(0, 5)}`
+      `automerge-repo:dochandle:${this.encodedDocumentId.slice(0, 5)}`
     )
 
     // initial doc

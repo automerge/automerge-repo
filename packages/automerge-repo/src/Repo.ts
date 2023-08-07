@@ -1,4 +1,5 @@
 import { DocCollection } from "./DocCollection.js"
+import { encodeDocumentId } from "./DocUrl.js"
 import { EphemeralData } from "./EphemeralData.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
@@ -31,11 +32,13 @@ export class Repo extends DocCollection {
       if (storageSubsystem) {
         // Save when the document changes
         handle.on("heads-changed", async ({ handle, doc }) => {
-          storageSubsystem.save(handle.documentId, doc)
+          storageSubsystem.save(handle.encodedDocumentId, doc)
         })
 
         // Try to load from disk
-        const binary = await storageSubsystem.loadBinary(handle.documentId)
+        const binary = await storageSubsystem.loadBinary(
+          handle.encodedDocumentId
+        )
         handle.load(binary)
       }
 
@@ -50,7 +53,7 @@ export class Repo extends DocCollection {
       // synchronizer.removeDocument(documentId)
 
       if (storageSubsystem) {
-        storageSubsystem.remove(documentId)
+        storageSubsystem.remove(encodeDocumentId(documentId))
       }
     })
 

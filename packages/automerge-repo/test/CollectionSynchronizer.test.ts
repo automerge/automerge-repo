@@ -24,7 +24,7 @@ describe("CollectionSynchronizer", () => {
     synchronizer.once("message", (event: MessagePayload) => {
       assert(event.targetId === "peer1")
       assert(
-        event.channelId === (handle.stringDocumentId as unknown as ChannelId)
+        event.channelId === (handle.encodedDocumentId as unknown as ChannelId)
       )
       done()
     })
@@ -38,7 +38,7 @@ describe("CollectionSynchronizer", () => {
     synchronizer.once("message", (event: MessagePayload) => {
       assert(event.targetId === "peer1")
       assert(
-        event.channelId === (handle.stringDocumentId as unknown as ChannelId)
+        event.channelId === (handle.encodedDocumentId as unknown as ChannelId)
       )
       done()
     })

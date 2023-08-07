@@ -9,7 +9,11 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
-import { encode, generate, generateAutomergeUrl } from "../src/DocUrl"
+import {
+  encodeDocumentId,
+  generateAutomergeUrl,
+  stringifyAutomergeUrl,
+} from "../src/DocUrl"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -50,9 +54,7 @@ describe("Repo", () => {
 
     it("doesn't find a document that doesn't exist", async () => {
       const { repo } = setup()
-      const handle = repo.find<TestDoc>(
-        generateAutomergeUrl({ documentId: generate() as DocumentId })
-      )
+      const handle = repo.find<TestDoc>(generateAutomergeUrl())
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
@@ -109,10 +111,10 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
       await handle.doc()
-      repo.delete(handle.documentId)
+      repo.delete(handle.encodedDocumentId)
 
       assert(handle.isDeleted())
-      assert.equal(repo.handles[encode(handle.documentId)], undefined)
+      assert.equal(repo.handles[handle.encodedDocumentId], undefined)
 
       const bobHandle = repo.find<TestDoc>(handle.url)
       await assert.rejects(
@@ -137,7 +139,7 @@ describe("Repo", () => {
         done()
       })
 
-      repo.delete(handle.documentId)
+      repo.delete(handle.encodedDocumentId)
     })
   })
 
@@ -262,17 +264,17 @@ describe("Repo", () => {
       ])
 
       assert.notEqual(
-        aliceRepo.handles[encode(notForCharlie)],
+        aliceRepo.handles[encodeDocumentId(notForCharlie)],
         undefined,
         "alice yes"
       )
       assert.notEqual(
-        bobRepo.handles[encode(notForCharlie)],
+        bobRepo.handles[encodeDocumentId(notForCharlie)],
         undefined,
         "bob yes"
       )
       assert.equal(
-        charlieRepo.handles[encode(notForCharlie)],
+        charlieRepo.handles[encodeDocumentId(notForCharlie)],
         undefined,
         "charlie no"
       )
@@ -284,7 +286,7 @@ describe("Repo", () => {
       const { charlieRepo, notForCharlie, teardown } = await setup()
 
       const handle = charlieRepo.find<TestDoc>(
-        generateAutomergeUrl({ documentId: notForCharlie })
+        stringifyAutomergeUrl({ documentId: notForCharlie })
       )
       const doc = await handle.doc()
 
@@ -297,7 +299,7 @@ describe("Repo", () => {
       const { charlieRepo, notForBob, teardown } = await setup()
 
       const handle = charlieRepo.find<TestDoc>(
-        generateAutomergeUrl({ documentId: notForBob })
+        stringifyAutomergeUrl({ documentId: notForBob })
       )
       const doc = await handle.doc()
       assert.deepStrictEqual(doc, { foo: "bap" })
@@ -307,9 +309,7 @@ describe("Repo", () => {
 
     it("doesn't find a document which doesn't exist anywhere on the network", async () => {
       const { charlieRepo } = await setup()
-      const handle = charlieRepo.find<TestDoc>(
-        generateAutomergeUrl({ documentId: generate() })
-      )
+      const handle = charlieRepo.find<TestDoc>(generateAutomergeUrl())
       assert.equal(handle.isReady(), false)
 
       return assert.rejects(
@@ -322,7 +322,7 @@ describe("Repo", () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
 
       const deletePromise = eventPromise(charlieRepo, "delete-document")
-      charlieRepo.delete(aliceHandle.documentId)
+      charlieRepo.delete(aliceHandle.encodedDocumentId)
       await deletePromise
 
       const changePromise = eventPromise(aliceHandle, "change")

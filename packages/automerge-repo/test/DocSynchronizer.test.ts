@@ -4,7 +4,7 @@ import { DocHandle } from "../src/DocHandle.js"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { TestDoc } from "./types.js"
-import { generate } from "../src/DocUrl.js"
+import { parseAutomergeUrl, generateAutomergeUrl } from "../src/DocUrl.js"
 
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId
@@ -14,7 +14,7 @@ describe("DocSynchronizer", () => {
   let docSynchronizer: DocSynchronizer
 
   const setup = () => {
-    const docId = generate()
+    const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
     handle = new DocHandle<TestDoc>(docId, { isNew: true })
     docSynchronizer = new DocSynchronizer(handle)
     return { handle, docSynchronizer }
