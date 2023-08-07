@@ -1,7 +1,14 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 
-import { ChannelId, DocHandle, DocumentId, PeerId, SharePolicy } from "../src"
+import {
+  AutomergeUrl,
+  ChannelId,
+  DocHandle,
+  DocumentId,
+  PeerId,
+  SharePolicy,
+} from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause, rejectOnTimeout } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
@@ -50,6 +57,15 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), true)
 
       assert.equal(v.foo, "bar")
+    })
+
+    it("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
+      const { repo } = setup()
+      try {
+        repo.find<TestDoc>("invalid-url" as unknown as AutomergeUrl)
+      } catch (e: any) {
+        assert.equal(e.message, "Invalid AutomergeUrl: 'invalid-url'")
+      }
     })
 
     it("doesn't find a document that doesn't exist", async () => {
