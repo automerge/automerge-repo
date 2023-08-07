@@ -11,7 +11,7 @@ import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
 import { DocumentId, StorageSubsystem } from "../src"
 import { TestDoc } from "./types.js"
-import { generate } from "../src/DocUrl.js"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -31,7 +31,7 @@ describe("StorageSubsystem", () => {
         })
 
         // save it to storage
-        const key = generate()
+        const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
         storage.save(key, doc)
 
         // reload it from storage
@@ -52,7 +52,7 @@ describe("StorageSubsystem", () => {
     })
 
     // save it to storage
-    const key = generate()
+    const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
     storage.save(key, doc)
 
     // create new storage subsystem to simulate a new process
