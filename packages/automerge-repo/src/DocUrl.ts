@@ -1,43 +1,34 @@
 import { AutomergeUrl, DocumentId, StringDocumentId } from "./types"
 import { v4 as uuid } from "uuid"
-import Base58 from "bs58check"
+import bs58check from "bs58check"
 
 export const parseAutomergeUrl = (link: AutomergeUrl) => {
   const { stringDocumentId } = parts(link)
-  const documentId = Base58.decodeUnsafe(stringDocumentId) as
+  const documentId = bs58check.decodeUnsafe(stringDocumentId) as
     | DocumentId
     | undefined
   if (!documentId) throw new Error("Invalid document URL: " + link)
   return { documentId }
 }
 
-interface UrlFromStringIdOptions {
-  stringDocumentId: StringDocumentId
-  documentId?: never
-}
-interface UrlFromBinaryIdOptions {
-  stringDocumentId?: never
-  documentId: DocumentId
+interface GenerateAutomergeUrlOptions {
+  documentId: StringDocumentId | DocumentId
 }
 
-type GenerateAutomergeUrlOptions =
-  | UrlFromStringIdOptions
-  | UrlFromBinaryIdOptions
-
-export const generateAutomergeUrl = (
-  opts: GenerateAutomergeUrlOptions
-): AutomergeUrl => {
-  if (opts.stringDocumentId)
-    return ("automerge:" + opts.stringDocumentId) as AutomergeUrl
-  else if (opts.documentId) {
-    return ("automerge:" + encode(opts.documentId)) as AutomergeUrl
+export const generateAutomergeUrl = ({
+  documentId,
+}: GenerateAutomergeUrlOptions): AutomergeUrl => {
+  if (documentId instanceof Uint8Array)
+    return ("automerge:" + bs58check.encode(documentId)) as AutomergeUrl
+  else if (typeof documentId === "string") {
+    return ("automerge:" + documentId) as AutomergeUrl
   }
-  throw new Error("Invalid options: " + opts)
+  throw new Error("Invalid documentId: " + documentId)
 }
 
 export const isValidAutomergeUrl = (str: string): str is AutomergeUrl => {
   const { stringDocumentId } = parts(str)
-  const documentId = Base58.decodeUnsafe(stringDocumentId)
+  const documentId = bs58check.decodeUnsafe(stringDocumentId)
   return documentId ? true : false
 }
 
@@ -50,11 +41,11 @@ export const generate = (): DocumentId =>
   Uint8Array.from(uuid(null, new Uint8Array(16))) as DocumentId
 
 export const encode = (id: DocumentId): StringDocumentId => {
-  return Base58.encode(id) as StringDocumentId
+  return bs58check.encode(id) as StringDocumentId
 }
 
 export const decode = (id: StringDocumentId): DocumentId => {
-  const decoded: DocumentId = Base58.decode(id) as DocumentId
+  const decoded: DocumentId = bs58check.decode(id) as DocumentId
   if (decoded.length != 16) throw new Error("Invalid document ID: " + id)
   return decoded
 }
