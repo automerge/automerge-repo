@@ -11,7 +11,6 @@ import debug from "debug"
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
-  #channels: ChannelId[]
 
   constructor(
     private adapters: NetworkAdapter[],
@@ -19,14 +18,13 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   ) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
-    this.#channels = []
     this.adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
     networkAdapter.connect(this.peerId)
 
-    networkAdapter.on("peer-candidate", ({ peerId, channelId }) => {
+    networkAdapter.on("peer-candidate", ({ peerId }) => {
       this.#log(`peer candidate: ${peerId} `)
 
       // TODO: This is where authentication would happen
@@ -36,7 +34,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         this.#adaptersByPeer[peerId] = networkAdapter
       }
 
-      this.emit("peer", { peerId, channelId })
+      this.emit("peer", { peerId })
     })
 
     networkAdapter.on("peer-disconnected", ({ peerId }) => {
@@ -74,7 +72,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       })
     })
 
-    this.#channels.forEach(c => networkAdapter.join(c))
+    networkAdapter.join()
   }
 
   sendMessage(
@@ -99,16 +97,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     }
   }
 
-  join(channelId: ChannelId) {
-    this.#log(`Joining channel ${channelId}`)
-    this.#channels.push(channelId)
-    this.adapters.forEach(a => a.join(channelId))
+  join() {
+    this.#log(`Joining network`)
+    this.adapters.forEach(a => a.join())
   }
 
-  leave(channelId: ChannelId) {
-    this.#log(`Leaving channel ${channelId}`)
-    this.#channels = this.#channels.filter(c => c !== channelId)
-    this.adapters.forEach(a => a.leave(channelId))
+  leave() {
+    this.#log(`Leaving network`)
+    this.adapters.forEach(a => a.leave())
   }
 }
 
@@ -126,5 +122,4 @@ export interface NetworkSubsystemEvents {
 
 export interface PeerPayload {
   peerId: PeerId
-  channelId: ChannelId
 }
