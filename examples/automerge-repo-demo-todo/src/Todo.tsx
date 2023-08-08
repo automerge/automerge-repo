@@ -1,11 +1,11 @@
-import { DocumentId } from "@automerge/automerge-repo"
+import { AutomergeUrl } from "@automerge/automerge-repo"
 import { useDocument } from "@automerge/automerge-repo-react-hooks"
 import cx from "classnames"
 import { useEffect, useRef, useState } from "react"
 import { Filter, TodoData } from "./types.js"
 
-export const Todo = ({ id, onDestroy, filter }: TodoProps) => {
-  const [todo, changeTodo] = useDocument<TodoData>(id)
+export const Todo = ({ url, onDestroy, filter }: TodoProps) => {
+  const [todo, changeTodo] = useDocument<TodoData>(url)
 
   // editing mode
   const [editing, setEditing] = useState(false)
@@ -60,7 +60,7 @@ export const Todo = ({ id, onDestroy, filter }: TodoProps) => {
             const newContent = e.target.value.trim()
             if (newContent.length === 0) {
               // if user has removed all the content of the todo, delete it
-              onDestroy(id)
+              onDestroy(url)
             } else {
               // otherwise, update the content
               changeTodo(t => {
@@ -91,14 +91,14 @@ export const Todo = ({ id, onDestroy, filter }: TodoProps) => {
             "font-extrabold text-danger-500"
           )}
           style={{ cursor: "pointer" }}
-          onClick={e => onDestroy(id)}
+          onClick={e => onDestroy(url)}
         />
       </li>
     )
 }
 
 export interface TodoProps {
-  id: DocumentId
-  onDestroy: (id: DocumentId) => void
+  url: AutomergeUrl
+  onDestroy: (id: AutomergeUrl) => void
   filter: Filter
 }

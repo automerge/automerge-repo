@@ -18,13 +18,13 @@ import { headsAreSame } from "./helpers/headsAreSame.js"
 import { pause } from "./helpers/pause.js"
 import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
 import type {
-  DocumentId,
+  BinaryDocumentId,
   ChannelId,
-  EncodedDocumentId,
+  DocumentId,
   PeerId,
   AutomergeUrl,
 } from "./types.js"
-import { encodeDocumentId, stringifyAutomergeUrl } from "./DocUrl.js"
+import { binaryToDocumentId, stringifyAutomergeUrl } from "./DocUrl.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -34,11 +34,6 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
-  #encodedDocumentId: EncodedDocumentId
-
-  get encodedDocumentId(): EncodedDocumentId {
-    return this.#encodedDocumentId
-  }
 
   get url(): AutomergeUrl {
     return stringifyAutomergeUrl({ documentId: this.documentId })
@@ -49,13 +44,8 @@ export class DocHandle<T> //
     { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
   ) {
     super()
-    this.#encodedDocumentId = encodeDocumentId(
-      this.documentId
-    ) as EncodedDocumentId
     this.#timeoutDelay = timeoutDelay
-    this.#log = debug(
-      `automerge-repo:dochandle:${this.encodedDocumentId.slice(0, 5)}`
-    )
+    this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
     // initial doc
     const doc = A.init<T>()

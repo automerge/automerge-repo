@@ -24,7 +24,7 @@ export class DocSynchronizer extends Synchronizer {
 
   constructor(private handle: DocHandle<any>) {
     super()
-    const docId = handle.encodedDocumentId.slice(0, 5)
+    const docId = handle.documentId.slice(0, 5)
     this.#conciseLog = debug(`automerge-repo:concise:docsync:${docId}`) // Only logs one line per receive/send
     this.#log = debug(`automerge-repo:docsync:${docId}`)
     this.#opsLog = debug(`automerge-repo:ops:docsync:${docId}`) // Log list of ops of each message
@@ -77,7 +77,7 @@ export class DocSynchronizer extends Synchronizer {
     if (message) {
       this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
 
-      const channelId = this.handle.encodedDocumentId as string as ChannelId
+      const channelId = this.handle.documentId as string as ChannelId
 
       this.emit("message", {
         targetId: peerId,
@@ -144,7 +144,7 @@ export class DocSynchronizer extends Synchronizer {
     channelId: ChannelId,
     message: Uint8Array
   ) {
-    if ((channelId as string) !== (this.handle.encodedDocumentId as string))
+    if ((channelId as string) !== (this.handle.documentId as string))
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage

@@ -1,4 +1,8 @@
-import { AutomergeUrl, DocumentId, EncodedDocumentId } from "./types"
+import {
+  type AutomergeUrl,
+  type BinaryDocumentId,
+  type DocumentId,
+} from "./types"
 import { v4 as uuid } from "uuid"
 import bs58check from "bs58check"
 
@@ -11,13 +15,13 @@ export const urlPrefix = "automerge:"
  * @returns { documentId: Uint8Array(16), encodedDocumentId: bs58check.encode(documentId) }
  */
 export const parseAutomergeUrl = (url: AutomergeUrl) => {
-  const { documentId, encodedDocumentId } = parts(url)
-  if (!documentId) throw new Error("Invalid document URL: " + url)
-  return { documentId, encodedDocumentId }
+  const { binaryDocumentId: binaryDocumentId, encodedDocumentId } = parts(url)
+  if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
+  return { binaryDocumentId, encodedDocumentId }
 }
 
 interface StringifyAutomergeUrlOptions {
-  documentId: EncodedDocumentId | DocumentId
+  documentId: DocumentId | BinaryDocumentId
 }
 
 /**
@@ -32,7 +36,7 @@ export const stringifyAutomergeUrl = ({
 }: StringifyAutomergeUrlOptions): AutomergeUrl => {
   if (documentId instanceof Uint8Array)
     return (urlPrefix +
-      encodeDocumentId(documentId as DocumentId)) as AutomergeUrl
+      binaryToDocumentId(documentId as BinaryDocumentId)) as AutomergeUrl
   else if (typeof documentId === "string") {
     return (urlPrefix + documentId) as AutomergeUrl
   }
@@ -48,7 +52,7 @@ export const stringifyAutomergeUrl = ({
 export const isValidAutomergeUrl = (str: string): str is AutomergeUrl => {
   if (!str.startsWith(urlPrefix)) return false
 
-  const { documentId } = parts(str)
+  const { binaryDocumentId: documentId } = parts(str)
   return documentId ? true : false
 }
 
@@ -59,27 +63,28 @@ export const isValidAutomergeUrl = (str: string): str is AutomergeUrl => {
  */
 export const generateAutomergeUrl = (): AutomergeUrl =>
   stringifyAutomergeUrl({
-    documentId: uuid(null, new Uint8Array(16)) as DocumentId,
+    documentId: uuid(null, new Uint8Array(16)) as BinaryDocumentId,
   })
 
-export const decodeDocumentId = (
-  docId: EncodedDocumentId
-): DocumentId | undefined =>
-  bs58check.decodeUnsafe(docId) as DocumentId | undefined
+export const documentIdToBinary = (
+  docId: DocumentId
+): BinaryDocumentId | undefined =>
+  bs58check.decodeUnsafe(docId) as BinaryDocumentId | undefined
 
-export const encodeDocumentId = (docId: DocumentId): EncodedDocumentId =>
-  bs58check.encode(docId) as EncodedDocumentId
+export const binaryToDocumentId = (docId: BinaryDocumentId): DocumentId =>
+  bs58check.encode(docId) as DocumentId
 
 /**
  * parts breaks up the URL into constituent pieces,
  * eventually this could include things like heads, so we use this structure
+ * we return both a binary & string-encoded version of the document ID
  * @param str
- * @returns
+ * @returns { binaryDocumentId, encodedDocumentId }
  */
 const parts = (str: string) => {
   const regex = new RegExp(`^${urlPrefix}(\\w+)$`)
   const [m, docMatch] = str.match(regex) || []
-  const encodedDocumentId = docMatch as EncodedDocumentId
-  const documentId = decodeDocumentId(encodedDocumentId)
-  return { documentId, encodedDocumentId }
+  const encodedDocumentId = docMatch as DocumentId
+  const binaryDocumentId = documentIdToBinary(encodedDocumentId)
+  return { binaryDocumentId, encodedDocumentId }
 }

@@ -1,5 +1,5 @@
 import assert from "assert"
-import { DocumentId, PeerId } from "../src/types.js"
+import { BinaryDocumentId, PeerId } from "../src/types.js"
 import { DocHandle } from "../src/DocHandle.js"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
@@ -14,7 +14,7 @@ describe("DocSynchronizer", () => {
   let docSynchronizer: DocSynchronizer
 
   const setup = () => {
-    const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const docId = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
     handle = new DocHandle<TestDoc>(docId, { isNew: true })
     docSynchronizer = new DocSynchronizer(handle)
     return { handle, docSynchronizer }
