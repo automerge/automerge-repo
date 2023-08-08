@@ -16,6 +16,9 @@
   "dependencies": {
     "@automerge/automerge-repo": "^0.2.1"
   },
+  "peerDependencies": {
+    "@automerge/automerge": "^2.1.0-alpha.8"
+  },
   "watch": {
     "build": {
       "patterns": "./src/**/*",

@@ -11,6 +11,9 @@
     "build": "tsc",
     "watch": "npm-watch"
   },
+  "peerDependencies": {
+    "@automerge/automerge": "^2.1.0-alpha.8"
+  },
   "dependencies": {
     "@automerge/automerge-repo": "^0.2.1",
     "svelte": "^3.0.0"
