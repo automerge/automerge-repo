@@ -102,14 +102,18 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
 
   delete(
     /** The documentId of the handle to delete */
-    encodedDocumentId: DocumentId
+    id: DocumentId | AutomergeUrl
   ) {
-    const handle = this.#getHandle(encodedDocumentId, false)
+    if (isValidAutomergeUrl(id)) {
+      ;({ encodedDocumentId: id } = parseAutomergeUrl(id))
+    }
+
+    const handle = this.#getHandle(id, false)
     handle.delete()
 
-    delete this.#handleCache[encodedDocumentId]
+    delete this.#handleCache[id]
     this.emit("delete-document", {
-      encodedDocumentId: encodedDocumentId,
+      encodedDocumentId: id,
     })
   }
 }
