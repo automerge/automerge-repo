@@ -99,11 +99,11 @@ export function App() {
           {/* todos */}
           <section>
             <ul className="border-y divide-y divide-solid">
-              {state.todos.map(id => (
+              {state.todos.map(url => (
                 <Todo
-                  key={id}
+                  key={url}
                   url={url}
-                  onDestroy={id => destroy(id)}
+                  onDestroy={url => destroy(url)}
                   filter={filter}
                 />
               ))}
