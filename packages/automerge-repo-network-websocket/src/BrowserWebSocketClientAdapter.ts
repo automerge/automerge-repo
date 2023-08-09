@@ -8,6 +8,8 @@ import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
+import {ProtocolV1} from "./protocolVersion"
+import {InboundWebSocketMessage, OutboundWebSocketMessage} from "./message"
 const log = debug("WebsocketClient")
 
 abstract class WebSocketNetworkAdapter extends NetworkAdapter {
@@ -58,7 +60,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       throw new Error("WTF, get a socket")
     }
     if (this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(CBOR.encode({ type: "join", senderId: this.peerId }))
+      this.socket.send(
+        CBOR.encode(joinMessage(this.peerId))
+      )
     } else {
       this.socket.addEventListener(
         "open",
@@ -66,7 +70,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
           if (!this.socket) {
             throw new Error("WTF, get a socket")
           }
-          this.socket.send(CBOR.encode({ type: "join", senderId: this.peerId }))
+          this.socket.send(
+            CBOR.encode(joinMessage(this.peerId))
+          )
         },
         { once: true }
       )
@@ -127,7 +133,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array) {
-    const decoded: InboundMessagePayload = CBOR.decode(new Uint8Array(message))
+    const decoded: OutboundWebSocketMessage = CBOR.decode(new Uint8Array(message))
 
     const {
       type,
@@ -152,6 +158,8 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
         log(`peer: ${senderId}, ${channelId}`)
         this.announceConnection(senderId)
         break
+      case "error":
+        log(`error: ${decoded.errorMessage}`)
       default:
         this.emit("message", {
           channelId,
@@ -161,5 +169,13 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
           broadcast,
         })
     }
+  }
+}
+
+function joinMessage(senderId?: PeerId): Record<string, any> {
+  return {
+    type: "join",
+    senderId,
+    supportedProtocolVersions: [ProtocolV1],
   }
 }
