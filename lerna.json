@@ -3,5 +3,5 @@
   "useNx": true,
   "npmClient": "yarn",
   "useWorkspaces": true,
-  "version": "0.2.1"
+  "version": "1.0.0-alpha.0"
 }
