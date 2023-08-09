@@ -1,5 +1,5 @@
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
-import { ChannelId, DocCollection, DocumentId, PeerId } from "../src"
+import { ChannelId, DocCollection, BinaryDocumentId, PeerId } from "../src"
 import assert from "assert"
 import { beforeEach } from "mocha"
 import { MessagePayload } from "../src/network/NetworkAdapter.js"
@@ -23,9 +23,7 @@ describe("CollectionSynchronizer", () => {
 
     synchronizer.once("message", (event: MessagePayload) => {
       assert(event.targetId === "peer1")
-      assert(
-        event.channelId === (handle.encodedDocumentId as unknown as ChannelId)
-      )
+      assert(event.channelId === (handle.documentId as unknown as ChannelId))
       done()
     })
 
@@ -37,9 +35,7 @@ describe("CollectionSynchronizer", () => {
     synchronizer.addDocument(handle.documentId)
     synchronizer.once("message", (event: MessagePayload) => {
       assert(event.targetId === "peer1")
-      assert(
-        event.channelId === (handle.encodedDocumentId as unknown as ChannelId)
-      )
+      assert(event.channelId === (handle.documentId as unknown as ChannelId))
       done()
     })
     synchronizer.addPeer("peer1" as PeerId)

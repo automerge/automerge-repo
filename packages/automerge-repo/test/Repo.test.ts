@@ -17,7 +17,7 @@ import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import {
-  encodeDocumentId,
+  binaryToDocumentId,
   generateAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/DocUrl"
@@ -127,10 +127,32 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
       await handle.doc()
-      repo.delete(handle.encodedDocumentId)
+      repo.delete(handle.documentId)
 
       assert(handle.isDeleted())
-      assert.equal(repo.handles[handle.encodedDocumentId], undefined)
+      assert.equal(repo.handles[handle.documentId], undefined)
+
+      const bobHandle = repo.find<TestDoc>(handle.url)
+      await assert.rejects(
+        rejectOnTimeout(bobHandle.doc(), 10),
+        "document should have been deleted"
+      )
+
+      assert(!bobHandle.isReady())
+    })
+
+    it("can delete an existing document by url", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert.equal(handle.isReady(), true)
+      await handle.doc()
+      repo.delete(handle.url)
+
+      assert(handle.isDeleted())
+      assert.equal(repo.handles[handle.documentId], undefined)
 
       const bobHandle = repo.find<TestDoc>(handle.url)
       await assert.rejects(
@@ -150,12 +172,12 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), true)
 
       repo.on("delete-document", ({ encodedDocumentId }) => {
-        assert.equal(encodedDocumentId, handle.encodedDocumentId)
+        assert.equal(encodedDocumentId, handle.documentId)
 
         done()
       })
 
-      repo.delete(handle.encodedDocumentId)
+      repo.delete(handle.documentId)
     })
   })
 
@@ -279,21 +301,9 @@ describe("Repo", () => {
         eventPromise(charlieRepo.networkSubsystem, "message"),
       ])
 
-      assert.notEqual(
-        aliceRepo.handles[encodeDocumentId(notForCharlie)],
-        undefined,
-        "alice yes"
-      )
-      assert.notEqual(
-        bobRepo.handles[encodeDocumentId(notForCharlie)],
-        undefined,
-        "bob yes"
-      )
-      assert.equal(
-        charlieRepo.handles[encodeDocumentId(notForCharlie)],
-        undefined,
-        "charlie no"
-      )
+      assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
+      assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
+      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
 
       teardown()
     })
@@ -338,7 +348,7 @@ describe("Repo", () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
 
       const deletePromise = eventPromise(charlieRepo, "delete-document")
-      charlieRepo.delete(aliceHandle.encodedDocumentId)
+      charlieRepo.delete(aliceHandle.documentId)
       await deletePromise
 
       const changePromise = eventPromise(aliceHandle, "change")

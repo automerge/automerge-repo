@@ -1,4 +1,4 @@
-import { DocumentId } from "@automerge/automerge-repo"
+import { AutomergeUrl } from "@automerge/automerge-repo"
 import {
   useBootstrap,
   useDocument,
@@ -8,37 +8,36 @@ import cx from "classnames"
 import { useRef, useState } from "react"
 
 import { Todo } from "./Todo.js"
-
 import { ExtendedArray, Filter, State, TodoData } from "./types.js"
 
 export function App() {
-  const { documentId } = useBootstrap({
+  const { url } = useBootstrap({
     onNoDocument: repo => {
       const handle = repo.create<State>()
       handle.change(d => (d.todos = []))
       return handle
     },
   })
-  const [state, changeState] = useDocument<State>(documentId)
+  const [state, changeState] = useDocument<State>(url)
 
   const newTodoInput = useRef<HTMLInputElement>(null)
   const [filter, setFilter] = useState<Filter>(Filter.all)
 
   const repo = useRepo()
 
-  const destroy = (id: DocumentId) => {
+  const destroy = (url: AutomergeUrl) => {
     changeState(s => {
-      const todos = s.todos as ExtendedArray<DocumentId>
-      const index = todos.findIndex(_ => _ === id)
+      const todos = s.todos as ExtendedArray<AutomergeUrl>
+      const index = todos.findIndex(_ => _ === url)
       todos.deleteAt(index)
     })
   }
 
   const getFilteredTodos = async (filter: Filter) => {
     if (!state) return []
-    return state.todos.filter(async id => {
+    return state.todos.filter(async url => {
       if (filter === Filter.all) return true
-      const todo = await repo.find<TodoData>(id).value()
+      const todo = await repo.find<TodoData>(url).doc()
       if (filter === Filter.completed) return todo.completed
       if (filter === Filter.incomplete) return !todo.completed
       return false
@@ -48,8 +47,8 @@ export function App() {
   const destroyCompleted = async () => {
     if (!state) return
     for (const id of await getFilteredTodos(Filter.completed)) {
-      const todo = await repo.find<TodoData>(id).value()
-      if (todo.completed) destroy(id)
+      const todo = await repo.find<TodoData>(url).doc()
+      if (todo.completed) destroy(url)
     }
   }
 
@@ -72,16 +71,16 @@ export function App() {
                 if (newTodoText.length === 0) return
 
                 const handle = repo.create<TodoData>()
-                const id = handle.documentId
+                const url = handle.url
                 handle.change(t => {
-                  t.id = id
+                  t.url = url
                   t.content = newTodoText
                   t.completed = false
                 })
 
                 // update state with new todo
                 changeState(s => {
-                  s.todos.push(id)
+                  s.todos.push(url)
                 })
 
                 // clear input
@@ -100,11 +99,11 @@ export function App() {
           {/* todos */}
           <section>
             <ul className="border-y divide-y divide-solid">
-              {state.todos.map(id => (
+              {state.todos.map(url => (
                 <Todo
-                  key={id}
-                  id={id}
-                  onDestroy={id => destroy(id)}
+                  key={url}
+                  url={url}
+                  onDestroy={url => destroy(url)}
                   filter={filter}
                 />
               ))}

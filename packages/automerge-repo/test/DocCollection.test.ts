@@ -1,5 +1,5 @@
 import assert from "assert"
-import { DocCollection, DocumentId } from "../src"
+import { DocCollection, BinaryDocumentId } from "../src"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl"
 

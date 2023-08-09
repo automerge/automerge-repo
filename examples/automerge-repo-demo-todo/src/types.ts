@@ -1,4 +1,4 @@
-import { DocumentId } from "@automerge/automerge-repo"
+import { AutomergeUrl } from "@automerge/automerge-repo"
 
 /** Inside an Automerge change function, any arrays found on the document have these utility functions */
 export interface ExtendedArray<T> extends Array<T> {
@@ -7,11 +7,11 @@ export interface ExtendedArray<T> extends Array<T> {
 }
 
 export interface State {
-  todos: DocumentId[]
+  todos: AutomergeUrl[]
 }
 
 export interface TodoData {
-  id: DocumentId
+  url: AutomergeUrl
   content: string
   completed: boolean
 }
@@ -21,4 +21,4 @@ export const Filter = {
   incomplete: "incomplete",
   completed: "completed",
 } as const
-export type Filter = typeof Filter[keyof typeof Filter]
+export type Filter = (typeof Filter)[keyof typeof Filter]

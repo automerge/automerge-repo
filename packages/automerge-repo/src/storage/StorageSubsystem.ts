@@ -1,15 +1,15 @@
 import * as A from "@automerge/automerge"
-import {StorageAdapter, StorageKey} from "./StorageAdapter.js"
+import { StorageAdapter, StorageKey } from "./StorageAdapter.js"
 import * as sha256 from "fast-sha256"
-import { type EncodedDocumentId } from "../types.js"
+import { type DocumentId } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 
-// Metadata about a chunk of data loaded from storage. This is stored on the 
+// Metadata about a chunk of data loaded from storage. This is stored on the
 // StorageSubsystem so when we are compacting we know what chunks we can safely delete
 type StorageChunkInfo = {
-  key: StorageKey,
-  type: ChunkType,
-  size: number,
+  key: StorageKey
+  type: ChunkType
+  size: number
 }
 
 export type ChunkType = "snapshot" | "incremental"
@@ -25,18 +25,20 @@ function headsHash(heads: A.Heads): string {
   let encoder = new TextEncoder()
   let headsbinary = mergeArrays(heads.map(h => encoder.encode(h)))
   return keyHash(headsbinary)
-
 }
 
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
-  #chunkInfos: Map<EncodedDocumentId, StorageChunkInfo[]> = new Map()
+  #chunkInfos: Map<DocumentId, StorageChunkInfo[]> = new Map()
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
   }
 
-  async #saveIncremental(documentId: EncodedDocumentId, doc: A.Doc<unknown>): Promise<void> {
+  async #saveIncremental(
+    documentId: DocumentId,
+    doc: A.Doc<unknown>
+  ): Promise<void> {
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
@@ -47,14 +49,18 @@ export class StorageSubsystem {
       this.#chunkInfos.get(documentId)!!.push({
         key,
         type: "incremental",
-        size: binary.length
+        size: binary.length,
       })
     } else {
       return Promise.resolve()
     }
   }
 
-  async #saveTotal(documentId: EncodedDocumentId, doc: A.Doc<unknown>, sourceChunks: StorageChunkInfo[]): Promise<void> {
+  async #saveTotal(
+    documentId: DocumentId,
+    doc: A.Doc<unknown>,
+    sourceChunks: StorageChunkInfo[]
+  ): Promise<void> {
     const binary = A.save(doc)
     const key = [documentId, "snapshot", headsHash(A.getHeads(doc))]
     const oldKeys = new Set(sourceChunks.map(c => c.key))
@@ -64,15 +70,14 @@ export class StorageSubsystem {
     for (const key of oldKeys) {
       await this.#storageAdapter.remove(key)
     }
-    const newChunkInfos = this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
-    newChunkInfos.push({key, type: "snapshot", size: binary.length})
+    const newChunkInfos =
+      this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
+    newChunkInfos.push({ key, type: "snapshot", size: binary.length })
     this.#chunkInfos.set(documentId, newChunkInfos)
   }
 
-  async loadBinary(documentId: EncodedDocumentId): Promise<Uint8Array> {
-    const loaded = await this.#storageAdapter.loadRange([
-      documentId,
-    ])
+  async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
+    const loaded = await this.#storageAdapter.loadRange([documentId])
     const binaries = []
     const chunkInfos: StorageChunkInfo[] = []
     for (const chunk of loaded) {
@@ -83,7 +88,7 @@ export class StorageSubsystem {
       chunkInfos.push({
         key: chunk.key,
         type: chunkType,
-        size: chunk.data.length
+        size: chunk.data.length,
       })
       binaries.push(chunk.data)
     }
@@ -91,7 +96,7 @@ export class StorageSubsystem {
     return mergeArrays(binaries)
   }
 
-  async save(documentId: EncodedDocumentId, doc: A.Doc<unknown>): Promise<void> {
+  async save(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
     let sourceChunks = this.#chunkInfos.get(documentId) ?? []
     if (this.#shouldCompact(sourceChunks)) {
       this.#saveTotal(documentId, doc, sourceChunks)
@@ -100,7 +105,7 @@ export class StorageSubsystem {
     }
   }
 
-  async remove(documentId: EncodedDocumentId) {
+  async remove(documentId: DocumentId) {
     this.#storageAdapter.remove([documentId, "snapshot"])
     this.#storageAdapter.removeRange([documentId, "incremental"])
   }

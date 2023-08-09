@@ -1,15 +1,13 @@
 import { DocCollection } from "./DocCollection.js"
-import { encodeDocumentId } from "./DocUrl.js"
 import { EphemeralData } from "./EphemeralData.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { ChannelId, DocumentId, PeerId } from "./types.js"
+import { DocumentId, PeerId } from "./types.js"
 
 import debug from "debug"
-const SYNC_CHANNEL = "sync_channel" as ChannelId
 
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {
@@ -32,13 +30,11 @@ export class Repo extends DocCollection {
       if (storageSubsystem) {
         // Save when the document changes
         handle.on("heads-changed", async ({ handle, doc }) => {
-          await storageSubsystem.save(handle.encodedDocumentId, doc)
+          await storageSubsystem.save(handle.documentId, doc)
         })
 
         // Try to load from disk
-        const binary = await storageSubsystem.loadBinary(
-          handle.encodedDocumentId
-        )
+        const binary = await storageSubsystem.loadBinary(handle.documentId)
         handle.load(binary)
       }
 
@@ -113,7 +109,7 @@ export class Repo extends DocCollection {
     })
 
     // We establish a special channel for sync messages
-    networkSubsystem.join(SYNC_CHANNEL)
+    networkSubsystem.join()
 
     // EPHEMERAL DATA
     // The ephemeral data subsystem uses the network to send and receive messages that are not

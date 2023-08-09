@@ -1,11 +1,11 @@
 import { DocCollection } from "../DocCollection.js"
 import { DocHandle } from "../DocHandle.js"
 import {
-  decodeDocumentId,
-  encodeDocumentId,
+  documentIdToBinary,
+  binaryToDocumentId,
   stringifyAutomergeUrl,
 } from "../DocUrl.js"
-import { ChannelId, DocumentId, PeerId, EncodedDocumentId } from "../types.js"
+import { ChannelId, BinaryDocumentId, PeerId, DocumentId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
@@ -18,7 +18,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #peers: Set<PeerId> = new Set()
 
   /** A map of documentIds to their synchronizers */
-  #docSynchronizers: Record<EncodedDocumentId, DocSynchronizer> = {}
+  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
 
   constructor(private repo: DocCollection) {
     super()
@@ -26,13 +26,11 @@ export class CollectionSynchronizer extends Synchronizer {
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
   #fetchDocSynchronizer(documentId: DocumentId) {
-    const encodedDocumentId = encodeDocumentId(documentId)
-    if (!this.#docSynchronizers[encodedDocumentId]) {
+    if (!this.#docSynchronizers[documentId]) {
       const handle = this.repo.find(stringifyAutomergeUrl({ documentId }))
-      this.#docSynchronizers[encodedDocumentId] =
-        this.#initDocSynchronizer(handle)
+      this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
     }
-    return this.#docSynchronizers[encodedDocumentId]
+    return this.#docSynchronizers[documentId]
   }
 
   /** Creates a new docSynchronizer and sets it up to propagate messages */
@@ -66,9 +64,7 @@ export class CollectionSynchronizer extends Synchronizer {
   ) {
     log(`onSyncMessage: ${peerId}, ${channelId}, ${message.byteLength}bytes`)
 
-    const documentId = decodeDocumentId(
-      channelId as unknown as EncodedDocumentId
-    )
+    const documentId = channelId as unknown as DocumentId
     if (!documentId) {
       throw new Error("received a message with an invalid documentId")
     }

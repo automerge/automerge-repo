@@ -1,11 +1,9 @@
 import {
   DocHandle,
-  DocumentId,
   Repo,
-  EncodedDocumentId,
+  type DocumentId,
   generateAutomergeUrl,
 } from "@automerge/automerge-repo"
-import {stringifyAutomergeUrl} from "@automerge/automerge-repo/dist/DocUrl.js"
 import { useEffect, useState, useMemo } from "react"
 import { useRepo } from "./useRepo.js"
 
@@ -34,7 +32,7 @@ export const useHash = () => {
 }
 
 // Get a key from a query-param-style URL hash
-const getQueryParamValue = (key: string, hash) =>
+const getQueryParamValue = (key: string, hash: string) =>
   new URLSearchParams(hash.substr(1)).get(key)
 
 const setQueryParamValue = (key: string, value, hash): string => {
@@ -43,10 +41,10 @@ const setQueryParamValue = (key: string, value, hash): string => {
   return u.toString()
 }
 
-const getDocumentId = (key, hash) =>
+const getDocumentId = (key: string, hash: string) =>
   key && (getQueryParamValue(key, hash) || localStorage.getItem(key))
 
-const setDocumentId = (key, documentId) => {
+const setDocumentId = (key: string, documentId: DocumentId) => {
   if (key) {
     // Only set URL hash if document ID changed
     if (documentId !== getQueryParamValue(key, window.location.hash))
@@ -88,16 +86,14 @@ export const useBootstrap = <T>({
 
   // Try to get existing document; else create a new one
   const handle = useMemo((): DocHandle<T> => {
-    const encodedDocumentId = getDocumentId(key, hash) as
-      | EncodedDocumentId
-      | undefined
+    const documentId = getDocumentId(key, hash) as DocumentId | undefined
     try {
-      return encodedDocumentId
-        ? repo.find(stringifyAutomergeUrl({ documentId: encodedDocumentId }))
+      return documentId
+        ? repo.find(generateAutomergeUrl({ documentId }))
         : onNoDocument(repo)
     } catch (error) {
       // Presumably the documentId was invalid
-      if (encodedDocumentId && onInvalidDocumentId)
+      if (documentId && onInvalidDocumentId)
         return onInvalidDocumentId(repo, error)
       // Forward other errors
       throw error

@@ -13,9 +13,9 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
     broadcast: boolean
   ): void
 
-  abstract join(channelId: ChannelId): void
+  abstract join(): void
 
-  abstract leave(channelId: ChannelId): void
+  abstract leave(): void
 }
 
 // events & payloads
@@ -34,7 +34,6 @@ export interface OpenPayload {
 
 export interface PeerCandidatePayload {
   peerId: PeerId
-  channelId: ChannelId
 }
 
 export interface MessagePayload {

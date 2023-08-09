@@ -18,5 +18,5 @@ export {
   parseAutomergeUrl,
   isValidAutomergeUrl,
   stringifyAutomergeUrl as generateAutomergeUrl,
-} from "./DocUrl"
+} from "./DocUrl.js"
 export * from "./types.js"
