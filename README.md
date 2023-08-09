@@ -17,6 +17,7 @@ This is a monorepo containing the following packages:
   application.
 - [automerge-repo-demo-counter-svelte](/examples/automerge-repo-demo-counter-svelte/): A Svelte-based
   example project.
+- [sync-server](/examples/sync-server): A very simple sync server which the other examples can use
 
 #### Front-end adapters
 
