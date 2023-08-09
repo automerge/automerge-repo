@@ -10,12 +10,11 @@ describe("EphemeralData", () => {
   const messageData = { foo: "bar" }
 
   it("should emit a network message on broadcast()", done => {
-    ephemeral.on("message", event => {
+    ephemeral.on("message", message => {
       try {
-        const { targetId, channelId, message, broadcast } = event
-        assert.deepStrictEqual(CBOR.decode(message), messageData)
-        assert.strictEqual(broadcast, true)
-        assert.strictEqual(channelId, channelId)
+        assert.deepStrictEqual(CBOR.decode(message.data), messageData)
+        assert.strictEqual(message.type, "broadcast")
+        assert.strictEqual(message.channelId, destinationChannelId)
         done()
       } catch (e) {
         done(e)
@@ -35,10 +34,13 @@ describe("EphemeralData", () => {
         done(e)
       }
     })
-    ephemeral.receive(
-      otherPeerId,
-      ("m/" + destinationChannelId) as ChannelId, // TODO: this is nonsense
-      CBOR.encode(messageData)
-    )
+    ephemeral.receive({
+      senderId: otherPeerId,
+      channelId: destinationChannelId,
+      data: CBOR.encode(messageData),
+      type: "broadcast",
+      count: 0,
+      sessionId: ephemeral.sessionId,
+    })
   })
 })
