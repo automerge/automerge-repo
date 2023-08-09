@@ -63,7 +63,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
           this.#ephemeralSessionCounts[msg.sessionId] === undefined ||
           msg.count > this.#ephemeralSessionCounts[msg.sessionId]
         ) {
-          console.log(this.peerId, this.#adaptersByPeer, msg)
           Object.entries(this.#adaptersByPeer)
             .filter(([id]) => id !== msg.senderId)
             .forEach(([_, peer]) => {

@@ -1,0 +1,3 @@
+[submodule "examples/automerge-repo-sync-server"]
+	path = examples/automerge-repo-sync-server
+	url = git@github.com:automerge/automerge-repo-sync-server.git
