@@ -3,7 +3,7 @@
   "version": "0.2.1",
   "description": "isomorphic node/browser Websocket network adapter for Automerge Repo",
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0-alpha.8"
+    "@automerge/automerge": "^2.1.0-alpha.9"
   },
   "repository": "https://github.com/automerge/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
