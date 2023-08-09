@@ -69,9 +69,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       throw new Error("No peerId set for the websocket server network adapter.")
     }
 
-    if ("targetId" in message) {
-      this.transmit(message.targetId, message)
-    }
+    this.transmit(message.targetId, message)
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {

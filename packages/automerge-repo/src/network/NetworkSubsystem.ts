@@ -4,6 +4,7 @@ import {
   isEphemeralMessage,
   isValidMessage,
   Message,
+  MessageContents,
   NetworkAdapter,
   PeerDisconnectedPayload,
 } from "./NetworkAdapter.js"
@@ -65,8 +66,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         ) {
           Object.entries(this.#adaptersByPeer)
             .filter(([id]) => id !== msg.senderId)
-            .forEach(([_, peer]) => {
-              peer.send(msg)
+            .forEach(([id, peer]) => {
+              peer.send({ ...msg, targetId: id as PeerId })
             })
           this.#ephemeralSessionCounts[msg.sessionId] = msg.count
           this.emit("message", msg)
@@ -90,7 +91,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     networkAdapter.join()
   }
 
-  send(msg: DistributiveOmit<Message, "senderId">) {
+  send(msg: MessageContents) {
     const message = {
       ...msg,
       senderId: this.peerId,
@@ -99,7 +100,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     if (isEphemeralMessage(message)) {
       Object.entries(this.#adaptersByPeer).forEach(([id, peer]) => {
         this.#log(`sending broadcast to ${id}`)
-        peer.send(message)
+        peer.send({ ...message, targetId: id as PeerId })
       })
 
       return

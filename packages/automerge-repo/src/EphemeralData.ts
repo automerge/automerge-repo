@@ -1,7 +1,10 @@
 import { decode, encode } from "cbor-x"
 import EventEmitter from "eventemitter3"
-import { ChannelId, NetworkSubsystem, PeerId } from "./index.js"
-import { EphemeralMessage, MessagePayload } from "./network/NetworkAdapter.js"
+import { ChannelId, PeerId } from "./index.js"
+import {
+  EphemeralMessage,
+  EphemeralMessageContents,
+} from "./network/NetworkAdapter.js"
 
 /**
  * EphemeralData provides a mechanism to broadcast short-lived data — cursor positions, presence,
@@ -50,6 +53,6 @@ export interface EphemeralDataPayload {
 }
 
 export type EphemeralDataMessageEvents = {
-  message: (event: Omit<EphemeralMessage, "senderId">) => void
+  message: (event: EphemeralMessageContents) => void
   data: (event: EphemeralDataPayload) => void
 }
