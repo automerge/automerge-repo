@@ -4,12 +4,8 @@ import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 import debug from "debug"
 const log = debug("WebsocketServer")
 
-import {
-  ChannelId,
-  InboundMessagePayload,
-  NetworkAdapter,
-  PeerId,
-} from "@automerge/automerge-repo"
+import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import { FromClientMessage, FromServerMessage } from "./messages"
 
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
@@ -47,34 +43,13 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     // throw new Error("The server doesn't join channels.")
   }
 
-  sendMessage(
-    targetId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array,
-    broadcast: boolean
-  ) {
-    if (message.byteLength === 0) {
-      throw new Error("tried to send a zero-length message")
-    }
-    const senderId = this.peerId
-    if (!senderId) {
-      throw new Error("No peerId set for the websocket server network adapter.")
-    }
+  private transmit(targetId: PeerId, message: FromServerMessage) {
     if (this.sockets[targetId] === undefined) {
       log(`Tried to send message to disconnected peer: ${targetId}`)
       return
     }
 
-    const decoded: InboundMessagePayload = {
-      senderId,
-      targetId,
-      channelId,
-      type: "sync",
-      message,
-      broadcast,
-    }
-    const encoded = CBOR.encode(decoded)
-
+    const encoded = CBOR.encode(message)
     // This incantation deals with websocket sending the whole
     // underlying buffer even if we just have a uint8array view on it
     const arrayBuf = encoded.buffer.slice(
@@ -82,32 +57,35 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       encoded.byteOffset + encoded.byteLength
     )
 
-    log(
-      `[${senderId}->${targetId}@${channelId}] "sync" | ${arrayBuf.byteLength} bytes`
-    )
+    this.sockets[targetId]?.send(arrayBuf)
+  }
 
-    this.sockets[targetId].send(arrayBuf)
+  send(message: Message) {
+    if (message.data.byteLength === 0) {
+      throw new Error("tried to send a zero-length message")
+    }
+    const senderId = this.peerId
+    if (!senderId) {
+      throw new Error("No peerId set for the websocket server network adapter.")
+    }
+
+    if ("targetId" in message) {
+      this.transmit(message.targetId, message)
+    }
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {
-    const cbor: InboundMessagePayload = CBOR.decode(message)
+    const cbor: FromClientMessage = CBOR.decode(message)
 
-    const {
-      type,
-      channelId,
-      senderId,
-      targetId,
-      message: data,
-      broadcast,
-    } = cbor
+    const { type, senderId } = cbor
 
     const myPeerId = this.peerId
     if (!myPeerId) {
       throw new Error("Missing my peer ID.")
     }
-    log(
-      `[${senderId}->${myPeerId}@${channelId}] ${type} | ${message.byteLength} bytes`
-    )
+    // log(
+    //   `[${senderId}->${myPeerId}@${channelId}] ${type} | ${message.byteLength} bytes`
+    // )
     switch (type) {
       case "join":
         // Let the rest of the system know that we have a new connection.
@@ -116,7 +94,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
 
         // In this client-server connection, there's only ever one peer: us!
         // (and we pretend to be joined to every channel)
-        socket.send(CBOR.encode({ type: "peer", senderId: this.peerId }))
+        this.transmit(senderId, { type: "peer", senderId: this.peerId! })
         break
       case "leave":
         // It doesn't seem like this gets called;
@@ -125,21 +103,8 @@ export class NodeWSServerAdapter extends NetworkAdapter {
         // ?
         break
 
-      // We accept both "message" and "sync" because a previous version of this
-      // codebase sent sync messages in the BrowserWebSocketClientAdapter as
-      // type "message" and we want to stay backwards compatible
-      case "message":
-      case "sync":
-        this.emit("message", {
-          senderId,
-          targetId,
-          channelId,
-          message: new Uint8Array(data),
-          broadcast,
-        })
-        break
       default:
-        log(`unrecognized message type ${type}`)
+        this.emit("message", cbor)
         break
     }
   }

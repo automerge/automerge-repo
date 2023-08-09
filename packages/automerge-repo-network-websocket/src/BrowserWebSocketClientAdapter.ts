@@ -1,13 +1,9 @@
-import {
-  ChannelId,
-  InboundMessagePayload,
-  NetworkAdapter,
-  PeerId,
-} from "@automerge/automerge-repo"
+import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
+import { FromClientMessage, FromServerMessage } from "./messages"
 const log = debug("WebsocketClient")
 
 abstract class WebSocketNetworkAdapter extends NetworkAdapter {
@@ -53,12 +49,28 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     )
   }
 
+  private transmit(message: FromClientMessage) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error("Websocket Socket not ready!")
+    }
+
+    const encoded = CBOR.encode(message)
+    // This incantation deals with websocket sending the whole
+    // underlying buffer even if we just have a uint8array view on it
+    const arrayBuf = encoded.buffer.slice(
+      encoded.byteOffset,
+      encoded.byteOffset + encoded.byteLength
+    )
+
+    this.socket?.send(arrayBuf)
+  }
+
   join() {
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }
     if (this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(CBOR.encode({ type: "join", senderId: this.peerId }))
+      this.transmit({ type: "join", senderId: this.peerId! })
     } else {
       this.socket.addEventListener(
         "open",
@@ -66,7 +78,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
           if (!this.socket) {
             throw new Error("WTF, get a socket")
           }
-          this.socket.send(CBOR.encode({ type: "join", senderId: this.peerId }))
+          this.transmit({ type: "join", senderId: this.peerId! })
         },
         { once: true }
       )
@@ -77,43 +89,19 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }
-    this.socket.send(CBOR.encode({ type: "leave", senderId: this.peerId }))
+    this.transmit({ type: "leave", senderId: this.peerId! })
   }
 
-  sendMessage(
-    targetId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array,
-    broadcast: boolean
-  ) {
-    if (message.byteLength === 0) {
+  send(message: Message) {
+    if (message.data.byteLength === 0) {
       throw new Error("tried to send a zero-length message")
     }
+
     if (!this.peerId) {
       throw new Error("Why don't we have a PeerID?")
     }
 
-    const decoded: InboundMessagePayload = {
-      senderId: this.peerId,
-      targetId,
-      channelId,
-      type: "sync",
-      message,
-      broadcast,
-    }
-
-    const encoded = CBOR.encode(decoded)
-
-    // This incantation deals with websocket sending the whole
-    // underlying buffer even if we just have a uint8array view on it
-    const arrayBuf = encoded.buffer.slice(
-      encoded.byteOffset,
-      encoded.byteOffset + encoded.byteLength
-    )
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      throw new Error("Websocket Socket not ready!")
-    }
-    this.socket.send(arrayBuf)
+    this.transmit(message)
   }
 
   announceConnection(peerId: PeerId) {
@@ -127,16 +115,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array) {
-    const decoded: InboundMessagePayload = CBOR.decode(new Uint8Array(message))
+    const decoded: FromServerMessage = CBOR.decode(new Uint8Array(message))
 
-    const {
-      type,
-      senderId,
-      targetId,
-      channelId,
-      message: messageData,
-      broadcast,
-    } = decoded
+    const { type, senderId } = decoded
 
     const socket = this.socket
     if (!socket) {
@@ -149,17 +130,11 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
 
     switch (type) {
       case "peer":
-        log(`peer: ${senderId}, ${channelId}`)
+        log(`peer: ${senderId}`)
         this.announceConnection(senderId)
         break
       default:
-        this.emit("message", {
-          channelId,
-          senderId,
-          targetId,
-          message: new Uint8Array(messageData),
-          broadcast,
-        })
+        this.emit("message", decoded)
     }
   }
 }
