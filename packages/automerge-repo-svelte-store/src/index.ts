@@ -20,7 +20,7 @@ export function setContextRepo(repo: Repo) {
 export function document<T>(documentId: AutomergeUrl) {
   const repo = getContextRepo()
   const handle = repo.find<T>(documentId)
-  const { set, subscribe } = writable<Doc<T>>(null, () => {
+  const { set, subscribe } = writable<Doc<T>>(handle.docSync(), () => {
     const onChange = (h: DocHandleChangePayload<T>) => set(h.doc)
     handle.addListener("change", onChange)
     return () => handle.removeListener("change", onChange)

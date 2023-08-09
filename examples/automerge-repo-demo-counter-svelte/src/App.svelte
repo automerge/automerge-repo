@@ -19,10 +19,10 @@
 
   setContextRepo(repo)
 
-  let rootDocId = localStorage.rootDocId
-  if (!rootDocId) {
+  let rootDocUrl = localStorage.rootDocUrl
+  if (!rootDocUrl) {
     const handle = repo.create()
-    localStorage.rootDocId = rootDocId = handle.documentId
+    localStorage.rootDocUrl = rootDocUrl = handle.url
   }
 </script>
 
@@ -38,7 +38,7 @@
   <h1>Automerge + Svelte</h1>
 
   <div class="card">
-    <Counter documentId={rootDocId} />
+    <Counter documentUrl={rootDocUrl} />
   </div>
 
   <p class="read-the-docs">
