@@ -7,8 +7,12 @@ self.addEventListener("connect", (e: MessageEvent) => {
   configureRepoNetworkPort(mainPort)
 })
 
+// Because automerge is a WASM module and loads asynchronously,
+// a bug in Chrome causes the 'connect' event to fire before the
+// module is loaded. This promise lets us block until the module loads
+// even if the event arrives first.
+// Ideally Chrome would fix this upstream but this isn't a terrible hack.
 const repoPromise = (async () => {
-  // We import these
   const { Repo } = await import("@automerge/automerge-repo")
   const { IndexedDBStorageAdapter } = await import(
     "@automerge/automerge-repo-storage-indexeddb"
