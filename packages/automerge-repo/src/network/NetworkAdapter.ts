@@ -29,9 +29,9 @@ export function isSyncMessage(message: Message): message is SyncMessage {
   return message.type === "sync"
 }
 
-export function isEphemeralMessage<T extends { type: string }>(
-  message: Message
-): message is EphemeralMessage {
+export function isEphemeralMessage(
+  message: Message | MessageContents
+): message is EphemeralMessage | EphemeralMessageContents {
   return message.type === "broadcast"
 }
 
@@ -45,22 +45,36 @@ export interface NetworkAdapterEvents {
   message: (payload: Message) => void
 }
 
-export interface SyncMessage {
+export interface SyncMessageEnvelope {
+  senderId: PeerId
+}
+
+export interface SyncMessageContents {
   type: "sync"
   data: Uint8Array
   targetId: PeerId
   documentId: DocumentId
+}
+
+export type SyncMessage = SyncMessageEnvelope & SyncMessageContents
+
+export interface EphemeralMessageEnvelope {
+  targetId: PeerId
   senderId: PeerId
 }
 
-export interface EphemeralMessage {
+export interface EphemeralMessageContents {
   type: "broadcast"
   count: number
   channelId: ChannelId
-  senderId: PeerId
   sessionId: SessionId
   data: Uint8Array
 }
+
+export type EphemeralMessage = EphemeralMessageEnvelope &
+  EphemeralMessageContents
+
+export type MessageContents = SyncMessageContents | EphemeralMessageContents
 
 export type Message = SyncMessage | EphemeralMessage
 
