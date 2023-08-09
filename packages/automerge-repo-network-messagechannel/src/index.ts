@@ -1,4 +1,4 @@
-import { ChannelId, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 import { MessagePortRef } from "./MessagePortRef.js"
 import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
 import { WeakMessagePortRef } from "./WeakMessagePortRef.js"
@@ -27,66 +27,59 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     log("messageport connecting")
     this.peerId = peerId
     this.messagePortRef.start()
-    this.messagePortRef.addListener("message", e => {
-      log("message port received", e.data)
-      const { origin, destination, type, channelId, message, broadcast } =
-        e.data
-      if (destination && !(destination === this.peerId || broadcast)) {
-        throw new Error(
-          "MessagePortNetwork should never receive messages for a different peer."
-        )
+    this.messagePortRef.addListener(
+      "message",
+      (e: { data: AdapterMessage }) => {
+        log("message port received", e.data)
+
+        const message = e.data
+        if ("targetId" in message && message.targetId !== this.peerId) {
+          throw new Error(
+            "MessagePortNetwork should never receive messages for a different peer."
+          )
+        }
+
+        const { senderId, type } = message
+
+        switch (type) {
+          case "arrive":
+            this.messagePortRef.postMessage({
+              senderId: this.peerId,
+              targetId: senderId,
+              type: "welcome",
+            })
+            this.announceConnection(senderId)
+            break
+          case "welcome":
+            this.announceConnection(senderId)
+            break
+          default:
+            this.emit("message", {
+              ...message,
+              data: new Uint8Array(message.data),
+            })
+            break
+        }
       }
-      switch (type) {
-        case "arrive":
-          this.messagePortRef.postMessage({
-            origin: this.peerId,
-            destination: origin,
-            type: "welcome",
-          })
-          this.announceConnection(origin)
-          break
-        case "welcome":
-          this.announceConnection(origin)
-          break
-        case "message":
-          this.emit("message", {
-            senderId: origin,
-            targetId: destination,
-            channelId,
-            message: new Uint8Array(message),
-            broadcast,
-          })
-          break
-        default:
-          throw new Error("unhandled message from network")
-      }
-    })
+    )
 
     this.messagePortRef.addListener("close", () => {
       this.emit("close")
     })
   }
 
-  sendMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    uint8message: Uint8Array,
-    broadcast: boolean
-  ) {
-    const message = uint8message.buffer.slice(
-      uint8message.byteOffset,
-      uint8message.byteOffset + uint8message.byteLength
+  send(message: Message) {
+    const data = message.data.buffer.slice(
+      message.data.byteOffset,
+      message.data.byteOffset + message.data.byteLength
     )
+
     this.messagePortRef.postMessage(
       {
-        origin: this.peerId,
-        destination: peerId,
-        channelId: channelId,
-        type: "message",
-        message,
-        broadcast,
+        ...message,
+        data,
       },
-      [message]
+      [data]
     )
   }
 
@@ -96,7 +89,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
 
   join() {
     this.messagePortRef.postMessage({
-      origin: this.peerId,
+      senderId: this.peerId,
       type: "arrive",
     })
   }
@@ -118,3 +111,18 @@ interface MessageChannelNetworkAdapterConfig {
    */
   useWeakRef?: boolean
 }
+
+//types
+
+type ArriveMessage = {
+  senderId: PeerId
+  type: "arrive"
+}
+
+type WelcomeMessage = {
+  senderId: PeerId
+  targetId: PeerId
+  type: "welcome"
+}
+
+type AdapterMessage = ArriveMessage | WelcomeMessage | Message

@@ -1,8 +1,7 @@
-import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
-import { ChannelId, DocCollection, BinaryDocumentId, PeerId } from "../src"
 import assert from "assert"
 import { beforeEach } from "mocha"
-import { MessagePayload } from "../src/network/NetworkAdapter.js"
+import { DocCollection, PeerId } from "../src"
+import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
 
 describe("CollectionSynchronizer", () => {
   let collection: DocCollection
@@ -21,9 +20,9 @@ describe("CollectionSynchronizer", () => {
     const handle = collection.create()
     synchronizer.addPeer("peer1" as PeerId)
 
-    synchronizer.once("message", (event: MessagePayload) => {
+    synchronizer.once("message", event => {
       assert(event.targetId === "peer1")
-      assert(event.channelId === (handle.documentId as unknown as ChannelId))
+      assert(event.documentId === handle.documentId)
       done()
     })
 
@@ -33,9 +32,9 @@ describe("CollectionSynchronizer", () => {
   it("starts synchronizing existing documents when a peer is added", done => {
     const handle = collection.create()
     synchronizer.addDocument(handle.documentId)
-    synchronizer.once("message", (event: MessagePayload) => {
+    synchronizer.once("message", event => {
       assert(event.targetId === "peer1")
-      assert(event.channelId === (handle.documentId as unknown as ChannelId))
+      assert(event.documentId === handle.documentId)
       done()
     })
     synchronizer.addPeer("peer1" as PeerId)

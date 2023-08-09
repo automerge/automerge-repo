@@ -10,6 +10,7 @@ import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
+import { SyncMessage } from "../network/NetworkAdapter.js"
 const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
@@ -57,20 +58,18 @@ export class CollectionSynchronizer extends Synchronizer {
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
    */
-  async receiveSyncMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array
-  ) {
-    log(`onSyncMessage: ${peerId}, ${channelId}, ${message.byteLength}bytes`)
+  async receiveSyncMessage(message: SyncMessage) {
+    log(
+      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data.byteLength}bytes`
+    )
 
-    const documentId = channelId as unknown as DocumentId
+    const documentId = message.documentId
     if (!documentId) {
       throw new Error("received a message with an invalid documentId")
     }
-    const docSynchronizer = await this.#fetchDocSynchronizer(documentId)
+    const docSynchronizer = this.#fetchDocSynchronizer(documentId)
 
-    await docSynchronizer.receiveSyncMessage(peerId, channelId, message)
+    docSynchronizer.receiveSyncMessage(message)
 
     // Initiate sync with any new peers
     const peers = await this.#documentGenerousPeers(documentId)

@@ -1,11 +1,11 @@
 import { DocCollection } from "./DocCollection.js"
 import { EphemeralData } from "./EphemeralData.js"
-import { NetworkAdapter } from "./network/NetworkAdapter.js"
+import { isEphemeralMessage, NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { DocumentId, PeerId } from "./types.js"
+import { ChannelId, DocumentId, PeerId } from "./types.js"
 
 import debug from "debug"
 
@@ -59,13 +59,10 @@ export class Repo extends DocCollection {
     const synchronizer = new CollectionSynchronizer(this)
 
     // When the synchronizer emits sync messages, send them to peers
-    synchronizer.on(
-      "message",
-      ({ targetId, channelId, message, broadcast }) => {
-        this.#log(`sending sync message to ${targetId}`)
-        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
-      }
-    )
+    synchronizer.on("message", message => {
+      this.#log(`sending sync message to ${message.targetId}`)
+      networkSubsystem.send(message)
+    })
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
@@ -92,19 +89,14 @@ export class Repo extends DocCollection {
 
     // Handle incoming messages
     networkSubsystem.on("message", async msg => {
-      const { senderId, channelId, message } = msg
-
-      // TODO: this demands a more principled way of associating channels with recipients
-
-      // Ephemeral channel ids start with "m/"
-      if (channelId.startsWith("m/")) {
+      if (isEphemeralMessage(msg)) {
         // Ephemeral message
-        this.#log(`receiving ephemeral message from ${senderId}`)
-        ephemeralData.receive(senderId, channelId, message)
+        this.#log(`receiving ephemeral message from ${msg.senderId}`)
+        ephemeralData.receive(msg)
       } else {
         // Sync message
-        this.#log(`receiving sync message from ${senderId}`)
-        await synchronizer.receiveSyncMessage(senderId, channelId, message)
+        this.#log(`receiving sync message from ${msg.senderId}`)
+        await synchronizer.receiveSyncMessage(msg)
       }
     })
 
@@ -119,13 +111,10 @@ export class Repo extends DocCollection {
     this.ephemeralData = ephemeralData
 
     // Send ephemeral messages to peers
-    ephemeralData.on(
-      "message",
-      ({ targetId, channelId, message, broadcast }) => {
-        this.#log(`sending ephemeral message to ${targetId}`)
-        networkSubsystem.sendMessage(targetId, channelId, message, broadcast)
-      }
-    )
+    ephemeralData.on("message", message => {
+      this.#log(`sending ephemeral message`)
+      networkSubsystem.send(message)
+    })
   }
 }
 

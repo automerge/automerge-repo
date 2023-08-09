@@ -1,38 +1,47 @@
 import { decode, encode } from "cbor-x"
 import EventEmitter from "eventemitter3"
-import { ChannelId, PeerId } from "./index.js"
-import { MessagePayload } from "./network/NetworkAdapter.js"
+import { ChannelId, NetworkSubsystem, PeerId } from "./index.js"
+import { EphemeralMessage, MessagePayload } from "./network/NetworkAdapter.js"
 
 /**
  * EphemeralData provides a mechanism to broadcast short-lived data — cursor positions, presence,
  * heartbeats, etc. — that is useful in the moment but not worth persisting.
  */
 export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
+  #count = 0
+  #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
+
+  get sessionId() {
+    return this.#sessionId
+  }
+
   /** Broadcast an ephemeral message */
   broadcast(channelId: ChannelId, message: unknown) {
     const messageBytes = encode(message)
 
     this.emit("message", {
-      targetId: "*" as PeerId, // TODO: we don't really need a targetId for broadcast
-      channelId: ("m/" + channelId) as ChannelId,
-      message: messageBytes,
-      broadcast: true,
+      type: "broadcast",
+      count: this.#count++,
+      channelId,
+      sessionId: this.#sessionId,
+      data: messageBytes,
     })
   }
 
   /** Receive an ephemeral message */
-  receive(senderId: PeerId, grossChannelId: ChannelId, message: Uint8Array) {
-    const data = decode(message)
-    const channelId = grossChannelId.slice(2) as ChannelId
+  receive(message: EphemeralMessage) {
+    const data = decode(message.data)
     this.emit("data", {
-      peerId: senderId,
-      channelId,
+      peerId: message.senderId,
+      channelId: message.channelId,
       data,
     })
   }
 }
 
 // types
+
+export type SessionId = string & { __SessionId: false }
 
 export interface EphemeralDataPayload {
   channelId: ChannelId
@@ -41,6 +50,6 @@ export interface EphemeralDataPayload {
 }
 
 export type EphemeralDataMessageEvents = {
-  message: (event: MessagePayload) => void
+  message: (event: Omit<EphemeralMessage, "senderId">) => void
   data: (event: EphemeralDataPayload) => void
 }
