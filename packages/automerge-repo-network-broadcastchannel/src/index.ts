@@ -21,10 +21,10 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
             targetId: senderId,
             type: "welcome",
           })
-          this.#announceConnection(channelId, senderId)
+          this.#announceConnection(senderId)
           break
         case "welcome":
-          this.#announceConnection(channelId, senderId)
+          this.#announceConnection(senderId)
           break
         case "message":
           this.emit("message", {
@@ -41,8 +41,8 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     })
   }
 
-  #announceConnection(channelId: ChannelId, peerId: PeerId) {
-    this.emit("peer-candidate", { peerId, channelId })
+  #announceConnection(peerId: PeerId) {
+    this.emit("peer-candidate", { peerId })
   }
 
   sendMessage(
@@ -65,19 +65,16 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     })
   }
 
-  join(joinChannelId: ChannelId) {
+  join() {
     this.#broadcastChannel.postMessage({
       senderId: this.peerId,
-      channelId: joinChannelId,
       type: "arrive",
       broadcast: true,
     })
   }
 
-  leave(channelId: ChannelId) {
+  leave() {
     // TODO
-    throw new Error(
-      "Unimplemented: leave on BroadcastChannelNetworkAdapter: " + channelId
-    )
+    throw new Error("Unimplemented: leave on BroadcastChannelNetworkAdapter")
   }
 }

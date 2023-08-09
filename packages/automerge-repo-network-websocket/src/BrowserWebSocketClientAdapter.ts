@@ -17,7 +17,6 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   timerId?: NodeJS.Timer
   url: string
-  channels: ChannelId[] = []
 
   constructor(url: string) {
     super()
@@ -37,7 +36,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       log(`@ ${this.url}: open`)
       clearInterval(this.timerId)
       this.timerId = undefined
-      this.channels.forEach(c => this.join(c))
+      this.join()
     })
 
     // When a socket closes, or disconnects, remove it from the array.
@@ -54,19 +53,12 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     )
   }
 
-  join(channelId: ChannelId) {
-    // TODO: the network subsystem should manage this
-    if (!this.channels.includes(channelId)) {
-      this.channels.push(channelId)
-    }
-
+  join() {
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }
     if (this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(
-        CBOR.encode({ type: "join", channelId, senderId: this.peerId })
-      )
+      this.socket.send(CBOR.encode({ type: "join", senderId: this.peerId }))
     } else {
       this.socket.addEventListener(
         "open",
@@ -74,23 +66,18 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
           if (!this.socket) {
             throw new Error("WTF, get a socket")
           }
-          this.socket.send(
-            CBOR.encode({ type: "join", channelId, senderId: this.peerId })
-          )
+          this.socket.send(CBOR.encode({ type: "join", senderId: this.peerId }))
         },
         { once: true }
       )
     }
   }
 
-  leave(channelId: ChannelId) {
-    this.channels = this.channels.filter(c => c !== channelId)
+  leave() {
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }
-    this.socket.send(
-      CBOR.encode({ type: "leave", channelId, senderId: this.peerId })
-    )
+    this.socket.send(CBOR.encode({ type: "leave", senderId: this.peerId }))
   }
 
   sendMessage(
@@ -129,14 +116,14 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.socket.send(arrayBuf)
   }
 
-  announceConnection(channelId: ChannelId, peerId: PeerId) {
+  announceConnection(peerId: PeerId) {
     // return a peer object
     const myPeerId = this.peerId
     if (!myPeerId) {
       throw new Error("we should have a peer ID by now")
     }
 
-    this.emit("peer-candidate", { peerId, channelId })
+    this.emit("peer-candidate", { peerId })
   }
 
   receiveMessage(message: Uint8Array) {
@@ -163,7 +150,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     switch (type) {
       case "peer":
         log(`peer: ${senderId}, ${channelId}`)
-        this.announceConnection(channelId, senderId)
+        this.announceConnection(senderId)
         break
       default:
         this.emit("message", {

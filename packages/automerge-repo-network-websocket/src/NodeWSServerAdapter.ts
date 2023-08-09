@@ -39,11 +39,11 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     })
   }
 
-  join(docId: ChannelId) {
+  join() {
     // throw new Error("The server doesn't join channels.")
   }
 
-  leave(docId: ChannelId) {
+  leave() {
     // throw new Error("The server doesn't join channels.")
   }
 
@@ -111,14 +111,12 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     switch (type) {
       case "join":
         // Let the rest of the system know that we have a new connection.
-        this.emit("peer-candidate", { peerId: senderId, channelId })
+        this.emit("peer-candidate", { peerId: senderId })
         this.sockets[senderId] = socket
 
         // In this client-server connection, there's only ever one peer: us!
         // (and we pretend to be joined to every channel)
-        socket.send(
-          CBOR.encode({ type: "peer", senderId: this.peerId, channelId })
-        )
+        socket.send(CBOR.encode({ type: "peer", senderId: this.peerId }))
         break
       case "leave":
         // It doesn't seem like this gets called;

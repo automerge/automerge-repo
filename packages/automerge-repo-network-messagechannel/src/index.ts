@@ -43,10 +43,10 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
             destination: origin,
             type: "welcome",
           })
-          this.announceConnection(channelId, origin)
+          this.announceConnection(origin)
           break
         case "welcome":
-          this.announceConnection(channelId, origin)
+          this.announceConnection(origin)
           break
         case "message":
           this.emit("message", {
@@ -90,23 +90,20 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     )
   }
 
-  announceConnection(channelId: ChannelId, peerId: PeerId) {
-    this.emit("peer-candidate", { peerId, channelId })
+  announceConnection(peerId: PeerId) {
+    this.emit("peer-candidate", { peerId })
   }
 
-  join(channelId: string) {
+  join() {
     this.messagePortRef.postMessage({
       origin: this.peerId,
-      channelId,
       type: "arrive",
     })
   }
 
-  leave(docId: string) {
+  leave() {
     // TODO
-    throw new Error(
-      "Unimplemented: leave on MessagePortNetworkAdapter: " + docId
-    )
+    throw new Error("Unimplemented: leave on MessagePortNetworkAdapter")
   }
 }
 
