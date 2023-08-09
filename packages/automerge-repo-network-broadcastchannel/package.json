@@ -14,7 +14,7 @@
     "test": "mocha --no-warnings --experimental-specifier-resolution=node --exit"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0-alpha.8"
+    "@automerge/automerge": "^2.1.0-alpha.9"
   },
   "dependencies": {
     "@automerge/automerge-repo": "^0.2.1"

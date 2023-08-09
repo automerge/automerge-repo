@@ -1,5 +1,6 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
+import * as A from "@automerge/automerge"
 
 import {
   AutomergeUrl,
@@ -411,4 +412,5 @@ describe("Repo", () => {
       teardown()
     })
   })
+
 })
