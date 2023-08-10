@@ -113,9 +113,7 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
       teardown()
     })
 
-    // TODO: with BroadcastChannel, this test never ends, because it goes into an infinite loop,
-    // because the network has cycles (see #92)
-    it.skip("can broadcast a message", async () => {
+    it("can broadcast a message", async () => {
       const { adapters, teardown } = await setup()
       const [a, b, c] = adapters
 
