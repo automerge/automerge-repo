@@ -12,8 +12,21 @@ describe("Websocket adapters", async () => {
   let port = 8080
 
   runAdapterTests(async () => {
-    port += 1 // Increment port to avoid conflicts
-    const { socket, server } = await startServer(port)
+    let socket: WebSocket.Server | undefined = undefined
+    let server: any
+
+    while (socket === undefined) {
+      try {
+        ;({ socket, server } = await startServer(port))
+      } catch (e: any) {
+        if (e.code === "EADDRINUSE") {
+          port++
+        } else {
+          throw e
+        }
+      }
+    }
+
     const serverAdapter = new NodeWSServerAdapter(socket)
 
     const serverUrl = `ws://localhost:${port}`
