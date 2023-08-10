@@ -10,8 +10,8 @@ import {
   NetworkAdapter,
   PeerId,
 } from "@automerge/automerge-repo"
-import {ProtocolV1, ProtocolVersion} from "./protocolVersion"
-import {InboundWebSocketMessage} from "./message"
+import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
+import { InboundWebSocketMessage } from "./message.js"
 
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
@@ -119,9 +119,16 @@ export class NodeWSServerAdapter extends NetworkAdapter {
 
         // In this client-server connection, there's only ever one peer: us!
         // (and we pretend to be joined to every channel)
-        const selectedProtocolVersion = selectProtocol(supportedProtocolVersions)
+        const selectedProtocolVersion = selectProtocol(
+          supportedProtocolVersions
+        )
         if (selectedProtocolVersion === null) {
-          socket.send(CBOR.encode({ type: "error", errorMessage: "unsupported protocol version"}))
+          socket.send(
+            CBOR.encode({
+              type: "error",
+              errorMessage: "unsupported protocol version",
+            })
+          )
           this.sockets[senderId].close()
           delete this.sockets[senderId]
         } else {
