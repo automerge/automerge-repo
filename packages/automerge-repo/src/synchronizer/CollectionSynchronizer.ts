@@ -98,6 +98,11 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Adds a peer and maybe starts synchronizing with them */
   addPeer(peerId: PeerId) {
     log(`adding ${peerId} & synchronizing with them`)
+
+    if (this.#peers.has(peerId)) {
+      return
+    }
+
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
