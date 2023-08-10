@@ -17,14 +17,8 @@ import { waitFor } from "xstate/lib/waitFor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { pause } from "./helpers/pause.js"
 import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
-import type {
-  BinaryDocumentId,
-  ChannelId,
-  DocumentId,
-  PeerId,
-  AutomergeUrl,
-} from "./types.js"
-import { binaryToDocumentId, stringifyAutomergeUrl } from "./DocUrl.js"
+import type { ChannelId, DocumentId, PeerId, AutomergeUrl } from "./types.js"
+import { stringifyAutomergeUrl } from "./DocUrl.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -83,8 +77,8 @@ export class DocHandle<T> //
             },
             loading: {
               on: {
-                // LOAD is called by the Repo if the document is found in storage
-                LOAD: { actions: "onLoad", target: READY },
+                // UPDATE is called by the Repo if the document is found in storage
+                UPDATE: { actions: "onUpdate", target: READY },
                 // REQUEST is called by the Repo if the document is not found in storage
                 REQUEST: { target: REQUESTING },
                 DELETE: { actions: "onDelete", target: DELETED },
@@ -129,20 +123,16 @@ export class DocHandle<T> //
 
         {
           actions: {
-            /** Apply the binary changes from storage and put the updated doc on context */
-            onLoad: assign((context, { payload }: LoadEvent) => {
-              const { binary } = payload
-              const { doc } = context
-              const newDoc = A.loadIncremental(doc, binary)
-              return { doc: newDoc }
-            }),
-
-            /** Put the updated doc on context; if it's different, emit a `change` event */
+            /** Put the updated doc on context */
             onUpdate: assign((context, { payload }: UpdateEvent<T>) => {
               const { doc: oldDoc } = context
 
               const { callback } = payload
+              console.log("olddoc", oldDoc)
+              console.log(callback)
               const newDoc = callback(oldDoc)
+              console.trace()
+              console.log("newdoc", newDoc)
 
               return { doc: newDoc }
             }),
@@ -158,7 +148,7 @@ export class DocHandle<T> //
         const oldDoc = history?.context?.doc
         const newDoc = context.doc
 
-        this.#log(`${event} → ${state}`, newDoc)
+        console.log(`${event} → ${state}`, newDoc)
 
         const docChanged = newDoc && oldDoc && !headsAreSame(newDoc, oldDoc)
         if (docChanged) {
@@ -278,13 +268,6 @@ export class DocHandle<T> //
     }
 
     return this.#doc
-  }
-
-  /** `load` is called by the repo when the document is found in storage */
-  load(binary: Uint8Array) {
-    if (binary.length && binary.length > 0) {
-      this.#machine.send(LOAD, { payload: { binary } })
-    }
   }
 
   /** `update` is called by the repo when we receive changes from the network */
@@ -407,7 +390,6 @@ interface DocHandleContext<T> {
 
 export const Event = {
   CREATE: "CREATE",
-  LOAD: "LOAD",
   FIND: "FIND",
   REQUEST: "REQUEST",
   REQUEST_COMPLETE: "REQUEST_COMPLETE",
@@ -418,7 +400,6 @@ export const Event = {
 type Event = (typeof Event)[keyof typeof Event]
 
 type CreateEvent = { type: typeof CREATE; payload: { documentId: string } }
-type LoadEvent = { type: typeof LOAD; payload: { binary: Uint8Array } }
 type FindEvent = { type: typeof FIND; payload: { documentId: string } }
 type RequestEvent = { type: typeof REQUEST }
 type RequestCompleteEvent = { type: typeof REQUEST_COMPLETE }
@@ -431,7 +412,6 @@ type TimeoutEvent = { type: typeof TIMEOUT }
 
 type DocHandleEvent<T> =
   | CreateEvent
-  | LoadEvent
   | FindEvent
   | RequestEvent
   | RequestCompleteEvent
@@ -458,13 +438,5 @@ type DocHandleXstateMachine<T> = Interpreter<
 // CONSTANTS
 
 export const { IDLE, LOADING, REQUESTING, READY, FAILED, DELETED } = HandleState
-const {
-  CREATE,
-  LOAD,
-  FIND,
-  REQUEST,
-  UPDATE,
-  TIMEOUT,
-  DELETE,
-  REQUEST_COMPLETE,
-} = Event
+const { CREATE, FIND, REQUEST, UPDATE, TIMEOUT, DELETE, REQUEST_COMPLETE } =
+  Event

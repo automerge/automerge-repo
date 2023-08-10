@@ -55,6 +55,7 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       const v = await handle.doc()
+      console.log("V is ", v)
       assert.equal(handle.isReady(), true)
 
       assert.equal(v.foo, "bar")
@@ -412,5 +413,4 @@ describe("Repo", () => {
       teardown()
     })
   })
-
 })

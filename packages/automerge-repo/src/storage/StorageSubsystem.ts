@@ -62,8 +62,14 @@ export class StorageSubsystem {
     sourceChunks: StorageChunkInfo[]
   ): Promise<void> {
     const binary = A.save(doc)
-    const key = [documentId, "snapshot", headsHash(A.getHeads(doc))]
-    const oldKeys = new Set(sourceChunks.map(c => c.key))
+    const snapshotHash = headsHash(A.getHeads(doc))
+    const key = [documentId, "snapshot", snapshotHash]
+    const oldKeys = new Set(
+      sourceChunks.map(c => c.key).filter(k => k[2] !== snapshotHash)
+    )
+
+    this.#log(`Saving snapshot ${key} for document ${documentId}`)
+    this.#log(`deleting old chunks ${Array.from(oldKeys)}`)
 
     await this.#storageAdapter.save(key, binary)
 
@@ -76,7 +82,7 @@ export class StorageSubsystem {
     this.#chunkInfos.set(documentId, newChunkInfos)
   }
 
-  async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
+  async loadDoc(documentId: DocumentId): Promise<A.Doc<unknown> | null> {
     const loaded = await this.#storageAdapter.loadRange([documentId])
     const binaries = []
     const chunkInfos: StorageChunkInfo[] = []
@@ -93,11 +99,22 @@ export class StorageSubsystem {
       binaries.push(chunk.data)
     }
     this.#chunkInfos.set(documentId, chunkInfos)
-    return mergeArrays(binaries)
+    const binary = mergeArrays(binaries)
+    if (binary.length === 0) {
+      return null
+    }
+    const newDoc = A.loadIncremental(A.init(), binary)
+    return newDoc
   }
 
-  async save(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+  async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
     let sourceChunks = this.#chunkInfos.get(documentId) ?? []
+    console.log(
+      "Saving",
+      documentId,
+      sourceChunks,
+      this.#shouldCompact(sourceChunks)
+    )
     if (this.#shouldCompact(sourceChunks)) {
       this.#saveTotal(documentId, doc, sourceChunks)
     } else {

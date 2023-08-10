@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge"
 import assert from "assert"
 import { it } from "mocha"
-import { DocHandle, DocHandleChangePayload, BinaryDocumentId } from "../src"
+import { DocHandle, DocHandleChangePayload } from "../src"
 import { pause } from "../src/helpers/pause"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl"
@@ -10,10 +10,8 @@ describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
   const BOGUS_ID = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
 
-  const binaryFromMockStorage = () => {
-    const doc = A.change<{ foo: string }>(A.init(), d => (d.foo = "bar"))
-    const binary = A.save(doc)
-    return binary
+  const docFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
+    return A.change<{ foo: string }>(doc, d => (d.foo = "bar"))
   }
 
   it("should take the UUID passed into it", () => {
@@ -26,10 +24,11 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.load(binaryFromMockStorage())
+    handle.update(doc => docFromMockStorage(doc))
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
+    console.log("DOC", JSON.stringify(doc))
     assert.equal(doc.foo, "bar")
   })
 
@@ -38,7 +37,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.load(binaryFromMockStorage())
+    handle.update(doc => docFromMockStorage(doc))
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
@@ -56,7 +55,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.load(binaryFromMockStorage())
+    handle.update(doc => docFromMockStorage(doc))
 
     const doc = await handle.doc()
 
@@ -72,7 +71,7 @@ describe("DocHandle", () => {
     assert.throws(() => handle.change(d => (d.foo = "baz")))
 
     // simulate loading from storage
-    handle.load(binaryFromMockStorage())
+    handle.update(doc => docFromMockStorage(doc))
 
     // now we're in READY state so we can make changes
     assert.equal(handle.isReady(), true)
@@ -229,7 +228,7 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
 
     // simulate loading from storage before the timeout expires
-    handle.load(binaryFromMockStorage())
+    handle.update(doc => docFromMockStorage(doc))
 
     // now it should not time out
     const doc = await handle.doc()
