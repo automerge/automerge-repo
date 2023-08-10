@@ -3,6 +3,7 @@ import { StorageAdapter, StorageKey } from "./StorageAdapter.js"
 import * as sha256 from "fast-sha256"
 import { type DocumentId } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
+import debug from "debug"
 
 // Metadata about a chunk of data loaded from storage. This is stored on the
 // StorageSubsystem so when we are compacting we know what chunks we can safely delete
@@ -30,6 +31,7 @@ function headsHash(heads: A.Heads): string {
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
   #chunkInfos: Map<DocumentId, StorageChunkInfo[]> = new Map()
+  #log = debug(`automerge-repo:storage-subsystem`)
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
@@ -42,6 +44,7 @@ export class StorageSubsystem {
     const binary = A.saveIncremental(doc)
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
+      this.#log(`Saving incremental ${key} for document ${documentId}`)
       await this.#storageAdapter.save(key, binary)
       if (!this.#chunkInfos.has(documentId)) {
         this.#chunkInfos.set(documentId, [])
@@ -62,8 +65,12 @@ export class StorageSubsystem {
     sourceChunks: StorageChunkInfo[]
   ): Promise<void> {
     const binary = A.save(doc)
-    const key = [documentId, "snapshot", headsHash(A.getHeads(doc))]
-    const oldKeys = new Set(sourceChunks.map(c => c.key))
+    const snapshotHash = headsHash(A.getHeads(doc))
+    const key = [documentId, "snapshot", snapshotHash]
+    const oldKeys = new Set(sourceChunks.map(c => c.key).filter(k => k[2] !== snapshotHash))
+
+    this.#log(`Saving snapshot ${key} for document ${documentId}`)
+    this.#log(`deleting old chunks ${Array.from(oldKeys)}`)
 
     await this.#storageAdapter.save(key, binary)
 
