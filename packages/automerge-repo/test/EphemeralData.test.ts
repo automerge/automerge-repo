@@ -5,6 +5,7 @@ import { ChannelId, PeerId } from "../src/types.js"
 
 describe("EphemeralData", () => {
   const ephemeral = new EphemeralData()
+  const targetPeerId = "target_peer" as PeerId
   const otherPeerId = "other_peer" as PeerId
   const destinationChannelId = "channel_id" as ChannelId
   const messageData = { foo: "bar" }
@@ -35,6 +36,7 @@ describe("EphemeralData", () => {
       }
     })
     ephemeral.receive({
+      targetId: targetPeerId,
       senderId: otherPeerId,
       channelId: destinationChannelId,
       data: CBOR.encode(messageData),
