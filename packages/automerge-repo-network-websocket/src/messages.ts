@@ -1,5 +1,5 @@
 import { Message, PeerId } from "@automerge/automerge-repo"
-import { ProtocolVersion } from "./protocolVersion"
+import { ProtocolVersion } from "./protocolVersion.js"
 
 export type LeaveMessage = {
   type: "leave"

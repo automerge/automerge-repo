@@ -4,9 +4,9 @@ import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 import debug from "debug"
 const log = debug("WebsocketServer")
 
-import { ProtocolV1, ProtocolVersion } from "./protocolVersion"
+import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
-import { FromClientMessage, FromServerMessage } from "./messages"
+import { FromClientMessage, FromServerMessage } from "./messages.js"
 
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer

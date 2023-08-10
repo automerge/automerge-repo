@@ -3,8 +3,12 @@ import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
-import { ProtocolV1 } from "./protocolVersion"
-import { FromClientMessage, FromServerMessage, JoinMessage } from "./messages"
+import { ProtocolV1 } from "./protocolVersion.js"
+import {
+  FromClientMessage,
+  FromServerMessage,
+  JoinMessage,
+} from "./messages.js"
 const log = debug("WebsocketClient")
 
 abstract class WebSocketNetworkAdapter extends NetworkAdapter {
