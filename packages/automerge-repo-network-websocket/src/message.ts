@@ -1,5 +1,5 @@
-import {type InboundMessagePayload} from "@automerge/automerge-repo"
-import {ProtocolVersion} from "./protocolVersion"
+import { type InboundMessagePayload } from "@automerge/automerge-repo"
+import { ProtocolVersion } from "./protocolVersion.js"
 
 export interface InboundWebSocketMessage extends InboundMessagePayload {
   supportedProtocolVersions?: ProtocolVersion[]
