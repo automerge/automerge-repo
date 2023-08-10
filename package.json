@@ -14,7 +14,7 @@
     "dev:svelte-demo": "yarn workspace @automerge/automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
     "pub": "lerna publish --yes",
-    "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/automerge-repo-sync-server start",
+    "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server start",
     "test": "lerna run test",
     "test:watch": "lerna run test:watch",
     "test:coverage": "lerna run test:coverage",
