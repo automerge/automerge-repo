@@ -4,6 +4,10 @@ Automerge Repo is a wrapper for the [Automerge](https://github.com/automerge/aut
 which provides facilities to support working with many documents at once, as well as pluggable
 networking and storage.
 
+## Getting started
+
+After cloning this repo, run `yarn install` and `yarn build`.
+
 This is a monorepo containing the following packages:
 
 - [automerge-repo](/packages/automerge-repo/): The core library. Handles dispatch of events and
