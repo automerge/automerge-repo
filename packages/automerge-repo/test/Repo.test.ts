@@ -180,6 +180,64 @@ describe("Repo", () => {
 
       repo.delete(handle.documentId)
     })
+
+    it("storage state doesn't change across reloads when the document hasn't changed", async () => {
+      const storage = new DummyStorageAdapter()
+
+      const repo = new Repo({
+        storage,
+        network: [],
+      })
+
+      const handle = repo.create<{ count: number }>()
+
+      handle.change(d => {
+        d.count = 0
+      })
+      handle.change(d => {
+        d.count = 1
+      })
+
+      const initialKeys = storage.keys()
+
+      const repo2 = new Repo({
+        storage,
+        network: [],
+      })
+      const handle2 = repo2.find(handle.url)
+      await handle2.doc()
+
+      assert.deepEqual(storage.keys(), initialKeys)
+    })
+
+    it("doesn't delete a document from storage when we refresh", async () => {
+      const storage = new DummyStorageAdapter()
+
+      const repo = new Repo({
+        storage,
+        network: [],
+      })
+
+      const handle = repo.create<{ count: number }>()
+
+      handle.change(d => {
+        d.count = 0
+      })
+      handle.change(d => {
+        d.count = 1
+      })
+
+      for (let i = 0; i < 3; i++) {
+        const repo2 = new Repo({
+          storage,
+          network: [],
+        })
+        const handle2 = repo2.find(handle.url)
+        await handle2.doc()
+
+        assert(storage.keys().length !== 0)
+      }
+    })
   })
 
   describe("sync", async () => {
@@ -412,5 +470,4 @@ describe("Repo", () => {
       teardown()
     })
   })
-
 })
