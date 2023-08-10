@@ -21,7 +21,7 @@ export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
 
     this.emit("message", {
       type: "broadcast",
-      count: this.#count++,
+      count: ++this.#count,
       channelId,
       sessionId: this.#sessionId,
       data: messageBytes,

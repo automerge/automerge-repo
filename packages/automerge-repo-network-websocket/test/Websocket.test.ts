@@ -3,9 +3,9 @@ import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdap
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter"
 import { startServer } from "./utilities/WebSockets"
 import * as CBOR from "cbor-x"
-import WebSocket, {AddressInfo}  from "ws"
+import WebSocket, { AddressInfo } from "ws"
 import { assert } from "chai"
-import {ChannelId, PeerId, Repo} from "@automerge/automerge-repo"
+import { ChannelId, PeerId, Repo } from "@automerge/automerge-repo"
 import { once } from "events"
 
 describe("Websocket adapters", async () => {
@@ -31,13 +31,13 @@ describe("Websocket adapters", async () => {
 
 describe("The BrowserWebSocketClientAdapter", () => {
   it("should advertise the protocol versions it supports in its join message", async () => {
-    const  { socket, server } = await startServer(0)
+    const { socket, server } = await startServer(0)
     let port = (server.address()!! as AddressInfo).port
     const serverUrl = `ws://localhost:${port}`
     const helloPromise = firstMessage(socket)
 
     const client = new BrowserWebSocketClientAdapter(serverUrl)
-    const repo = new Repo({network: [client], peerId: "browser" as PeerId})
+    const repo = new Repo({ network: [client], peerId: "browser" as PeerId })
 
     const hello = await helloPromise
 
@@ -45,8 +45,8 @@ describe("The BrowserWebSocketClientAdapter", () => {
     assert.deepEqual(message, {
       type: "join",
       senderId: "browser",
-      supportedProtocolVersions: ["1"]
-    }) 
+      supportedProtocolVersions: ["1"],
+    })
   })
 })
 
@@ -55,12 +55,12 @@ describe("The NodeWSServerAdapter", () => {
     const response = await serverHelloGivenClientHello({
       type: "join",
       senderId: "browser",
-      supportedProtocolVersions: ["1"]
+      supportedProtocolVersions: ["1"],
     })
     assert.deepEqual<any>(response, {
       type: "peer",
       senderId: "server",
-      selectedProtocolVersion: "1"
+      selectedProtocolVersion: "1",
     })
   })
 
@@ -68,11 +68,12 @@ describe("The NodeWSServerAdapter", () => {
     const response = await serverHelloGivenClientHello({
       type: "join",
       senderId: "browser",
-      supportedProtocolVersions: ["fake"]
+      supportedProtocolVersions: ["fake"],
     })
     assert.deepEqual<any>(response, {
       type: "error",
-      errorMessage: "unsupported protocol version",
+      senderId: "server",
+      message: "unsupported protocol version",
     })
   })
 
@@ -84,17 +85,19 @@ describe("The NodeWSServerAdapter", () => {
     assert.deepEqual<any>(response, {
       type: "peer",
       senderId: "server",
-      selectedProtocolVersion: "1"
+      selectedProtocolVersion: "1",
     })
   })
 })
 
-async function serverHelloGivenClientHello(clientHello: Object): Promise<Object | null> {
-  const  { socket, server } = await startServer(0)
+async function serverHelloGivenClientHello(
+  clientHello: Object
+): Promise<Object | null> {
+  const { socket, server } = await startServer(0)
   let port = (server.address()!! as AddressInfo).port
   const serverUrl = `ws://localhost:${port}`
   const adapter = new NodeWSServerAdapter(socket)
-  const repo = new Repo({network: [adapter], peerId: "server" as PeerId})
+  const repo = new Repo({ network: [adapter], peerId: "server" as PeerId })
 
   const clientSocket = new WebSocket(serverUrl)
   await once(clientSocket, "open")
@@ -107,9 +110,11 @@ async function serverHelloGivenClientHello(clientHello: Object): Promise<Object 
   return message
 }
 
-async function firstMessage(socket: WebSocket.Server<any>): Promise<Object | null> {
+async function firstMessage(
+  socket: WebSocket.Server<any>
+): Promise<Object | null> {
   return new Promise((resolve, reject) => {
-    socket.once("connection", (ws) => {
+    socket.once("connection", ws => {
       ws.once("message", (message: any) => {
         resolve(message)
       })
@@ -117,7 +122,7 @@ async function firstMessage(socket: WebSocket.Server<any>): Promise<Object | nul
         reject(error)
       })
     })
-    socket.once("error", (error) => {
+    socket.once("error", error => {
       reject(error)
     })
   })

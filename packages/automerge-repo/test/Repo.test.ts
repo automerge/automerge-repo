@@ -1,6 +1,6 @@
 import assert from "assert"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
-import * as A from "@automerge/automerge"
+import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 
 import {
   AutomergeUrl,
@@ -17,11 +17,7 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
-import {
-  binaryToDocumentId,
-  generateAutomergeUrl,
-  stringifyAutomergeUrl,
-} from "../src/DocUrl"
+import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -380,6 +376,40 @@ describe("Repo", () => {
       teardown()
     })
 
+    it.only("can broadcast a message without entering into an infinite loop", async () => {
+      const aliceRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+      })
+
+      const bobRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+      })
+
+      // pause to let the network set up
+      await pause(50)
+
+      const channelId = "broadcast" as ChannelId
+      const data = { presence: "alex" }
+
+      aliceRepo.ephemeralData.broadcast(channelId, data)
+
+      const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          resolve()
+        }, 100)
+
+        aliceRepo.ephemeralData.on("data", () => {
+          reject("alice got the message")
+        })
+      })
+
+      const bobGotIt = eventPromise(bobRepo.ephemeralData, "data")
+
+      const [bob] = await Promise.all([bobGotIt, aliceDoesntGetIt])
+
+      assert.deepStrictEqual(bob.data, data)
+    })
+
     it("syncs a bunch of changes", async () => {
       const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
 
@@ -412,5 +442,4 @@ describe("Repo", () => {
       teardown()
     })
   })
-
 })

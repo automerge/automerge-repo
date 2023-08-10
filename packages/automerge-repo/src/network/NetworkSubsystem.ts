@@ -59,15 +59,20 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       // If we receive a broadcast message from a network adapter we need to re-broadcast it to all
       // our other peers. This is the world's worst gossip protocol.
       if (isEphemeralMessage(msg)) {
-        if (msg.count > this.#ephemeralSessionCounts[msg.sessionId]) {
+        if (
+          this.#ephemeralSessionCounts[msg.sessionId] === undefined ||
+          msg.count > this.#ephemeralSessionCounts[msg.sessionId]
+        ) {
           Object.entries(this.#adaptersByPeer)
             .filter(([id]) => id !== msg.senderId)
             .forEach(([_, peer]) => {
               peer.send(msg)
             })
+          this.#ephemeralSessionCounts[msg.sessionId] = msg.count
+          this.emit("message", msg)
         }
 
-        this.#ephemeralSessionCounts[msg.sessionId] = msg.count
+        return
       }
 
       this.emit("message", msg)

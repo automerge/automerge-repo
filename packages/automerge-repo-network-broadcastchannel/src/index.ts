@@ -1,10 +1,4 @@
-import {
-  ChannelId,
-  NetworkAdapter,
-  PeerId,
-  Message,
-} from "@automerge/automerge-repo"
-import { isEphemeralMessage } from "@automerge/automerge-repo/dist/network/NetworkAdapter"
+import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 
 export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel
