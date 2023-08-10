@@ -110,14 +110,6 @@ export class NodeWSServerAdapter extends NetworkAdapter {
             senderId: this.peerId!,
             selectedProtocolVersion: ProtocolV1,
           })
-
-          socket.send(
-            CBOR.encode({
-              type: "peer",
-              senderId: this.peerId,
-              selectedProtocolVersion: ProtocolV1,
-            })
-          )
         }
         break
       case "leave":
