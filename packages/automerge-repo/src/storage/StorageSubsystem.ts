@@ -4,6 +4,7 @@ import * as sha256 from "fast-sha256"
 import { type DocumentId } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 import debug from "debug"
+import { headsAreSame } from "../helpers/headsAreSame.js"
 
 // Metadata about a chunk of data loaded from storage. This is stored on the
 // StorageSubsystem so when we are compacting we know what chunks we can safely delete
@@ -31,6 +32,7 @@ function headsHash(heads: A.Heads): string {
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
   #chunkInfos: Map<DocumentId, StorageChunkInfo[]> = new Map()
+  #storedHeads: Map<DocumentId, A.Heads> = new Map()
   #log = debug(`automerge-repo:storage-subsystem`)
 
   constructor(storageAdapter: StorageAdapter) {
@@ -41,7 +43,7 @@ export class StorageSubsystem {
     documentId: DocumentId,
     doc: A.Doc<unknown>
   ): Promise<void> {
-    const binary = A.saveIncremental(doc)
+    const binary = A.saveSince(doc, this.#storedHeads.get(documentId) ?? [])
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
       this.#log(`Saving incremental ${key} for document ${documentId}`)
@@ -54,6 +56,7 @@ export class StorageSubsystem {
         type: "incremental",
         size: binary.length,
       })
+      this.#storedHeads.set(documentId, A.getHeads(doc))
     } else {
       return Promise.resolve()
     }
@@ -107,27 +110,40 @@ export class StorageSubsystem {
       return null
     }
     const newDoc = A.loadIncremental(A.init(), binary)
+    this.#storedHeads.set(documentId, A.getHeads(newDoc))
     return newDoc
   }
 
   async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+    if (!this.#shouldSave(documentId, doc)) {
+      return
+    }
     let sourceChunks = this.#chunkInfos.get(documentId) ?? []
-    console.log(
-      "Saving",
-      documentId,
-      sourceChunks,
-      this.#shouldCompact(sourceChunks)
-    )
     if (this.#shouldCompact(sourceChunks)) {
       this.#saveTotal(documentId, doc, sourceChunks)
     } else {
       this.#saveIncremental(documentId, doc)
     }
+    this.#storedHeads.set(documentId, A.getHeads(doc))
   }
 
   async remove(documentId: DocumentId) {
     this.#storageAdapter.remove([documentId, "snapshot"])
     this.#storageAdapter.removeRange([documentId, "incremental"])
+  }
+
+  #shouldSave(documentId: DocumentId, doc: A.Doc<unknown>): boolean {
+    const oldHeads = this.#storedHeads.get(documentId)
+    if (!oldHeads) {
+      return true
+    }
+
+    const newHeads = A.getHeads(doc)
+    if (headsAreSame(newHeads, oldHeads)) {
+      return false
+    }
+
+    return true
   }
 
   #shouldCompact(sourceChunks: StorageChunkInfo[]) {

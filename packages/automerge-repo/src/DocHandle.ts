@@ -128,11 +128,7 @@ export class DocHandle<T> //
               const { doc: oldDoc } = context
 
               const { callback } = payload
-              console.log("olddoc", oldDoc)
-              console.log(callback)
               const newDoc = callback(oldDoc)
-              console.trace()
-              console.log("newdoc", newDoc)
 
               return { doc: newDoc }
             }),

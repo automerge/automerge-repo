@@ -16,7 +16,7 @@
     "@automerge/automerge-repo": "^1.0.0-alpha.0"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0-alpha.9"
+    "@automerge/automerge": "^2.1.0-alpha.10"
   },
   "watch": {
     "build": {
