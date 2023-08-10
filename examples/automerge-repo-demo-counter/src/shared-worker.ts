@@ -3,8 +3,7 @@ declare const self: SharedWorkerGlobalScope
 export {}
 
 self.addEventListener("connect", (e: MessageEvent) => {
-  var mainPort = e.ports[0]
-  configureRepoNetworkPort(mainPort)
+  configureRepoNetworkPort(e.ports[0])
 })
 
 // Because automerge is a WASM module and loads asynchronously,
@@ -29,13 +28,13 @@ const repoPromise = (async () => {
 })()
 
 async function configureRepoNetworkPort(port: MessagePort) {
-  // be careful to not accidentally create a strong reference to port
-  // that will prevent dead ports from being garbage collected
   const repo = await repoPromise
 
   const { MessageChannelNetworkAdapter } = await import(
     "@automerge/automerge-repo-network-messagechannel"
   )
+  // be careful to not accidentally create a strong reference to port
+  // that will prevent dead ports from being garbage collected
   repo.networkSubsystem.addNetworkAdapter(
     new MessageChannelNetworkAdapter(port, { useWeakRef: true })
   )
