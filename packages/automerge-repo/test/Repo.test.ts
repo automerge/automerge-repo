@@ -340,7 +340,8 @@ describe("Repo", () => {
 
     it("doesn't find a document which doesn't exist anywhere on the network", async () => {
       const { charlieRepo } = await setup()
-      const handle = charlieRepo.find<TestDoc>(generateAutomergeUrl())
+      const url = generateAutomergeUrl()
+      const handle = charlieRepo.find<TestDoc>(url)
       assert.equal(handle.isReady(), false)
 
       await eventPromise(handle, "unavailable")
@@ -350,6 +351,8 @@ describe("Repo", () => {
         "This document should not exist"
       )
     })
+
+    it.skip("a previously unavailable document can be found again")
 
     it("a deleted document from charlieRepo can be refetched", async () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()

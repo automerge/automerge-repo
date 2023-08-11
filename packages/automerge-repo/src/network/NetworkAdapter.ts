@@ -23,7 +23,8 @@ export function isValidMessage(message: Message): boolean {
     typeof message.senderId === "string" &&
     (isSyncMessage(message) ||
       isEphemeralMessage(message) ||
-      isRequestMessage(message))
+      isRequestMessage(message) ||
+      isDocumentUnavailableMessage(message))
   )
 }
 

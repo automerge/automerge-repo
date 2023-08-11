@@ -10,7 +10,11 @@ import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
-import { DocumentUnavailableMessage, RequestMessage, SyncMessage } from "../network/NetworkAdapter.js"
+import {
+  DocumentUnavailableMessage,
+  RequestMessage,
+  SyncMessage,
+} from "../network/NetworkAdapter.js"
 const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
@@ -52,21 +56,28 @@ export class CollectionSynchronizer extends Synchronizer {
     return generousPeers
   }
 
+  #docSetUp: Record<DocumentId, boolean> = {}
+
   // PUBLIC
 
   /**
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
    */
-  async receiveSyncMessage(message: SyncMessage | RequestMessage | DocumentUnavailableMessage) {
+  async receiveSyncMessage(
+    message: SyncMessage | RequestMessage | DocumentUnavailableMessage
+  ) {
     // log(
-      // `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data?.byteLength}bytes`
+    // `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data?.byteLength}bytes`
     // )
 
     const documentId = message.documentId
     if (!documentId) {
       throw new Error("received a message with an invalid documentId")
     }
+
+    this.#docSetUp[documentId] = true
+
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
 
     docSynchronizer.receiveSyncMessage(message)
@@ -82,6 +93,10 @@ export class CollectionSynchronizer extends Synchronizer {
    * Starts synchronizing the given document with all peers that we share it generously with.
    */
   addDocument(documentId: DocumentId) {
+    // HACK: this is a hack to prevent us from adding the same document twice
+    if (this.#docSetUp[documentId]) {
+      return
+    }
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
     void this.#documentGenerousPeers(documentId).then(peers => {
       docSynchronizer.beginSync(peers)

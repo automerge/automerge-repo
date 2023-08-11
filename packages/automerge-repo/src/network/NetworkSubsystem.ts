@@ -2,6 +2,7 @@ import EventEmitter from "eventemitter3"
 import { ChannelId, DistributiveOmit, PeerId } from "../types.js"
 import {
   DocumentUnavailableMessageContents,
+  isDocumentUnavailableMessage,
   isEphemeralMessage,
   isValidMessage,
   Message,

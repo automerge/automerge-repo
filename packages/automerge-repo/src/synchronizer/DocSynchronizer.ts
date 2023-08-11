@@ -102,7 +102,8 @@ export class DocSynchronizer extends Synchronizer {
         !this.handle.isReady() &&
         A.decodeSyncMessage(message).heads.length === 0 &&
         newSyncState.sharedHeads.length === 0 &&
-        !this.#recognisedPeers.includes(peerId)
+        !this.#recognisedPeers.includes(peerId) &&
+        this.#peerStates[peerId] === "unknown"
       ) {
         if (this.#peerStates[peerId] !== "docUnavailable") {
           this.#peerStates[peerId] = "requesting"
@@ -212,6 +213,10 @@ export class DocSynchronizer extends Synchronizer {
 
     if (isDocumentUnavailableMessage(message)) {
       return
+    }
+
+    if (A.decodeSyncMessage(message.data).heads.length > 0) {
+      this.#peerStates[message.senderId] = "hasDoc"
     }
 
     this.handle.update(doc => {

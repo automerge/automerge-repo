@@ -163,7 +163,6 @@ export class DocHandle<T> //
               return { doc: undefined }
             }),
             onUnavailable: assign(() => {
-              console.log("unavailable")
               this.emit("unavailable", { handle: this })
               return { doc: undefined }
             }),
