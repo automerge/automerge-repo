@@ -4,6 +4,10 @@ Automerge Repo is a wrapper for the [Automerge](https://github.com/automerge/aut
 which provides facilities to support working with many documents at once, as well as pluggable
 networking and storage.
 
+## Getting started
+
+After cloning this repo, run `yarn install` and `yarn build`.
+
 This is a monorepo containing the following packages:
 
 - [automerge-repo](/packages/automerge-repo/): The core library. Handles dispatch of events and
@@ -18,6 +22,7 @@ This is a monorepo containing the following packages:
 - [automerge-repo-demo-counter-svelte](/examples/automerge-repo-demo-counter-svelte/): A Svelte-based
   example project.
 - [sync-server](/examples/sync-server): A very simple sync server which the other examples can use
+  - Please note this is different from [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server)
 
 #### Front-end adapters
 
@@ -46,4 +51,4 @@ This is a monorepo containing the following packages:
 
 Please note that a reference sync-server peer which demonstrates the use of 
 [automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/)
-is available at [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server).
+is available at [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server) (this is different from [sync-server](/examples/sync-server)).
