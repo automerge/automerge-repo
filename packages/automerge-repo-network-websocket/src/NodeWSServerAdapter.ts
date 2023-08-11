@@ -62,7 +62,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
   }
 
   send(message: Message) {
-    if (message.data.byteLength === 0) {
+    if ("data" in message && message.data.byteLength === 0) {
       throw new Error("tried to send a zero-length message")
     }
     const senderId = this.peerId

@@ -1,12 +1,14 @@
 import EventEmitter from "eventemitter3"
 import { ChannelId, DistributiveOmit, PeerId } from "../types.js"
 import {
+  DocumentUnavailableMessageContents,
   isEphemeralMessage,
   isValidMessage,
   Message,
   MessageContents,
   NetworkAdapter,
   PeerDisconnectedPayload,
+  RequestMessageContents,
 } from "./NetworkAdapter.js"
 
 import debug from "debug"
@@ -91,7 +93,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     networkAdapter.join()
   }
 
-  send(msg: MessageContents) {
+  send(
+    msg:
+      | MessageContents
+      | RequestMessageContents
+      | DocumentUnavailableMessageContents
+  ) {
     const message = {
       ...msg,
       senderId: this.peerId,

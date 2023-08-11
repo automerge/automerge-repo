@@ -179,7 +179,24 @@ describe("Repo", () => {
   })
 
   describe("sync", async () => {
-    const setup = async () => {
+    const charlieExcludedDocuments: DocumentId[] = []
+    const bobExcludedDocuments: DocumentId[] = []
+
+    const sharePolicy: SharePolicy = async (peerId, documentId) => {
+      if (documentId === undefined) return false
+
+      // make sure that charlie never gets excluded documents
+      if (charlieExcludedDocuments.includes(documentId) && peerId === "charlie")
+        return false
+
+      // make sure that charlie never gets excluded documents
+      if (bobExcludedDocuments.includes(documentId) && peerId === "bob")
+        return false
+
+      return true
+    }
+
+    const setupRepos = () => {
       // Set up three repos; connect Alice to Bob, and Bob to Charlie
 
       const aliceBobChannel = new MessageChannel()
@@ -187,26 +204,6 @@ describe("Repo", () => {
 
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
-
-      const charlieExcludedDocuments: DocumentId[] = []
-      const bobExcludedDocuments: DocumentId[] = []
-
-      const sharePolicy: SharePolicy = async (peerId, documentId) => {
-        if (documentId === undefined) return false
-
-        // make sure that charlie never gets excluded documents
-        if (
-          charlieExcludedDocuments.includes(documentId) &&
-          peerId === "charlie"
-        )
-          return false
-
-        // make sure that charlie never gets excluded documents
-        if (bobExcludedDocuments.includes(documentId) && peerId === "bob")
-          return false
-
-        return true
-      }
 
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
@@ -227,6 +224,22 @@ describe("Repo", () => {
         network: [new MessageChannelNetworkAdapter(charlieToBob)],
         peerId: "charlie" as PeerId,
       })
+
+      const teardown = () => {
+        aliceBobChannel.port1.close()
+        bobCharlieChannel.port1.close()
+      }
+
+      return {
+        teardown,
+        aliceRepo,
+        bobRepo,
+        charlieRepo,
+      }
+    }
+
+    const setup = async () => {
+      const { teardown, aliceRepo, bobRepo, charlieRepo } = setupRepos()
 
       const aliceHandle = aliceRepo.create<TestDoc>()
       aliceHandle.change(d => {
@@ -252,11 +265,6 @@ describe("Repo", () => {
         eventPromise(bobRepo.networkSubsystem, "peer"),
         eventPromise(charlieRepo.networkSubsystem, "peer"),
       ])
-
-      const teardown = () => {
-        aliceBobChannel.port1.close()
-        bobCharlieChannel.port1.close()
-      }
 
       return {
         aliceRepo,
@@ -334,6 +342,8 @@ describe("Repo", () => {
       const { charlieRepo } = await setup()
       const handle = charlieRepo.find<TestDoc>(generateAutomergeUrl())
       assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
 
       return assert.rejects(
         rejectOnTimeout(handle.doc(), 10),
@@ -433,9 +443,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-              repo.create<TestDoc>()
+            repo.create<TestDoc>()
             : // tails, pick a random doc
-              (getRandomItem(docs) as DocHandle<TestDoc>)
+            (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {

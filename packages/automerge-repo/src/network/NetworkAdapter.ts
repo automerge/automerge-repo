@@ -21,12 +21,24 @@ export function isValidMessage(message: Message): boolean {
     typeof message === "object" &&
     typeof message.type === "string" &&
     typeof message.senderId === "string" &&
-    (isSyncMessage(message) || isEphemeralMessage(message))
+    (isSyncMessage(message) ||
+      isEphemeralMessage(message) ||
+      isRequestMessage(message))
   )
+}
+
+export function isDocumentUnavailableMessage(
+  message: Message
+): message is DocumentUnavailableMessage {
+  return message.type === "doc-unavailable"
 }
 
 export function isSyncMessage(message: Message): message is SyncMessage {
   return message.type === "sync"
+}
+
+export function isRequestMessage(message: Message): message is RequestMessage {
+  return message.type === "request"
 }
 
 export function isEphemeralMessage(
@@ -56,6 +68,15 @@ export interface SyncMessageContents {
   documentId: DocumentId
 }
 
+export interface RequestMessageContents {
+  type: "request"
+  data: Uint8Array
+  targetId: PeerId
+  documentId: DocumentId
+}
+
+export type RequestMessage = SyncMessageEnvelope & RequestMessageContents
+
 export type SyncMessage = SyncMessageEnvelope & SyncMessageContents
 
 export interface EphemeralMessageEnvelope {
@@ -74,9 +95,27 @@ export interface EphemeralMessageContents {
 export type EphemeralMessage = EphemeralMessageEnvelope &
   EphemeralMessageContents
 
+export interface DocumentUnavailableMessageContents {
+  type: "doc-unavailable"
+  documentId: DocumentId
+  targetId: PeerId
+}
+
+export type DocumentUnavailableMessage = SyncMessageEnvelope &
+  DocumentUnavailableMessageContents
+
 export type MessageContents = SyncMessageContents | EphemeralMessageContents
 
-export type Message = SyncMessage | EphemeralMessage
+export type Message =
+  | SyncMessage
+  | EphemeralMessage
+  | RequestMessage
+  | DocumentUnavailableMessage
+
+export type SynchronizerMessage =
+  | SyncMessage
+  | RequestMessage
+  | DocumentUnavailableMessage
 
 export interface OpenPayload {
   network: NetworkAdapter

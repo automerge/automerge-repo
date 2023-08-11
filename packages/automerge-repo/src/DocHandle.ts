@@ -98,6 +98,10 @@ export class DocHandle<T> //
             },
             requesting: {
               on: {
+                MARK_UNAVAILABLE: {
+                  target: UNAVAILABLE,
+                  actions: "onUnavailable",
+                },
                 // UPDATE is called by the Repo when we receive changes from the network
                 UPDATE: { actions: "onUpdate" },
                 // REQUEST_COMPLETE is called from `onUpdate` when the doc has been fully loaded from the network
@@ -124,6 +128,14 @@ export class DocHandle<T> //
             deleted: {
               type: "final",
             },
+            unavailable: {
+              on: {
+                UPDATE: { actions: "onUpdate" },
+                // REQUEST_COMPLETE is called from `onUpdate` when the doc has been fully loaded from the network
+                REQUEST_COMPLETE: { target: READY },
+                DELETE: { actions: "onDelete", target: DELETED },
+              },
+            },
           },
         },
 
@@ -148,6 +160,11 @@ export class DocHandle<T> //
             }),
             onDelete: assign(() => {
               this.emit("delete", { handle: this })
+              return { doc: undefined }
+            }),
+            onUnavailable: assign(() => {
+              console.log("unavailable")
+              this.emit("unavailable", { handle: this })
               return { doc: undefined }
             }),
           },
@@ -329,6 +346,10 @@ export class DocHandle<T> //
     })
   }
 
+  unavailable() {
+    this.#machine.send(MARK_UNAVAILABLE)
+  }
+
   /** `request` is called by the repo when the document is not found in storage */
   request() {
     if (this.#state === LOADING) this.#machine.send(REQUEST)
@@ -373,6 +394,7 @@ export interface DocHandleEvents<T> {
   "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
+  unavailable: (payload: DocHandleDeletePayload<T>) => void
 }
 
 // STATE MACHINE TYPES
@@ -386,6 +408,7 @@ export const HandleState = {
   READY: "ready",
   FAILED: "failed",
   DELETED: "deleted",
+  UNAVAILABLE: "unavailable",
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
@@ -414,6 +437,7 @@ export const Event = {
   UPDATE: "UPDATE",
   TIMEOUT: "TIMEOUT",
   DELETE: "DELETE",
+  MARK_UNAVAILABLE: "MARK_UNAVAILABLE",
 } as const
 type Event = (typeof Event)[keyof typeof Event]
 
@@ -428,6 +452,7 @@ type UpdateEvent<T> = {
   payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
 }
 type TimeoutEvent = { type: typeof TIMEOUT }
+type MarkUnavailableEvent = { type: typeof MARK_UNAVAILABLE }
 
 type DocHandleEvent<T> =
   | CreateEvent
@@ -438,6 +463,7 @@ type DocHandleEvent<T> =
   | UpdateEvent<T>
   | TimeoutEvent
   | DeleteEvent
+  | MarkUnavailableEvent
 
 type DocHandleXstateMachine<T> = Interpreter<
   DocHandleContext<T>,
@@ -457,7 +483,15 @@ type DocHandleXstateMachine<T> = Interpreter<
 
 // CONSTANTS
 
-export const { IDLE, LOADING, REQUESTING, READY, FAILED, DELETED } = HandleState
+export const {
+  IDLE,
+  LOADING,
+  REQUESTING,
+  READY,
+  FAILED,
+  DELETED,
+  UNAVAILABLE,
+} = HandleState
 const {
   CREATE,
   LOAD,
@@ -467,4 +501,5 @@ const {
   TIMEOUT,
   DELETE,
   REQUEST_COMPLETE,
+  MARK_UNAVAILABLE,
 } = Event

@@ -1,10 +1,16 @@
 import * as A from "@automerge/automerge"
 import { DocHandle, READY, REQUESTING } from "../DocHandle.js"
-import { ChannelId, PeerId } from "../types.js"
+import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
-import { SyncMessage } from "../network/NetworkAdapter.js"
+import {
+  isDocumentUnavailableMessage,
+  isRequestMessage,
+  SynchronizerMessage,
+} from "../network/NetworkAdapter.js"
+
+type PeerState = "unknown" | "hasDoc" | "docUnavailable" | "requesting"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -18,10 +24,16 @@ export class DocSynchronizer extends Synchronizer {
   /** Active peers */
   #peers: PeerId[] = []
 
+  #recognisedPeers: PeerId[] = []
+
+  #peerStates: Record<PeerId, PeerState> = {}
+
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  #pendingSyncMessages: Array<SyncMessage> = []
+  #pendingSyncMessages: Array<SynchronizerMessage> = []
+
+  #syncStarted = false
 
   constructor(private handle: DocHandle<any>) {
     super()
@@ -37,6 +49,10 @@ export class DocSynchronizer extends Synchronizer {
       await handle.doc([READY, REQUESTING])
       this.#processAllPendingSyncMessages()
     })()
+  }
+
+  get peerStates() {
+    return this.#peerStates
   }
 
   get documentId() {
@@ -55,6 +71,10 @@ export class DocSynchronizer extends Synchronizer {
     if (!this.#peers.includes(peerId)) {
       this.#log("adding a new peer", peerId)
       this.#peers.push(peerId)
+    }
+
+    if (!(peerId in this.#peerStates)) {
+      this.#peerStates[peerId] = "unknown"
     }
 
     return this.#syncStates[peerId] ?? A.initSyncState()
@@ -78,14 +98,34 @@ export class DocSynchronizer extends Synchronizer {
     if (message) {
       this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
 
-      this.emit("message", {
-        type: "sync",
-        targetId: peerId,
-        data: message,
-        documentId: this.handle.documentId,
-      })
-    } else {
-      this.#log(`sendSyncMessage ->${peerId} [no message generated]`)
+      if (
+        !this.handle.isReady() &&
+        A.decodeSyncMessage(message).heads.length === 0 &&
+        newSyncState.sharedHeads.length === 0 &&
+        !this.#recognisedPeers.includes(peerId)
+      ) {
+        if (this.#peerStates[peerId] !== "docUnavailable") {
+          this.#peerStates[peerId] = "requesting"
+        }
+
+        this.emit("message", {
+          type: "request",
+          targetId: peerId,
+          documentId: this.handle.documentId,
+          data: message,
+        })
+      } else {
+        this.emit("message", {
+          type: "sync",
+          targetId: peerId,
+          data: message,
+          documentId: this.handle.documentId,
+        })
+      }
+
+      if (!this.#recognisedPeers.includes(peerId)) {
+        this.#recognisedPeers.push(peerId)
+      }
     }
   }
 
@@ -103,8 +143,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-          A.decodeChange(change).ops.map(op => JSON.stringify(op))
-        )
+        A.decodeChange(change).ops.map(op => JSON.stringify(op))
+      )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -115,8 +155,8 @@ export class DocSynchronizer extends Synchronizer {
     return this.#peers.includes(peerId)
   }
 
-  beginSync(peerId: PeerId) {
-    this.#log(`beginSync: ${peerId}`)
+  beginSync(peerIds: PeerId[]) {
+    this.#log(`beginSync: ${peerIds.join(", ")}`)
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
@@ -125,11 +165,19 @@ export class DocSynchronizer extends Synchronizer {
       // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
       // messages during disconnection.
       // TODO: cover that case with a test and remove this hack
-      const syncStateRaw = this.#getSyncState(peerId)
-      const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
-      this.#setSyncState(peerId, syncState)
+      peerIds.forEach(peerId => {
+        const syncStateRaw = this.#getSyncState(peerId)
+        const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
+        this.#setSyncState(peerId, syncState)
+      })
 
-      this.#sendSyncMessage(peerId, doc)
+      // we register out peers first, then say that sync has started
+      this.#syncStarted = true
+      this.#checkDocUnavailable()
+
+      peerIds.forEach(peerId => {
+        this.#sendSyncMessage(peerId, doc)
+      })
     })
   }
 
@@ -138,9 +186,13 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  receiveSyncMessage(message: SyncMessage) {
+  receiveSyncMessage(message: SynchronizerMessage) {
     if (message.documentId !== this.handle.documentId)
       throw new Error(`channelId doesn't match documentId`)
+
+    if (!this.#recognisedPeers.includes(message.senderId)) {
+      this.#recognisedPeers.push(message.senderId)
+    }
 
     // We need to block receiving the syncMessages until we've checked local storage
     if (!this.handle.inState([READY, REQUESTING])) {
@@ -152,7 +204,16 @@ export class DocSynchronizer extends Synchronizer {
     this.#processSyncMessage(message)
   }
 
-  #processSyncMessage(message: SyncMessage) {
+  #processSyncMessage(message: SynchronizerMessage) {
+    if (isRequestMessage(message) || isDocumentUnavailableMessage(message)) {
+      this.#peerStates[message.senderId] = "docUnavailable"
+      this.#checkDocUnavailable()
+    }
+
+    if (isDocumentUnavailableMessage(message)) {
+      return
+    }
+
     this.handle.update(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
@@ -166,6 +227,27 @@ export class DocSynchronizer extends Synchronizer {
       this.#sendSyncMessage(message.senderId, doc)
       return newDoc
     })
+
+    this.#checkDocUnavailable()
+  }
+
+  #checkDocUnavailable() {
+    if (
+      this.#syncStarted &&
+      this.handle.inState([REQUESTING]) &&
+      this.#peers.length > 0 &&
+      this.#peers.every(peerId => this.#peerStates[peerId] === "docUnavailable")
+    ) {
+      this.#peers.forEach(peerId => {
+        this.emit("message", {
+          type: "doc-unavailable",
+          documentId: this.handle.documentId,
+          targetId: peerId,
+        })
+      })
+
+      this.handle.unavailable()
+    }
   }
 
   #processAllPendingSyncMessages() {

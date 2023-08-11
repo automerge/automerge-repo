@@ -10,7 +10,7 @@ import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
-import { SyncMessage } from "../network/NetworkAdapter.js"
+import { DocumentUnavailableMessage, RequestMessage, SyncMessage } from "../network/NetworkAdapter.js"
 const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
@@ -58,10 +58,10 @@ export class CollectionSynchronizer extends Synchronizer {
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
    */
-  async receiveSyncMessage(message: SyncMessage) {
-    log(
-      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data.byteLength}bytes`
-    )
+  async receiveSyncMessage(message: SyncMessage | RequestMessage | DocumentUnavailableMessage) {
+    // log(
+      // `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data?.byteLength}bytes`
+    // )
 
     const documentId = message.documentId
     if (!documentId) {
@@ -73,9 +73,9 @@ export class CollectionSynchronizer extends Synchronizer {
 
     // Initiate sync with any new peers
     const peers = await this.#documentGenerousPeers(documentId)
-    peers
-      .filter(peerId => !docSynchronizer.hasPeer(peerId))
-      .forEach(peerId => docSynchronizer.beginSync(peerId))
+    docSynchronizer.beginSync(
+      peers.filter(peerId => !docSynchronizer.hasPeer(peerId))
+    )
   }
 
   /**
@@ -84,9 +84,7 @@ export class CollectionSynchronizer extends Synchronizer {
   addDocument(documentId: DocumentId) {
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
     void this.#documentGenerousPeers(documentId).then(peers => {
-      peers.forEach(peerId => {
-        docSynchronizer.beginSync(peerId)
-      })
+      docSynchronizer.beginSync(peers)
     })
   }
 
@@ -106,8 +104,8 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
-      void this.repo.sharePolicy(peerId, documentId).then(okToShare => {
-        if (okToShare) docSynchronizer.beginSync(peerId)
+      this.repo.sharePolicy(peerId, documentId).then(okToShare => {
+        if (okToShare) docSynchronizer.beginSync([peerId])
       })
     }
   }
