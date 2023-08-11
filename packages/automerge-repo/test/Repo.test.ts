@@ -376,12 +376,16 @@ describe("Repo", () => {
       teardown()
     })
 
-    it.only("can broadcast a message without entering into an infinite loop", async () => {
+    it("can broadcast a message without entering into an infinite loop", async () => {
       const aliceRepo = new Repo({
         network: [new BroadcastChannelNetworkAdapter()],
       })
 
       const bobRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+      })
+
+      const charlieRepo = new Repo({
         network: [new BroadcastChannelNetworkAdapter()],
       })
 
@@ -404,10 +408,16 @@ describe("Repo", () => {
       })
 
       const bobGotIt = eventPromise(bobRepo.ephemeralData, "data")
+      const charlieGotIt = eventPromise(charlieRepo.ephemeralData, "data")
 
-      const [bob] = await Promise.all([bobGotIt, aliceDoesntGetIt])
+      const [bob, charlie] = await Promise.all([
+        bobGotIt,
+        charlieGotIt,
+        aliceDoesntGetIt,
+      ])
 
       assert.deepStrictEqual(bob.data, data)
+      assert.deepStrictEqual(charlie.data, data)
     })
 
     it("syncs a bunch of changes", async () => {
