@@ -18,6 +18,7 @@ import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl"
+import debug from "debug"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -505,9 +506,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-            repo.create<TestDoc>()
+              repo.create<TestDoc>()
             : // tails, pick a random doc
-            (getRandomItem(docs) as DocHandle<TestDoc>)
+              (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {

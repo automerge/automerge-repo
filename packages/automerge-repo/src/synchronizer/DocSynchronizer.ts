@@ -73,6 +73,7 @@ export class DocSynchronizer extends Synchronizer {
       this.#peers.push(peerId)
     }
 
+    // when a peer is added, we don't know if it has the document or not
     if (!(peerId in this.#peerStates)) {
       this.#peerStates[peerId] = "unknown"
     }
@@ -98,16 +99,18 @@ export class DocSynchronizer extends Synchronizer {
     if (message) {
       this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
 
+      const decoded = A.decodeSyncMessage(message)
+
       if (
         !this.handle.isReady() &&
-        A.decodeSyncMessage(message).heads.length === 0 &&
+        decoded.heads.length === 0 &&
         newSyncState.sharedHeads.length === 0 &&
         !this.#recognisedPeers.includes(peerId) &&
+        !Object.values(this.#peerStates).includes("hasDoc") &&
         this.#peerStates[peerId] === "unknown"
       ) {
-        if (this.#peerStates[peerId] !== "docUnavailable") {
-          this.#peerStates[peerId] = "requesting"
-        }
+        // we don't have the document (or access to it), so we request it
+        this.#peerStates[peerId] = "requesting"
 
         this.emit("message", {
           type: "request",
@@ -122,6 +125,11 @@ export class DocSynchronizer extends Synchronizer {
           data: message,
           documentId: this.handle.documentId,
         })
+      }
+
+      // if we have sent heads, then the peer now has or will have the document
+      if (decoded.heads.length > 0) {
+        this.#peerStates[peerId] = "hasDoc"
       }
 
       if (!this.#recognisedPeers.includes(peerId)) {
@@ -144,8 +152,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-        A.decodeChange(change).ops.map(op => JSON.stringify(op))
-      )
+          A.decodeChange(change).ops.map(op => JSON.stringify(op))
+        )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -206,6 +214,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #processSyncMessage(message: SynchronizerMessage) {
+    // if a peer is requesting the document, we know they don't have it
     if (isRequestMessage(message) || isDocumentUnavailableMessage(message)) {
       this.#peerStates[message.senderId] = "docUnavailable"
       this.#checkDocUnavailable()
@@ -215,6 +224,7 @@ export class DocSynchronizer extends Synchronizer {
       return
     }
 
+    // if the message has heads, then the peer has the document
     if (A.decodeSyncMessage(message.data).heads.length > 0) {
       this.#peerStates[message.senderId] = "hasDoc"
     }
@@ -237,6 +247,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #checkDocUnavailable() {
+    // if we know none of the peers have the document, tell all our peers that we don't either
     if (
       this.#syncStarted &&
       this.handle.inState([REQUESTING]) &&
