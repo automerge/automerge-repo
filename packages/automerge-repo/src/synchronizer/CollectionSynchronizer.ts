@@ -25,6 +25,9 @@ export class CollectionSynchronizer extends Synchronizer {
   /** A map of documentIds to their synchronizers */
   #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
 
+  /** Used to determine if the document is know to the Collection and a synchronizer exists or is being set up */
+  #docSetUp: Record<DocumentId, boolean> = {}
+
   constructor(private repo: DocCollection) {
     super()
   }
@@ -55,8 +58,6 @@ export class CollectionSynchronizer extends Synchronizer {
     }
     return generousPeers
   }
-
-  #docSetUp: Record<DocumentId, boolean> = {}
 
   // PUBLIC
 
