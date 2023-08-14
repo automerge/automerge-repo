@@ -404,12 +404,31 @@ describe("Repo", () => {
       const handle = charlieRepo.find<TestDoc>(url)
       assert.equal(handle.isReady(), false)
 
-      await eventPromise(handle, "unavailable")
-
       return assert.rejects(
         rejectOnTimeout(handle.doc(), 10),
         "This document should not exist"
       )
+    })
+
+    it("fires an 'unavailable' event when you don't have the docoment locally or a network to connect to", async () => {
+      const charlieRepo = new Repo({
+        network: [],
+        peerId: "charlie" as PeerId,
+      })
+      const url = generateAutomergeUrl()
+      const handle = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
+    })
+
+    it("fires an 'unavailable' event when a document is not available on the network", async () => {
+      const { charlieRepo } = await setup()
+      const url = generateAutomergeUrl()
+      const handle = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
     })
 
     it.skip("a previously unavailable document can be found again")
@@ -475,7 +494,7 @@ describe("Repo", () => {
       }
     }
 
-    it.only("can emit an 'unavailable' event when it's not found on the network", async () => {
+    it("can emit an 'unavailable' event when it's not found on the network", async () => {
       const { charlieRepo } = await setupMeshNetwork()
 
       const url = generateAutomergeUrl()

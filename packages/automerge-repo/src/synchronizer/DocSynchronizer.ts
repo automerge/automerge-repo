@@ -143,8 +143,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-          A.decodeChange(change).ops.map(op => JSON.stringify(op))
-        )
+        A.decodeChange(change).ops.map(op => JSON.stringify(op))
+      )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -161,6 +161,8 @@ export class DocSynchronizer extends Synchronizer {
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
     void this.handle.doc([READY, REQUESTING]).then(doc => {
+      // if we don't have any peers, then we can say the document is unavailable
+
       // HACK: if we have a sync state already, we round-trip it through the encoding system to make
       // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
       // messages during disconnection.
@@ -241,7 +243,6 @@ export class DocSynchronizer extends Synchronizer {
     if (
       this.#syncStarted &&
       this.handle.inState([REQUESTING]) &&
-      this.#peers.length > 0 &&
       this.#peers.every(
         peerId =>
           this.#peerDocumentStatuses[peerId] === "unavailable" ||
