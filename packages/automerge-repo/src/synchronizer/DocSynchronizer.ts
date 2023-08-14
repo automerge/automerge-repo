@@ -62,6 +62,7 @@ export class DocSynchronizer extends Synchronizer {
   async #syncWithPeers() {
     this.#log(`syncWithPeers`)
     const doc = await this.handle.doc()
+    if (doc === undefined) return
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
@@ -176,6 +177,8 @@ export class DocSynchronizer extends Synchronizer {
       // we register out peers first, then say that sync has started
       this.#syncStarted = true
       this.#checkDocUnavailable()
+
+      if (doc === undefined) return
 
       peerIds.forEach(peerId => {
         this.#sendSyncMessage(peerId, doc)

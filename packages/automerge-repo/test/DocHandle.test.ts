@@ -8,7 +8,6 @@ import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
-  const BOGUS_ID = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
 
   const docFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
     return A.change<{ foo: string }>(doc, d => (d.foo = "bar"))
@@ -29,7 +28,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
     console.log("DOC", JSON.stringify(doc))
-    assert.equal(doc.foo, "bar")
+    assert.equal(doc?.foo, "bar")
   })
 
   it("should allow sync access to the doc", async () => {
@@ -60,7 +59,7 @@ describe("DocHandle", () => {
     const doc = await handle.doc()
 
     assert.equal(handle.isReady(), true)
-    assert.equal(doc.foo, "bar")
+    assert.equal(doc?.foo, "bar")
   })
 
   it("should block changes until ready()", async () => {
@@ -78,7 +77,7 @@ describe("DocHandle", () => {
     handle.change(d => (d.foo = "pizza"))
 
     const doc = await handle.doc()
-    assert.equal(doc.foo, "pizza")
+    assert.equal(doc?.foo, "pizza")
   })
 
   it("should not be ready while requesting from the network", async () => {
@@ -89,7 +88,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.docSync(), undefined)
     assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(h => {}))
+    assert.throws(() => handle.change(_ => {}))
   })
 
   it("should become ready if the document is updated by the network", async () => {
@@ -105,7 +104,7 @@ describe("DocHandle", () => {
 
     const doc = await handle.doc()
     assert.equal(handle.isReady(), true)
-    assert.equal(doc.foo, "bar")
+    assert.equal(doc?.foo, "bar")
   })
 
   it("should emit a change message when changes happen", async () => {
@@ -120,7 +119,7 @@ describe("DocHandle", () => {
     })
 
     const doc = await handle.doc()
-    assert.equal(doc.foo, "bar")
+    assert.equal(doc?.foo, "bar")
 
     const changePayload = await p
     assert.deepStrictEqual(changePayload.doc, doc)
@@ -181,7 +180,7 @@ describe("DocHandle", () => {
     })
 
     const doc = await handle.doc()
-    assert.equal(doc.foo, "baz")
+    assert.equal(doc?.foo, "baz")
 
     return p
   })
@@ -196,7 +195,7 @@ describe("DocHandle", () => {
 
     await p
     const doc = await handle.doc()
-    assert.equal(doc.foo, "bar")
+    assert.equal(doc?.foo, "bar")
   })
 
   it("should not emit a patch message if no change happens", done => {
@@ -232,7 +231,7 @@ describe("DocHandle", () => {
 
     // now it should not time out
     const doc = await handle.doc()
-    assert.equal(doc.foo, "bar")
+    assert.equal(doc?.foo, "bar")
   })
 
   it("should time out if the document is not updated from the network", async () => {
@@ -265,7 +264,7 @@ describe("DocHandle", () => {
     await pause(5)
 
     const doc = await handle.doc()
-    assert.equal(doc.foo, "bar")
+    assert.equal(doc?.foo, "bar")
   })
 
   it("should emit a delete event when deleted", async () => {

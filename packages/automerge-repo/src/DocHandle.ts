@@ -256,7 +256,9 @@ export class DocHandle<T> //
    *
    * @param {awaitStates=[READY]} optional states to wait for, such as "LOADING". mostly for internal use.
    */
-  async doc(awaitStates: HandleState[] = [READY]): Promise<A.Doc<T>> {
+  async doc(
+    awaitStates: HandleState[] = [READY, UNAVAILABLE]
+  ): Promise<A.Doc<T> | undefined> {
     await pause() // yield one tick because reasons
     try {
       // wait for the document to enter one of the desired states
@@ -267,7 +269,7 @@ export class DocHandle<T> //
       else throw error
     }
     // Return the document
-    return this.#doc
+    return !this.isUnavailable() ? this.#doc : undefined
   }
 
   /**

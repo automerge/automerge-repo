@@ -18,7 +18,7 @@ import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl"
-import debug from "debug"
+import { READY } from "../src/DocHandle"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -55,7 +55,7 @@ describe("Repo", () => {
       console.log("V is ", v)
       assert.equal(handle.isReady(), true)
 
-      assert.equal(v.foo, "bar")
+      assert.equal(v?.foo, "bar")
     })
 
     it("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
@@ -72,10 +72,17 @@ describe("Repo", () => {
       const handle = repo.find<TestDoc>(generateAutomergeUrl())
       assert.equal(handle.isReady(), false)
 
-      return assert.rejects(
-        rejectOnTimeout(handle.doc(), 10),
-        "This document should not exist"
-      )
+      const doc = await handle.doc()
+      assert.equal(doc, undefined)
+    })
+
+    it("fires an 'unavailable' event when you don't have the document locally and network to connect to", async () => {
+      const { repo } = setup()
+      const url = generateAutomergeUrl()
+      const handle = repo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
     })
 
     it("can find a created document", async () => {
@@ -92,7 +99,7 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), true)
 
       const v = await bobHandle.doc()
-      assert.equal(v.foo, "bar")
+      assert.equal(v?.foo, "bar")
     })
 
     it("saves the document when changed and can find it again", async () => {
@@ -115,7 +122,7 @@ describe("Repo", () => {
       const bobHandle = repo2.find<TestDoc>(handle.url)
 
       const v = await bobHandle.doc()
-      assert.equal(v.foo, "bar")
+      assert.equal(v?.foo, "bar")
     })
 
     it("can delete an existing document", async () => {
@@ -411,22 +418,8 @@ describe("Repo", () => {
       const handle = charlieRepo.find<TestDoc>(url)
       assert.equal(handle.isReady(), false)
 
-      return assert.rejects(
-        rejectOnTimeout(handle.doc(), 10),
-        "This document should not exist"
-      )
-    })
-
-    it("fires an 'unavailable' event when you don't have the document locally network to connect to", async () => {
-      const charlieRepo = new Repo({
-        network: [],
-        peerId: "charlie" as PeerId,
-      })
-      const url = generateAutomergeUrl()
-      const handle = charlieRepo.find<TestDoc>(url)
-      assert.equal(handle.isReady(), false)
-
-      await eventPromise(handle, "unavailable")
+      const doc = await handle.doc()
+      assert.equal(doc, undefined)
     })
 
     it("fires an 'unavailable' event when a document is not available on the network", async () => {
@@ -465,7 +458,7 @@ describe("Repo", () => {
 
       await eventPromise(aliceRepo.networkSubsystem, "peer")
 
-      const doc = await handle.doc()
+      const doc = await handle.doc([READY])
       assert.deepStrictEqual(doc, { foo: "baz" })
 
       // an additional find should also return the correct resolved document
@@ -545,11 +538,6 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), false)
 
       await eventPromise(handle, "unavailable")
-
-      return assert.rejects(
-        rejectOnTimeout(handle.doc(), 10),
-        "This document should not exist"
-      )
     })
 
     it("can broadcast a message without entering into an infinite loop", async () => {
