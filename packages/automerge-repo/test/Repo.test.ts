@@ -468,6 +468,11 @@ describe("Repo", () => {
       const doc = await handle.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
 
+      // an additional find should also return the correct resolved document
+      const handle2 = charlieRepo.find<TestDoc>(url)
+      const doc2 = await handle2.doc()
+      assert.deepStrictEqual(doc2, { foo: "baz" })
+
       teardown()
     })
 
