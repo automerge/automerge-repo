@@ -18,7 +18,7 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  timerId?: NodeJS.Timer
+  timerId?: NodeJS.Timeout
   url: string
 
   constructor(url: string) {
