@@ -249,14 +249,14 @@ describe("Repo", () => {
       if (charlieExcludedDocuments.includes(documentId) && peerId === "charlie")
         return false
 
-      // make sure that charlie never gets excluded documents
+      // make sure that bob never gets excluded documents
       if (bobExcludedDocuments.includes(documentId) && peerId === "bob")
         return false
 
       return true
     }
 
-    const setupRepos = () => {
+    const setupRepos = (connectAlice = true) => {
       // Set up three repos; connect Alice to Bob, and Bob to Charlie
 
       const aliceBobChannel = new MessageChannel()
@@ -265,8 +265,10 @@ describe("Repo", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
+      const aliceNetworkAdapter = new MessageChannelNetworkAdapter(aliceToBob)
+
       const aliceRepo = new Repo({
-        network: [new MessageChannelNetworkAdapter(aliceToBob)],
+        network: connectAlice ? [aliceNetworkAdapter] : [],
         peerId: "alice" as PeerId,
         sharePolicy,
       })
@@ -295,11 +297,13 @@ describe("Repo", () => {
         aliceRepo,
         bobRepo,
         charlieRepo,
+        aliceNetworkAdapter,
       }
     }
 
-    const setup = async () => {
-      const { teardown, aliceRepo, bobRepo, charlieRepo } = setupRepos()
+    const setup = async (connectAlice = true) => {
+      const { teardown, aliceRepo, bobRepo, charlieRepo, aliceNetworkAdapter } =
+        setupRepos(connectAlice)
 
       const aliceHandle = aliceRepo.create<TestDoc>()
       aliceHandle.change(d => {
@@ -321,7 +325,9 @@ describe("Repo", () => {
       })
 
       await Promise.all([
-        eventPromise(aliceRepo.networkSubsystem, "peer"),
+        ...(connectAlice
+          ? [eventPromise(aliceRepo.networkSubsystem, "peer")]
+          : []),
         eventPromise(bobRepo.networkSubsystem, "peer"),
         eventPromise(charlieRepo.networkSubsystem, "peer"),
       ])
@@ -334,6 +340,7 @@ describe("Repo", () => {
         notForCharlie,
         notForBob,
         teardown,
+        aliceNetworkAdapter,
       }
     }
 
@@ -431,7 +438,30 @@ describe("Repo", () => {
       await eventPromise(handle, "unavailable")
     })
 
-    it.skip("a previously unavailable document can be found again")
+    it("a previously unavailable document syncs over the network if a peer with it connects", async () => {
+      const {
+        charlieRepo,
+        notForCharlie,
+        aliceRepo,
+        teardown,
+        aliceNetworkAdapter,
+      } = await setup(false)
+
+      const url = stringifyAutomergeUrl({ documentId: notForCharlie })
+      const handle = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
+
+      aliceRepo.networkSubsystem.addNetworkAdapter(aliceNetworkAdapter)
+
+      await eventPromise(aliceRepo.networkSubsystem, "peer")
+
+      const doc = await handle.doc()
+      assert.deepStrictEqual(doc, { foo: "baz" })
+
+      teardown()
+    })
 
     it("a deleted document from charlieRepo can be refetched", async () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
@@ -553,9 +583,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-            repo.create<TestDoc>()
+              repo.create<TestDoc>()
             : // tails, pick a random doc
-            (getRandomItem(docs) as DocHandle<TestDoc>)
+              (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {

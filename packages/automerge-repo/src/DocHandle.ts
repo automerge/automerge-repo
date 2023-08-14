@@ -148,9 +148,11 @@ export class DocHandle<T> //
               this.emit("delete", { handle: this })
               return { doc: undefined }
             }),
-            onUnavailable: assign(() => {
+            onUnavailable: assign(context => {
+              const { doc } = context
+
               this.emit("unavailable", { handle: this })
-              return { doc: undefined }
+              return { doc }
             }),
           },
         }
@@ -160,7 +162,7 @@ export class DocHandle<T> //
         const oldDoc = history?.context?.doc
         const newDoc = context.doc
 
-        this.#log(`${event} → ${state}`, newDoc)
+        this.#log(`${history?.value}: ${event.type} → ${state}`, newDoc)
 
         const docChanged =
           newDoc &&

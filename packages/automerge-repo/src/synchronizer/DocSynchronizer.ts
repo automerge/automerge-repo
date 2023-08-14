@@ -1,5 +1,5 @@
 import * as A from "@automerge/automerge"
-import { DocHandle, READY, REQUESTING } from "../DocHandle.js"
+import { DocHandle, READY, REQUESTING, UNAVAILABLE } from "../DocHandle.js"
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
@@ -143,8 +143,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-        A.decodeChange(change).ops.map(op => JSON.stringify(op))
-      )
+          A.decodeChange(change).ops.map(op => JSON.stringify(op))
+        )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -160,7 +160,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
-    void this.handle.doc([READY, REQUESTING]).then(doc => {
+    void this.handle.doc([READY, REQUESTING, UNAVAILABLE]).then(doc => {
       // if we don't have any peers, then we can say the document is unavailable
 
       // HACK: if we have a sync state already, we round-trip it through the encoding system to make
@@ -193,7 +193,7 @@ export class DocSynchronizer extends Synchronizer {
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
-    if (!this.handle.inState([READY, REQUESTING])) {
+    if (!this.handle.inState([READY, REQUESTING, UNAVAILABLE])) {
       this.#pendingSyncMessages.push(message)
       return
     }
