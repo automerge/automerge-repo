@@ -417,7 +417,7 @@ describe("Repo", () => {
       )
     })
 
-    it("fires an 'unavailable' event when you don't have the docoment locally or a network to connect to", async () => {
+    it("fires an 'unavailable' event when you don't have the document locally network to connect to", async () => {
       const charlieRepo = new Repo({
         network: [],
         peerId: "charlie" as PeerId,
@@ -435,7 +435,15 @@ describe("Repo", () => {
       const handle = charlieRepo.find<TestDoc>(url)
       assert.equal(handle.isReady(), false)
 
-      await eventPromise(handle, "unavailable")
+      await Promise.all([
+        eventPromise(handle, "unavailable"),
+        eventPromise(charlieRepo, "unavailable-document"),
+      ])
+
+      // make sure it fires a second time if the doc is still unavailable
+      const handle2 = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle2.isReady(), false)
+      await eventPromise(handle2, "unavailable")
     })
 
     it("a previously unavailable document syncs over the network if a peer with it connects", async () => {

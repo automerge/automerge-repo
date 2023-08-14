@@ -92,8 +92,17 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
 
     const { encodedDocumentId } = parseAutomergeUrl(automergeUrl)
     // If we have the handle cached, return it
-    if (this.#handleCache[encodedDocumentId])
+    if (this.#handleCache[encodedDocumentId]) {
+      if (this.#handleCache[encodedDocumentId].isUnavailable()) {
+        // this ensures that the event fires after the handle has been returned
+        setTimeout(() => {
+          this.#handleCache[encodedDocumentId].emit("unavailable", {
+            handle: this.#handleCache[encodedDocumentId],
+          })
+        })
+      }
       return this.#handleCache[encodedDocumentId]
+    }
 
     const handle = this.#getHandle<T>(encodedDocumentId, false) as DocHandle<T>
     this.emit("document", { handle })
@@ -122,6 +131,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
 interface DocCollectionEvents {
   document: (arg: DocumentPayload) => void
   "delete-document": (arg: DeleteDocumentPayload) => void
+  "unavailable-document": (arg: DeleteDocumentPayload) => void
 }
 
 interface DocumentPayload {

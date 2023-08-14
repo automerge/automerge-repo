@@ -40,6 +40,13 @@ export class Repo extends DocCollection {
         }
       }
 
+      handle.on("unavailable", () => {
+        this.#log("document unavailable", { documentId: handle.documentId })
+        this.emit("unavailable-document", {
+          encodedDocumentId: handle.documentId,
+        })
+      })
+
       handle.request()
 
       // Register the document with the synchronizer. This advertises our interest in the document.

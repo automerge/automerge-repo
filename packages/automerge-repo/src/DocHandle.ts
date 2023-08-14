@@ -231,6 +231,7 @@ export class DocHandle<T> //
    * @returns true if the document has been marked as deleted
    */
   isDeleted = () => this.inState([HandleState.DELETED])
+  isUnavailable = () => this.inState([HandleState.UNAVAILABLE])
   inState = (states: HandleState[]) =>
     states.some(this.#machine?.getSnapshot().matches)
 
