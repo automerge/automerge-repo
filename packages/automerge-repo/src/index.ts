@@ -3,15 +3,15 @@ export { DocHandle, HandleState } from "./DocHandle.js"
 export type { DocHandleChangePayload } from "./DocHandle.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export type {
-  Message,
-  EphemeralMessage,
-  SyncMessage,
-  InboundMessagePayload,
-  MessagePayload,
   OpenPayload,
   PeerCandidatePayload,
   PeerDisconnectedPayload,
 } from "./network/NetworkAdapter.js"
+export type {
+  Message,
+  EphemeralMessage,
+  SyncMessage,
+} from "./network/messages.js"
 export { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 export { Repo, type SharePolicy } from "./Repo.js"
 export { StorageAdapter, type StorageKey } from "./storage/StorageAdapter.js"

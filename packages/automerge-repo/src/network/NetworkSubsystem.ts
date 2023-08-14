@@ -1,13 +1,13 @@
 import EventEmitter from "eventemitter3"
 import { ChannelId, DistributiveOmit, PeerId } from "../types.js"
+import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
+
 import {
   isEphemeralMessage,
   isValidMessage,
   Message,
   MessageContents,
-  NetworkAdapter,
-  PeerDisconnectedPayload,
-} from "./NetworkAdapter.js"
+} from "./messages.js"
 
 import debug from "debug"
 import { SessionId } from "../EphemeralData.js"

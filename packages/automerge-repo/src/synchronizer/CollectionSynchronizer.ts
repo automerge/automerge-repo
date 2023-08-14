@@ -10,7 +10,7 @@ import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
-import { SyncMessage } from "../network/NetworkAdapter.js"
+import { SyncMessage } from "../network/messages.js"
 const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */

@@ -1,13 +1,13 @@
+import debug from "debug"
 import { DocCollection } from "./DocCollection.js"
 import { EphemeralData } from "./EphemeralData.js"
-import { isEphemeralMessage, NetworkAdapter } from "./network/NetworkAdapter.js"
+import { isEphemeralMessage } from "./network/messages.js"
+import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { ChannelId, DocumentId, PeerId } from "./types.js"
-
-import debug from "debug"
+import { DocumentId, PeerId } from "./types.js"
 
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {

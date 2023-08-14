@@ -4,7 +4,7 @@ import { ChannelId, PeerId } from "./index.js"
 import {
   EphemeralMessage,
   EphemeralMessageContents,
-} from "./network/NetworkAdapter.js"
+} from "./network/messages.js"
 
 /**
  * EphemeralData provides a mechanism to broadcast short-lived data — cursor positions, presence,
