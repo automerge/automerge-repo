@@ -449,21 +449,49 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("can broadcast a message without entering into an infinite loop", async () => {
+    const setupMeshNetwork = async () => {
       const aliceRepo = new Repo({
         network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "alice" as PeerId,
       })
 
       const bobRepo = new Repo({
         network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "bob" as PeerId,
       })
 
       const charlieRepo = new Repo({
         network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "charlie" as PeerId,
       })
 
       // pause to let the network set up
       await pause(50)
+
+      return {
+        aliceRepo,
+        bobRepo,
+        charlieRepo,
+      }
+    }
+
+    it.only("can emit an 'unavailable' event when it's not found on the network", async () => {
+      const { charlieRepo } = await setupMeshNetwork()
+
+      const url = generateAutomergeUrl()
+      const handle = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
+
+      return assert.rejects(
+        rejectOnTimeout(handle.doc(), 10),
+        "This document should not exist"
+      )
+    })
+
+    it("can broadcast a message without entering into an infinite loop", async () => {
+      const { aliceRepo, bobRepo, charlieRepo } = await setupMeshNetwork()
 
       const channelId = "broadcast" as ChannelId
       const data = { presence: "alex" }
@@ -506,9 +534,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-              repo.create<TestDoc>()
+            repo.create<TestDoc>()
             : // tails, pick a random doc
-              (getRandomItem(docs) as DocHandle<TestDoc>)
+            (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
