@@ -144,9 +144,12 @@ export class DocHandle<T> //
         const oldDoc = history?.context?.doc
         const newDoc = context.doc
 
-        console.log(`${event} → ${state}`, newDoc)
+        this.#log(`${event} → ${state}`, newDoc)
 
-        const docChanged = newDoc && oldDoc && !headsAreSame(A.getHeads(newDoc), A.getHeads(oldDoc))
+        const docChanged =
+          newDoc &&
+          oldDoc &&
+          !headsAreSame(A.getHeads(newDoc), A.getHeads(oldDoc))
         if (docChanged) {
           this.emit("heads-changed", { handle: this, doc: newDoc })
 
