@@ -73,6 +73,7 @@ describe("The NodeWSServerAdapter", () => {
     assert.deepEqual<any>(response, {
       type: "peer",
       senderId: "server",
+      targetId: "browser",
       selectedProtocolVersion: "1",
     })
   })
@@ -86,6 +87,7 @@ describe("The NodeWSServerAdapter", () => {
     assert.deepEqual<any>(response, {
       type: "error",
       senderId: "server",
+      targetId: "browser",
       message: "unsupported protocol version",
     })
   })
@@ -98,6 +100,7 @@ describe("The NodeWSServerAdapter", () => {
     assert.deepEqual<any>(response, {
       type: "peer",
       senderId: "server",
+      targetId: "browser",
       selectedProtocolVersion: "1",
     })
   })

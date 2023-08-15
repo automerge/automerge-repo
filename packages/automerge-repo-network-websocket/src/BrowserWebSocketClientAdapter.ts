@@ -1,15 +1,15 @@
-import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import { NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
 
-import { ProtocolV1 } from "./protocolVersion.js"
 import {
   FromClientMessage,
   FromServerMessage,
   JoinMessage,
 } from "./messages.js"
+import { ProtocolV1 } from "./protocolVersion.js"
 
 const log = debug("WebsocketClient")
 
@@ -56,7 +56,42 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     )
   }
 
-  private transmit(message: FromClientMessage) {
+  join() {
+    if (!this.socket) {
+      throw new Error("WTF, get a socket")
+    }
+    if (this.socket.readyState === WebSocket.OPEN) {
+      this.send(joinMessage(this.peerId!))
+    } else {
+      this.socket.addEventListener(
+        "open",
+        () => {
+          if (!this.socket) {
+            throw new Error("WTF, get a socket")
+          }
+          this.send(joinMessage(this.peerId!))
+        },
+        { once: true }
+      )
+    }
+  }
+
+  leave() {
+    if (!this.socket) {
+      throw new Error("WTF, get a socket")
+    }
+    this.send({ type: "leave", senderId: this.peerId! })
+  }
+
+  send(message: FromClientMessage) {
+    if ("data" in message && message.data.byteLength === 0) {
+      throw new Error("tried to send a zero-length message")
+    }
+
+    if (!this.peerId) {
+      throw new Error("Why don't we have a PeerID?")
+    }
+
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error("Websocket Socket not ready!")
     }
@@ -70,45 +105,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     )
 
     this.socket?.send(arrayBuf)
-  }
-
-  join() {
-    if (!this.socket) {
-      throw new Error("WTF, get a socket")
-    }
-    if (this.socket.readyState === WebSocket.OPEN) {
-      this.transmit(joinMessage(this.peerId!))
-    } else {
-      this.socket.addEventListener(
-        "open",
-        () => {
-          if (!this.socket) {
-            throw new Error("WTF, get a socket")
-          }
-          this.transmit(joinMessage(this.peerId!))
-        },
-        { once: true }
-      )
-    }
-  }
-
-  leave() {
-    if (!this.socket) {
-      throw new Error("WTF, get a socket")
-    }
-    this.transmit({ type: "leave", senderId: this.peerId! })
-  }
-
-  send(message: Message) {
-    if (message.data.byteLength === 0) {
-      throw new Error("tried to send a zero-length message")
-    }
-
-    if (!this.peerId) {
-      throw new Error("Why don't we have a PeerID?")
-    }
-
-    this.transmit(message)
   }
 
   announceConnection(peerId: PeerId) {

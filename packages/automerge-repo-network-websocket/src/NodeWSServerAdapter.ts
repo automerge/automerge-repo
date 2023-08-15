@@ -44,9 +44,17 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     // throw new Error("The server doesn't join channels.")
   }
 
-  private transmit(targetId: PeerId, message: FromServerMessage) {
-    if (this.sockets[targetId] === undefined) {
-      log(`Tried to send message to disconnected peer: ${targetId}`)
+  send(message: FromServerMessage) {
+    if ("data" in message && message.data.byteLength === 0) {
+      throw new Error("tried to send a zero-length message")
+    }
+    const senderId = this.peerId
+    if (!senderId) {
+      throw new Error("No peerId set for the websocket server network adapter.")
+    }
+
+    if (this.sockets[message.targetId] === undefined) {
+      log(`Tried to send message to disconnected peer: ${message.targetId}`)
       return
     }
 
@@ -58,19 +66,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       encoded.byteOffset + encoded.byteLength
     )
 
-    this.sockets[targetId]?.send(arrayBuf)
-  }
-
-  send(message: Message) {
-    if (message.data.byteLength === 0) {
-      throw new Error("tried to send a zero-length message")
-    }
-    const senderId = this.peerId
-    if (!senderId) {
-      throw new Error("No peerId set for the websocket server network adapter.")
-    }
-
-    this.transmit(message.targetId, message)
+    this.sockets[message.targetId]?.send(arrayBuf)
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {
@@ -97,18 +93,20 @@ export class NodeWSServerAdapter extends NetworkAdapter {
           cbor.supportedProtocolVersions
         )
         if (selectedProtocolVersion === null) {
-          this.transmit(senderId, {
+          this.send({
             type: "error",
             senderId: this.peerId!,
             message: "unsupported protocol version",
+            targetId: senderId,
           })
           this.sockets[senderId].close()
           delete this.sockets[senderId]
         } else {
-          this.transmit(senderId, {
+          this.send({
             type: "peer",
             senderId: this.peerId!,
             selectedProtocolVersion: ProtocolV1,
+            targetId: senderId,
           })
         }
         break

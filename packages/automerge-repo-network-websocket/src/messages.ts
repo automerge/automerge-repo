@@ -16,12 +16,14 @@ export type PeerMessage = {
   type: "peer"
   senderId: PeerId
   selectedProtocolVersion: ProtocolVersion
+  targetId: PeerId
 }
 
 export type ErrorMessage = {
   type: "error"
   senderId: PeerId
   message: string
+  targetId: PeerId
 }
 
 export type FromClientMessage = JoinMessage | LeaveMessage | Message
