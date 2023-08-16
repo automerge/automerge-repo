@@ -14,7 +14,7 @@ describe("EphemeralData", () => {
     ephemeral.on("message", message => {
       try {
         assert.deepStrictEqual(CBOR.decode(message.data), messageData)
-        assert.strictEqual(message.type, "broadcast")
+        assert.strictEqual(message.type, "ephemeral")
         assert.strictEqual(message.channelId, destinationChannelId)
         done()
       } catch (e) {
@@ -40,7 +40,7 @@ describe("EphemeralData", () => {
       senderId: otherPeerId,
       channelId: destinationChannelId,
       data: CBOR.encode(messageData),
-      type: "broadcast",
+      type: "ephemeral",
       count: 0,
       sessionId: ephemeral.sessionId,
     })

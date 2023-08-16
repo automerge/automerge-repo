@@ -3,7 +3,9 @@
 import { SessionId } from "../EphemeralData"
 import { ChannelId, DocumentId, PeerId } from "../types"
 
-export function isValidMessage(message: Message): boolean {
+export function isValidMessage(
+  message: Message
+): message is SyncMessage | EphemeralMessage {
   return (
     typeof message === "object" &&
     typeof message.type === "string" &&
@@ -19,7 +21,7 @@ export function isSyncMessage(message: Message): message is SyncMessage {
 export function isEphemeralMessage(
   message: Message | MessageContents
 ): message is EphemeralMessage | EphemeralMessageContents {
-  return message.type === "broadcast"
+  return message.type === "ephemeral"
 }
 
 export interface SyncMessageEnvelope {
@@ -41,7 +43,7 @@ export interface EphemeralMessageEnvelope {
 }
 
 export interface EphemeralMessageContents {
-  type: "broadcast"
+  type: "ephemeral"
   count: number
   channelId: ChannelId
   sessionId: SessionId

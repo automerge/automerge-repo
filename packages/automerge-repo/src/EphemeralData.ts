@@ -20,10 +20,10 @@ export class EphemeralData extends EventEmitter<EphemeralDataMessageEvents> {
 
   /** Broadcast an ephemeral message */
   broadcast(channelId: ChannelId, message: unknown) {
-    const messageBytes = encode(message)
 
+    const messageBytes = encode(message)
     this.emit("message", {
-      type: "broadcast",
+      type: "ephemeral",
       count: ++this.#count,
       channelId,
       sessionId: this.#sessionId,

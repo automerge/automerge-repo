@@ -78,9 +78,10 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     if (!myPeerId) {
       throw new Error("Missing my peer ID.")
     }
-    // log(
-    //   `[${senderId}->${myPeerId}@${channelId}] ${type} | ${message.byteLength} bytes`
-    // )
+    log(
+      `[${senderId}->${myPeerId}${"documentId" in cbor ? "@" + cbor.documentId : ""
+      }] ${type} | ${message.byteLength} bytes`
+    )
     switch (type) {
       case "join":
         // Let the rest of the system know that we have a new connection.
