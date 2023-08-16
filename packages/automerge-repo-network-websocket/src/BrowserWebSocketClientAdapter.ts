@@ -10,6 +10,7 @@ import {
   JoinMessage,
 } from "./messages.js"
 import { ProtocolV1 } from "./protocolVersion.js"
+import { isValidMessage } from "@automerge/automerge-repo/dist/network/messages.js"
 
 const log = debug("WebsocketClient")
 
@@ -18,11 +19,10 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  
-  // Type trickery required for platform independence, 
+  // Type trickery required for platform independence,
   // see https://stackoverflow.com/questions/45802988/typescript-use-correct-version-of-settimeout-node-vs-window
   timerId?: ReturnType<typeof setTimeout>
-                       
+
   url: string
 
   constructor(url: string) {
@@ -144,6 +144,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
         log(`error: ${decoded.message}`)
         break
       default:
+        if (!isValidMessage(decoded)) {
+          throw new Error("Invalid message received")
+        }
         this.emit("message", decoded)
     }
   }

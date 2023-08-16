@@ -5,7 +5,11 @@ import debug from "debug"
 const log = debug("WebsocketServer")
 
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
-import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import {
+  NetworkAdapter,
+  type NetworkAdapterMessage,
+  type PeerId,
+} from "@automerge/automerge-repo"
 import { FromClientMessage, FromServerMessage } from "./messages.js"
 
 export class NodeWSServerAdapter extends NetworkAdapter {
@@ -79,7 +83,8 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       throw new Error("Missing my peer ID.")
     }
     log(
-      `[${senderId}->${myPeerId}${"documentId" in cbor ? "@" + cbor.documentId : ""
+      `[${senderId}->${myPeerId}${
+        "documentId" in cbor ? "@" + cbor.documentId : ""
       }] ${type} | ${message.byteLength} bytes`
     )
     switch (type) {

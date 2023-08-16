@@ -4,7 +4,7 @@ import { SessionId } from "../EphemeralData"
 import { ChannelId, DocumentId, PeerId } from "../types"
 
 export function isValidMessage(
-  message: Message
+  message: NetworkAdapterMessage
 ): message is SyncMessage | EphemeralMessage {
   return (
     typeof message === "object" &&
@@ -14,12 +14,14 @@ export function isValidMessage(
   )
 }
 
-export function isSyncMessage(message: Message): message is SyncMessage {
+export function isSyncMessage(
+  message: NetworkAdapterMessage
+): message is SyncMessage {
   return message.type === "sync"
 }
 
 export function isEphemeralMessage(
-  message: Message | MessageContents
+  message: NetworkAdapterMessage | MessageContents
 ): message is EphemeralMessage | EphemeralMessageContents {
   return message.type === "ephemeral"
 }
@@ -56,3 +58,16 @@ export type EphemeralMessage = EphemeralMessageEnvelope &
 export type MessageContents = SyncMessageContents | EphemeralMessageContents
 
 export type Message = SyncMessage | EphemeralMessage
+
+type ArriveMessage = {
+  senderId: PeerId
+  type: "arrive"
+}
+
+type WelcomeMessage = {
+  senderId: PeerId
+  targetId: PeerId
+  type: "welcome"
+}
+
+export type NetworkAdapterMessage = ArriveMessage | WelcomeMessage | Message

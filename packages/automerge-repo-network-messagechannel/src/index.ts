@@ -1,4 +1,9 @@
-import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import {
+  type Message,
+  NetworkAdapter,
+  type PeerId,
+  NetworkAdapterMessage,
+} from "@automerge/automerge-repo"
 import { MessagePortRef } from "./MessagePortRef.js"
 import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
 import { WeakMessagePortRef } from "./WeakMessagePortRef.js"
@@ -29,7 +34,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.messagePortRef.start()
     this.messagePortRef.addListener(
       "message",
-      (e: { data: AdapterMessage }) => {
+      (e: { data: NetworkAdapterMessage }) => {
         log("message port received", e.data)
 
         const message = e.data
@@ -111,18 +116,3 @@ interface MessageChannelNetworkAdapterConfig {
    */
   useWeakRef?: boolean
 }
-
-//types
-
-type ArriveMessage = {
-  senderId: PeerId
-  type: "arrive"
-}
-
-type WelcomeMessage = {
-  senderId: PeerId
-  targetId: PeerId
-  type: "welcome"
-}
-
-type AdapterMessage = ArriveMessage | WelcomeMessage | Message

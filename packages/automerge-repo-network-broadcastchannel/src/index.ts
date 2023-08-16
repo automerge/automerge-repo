@@ -1,4 +1,9 @@
-import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import {
+  NetworkAdapterMessage,
+  NetworkAdapter,
+  PeerId,
+  Message,
+} from "@automerge/automerge-repo"
 
 export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel
@@ -9,7 +14,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
 
     this.#broadcastChannel.addEventListener(
       "message",
-      (e: { data: AdapterMessage }) => {
+      (e: { data: NetworkAdapterMessage }) => {
         const message = e.data
         if ("targetId" in message && message.targetId !== this.peerId) {
           return
@@ -66,18 +71,3 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     throw new Error("Unimplemented: leave on BroadcastChannelNetworkAdapter")
   }
 }
-
-//types
-
-type ArriveMessage = {
-  senderId: PeerId
-  type: "arrive"
-}
-
-type WelcomeMessage = {
-  senderId: PeerId
-  targetId: PeerId
-  type: "welcome"
-}
-
-type AdapterMessage = ArriveMessage | WelcomeMessage | Message
