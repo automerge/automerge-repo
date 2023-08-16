@@ -7,8 +7,8 @@ import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl"
 
 describe("DocHandle", () => {
-  const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
-  const BOGUS_ID = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
+  const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
+  const BOGUS_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   const docFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
     return A.change<{ foo: string }>(doc, d => (d.foo = "bar"))
@@ -89,7 +89,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.docSync(), undefined)
     assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(h => {}))
+    assert.throws(() => handle.change(h => { }))
   })
 
   it("should become ready if the document is updated by the network", async () => {

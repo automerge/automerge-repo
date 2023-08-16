@@ -12,12 +12,12 @@ export const urlPrefix = "automerge:"
  * given an Automerge URL, return a decoded DocumentId (and the encoded DocumentId)
  *
  * @param url
- * @returns { documentId: Uint8Array(16), encodedDocumentId: bs58check.encode(documentId) }
+ * @returns { binaryDocumentId: BinaryDocumentId, documentId: DocumentId }
  */
 export const parseAutomergeUrl = (url: AutomergeUrl) => {
-  const { binaryDocumentId: binaryDocumentId, encodedDocumentId } = parts(url)
+  const { binaryDocumentId, documentId } = parts(url)
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
-  return { binaryDocumentId, encodedDocumentId }
+  return { binaryDocumentId, documentId }
 }
 
 interface StringifyAutomergeUrlOptions {
@@ -28,7 +28,7 @@ interface StringifyAutomergeUrlOptions {
  * Given a documentId in either canonical form, return an Automerge URL
  * Throws on invalid input.
  * Note: this is an object because we anticipate adding fields in the future.
- * @param { documentId: EncodedDocumentId | DocumentId }
+ * @param { documentId: BinaryDocumentId | DocumentId }
  * @returns AutomergeUrl
  */
 export const stringifyAutomergeUrl = ({
@@ -79,12 +79,12 @@ export const binaryToDocumentId = (docId: BinaryDocumentId): DocumentId =>
  * eventually this could include things like heads, so we use this structure
  * we return both a binary & string-encoded version of the document ID
  * @param str
- * @returns { binaryDocumentId, encodedDocumentId }
+ * @returns { binaryDocumentId, documentId }
  */
 const parts = (str: string) => {
   const regex = new RegExp(`^${urlPrefix}(\\w+)$`)
-  const [m, docMatch] = str.match(regex) || []
-  const encodedDocumentId = docMatch as DocumentId
-  const binaryDocumentId = documentIdToBinary(encodedDocumentId)
-  return { binaryDocumentId, encodedDocumentId }
+  const [_, docMatch] = str.match(regex) || []
+  const documentId = docMatch as DocumentId
+  const binaryDocumentId = documentIdToBinary(documentId)
+  return { binaryDocumentId, documentId }
 }

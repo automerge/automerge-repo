@@ -173,8 +173,8 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
 
-      repo.on("delete-document", ({ encodedDocumentId }) => {
-        assert.equal(encodedDocumentId, handle.documentId)
+      repo.on("delete-document", ({ documentId }) => {
+        assert.equal(documentId, handle.documentId)
 
         done()
       })
@@ -452,9 +452,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-              repo.create<TestDoc>()
+            repo.create<TestDoc>()
             : // tails, pick a random doc
-              (getRandomItem(docs) as DocHandle<TestDoc>)
+            (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
