@@ -1,5 +1,5 @@
 import EventEmitter from "eventemitter3"
-import { ChannelId, PeerId } from "../types.js"
+import { PeerId } from "../types.js"
 import { Message } from "./messages.js"
 
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {

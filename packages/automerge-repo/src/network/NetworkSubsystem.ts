@@ -1,5 +1,5 @@
 import EventEmitter from "eventemitter3"
-import { ChannelId, DistributiveOmit, PeerId } from "../types.js"
+import { PeerId } from "../types.js"
 import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
 
 import {
@@ -16,6 +16,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
 
+  #count = 0
+  #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
   #ephemeralSessionCounts: Record<SessionId, number> = {}
 
   constructor(
@@ -95,22 +97,22 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       senderId: this.peerId,
     }
 
-    if (isEphemeralMessage(message)) {
-      Object.entries(this.#adaptersByPeer).forEach(([id, peer]) => {
-        this.#log(`sending broadcast to ${id}`)
-        peer.send({ ...message, targetId: id as PeerId })
-      })
-
-      return
-    }
-
     const peer = this.#adaptersByPeer[message.targetId]
     if (!peer) {
       this.#log(`Tried to send message but peer not found: ${message.targetId}`)
       return
     }
     this.#log(`Sending message to ${message.targetId}`)
-    peer.send(message)
+
+    if (isEphemeralMessage(message)) {
+      peer.send({
+        ...message,
+        count: ++this.#count,
+        sessionId: this.#sessionId,
+      })
+    } else {
+      peer.send(message)
+    }
   }
 
   join() {

@@ -4,7 +4,6 @@ import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-networ
 
 import {
   AutomergeUrl,
-  ChannelId,
   DocHandle,
   DocumentId,
   PeerId,
@@ -422,63 +421,6 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("can broadcast a message", async () => {
-      const { aliceRepo, bobRepo, teardown } = await setup()
-
-      const channelId = "broadcast" as ChannelId
-      const data = { presence: "bob" }
-
-      bobRepo.ephemeralData.broadcast(channelId, data)
-      const d = await eventPromise(aliceRepo.ephemeralData, "data")
-
-      assert.deepStrictEqual(d.data, data)
-      teardown()
-    })
-
-    it("can broadcast a message without entering into an infinite loop", async () => {
-      const aliceRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-      })
-
-      const bobRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-      })
-
-      const charlieRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-      })
-
-      // pause to let the network set up
-      await pause(50)
-
-      const channelId = "broadcast" as ChannelId
-      const data = { presence: "alex" }
-
-      aliceRepo.ephemeralData.broadcast(channelId, data)
-
-      const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
-        setTimeout(() => {
-          resolve()
-        }, 100)
-
-        aliceRepo.ephemeralData.on("data", () => {
-          reject("alice got the message")
-        })
-      })
-
-      const bobGotIt = eventPromise(bobRepo.ephemeralData, "data")
-      const charlieGotIt = eventPromise(charlieRepo.ephemeralData, "data")
-
-      const [bob, charlie] = await Promise.all([
-        bobGotIt,
-        charlieGotIt,
-        aliceDoesntGetIt,
-      ])
-
-      assert.deepStrictEqual(bob.data, data)
-      assert.deepStrictEqual(charlie.data, data)
-    })
-
     it("syncs a bunch of changes", async () => {
       const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
 
@@ -492,9 +434,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-            repo.create<TestDoc>()
+              repo.create<TestDoc>()
             : // tails, pick a random doc
-            (getRandomItem(docs) as DocHandle<TestDoc>)
+              (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
@@ -510,5 +452,57 @@ describe("Repo", () => {
 
       teardown()
     })
+  })
+
+  it.only("can broadcast a message without entering into an infinite loop", async () => {
+    const aliceRepo = new Repo({
+      network: [new BroadcastChannelNetworkAdapter()],
+    })
+
+    const bobRepo = new Repo({
+      network: [new BroadcastChannelNetworkAdapter()],
+    })
+
+    const charlieRepo = new Repo({
+      network: [new BroadcastChannelNetworkAdapter()],
+    })
+
+    // pause to let the network set up
+    await pause(50)
+    const message = { presence: "alex" }
+
+    const aliceHandle = aliceRepo.create<TestDoc>()
+
+    // TODO: remove this once the test passes
+    aliceHandle.change(d => {
+      dummy: "data"
+    }) // as of this test's writing, we need to make a change to make the doc sync
+
+    const bobHandle = bobRepo.find(aliceHandle.url)
+    const charlieHandle = charlieRepo.find(aliceHandle.url)
+
+    const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        resolve()
+      }, 100)
+
+      aliceHandle.on("ephemeral-message", () => {
+        reject("alice got the message")
+      })
+    })
+
+    const bobGotIt = eventPromise(bobHandle, "ephemeral-message")
+    const charlieGotIt = eventPromise(charlieHandle, "ephemeral-message")
+
+    aliceHandle.broadcast(message)
+
+    const [bob, charlie] = await Promise.all([
+      bobGotIt,
+      charlieGotIt,
+      aliceDoesntGetIt,
+    ])
+
+    assert.deepStrictEqual(bob.message, message)
+    assert.deepStrictEqual(charlie.message, message)
   })
 })

@@ -2,7 +2,7 @@ import assert from "assert"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import * as Automerge from "@automerge/automerge"
 
-import { ChannelId, DocHandle, DocumentId, PeerId, SharePolicy } from "../src"
+import { DocHandle, DocumentId, PeerId, SharePolicy } from "../src"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
@@ -105,9 +105,9 @@ for (let i = 0; i < 100000; i++) {
   })
 
   await pause(0)
-  const a = await aliceRepo.find(doc.documentId).value()
-  const b = await bobRepo.find(doc.documentId).value()
-  const c = await charlieRepo.find(doc.documentId).value()
+  const a = await aliceRepo.find(doc.url).doc()
+  const b = await bobRepo.find(doc.url).doc()
+  const c = await charlieRepo.find(doc.url).doc()
   assert.deepStrictEqual(a, b, "A and B should be equal")
   assert.deepStrictEqual(b, c, "B and C should be equal")
 

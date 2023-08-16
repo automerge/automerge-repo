@@ -1,10 +1,17 @@
 import * as A from "@automerge/automerge"
-import { DocHandle, READY, REQUESTING } from "../DocHandle.js"
-import { ChannelId, PeerId } from "../types.js"
+import {
+  DocHandle,
+  DocHandleOutboundEphemeralMessagePayload,
+  READY,
+  REQUESTING,
+} from "../DocHandle.js"
+import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
-import { SyncMessage } from "../network/messages.js"
+import { EphemeralMessage, Message, SyncMessage } from "../network/messages.js"
+import { decode } from "cbor-x"
+import { receiveMessageServer } from "../../../automerge-repo-network-websocket/dist/WSShared"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -32,6 +39,10 @@ export class DocSynchronizer extends Synchronizer {
 
     handle.on("change", () => this.#syncWithPeers())
 
+    handle.on("ephemeral-message-outbound", payload =>
+      this.#broadcastToPeers(payload)
+    )
+
     // Process pending sync messages immediately after the handle becomes ready.
     void (async () => {
       await handle.doc([READY, REQUESTING])
@@ -49,6 +60,22 @@ export class DocSynchronizer extends Synchronizer {
     this.#log(`syncWithPeers`)
     const doc = await this.handle.doc()
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
+  }
+
+  async #broadcastToPeers({ data }: DocHandleOutboundEphemeralMessagePayload) {
+    this.#log(`broadcastToPeers`)
+    this.#peers.forEach(peerId => this.#sendEphemeralMessage(peerId, data))
+  }
+
+  #sendEphemeralMessage(peerId: PeerId, data: Uint8Array) {
+    this.#log(`sendSyncMessage ->${peerId}`)
+
+    this.emit("message", {
+      type: "ephemeral",
+      targetId: peerId,
+      documentId: this.handle.documentId,
+      data,
+    })
   }
 
   #getSyncState(peerId: PeerId) {
@@ -103,8 +130,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-        A.decodeChange(change).ops.map(op => JSON.stringify(op))
-      )
+          A.decodeChange(change).ops.map(op => JSON.stringify(op))
+        )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -136,6 +163,34 @@ export class DocSynchronizer extends Synchronizer {
   endSync(peerId: PeerId) {
     this.#log(`removing peer ${peerId}`)
     this.#peers = this.#peers.filter(p => p !== peerId)
+  }
+
+  receiveMessage(message: Message) {
+    switch (message.type) {
+      case "sync":
+        this.receiveSyncMessage(message)
+        break
+      case "ephemeral":
+        this.receiveEphemeralMessage(message)
+        break
+      default:
+        throw new Error(`unknown message type: ${message}`)
+    }
+  }
+
+  receiveEphemeralMessage(message: EphemeralMessage) {
+    if (message.documentId !== this.handle.documentId)
+      throw new Error(`channelId doesn't match documentId`)
+
+    const { senderId, data } = message
+
+    const contents = decode(message.data)
+
+    this.handle.emit("ephemeral-message", {
+      handle: this.handle,
+      senderId,
+      message: contents,
+    })
   }
 
   receiveSyncMessage(message: SyncMessage) {

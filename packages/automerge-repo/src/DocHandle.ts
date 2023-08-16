@@ -17,8 +17,9 @@ import { waitFor } from "xstate/lib/waitFor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { pause } from "./helpers/pause.js"
 import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
-import type { ChannelId, DocumentId, PeerId, AutomergeUrl } from "./types.js"
+import type { DocumentId, PeerId, AutomergeUrl } from "./types.js"
 import { stringifyAutomergeUrl } from "./DocUrl.js"
+import { encode } from "cbor-x"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
@@ -320,6 +321,19 @@ export class DocHandle<T> //
   delete() {
     this.#machine.send(DELETE)
   }
+
+  /** `broadcast` sends an arbitrary ephemeral message out to all reachable peers who would receive sync messages from you
+   * it has no guarantee of delivery, and is not persisted to the underlying automerge doc in any way.
+   * messages will have a sending PeerId but this is *not* a useful user identifier.
+   * a user could have multiple tabs open and would appear as multiple PeerIds.
+   * every message source must have a unique PeerId.
+   */
+  broadcast(message: any) {
+    this.emit("ephemeral-message-outbound", {
+      handle: this,
+      data: encode(message),
+    })
+  }
 }
 
 // WRAPPER CLASS TYPES
@@ -331,7 +345,7 @@ interface DocHandleOptions {
 
 export interface DocHandleMessagePayload {
   destinationId: PeerId
-  channelId: ChannelId
+  documentId: DocumentId
   data: Uint8Array
 }
 
@@ -351,10 +365,25 @@ export interface DocHandleChangePayload<T> {
   patchInfo: A.PatchInfo<T>
 }
 
+export interface DocHandleEphemeralMessagePayload {
+  handle: DocHandle<any>
+  senderId: PeerId
+  message: unknown
+}
+
+export interface DocHandleOutboundEphemeralMessagePayload {
+  handle: DocHandle<any>
+  data: Uint8Array
+}
+
 export interface DocHandleEvents<T> {
   "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
+  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload) => void
+  "ephemeral-message-outbound": (
+    payload: DocHandleOutboundEphemeralMessagePayload
+  ) => void
 }
 
 // STATE MACHINE TYPES

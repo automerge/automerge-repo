@@ -5,7 +5,7 @@ import { startServer } from "./utilities/WebSockets"
 import * as CBOR from "cbor-x"
 import WebSocket, { AddressInfo } from "ws"
 import { assert } from "chai"
-import { ChannelId, PeerId, Repo } from "@automerge/automerge-repo"
+import { PeerId, Repo } from "@automerge/automerge-repo"
 import { once } from "events"
 
 describe("Websocket adapters", async () => {

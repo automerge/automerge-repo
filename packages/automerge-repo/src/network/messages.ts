@@ -1,7 +1,6 @@
 // utilities
-
 import { SessionId } from "../EphemeralData"
-import { ChannelId, DocumentId, PeerId } from "../types"
+import { DocumentId, PeerId } from "../types"
 
 export function isValidMessage(
   message: NetworkAdapterMessage
@@ -40,15 +39,15 @@ export interface SyncMessageContents {
 export type SyncMessage = SyncMessageEnvelope & SyncMessageContents
 
 export interface EphemeralMessageEnvelope {
-  targetId: PeerId
   senderId: PeerId
+  count: number
+  sessionId: SessionId
 }
 
 export interface EphemeralMessageContents {
   type: "ephemeral"
-  count: number
-  channelId: ChannelId
-  sessionId: SessionId
+  targetId: PeerId
+  documentId: DocumentId
   data: Uint8Array
 }
 
