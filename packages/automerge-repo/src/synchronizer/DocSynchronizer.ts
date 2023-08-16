@@ -4,6 +4,7 @@ import { ChannelId, PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
+import { SyncMessage } from "../network/messages.js"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -20,7 +21,7 @@ export class DocSynchronizer extends Synchronizer {
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  #pendingSyncMessages: Array<{ peerId: PeerId; message: Uint8Array }> = []
+  #pendingSyncMessages: Array<SyncMessage> = []
 
   constructor(private handle: DocHandle<any>) {
     super()
@@ -77,13 +78,11 @@ export class DocSynchronizer extends Synchronizer {
     if (message) {
       this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
 
-      const channelId = this.handle.documentId as string as ChannelId
-
       this.emit("message", {
+        type: "sync",
         targetId: peerId,
-        channelId,
-        message,
-        broadcast: false,
+        data: message,
+        documentId: this.handle.documentId,
       })
     } else {
       this.#log(`sendSyncMessage ->${peerId} [no message generated]`)
@@ -104,8 +103,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-          A.decodeChange(change).ops.map(op => JSON.stringify(op))
-        )
+        A.decodeChange(change).ops.map(op => JSON.stringify(op))
+      )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -139,43 +138,39 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  receiveSyncMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array
-  ) {
-    if ((channelId as string) !== (this.handle.documentId as string))
+  receiveSyncMessage(message: SyncMessage) {
+    if (message.documentId !== this.handle.documentId)
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
     if (!this.handle.inState([READY, REQUESTING])) {
-      this.#pendingSyncMessages.push({ peerId, message })
+      this.#pendingSyncMessages.push(message)
       return
     }
 
     this.#processAllPendingSyncMessages()
-    this.#processSyncMessage(peerId, message)
+    this.#processSyncMessage(message)
   }
 
-  #processSyncMessage(peerId: PeerId, message: Uint8Array) {
+  #processSyncMessage(message: SyncMessage) {
     this.handle.update(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
-        this.#getSyncState(peerId),
-        message
+        this.#getSyncState(message.senderId),
+        message.data
       )
 
-      this.#setSyncState(peerId, newSyncState)
+      this.#setSyncState(message.senderId, newSyncState)
 
       // respond to just this peer (as required)
-      this.#sendSyncMessage(peerId, doc)
+      this.#sendSyncMessage(message.senderId, doc)
       return newDoc
     })
   }
 
   #processAllPendingSyncMessages() {
-    for (const { peerId, message } of this.#pendingSyncMessages) {
-      this.#processSyncMessage(peerId, message)
+    for (const message of this.#pendingSyncMessages) {
+      this.#processSyncMessage(message)
     }
 
     this.#pendingSyncMessages = []

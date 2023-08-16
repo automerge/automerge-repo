@@ -1,4 +1,9 @@
-import { ChannelId, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import {
+  NetworkAdapterMessage,
+  NetworkAdapter,
+  PeerId,
+  Message,
+} from "@automerge/automerge-repo"
 
 export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel
@@ -7,61 +12,50 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.peerId = peerId
     this.#broadcastChannel = new BroadcastChannel(`broadcast`)
 
-    this.#broadcastChannel.addEventListener("message", e => {
-      const { senderId, targetId, type, channelId, message, broadcast } = e.data
+    this.#broadcastChannel.addEventListener(
+      "message",
+      (e: { data: NetworkAdapterMessage }) => {
+        const message = e.data
+        if ("targetId" in message && message.targetId !== this.peerId) {
+          return
+        }
 
-      if (targetId && targetId !== this.peerId && !broadcast) {
-        return
-      }
+        const { senderId, type } = message
 
-      switch (type) {
-        case "arrive":
-          this.#broadcastChannel.postMessage({
-            senderId: this.peerId,
-            targetId: senderId,
-            type: "welcome",
-          })
-          this.#announceConnection(senderId)
-          break
-        case "welcome":
-          this.#announceConnection(senderId)
-          break
-        case "message":
-          this.emit("message", {
-            senderId,
-            targetId,
-            channelId,
-            message: new Uint8Array(message),
-            broadcast,
-          })
-          break
-        default:
-          throw new Error("unhandled message from network")
+        switch (type) {
+          case "arrive":
+            this.#broadcastChannel.postMessage({
+              senderId: this.peerId,
+              targetId: senderId,
+              type: "welcome",
+            })
+            this.#announceConnection(senderId)
+            break
+          case "welcome":
+            this.#announceConnection(senderId)
+            break
+          default:
+            this.emit("message", {
+              ...message,
+              data: new Uint8Array(message.data),
+            })
+            break
+        }
       }
-    })
+    )
   }
 
   #announceConnection(peerId: PeerId) {
     this.emit("peer-candidate", { peerId })
   }
 
-  sendMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    uint8message: Uint8Array,
-    broadcast: boolean
-  ) {
-    const message = uint8message.buffer.slice(
-      uint8message.byteOffset,
-      uint8message.byteOffset + uint8message.byteLength
-    )
+  send(message: Message) {
     this.#broadcastChannel.postMessage({
-      senderId: this.peerId,
-      targetId: peerId,
-      type: "message",
-      channelId,
-      message,
-      broadcast,
+      ...message,
+      data: message.data.buffer.slice(
+        message.data.byteOffset,
+        message.data.byteOffset + message.data.byteLength
+      ),
     })
   }
 
@@ -69,7 +63,6 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.#broadcastChannel.postMessage({
       senderId: this.peerId,
       type: "arrive",
-      broadcast: true,
     })
   }
 

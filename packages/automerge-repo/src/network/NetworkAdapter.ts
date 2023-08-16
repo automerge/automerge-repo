@@ -1,17 +1,13 @@
 import EventEmitter from "eventemitter3"
-import { PeerId, ChannelId } from "../types.js"
+import { ChannelId, PeerId } from "../types.js"
+import { Message } from "./messages.js"
 
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
 
   abstract connect(url?: string): void
 
-  abstract sendMessage(
-    peerId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array,
-    broadcast: boolean
-  ): void
+  abstract send(message: Message): void
 
   abstract join(): void
 
@@ -25,7 +21,7 @@ export interface NetworkAdapterEvents {
   close: () => void
   "peer-candidate": (payload: PeerCandidatePayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
-  message: (payload: InboundMessagePayload) => void
+  message: (payload: Message) => void
 }
 
 export interface OpenPayload {
@@ -34,18 +30,6 @@ export interface OpenPayload {
 
 export interface PeerCandidatePayload {
   peerId: PeerId
-}
-
-export interface MessagePayload {
-  targetId: PeerId
-  channelId: ChannelId
-  message: Uint8Array
-  broadcast: boolean
-}
-
-export interface InboundMessagePayload extends MessagePayload {
-  type?: string
-  senderId: PeerId
 }
 
 export interface PeerDisconnectedPayload {

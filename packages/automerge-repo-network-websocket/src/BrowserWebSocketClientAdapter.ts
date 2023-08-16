@@ -1,15 +1,17 @@
-import {
-  ChannelId,
-  InboundMessagePayload,
-  NetworkAdapter,
-  PeerId,
-} from "@automerge/automerge-repo"
+import { NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
-import {ProtocolV1} from "./protocolVersion.js"
-import {InboundWebSocketMessage, OutboundWebSocketMessage} from "./message.js"
+
+import {
+  FromClientMessage,
+  FromServerMessage,
+  JoinMessage,
+} from "./messages.js"
+import { ProtocolV1 } from "./protocolVersion.js"
+import { isValidMessage } from "@automerge/automerge-repo/dist/network/messages.js"
+
 const log = debug("WebsocketClient")
 
 abstract class WebSocketNetworkAdapter extends NetworkAdapter {
@@ -17,9 +19,10 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  // Type trickery required for platform independence, 
+  // Type trickery required for platform independence,
   // see https://stackoverflow.com/questions/45802988/typescript-use-correct-version-of-settimeout-node-vs-window
   timerId?: ReturnType<typeof setTimeout>
+
   url: string
 
   constructor(url: string) {
@@ -62,9 +65,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       throw new Error("WTF, get a socket")
     }
     if (this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(
-        CBOR.encode(joinMessage(this.peerId))
-      )
+      this.send(joinMessage(this.peerId!))
     } else {
       this.socket.addEventListener(
         "open",
@@ -72,9 +73,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
           if (!this.socket) {
             throw new Error("WTF, get a socket")
           }
-          this.socket.send(
-            CBOR.encode(joinMessage(this.peerId))
-          )
+          this.send(joinMessage(this.peerId!))
         },
         { once: true }
       )
@@ -85,43 +84,31 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }
-    this.socket.send(CBOR.encode({ type: "leave", senderId: this.peerId }))
+    this.send({ type: "leave", senderId: this.peerId! })
   }
 
-  sendMessage(
-    targetId: PeerId,
-    channelId: ChannelId,
-    message: Uint8Array,
-    broadcast: boolean
-  ) {
-    if (message.byteLength === 0) {
+  send(message: FromClientMessage) {
+    if ("data" in message && message.data.byteLength === 0) {
       throw new Error("tried to send a zero-length message")
     }
+
     if (!this.peerId) {
       throw new Error("Why don't we have a PeerID?")
     }
 
-    const decoded: InboundMessagePayload = {
-      senderId: this.peerId,
-      targetId,
-      channelId,
-      type: "sync",
-      message,
-      broadcast,
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      throw new Error("Websocket Socket not ready!")
     }
 
-    const encoded = CBOR.encode(decoded)
-
+    const encoded = CBOR.encode(message)
     // This incantation deals with websocket sending the whole
     // underlying buffer even if we just have a uint8array view on it
     const arrayBuf = encoded.buffer.slice(
       encoded.byteOffset,
       encoded.byteOffset + encoded.byteLength
     )
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      throw new Error("Websocket Socket not ready!")
-    }
-    this.socket.send(arrayBuf)
+
+    this.socket?.send(arrayBuf)
   }
 
   announceConnection(peerId: PeerId) {
@@ -135,16 +122,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array) {
-    const decoded: OutboundWebSocketMessage = CBOR.decode(new Uint8Array(message))
+    const decoded: FromServerMessage = CBOR.decode(new Uint8Array(message))
 
-    const {
-      type,
-      senderId,
-      targetId,
-      channelId,
-      message: messageData,
-      broadcast,
-    } = decoded
+    const { type, senderId } = decoded
 
     const socket = this.socket
     if (!socket) {
@@ -157,24 +137,22 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
 
     switch (type) {
       case "peer":
-        log(`peer: ${senderId}, ${channelId}`)
+        log(`peer: ${senderId}`)
         this.announceConnection(senderId)
         break
       case "error":
-        log(`error: ${decoded.errorMessage}`)
+        log(`error: ${decoded.message}`)
+        break
       default:
-        this.emit("message", {
-          channelId,
-          senderId,
-          targetId,
-          message: new Uint8Array(messageData),
-          broadcast,
-        })
+        if (!isValidMessage(decoded)) {
+          throw new Error("Invalid message received")
+        }
+        this.emit("message", decoded)
     }
   }
 }
 
-function joinMessage(senderId?: PeerId): Record<string, any> {
+function joinMessage(senderId: PeerId): JoinMessage {
   return {
     type: "join",
     senderId,
