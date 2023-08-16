@@ -32,11 +32,10 @@ describe("StorageSubsystem", () => {
 
         // save it to storage
         const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
-        await storage.save(key, doc)
+        await storage.saveDoc(key, doc)
 
         // reload it from storage
-        const reloadedDocBinary = await storage.loadBinary(key)
-        const reloadedDoc = A.load<TestDoc>(reloadedDocBinary)
+        const reloadedDoc = await storage.loadDoc(key)
 
         // check that it's the same doc
         assert.deepStrictEqual(reloadedDoc, doc)
@@ -54,14 +53,15 @@ describe("StorageSubsystem", () => {
 
     // save it to storage
     const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
-    storage.save(key, doc)
+    storage.saveDoc(key, doc)
 
     // create new storage subsystem to simulate a new process
     const storage2 = new StorageSubsystem(adapter)
 
     // reload it from storage
-    const reloadedDocBinary = await storage2.loadBinary(key)
-    const reloadedDoc = A.load<TestDoc>(reloadedDocBinary)
+    const reloadedDoc = await storage2.loadDoc(key)
+
+    assert(reloadedDoc, "doc should be loaded")
 
     // make a change
     const changedDoc = A.change<any>(reloadedDoc, "test 2", d => {
@@ -69,7 +69,7 @@ describe("StorageSubsystem", () => {
     })
 
     // save it to storage
-    storage2.save(key, changedDoc)
+    storage2.saveDoc(key, changedDoc)
 
     // check that the storage adapter contains the correct keys
     assert(adapter.keys().some(k => k.startsWith(`${key}.incremental.`)))

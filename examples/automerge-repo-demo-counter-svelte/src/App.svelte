@@ -22,6 +22,9 @@
   let rootDocUrl = localStorage.rootDocUrl
   if (!rootDocUrl) {
     const handle = repo.create()
+    handle.change((doc: any) => {
+      doc.count = 0
+    })
     localStorage.rootDocUrl = rootDocUrl = handle.url
   }
 </script>

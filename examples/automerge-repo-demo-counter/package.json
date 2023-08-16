@@ -1,14 +1,14 @@
 {
   "name": "@automerge/automerge-repo-demo-counter",
   "private": true,
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.2",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.1.0-alpha.9",
+    "@automerge/automerge": "^2.1.0-alpha.10",
     "@automerge/automerge-repo": "^0.2.1",
     "@automerge/automerge-repo-network-messagechannel": "^0.2.1",
     "@automerge/automerge-repo-network-websocket": "^0.2.1",

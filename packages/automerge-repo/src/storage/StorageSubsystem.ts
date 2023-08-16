@@ -3,6 +3,8 @@ import { StorageAdapter, StorageKey } from "./StorageAdapter.js"
 import * as sha256 from "fast-sha256"
 import { type DocumentId } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
+import debug from "debug"
+import { headsAreSame } from "../helpers/headsAreSame.js"
 
 // Metadata about a chunk of data loaded from storage. This is stored on the
 // StorageSubsystem so when we are compacting we know what chunks we can safely delete
@@ -30,6 +32,8 @@ function headsHash(heads: A.Heads): string {
 export class StorageSubsystem {
   #storageAdapter: StorageAdapter
   #chunkInfos: Map<DocumentId, StorageChunkInfo[]> = new Map()
+  #storedHeads: Map<DocumentId, A.Heads> = new Map()
+  #log = debug(`automerge-repo:storage-subsystem`)
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
@@ -39,9 +43,10 @@ export class StorageSubsystem {
     documentId: DocumentId,
     doc: A.Doc<unknown>
   ): Promise<void> {
-    const binary = A.saveIncremental(doc)
+    const binary = A.saveSince(doc, this.#storedHeads.get(documentId) ?? [])
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
+      this.#log(`Saving incremental ${key} for document ${documentId}`)
       await this.#storageAdapter.save(key, binary)
       if (!this.#chunkInfos.has(documentId)) {
         this.#chunkInfos.set(documentId, [])
@@ -51,6 +56,7 @@ export class StorageSubsystem {
         type: "incremental",
         size: binary.length,
       })
+      this.#storedHeads.set(documentId, A.getHeads(doc))
     } else {
       return Promise.resolve()
     }
@@ -62,8 +68,14 @@ export class StorageSubsystem {
     sourceChunks: StorageChunkInfo[]
   ): Promise<void> {
     const binary = A.save(doc)
-    const key = [documentId, "snapshot", headsHash(A.getHeads(doc))]
-    const oldKeys = new Set(sourceChunks.map(c => c.key))
+    const snapshotHash = headsHash(A.getHeads(doc))
+    const key = [documentId, "snapshot", snapshotHash]
+    const oldKeys = new Set(
+      sourceChunks.map(c => c.key).filter(k => k[2] !== snapshotHash)
+    )
+
+    this.#log(`Saving snapshot ${key} for document ${documentId}`)
+    this.#log(`deleting old chunks ${Array.from(oldKeys)}`)
 
     await this.#storageAdapter.save(key, binary)
 
@@ -76,7 +88,7 @@ export class StorageSubsystem {
     this.#chunkInfos.set(documentId, newChunkInfos)
   }
 
-  async loadBinary(documentId: DocumentId): Promise<Uint8Array> {
+  async loadDoc(documentId: DocumentId): Promise<A.Doc<unknown> | null> {
     const loaded = await this.#storageAdapter.loadRange([documentId])
     const binaries = []
     const chunkInfos: StorageChunkInfo[] = []
@@ -93,21 +105,45 @@ export class StorageSubsystem {
       binaries.push(chunk.data)
     }
     this.#chunkInfos.set(documentId, chunkInfos)
-    return mergeArrays(binaries)
+    const binary = mergeArrays(binaries)
+    if (binary.length === 0) {
+      return null
+    }
+    const newDoc = A.loadIncremental(A.init(), binary)
+    this.#storedHeads.set(documentId, A.getHeads(newDoc))
+    return newDoc
   }
 
-  async save(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+  async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+    if (!this.#shouldSave(documentId, doc)) {
+      return
+    }
     let sourceChunks = this.#chunkInfos.get(documentId) ?? []
     if (this.#shouldCompact(sourceChunks)) {
       this.#saveTotal(documentId, doc, sourceChunks)
     } else {
       this.#saveIncremental(documentId, doc)
     }
+    this.#storedHeads.set(documentId, A.getHeads(doc))
   }
 
   async remove(documentId: DocumentId) {
     this.#storageAdapter.remove([documentId, "snapshot"])
     this.#storageAdapter.removeRange([documentId, "incremental"])
+  }
+
+  #shouldSave(documentId: DocumentId, doc: A.Doc<unknown>): boolean {
+    const oldHeads = this.#storedHeads.get(documentId)
+    if (!oldHeads) {
+      return true
+    }
+
+    const newHeads = A.getHeads(doc)
+    if (headsAreSame(newHeads, oldHeads)) {
+      return false
+    }
+
+    return true
   }
 
   #shouldCompact(sourceChunks: StorageChunkInfo[]) {

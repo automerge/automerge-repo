@@ -18,7 +18,11 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  timerId?: NodeJS.Timeout
+  
+  // Type trickery required for platform independence, 
+  // see https://stackoverflow.com/questions/45802988/typescript-use-correct-version-of-settimeout-node-vs-window
+  timerId?: ReturnType<typeof setTimeout>
+                       
   url: string
 
   constructor(url: string) {
