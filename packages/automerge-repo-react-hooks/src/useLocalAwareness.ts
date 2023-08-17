@@ -1,8 +1,7 @@
-// @ts-nocheck
-import { useRepo } from "./useRepo";
-import { useEffect } from "react";
-import useStateRef from "react-usestateref";
-import { peerEvents, CHANNEL_ID_PREFIX } from "./useRemoteAwareness";
+import { useEffect } from "react"
+import useStateRef from "react-usestateref"
+import { peerEvents } from "./useRemoteAwareness"
+import { DocHandle } from "@automerge/automerge-repo"
 
 /**
  * This hook maintains state for the local client.
@@ -16,66 +15,64 @@ import { peerEvents, CHANNEL_ID_PREFIX } from "./useRemoteAwareness";
  * ChannelID is usually just your documentID with some extra characters.
  *
  * @param {string} props.userId Unique user ID. Clients can lie about this.
- * @param {string} props.channelId Which channel to send messages on. This *must* be unique.
  * @param {any} props.initialState Initial state object/primitive
  * @param {number?1500} props.heartbeatTime How often to send a heartbeat (in ms)
  * @returns [state, setState]
  */
+export interface UseLocalAwarenessProps {
+  handle: DocHandle<unknown>
+  userId: string
+  initialState: any
+  heartbeatTime?: number
+}
 export const useLocalAwareness = ({
+  handle,
   userId,
-  channelId: channelIdUnprefixed,
   initialState,
-  heartbeatTime = 15000
-} = {}) => {
-  const channelId = CHANNEL_ID_PREFIX + channelIdUnprefixed;
-  const [localState, setLocalState, localStateRef] = useStateRef(initialState);
-  const { ephemeralData } = useRepo();
+  heartbeatTime = 15000,
+}: UseLocalAwarenessProps) => {
+  const [localState, setLocalState, localStateRef] = useStateRef(initialState)
 
-  const setState = (stateOrUpdater) => {
+  const setState = stateOrUpdater => {
     const state =
       typeof stateOrUpdater === "function"
         ? stateOrUpdater(localStateRef.current)
-        : stateOrUpdater;
-    setLocalState(state);
+        : stateOrUpdater
+    setLocalState(state)
     // TODO: Send deltas instead of entire state
-    ephemeralData.broadcast(channelId, [userId, state]);
-  };
+    handle.broadcast([userId, state])
+  }
 
   useEffect(() => {
     // Send periodic heartbeats
     const heartbeat = () =>
-      void ephemeralData.broadcast(channelId, [userId, localStateRef.current]);
-    heartbeat(); // Initial heartbeat
+      void handle.broadcast([userId, localStateRef.current])
+    heartbeat() // Initial heartbeat
     // TODO: we don't need to send a heartbeat if we've changed state recently; use recursive setTimeout instead of setInterval
-    const heartbeatIntervalId = setInterval(heartbeat, heartbeatTime);
-    return () => void clearInterval(heartbeatIntervalId);
-  }, [userId, channelId, heartbeatTime, ephemeralData]);
+    const heartbeatIntervalId = setInterval(heartbeat, heartbeatTime)
+    return () => void clearInterval(heartbeatIntervalId)
+  }, [handle, userId, heartbeatTime])
 
   useEffect(() => {
     // Send entire state to new peers
-    let broadcastTimeoutId;
-    const newPeerEvents = peerEvents.on("new_peer", (e) => {
-      if (e.channelId !== channelId) return;
+    let broadcastTimeoutId
+    const newPeerEvents = peerEvents.on("new_peer", e => {
       broadcastTimeoutId = setTimeout(
-        () =>
-          void ephemeralData.broadcast(channelId, [
-            userId,
-            localStateRef.current,
-          ]),
+        () => handle.broadcast([userId, localStateRef.current]),
         500 // Wait for the peer to be ready
-      );
-    });
+      )
+    })
     return () => {
-      newPeerEvents.off();
-      broadcastTimeoutId && clearTimeout(broadcastTimeoutId);
-    };
-  }, [userId, channelId, peerEvents]);
+      newPeerEvents.off("new_peer")
+      broadcastTimeoutId && clearTimeout(broadcastTimeoutId)
+    }
+  }, [handle, userId, peerEvents])
 
   // TODO: Send an "offline" message on unmount
   // useEffect(
-  //   () => () => void ephemeralData.broadcast(channelId, null), // Same as Yjs awareness
+  //   () => () => void handle.broadcast(null), // Same as Yjs awareness
   //   []
   // );
 
-  return [localState, setState];
-};
+  return [localState, setState]
+}

@@ -5,26 +5,21 @@ import { Repo } from "automerge-repo";
 import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel";
 import { RepoContext } from "automerge-repo-react-hooks";
 import { v4 } from 'uuid'
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 
 const repo = new Repo({
+  storage: new IndexedDBStorageAdapter(),
   network: [
     new BroadcastChannelNetworkAdapter()
   ],
 });
-
-const rootDocId = (() => {
-  if (localStorage.rootDocId) return localStorage.rootDocId;
-  const handle = repo.create();
-  localStorage.rootDocId = handle.documentId;
-  return handle.documentId;
-})();
 
 const userId = v4();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App documentId={rootDocId} userId={userId} />
+      <App userId={userId} />
     </React.StrictMode>
   </RepoContext.Provider>
 );

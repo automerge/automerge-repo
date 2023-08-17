@@ -2,18 +2,21 @@ import {
   useDocument,
   useLocalAwareness,
   useRemoteAwareness,
+  useBootstrap,
 } from "automerge-repo-react-hooks";
 
-export function App({ documentId, userId }) {
-  const [doc, changeDoc] = useDocument(documentId);
+export function App({ userId }) {
+  const handle = useBootstrap();
+  const [doc, changeDoc] = useDocument(handle.url);
 
-  const channelId = `${documentId}-useAwareness`;
-  const [localState, updateLocalState] = useLocalAwareness(
+  const [localState, updateLocalState] = useLocalAwareness({
+    handle,
     userId,
-    channelId,
-    {}
-  );
-  const [peerStates, heartbeats] = useRemoteAwareness(channelId, {
+    initialState: {}
+  });
+  
+  const [peerStates, heartbeats] = useRemoteAwareness({
+    handle, 
     localUserId: userId,
   });
 
@@ -74,11 +77,6 @@ export function App({ documentId, userId }) {
       <pre>
         {JSON.stringify({ doc, localState, peerStates, heartbeats }, null, 2)}
       </pre>
-      <div>
-        Note that (at the time of writing), opening more than 2 tabs using
-        broadcastchannel will cause messages to bounce around and the tabs to
-        crash.
-      </div>
     </div>
   );
 }
