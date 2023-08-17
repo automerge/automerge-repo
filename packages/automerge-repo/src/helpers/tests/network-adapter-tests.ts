@@ -2,6 +2,7 @@ import { PeerId, Repo, type NetworkAdapter, DocumentId } from "../../index.js"
 import { eventPromise, eventPromises } from "../eventPromise.js"
 import { assert } from "chai"
 import { describe, it } from "mocha"
+import { pause } from "../pause.js"
 
 /**
  * Runs a series of tests against a set of three peers, each represented by one or more instantiated
@@ -129,6 +130,9 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
       const aliceHandle = aliceRepo.create<TestDoc>()
       const charlieHandle = charlieRepo.find(aliceHandle.url)
 
+      // pause to give charlie a chance to let alice know it wants the doc
+      await pause(100)
+
       const alicePresenceData = { presence: "alice" }
       aliceHandle.broadcast(alicePresenceData)
 
@@ -140,7 +144,7 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
   })
 }
 
-const NO_OP = () => {}
+const NO_OP = () => { }
 
 type Network = NetworkAdapter | NetworkAdapter[]
 

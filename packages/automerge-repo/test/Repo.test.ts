@@ -433,9 +433,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-              repo.create<TestDoc>()
+            repo.create<TestDoc>()
             : // tails, pick a random doc
-              (getRandomItem(docs) as DocHandle<TestDoc>)
+            (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
@@ -453,7 +453,7 @@ describe("Repo", () => {
     })
   })
 
-  it.only("can broadcast a message without entering into an infinite loop", async () => {
+  it("can broadcast a message without entering into an infinite loop", async () => {
     const aliceRepo = new Repo({
       network: [new BroadcastChannelNetworkAdapter()],
     })
@@ -471,11 +471,6 @@ describe("Repo", () => {
     const message = { presence: "alex" }
 
     const aliceHandle = aliceRepo.create<TestDoc>()
-
-    // TODO: remove this once the test passes
-    aliceHandle.change(d => {
-      dummy: "data"
-    }) // as of this test's writing, we need to make a change to make the doc sync
 
     const bobHandle = bobRepo.find(aliceHandle.url)
     const charlieHandle = charlieRepo.find(aliceHandle.url)

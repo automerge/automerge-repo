@@ -1,6 +1,5 @@
 import debug from "debug"
 import { DocCollection } from "./DocCollection.js"
-import { isEphemeralMessage } from "./network/messages.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
