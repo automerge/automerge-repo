@@ -3,13 +3,11 @@ import { PeerId } from "../types.js"
 import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
 
 import {
-  DocumentUnavailableMessageContents,
   EphemeralMessage,
   isEphemeralMessage,
   isValidMessage,
   Message,
   MessageContents,
-  RequestMessageContents,
 } from "./messages.js"
 
 import debug from "debug"
@@ -98,9 +96,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   send(msg: MessageContents) {
-    const message =
+    const message: MessageContents =
       "senderId" in msg
-        ? (msg as MessageContents & { senderId: PeerId })
+        ? msg
         : {
             ...msg,
             senderId: this.peerId,
@@ -121,7 +119,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
               ...message,
               count: ++this.#count,
               sessionId: this.#sessionId,
-            }
+            } as EphemeralMessage
       this.#log("Ephemeral message", outbound)
       peer.send(outbound)
     } else {

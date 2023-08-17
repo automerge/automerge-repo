@@ -4,13 +4,32 @@ import { DocumentId, PeerId } from "../types"
 
 export function isValidMessage(
   message: NetworkAdapterMessage
-): message is SyncMessage | EphemeralMessage {
+): message is
+  | SyncMessage
+  | EphemeralMessage
+  | RequestMessage
+  | DocumentUnavailableMessage {
   return (
     typeof message === "object" &&
     typeof message.type === "string" &&
     typeof message.senderId === "string" &&
-    (isSyncMessage(message) || isEphemeralMessage(message))
+    (isSyncMessage(message) ||
+      isEphemeralMessage(message) ||
+      isRequestMessage(message) ||
+      isDocumentUnavailableMessage(message))
   )
+}
+
+export function isDocumentUnavailableMessage(
+  message: NetworkAdapterMessage
+): message is DocumentUnavailableMessage {
+  return message.type === "doc-unavailable"
+}
+
+export function isRequestMessage(
+  message: NetworkAdapterMessage
+): message is RequestMessage {
+  return message.type === "request"
 }
 
 export function isSyncMessage(
@@ -54,9 +73,40 @@ export interface EphemeralMessageContents {
 export type EphemeralMessage = EphemeralMessageEnvelope &
   EphemeralMessageContents
 
-export type MessageContents = SyncMessageContents | EphemeralMessageContents
+export interface DocumentUnavailableMessageContents {
+  type: "doc-unavailable"
+  documentId: DocumentId
+  targetId: PeerId
+}
 
-export type Message = SyncMessage | EphemeralMessage
+export type DocumentUnavailableMessage = SyncMessageEnvelope &
+  DocumentUnavailableMessageContents
+
+export interface RequestMessageContents {
+  type: "request"
+  data: Uint8Array
+  targetId: PeerId
+  documentId: DocumentId
+}
+
+export type RequestMessage = SyncMessageEnvelope & RequestMessageContents
+
+export type MessageContents =
+  | SyncMessageContents
+  | EphemeralMessageContents
+  | RequestMessageContents
+  | DocumentUnavailableMessageContents
+
+export type Message =
+  | SyncMessage
+  | EphemeralMessage
+  | RequestMessage
+  | DocumentUnavailableMessage
+
+export type SynchronizerMessage =
+  | SyncMessage
+  | RequestMessage
+  | DocumentUnavailableMessage
 
 type ArriveMessage = {
   senderId: PeerId

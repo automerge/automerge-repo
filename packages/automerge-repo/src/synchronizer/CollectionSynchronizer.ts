@@ -13,6 +13,7 @@ import debug from "debug"
 import {
   DocumentUnavailableMessage,
   RequestMessage,
+  SynchronizerMessage,
   SyncMessage,
 } from "../network/messages.js"
 const log = debug("automerge-repo:collectionsync")
@@ -65,11 +66,11 @@ export class CollectionSynchronizer extends Synchronizer {
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
    */
-  async receiveSyncMessage(
-    message: SyncMessage | RequestMessage | DocumentUnavailableMessage
-  ) {
+  async receiveMessage(message: SynchronizerMessage) {
     log(
-      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data.byteLength}bytes`
+      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${
+        "data" in message ? message.data.byteLength + "bytes" : ""
+      }`
     )
 
     const documentId = message.documentId
