@@ -11,7 +11,6 @@ import { Synchronizer } from "./Synchronizer.js"
 import debug from "debug"
 import { EphemeralMessage, Message, SyncMessage } from "../network/messages.js"
 import { decode } from "cbor-x"
-import { receiveMessageServer } from "../../../automerge-repo-network-websocket/dist/WSShared"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -130,8 +129,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-          A.decodeChange(change).ops.map(op => JSON.stringify(op))
-        )
+        A.decodeChange(change).ops.map(op => JSON.stringify(op))
+      )
       : null
     this.#opsLog(logText, expanded)
   }
