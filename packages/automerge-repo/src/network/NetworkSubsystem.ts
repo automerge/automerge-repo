@@ -3,6 +3,7 @@ import { PeerId } from "../types.js"
 import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
 
 import {
+  EphemeralMessage,
   isEphemeralMessage,
   isValidMessage,
   Message,
@@ -12,13 +13,18 @@ import {
 import debug from "debug"
 import { SessionId } from "../EphemeralData.js"
 
+type EphemeralMessageSource = `${PeerId}:${SessionId}`
+
+const getEphemeralMessageSource = (message: EphemeralMessage) =>
+  `${message.senderId}:${message.sessionId}` as EphemeralMessageSource
+
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
 
   #count = 0
   #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
-  #ephemeralSessionCounts: Record<SessionId, number> = {}
+  #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
 
   constructor(
     private adapters: NetworkAdapter[],
@@ -61,10 +67,13 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
       if (isEphemeralMessage(msg)) {
         if (
-          this.#ephemeralSessionCounts[msg.sessionId] === undefined ||
-          msg.count > this.#ephemeralSessionCounts[msg.sessionId]
+          this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)] ===
+            undefined ||
+          msg.count >
+            this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)]
         ) {
-          this.#ephemeralSessionCounts[msg.sessionId] = msg.count
+          this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)] =
+            msg.count
           this.emit("message", msg)
         }
 
