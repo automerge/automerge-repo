@@ -144,7 +144,7 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
   })
 }
 
-const NO_OP = () => { }
+const NO_OP = () => {}
 
 type Network = NetworkAdapter | NetworkAdapter[]
 

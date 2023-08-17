@@ -17,7 +17,7 @@ describe("Websocket adapters", async () => {
 
     while (socket === undefined) {
       try {
-        ;({ socket, server } = await startServer(port))
+        ; ({ socket, server } = await startServer(port))
       } catch (e: any) {
         if (e.code === "EADDRINUSE") {
           port++
@@ -38,7 +38,7 @@ describe("Websocket adapters", async () => {
       server.close()
     }
 
-    return { adapters: [serverAdapter, aliceAdapter, bobAdapter], teardown }
+    return { adapters: [aliceAdapter, serverAdapter, bobAdapter], teardown }
   })
 })
 

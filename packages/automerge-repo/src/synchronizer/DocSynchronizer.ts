@@ -129,8 +129,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-        A.decodeChange(change).ops.map(op => JSON.stringify(op))
-      )
+          A.decodeChange(change).ops.map(op => JSON.stringify(op))
+        )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -183,12 +183,20 @@ export class DocSynchronizer extends Synchronizer {
 
     const { senderId, data } = message
 
-    const contents = decode(message.data)
+    const contents = decode(data)
 
     this.handle.emit("ephemeral-message", {
       handle: this.handle,
       senderId,
       message: contents,
+    })
+
+    this.#peers.forEach(peerId => {
+      if (peerId === senderId) return
+      this.emit("message", {
+        ...message,
+        targetId: peerId,
+      })
     })
   }
 
