@@ -1,15 +1,16 @@
-import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import { NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 import * as CBOR from "cbor-x"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
 
-import { ProtocolV1 } from "./protocolVersion.js"
 import {
   FromClientMessage,
   FromServerMessage,
   JoinMessage,
 } from "./messages.js"
+import { ProtocolV1 } from "./protocolVersion.js"
+import { isValidMessage } from "@automerge/automerge-repo/dist/network/messages.js"
 
 const log = debug("WebsocketClient")
 
@@ -18,7 +19,10 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  timerId?: NodeJS.Timeout
+  // Type trickery required for platform independence,
+  // see https://stackoverflow.com/questions/45802988/typescript-use-correct-version-of-settimeout-node-vs-window
+  timerId?: ReturnType<typeof setTimeout>
+
   url: string
 
   constructor(url: string) {
@@ -56,7 +60,42 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     )
   }
 
-  private transmit(message: FromClientMessage) {
+  join() {
+    if (!this.socket) {
+      throw new Error("WTF, get a socket")
+    }
+    if (this.socket.readyState === WebSocket.OPEN) {
+      this.send(joinMessage(this.peerId!))
+    } else {
+      this.socket.addEventListener(
+        "open",
+        () => {
+          if (!this.socket) {
+            throw new Error("WTF, get a socket")
+          }
+          this.send(joinMessage(this.peerId!))
+        },
+        { once: true }
+      )
+    }
+  }
+
+  leave() {
+    if (!this.socket) {
+      throw new Error("WTF, get a socket")
+    }
+    this.send({ type: "leave", senderId: this.peerId! })
+  }
+
+  send(message: FromClientMessage) {
+    if ("data" in message && message.data.byteLength === 0) {
+      throw new Error("tried to send a zero-length message")
+    }
+
+    if (!this.peerId) {
+      throw new Error("Why don't we have a PeerID?")
+    }
+
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new Error("Websocket Socket not ready!")
     }
@@ -70,45 +109,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     )
 
     this.socket?.send(arrayBuf)
-  }
-
-  join() {
-    if (!this.socket) {
-      throw new Error("WTF, get a socket")
-    }
-    if (this.socket.readyState === WebSocket.OPEN) {
-      this.transmit(joinMessage(this.peerId!))
-    } else {
-      this.socket.addEventListener(
-        "open",
-        () => {
-          if (!this.socket) {
-            throw new Error("WTF, get a socket")
-          }
-          this.transmit(joinMessage(this.peerId!))
-        },
-        { once: true }
-      )
-    }
-  }
-
-  leave() {
-    if (!this.socket) {
-      throw new Error("WTF, get a socket")
-    }
-    this.transmit({ type: "leave", senderId: this.peerId! })
-  }
-
-  send(message: Message) {
-    if ("data" in message && message.data.byteLength === 0) {
-      throw new Error("tried to send a zero-length message")
-    }
-
-    if (!this.peerId) {
-      throw new Error("Why don't we have a PeerID?")
-    }
-
-    this.transmit(message)
   }
 
   announceConnection(peerId: PeerId) {
@@ -144,6 +144,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
         log(`error: ${decoded.message}`)
         break
       default:
+        if (!isValidMessage(decoded)) {
+          throw new Error("Invalid message received")
+        }
         this.emit("message", decoded)
     }
   }

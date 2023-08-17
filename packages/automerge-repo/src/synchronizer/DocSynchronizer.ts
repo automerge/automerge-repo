@@ -1,5 +1,10 @@
 import * as A from "@automerge/automerge"
-import { DocHandle, READY, REQUESTING, UNAVAILABLE } from "../DocHandle.js"
+import {
+  DocHandle,
+  DocHandleOutboundEphemeralMessagePayload,
+  READY,
+  REQUESTING,
+} from "../DocHandle.js"
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
@@ -8,9 +13,10 @@ import {
   isDocumentUnavailableMessage,
   isRequestMessage,
   SynchronizerMessage,
-} from "../network/NetworkAdapter.js"
+  } from "../network/messages.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
+import { decode } from "cbor-x"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -42,6 +48,10 @@ export class DocSynchronizer extends Synchronizer {
 
     handle.on("change", () => this.#syncWithPeers())
 
+    handle.on("ephemeral-message-outbound", payload =>
+      this.#broadcastToPeers(payload)
+    )
+
     // Process pending sync messages immediately after the handle becomes ready.
     void (async () => {
       await handle.doc([READY, REQUESTING])
@@ -64,6 +74,22 @@ export class DocSynchronizer extends Synchronizer {
     const doc = await this.handle.doc()
     if (doc === undefined) return
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
+  }
+
+  async #broadcastToPeers({ data }: DocHandleOutboundEphemeralMessagePayload) {
+    this.#log(`broadcastToPeers`, this.#peers)
+    this.#peers.forEach(peerId => this.#sendEphemeralMessage(peerId, data))
+  }
+
+  #sendEphemeralMessage(peerId: PeerId, data: Uint8Array) {
+    this.#log(`sendEphemeralMessage ->${peerId}`)
+
+    this.emit("message", {
+      type: "ephemeral",
+      targetId: peerId,
+      documentId: this.handle.documentId,
+      data,
+    })
   }
 
   #getSyncState(peerId: PeerId) {
@@ -191,7 +217,43 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  receiveSyncMessage(message: SynchronizerMessage) {
+  receiveMessage(message: Message) {
+    switch (message.type) {
+      case "sync":
+        this.receiveSyncMessage(message)
+        break
+      case "ephemeral":
+        this.receiveEphemeralMessage(message)
+        break
+      default:
+        throw new Error(`unknown message type: ${message}`)
+    }
+  }
+
+  receiveEphemeralMessage(message: EphemeralMessage) {
+    if (message.documentId !== this.handle.documentId)
+      throw new Error(`channelId doesn't match documentId`)
+
+    const { senderId, data } = message
+
+    const contents = decode(data)
+
+    this.handle.emit("ephemeral-message", {
+      handle: this.handle,
+      senderId,
+      message: contents,
+    })
+
+    this.#peers.forEach(peerId => {
+      if (peerId === senderId) return
+      this.emit("message", {
+        ...message,
+        targetId: peerId,
+      })
+    })
+  }
+
+  receiveSyncMessage(message: SyncMessage) {
     if (message.documentId !== this.handle.documentId)
       throw new Error(`channelId doesn't match documentId`)
 

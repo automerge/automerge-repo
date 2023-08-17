@@ -1,25 +1,32 @@
 import EventEmitter from "eventemitter3"
-import { ChannelId, DistributiveOmit, PeerId } from "../types.js"
+import { PeerId } from "../types.js"
+import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
+
 import {
   DocumentUnavailableMessageContents,
-  isDocumentUnavailableMessage,
+  EphemeralMessage,
   isEphemeralMessage,
   isValidMessage,
   Message,
   MessageContents,
-  NetworkAdapter,
-  PeerDisconnectedPayload,
   RequestMessageContents,
-} from "./NetworkAdapter.js"
+} from "./messages.js"
 
 import debug from "debug"
 import { SessionId } from "../EphemeralData.js"
+
+type EphemeralMessageSource = `${PeerId}:${SessionId}`
+
+const getEphemeralMessageSource = (message: EphemeralMessage) =>
+  `${message.senderId}:${message.sessionId}` as EphemeralMessageSource
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
   #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
 
-  #ephemeralSessionCounts: Record<SessionId, number> = {}
+  #count = 0
+  #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
+  #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
 
   constructor(
     private adapters: NetworkAdapter[],
@@ -60,19 +67,15 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
       this.#log(`message from ${msg.senderId}`)
 
-      // If we receive a broadcast message from a network adapter we need to re-broadcast it to all
-      // our other peers. This is the world's worst gossip protocol.
       if (isEphemeralMessage(msg)) {
         if (
-          this.#ephemeralSessionCounts[msg.sessionId] === undefined ||
-          msg.count > this.#ephemeralSessionCounts[msg.sessionId]
+          this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)] ===
+            undefined ||
+          msg.count >
+            this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)]
         ) {
-          Object.entries(this.#adaptersByPeer)
-            .filter(([id]) => id !== msg.senderId)
-            .forEach(([id, peer]) => {
-              peer.send({ ...msg, targetId: id as PeerId })
-            })
-          this.#ephemeralSessionCounts[msg.sessionId] = msg.count
+          this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)] =
+            msg.count
           this.emit("message", msg)
         }
 
@@ -94,25 +97,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     networkAdapter.join()
   }
 
-  send(
-    msg:
-      | MessageContents
-      | RequestMessageContents
-      | DocumentUnavailableMessageContents
-  ) {
-    const message = {
-      ...msg,
-      senderId: this.peerId,
-    }
-
-    if (isEphemeralMessage(message)) {
-      Object.entries(this.#adaptersByPeer).forEach(([id, peer]) => {
-        this.#log(`sending broadcast to ${id}`)
-        peer.send({ ...message, targetId: id as PeerId })
-      })
-
-      return
-    }
+  send(msg: MessageContents) {
+    const message =
+      "senderId" in msg
+        ? (msg as MessageContents & { senderId: PeerId })
+        : {
+            ...msg,
+            senderId: this.peerId,
+          }
 
     const peer = this.#adaptersByPeer[message.targetId]
     if (!peer) {
@@ -120,7 +112,22 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       return
     }
     this.#log(`Sending message to ${message.targetId}`)
-    peer.send(message)
+
+    if (isEphemeralMessage(message)) {
+      const outbound =
+        "count" in message
+          ? message
+          : {
+              ...message,
+              count: ++this.#count,
+              sessionId: this.#sessionId,
+            }
+      this.#log("Ephemeral message", outbound)
+      peer.send(outbound)
+    } else {
+      this.#log("Sync message", message)
+      peer.send(message)
+    }
   }
 
   join() {

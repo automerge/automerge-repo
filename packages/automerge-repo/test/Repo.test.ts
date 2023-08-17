@@ -4,7 +4,6 @@ import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-networ
 
 import {
   AutomergeUrl,
-  ChannelId,
   DocHandle,
   DocumentId,
   PeerId,
@@ -52,7 +51,6 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       const v = await handle.doc()
-      console.log("V is ", v)
       assert.equal(handle.isReady(), true)
 
       assert.equal(v?.foo, "bar")
@@ -177,8 +175,8 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
 
-      repo.on("delete-document", ({ encodedDocumentId }) => {
-        assert.equal(encodedDocumentId, handle.documentId)
+      repo.on("delete-document", ({ documentId }) => {
+        assert.equal(documentId, handle.documentId)
 
         done()
       })
@@ -491,86 +489,89 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("can broadcast a message", async () => {
-      const { aliceRepo, bobRepo, teardown } = await setup()
-
-      const channelId = "broadcast" as ChannelId
-      const data = { presence: "bob" }
-
-      bobRepo.ephemeralData.broadcast(channelId, data)
-      const d = await eventPromise(aliceRepo.ephemeralData, "data")
-
-      assert.deepStrictEqual(d.data, data)
-      teardown()
-    })
-
-    const setupMeshNetwork = async () => {
-      const aliceRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-        peerId: "alice" as PeerId,
-      })
-
-      const bobRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-        peerId: "bob" as PeerId,
-      })
-
-      const charlieRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-        peerId: "charlie" as PeerId,
-      })
-
-      // pause to let the network set up
-      await pause(50)
-
-      return {
-        aliceRepo,
-        bobRepo,
-        charlieRepo,
-      }
-    }
-
-    it("can emit an 'unavailable' event when it's not found on the network", async () => {
-      const { charlieRepo } = await setupMeshNetwork()
-
-      const url = generateAutomergeUrl()
-      const handle = charlieRepo.find<TestDoc>(url)
-      assert.equal(handle.isReady(), false)
-
-      await eventPromise(handle, "unavailable")
-    })
-
-    it("can broadcast a message without entering into an infinite loop", async () => {
-      const { aliceRepo, bobRepo, charlieRepo } = await setupMeshNetwork()
-
-      const channelId = "broadcast" as ChannelId
-      const data = { presence: "alex" }
-
-      aliceRepo.ephemeralData.broadcast(channelId, data)
-
-      const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
-        setTimeout(() => {
-          resolve()
-        }, 100)
-
-        aliceRepo.ephemeralData.on("data", () => {
-          reject("alice got the message")
-        })
-      })
-
-      const bobGotIt = eventPromise(bobRepo.ephemeralData, "data")
-      const charlieGotIt = eventPromise(charlieRepo.ephemeralData, "data")
-
-      const [bob, charlie] = await Promise.all([
-        bobGotIt,
-        charlieGotIt,
-        aliceDoesntGetIt,
-      ])
-
-      assert.deepStrictEqual(bob.data, data)
-      assert.deepStrictEqual(charlie.data, data)
-    })
-
+    // <<<<<<< HEAD
+    //     it("can broadcast a message", async () => {
+    //       const { aliceRepo, bobRepo, teardown } = await setup()
+    //
+    //       const channelId = "broadcast" as ChannelId
+    //       const data = { presence: "bob" }
+    //
+    //       bobRepo.ephemeralData.broadcast(channelId, data)
+    //       const d = await eventPromise(aliceRepo.ephemeralData, "data")
+    //
+    //       assert.deepStrictEqual(d.data, data)
+    //       teardown()
+    //     })
+    //
+    //     const setupMeshNetwork = async () => {
+    //       const aliceRepo = new Repo({
+    //         network: [new BroadcastChannelNetworkAdapter()],
+    //         peerId: "alice" as PeerId,
+    //       })
+    //
+    //       const bobRepo = new Repo({
+    //         network: [new BroadcastChannelNetworkAdapter()],
+    //         peerId: "bob" as PeerId,
+    //       })
+    //
+    //       const charlieRepo = new Repo({
+    //         network: [new BroadcastChannelNetworkAdapter()],
+    //         peerId: "charlie" as PeerId,
+    //       })
+    //
+    //       // pause to let the network set up
+    //       await pause(50)
+    //
+    //       return {
+    //         aliceRepo,
+    //         bobRepo,
+    //         charlieRepo,
+    //       }
+    //     }
+    //
+    //     it("can emit an 'unavailable' event when it's not found on the network", async () => {
+    //       const { charlieRepo } = await setupMeshNetwork()
+    //
+    //       const url = generateAutomergeUrl()
+    //       const handle = charlieRepo.find<TestDoc>(url)
+    //       assert.equal(handle.isReady(), false)
+    //
+    //       await eventPromise(handle, "unavailable")
+    //     })
+    //
+    //     it("can broadcast a message without entering into an infinite loop", async () => {
+    //       const { aliceRepo, bobRepo, charlieRepo } = await setupMeshNetwork()
+    //
+    //       const channelId = "broadcast" as ChannelId
+    //       const data = { presence: "alex" }
+    //
+    //       aliceRepo.ephemeralData.broadcast(channelId, data)
+    //
+    //       const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
+    //         setTimeout(() => {
+    //           resolve()
+    //         }, 100)
+    //
+    //         aliceRepo.ephemeralData.on("data", () => {
+    //           reject("alice got the message")
+    //         })
+    //       })
+    //
+    //       const bobGotIt = eventPromise(bobRepo.ephemeralData, "data")
+    //       const charlieGotIt = eventPromise(charlieRepo.ephemeralData, "data")
+    //
+    //       const [bob, charlie] = await Promise.all([
+    //         bobGotIt,
+    //         charlieGotIt,
+    //         aliceDoesntGetIt,
+    //       ])
+    //
+    //       assert.deepStrictEqual(bob.data, data)
+    //       assert.deepStrictEqual(charlie.data, data)
+    //     })
+    //
+    // =======
+    // >>>>>>> ephemeral-on-handle
     it("syncs a bunch of changes", async () => {
       const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
 
@@ -602,5 +603,91 @@ describe("Repo", () => {
 
       teardown()
     })
+
+    it("can broadcast a message to peers with the correct document only", async () => {
+      const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
+        await setup()
+
+      const data = { presence: "alice" }
+
+      const aliceHandle = aliceRepo.find<TestDoc>(
+        stringifyAutomergeUrl({ documentId: notForCharlie })
+      )
+      const bobHandle = bobRepo.find<TestDoc>(
+        stringifyAutomergeUrl({ documentId: notForCharlie })
+      )
+
+      await pause(50)
+
+      const charliePromise = new Promise<void>((resolve, reject) => {
+        charlieRepo.networkSubsystem.on("message", message => {
+          if (
+            message.type === "ephemeral" &&
+            message.documentId === notForCharlie
+          ) {
+            reject(new Error("Charlie should not receive this message"))
+          }
+        })
+        setTimeout(resolve, 100)
+      })
+
+      aliceHandle.broadcast(data)
+      const { message } = await eventPromise(bobHandle, "ephemeral-message")
+
+      assert.deepStrictEqual(message, data)
+      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+
+      await charliePromise
+      teardown()
+    })
+  })
+
+  it("can broadcast a message without entering into an infinite loop", async () => {
+    const aliceRepo = new Repo({
+      network: [new BroadcastChannelNetworkAdapter()],
+    })
+
+    const bobRepo = new Repo({
+      network: [new BroadcastChannelNetworkAdapter()],
+    })
+
+    const charlieRepo = new Repo({
+      network: [new BroadcastChannelNetworkAdapter()],
+    })
+
+    // pause to let the network set up
+    await pause(50)
+    const message = { presence: "alex" }
+
+    const aliceHandle = aliceRepo.create<TestDoc>()
+
+    const bobHandle = bobRepo.find(aliceHandle.url)
+    const charlieHandle = charlieRepo.find(aliceHandle.url)
+
+    const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        resolve()
+      }, 100)
+
+      aliceHandle.on("ephemeral-message", () => {
+        reject("alice got the message")
+      })
+    })
+
+    const bobGotIt = eventPromise(bobHandle, "ephemeral-message")
+    const charlieGotIt = eventPromise(charlieHandle, "ephemeral-message")
+
+    // let things get in sync and peers meet one another
+    await pause(50)
+    aliceHandle.broadcast(message)
+
+    const [bob, charlie] = await Promise.all([
+      bobGotIt,
+      charlieGotIt,
+      aliceDoesntGetIt,
+    ])
+
+    assert.deepStrictEqual(bob.message, message)
+    assert.deepStrictEqual(charlie.message, message)
   })
 })

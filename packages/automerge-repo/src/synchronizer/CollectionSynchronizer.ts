@@ -5,7 +5,7 @@ import {
   binaryToDocumentId,
   stringifyAutomergeUrl,
 } from "../DocUrl.js"
-import { ChannelId, BinaryDocumentId, PeerId, DocumentId } from "../types.js"
+import { PeerId, DocumentId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
@@ -14,7 +14,7 @@ import {
   DocumentUnavailableMessage,
   RequestMessage,
   SyncMessage,
-} from "../network/NetworkAdapter.js"
+} from "../network/messages.js"
 const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
@@ -68,9 +68,9 @@ export class CollectionSynchronizer extends Synchronizer {
   async receiveSyncMessage(
     message: SyncMessage | RequestMessage | DocumentUnavailableMessage
   ) {
-    // log(
-    // `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data?.byteLength}bytes`
-    // )
+    log(
+      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data.byteLength}bytes`
+    )
 
     const documentId = message.documentId
     if (!documentId) {
@@ -81,7 +81,7 @@ export class CollectionSynchronizer extends Synchronizer {
 
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
 
-    docSynchronizer.receiveSyncMessage(message)
+    docSynchronizer.receiveMessage(message)
 
     // Initiate sync with any new peers
     const peers = await this.#documentGenerousPeers(documentId)

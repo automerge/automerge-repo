@@ -1,13 +1,11 @@
+import debug from "debug"
 import { DocCollection } from "./DocCollection.js"
-import { EphemeralData } from "./EphemeralData.js"
-import { isEphemeralMessage, NetworkAdapter } from "./network/NetworkAdapter.js"
+import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { ChannelId, DocumentId, PeerId } from "./types.js"
-
-import debug from "debug"
+import { DocumentId, PeerId } from "./types.js"
 
 /** A Repo is a DocCollection with networking, syncing, and storage capabilities. */
 export class Repo extends DocCollection {
@@ -15,7 +13,6 @@ export class Repo extends DocCollection {
 
   networkSubsystem: NetworkSubsystem
   storageSubsystem?: StorageSubsystem
-  ephemeralData: EphemeralData
 
   constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
     super()
@@ -53,18 +50,17 @@ export class Repo extends DocCollection {
       synchronizer.addDocument(handle.documentId)
     })
 
-    this.on("delete-document", ({ encodedDocumentId }) => {
+    this.on("delete-document", ({ documentId }) => {
       // TODO Pass the delete on to the network
       // synchronizer.removeDocument(documentId)
 
       if (storageSubsystem) {
-        storageSubsystem.remove(encodedDocumentId)
+        storageSubsystem.remove(documentId)
       }
     })
 
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
-
     const synchronizer = new CollectionSynchronizer(this)
 
     // When the synchronizer emits sync messages, send them to peers
@@ -75,13 +71,11 @@ export class Repo extends DocCollection {
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
-
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
     this.storageSubsystem = storageSubsystem
 
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
-
     const networkSubsystem = new NetworkSubsystem(network, peerId)
     this.networkSubsystem = networkSubsystem
 
@@ -98,31 +92,7 @@ export class Repo extends DocCollection {
 
     // Handle incoming messages
     networkSubsystem.on("message", async msg => {
-      if (isEphemeralMessage(msg)) {
-        // Ephemeral message
-        this.#log(`receiving ephemeral message from ${msg.senderId}`)
-        ephemeralData.receive(msg)
-      } else {
-        // Sync message
-        this.#log(`receiving sync message from ${msg.senderId}`)
-        await synchronizer.receiveSyncMessage(msg)
-      }
-    })
-
-    // We establish a special channel for sync messages
-    networkSubsystem.join()
-
-    // EPHEMERAL DATA
-    // The ephemeral data subsystem uses the network to send and receive messages that are not
-    // persisted to storage, e.g. cursor position, presence, etc.
-
-    const ephemeralData = new EphemeralData()
-    this.ephemeralData = ephemeralData
-
-    // Send ephemeral messages to peers
-    ephemeralData.on("message", message => {
-      this.#log(`sending ephemeral message`)
-      networkSubsystem.send(message)
+      await synchronizer.receiveMessage(msg)
     })
   }
 }

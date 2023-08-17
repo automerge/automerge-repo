@@ -5,7 +5,7 @@ import { startServer } from "./utilities/WebSockets"
 import * as CBOR from "cbor-x"
 import WebSocket, { AddressInfo } from "ws"
 import { assert } from "chai"
-import { ChannelId, PeerId, Repo } from "@automerge/automerge-repo"
+import { PeerId, Repo } from "@automerge/automerge-repo"
 import { once } from "events"
 
 describe("Websocket adapters", async () => {
@@ -17,7 +17,7 @@ describe("Websocket adapters", async () => {
 
     while (socket === undefined) {
       try {
-        ;({ socket, server } = await startServer(port))
+        ; ({ socket, server } = await startServer(port))
       } catch (e: any) {
         if (e.code === "EADDRINUSE") {
           port++
@@ -38,7 +38,7 @@ describe("Websocket adapters", async () => {
       server.close()
     }
 
-    return { adapters: [serverAdapter, aliceAdapter, bobAdapter], teardown }
+    return { adapters: [aliceAdapter, serverAdapter, bobAdapter], teardown }
   })
 })
 
@@ -73,6 +73,7 @@ describe("The NodeWSServerAdapter", () => {
     assert.deepEqual<any>(response, {
       type: "peer",
       senderId: "server",
+      targetId: "browser",
       selectedProtocolVersion: "1",
     })
   })
@@ -86,6 +87,7 @@ describe("The NodeWSServerAdapter", () => {
     assert.deepEqual<any>(response, {
       type: "error",
       senderId: "server",
+      targetId: "browser",
       message: "unsupported protocol version",
     })
   })
@@ -98,6 +100,7 @@ describe("The NodeWSServerAdapter", () => {
     assert.deepEqual<any>(response, {
       type: "peer",
       senderId: "server",
+      targetId: "browser",
       selectedProtocolVersion: "1",
     })
   })

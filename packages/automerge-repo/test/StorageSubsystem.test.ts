@@ -31,7 +31,7 @@ describe("StorageSubsystem", () => {
         })
 
         // save it to storage
-        const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
+        const key = parseAutomergeUrl(generateAutomergeUrl()).documentId
         await storage.saveDoc(key, doc)
 
         // reload it from storage
@@ -52,7 +52,7 @@ describe("StorageSubsystem", () => {
     })
 
     // save it to storage
-    const key = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
+    const key = parseAutomergeUrl(generateAutomergeUrl()).documentId
     storage.saveDoc(key, doc)
 
     // create new storage subsystem to simulate a new process

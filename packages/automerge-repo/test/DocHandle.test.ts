@@ -5,9 +5,12 @@ import { DocHandle, DocHandleChangePayload } from "../src"
 import { pause } from "../src/helpers/pause"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl"
+import { eventPromise } from "../src/helpers/eventPromise"
+import { decode } from "cbor-x"
 
 describe("DocHandle", () => {
-  const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
+  const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
+  const BOGUS_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   const docFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
     return A.change<{ foo: string }>(doc, d => (d.foo = "bar"))
@@ -27,8 +30,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
-    console.log("DOC", JSON.stringify(doc))
-    assert.equal(doc?.foo, "bar")
+    assert.equal(doc.foo, "bar")
   })
 
   it("should allow sync access to the doc", async () => {
@@ -299,5 +301,19 @@ describe("DocHandle", () => {
     })
 
     assert(wasBar, "foo should have been bar as we changed at the old heads")
+  })
+
+  describe("ephemeral messaging", () => {
+    it("can broadcast a message for the network to send out", async () => {
+      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      const message = { foo: "bar" }
+
+      const promise = eventPromise(handle, "ephemeral-message-outbound")
+
+      handle.broadcast(message)
+
+      const { data } = await promise
+      assert.deepStrictEqual(decode(data), message)
+    })
   })
 })

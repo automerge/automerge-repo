@@ -72,8 +72,8 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     // - pass a "reify" function that takes a `<any>` and returns `<T>`
 
     // Generate a new UUID and store it in the buffer
-    const { encodedDocumentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const handle = this.#getHandle<T>(encodedDocumentId, true) as DocHandle<T>
+    const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }
@@ -90,21 +90,21 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
       throw new Error(`Invalid AutomergeUrl: '${automergeUrl}'`)
     }
 
-    const { encodedDocumentId } = parseAutomergeUrl(automergeUrl)
+    const { documentId } = parseAutomergeUrl(automergeUrl)
     // If we have the handle cached, return it
-    if (this.#handleCache[encodedDocumentId]) {
-      if (this.#handleCache[encodedDocumentId].isUnavailable()) {
+    if (this.#handleCache[documentId]) {
+      if (this.#handleCache[documentId].isUnavailable()) {
         // this ensures that the event fires after the handle has been returned
         setTimeout(() => {
-          this.#handleCache[encodedDocumentId].emit("unavailable", {
-            handle: this.#handleCache[encodedDocumentId],
+          this.#handleCache[documentId].emit("unavailable", {
+            handle: this.#handleCache[documentId],
           })
         })
       }
-      return this.#handleCache[encodedDocumentId]
+      return this.#handleCache[documentId]
     }
 
-    const handle = this.#getHandle<T>(encodedDocumentId, false) as DocHandle<T>
+    const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
     this.emit("document", { handle })
     return handle
   }
@@ -114,7 +114,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     id: DocumentId | AutomergeUrl
   ) {
     if (isValidAutomergeUrl(id)) {
-      ;({ encodedDocumentId: id } = parseAutomergeUrl(id))
+      ;({ documentId: id } = parseAutomergeUrl(id))
     }
 
     const handle = this.#getHandle(id, false)
@@ -122,7 +122,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
 
     delete this.#handleCache[id]
     this.emit("delete-document", {
-      encodedDocumentId: id,
+      documentId: id,
     })
   }
 }
@@ -139,5 +139,5 @@ interface DocumentPayload {
 }
 
 interface DeleteDocumentPayload {
-  encodedDocumentId: DocumentId
+  documentId: DocumentId
 }

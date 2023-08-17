@@ -22,7 +22,7 @@ describe("DocSynchronizer", () => {
   let docSynchronizer: DocSynchronizer
 
   const setup = () => {
-    const docId = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
+    const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
     handle = new DocHandle<TestDoc>(docId, { isNew: true })
     docSynchronizer = new DocSynchronizer(handle)
     return { handle, docSynchronizer }
