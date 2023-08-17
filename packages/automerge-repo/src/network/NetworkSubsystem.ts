@@ -59,23 +59,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
       this.#log(`message from ${msg.senderId}`)
 
-      if (isEphemeralMessage(msg)) {
-        if (
-          this.#ephemeralSessionCounts[msg.sessionId] === undefined ||
-          msg.count > this.#ephemeralSessionCounts[msg.sessionId]
-        ) {
-          Object.entries(this.#adaptersByPeer)
-            .filter(([id]) => id !== msg.senderId)
-            .forEach(([id, peer]) => {
-              peer.send({ ...msg, targetId: id as PeerId })
-            })
-          this.#ephemeralSessionCounts[msg.sessionId] = msg.count
-          this.emit("message", msg)
-        }
-
-        return
-      }
-
       this.emit("message", msg)
     })
 

@@ -451,6 +451,43 @@ describe("Repo", () => {
 
       teardown()
     })
+
+    it("can broadcast a message to peers with the correct document only", async () => {
+      const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
+        await setup()
+
+      const data = { presence: "alice" }
+
+      const aliceHandle = aliceRepo.find<TestDoc>(
+        stringifyAutomergeUrl({ documentId: notForCharlie })
+      )
+      const bobHandle = bobRepo.find<TestDoc>(
+        stringifyAutomergeUrl({ documentId: notForCharlie })
+      )
+
+      await pause(50)
+
+      const charliePromise = new Promise<void>((resolve, reject) => {
+        charlieRepo.networkSubsystem.on("message", message => {
+          if (
+            message.type === "ephemeral" &&
+            message.documentId === notForCharlie
+          ) {
+            reject(new Error("Charlie should not receive this message"))
+          }
+        })
+        setTimeout(resolve, 100)
+      })
+
+      aliceHandle.broadcast(data)
+      const { message } = await eventPromise(bobHandle, "ephemeral-message")
+
+      assert.deepStrictEqual(message, data)
+      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+
+      await charliePromise
+      teardown()
+    })
   })
 
   it("can broadcast a message without entering into an infinite loop", async () => {
