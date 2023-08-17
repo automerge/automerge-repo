@@ -50,7 +50,6 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       const v = await handle.doc()
-      console.log("V is ", v)
       assert.equal(handle.isReady(), true)
 
       assert.equal(v.foo, "bar")
@@ -494,6 +493,8 @@ describe("Repo", () => {
     const bobGotIt = eventPromise(bobHandle, "ephemeral-message")
     const charlieGotIt = eventPromise(charlieHandle, "ephemeral-message")
 
+    // let things get in sync and peers meet one another
+    await pause(50)
     aliceHandle.broadcast(message)
 
     const [bob, charlie] = await Promise.all([

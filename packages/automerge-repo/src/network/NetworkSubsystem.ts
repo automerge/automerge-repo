@@ -105,12 +105,15 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     this.#log(`Sending message to ${message.targetId}`)
 
     if (isEphemeralMessage(message)) {
-      peer.send({
+      const outbound = {
         ...message,
         count: ++this.#count,
         sessionId: this.#sessionId,
-      })
+      }
+      this.#log("Ephemeral message", outbound)
+      peer.send(outbound)
     } else {
+      this.#log("Sync message", message)
       peer.send(message)
     }
   }

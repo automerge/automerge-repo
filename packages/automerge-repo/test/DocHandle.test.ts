@@ -30,7 +30,6 @@ describe("DocHandle", () => {
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
-    console.log("DOC", JSON.stringify(doc))
     assert.equal(doc.foo, "bar")
   })
 

@@ -63,12 +63,12 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   async #broadcastToPeers({ data }: DocHandleOutboundEphemeralMessagePayload) {
-    this.#log(`broadcastToPeers`)
+    this.#log(`broadcastToPeers`, this.#peers)
     this.#peers.forEach(peerId => this.#sendEphemeralMessage(peerId, data))
   }
 
   #sendEphemeralMessage(peerId: PeerId, data: Uint8Array) {
-    this.#log(`sendSyncMessage ->${peerId}`)
+    this.#log(`sendEphemeralMessage ->${peerId}`)
 
     this.emit("message", {
       type: "ephemeral",
