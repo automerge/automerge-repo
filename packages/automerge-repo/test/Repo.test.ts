@@ -489,89 +489,42 @@ describe("Repo", () => {
       teardown()
     })
 
-    // <<<<<<< HEAD
-    //     it("can broadcast a message", async () => {
-    //       const { aliceRepo, bobRepo, teardown } = await setup()
-    //
-    //       const channelId = "broadcast" as ChannelId
-    //       const data = { presence: "bob" }
-    //
-    //       bobRepo.ephemeralData.broadcast(channelId, data)
-    //       const d = await eventPromise(aliceRepo.ephemeralData, "data")
-    //
-    //       assert.deepStrictEqual(d.data, data)
-    //       teardown()
-    //     })
-    //
-    //     const setupMeshNetwork = async () => {
-    //       const aliceRepo = new Repo({
-    //         network: [new BroadcastChannelNetworkAdapter()],
-    //         peerId: "alice" as PeerId,
-    //       })
-    //
-    //       const bobRepo = new Repo({
-    //         network: [new BroadcastChannelNetworkAdapter()],
-    //         peerId: "bob" as PeerId,
-    //       })
-    //
-    //       const charlieRepo = new Repo({
-    //         network: [new BroadcastChannelNetworkAdapter()],
-    //         peerId: "charlie" as PeerId,
-    //       })
-    //
-    //       // pause to let the network set up
-    //       await pause(50)
-    //
-    //       return {
-    //         aliceRepo,
-    //         bobRepo,
-    //         charlieRepo,
-    //       }
-    //     }
-    //
-    //     it("can emit an 'unavailable' event when it's not found on the network", async () => {
-    //       const { charlieRepo } = await setupMeshNetwork()
-    //
-    //       const url = generateAutomergeUrl()
-    //       const handle = charlieRepo.find<TestDoc>(url)
-    //       assert.equal(handle.isReady(), false)
-    //
-    //       await eventPromise(handle, "unavailable")
-    //     })
-    //
-    //     it("can broadcast a message without entering into an infinite loop", async () => {
-    //       const { aliceRepo, bobRepo, charlieRepo } = await setupMeshNetwork()
-    //
-    //       const channelId = "broadcast" as ChannelId
-    //       const data = { presence: "alex" }
-    //
-    //       aliceRepo.ephemeralData.broadcast(channelId, data)
-    //
-    //       const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
-    //         setTimeout(() => {
-    //           resolve()
-    //         }, 100)
-    //
-    //         aliceRepo.ephemeralData.on("data", () => {
-    //           reject("alice got the message")
-    //         })
-    //       })
-    //
-    //       const bobGotIt = eventPromise(bobRepo.ephemeralData, "data")
-    //       const charlieGotIt = eventPromise(charlieRepo.ephemeralData, "data")
-    //
-    //       const [bob, charlie] = await Promise.all([
-    //         bobGotIt,
-    //         charlieGotIt,
-    //         aliceDoesntGetIt,
-    //       ])
-    //
-    //       assert.deepStrictEqual(bob.data, data)
-    //       assert.deepStrictEqual(charlie.data, data)
-    //     })
-    //
-    // =======
-    // >>>>>>> ephemeral-on-handle
+    const setupMeshNetwork = async () => {
+      const aliceRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "alice" as PeerId,
+      })
+
+      const bobRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "bob" as PeerId,
+      })
+
+      const charlieRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "charlie" as PeerId,
+      })
+
+      // pause to let the network set up
+      await pause(50)
+
+      return {
+        aliceRepo,
+        bobRepo,
+        charlieRepo,
+      }
+    }
+
+    it("can emit an 'unavailable' event when it's not found on the network", async () => {
+      const { charlieRepo } = await setupMeshNetwork()
+
+      const url = generateAutomergeUrl()
+      const handle = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
+    })
+
     it("syncs a bunch of changes", async () => {
       const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
 
@@ -585,9 +538,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-              repo.create<TestDoc>()
+            repo.create<TestDoc>()
             : // tails, pick a random doc
-              (getRandomItem(docs) as DocHandle<TestDoc>)
+            (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
@@ -640,54 +593,44 @@ describe("Repo", () => {
       await charliePromise
       teardown()
     })
-  })
 
-  it("can broadcast a message without entering into an infinite loop", async () => {
-    const aliceRepo = new Repo({
-      network: [new BroadcastChannelNetworkAdapter()],
-    })
+    it("can broadcast a message without entering into an infinite loop", async () => {
+      const { aliceRepo, bobRepo, charlieRepo } = await setupMeshNetwork()
 
-    const bobRepo = new Repo({
-      network: [new BroadcastChannelNetworkAdapter()],
-    })
+      // pause to let the network set up
+      await pause(50)
+      const message = { presence: "alex" }
 
-    const charlieRepo = new Repo({
-      network: [new BroadcastChannelNetworkAdapter()],
-    })
+      const aliceHandle = aliceRepo.create<TestDoc>()
 
-    // pause to let the network set up
-    await pause(50)
-    const message = { presence: "alex" }
+      const bobHandle = bobRepo.find(aliceHandle.url)
+      const charlieHandle = charlieRepo.find(aliceHandle.url)
 
-    const aliceHandle = aliceRepo.create<TestDoc>()
+      const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          resolve()
+        }, 100)
 
-    const bobHandle = bobRepo.find(aliceHandle.url)
-    const charlieHandle = charlieRepo.find(aliceHandle.url)
-
-    const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        resolve()
-      }, 100)
-
-      aliceHandle.on("ephemeral-message", () => {
-        reject("alice got the message")
+        aliceHandle.on("ephemeral-message", () => {
+          reject("alice got the message")
+        })
       })
+
+      const bobGotIt = eventPromise(bobHandle, "ephemeral-message")
+      const charlieGotIt = eventPromise(charlieHandle, "ephemeral-message")
+
+      // let things get in sync and peers meet one another
+      await pause(50)
+      aliceHandle.broadcast(message)
+
+      const [bob, charlie] = await Promise.all([
+        bobGotIt,
+        charlieGotIt,
+        aliceDoesntGetIt,
+      ])
+
+      assert.deepStrictEqual(bob.message, message)
+      assert.deepStrictEqual(charlie.message, message)
     })
-
-    const bobGotIt = eventPromise(bobHandle, "ephemeral-message")
-    const charlieGotIt = eventPromise(charlieHandle, "ephemeral-message")
-
-    // let things get in sync and peers meet one another
-    await pause(50)
-    aliceHandle.broadcast(message)
-
-    const [bob, charlie] = await Promise.all([
-      bobGotIt,
-      charlieGotIt,
-      aliceDoesntGetIt,
-    ])
-
-    assert.deepStrictEqual(bob.message, message)
-    assert.deepStrictEqual(charlie.message, message)
   })
 })

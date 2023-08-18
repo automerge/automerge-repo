@@ -107,6 +107,7 @@ export type SynchronizerMessage =
   | SyncMessage
   | RequestMessage
   | DocumentUnavailableMessage
+  | EphemeralMessage
 
 type ArriveMessage = {
   senderId: PeerId

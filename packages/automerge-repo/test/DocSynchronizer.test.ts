@@ -9,9 +9,10 @@ import { SyncMessage } from "../src/index.js"
 import {
   DocumentUnavailableMessage,
   DocumentUnavailableMessageContents,
+  MessageContents,
   RequestMessageContents,
   SyncMessageContents,
-} from "../src/network/NetworkAdapter.js"
+} from "../src/network/messages.js"
 
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId
@@ -80,7 +81,7 @@ describe("DocSynchronizer", () => {
   })
 
   it("emits a requestMessage if the local handle is being requested", async () => {
-    const docId = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
+    const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
     const handle = new DocHandle<TestDoc>(docId, { isNew: false })
     docSynchronizer = new DocSynchronizer(handle)
@@ -92,7 +93,7 @@ describe("DocSynchronizer", () => {
   })
 
   it("emits the correct sequence of messages when a document is not found then not available", async () => {
-    const docId = parseAutomergeUrl(generateAutomergeUrl()).encodedDocumentId
+    const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
     const bobHandle = new DocHandle<TestDoc>(docId, { isNew: false })
     const bobDocSynchronizer = new DocSynchronizer(bobHandle)
@@ -107,25 +108,17 @@ describe("DocSynchronizer", () => {
     aliceDocSynchronizer.receiveSyncMessage({ ...message, senderId: bob })
     aliceDocSynchronizer.beginSync([charlie, bob])
 
-    const [charlieMessage, bobMessage] = await new Promise<
-      (
-        | SyncMessageContents
-        | RequestMessageContents
-        | DocumentUnavailableMessageContents
-      )[]
-    >(resolve => {
-      const messages: (
-        | SyncMessageContents
-        | RequestMessageContents
-        | DocumentUnavailableMessageContents
-      )[] = []
-      aliceDocSynchronizer.on("message", message => {
-        messages.push(message)
-        if (messages.length === 2) {
-          resolve(messages)
-        }
-      })
-    })
+    const [charlieMessage, bobMessage] = await new Promise<MessageContents[]>(
+      resolve => {
+        const messages: MessageContents[] = []
+        aliceDocSynchronizer.on("message", message => {
+          messages.push(message)
+          if (messages.length === 2) {
+            resolve(messages)
+          }
+        })
+      }
+    )
 
     // the response should be a sync message, not a request message
     assert.equal(charlieMessage.targetId, "charlie")
@@ -142,7 +135,7 @@ describe("DocSynchronizer", () => {
 
     const p = eventPromise(aliceDocSynchronizer, "message")
 
-    aliceDocSynchronizer.receiveSyncMessage(docUnavailableMessage)
+    aliceDocSynchronizer.receiveMessage(docUnavailableMessage)
 
     const message2 = await p
 

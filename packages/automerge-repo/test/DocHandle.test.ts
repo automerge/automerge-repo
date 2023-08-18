@@ -30,7 +30,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
-    assert.equal(doc.foo, "bar")
+    assert.equal(doc?.foo, "bar")
   })
 
   it("should allow sync access to the doc", async () => {
@@ -90,7 +90,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.docSync(), undefined)
     assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(_ => {}))
+    assert.throws(() => handle.change(_ => { }))
   })
 
   it("should become ready if the document is updated by the network", async () => {

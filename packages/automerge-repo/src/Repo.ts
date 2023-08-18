@@ -40,7 +40,7 @@ export class Repo extends DocCollection {
       handle.on("unavailable", () => {
         this.#log("document unavailable", { documentId: handle.documentId })
         this.emit("unavailable-document", {
-          encodedDocumentId: handle.documentId,
+          documentId: handle.documentId,
         })
       })
 

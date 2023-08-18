@@ -4,16 +4,21 @@ import {
   DocHandleOutboundEphemeralMessagePayload,
   READY,
   REQUESTING,
+  UNAVAILABLE,
 } from "../DocHandle.js"
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
 import {
+  EphemeralMessage,
   isDocumentUnavailableMessage,
   isRequestMessage,
+  Message,
+  RequestMessage,
   SynchronizerMessage,
-  } from "../network/messages.js"
+  SyncMessage,
+} from "../network/messages.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 import { decode } from "cbor-x"
@@ -35,7 +40,7 @@ export class DocSynchronizer extends Synchronizer {
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  #pendingSyncMessages: Array<SynchronizerMessage> = []
+  #pendingSyncMessages: Array<SyncMessage | RequestMessage> = []
 
   #syncStarted = false
 
@@ -170,8 +175,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-          A.decodeChange(change).ops.map(op => JSON.stringify(op))
-        )
+        A.decodeChange(change).ops.map(op => JSON.stringify(op))
+      )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -217,13 +222,18 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  receiveMessage(message: Message) {
+  receiveMessage(message: SynchronizerMessage) {
     switch (message.type) {
       case "sync":
+      case "request":
         this.receiveSyncMessage(message)
         break
       case "ephemeral":
         this.receiveEphemeralMessage(message)
+        break
+      case "doc-unavailable":
+        this.#peerDocumentStatuses[message.senderId] = "unavailable"
+        this.#checkDocUnavailable()
         break
       default:
         throw new Error(`unknown message type: ${message}`)
@@ -253,7 +263,7 @@ export class DocSynchronizer extends Synchronizer {
     })
   }
 
-  receiveSyncMessage(message: SyncMessage) {
+  receiveSyncMessage(message: SyncMessage | RequestMessage) {
     if (message.documentId !== this.handle.documentId)
       throw new Error(`channelId doesn't match documentId`)
 
@@ -267,14 +277,7 @@ export class DocSynchronizer extends Synchronizer {
     this.#processSyncMessage(message)
   }
 
-  #processSyncMessage(message: SynchronizerMessage) {
-    // if a peer is requesting the document, we know they don't have it
-    if (isDocumentUnavailableMessage(message)) {
-      this.#peerDocumentStatuses[message.senderId] = "unavailable"
-      this.#checkDocUnavailable()
-      return
-    }
-
+  #processSyncMessage(message: SyncMessage | RequestMessage) {
     if (isRequestMessage(message)) {
       this.#peerDocumentStatuses[message.senderId] = "wants"
     }
