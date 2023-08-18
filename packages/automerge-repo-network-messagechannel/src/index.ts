@@ -59,10 +59,14 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
             this.announceConnection(senderId)
             break
           default:
-            this.emit("message", {
-              ...message,
-              data: new Uint8Array(message.data),
-            })
+            if (!("data" in message)) {
+              this.emit("message", message)
+            } else {
+              this.emit("message", {
+                ...message,
+                data: new Uint8Array(message.data),
+              })
+            }
             break
         }
       }
@@ -74,18 +78,22 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   }
 
   send(message: Message) {
-    const data = message.data.buffer.slice(
-      message.data.byteOffset,
-      message.data.byteOffset + message.data.byteLength
-    )
+    if ("data" in message) {
+      const data = message.data.buffer.slice(
+        message.data.byteOffset,
+        message.data.byteOffset + message.data.byteLength
+      )
 
-    this.messagePortRef.postMessage(
-      {
-        ...message,
-        data,
-      },
-      [data]
-    )
+      this.messagePortRef.postMessage(
+        {
+          ...message,
+          data,
+        },
+        [data]
+      )
+    } else {
+      this.messagePortRef.postMessage(message)
+    }
   }
 
   announceConnection(peerId: PeerId) {

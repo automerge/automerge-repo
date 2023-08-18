@@ -17,6 +17,7 @@ import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl"
+import { READY } from "../src/DocHandle"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -52,7 +53,7 @@ describe("Repo", () => {
       const v = await handle.doc()
       assert.equal(handle.isReady(), true)
 
-      assert.equal(v.foo, "bar")
+      assert.equal(v?.foo, "bar")
     })
 
     it("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
@@ -69,10 +70,17 @@ describe("Repo", () => {
       const handle = repo.find<TestDoc>(generateAutomergeUrl())
       assert.equal(handle.isReady(), false)
 
-      return assert.rejects(
-        rejectOnTimeout(handle.doc(), 10),
-        "This document should not exist"
-      )
+      const doc = await handle.doc()
+      assert.equal(doc, undefined)
+    })
+
+    it("fires an 'unavailable' event when you don't have the document locally and network to connect to", async () => {
+      const { repo } = setup()
+      const url = generateAutomergeUrl()
+      const handle = repo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
     })
 
     it("can find a created document", async () => {
@@ -89,7 +97,7 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), true)
 
       const v = await bobHandle.doc()
-      assert.equal(v.foo, "bar")
+      assert.equal(v?.foo, "bar")
     })
 
     it("saves the document when changed and can find it again", async () => {
@@ -112,7 +120,7 @@ describe("Repo", () => {
       const bobHandle = repo2.find<TestDoc>(handle.url)
 
       const v = await bobHandle.doc()
-      assert.equal(v.foo, "bar")
+      assert.equal(v?.foo, "bar")
     })
 
     it("can delete an existing document", async () => {
@@ -236,7 +244,24 @@ describe("Repo", () => {
   })
 
   describe("sync", async () => {
-    const setup = async () => {
+    const charlieExcludedDocuments: DocumentId[] = []
+    const bobExcludedDocuments: DocumentId[] = []
+
+    const sharePolicy: SharePolicy = async (peerId, documentId) => {
+      if (documentId === undefined) return false
+
+      // make sure that charlie never gets excluded documents
+      if (charlieExcludedDocuments.includes(documentId) && peerId === "charlie")
+        return false
+
+      // make sure that bob never gets excluded documents
+      if (bobExcludedDocuments.includes(documentId) && peerId === "bob")
+        return false
+
+      return true
+    }
+
+    const setupRepos = (connectAlice = true) => {
       // Set up three repos; connect Alice to Bob, and Bob to Charlie
 
       const aliceBobChannel = new MessageChannel()
@@ -245,28 +270,10 @@ describe("Repo", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-      const charlieExcludedDocuments: DocumentId[] = []
-      const bobExcludedDocuments: DocumentId[] = []
-
-      const sharePolicy: SharePolicy = async (peerId, documentId) => {
-        if (documentId === undefined) return false
-
-        // make sure that charlie never gets excluded documents
-        if (
-          charlieExcludedDocuments.includes(documentId) &&
-          peerId === "charlie"
-        )
-          return false
-
-        // make sure that charlie never gets excluded documents
-        if (bobExcludedDocuments.includes(documentId) && peerId === "bob")
-          return false
-
-        return true
-      }
+      const aliceNetworkAdapter = new MessageChannelNetworkAdapter(aliceToBob)
 
       const aliceRepo = new Repo({
-        network: [new MessageChannelNetworkAdapter(aliceToBob)],
+        network: connectAlice ? [aliceNetworkAdapter] : [],
         peerId: "alice" as PeerId,
         sharePolicy,
       })
@@ -284,6 +291,24 @@ describe("Repo", () => {
         network: [new MessageChannelNetworkAdapter(charlieToBob)],
         peerId: "charlie" as PeerId,
       })
+
+      const teardown = () => {
+        aliceBobChannel.port1.close()
+        bobCharlieChannel.port1.close()
+      }
+
+      return {
+        teardown,
+        aliceRepo,
+        bobRepo,
+        charlieRepo,
+        aliceNetworkAdapter,
+      }
+    }
+
+    const setup = async (connectAlice = true) => {
+      const { teardown, aliceRepo, bobRepo, charlieRepo, aliceNetworkAdapter } =
+        setupRepos(connectAlice)
 
       const aliceHandle = aliceRepo.create<TestDoc>()
       aliceHandle.change(d => {
@@ -305,15 +330,12 @@ describe("Repo", () => {
       })
 
       await Promise.all([
-        eventPromise(aliceRepo.networkSubsystem, "peer"),
+        ...(connectAlice
+          ? [eventPromise(aliceRepo.networkSubsystem, "peer")]
+          : []),
         eventPromise(bobRepo.networkSubsystem, "peer"),
         eventPromise(charlieRepo.networkSubsystem, "peer"),
       ])
-
-      const teardown = () => {
-        aliceBobChannel.port1.close()
-        bobCharlieChannel.port1.close()
-      }
 
       return {
         aliceRepo,
@@ -323,6 +345,7 @@ describe("Repo", () => {
         notForCharlie,
         notForBob,
         teardown,
+        aliceNetworkAdapter,
       }
     }
 
@@ -389,13 +412,59 @@ describe("Repo", () => {
 
     it("doesn't find a document which doesn't exist anywhere on the network", async () => {
       const { charlieRepo } = await setup()
-      const handle = charlieRepo.find<TestDoc>(generateAutomergeUrl())
+      const url = generateAutomergeUrl()
+      const handle = charlieRepo.find<TestDoc>(url)
       assert.equal(handle.isReady(), false)
 
-      return assert.rejects(
-        rejectOnTimeout(handle.doc(), 10),
-        "This document should not exist"
-      )
+      const doc = await handle.doc()
+      assert.equal(doc, undefined)
+    })
+
+    it("fires an 'unavailable' event when a document is not available on the network", async () => {
+      const { charlieRepo } = await setup()
+      const url = generateAutomergeUrl()
+      const handle = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await Promise.all([
+        eventPromise(handle, "unavailable"),
+        eventPromise(charlieRepo, "unavailable-document"),
+      ])
+
+      // make sure it fires a second time if the doc is still unavailable
+      const handle2 = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle2.isReady(), false)
+      await eventPromise(handle2, "unavailable")
+    })
+
+    it("a previously unavailable document syncs over the network if a peer with it connects", async () => {
+      const {
+        charlieRepo,
+        notForCharlie,
+        aliceRepo,
+        teardown,
+        aliceNetworkAdapter,
+      } = await setup(false)
+
+      const url = stringifyAutomergeUrl({ documentId: notForCharlie })
+      const handle = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
+
+      aliceRepo.networkSubsystem.addNetworkAdapter(aliceNetworkAdapter)
+
+      await eventPromise(aliceRepo.networkSubsystem, "peer")
+
+      const doc = await handle.doc([READY])
+      assert.deepStrictEqual(doc, { foo: "baz" })
+
+      // an additional find should also return the correct resolved document
+      const handle2 = charlieRepo.find<TestDoc>(url)
+      const doc2 = await handle2.doc()
+      assert.deepStrictEqual(doc2, { foo: "baz" })
+
+      teardown()
     })
 
     it("a deleted document from charlieRepo can be refetched", async () => {
@@ -418,6 +487,42 @@ describe("Repo", () => {
       assert.deepStrictEqual(doc3, { foo: "baz" })
 
       teardown()
+    })
+
+    const setupMeshNetwork = async () => {
+      const aliceRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "alice" as PeerId,
+      })
+
+      const bobRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "bob" as PeerId,
+      })
+
+      const charlieRepo = new Repo({
+        network: [new BroadcastChannelNetworkAdapter()],
+        peerId: "charlie" as PeerId,
+      })
+
+      // pause to let the network set up
+      await pause(50)
+
+      return {
+        aliceRepo,
+        bobRepo,
+        charlieRepo,
+      }
+    }
+
+    it("can emit an 'unavailable' event when it's not found on the network", async () => {
+      const { charlieRepo } = await setupMeshNetwork()
+
+      const url = generateAutomergeUrl()
+      const handle = charlieRepo.find<TestDoc>(url)
+      assert.equal(handle.isReady(), false)
+
+      await eventPromise(handle, "unavailable")
     })
 
     it("syncs a bunch of changes", async () => {
@@ -488,54 +593,44 @@ describe("Repo", () => {
       await charliePromise
       teardown()
     })
-  })
 
-  it("can broadcast a message without entering into an infinite loop", async () => {
-    const aliceRepo = new Repo({
-      network: [new BroadcastChannelNetworkAdapter()],
-    })
+    it("can broadcast a message without entering into an infinite loop", async () => {
+      const { aliceRepo, bobRepo, charlieRepo } = await setupMeshNetwork()
 
-    const bobRepo = new Repo({
-      network: [new BroadcastChannelNetworkAdapter()],
-    })
+      // pause to let the network set up
+      await pause(50)
+      const message = { presence: "alex" }
 
-    const charlieRepo = new Repo({
-      network: [new BroadcastChannelNetworkAdapter()],
-    })
+      const aliceHandle = aliceRepo.create<TestDoc>()
 
-    // pause to let the network set up
-    await pause(50)
-    const message = { presence: "alex" }
+      const bobHandle = bobRepo.find(aliceHandle.url)
+      const charlieHandle = charlieRepo.find(aliceHandle.url)
 
-    const aliceHandle = aliceRepo.create<TestDoc>()
+      const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          resolve()
+        }, 100)
 
-    const bobHandle = bobRepo.find(aliceHandle.url)
-    const charlieHandle = charlieRepo.find(aliceHandle.url)
-
-    const aliceDoesntGetIt = new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        resolve()
-      }, 100)
-
-      aliceHandle.on("ephemeral-message", () => {
-        reject("alice got the message")
+        aliceHandle.on("ephemeral-message", () => {
+          reject("alice got the message")
+        })
       })
+
+      const bobGotIt = eventPromise(bobHandle, "ephemeral-message")
+      const charlieGotIt = eventPromise(charlieHandle, "ephemeral-message")
+
+      // let things get in sync and peers meet one another
+      await pause(50)
+      aliceHandle.broadcast(message)
+
+      const [bob, charlie] = await Promise.all([
+        bobGotIt,
+        charlieGotIt,
+        aliceDoesntGetIt,
+      ])
+
+      assert.deepStrictEqual(bob.message, message)
+      assert.deepStrictEqual(charlie.message, message)
     })
-
-    const bobGotIt = eventPromise(bobHandle, "ephemeral-message")
-    const charlieGotIt = eventPromise(charlieHandle, "ephemeral-message")
-
-    // let things get in sync and peers meet one another
-    await pause(50)
-    aliceHandle.broadcast(message)
-
-    const [bob, charlie] = await Promise.all([
-      bobGotIt,
-      charlieGotIt,
-      aliceDoesntGetIt,
-    ])
-
-    assert.deepStrictEqual(bob.message, message)
-    assert.deepStrictEqual(charlie.message, message)
   })
 })

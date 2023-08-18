@@ -10,7 +10,12 @@ import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
-import { Message, SyncMessage } from "../network/messages.js"
+import {
+  DocumentUnavailableMessage,
+  RequestMessage,
+  SynchronizerMessage,
+  SyncMessage,
+} from "../network/messages.js"
 const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
@@ -20,6 +25,9 @@ export class CollectionSynchronizer extends Synchronizer {
 
   /** A map of documentIds to their synchronizers */
   #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
+
+  /** Used to determine if the document is know to the Collection and a synchronizer exists or is being set up */
+  #docSetUp: Record<DocumentId, boolean> = {}
 
   constructor(private repo: DocCollection) {
     super()
@@ -58,35 +66,42 @@ export class CollectionSynchronizer extends Synchronizer {
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
    */
-  async receiveMessage(message: Message) {
+  async receiveMessage(message: SynchronizerMessage) {
     log(
-      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${message.data.byteLength}bytes`
+      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${
+        "data" in message ? message.data.byteLength + "bytes" : ""
+      }`
     )
 
     const documentId = message.documentId
     if (!documentId) {
       throw new Error("received a message with an invalid documentId")
     }
+
+    this.#docSetUp[documentId] = true
+
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
 
     docSynchronizer.receiveMessage(message)
 
     // Initiate sync with any new peers
     const peers = await this.#documentGenerousPeers(documentId)
-    peers
-      .filter(peerId => !docSynchronizer.hasPeer(peerId))
-      .forEach(peerId => docSynchronizer.beginSync(peerId))
+    docSynchronizer.beginSync(
+      peers.filter(peerId => !docSynchronizer.hasPeer(peerId))
+    )
   }
 
   /**
    * Starts synchronizing the given document with all peers that we share it generously with.
    */
   addDocument(documentId: DocumentId) {
+    // HACK: this is a hack to prevent us from adding the same document twice
+    if (this.#docSetUp[documentId]) {
+      return
+    }
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
     void this.#documentGenerousPeers(documentId).then(peers => {
-      peers.forEach(peerId => {
-        docSynchronizer.beginSync(peerId)
-      })
+      docSynchronizer.beginSync(peers)
     })
   }
 
@@ -106,8 +121,8 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
-      void this.repo.sharePolicy(peerId, documentId).then(okToShare => {
-        if (okToShare) docSynchronizer.beginSync(peerId)
+      this.repo.sharePolicy(peerId, documentId).then(okToShare => {
+        if (okToShare) docSynchronizer.beginSync([peerId])
       })
     }
   }

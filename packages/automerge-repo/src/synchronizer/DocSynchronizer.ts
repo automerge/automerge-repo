@@ -4,12 +4,23 @@ import {
   DocHandleOutboundEphemeralMessagePayload,
   READY,
   REQUESTING,
+  UNAVAILABLE,
 } from "../DocHandle.js"
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
-import { EphemeralMessage, Message, SyncMessage } from "../network/messages.js"
+import {
+  EphemeralMessage,
+  isDocumentUnavailableMessage,
+  isRequestMessage,
+  Message,
+  RequestMessage,
+  SynchronizerMessage,
+  SyncMessage,
+} from "../network/messages.js"
+
+type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 import { decode } from "cbor-x"
 
 /**
@@ -24,10 +35,14 @@ export class DocSynchronizer extends Synchronizer {
   /** Active peers */
   #peers: PeerId[] = []
 
+  #peerDocumentStatuses: Record<PeerId, PeerDocumentStatus> = {}
+
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  #pendingSyncMessages: Array<SyncMessage> = []
+  #pendingSyncMessages: Array<SyncMessage | RequestMessage> = []
+
+  #syncStarted = false
 
   constructor(private handle: DocHandle<any>) {
     super()
@@ -49,6 +64,10 @@ export class DocSynchronizer extends Synchronizer {
     })()
   }
 
+  get peerStates() {
+    return this.#peerDocumentStatuses
+  }
+
   get documentId() {
     return this.handle.documentId
   }
@@ -58,6 +77,7 @@ export class DocSynchronizer extends Synchronizer {
   async #syncWithPeers() {
     this.#log(`syncWithPeers`)
     const doc = await this.handle.doc()
+    if (doc === undefined) return
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
@@ -83,6 +103,11 @@ export class DocSynchronizer extends Synchronizer {
       this.#peers.push(peerId)
     }
 
+    // when a peer is added, we don't know if it has the document or not
+    if (!(peerId in this.#peerDocumentStatuses)) {
+      this.#peerDocumentStatuses[peerId] = "unknown"
+    }
+
     return this.#syncStates[peerId] ?? A.initSyncState()
   }
 
@@ -104,14 +129,35 @@ export class DocSynchronizer extends Synchronizer {
     if (message) {
       this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
 
-      this.emit("message", {
-        type: "sync",
-        targetId: peerId,
-        data: message,
-        documentId: this.handle.documentId,
-      })
-    } else {
-      this.#log(`sendSyncMessage ->${peerId} [no message generated]`)
+      const decoded = A.decodeSyncMessage(message)
+
+      if (
+        !this.handle.isReady() &&
+        decoded.heads.length === 0 &&
+        newSyncState.sharedHeads.length === 0 &&
+        !Object.values(this.#peerDocumentStatuses).includes("has") &&
+        this.#peerDocumentStatuses[peerId] === "unknown"
+      ) {
+        // we don't have the document (or access to it), so we request it
+        this.emit("message", {
+          type: "request",
+          targetId: peerId,
+          documentId: this.handle.documentId,
+          data: message,
+        })
+      } else {
+        this.emit("message", {
+          type: "sync",
+          targetId: peerId,
+          data: message,
+          documentId: this.handle.documentId,
+        })
+      }
+
+      // if we have sent heads, then the peer now has or will have the document
+      if (decoded.heads.length > 0) {
+        this.#peerDocumentStatuses[peerId] = "has"
+      }
     }
   }
 
@@ -129,8 +175,8 @@ export class DocSynchronizer extends Synchronizer {
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
       ? decoded.changes.flatMap(change =>
-          A.decodeChange(change).ops.map(op => JSON.stringify(op))
-        )
+        A.decodeChange(change).ops.map(op => JSON.stringify(op))
+      )
       : null
     this.#opsLog(logText, expanded)
   }
@@ -141,21 +187,33 @@ export class DocSynchronizer extends Synchronizer {
     return this.#peers.includes(peerId)
   }
 
-  beginSync(peerId: PeerId) {
-    this.#log(`beginSync: ${peerId}`)
+  beginSync(peerIds: PeerId[]) {
+    this.#log(`beginSync: ${peerIds.join(", ")}`)
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
-    void this.handle.doc([READY, REQUESTING]).then(doc => {
+    void this.handle.doc([READY, REQUESTING, UNAVAILABLE]).then(doc => {
+      // if we don't have any peers, then we can say the document is unavailable
+
       // HACK: if we have a sync state already, we round-trip it through the encoding system to make
       // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
       // messages during disconnection.
       // TODO: cover that case with a test and remove this hack
-      const syncStateRaw = this.#getSyncState(peerId)
-      const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
-      this.#setSyncState(peerId, syncState)
+      peerIds.forEach(peerId => {
+        const syncStateRaw = this.#getSyncState(peerId)
+        const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
+        this.#setSyncState(peerId, syncState)
+      })
 
-      this.#sendSyncMessage(peerId, doc)
+      // we register out peers first, then say that sync has started
+      this.#syncStarted = true
+      this.#checkDocUnavailable()
+
+      if (doc === undefined) return
+
+      peerIds.forEach(peerId => {
+        this.#sendSyncMessage(peerId, doc)
+      })
     })
   }
 
@@ -164,13 +222,18 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  receiveMessage(message: Message) {
+  receiveMessage(message: SynchronizerMessage) {
     switch (message.type) {
       case "sync":
+      case "request":
         this.receiveSyncMessage(message)
         break
       case "ephemeral":
         this.receiveEphemeralMessage(message)
+        break
+      case "doc-unavailable":
+        this.#peerDocumentStatuses[message.senderId] = "unavailable"
+        this.#checkDocUnavailable()
         break
       default:
         throw new Error(`unknown message type: ${message}`)
@@ -200,12 +263,12 @@ export class DocSynchronizer extends Synchronizer {
     })
   }
 
-  receiveSyncMessage(message: SyncMessage) {
+  receiveSyncMessage(message: SyncMessage | RequestMessage) {
     if (message.documentId !== this.handle.documentId)
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
-    if (!this.handle.inState([READY, REQUESTING])) {
+    if (!this.handle.inState([READY, REQUESTING, UNAVAILABLE])) {
       this.#pendingSyncMessages.push(message)
       return
     }
@@ -214,7 +277,18 @@ export class DocSynchronizer extends Synchronizer {
     this.#processSyncMessage(message)
   }
 
-  #processSyncMessage(message: SyncMessage) {
+  #processSyncMessage(message: SyncMessage | RequestMessage) {
+    if (isRequestMessage(message)) {
+      this.#peerDocumentStatuses[message.senderId] = "wants"
+    }
+
+    this.#checkDocUnavailable()
+
+    // if the message has heads, then the peer has the document
+    if (A.decodeSyncMessage(message.data).heads.length > 0) {
+      this.#peerDocumentStatuses[message.senderId] = "has"
+    }
+
     this.handle.update(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
@@ -228,6 +302,33 @@ export class DocSynchronizer extends Synchronizer {
       this.#sendSyncMessage(message.senderId, doc)
       return newDoc
     })
+
+    this.#checkDocUnavailable()
+  }
+
+  #checkDocUnavailable() {
+    // if we know none of the peers have the document, tell all our peers that we don't either
+    if (
+      this.#syncStarted &&
+      this.handle.inState([REQUESTING]) &&
+      this.#peers.every(
+        peerId =>
+          this.#peerDocumentStatuses[peerId] === "unavailable" ||
+          this.#peerDocumentStatuses[peerId] === "wants"
+      )
+    ) {
+      this.#peers
+        .filter(peerId => this.#peerDocumentStatuses[peerId] === "wants")
+        .forEach(peerId => {
+          this.emit("message", {
+            type: "doc-unavailable",
+            documentId: this.handle.documentId,
+            targetId: peerId,
+          })
+        })
+
+      this.handle.unavailable()
+    }
   }
 
   #processAllPendingSyncMessages() {

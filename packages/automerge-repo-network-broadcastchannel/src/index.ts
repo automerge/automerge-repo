@@ -35,10 +35,14 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
             this.#announceConnection(senderId)
             break
           default:
-            this.emit("message", {
-              ...message,
-              data: new Uint8Array(message.data),
-            })
+            if (!("data" in message)) {
+              this.emit("message", message)
+            } else {
+              this.emit("message", {
+                ...message,
+                data: new Uint8Array(message.data),
+              })
+            }
             break
         }
       }
@@ -50,13 +54,17 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   send(message: Message) {
-    this.#broadcastChannel.postMessage({
-      ...message,
-      data: message.data.buffer.slice(
-        message.data.byteOffset,
-        message.data.byteOffset + message.data.byteLength
-      ),
-    })
+    if ("data" in message) {
+      this.#broadcastChannel.postMessage({
+        ...message,
+        data: message.data.buffer.slice(
+          message.data.byteOffset,
+          message.data.byteOffset + message.data.byteLength
+        ),
+      })
+    } else {
+      this.#broadcastChannel.postMessage(message)
+    }
   }
 
   join() {
