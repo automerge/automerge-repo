@@ -42,21 +42,17 @@ export const useRemoteAwareness = ({
   useEffect(() => {
     // Receive incoming message
     const handleIncomingUpdate = event => {
-      try {
-        const [userId, state] = event.message as [string, any]
-        if (userId === localUserId) return
-        if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event) // Let useLocalAwareness know we've seen a new peer
-        setPeerStates({
-          ...peerStatesRef.current,
-          [userId]: state,
-        })
-        setHeartbeats({
-          ...heartbeatsRef.current,
-          [userId]: getTime(),
-        })
-      } catch (e) {
-        return
-      }
+      const [userId, state] = event.message as [string, any]
+      if (userId === localUserId) return
+      if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event) // Let useLocalAwareness know we've seen a new peer
+      setPeerStates({
+        ...peerStatesRef.current,
+        [userId]: state,
+      })
+      setHeartbeats({
+        ...heartbeatsRef.current,
+        [userId]: getTime(),
+      })
     }
     // Remove peers we haven't seen recently
     const pruneOfflinePeers = () => {
