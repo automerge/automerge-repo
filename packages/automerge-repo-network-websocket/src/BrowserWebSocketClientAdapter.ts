@@ -1,5 +1,4 @@
-import { NetworkAdapter, PeerId } from "@automerge/automerge-repo"
-import * as CBOR from "cbor-x"
+import { NetworkAdapter, PeerId, cbor } from "@automerge/automerge-repo"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
@@ -100,7 +99,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       throw new Error("Websocket Socket not ready!")
     }
 
-    const encoded = CBOR.encode(message)
+    const encoded = cbor.encode(message)
     // This incantation deals with websocket sending the whole
     // underlying buffer even if we just have a uint8array view on it
     const arrayBuf = encoded.buffer.slice(
@@ -122,7 +121,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array) {
-    const decoded: FromServerMessage = CBOR.decode(new Uint8Array(message))
+    const decoded: FromServerMessage = cbor.decode(new Uint8Array(message))
 
     const { type, senderId } = decoded
 

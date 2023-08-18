@@ -1,4 +1,3 @@
-import * as CBOR from "cbor-x"
 import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 
 import debug from "debug"
@@ -7,10 +6,13 @@ const log = debug("WebsocketServer")
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 import {
   NetworkAdapter,
+  cbor as cborHelpers,
   type NetworkAdapterMessage,
   type PeerId,
 } from "@automerge/automerge-repo"
 import { FromClientMessage, FromServerMessage } from "./messages.js"
+
+const { encode, decode } = cborHelpers
 
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
@@ -62,7 +64,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       return
     }
 
-    const encoded = CBOR.encode(message)
+    const encoded = encode(message)
     // This incantation deals with websocket sending the whole
     // underlying buffer even if we just have a uint8array view on it
     const arrayBuf = encoded.buffer.slice(
@@ -74,7 +76,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {
-    const cbor: FromClientMessage = CBOR.decode(message)
+    const cbor: FromClientMessage = decode(message)
 
     const { type, senderId } = cbor
 

@@ -19,7 +19,7 @@ import { pause } from "./helpers/pause.js"
 import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
 import type { DocumentId, PeerId, AutomergeUrl } from "./types.js"
 import { stringifyAutomergeUrl } from "./DocUrl.js"
-import { encode } from "cbor-x"
+import { encode } from "./helpers/cbor.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
 export class DocHandle<T> //
