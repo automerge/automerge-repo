@@ -43,7 +43,7 @@ export const useRemoteAwareness = ({
     // Receive incoming message
     const handleIncomingUpdate = event => {
       try {
-        const [userId, state] = event.data
+        const [userId, state] = event.message as [string, any]
         if (userId === localUserId) return
         if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event) // Let useLocalAwareness know we've seen a new peer
         setPeerStates({
