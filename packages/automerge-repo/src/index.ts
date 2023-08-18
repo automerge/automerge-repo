@@ -30,3 +30,5 @@ export {
   stringifyAutomergeUrl as generateAutomergeUrl,
 } from "./DocUrl.js"
 export * from "./types.js"
+
+export * as cbor from "./helpers/cbor"
