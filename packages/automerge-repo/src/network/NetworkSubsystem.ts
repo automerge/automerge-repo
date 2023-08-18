@@ -66,14 +66,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.#log(`message from ${msg.senderId}`)
 
       if (isEphemeralMessage(msg)) {
+        const source = getEphemeralMessageSource(msg)
         if (
-          this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)] ===
-            undefined ||
-          msg.count >
-            this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)]
+          this.#ephemeralSessionCounts[source] === undefined ||
+          msg.count > this.#ephemeralSessionCounts[source]
         ) {
-          this.#ephemeralSessionCounts[getEphemeralMessageSource(msg)] =
-            msg.count
+          this.#ephemeralSessionCounts[source] = msg.count
           this.emit("message", msg)
         }
 
@@ -95,15 +93,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     networkAdapter.join()
   }
 
-  send(msg: MessageContents) {
-    const message =
-      "senderId" in msg
-        ? (msg as MessageContents & { senderId: PeerId })
-        : {
-            ...msg,
-            senderId: this.peerId,
-          }
-
+  send(message: MessageContents) {
     const peer = this.#adaptersByPeer[message.targetId]
     if (!peer) {
       this.#log(`Tried to send message but peer not found: ${message.targetId}`)
@@ -119,12 +109,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
               ...message,
               count: ++this.#count,
               sessionId: this.#sessionId,
+              senderId: this.peerId,
             }
       this.#log("Ephemeral message", outbound)
       peer.send(outbound)
     } else {
-      this.#log("Sync message", message)
-      peer.send(message)
+      const outbound = { ...message, senderId: this.peerId }
+      this.#log("Sync message", outbound)
+      peer.send(outbound)
     }
   }
 
