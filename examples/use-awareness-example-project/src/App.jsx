@@ -3,7 +3,7 @@ import {
   useLocalAwareness,
   useRemoteAwareness,
   useBootstrap,
-} from "automerge-repo-react-hooks";
+} from "@automerge/automerge-repo-react-hooks";
 
 export function App({ userId }) {
   const handle = useBootstrap();

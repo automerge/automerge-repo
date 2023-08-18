@@ -1,9 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
-import { Repo } from "automerge-repo";
-import { BroadcastChannelNetworkAdapter } from "automerge-repo-network-broadcastchannel";
-import { RepoContext } from "automerge-repo-react-hooks";
+import { Repo } from "@automerge/automerge-repo";
+import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel";
+import { RepoContext } from "@automerge/automerge-repo-react-hooks";
 import { v4 } from 'uuid'
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 
