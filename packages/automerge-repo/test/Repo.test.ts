@@ -100,6 +100,21 @@ describe("Repo", () => {
       assert.equal(v?.foo, "bar")
     })
 
+    it("saves the document when creating it", async () => {
+      const { repo, storageAdapter } = setup()
+      const handle = repo.create<TestDoc>()
+
+      const repo2 = new Repo({
+        storage: storageAdapter,
+        network: [],
+      })
+
+      const bobHandle = repo2.find<TestDoc>(handle.url)
+      await bobHandle.whenReady()
+      assert.equal(bobHandle.isReady(), true)
+
+    })
+
     it("saves the document when changed and can find it again", async () => {
       const { repo, storageAdapter } = setup()
       const handle = repo.create<TestDoc>()

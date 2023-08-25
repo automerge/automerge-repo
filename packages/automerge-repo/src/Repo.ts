@@ -23,17 +23,22 @@ export class Repo extends DocCollection {
 
     // The `document` event is fired by the DocCollection any time we create a new document or look
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-    this.on("document", async ({ handle }) => {
+    this.on("document", async ({ handle, isNew }) => {
       if (storageSubsystem) {
         // Save when the document changes
         handle.on("heads-changed", async ({ handle, doc }) => {
           await storageSubsystem.saveDoc(handle.documentId, doc)
         })
 
-        // Try to load from disk
-        const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
-        if (loadedDoc) {
-          handle.update(() => loadedDoc)
+        if (isNew) {
+          // this is a new document, immediately save it
+          await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
+        } else {
+          // Try to load from disk
+          const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
+          if (loadedDoc) {
+            handle.update(() => loadedDoc)
+          }
         }
       }
 

@@ -74,7 +74,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     // Generate a new UUID and store it in the buffer
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
     const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
-    this.emit("document", { handle })
+    this.emit("document", { handle, isNew: true })
     return handle
   }
 
@@ -105,7 +105,7 @@ export class DocCollection extends EventEmitter<DocCollectionEvents> {
     }
 
     const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
-    this.emit("document", { handle })
+    this.emit("document", { handle, isNew: false })
     return handle
   }
 
@@ -136,6 +136,7 @@ interface DocCollectionEvents {
 
 interface DocumentPayload {
   handle: DocHandle<any>
+  isNew: boolean
 }
 
 interface DeleteDocumentPayload {

@@ -43,7 +43,12 @@ export class DocHandle<T> //
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
     // initial doc
-    const doc = A.init<T>()
+    let doc = A.init<T>()
+
+    // Make an empty change so that we have something to save to disk
+    if (isNew) {
+      doc = A.emptyChange(doc, {})
+    }
 
     /**
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
