@@ -14,6 +14,7 @@ const log = debug("automerge-repo:messagechannel")
 export class MessageChannelNetworkAdapter extends NetworkAdapter {
   channels = {}
   messagePortRef: MessagePortRef
+  #startupComplete = false
 
   constructor(
     messagePort: MessagePort,
@@ -75,6 +76,17 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.messagePortRef.addListener("close", () => {
       this.emit("close")
     })
+    this.join()
+
+    // Mark this messagechannel as ready after 50 ms, at this point there 
+    // must be something weird going on on the other end to cause us to receive
+    // no response
+    setTimeout(() => {
+      if (!this.#startupComplete) {
+        this.#startupComplete = true
+        this.emit("ready", { network: this })
+      }
+    }, 100)
   }
 
   send(message: Message) {
@@ -97,6 +109,10 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   }
 
   announceConnection(peerId: PeerId) {
+    if (!this.#startupComplete) {
+      this.#startupComplete = true
+      this.emit("ready", { network: this })
+    }
     this.emit("peer-candidate", { peerId })
   }
 

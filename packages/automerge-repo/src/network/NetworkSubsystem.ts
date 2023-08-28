@@ -25,18 +25,27 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #count = 0
   #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
   #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
+  #readyAdapterCount = 0 
+  #adapters: NetworkAdapter[] = []
 
   constructor(
-    private adapters: NetworkAdapter[],
+    adapters: NetworkAdapter[],
     public peerId = randomPeerId()
   ) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
-    this.adapters.forEach(a => this.addNetworkAdapter(a))
+    adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapter) {
-    networkAdapter.connect(this.peerId)
+    this.#adapters.push(networkAdapter)
+    networkAdapter.once("ready", () => {
+      this.#readyAdapterCount++
+      this.#log("Adapters ready: ", this.#readyAdapterCount, "/", this.#adapters.length)
+      if (this.#readyAdapterCount === this.#adapters.length) {
+        this.emit("ready")
+      }
+    })
 
     networkAdapter.on("peer-candidate", ({ peerId }) => {
       this.#log(`peer candidate: ${peerId} `)
@@ -90,6 +99,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       })
     })
 
+    networkAdapter.connect(this.peerId)
     networkAdapter.join()
   }
 
@@ -122,12 +132,28 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
   join() {
     this.#log(`Joining network`)
-    this.adapters.forEach(a => a.join())
+    this.#adapters.forEach(a => a.join())
   }
 
   leave() {
     this.#log(`Leaving network`)
-    this.adapters.forEach(a => a.leave())
+    this.#adapters.forEach(a => a.leave())
+  }
+
+  isReady = () => {
+    return this.#readyAdapterCount === this.#adapters.length
+  }
+
+  whenReady = async () => {
+    if (this.isReady()) {
+      return
+    } else {
+      return new Promise<void>(resolve => {
+        this.once("ready", () => {
+          resolve()
+        })
+      })
+    }
   }
 }
 
@@ -141,6 +167,7 @@ export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
   message: (payload: Message) => void
+  "ready": () => void
 }
 
 export interface PeerPayload {

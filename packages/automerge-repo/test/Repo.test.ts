@@ -17,18 +17,19 @@ import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl.js"
-import { READY } from "../src/DocHandle.js"
+import { READY, AWAITING_NETWORK } from "../src/DocHandle.js"
 
 describe("Repo", () => {
   describe("single repo", () => {
-    const setup = () => {
+    const setup = (networkReady = true) => {
       const storageAdapter = new DummyStorageAdapter()
+      const networkAdapter = new DummyNetworkAdapter(networkReady)
 
       const repo = new Repo({
         storage: storageAdapter,
-        network: [new DummyNetworkAdapter()],
+        network: [networkAdapter],
       })
-      return { repo, storageAdapter }
+      return { repo, storageAdapter, networkAdapter }
     }
 
     it("can instantiate a Repo", () => {
@@ -81,6 +82,23 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), false)
 
       await eventPromise(handle, "unavailable")
+    })
+
+    it("doesn't mark a document as unavailable until network adapters are ready", async () => {
+      const { repo, networkAdapter } = setup(false)
+      const url = generateAutomergeUrl()
+      const handle = repo.find<TestDoc>(url)
+
+      let wasUnavailable = false
+      handle.on("unavailable", () => {
+        wasUnavailable = true
+      })
+      await pause(50)
+      assert.equal(wasUnavailable, false)
+
+      networkAdapter.emit("ready", { network: networkAdapter })
+      await eventPromise(handle, "unavailable")
+
     })
 
     it("can find a created document", async () => {
@@ -285,19 +303,15 @@ describe("Repo", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
-      const aliceNetworkAdapter = new MessageChannelNetworkAdapter(aliceToBob)
 
       const aliceRepo = new Repo({
-        network: connectAlice ? [aliceNetworkAdapter] : [],
+        network: [],
         peerId: "alice" as PeerId,
         sharePolicy,
       })
 
       const bobRepo = new Repo({
-        network: [
-          new MessageChannelNetworkAdapter(bobToAlice),
-          new MessageChannelNetworkAdapter(bobToCharlie),
-        ],
+        network: [new MessageChannelNetworkAdapter(bobToCharlie)],
         peerId: "bob" as PeerId,
         sharePolicy,
       })
@@ -312,17 +326,26 @@ describe("Repo", () => {
         bobCharlieChannel.port1.close()
       }
 
+      function doConnectAlice() {
+        aliceRepo.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(aliceToBob))
+        bobRepo.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(bobToAlice))
+      }
+
+      if (connectAlice) {
+        doConnectAlice()
+      }
+
       return {
         teardown,
         aliceRepo,
         bobRepo,
         charlieRepo,
-        aliceNetworkAdapter,
+        connectAliceToBob: doConnectAlice,
       }
     }
 
     const setup = async (connectAlice = true) => {
-      const { teardown, aliceRepo, bobRepo, charlieRepo, aliceNetworkAdapter } =
+      const { teardown, aliceRepo, bobRepo, charlieRepo, connectAliceToBob } =
         setupRepos(connectAlice)
 
       const aliceHandle = aliceRepo.create<TestDoc>()
@@ -360,7 +383,7 @@ describe("Repo", () => {
         notForCharlie,
         notForBob,
         teardown,
-        aliceNetworkAdapter,
+        connectAliceToBob,
       }
     }
 
@@ -458,7 +481,7 @@ describe("Repo", () => {
         notForCharlie,
         aliceRepo,
         teardown,
-        aliceNetworkAdapter,
+        connectAliceToBob,
       } = await setup(false)
 
       const url = stringifyAutomergeUrl({ documentId: notForCharlie })
@@ -467,7 +490,7 @@ describe("Repo", () => {
 
       await eventPromise(handle, "unavailable")
 
-      aliceRepo.networkSubsystem.addNetworkAdapter(aliceNetworkAdapter)
+      connectAliceToBob()
 
       await eventPromise(aliceRepo.networkSubsystem, "peer")
 

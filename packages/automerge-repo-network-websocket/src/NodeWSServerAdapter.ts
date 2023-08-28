@@ -39,6 +39,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       socket.on("message", message =>
         this.receiveMessage(message as Uint8Array, socket)
       )
+      this.emit("ready", {network: this})
     })
   }
 

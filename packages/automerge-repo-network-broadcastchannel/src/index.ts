@@ -47,6 +47,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
         }
       }
     )
+    this.emit("ready", { network: this })
   }
 
   #announceConnection(peerId: PeerId) {

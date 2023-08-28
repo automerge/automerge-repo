@@ -21,6 +21,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   // Type trickery required for platform independence,
   // see https://stackoverflow.com/questions/45802988/typescript-use-correct-version-of-settimeout-node-vs-window
   timerId?: ReturnType<typeof setTimeout>
+  #startupComplete: boolean = false
 
   url: string
 
@@ -57,6 +58,16 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.socket.addEventListener("message", (event: WebSocket.MessageEvent) =>
       this.receiveMessage(event.data as Uint8Array)
     )
+
+    // mark this adapter as ready if we haven't received an ack in 1 second.
+    // We might hear back from the other end at some point but we shouldn't
+    // hold up marking things as unavailable for any longer
+    setTimeout(() => {
+      if (!this.#startupComplete) {
+        this.#startupComplete = true
+        this.emit("ready", { network: this })
+      }
+    }, 1000)
   }
 
   join() {
@@ -116,7 +127,10 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     if (!myPeerId) {
       throw new Error("we should have a peer ID by now")
     }
-
+    if (!this.#startupComplete) {
+      this.#startupComplete = true
+      this.emit("ready", { network: this })
+    }
     this.emit("peer-candidate", { peerId })
   }
 

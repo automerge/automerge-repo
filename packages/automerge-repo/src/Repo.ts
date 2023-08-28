@@ -49,7 +49,16 @@ export class Repo extends DocCollection {
         })
       })
 
-      handle.request()
+      if (this.networkSubsystem.isReady()) {
+        handle.request()
+      } else {
+        handle.awaitNetwork()
+        this.networkSubsystem.whenReady().then(() => {
+          handle.networkReady()
+        }).catch(err => {
+          this.#log("error waiting for network", { err })
+        })
+      }
 
       // Register the document with the synchronizer. This advertises our interest in the document.
       synchronizer.addDocument(handle.documentId)
@@ -60,7 +69,9 @@ export class Repo extends DocCollection {
       // synchronizer.removeDocument(documentId)
 
       if (storageSubsystem) {
-        storageSubsystem.remove(documentId)
+        storageSubsystem.remove(documentId).catch(err => {
+          this.#log("error deleting document", { documentId, err })
+        })
       }
     })
 
