@@ -1,11 +1,11 @@
-import * as A from "@automerge/automerge"
+import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import { it } from "mocha"
-import { DocHandle, DocHandleChangePayload } from "../src"
-import { pause } from "../src/helpers/pause"
+import { DocHandle, DocHandleChangePayload } from "../src/index.js"
+import { pause } from "../src/helpers/pause.js"
 import { TestDoc } from "./types.js"
-import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl"
-import { eventPromise } from "../src/helpers/eventPromise"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
+import { eventPromise } from "../src/helpers/eventPromise.js"
 import { decode } from "cbor-x"
 
 describe("DocHandle", () => {

@@ -1,5 +1,5 @@
 import http from "http"
-import { createWebSocketServer } from "./CreateWebSocketServer"
+import { createWebSocketServer } from "./CreateWebSocketServer.js"
 import WebSocket from "ws"
 
 function startServer(port: number) {

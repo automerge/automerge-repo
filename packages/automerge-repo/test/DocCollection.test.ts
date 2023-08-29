@@ -1,7 +1,7 @@
 import assert from "assert"
-import { DocCollection, BinaryDocumentId } from "../src"
+import { DocCollection, BinaryDocumentId } from "../src/index.js"
 import { TestDoc } from "./types.js"
-import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl"
+import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl.js"
 
 const MISSING_DOCID = generateAutomergeUrl()
 

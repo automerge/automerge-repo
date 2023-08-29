@@ -1,4 +1,4 @@
-import * as A from "@automerge/automerge"
+import * as A from "@automerge/automerge/next"
 import {
   DocHandle,
   DocHandleOutboundEphemeralMessagePayload,
@@ -174,8 +174,8 @@ export class DocSynchronizer extends Synchronizer {
 
     // expanding is expensive, so only do it if we're logging at this level
     const expanded = this.#opsLog.enabled
-      ? decoded.changes.flatMap(change =>
-        A.decodeChange(change).ops.map(op => JSON.stringify(op))
+      ? decoded.changes.flatMap((change: A.Change) =>
+        A.decodeChange(change).ops.map((op: any) => JSON.stringify(op))
       )
       : null
     this.#opsLog(logText, expanded)

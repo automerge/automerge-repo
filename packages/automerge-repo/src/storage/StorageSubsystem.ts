@@ -1,4 +1,4 @@
-import * as A from "@automerge/automerge"
+import * as A from "@automerge/automerge/next"
 import { StorageAdapter, StorageKey } from "./StorageAdapter.js"
 import * as sha256 from "fast-sha256"
 import { type DocumentId } from "../types.js"
@@ -25,7 +25,7 @@ function keyHash(binary: Uint8Array) {
 
 function headsHash(heads: A.Heads): string {
   let encoder = new TextEncoder()
-  let headsbinary = mergeArrays(heads.map(h => encoder.encode(h)))
+  let headsbinary = mergeArrays(heads.map((h: string) => encoder.encode(h)))
   return keyHash(headsbinary)
 }
 

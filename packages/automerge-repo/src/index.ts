@@ -31,4 +31,4 @@ export {
 } from "./DocUrl.js"
 export * from "./types.js"
 
-export * as cbor from "./helpers/cbor"
+export * as cbor from "./helpers/cbor.js"

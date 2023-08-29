@@ -1,4 +1,4 @@
-import EventEmitter from "eventemitter3"
+import { EventEmitter } from "eventemitter3"
 import { PeerId } from "../types.js"
 import { Message } from "./messages.js"
 

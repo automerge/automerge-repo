@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react"
 import { describe, expect, test, vi } from 'vitest'
-import { RepoContext, useRepo } from "./useRepo"
+import { RepoContext, useRepo } from "./useRepo.js"
 import { Repo } from "@automerge/automerge-repo"
 import React from "react"
 

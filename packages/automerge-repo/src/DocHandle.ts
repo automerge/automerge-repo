@@ -1,6 +1,6 @@
-import * as A from "@automerge/automerge"
+import * as A from "@automerge/automerge/next"
 import debug from "debug"
-import EventEmitter from "eventemitter3"
+import { EventEmitter } from "eventemitter3"
 import {
   assign,
   BaseActionObject,

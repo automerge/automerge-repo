@@ -1,6 +1,6 @@
 import assert from "assert"
 import { beforeEach } from "mocha"
-import { DocCollection, PeerId } from "../src"
+import { DocCollection, PeerId } from "../src/index.js"
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
 
 describe("CollectionSynchronizer", () => {

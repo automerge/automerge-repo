@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 import useStateRef from "react-usestateref"
-import { peerEvents } from "./useRemoteAwareness"
+import { peerEvents } from "./useRemoteAwareness.js"
 import { DocHandle } from "@automerge/automerge-repo"
 
 /**
