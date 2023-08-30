@@ -1,5 +1,6 @@
 import * as A from "@automerge/automerge/next"
 import {
+  AWAITING_NETWORK,
   DocHandle,
   DocHandleOutboundEphemeralMessagePayload,
   READY,
@@ -190,20 +191,19 @@ export class DocSynchronizer extends Synchronizer {
   beginSync(peerIds: PeerId[]) {
     this.#log(`beginSync: ${peerIds.join(", ")}`)
 
+    // HACK: if we have a sync state already, we round-trip it through the encoding system to make
+    // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
+    // messages during disconnection.
+    // TODO: cover that case with a test and remove this hack
+    peerIds.forEach(peerId => {
+      const syncStateRaw = this.#getSyncState(peerId)
+      const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
+      this.#setSyncState(peerId, syncState)
+    })
+
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
     void this.handle.doc([READY, REQUESTING, UNAVAILABLE]).then(doc => {
-      // if we don't have any peers, then we can say the document is unavailable
-
-      // HACK: if we have a sync state already, we round-trip it through the encoding system to make
-      // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
-      // messages during disconnection.
-      // TODO: cover that case with a test and remove this hack
-      peerIds.forEach(peerId => {
-        const syncStateRaw = this.#getSyncState(peerId)
-        const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
-        this.#setSyncState(peerId, syncState)
-      })
 
       // we register out peers first, then say that sync has started
       this.#syncStarted = true

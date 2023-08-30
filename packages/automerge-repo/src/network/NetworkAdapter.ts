@@ -17,7 +17,7 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
 // events & payloads
 
 export interface NetworkAdapterEvents {
-  open: (payload: OpenPayload) => void
+  ready: (payload: OpenPayload) => void
   close: () => void
   "peer-candidate": (payload: PeerCandidatePayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void

@@ -87,6 +87,8 @@ export class DocHandle<T> //
                 UPDATE: { actions: "onUpdate", target: READY },
                 // REQUEST is called by the Repo if the document is not found in storage
                 REQUEST: { target: REQUESTING },
+                // AWAIT_NETWORK is called by the repo if the document is not found in storage but the network is not yet ready
+                AWAIT_NETWORK: { target: AWAITING_NETWORK },
                 DELETE: { actions: "onDelete", target: DELETED },
               },
               after: [
@@ -95,6 +97,11 @@ export class DocHandle<T> //
                   target: FAILED,
                 },
               ],
+            },
+            awaitingNetwork: {
+              on: {
+                NETWORK_READY: { target: REQUESTING },
+              }
             },
             requesting: {
               on: {
@@ -347,6 +354,14 @@ export class DocHandle<T> //
     if (this.#state === LOADING) this.#machine.send(REQUEST)
   }
 
+  awaitNetwork() {
+    if (this.#state === LOADING) this.#machine.send(AWAIT_NETWORK)
+  }
+
+  networkReady() {
+    if (this.#state === AWAITING_NETWORK) this.#machine.send(NETWORK_READY)
+  }
+
   /** `delete` is called by the repo when the document is deleted */
   delete() {
     this.#machine.send(DELETE)
@@ -424,6 +439,7 @@ export interface DocHandleEvents<T> {
 export const HandleState = {
   IDLE: "idle",
   LOADING: "loading",
+  AWAITING_NETWORK: "awaitingNetwork",
   REQUESTING: "requesting",
   READY: "ready",
   FAILED: "failed",
@@ -453,6 +469,8 @@ export const Event = {
   FIND: "FIND",
   REQUEST: "REQUEST",
   REQUEST_COMPLETE: "REQUEST_COMPLETE",
+  AWAIT_NETWORK: "AWAIT_NETWORK",
+  NETWORK_READY: "NETWORK_READY",
   UPDATE: "UPDATE",
   TIMEOUT: "TIMEOUT",
   DELETE: "DELETE",
@@ -471,6 +489,8 @@ type UpdateEvent<T> = {
 }
 type TimeoutEvent = { type: typeof TIMEOUT }
 type MarkUnavailableEvent = { type: typeof MARK_UNAVAILABLE }
+type AwaitNetworkEvent = { type: typeof AWAIT_NETWORK }
+type NetworkReadyEvent = { type: typeof NETWORK_READY }
 
 type DocHandleEvent<T> =
   | CreateEvent
@@ -481,6 +501,8 @@ type DocHandleEvent<T> =
   | TimeoutEvent
   | DeleteEvent
   | MarkUnavailableEvent
+  | AwaitNetworkEvent 
+  | NetworkReadyEvent
 
 type DocHandleXstateMachine<T> = Interpreter<
   DocHandleContext<T>,
@@ -502,6 +524,7 @@ type DocHandleXstateMachine<T> = Interpreter<
 export const {
   IDLE,
   LOADING,
+  AWAITING_NETWORK,
   REQUESTING,
   READY,
   FAILED,
@@ -517,4 +540,6 @@ const {
   DELETE,
   REQUEST_COMPLETE,
   MARK_UNAVAILABLE,
+  AWAIT_NETWORK,
+  NETWORK_READY
 } = Event
