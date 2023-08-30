@@ -303,15 +303,19 @@ describe("Repo", () => {
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
       const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
 
+      const aliceNetworkAdapter = new MessageChannelNetworkAdapter(aliceToBob)
 
       const aliceRepo = new Repo({
-        network: [],
+        network: connectAlice ? [aliceNetworkAdapter] : [],
         peerId: "alice" as PeerId,
         sharePolicy,
       })
 
       const bobRepo = new Repo({
-        network: [new MessageChannelNetworkAdapter(bobToCharlie)],
+        network: [
+          new MessageChannelNetworkAdapter(bobToAlice),
+          new MessageChannelNetworkAdapter(bobToCharlie),
+        ],
         peerId: "bob" as PeerId,
         sharePolicy,
       })
@@ -328,7 +332,7 @@ describe("Repo", () => {
 
       function doConnectAlice() {
         aliceRepo.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(aliceToBob))
-        bobRepo.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(bobToAlice))
+        //bobRepo.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(bobToAlice))
       }
 
       if (connectAlice) {
