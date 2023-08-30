@@ -1,8 +1,7 @@
-import { useRepo } from "./useRepo"
 import { DocHandle } from "@automerge/automerge-repo"
 import { useEffect } from "react"
 import useStateRef from "react-usestateref"
-import EventEmitter from "eventemitter3"
+import { EventEmitter } from "eventemitter3"
 
 // Emits new_peer event when a new peer is seen
 export const peerEvents = new EventEmitter()

@@ -8,7 +8,7 @@ import {
   DocumentId,
   PeerId,
   SharePolicy,
-} from "../src"
+} from "../src/index.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause, rejectOnTimeout } from "../src/helpers/pause.js"
 import { Repo } from "../src/Repo.js"
@@ -16,8 +16,8 @@ import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
-import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl"
-import { READY } from "../src/DocHandle"
+import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl.js"
+import { READY } from "../src/DocHandle.js"
 
 describe("Repo", () => {
   describe("single repo", () => {

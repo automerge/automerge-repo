@@ -1,6 +1,6 @@
 // utilities
-import { SessionId } from "../EphemeralData"
-import { DocumentId, PeerId } from "../types"
+import { SessionId } from "../EphemeralData.js"
+import { DocumentId, PeerId } from "../types.js"
 
 export function isValidMessage(
   message: NetworkAdapterMessage

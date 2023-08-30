@@ -1,4 +1,4 @@
-import { StorageAdapter, type StorageKey } from "../../src"
+import { StorageAdapter, type StorageKey } from "../../src/index.js"
 
 export class DummyStorageAdapter implements StorageAdapter {
   #data: Record<string, Uint8Array> = {}

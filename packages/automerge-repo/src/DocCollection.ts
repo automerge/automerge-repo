@@ -1,4 +1,4 @@
-import EventEmitter from "eventemitter3"
+import { EventEmitter } from "eventemitter3"
 import { DocHandle } from "./DocHandle.js"
 import { DocumentId, type BinaryDocumentId, AutomergeUrl } from "./types.js"
 import { type SharePolicy } from "./Repo.js"

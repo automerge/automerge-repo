@@ -1,4 +1,4 @@
-import type { ChangeFn, Doc } from "@automerge/automerge"
+import type { ChangeFn, Doc } from "@automerge/automerge/next"
 import {
   AutomergeUrl,
   DocHandleChangePayload,

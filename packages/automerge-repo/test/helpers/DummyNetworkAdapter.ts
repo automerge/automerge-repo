@@ -1,4 +1,4 @@
-import { NetworkAdapter } from "../../src"
+import { NetworkAdapter } from "../../src/index.js"
 
 export class DummyNetworkAdapter extends NetworkAdapter {
   send() {}

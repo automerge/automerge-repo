@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ESNext",
     "jsx": "react",
-    "module": "ESNext",
-    "moduleResolution": "node",
+    "module": "NodeNext",
+    "moduleResolution": "Node16",
     "declaration": true,
     "declarationMap": true,
     "outDir": "./dist",

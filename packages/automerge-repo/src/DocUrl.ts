@@ -2,7 +2,7 @@ import {
   type AutomergeUrl,
   type BinaryDocumentId,
   type DocumentId,
-} from "./types"
+} from "./types.js"
 import { v4 as uuid } from "uuid"
 import bs58check from "bs58check"
 
