@@ -117,11 +117,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         "count" in message
           ? message
           : {
-              ...message,
-              count: ++this.#count,
-              sessionId: this.#sessionId,
-              senderId: this.peerId,
-            }
+            ...message,
+            count: ++this.#count,
+            sessionId: this.#sessionId,
+            senderId: this.peerId,
+          }
       this.#log("Ephemeral message", outbound)
       peer.send(outbound)
     } else {
@@ -129,11 +129,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.#log("Sync message", outbound)
       peer.send(outbound)
     }
-  }
-
-  leave() {
-    this.#log(`Leaving network`)
-    this.#adapters.forEach(a => a.disconnect())
   }
 
   isReady = () => {
