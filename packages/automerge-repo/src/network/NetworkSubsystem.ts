@@ -25,13 +25,10 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #count = 0
   #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
   #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
-  #readyAdapterCount = 0 
+  #readyAdapterCount = 0
   #adapters: NetworkAdapter[] = []
 
-  constructor(
-    adapters: NetworkAdapter[],
-    public peerId = randomPeerId()
-  ) {
+  constructor(adapters: NetworkAdapter[], public peerId = randomPeerId()) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
     adapters.forEach(a => this.addNetworkAdapter(a))
@@ -41,7 +38,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     this.#adapters.push(networkAdapter)
     networkAdapter.once("ready", () => {
       this.#readyAdapterCount++
-      this.#log("Adapters ready: ", this.#readyAdapterCount, "/", this.#adapters.length)
+      this.#log(
+        "Adapters ready: ",
+        this.#readyAdapterCount,
+        "/",
+        this.#adapters.length
+      )
       if (this.#readyAdapterCount === this.#adapters.length) {
         this.emit("ready")
       }
@@ -100,7 +102,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     })
 
     networkAdapter.connect(this.peerId)
-    networkAdapter.join()
   }
 
   send(message: MessageContents) {
@@ -130,14 +131,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     }
   }
 
-  join() {
-    this.#log(`Joining network`)
-    this.#adapters.forEach(a => a.join())
-  }
-
   leave() {
     this.#log(`Leaving network`)
-    this.#adapters.forEach(a => a.leave())
+    this.#adapters.forEach(a => a.disconnect())
   }
 
   isReady = () => {
@@ -167,7 +163,7 @@ export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
   message: (payload: Message) => void
-  "ready": () => void
+  ready: () => void
 }
 
 export interface PeerPayload {

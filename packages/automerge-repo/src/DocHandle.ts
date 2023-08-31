@@ -101,7 +101,7 @@ export class DocHandle<T> //
             awaitingNetwork: {
               on: {
                 NETWORK_READY: { target: REQUESTING },
-              }
+              },
             },
             requesting: {
               on: {
@@ -501,7 +501,7 @@ type DocHandleEvent<T> =
   | TimeoutEvent
   | DeleteEvent
   | MarkUnavailableEvent
-  | AwaitNetworkEvent 
+  | AwaitNetworkEvent
   | NetworkReadyEvent
 
 type DocHandleXstateMachine<T> = Interpreter<
@@ -541,5 +541,5 @@ const {
   REQUEST_COMPLETE,
   MARK_UNAVAILABLE,
   AWAIT_NETWORK,
-  NETWORK_READY
+  NETWORK_READY,
 } = Event

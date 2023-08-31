@@ -68,6 +68,8 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
         this.emit("ready", { network: this })
       }
     }, 1000)
+
+    this.join()
   }
 
   join() {
@@ -90,7 +92,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     }
   }
 
-  leave() {
+  disconnect() {
     if (!this.socket) {
       throw new Error("WTF, get a socket")
     }

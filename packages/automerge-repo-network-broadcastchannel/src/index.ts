@@ -47,6 +47,12 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
         }
       }
     )
+
+    this.#broadcastChannel.postMessage({
+      senderId: this.peerId,
+      type: "arrive",
+    })
+
     this.emit("ready", { network: this })
   }
 
@@ -68,15 +74,8 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  join() {
-    this.#broadcastChannel.postMessage({
-      senderId: this.peerId,
-      type: "arrive",
-    })
-  }
-
-  leave() {
-    // TODO
+  disconnect() {
+    // TODO:
     throw new Error("Unimplemented: leave on BroadcastChannelNetworkAdapter")
   }
 }

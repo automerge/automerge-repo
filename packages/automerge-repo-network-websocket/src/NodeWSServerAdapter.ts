@@ -3,14 +3,13 @@ import { WebSocket, type WebSocketServer } from "isomorphic-ws"
 import debug from "debug"
 const log = debug("WebsocketServer")
 
-import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 import {
-  NetworkAdapter,
   cbor as cborHelpers,
-  type NetworkAdapterMessage,
+  NetworkAdapter,
   type PeerId,
 } from "@automerge/automerge-repo"
 import { FromClientMessage, FromServerMessage } from "./messages.js"
+import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 
 const { encode, decode } = cborHelpers
 
@@ -39,15 +38,11 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       socket.on("message", message =>
         this.receiveMessage(message as Uint8Array, socket)
       )
-      this.emit("ready", {network: this})
+      this.emit("ready", { network: this })
     })
   }
 
-  join() {
-    // throw new Error("The server doesn't join channels.")
-  }
-
-  leave() {
+  disconnect() {
     // throw new Error("The server doesn't join channels.")
   }
 
