@@ -76,9 +76,13 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.messagePortRef.addListener("close", () => {
       this.emit("close")
     })
-    this.join()
 
-    // Mark this messagechannel as ready after 50 ms, at this point there 
+    this.messagePortRef.postMessage({
+      senderId: this.peerId,
+      type: "arrive",
+    })
+
+    // Mark this messagechannel as ready after 50 ms, at this point there
     // must be something weird going on on the other end to cause us to receive
     // no response
     setTimeout(() => {
@@ -116,14 +120,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.emit("peer-candidate", { peerId })
   }
 
-  join() {
-    this.messagePortRef.postMessage({
-      senderId: this.peerId,
-      type: "arrive",
-    })
-  }
-
-  leave() {
+  disconnect() {
     // TODO
     throw new Error("Unimplemented: leave on MessagePortNetworkAdapter")
   }

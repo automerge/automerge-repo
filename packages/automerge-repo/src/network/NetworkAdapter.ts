@@ -5,13 +5,11 @@ import { Message } from "./messages.js"
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
 
-  abstract connect(url?: string): void
+  abstract connect(peerId: PeerId): void
 
   abstract send(message: Message): void
 
-  abstract join(): void
-
-  abstract leave(): void
+  abstract disconnect(): void
 }
 
 // events & payloads

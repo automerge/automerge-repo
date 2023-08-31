@@ -6,12 +6,11 @@ export class DummyNetworkAdapter extends NetworkAdapter {
     super()
     this.#startReady = startReady
   }
-  send() {}
+  send() { }
   connect(_: string) {
     if (this.#startReady) {
       this.emit("ready", { network: this })
     }
   }
-  join() {}
-  leave() {}
+  disconnect() { }
 }
