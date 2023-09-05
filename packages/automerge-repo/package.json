@@ -31,7 +31,7 @@
     "typescript": "^5.1.6"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0-alpha.12"
+    "@automerge/automerge": "^2.1.0-alpha.13"
   },
   "dependencies": {
     "bs58check": "^3.0.1",
