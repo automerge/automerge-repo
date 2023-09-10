@@ -157,7 +157,7 @@ export class StorageSubsystem {
         incrementalSize += chunk.size
       }
     }
-    return incrementalSize > snapshotSize
+    return incrementalSize >= snapshotSize
   }
 }
 
