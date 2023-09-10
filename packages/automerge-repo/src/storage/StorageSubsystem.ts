@@ -35,6 +35,8 @@ export class StorageSubsystem {
   #storedHeads: Map<DocumentId, A.Heads> = new Map()
   #log = debug(`automerge-repo:storage-subsystem`)
 
+  #snapshotting = false
+
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
   }
@@ -67,6 +69,7 @@ export class StorageSubsystem {
     doc: A.Doc<unknown>,
     sourceChunks: StorageChunkInfo[]
   ): Promise<void> {
+    this.#snapshotting = true
     const binary = A.save(doc)
     const snapshotHash = headsHash(A.getHeads(doc))
     const key = [documentId, "snapshot", snapshotHash]
@@ -86,6 +89,7 @@ export class StorageSubsystem {
       this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
     newChunkInfos.push({ key, type: "snapshot", size: binary.length })
     this.#chunkInfos.set(documentId, newChunkInfos)
+    this.#snapshotting = false
   }
 
   async loadDoc(documentId: DocumentId): Promise<A.Doc<unknown> | null> {
@@ -128,7 +132,7 @@ export class StorageSubsystem {
   }
 
   async remove(documentId: DocumentId) {
-    this.#storageAdapter.remove([documentId, "snapshot"])
+    this.#storageAdapter.removeRange([documentId, "snapshot"])
     this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 
@@ -147,6 +151,9 @@ export class StorageSubsystem {
   }
 
   #shouldCompact(sourceChunks: StorageChunkInfo[]) {
+    if (this.#snapshotting) {
+      return false
+    }
     // compact if the incremental size is greater than the snapshot size
     let snapshotSize = 0
     let incrementalSize = 0
@@ -157,7 +164,7 @@ export class StorageSubsystem {
         incrementalSize += chunk.size
       }
     }
-    return incrementalSize > snapshotSize
+    return incrementalSize >= snapshotSize
   }
 }
 
