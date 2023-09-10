@@ -128,7 +128,7 @@ export class StorageSubsystem {
   }
 
   async remove(documentId: DocumentId) {
-    this.#storageAdapter.remove([documentId, "snapshot"])
+    this.#storageAdapter.removeRange([documentId, "snapshot"])
     this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 

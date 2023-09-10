@@ -162,6 +162,7 @@ describe("Repo", () => {
       handle.change(d => {
         d.foo = "bar"
       })
+      // we now have a snapshot and an incremental change in storage
       assert.equal(handle.isReady(), true)
       await handle.doc()
       repo.delete(handle.documentId)
