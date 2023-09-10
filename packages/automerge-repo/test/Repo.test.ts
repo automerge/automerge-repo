@@ -18,6 +18,10 @@ import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl.js"
 import { READY, AWAITING_NETWORK } from "../src/DocHandle.js"
+import {
+  generateLargeObject,
+  LargeObject,
+} from "./helpers/generate-large-object.js"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -98,7 +102,6 @@ describe("Repo", () => {
 
       networkAdapter.emit("ready", { network: networkAdapter })
       await eventPromise(handle, "unavailable")
-
     })
 
     it("can find a created document", async () => {
@@ -130,7 +133,6 @@ describe("Repo", () => {
       const bobHandle = repo2.find<TestDoc>(handle.url)
       await bobHandle.whenReady()
       assert.equal(bobHandle.isReady(), true)
-
     })
 
     it("saves the document when changed and can find it again", async () => {
@@ -275,6 +277,21 @@ describe("Repo", () => {
         assert(storage.keys().length !== 0)
       }
     })
+
+    it("doesn't create multiple snapshots in storage when a series of large changes are made in succession", async () => {
+      const { repo, storageAdapter } = setup()
+      const handle = repo.create<{ objects: LargeObject[] }>()
+
+      for (let i = 0; i < 5; i++) {
+        handle.change(d => {
+          d.objects = []
+          d.objects.push(generateLargeObject(100))
+        })
+      }
+
+      const storageKeyTypes = storageAdapter.keys().map(k => k.split(".")[1])
+      assert(storageKeyTypes.filter(k => k === "snapshot").length === 1)
+    })
   })
 
   describe("sync", async () => {
@@ -332,7 +349,9 @@ describe("Repo", () => {
       }
 
       function doConnectAlice() {
-        aliceRepo.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(aliceToBob))
+        aliceRepo.networkSubsystem.addNetworkAdapter(
+          new MessageChannelNetworkAdapter(aliceToBob)
+        )
         //bobRepo.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(bobToAlice))
       }
 
@@ -581,9 +600,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-            repo.create<TestDoc>()
+              repo.create<TestDoc>()
             : // tails, pick a random doc
-            (getRandomItem(docs) as DocHandle<TestDoc>)
+              (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
