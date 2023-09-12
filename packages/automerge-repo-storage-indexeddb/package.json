@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-storage-indexeddb",
-  "version": "1.0.0-alpha.5",
+  "version": "1.0.0",
   "description": "IndexedDB storage adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -13,7 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^1.0.0-alpha.5"
+    "@automerge/automerge-repo": "^1.0.0"
   },
   "peerDependencies": {
     "@automerge/automerge": "^2.1.0"
