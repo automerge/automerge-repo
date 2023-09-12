@@ -79,17 +79,17 @@
     uuid "^8.3.2"
     xstate "^4.37.0"
 
-"@automerge/automerge-wasm@^0.2.11":
-  version "0.2.11"
-  resolved "https://registry.yarnpkg.com/@automerge/automerge-wasm/-/automerge-wasm-0.2.11.tgz#7ca3e7ccfb602c2a49d2b1d0e91a96ff7aff43a0"
-  integrity sha512-otj55NzXICbmo1SsL6+X5v7cbady7JDwsrh9Jy2Pxy9wkP8MsuY1ZoPfKTVgGCF1kUQ05RGnHBl06Cb24I/CPA==
+"@automerge/automerge-wasm@^0.2.13":
+  version "0.2.13"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge-wasm/-/automerge-wasm-0.2.13.tgz#1321ee0f723b10fafe7a547faa581f7d7ed1e692"
+  integrity sha512-aPgoKcEmQrK9TuL0WVL47T1pNQblupG6GjR6jQKtm+yDi5Es0ikGBoitMMrG4N+hLSuRePhR/jOS94nEoleuLg==
 
-"@automerge/automerge@2.1.0-alpha.12", "@automerge/automerge@^2.1.0-alpha.12":
-  version "2.1.0-alpha.12"
-  resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-2.1.0-alpha.12.tgz#b15cbc25467ed847df57787487c0f63fb4f514f4"
-  integrity sha512-7RtQiooEW3WPEjUVH/TQiIHRj+J6K4pMvUG6iIzMdDJK4vsVnMBIWvZL6u1Yute391pynq9ZOhIFXXmGvJRG0w==
+"@automerge/automerge@^2.1.0":
+  version "2.1.0"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-2.1.0.tgz#6c575bba50a46cbbf1a7e53eefc4246e64b8875b"
+  integrity sha512-gazEvjNzoGdqnnQfT2VXbD3FV6AwI/La8cFEIloHp8/vNI5w4Y08MysuuFWHqKKhpILnhb171BYmYWLd8zzxvA==
   dependencies:
-    "@automerge/automerge-wasm" "^0.2.11"
+    "@automerge/automerge-wasm" "^0.2.13"
     uuid "^9.0.0"
 
 "@babel/code-frame@^7.0.0", "@babel/code-frame@^7.10.4", "@babel/code-frame@^7.22.10", "@babel/code-frame@^7.22.5":
