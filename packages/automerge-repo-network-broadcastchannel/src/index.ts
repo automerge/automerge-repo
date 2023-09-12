@@ -5,12 +5,23 @@ import {
   Message,
 } from "@automerge/automerge-repo"
 
+export type BroadcastChannelNetworkAdapterOptions = {
+  channelName: string
+}
+
 export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel
 
+  #options: BroadcastChannelNetworkAdapterOptions
+
+  constructor(options?: BroadcastChannelNetworkAdapterOptions) {
+    super()
+    this.#options = { ...(options ?? {}), channelName: "broadcast" }
+  }
+
   connect(peerId: PeerId) {
     this.peerId = peerId
-    this.#broadcastChannel = new BroadcastChannel(`broadcast`)
+    this.#broadcastChannel = new BroadcastChannel(this.#options.channelName)
 
     this.#broadcastChannel.addEventListener(
       "message",
