@@ -211,17 +211,15 @@ describe("DocHandle", () => {
     })
   })
 
-  it("should time out if the document is not loaded", async () => {
+  it("should be undefined if loading the document times out", async () => {
     // set docHandle time out after 5 ms
     const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
 
-    // we're not going to load
-    await pause(10)
+    const doc = await handle.doc()
+
+    assert.equal(doc, undefined)
 
     assert.equal(handle.state, "failed")
-
-    // so it should time out
-    return assert.rejects(handle.doc, "DocHandle timed out")
   })
 
   it("should not time out if the document is loaded in time", async () => {
@@ -236,7 +234,7 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
   })
 
-  it("should time out if the document is not updated from the network", async () => {
+  it("should be undefined if loading from the network times out", async () => {
     // set docHandle time out after 5 ms
     const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
 
@@ -246,8 +244,8 @@ describe("DocHandle", () => {
     // there's no update
     await pause(10)
 
-    // so it should time out
-    return assert.rejects(handle.doc, "DocHandle timed out")
+    const doc = await handle.doc()
+    assert.equal(doc, undefined)
   })
 
   it("should not time out if the document is updated in time", async () => {

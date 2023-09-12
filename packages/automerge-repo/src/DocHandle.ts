@@ -277,9 +277,8 @@ export class DocHandle<T> //
       // wait for the document to enter one of the desired states
       await this.#statePromise(awaitStates)
     } catch (error) {
-      if (error instanceof TimeoutError)
-        throw new Error(`DocHandle: timed out loading ${this.documentId}`)
-      else throw error
+      // if we timed out (or the load has already failed), return undefined
+      return undefined
     }
     // Return the document
     return !this.isUnavailable() ? this.#doc : undefined
