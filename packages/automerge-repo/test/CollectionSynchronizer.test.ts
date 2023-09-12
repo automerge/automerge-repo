@@ -1,15 +1,17 @@
 import assert from "assert"
 import { beforeEach } from "mocha"
-import { DocCollection, PeerId } from "../src/index.js"
+import { PeerId, Repo } from "../src/index.js"
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
 
 describe("CollectionSynchronizer", () => {
-  let collection: DocCollection
+  let repo: Repo
   let synchronizer: CollectionSynchronizer
 
   beforeEach(() => {
-    collection = new DocCollection()
-    synchronizer = new CollectionSynchronizer(collection)
+    repo = new Repo({
+      network: [],
+    })
+    synchronizer = new CollectionSynchronizer(repo)
   })
 
   it("is not null", async () => {
@@ -17,7 +19,7 @@ describe("CollectionSynchronizer", () => {
   })
 
   it("starts synchronizing a document to peers when added", done => {
-    const handle = collection.create()
+    const handle = repo.create()
     synchronizer.addPeer("peer1" as PeerId)
 
     synchronizer.once("message", event => {
@@ -30,7 +32,7 @@ describe("CollectionSynchronizer", () => {
   })
 
   it("starts synchronizing existing documents when a peer is added", done => {
-    const handle = collection.create()
+    const handle = repo.create()
     synchronizer.addDocument(handle.documentId)
     synchronizer.once("message", event => {
       assert(event.targetId === "peer1")
@@ -41,9 +43,9 @@ describe("CollectionSynchronizer", () => {
   })
 
   it("should not synchronize to a peer which is excluded from the share policy", done => {
-    const handle = collection.create()
+    const handle = repo.create()
 
-    collection.sharePolicy = async (peerId: PeerId) => peerId !== "peer1"
+    repo.sharePolicy = async (peerId: PeerId) => peerId !== "peer1"
 
     synchronizer.addDocument(handle.documentId)
     synchronizer.once("message", () => {
@@ -55,9 +57,8 @@ describe("CollectionSynchronizer", () => {
   })
 
   it("should not synchronize a document which is excluded from the share policy", done => {
-    const handle = collection.create()
-    collection.sharePolicy = async (_, documentId) =>
-      documentId !== handle.documentId
+    const handle = repo.create()
+    repo.sharePolicy = async (_, documentId) => documentId !== handle.documentId
 
     synchronizer.addPeer("peer2" as PeerId)
 

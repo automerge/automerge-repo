@@ -1,4 +1,4 @@
-import { DocCollection } from "../DocCollection.js"
+import { Repo } from "../Repo.js"
 import { DocHandle } from "../DocHandle.js"
 import {
   documentIdToBinary,
@@ -29,7 +29,7 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Used to determine if the document is know to the Collection and a synchronizer exists or is being set up */
   #docSetUp: Record<DocumentId, boolean> = {}
 
-  constructor(private repo: DocCollection) {
+  constructor(private repo: Repo) {
     super()
   }
 
