@@ -14,7 +14,7 @@
     "watch": "npm-watch"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0-alpha.13"
+    "@automerge/automerge": "^2.1.0"
   },
   "dependencies": {
     "@automerge/automerge-repo": "^1.0.0-alpha.5",
