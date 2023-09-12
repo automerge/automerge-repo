@@ -3,6 +3,11 @@ import { AutomergeUrl, DocHandleChangePayload } from "@automerge/automerge-repo"
 import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
+/** A hook which returns a document identified by a URL and a function to change the document. 
+ * 
+ * @remarks
+ * This requires a {@link RepoContext} to be provided by a parent component. 
+ * */
 export function useDocument<T>(documentUrl?: AutomergeUrl) {
   const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()

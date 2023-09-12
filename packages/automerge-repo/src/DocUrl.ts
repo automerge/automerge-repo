@@ -20,10 +20,6 @@ export const parseAutomergeUrl = (url: AutomergeUrl) => {
   return { binaryDocumentId, documentId }
 }
 
-interface StringifyAutomergeUrlOptions {
-  documentId: DocumentId | BinaryDocumentId
-}
-
 /**
  * Given a documentId in either canonical form, return an Automerge URL
  * Throws on invalid input.
@@ -33,7 +29,7 @@ interface StringifyAutomergeUrlOptions {
  */
 export const stringifyAutomergeUrl = ({
   documentId,
-}: StringifyAutomergeUrlOptions): AutomergeUrl => {
+}: {documentId: DocumentId | BinaryDocumentId}): AutomergeUrl => {
   if (documentId instanceof Uint8Array)
     return (urlPrefix +
       binaryToDocumentId(documentId as BinaryDocumentId)) as AutomergeUrl

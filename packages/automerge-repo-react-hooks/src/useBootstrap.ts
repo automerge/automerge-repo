@@ -53,6 +53,15 @@ const setDocumentId = (key: string, documentId: DocumentId) => {
   if (key) localStorage.setItem(key, documentId)
 }
 
+export interface UseBootstrapOptions<T> {
+  /** Key to use for the URL hash and localStorage */
+  key?: string
+  /** Function returning a document handle called if lookup fails. Defaults to repo.create() */
+  onNoDocument?: (repo: Repo) => DocHandle<T>
+  /** Function to call if documentId is invalid */
+  onInvalidDocumentId?(repo: Repo, error: Error): DocHandle<T>
+}
+
 /**
  * This hook is used to set up a single document as the base of an app session.
  * This is a common pattern for simple multiplayer apps with shareable URLs.
@@ -70,12 +79,6 @@ const setDocumentId = (key: string, documentId: DocumentId) => {
  * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid; signature (error) => (repo, onCreate)
  * @returns {DocHandle} The document handle
  */
-interface UseBootstrapOptions<T> {
-  key?: string
-  onNoDocument?: (repo: Repo) => DocHandle<T>
-  onInvalidDocumentId?(repo: Repo, error: Error): DocHandle<T>
-}
-
 export const useBootstrap = <T>({
   key = "documentId",
   onNoDocument = repo => repo.create(),

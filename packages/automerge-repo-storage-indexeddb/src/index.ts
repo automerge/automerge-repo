@@ -1,8 +1,18 @@
+/**
+ * This module provides a storage adapter for IndexedDB.
+ *
+ * @packageDocumentation
+ */
+
 import {StorageAdapter, type StorageKey} from "@automerge/automerge-repo"
 
 export class IndexedDBStorageAdapter extends StorageAdapter {
   private dbPromise: Promise<IDBDatabase>
 
+  /** Create a new {@link IndexedDBStorageAdapter}.
+   * @param database - The name of the database to use. Defaults to "automerge".
+   * @param store - The name of the object store to use. Defaults to "documents".
+   */
   constructor(
     private database: string = "automerge",
     private store: string = "documents"

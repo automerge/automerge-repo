@@ -3,6 +3,16 @@ import useStateRef from "react-usestateref"
 import { peerEvents } from "./useRemoteAwareness.js"
 import { DocHandle } from "@automerge/automerge-repo"
 
+export interface UseLocalAwarenessProps {
+  /** The document handle to send ephemeral state on */
+  handle: DocHandle<unknown>
+  /** Our user ID **/
+  userId: string
+  /** The initial state object/primitive we should advertise */
+  initialState: any
+  /** How frequently to send heartbeats */
+  heartbeatTime?: number
+}
 /**
  * This hook maintains state for the local client.
  * Like React.useState, it returns a [state, setState] array.
@@ -12,19 +22,12 @@ import { DocHandle } from "@automerge/automerge-repo"
  * It also broadcasts a heartbeat to let other clients know it is online.
  *
  * Note that userIds aren't secure (yet). Any client can lie about theirs.
- * ChannelID is usually just your documentID with some extra characters.
  *
  * @param {string} props.userId Unique user ID. Clients can lie about this.
  * @param {any} props.initialState Initial state object/primitive
  * @param {number?1500} props.heartbeatTime How often to send a heartbeat (in ms)
  * @returns [state, setState]
  */
-export interface UseLocalAwarenessProps {
-  handle: DocHandle<unknown>
-  userId: string
-  initialState: any
-  heartbeatTime?: number
-}
 export const useLocalAwareness = ({
   handle,
   userId,
