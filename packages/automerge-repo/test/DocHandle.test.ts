@@ -295,10 +295,11 @@ describe("DocHandle", () => {
     })
 
     let wasBar = false
-    handle.changeAt(headsBefore, doc => {
+    let newHeads = handle.changeAt(headsBefore, doc => {
       wasBar = doc.foo === "bar"
       doc.foo = "baz"
     })
+    assert(newHeads && newHeads.length > 0, "should have new heads")
 
     assert(wasBar, "foo should have been bar as we changed at the old heads")
   })

@@ -326,23 +326,31 @@ export class DocHandle<T> //
     })
   }
 
+  /** Make a change as if the document were at `heads`
+   *
+   * @returns A set of heads representing the concurrent change that was made.
+   */
   changeAt(
     heads: A.Heads,
     callback: A.ChangeFn<T>,
     options: A.ChangeOptions<T> = {}
-  ) {
+  ): string[] | undefined {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
+    let resultHeads: string[] | undefined = undefined
     this.#machine.send(UPDATE, {
       payload: {
         callback: (doc: A.Doc<T>) => {
-          return A.changeAt(doc, heads, options, callback).newDoc
+          const result = A.changeAt(doc, heads, options, callback)
+          resultHeads = result.newHeads
+          return result.newDoc
         },
       },
     })
+    return resultHeads
   }
 
   unavailable() {
