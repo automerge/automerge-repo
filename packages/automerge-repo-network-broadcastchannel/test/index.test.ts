@@ -16,7 +16,7 @@ describe("BroadcastChannel", () => {
 
   runAdapterTests(setup)
 
-  it("should allow a channel name to be specified in the options", async () => {
+  it("allows a channel name to be specified in the options and limits messages to that channel", async () => {
     const a = new BroadcastChannelNetworkAdapter({ channelName: "test" })
     const b = new BroadcastChannelNetworkAdapter({ channelName: "test" })
 
