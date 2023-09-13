@@ -1,7 +1,7 @@
 {
   "name": "@automerge/example-sync-server",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.js",
   "license": "MIT",
   "type": "module",
