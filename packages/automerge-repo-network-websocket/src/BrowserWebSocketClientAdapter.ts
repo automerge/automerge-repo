@@ -9,7 +9,7 @@ import {
   JoinMessage,
 } from "./messages.js"
 import { ProtocolV1 } from "./protocolVersion.js"
-import { isValidMessage } from "@automerge/automerge-repo/dist/network/messages.js"
+import { isValidMessage } from "@automerge/automerge-repo"
 
 const log = debug("WebsocketClient")
 

@@ -17,6 +17,7 @@ export type {
   EphemeralMessage,
   SyncMessage,
 } from "./network/messages.js"
+export { isValidMessage } from "./network/messages.js"
 
 export { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 export { Repo, type SharePolicy } from "./Repo.js"
