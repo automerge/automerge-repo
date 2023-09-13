@@ -3,7 +3,7 @@ import {
   type BinaryDocumentId,
   type DocumentId,
 } from "./types.js"
-import { v4 as uuid } from "uuid"
+import * as Uuid from "uuid"
 import bs58check from "bs58check"
 
 export const urlPrefix = "automerge:"
@@ -63,7 +63,7 @@ export const isValidAutomergeUrl = (str: string): str is AutomergeUrl => {
  */
 export const generateAutomergeUrl = (): AutomergeUrl =>
   stringifyAutomergeUrl({
-    documentId: uuid(null, new Uint8Array(16)) as BinaryDocumentId,
+    documentId: Uuid.v4(null, new Uint8Array(16)) as BinaryDocumentId,
   })
 
 export const documentIdToBinary = (
@@ -73,6 +73,14 @@ export const documentIdToBinary = (
 
 export const binaryToDocumentId = (docId: BinaryDocumentId): DocumentId =>
   bs58check.encode(docId) as DocumentId
+
+export const parseLegacyUUID = (str: string): AutomergeUrl | undefined => {
+  if (Uuid.validate(str)) {
+    const uuid = Uuid.parse(str) as BinaryDocumentId
+    return stringifyAutomergeUrl({ documentId: uuid })
+  }
+  return undefined
+}
 
 /**
  * parts breaks up the URL into constituent pieces,

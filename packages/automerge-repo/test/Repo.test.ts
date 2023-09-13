@@ -22,6 +22,9 @@ import {
   generateLargeObject,
   LargeObject,
 } from "./helpers/generate-large-object.js"
+import { parseAutomergeUrl } from "../dist/DocUrl.js"
+
+import * as Uuid from "uuid"
 
 describe("Repo", () => {
   describe("single repo", () => {
@@ -48,6 +51,34 @@ describe("Repo", () => {
       const handle = repo.create()
       assert.notEqual(handle.documentId, null)
       assert.equal(handle.isReady(), true)
+    })
+
+    it("can find a document once it's created", () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change((d: TestDoc) => {
+        d.foo = "bar"
+      })
+
+      const handle2 = repo.find(handle.url)
+      assert.equal(handle, handle2)
+      assert.deepEqual(handle2.docSync(), { foo: "bar" })
+    })
+
+    it("can find a document using a legacy UUID (for now)", () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change((d: TestDoc) => {
+        d.foo = "bar"
+      })
+
+      const url = handle.url
+      const { binaryDocumentId } = parseAutomergeUrl(url)
+      const legacyDocumentId = Uuid.stringify(binaryDocumentId) as AutomergeUrl // a white lie
+
+      const handle2 = repo.find(legacyDocumentId)
+      assert.equal(handle, handle2)
+      assert.deepEqual(handle2.docSync(), { foo: "bar" })
     })
 
     it("can change a document", async () => {

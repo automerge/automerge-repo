@@ -6,10 +6,16 @@ import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import { type AutomergeUrl, DocumentId, PeerId } from "./types.js"
 import { v4 as uuid } from "uuid"
-import { parseAutomergeUrl, generateAutomergeUrl, isValidAutomergeUrl } from "./DocUrl.js"
+import {
+  parseAutomergeUrl,
+  generateAutomergeUrl,
+  isValidAutomergeUrl,
+  parseLegacyUUID,
+} from "./DocUrl.js"
 
 import { DocHandle } from "./DocHandle.js"
 import { EventEmitter } from "eventemitter3"
+import bs58check from "bs58check"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 export class Repo extends EventEmitter<DocCollectionEvents> {
@@ -61,11 +67,14 @@ export class Repo extends EventEmitter<DocCollectionEvents> {
         handle.request()
       } else {
         handle.awaitNetwork()
-        this.networkSubsystem.whenReady().then(() => {
-          handle.networkReady()
-        }).catch(err => {
-          this.#log("error waiting for network", { err })
-        })
+        this.networkSubsystem
+          .whenReady()
+          .then(() => {
+            handle.networkReady()
+          })
+          .catch(err => {
+            this.#log("error waiting for network", { err })
+          })
       }
 
       // Register the document with the synchronizer. This advertises our interest in the document.
@@ -120,7 +129,7 @@ export class Repo extends EventEmitter<DocCollectionEvents> {
     })
   }
 
-    /** Returns an existing handle if we have it; creates one otherwise. */
+  /** Returns an existing handle if we have it; creates one otherwise. */
   #getHandle<T>(
     /** The documentId of the handle to look up or create */
     documentId: DocumentId,
@@ -183,7 +192,15 @@ export class Repo extends EventEmitter<DocCollectionEvents> {
     automergeUrl: AutomergeUrl
   ): DocHandle<T> {
     if (!isValidAutomergeUrl(automergeUrl)) {
-      throw new Error(`Invalid AutomergeUrl: '${automergeUrl}'`)
+      let maybeAutomergeUrl = parseLegacyUUID(automergeUrl)
+      if (maybeAutomergeUrl) {
+        console.warn(
+          "Legacy UUID document ID detected, converting to AutomergeUrl. This will be removed in a future version."
+        )
+        automergeUrl = maybeAutomergeUrl
+      } else {
+        throw new Error(`Invalid AutomergeUrl: '${automergeUrl}'`)
+      }
     }
 
     const { documentId } = parseAutomergeUrl(automergeUrl)
