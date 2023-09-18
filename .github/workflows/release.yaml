@@ -18,6 +18,28 @@ jobs:
         id: version-updated
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  publish-docs:
+    name: Publish Docs
+    steps:
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+      - name: Install and Build
+        run: |
+          yarn install --no-lockfile
+          yarn build
+      - name: Build docs
+        run: npx typedoc
+      - name: Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@4
+        with:
+          branch: gh-pages
+          folder: docs
   publish-js:
     name: Publish package
     runs-on: ubuntu-latest
