@@ -20,6 +20,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   publish-docs:
     name: Publish Docs
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-node@v3
         with:
