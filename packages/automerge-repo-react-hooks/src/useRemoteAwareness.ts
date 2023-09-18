@@ -6,6 +6,22 @@ import { EventEmitter } from "eventemitter3"
 // Emits new_peer event when a new peer is seen
 export const peerEvents = new EventEmitter()
 
+export interface UseRemoteAwarenessProps {
+  /** The handle to receive ephemeral state on */
+  handle: DocHandle<unknown>
+  /** Our user ID */
+  localUserId?: string
+  /** How long to wait (in ms) before marking a peer as offline */
+  offlineTimeout?: number
+  /** Function to provide current epoch time */
+  getTime?: () => number
+}
+
+/** A map from peer ID to their state */
+export type PeerStates = Record<string, any>
+/** A map from peer ID to their last heartbeat timestamp */
+export type Heartbeats = Record<string, number>
+
 /**
  *
  * This hook returns read-only state for remote clients.
@@ -18,16 +34,6 @@ export const peerEvents = new EventEmitter()
  * @param {function?} props.getTime Function to provide current epoch time (used for testing)
  * @returns [ peerStates: { [userId]: state, ... }, { [userId]: heartbeatEpochTime, ...} ]
  */
-export interface UseRemoteAwarenessProps {
-  handle: DocHandle<unknown>
-  localUserId?: string
-  offlineTimeout?: number
-  getTime?: () => number
-}
-
-export type PeerStates = Record<string, any>
-export type Heartbeats = Record<string, number>
-
 export const useRemoteAwareness = ({
   handle,
   localUserId,

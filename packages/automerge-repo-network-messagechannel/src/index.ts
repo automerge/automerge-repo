@@ -1,3 +1,10 @@
+/**
+ * A `NetworkAdapter` which uses [`MessageChannel`](https://developer.mozilla.org/en-US/docs/Web/API/MessageChannel)
+ * to communicate with other peers. This is useful for communicating between
+ * browser tabs and web workers (including shared workers).
+ *
+ * @module
+ */
 import {
   type Message,
   NetworkAdapter,
@@ -13,6 +20,7 @@ const log = debug("automerge-repo:messagechannel")
 
 export class MessageChannelNetworkAdapter extends NetworkAdapter {
   channels = {}
+  /** @hidden */
   messagePortRef: MessagePortRef
   #startupComplete = false
 
@@ -126,7 +134,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   }
 }
 
-interface MessageChannelNetworkAdapterConfig {
+export interface MessageChannelNetworkAdapterConfig {
   /**
    * This is an optional parameter to use a weak ref to reference the message port that is passed to
    * the adapter. This option is useful when using a message channel with a shared worker. If you

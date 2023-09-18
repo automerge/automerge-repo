@@ -21,7 +21,18 @@ import type { DocumentId, PeerId, AutomergeUrl } from "./types.js"
 import { stringifyAutomergeUrl } from "./DocUrl.js"
 import { encode } from "./helpers/cbor.js"
 
-/** DocHandle is a wrapper around a single Automerge document that lets us listen for changes. */
+/** DocHandle is a wrapper around a single Automerge document that lets us
+ * listen for changes and notify the network and storage of new changes.
+ *
+ * @remarks
+ * A `DocHandle` represents a document which is being managed by a {@link Repo}.
+ * To obtain `DocHandle` use {@link Repo.find} or {@link Repo.create}.
+ *
+ * To modify the underlying document use either {@link DocHandle.change} or 
+ * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some
+ * change has occured and the `Repo` will save any new changes to the
+ * attached {@link StorageAdapter} and send sync messages to connected peers.
+ * */
 export class DocHandle<T> //
   extends EventEmitter<DocHandleEvents<T>>
 {
@@ -30,10 +41,16 @@ export class DocHandle<T> //
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
 
+  /** The URL of this document
+   *
+   * @remarks
+   * This can be used to request the document from an instance of {@link Repo}
+   */
   get url(): AutomergeUrl {
     return stringifyAutomergeUrl({ documentId: this.documentId })
   }
 
+  /** @hidden */
   constructor(
     public documentId: DocumentId,
     { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
@@ -248,6 +265,7 @@ export class DocHandle<T> //
   inState = (states: HandleState[]) =>
     states.some(this.#machine?.getSnapshot().matches)
 
+  /** @hidden */
   get state() {
     return this.#machine?.getSnapshot().value
   }
@@ -303,7 +321,9 @@ export class DocHandle<T> //
     return this.#doc
   }
 
-  /** `update` is called by the repo when we receive changes from the network */
+  /** `update` is called by the repo when we receive changes from the network 
+   * @hidden
+   * */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
     this.#machine.send(UPDATE, {
       payload: { callback },
@@ -357,15 +377,19 @@ export class DocHandle<T> //
     this.#machine.send(MARK_UNAVAILABLE)
   }
 
-  /** `request` is called by the repo when the document is not found in storage */
+  /** `request` is called by the repo when the document is not found in storage 
+   * @hidden
+   * */
   request() {
     if (this.#state === LOADING) this.#machine.send(REQUEST)
   }
 
+  /** @hidden */
   awaitNetwork() {
     if (this.#state === LOADING) this.#machine.send(AWAIT_NETWORK)
   }
 
+  /** @hidden */
   networkReady() {
     if (this.#state === AWAITING_NETWORK) this.#machine.send(NETWORK_READY)
   }
@@ -391,7 +415,8 @@ export class DocHandle<T> //
 
 // WRAPPER CLASS TYPES
 
-interface DocHandleOptions {
+/** @hidden */
+export interface DocHandleOptions {
   isNew?: boolean
   timeoutDelay?: number
 }
@@ -411,10 +436,15 @@ export interface DocHandleDeletePayload<T> {
   handle: DocHandle<T>
 }
 
+/** Emitted when a document has changed */
 export interface DocHandleChangePayload<T> {
+  /** The hande which changed */
   handle: DocHandle<T>
+  /** The value of the document after the change */
   doc: A.Doc<T>
+  /** The patches representing the change that occurred */
   patches: A.Patch[]
+  /** Information about the change */
   patchInfo: A.PatchInfo<T>
 }
 
@@ -444,14 +474,27 @@ export interface DocHandleEvents<T> {
 
 // state
 
+/**
+ * The state of a document handle
+ * @enum
+ *
+ */
 export const HandleState = {
+  /** The handle has been created but not yet loaded or requested */
   IDLE: "idle",
+  /** We are waiting for storage to finish loading */
   LOADING: "loading",
+  /** We are waiting for the network to be come ready */
   AWAITING_NETWORK: "awaitingNetwork",
+  /** We are waiting for someone in the network to respond to a sync request */
   REQUESTING: "requesting",
+  /** The document is available */
   READY: "ready",
+  /** We were unable to load or request the document for some reason */
   FAILED: "failed",
+  /** The document has been deleted from the repo */
   DELETED: "deleted",
+  /** The document was not available in storage or from any connected peers */
   UNAVAILABLE: "unavailable",
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]

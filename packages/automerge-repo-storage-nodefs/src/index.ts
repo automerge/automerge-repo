@@ -1,3 +1,8 @@
+/**
+ * A `StorageAdapter` which stores data in the local filesystem
+ *
+ * @packageDocumentation
+ */
 import { StorageAdapter, type StorageKey } from "@automerge/automerge-repo"
 import fs from "fs"
 import path from "path"
@@ -7,6 +12,9 @@ export class NodeFSStorageAdapter extends StorageAdapter {
   private baseDirectory: string
   private cache: { [key: string]: {storageKey: StorageKey, data: Uint8Array }} = {}
 
+  /**
+   * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
+   */
   constructor(baseDirectory: string = "automerge-repo-data") {
     super()
     this.baseDirectory = baseDirectory

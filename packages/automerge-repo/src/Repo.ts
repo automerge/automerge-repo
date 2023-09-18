@@ -18,14 +18,24 @@ import { EventEmitter } from "eventemitter3"
 import bs58check from "bs58check"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
-export class Repo extends EventEmitter<DocCollectionEvents> {
+/** The `Repo` is the main entry point of this library
+ *
+ * @remarks
+ * To construct a `Repo` you will need an {@link StorageAdapter} and one or
+ * more {@link NetworkAdapter}s. Once you have a `Repo` you can use it to
+ * obtain {@link DocHandle}s.
+ */
+export class Repo extends EventEmitter<RepoEvents> {
   #log: debug.Debugger
 
+  /** @hidden */
   networkSubsystem: NetworkSubsystem
+  /** @hidden */
   storageSubsystem?: StorageSubsystem
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
   /** By default, we share generously with all peers. */
+  /** @hidden */
   sharePolicy: SharePolicy = async () => true
 
   constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
@@ -257,23 +267,34 @@ export interface RepoConfig {
   sharePolicy?: SharePolicy
 }
 
+/** A function that determines whether we should share a document with a peer 
+ *
+ * @remarks
+ * This function is called by the {@link Repo} every time a new document is created
+ * or discovered (such as when another peer starts syncing with us). If this
+ * function returns `true` then the {@link Repo} will begin sharing the new
+ * document with the peer given by `peerId`.
+ * */
 export type SharePolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
 
 // events & payloads
-interface DocCollectionEvents {
+export interface RepoEvents {
+  /** A new document was created or discovered */
   document: (arg: DocumentPayload) => void
+  /** A document was deleted */
   "delete-document": (arg: DeleteDocumentPayload) => void
+  /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (arg: DeleteDocumentPayload) => void
 }
 
-interface DocumentPayload {
+export interface DocumentPayload {
   handle: DocHandle<any>
   isNew: boolean
 }
 
-interface DeleteDocumentPayload {
+export interface DeleteDocumentPayload {
   documentId: DocumentId
 }

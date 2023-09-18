@@ -1,9 +1,26 @@
+/**
+ * 
+ * A `NetworkAdapter` which uses [BroadcastChannel](https://developer.mozilla.org/en-US/docs/Web/API/BroadcastChannel)
+ * to communicate with other peers in the same browser tab. This is a bit of a
+ * hack because `NetworkAdapter`s are supposed to be used as point to 
+ * point communication channels. To get around this the {@link BroadcastChannelNetworkAdapter}
+ * broadcasts messages to all peers and then filters out messages not intended
+ * for the current peer. This is quite inefficient as messages get duplicated
+ * for every peer in the tab, but as it's all local communication anyway
+ * it's not too bad. If efficiency is becoming an issue you can switch to
+ * `automerge-repo-network-messagechannel`.
+ *
+ * @module
+ *
+ */
+
 import {
   NetworkAdapterMessage,
   NetworkAdapter,
   PeerId,
   Message,
 } from "@automerge/automerge-repo"
+
 
 export type BroadcastChannelNetworkAdapterOptions = {
   channelName: string

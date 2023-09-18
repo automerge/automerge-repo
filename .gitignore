@@ -5,3 +5,4 @@ build
 .idea
 vite.config.ts.timestamp-*
 coverage
+docs
