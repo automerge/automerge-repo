@@ -4,11 +4,14 @@ import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
 /** A hook which returns a document identified by a URL and a function to change the document. 
+ *
+ * @returns a tuple of the document and a function to change the document.
+ * The document will be `undefined` if the document is not available in storage or from any peers
  * 
  * @remarks
  * This requires a {@link RepoContext} to be provided by a parent component. 
  * */
-export function useDocument<T>(documentUrl?: AutomergeUrl) {
+export function useDocument<T>(documentUrl?: AutomergeUrl): [Doc<T> | undefined, (changeFn: ChangeFn<T>) => void] {
   const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()
 
@@ -36,5 +39,5 @@ export function useDocument<T>(documentUrl?: AutomergeUrl) {
     handle.change(changeFn, options)
   }
 
-  return [doc, changeDoc] as [Doc<T>, (changeFn: ChangeFn<T>) => void]
+  return [doc, changeDoc]
 }
