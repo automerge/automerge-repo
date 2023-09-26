@@ -1,7 +1,7 @@
 {
   "name": "@automerge/automerge-repo-demo-counter",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
