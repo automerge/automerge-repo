@@ -13,7 +13,7 @@ const repo = new Repo({
     new BroadcastChannelNetworkAdapter(),
     new BrowserWebSocketClientAdapter("ws://localhost:3030"),
   ],
-  storage: new IndexedDBStorageAdapter(),
+  storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),
 })
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

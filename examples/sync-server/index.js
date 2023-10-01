@@ -20,7 +20,7 @@ export class Server {
   #isReady = false
 
   constructor() {
-    const dir = ".amrg"
+    const dir = "automerge-sync-server-data"
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir)
     }
@@ -37,7 +37,7 @@ export class Server {
     const config = {
       network: [new NodeWSServerAdapter(this.#socket)],
       storage: new NodeFSStorageAdapter(dir),
-      /** @ts-ignore @type {(import("automerge-repo").PeerId)}  */
+      /** @ts-ignore @type {(import("@automerge/automerge-repo").PeerId)}  */
       peerId: `storage-server-${hostname}`,
       // Since this is a server, we don't share generously — meaning we only sync documents they already
       // know about and can ask for by ID.

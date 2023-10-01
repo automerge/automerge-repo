@@ -1,9 +1,4 @@
-import {
-  DocHandle,
-  Repo,
-  type DocumentId,
-  generateAutomergeUrl,
-} from "@automerge/automerge-repo"
+import { DocHandle, Repo, type AutomergeUrl } from "@automerge/automerge-repo"
 import { useEffect, useState, useMemo } from "react"
 import { useRepo } from "./useRepo.js"
 
@@ -41,16 +36,16 @@ const setQueryParamValue = (key: string, value, hash): string => {
   return u.toString()
 }
 
-const getDocumentId = (key: string, hash: string) =>
+const getAutomergeUrl = (key: string, hash: string) =>
   key && (getQueryParamValue(key, hash) || localStorage.getItem(key))
 
-const setDocumentId = (key: string, documentId: DocumentId) => {
+const setAutomergeUrl = (key: string, automergeUrl: AutomergeUrl) => {
   if (key) {
-    // Only set URL hash if document ID changed
-    if (documentId !== getQueryParamValue(key, window.location.hash))
-      setHash(setQueryParamValue(key, documentId, window.location.hash))
+    // Only set URL hash if automerge URL changed
+    if (automergeUrl !== getQueryParamValue(key, window.location.hash))
+      setHash(setQueryParamValue(key, automergeUrl, window.location.hash))
   }
-  if (key) localStorage.setItem(key, documentId)
+  if (key) localStorage.setItem(key, automergeUrl)
 }
 
 export interface UseBootstrapOptions<T> {
@@ -58,55 +53,53 @@ export interface UseBootstrapOptions<T> {
   key?: string
   /** Function returning a document handle called if lookup fails. Defaults to repo.create() */
   onNoDocument?: (repo: Repo) => DocHandle<T>
-  /** Function to call if documentId is invalid */
-  onInvalidDocumentId?(repo: Repo, error: Error): DocHandle<T>
+  /** Function to call if automerge URL is invalid */
+  onInvalidAutomergeUrl?(repo: Repo, error: Error): DocHandle<T>
 }
 
 /**
  * This hook is used to set up a single document as the base of an app session.
  * This is a common pattern for simple multiplayer apps with shareable URLs.
  *
- * It will first check for the document ID in the URL hash:
- *   //myapp/#documentId=[document ID]
- * Failing that, it will check for a `documentId` key in localStorage.
+ * It will first check for the automergeUrl in the URL hash:
+ *   //myapp/#automergeUrl=[document URL]
+ * Failing that, it will check for a `automergeUrl` key in localStorage.
  * Failing that, it will call onNoDocument, expecting a handle to be returned.
  *
  * The URL and localStorage will then be updated.
- * Finally, it will return the document ID.
+ * Finally, it will return the Automerge document's URL.
  *
  * @param {string?} props.key Key to use for the URL hash and localStorage
  * @param {function?} props.fallback Function returning a document handle called if lookup fails. Defaults to repo.create()
- * @param {function?} props.onInvalidDocumentId Function to call if documentId is invalid; signature (error) => (repo, onCreate)
+ * @param {function?} props.onInvalidAutomergeUrl Function to call if URL is invalid; signature (error) => (repo, onCreate)
  * @returns {DocHandle} The document handle
  */
 export const useBootstrap = <T>({
-  key = "documentId",
+  key = "automergeUrl",
   onNoDocument = repo => repo.create(),
-  onInvalidDocumentId,
+  onInvalidAutomergeUrl,
 }: UseBootstrapOptions<T> = {}): DocHandle<T> => {
   const repo = useRepo()
   const hash = useHash()
 
   // Try to get existing document; else create a new one
   const handle = useMemo((): DocHandle<T> => {
-    const documentId = getDocumentId(key, hash) as DocumentId | undefined
+    const url = getAutomergeUrl(key, hash) as AutomergeUrl | undefined
     try {
-      return documentId
-        ? repo.find(generateAutomergeUrl({ documentId }))
-        : onNoDocument(repo)
+      return url ? repo.find(url) : onNoDocument(repo)
     } catch (error) {
-      // Presumably the documentId was invalid
-      if (documentId && onInvalidDocumentId)
-        return onInvalidDocumentId(repo, error)
+      // Presumably the URL was invalid
+      if (url && onInvalidAutomergeUrl)
+        return onInvalidAutomergeUrl(repo, error)
       // Forward other errors
       throw error
     }
-  }, [hash, repo, onNoDocument, onInvalidDocumentId])
+  }, [hash, repo, onNoDocument, onInvalidAutomergeUrl])
 
   // Update hashroute & localStorage on changes
   useEffect(() => {
     if (handle) {
-      setDocumentId(key, handle.documentId)
+      setAutomergeUrl(key, handle.url)
     }
   }, [hash, handle])
 

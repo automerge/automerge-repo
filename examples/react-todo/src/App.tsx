@@ -27,8 +27,10 @@ export function App() {
 
   const destroy = (url: AutomergeUrl) => {
     changeState(s => {
+      console.log(s)
       const todos = s.todos as ExtendedArray<AutomergeUrl>
       const index = todos.findIndex(_ => _ === url)
+      console.log(index)
       todos.deleteAt(index)
     })
   }
@@ -46,7 +48,7 @@ export function App() {
 
   const destroyCompleted = async () => {
     if (!state) return
-    for (const id of await getFilteredTodos(Filter.completed)) {
+    for (const url of await getFilteredTodos(Filter.completed)) {
       const todo = await repo.find<TodoData>(url).doc()
       if (todo.completed) destroy(url)
     }

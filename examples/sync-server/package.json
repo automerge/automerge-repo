@@ -10,9 +10,9 @@
   },
   "bin": "./src/index.js",
   "dependencies": {
-    "@automerge/automerge-repo": "0.2.1",
-    "@automerge/automerge-repo-network-websocket": "0.2.1",
-    "@automerge/automerge-repo-storage-nodefs": "0.2.1",
+    "@automerge/automerge-repo": "^1.0.3",
+    "@automerge/automerge-repo-network-websocket": "^1.0.3",
+    "@automerge/automerge-repo-storage-nodefs": "^1.0.3",
     "express": "^4.18.1",
     "ws": "^8.7.0"
   },

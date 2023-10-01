@@ -8,7 +8,7 @@ import { v4 } from 'uuid'
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 
 const repo = new Repo({
-  storage: new IndexedDBStorageAdapter(),
+  storage: new IndexedDBStorageAdapter("use-awareness-example"),
   network: [
     new BroadcastChannelNetworkAdapter()
   ],
