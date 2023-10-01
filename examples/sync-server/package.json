@@ -10,21 +10,22 @@
   },
   "bin": "./src/index.js",
   "dependencies": {
-    "@automerge/automerge-repo": "0.2.1",
-    "@automerge/automerge-repo-network-websocket": "0.2.1",
-    "@automerge/automerge-repo-storage-nodefs": "0.2.1",
+    "@automerge/automerge-repo": "1.0.3",
+    "@automerge/automerge-repo-network-websocket": "1.0.3",
+    "@automerge/automerge-repo-storage-nodefs": "1.0.3",
     "express": "^4.18.1",
     "ws": "^8.7.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.17",
     "ts-node": "^10.9.1",
-    "typescript": "^4.7.4"
+    "typescript": "^5.1.6"
   },
   "prettier": {
     "semi": false
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/sync-server"
 }

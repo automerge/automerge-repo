@@ -1,4 +1,4 @@
-import EventEmitter from "eventemitter3"
+import { EventEmitter } from "eventemitter3"
 import { PortRefEvents, MessagePortRef } from "./MessagePortRef.js"
 
 export class StrongMessagePortRef
