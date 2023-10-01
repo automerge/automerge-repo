@@ -8,9 +8,21 @@ import fs from "fs"
 import path from "path"
 import { rimraf } from "rimraf"
 
+const walkdir = async dirPath =>
+  Promise.all(
+    await fs.promises.readdir(dirPath, { withFileTypes: true }).then(entries =>
+      entries.map(entry => {
+        const childPath = path.join(dirPath, entry.name)
+        return entry.isDirectory() ? walkdir(childPath) : childPath
+      })
+    )
+  )
+
 export class NodeFSStorageAdapter extends StorageAdapter {
   private baseDirectory: string
-  private cache: { [key: string]: {storageKey: StorageKey, data: Uint8Array }} = {}
+  private cache: {
+    [key: string]: { storageKey: StorageKey; data: Uint8Array }
+  } = {}
 
   /**
    * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
@@ -43,7 +55,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
 
   async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
     const key = cacheKey(keyArray)
-    this.cache[key] = {data: binary, storageKey: keyArray}
+    this.cache[key] = { data: binary, storageKey: keyArray }
 
     const filePath = this.getFilePath(keyArray)
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
@@ -63,7 +75,12 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     }
   }
 
-  async loadRange(keyPrefix: StorageKey): Promise<{data: Uint8Array, key: StorageKey}[]> {
+  async loadRange(
+    keyPrefix: StorageKey
+  ): Promise<{ data: Uint8Array; key: StorageKey }[]> {
+    /* This whole function does a bunch of gratuitious string manipulation
+       and could probably be simplified. */
+
     const dirPath = this.getFilePath(keyPrefix)
     const cacheKeyPrefixString = cacheKey(keyPrefix)
 
@@ -75,7 +92,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     // Read filenames from disk
     let diskFiles
     try {
-      diskFiles = await fs.promises.readdir(dirPath, { withFileTypes: true })
+      diskFiles = await walkdir(dirPath)
     } catch (error) {
       if (error.code === "ENOENT") {
         // Directory not found, initialize as empty
@@ -85,25 +102,25 @@ export class NodeFSStorageAdapter extends StorageAdapter {
       }
     }
 
-    const diskKeys: string[] = diskFiles
-      .filter(file => file.isFile())
-      .map(file =>
-        this.getKey([
-          path.relative(this.baseDirectory, path.join(dirPath, file.name)),
-        ])
-      )
+    // The "keys" in the cache don't include the baseDirectory.
+    // We want to de-dupe with the cached keys so we'll use getKey to normalize them.
+    const diskKeys: string[] = diskFiles.map(fileName =>
+      this.getKey([path.relative(this.baseDirectory, fileName)])
+    )
 
     // Combine and deduplicate the lists of keys
     const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
 
     // Load all files
-    return Promise.all(allKeys.map(async keyString => {
+    return Promise.all(
+      allKeys.map(async keyString => {
         const key: StorageKey = keyString.split(path.sep)
         return {
-            data: await this.load(key),
-            key,
+          data: await this.load(key),
+          key,
         }
-    }))
+      })
+    )
   }
 
   async removeRange(keyPrefix: string[]): Promise<void> {
