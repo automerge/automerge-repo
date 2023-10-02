@@ -6,3 +6,4 @@ build
 vite.config.ts.timestamp-*
 coverage
 docs
+automerge-sync-server-data
