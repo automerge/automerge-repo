@@ -104,9 +104,11 @@ export class NodeFSStorageAdapter extends StorageAdapter {
 
     // The "keys" in the cache don't include the baseDirectory.
     // We want to de-dupe with the cached keys so we'll use getKey to normalize them.
-    const diskKeys: string[] = diskFiles.map(fileName =>
-      this.getKey([path.relative(this.baseDirectory, fileName)])
-    )
+    const diskKeys: string[] = diskFiles
+      .flat(Infinity) // the walk function returns a nested array
+      .map(fileName =>
+        this.getKey([path.relative(this.baseDirectory, fileName)])
+      )
 
     // Combine and deduplicate the lists of keys
     const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
