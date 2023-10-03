@@ -2,7 +2,7 @@
   "name": "automerge-use-awareness-example-project",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-use-awareness",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,9 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^1.0.5",
-    "@automerge/automerge-repo-network-broadcastchannel": "^1.0.5",
-    "@automerge/automerge-repo-react-hooks": "^1.0.5",
+    "@automerge/automerge-repo": "^1.0.6",
+    "@automerge/automerge-repo-network-broadcastchannel": "^1.0.6",
+    "@automerge/automerge-repo-react-hooks": "^1.0.6",
     "eventemitter3": "^5.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
