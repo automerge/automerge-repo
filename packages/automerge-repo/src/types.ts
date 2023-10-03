@@ -16,7 +16,7 @@ export type AutomergeUrl = string & { __documentUrl: true } // for opening / lin
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
 /** A branded type for peer IDs */
-export type PeerId = string & { __peerId: false }
+export type PeerId = string & { __peerId: true }
 
 /** A randomly generated string created when the {@link Repo} starts up */
-export type SessionId = string & { __SessionId: false }
+export type SessionId = string & { __SessionId: true }
