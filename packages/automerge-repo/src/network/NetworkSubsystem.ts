@@ -1,17 +1,14 @@
+import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import { PeerId } from "../types.js"
+import { PeerId, SessionId } from "../types.js"
 import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
-
 import {
   EphemeralMessage,
-  isEphemeralMessage,
-  isValidMessage,
   Message,
   MessageContents,
+  isEphemeralMessage,
+  isValidMessage,
 } from "./messages.js"
-
-import debug from "debug"
-import { SessionId } from "../EphemeralData.js"
 
 type EphemeralMessageSource = `${PeerId}:${SessionId}`
 
@@ -110,25 +107,33 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.#log(`Tried to send message but peer not found: ${message.targetId}`)
       return
     }
-    this.#log(`Sending message to ${message.targetId}`)
 
-    if (isEphemeralMessage(message)) {
-      const outbound =
-        "count" in message
-          ? message
-          : {
+    const prepareMessage = (message: MessageContents): Message => {
+      if (message.type === "ephemeral") {
+        if ("count" in message) {
+          // existing ephemeral message from another peer; pass on without changes
+          return message as EphemeralMessage
+        } else {
+          // new ephemeral message from us; add our senderId as well as a counter and session id
+          return {
             ...message,
             count: ++this.#count,
             sessionId: this.#sessionId,
             senderId: this.peerId,
-          }
-      this.#log("Ephemeral message", outbound)
-      peer.send(outbound)
-    } else {
-      const outbound = { ...message, senderId: this.peerId }
-      this.#log("Sync message", outbound)
-      peer.send(outbound)
+          } as EphemeralMessage
+        }
+      } else {
+        // other message type; just add our senderId
+        return {
+          ...message,
+          senderId: this.peerId,
+        }
+      }
     }
+
+    const outbound = prepareMessage(message)
+    this.#log("sending message", outbound)
+    peer.send(outbound as Message)
   }
 
   isReady = () => {
@@ -148,6 +153,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 }
 
+// Q: explain
 function randomPeerId() {
   return `user-${Math.round(Math.random() * 100000)}` as PeerId
 }

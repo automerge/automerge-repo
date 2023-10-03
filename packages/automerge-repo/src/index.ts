@@ -16,9 +16,9 @@
  *
  * ```typescript
  * import { Repo } from "@automerge/automerge-repo";
- * 
+ *
  * const repo = new Repo({
- *   storage: <storage adapter>, 
+ *   storage: <storage adapter>,
  *   network: [<network adapter>, <network adapter>]
  * })
  *
@@ -26,8 +26,13 @@
  * ```
  */
 
-export { DocHandle, type HandleState, type DocHandleOptions, type DocHandleEvents } from "./DocHandle.js"
-export type { 
+export {
+  DocHandle,
+  type HandleState,
+  type DocHandleOptions,
+  type DocHandleEvents,
+} from "./DocHandle.js"
+export type {
   DocHandleChangePayload,
   DocHandleDeletePayload,
   DocHandleEphemeralMessagePayload,
@@ -42,6 +47,8 @@ export type {
   NetworkAdapterEvents,
 } from "./network/NetworkAdapter.js"
 
+// TODO: update this
+
 // This is a bit confusing right now, but:
 // Message is the type for messages used outside of the network adapters
 // there are some extra internal network adapter-only messages on NetworkAdapterMessage
@@ -55,11 +62,17 @@ export type {
   RequestMessage,
   DocumentUnavailableMessage,
   SyncMessage,
-  SessionId,
 } from "./network/messages.js"
 export { isValidMessage } from "./network/messages.js"
 
-export { Repo, type SharePolicy, type RepoConfig, type RepoEvents, type DeleteDocumentPayload, type DocumentPayload } from "./Repo.js"
+export {
+  Repo,
+  type SharePolicy,
+  type RepoConfig,
+  type RepoEvents,
+  type DeleteDocumentPayload,
+  type DocumentPayload,
+} from "./Repo.js"
 export { StorageAdapter, type StorageKey } from "./storage/StorageAdapter.js"
 export {
   parseAutomergeUrl,

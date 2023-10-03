@@ -1,18 +1,14 @@
 import assert from "assert"
-import { BinaryDocumentId, PeerId } from "../src/types.js"
 import { DocHandle } from "../src/DocHandle.js"
-import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
-import { TestDoc } from "./types.js"
-import { parseAutomergeUrl, generateAutomergeUrl } from "../src/DocUrl.js"
-import { SyncMessage } from "../src/index.js"
 import {
   DocumentUnavailableMessage,
-  DocumentUnavailableMessageContents,
   MessageContents,
-  RequestMessageContents,
-  SyncMessageContents,
 } from "../src/network/messages.js"
+import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
+import { PeerId } from "../src/types.js"
+import { TestDoc } from "./types.js"
 
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId

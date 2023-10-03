@@ -1,21 +1,12 @@
-import { Repo } from "../Repo.js"
 import { DocHandle } from "../DocHandle.js"
-import {
-  documentIdToBinary,
-  binaryToDocumentId,
-  stringifyAutomergeUrl,
-} from "../DocUrl.js"
-import { PeerId, DocumentId } from "../types.js"
+import { stringifyAutomergeUrl } from "../DocUrl.js"
+import { Repo } from "../Repo.js"
+import { DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
 import debug from "debug"
-import {
-  DocumentUnavailableMessage,
-  RequestMessage,
-  SynchronizerMessage,
-  SyncMessage,
-} from "../network/messages.js"
+import { Message } from "../network/messages.js"
 const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
@@ -66,7 +57,7 @@ export class CollectionSynchronizer extends Synchronizer {
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
    */
-  async receiveMessage(message: SynchronizerMessage) {
+  async receiveMessage(message: Message) {
     log(
       `onSyncMessage: ${message.senderId}, ${message.documentId}, ${
         "data" in message ? message.data.byteLength + "bytes" : ""
