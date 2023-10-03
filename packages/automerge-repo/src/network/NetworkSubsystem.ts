@@ -127,7 +127,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         return {
           ...message,
           senderId: this.peerId,
-        }
+        } as RepoMessage
       }
     }
 
