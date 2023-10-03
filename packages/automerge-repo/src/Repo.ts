@@ -193,6 +193,21 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
+  /** Create a new DocHandle by cloning the history of an existing DocHandle.
+   *
+   * @param clonedHandle - The handle to clone
+   *
+   * @remarks This is a wrapper around the `clone` function in the Automerge library.
+   * The new `DocHandle` will have a new URL but will share history with the original, 
+   * which means that changes made to the cloned handle can be sensibly merged back 
+   * into the original. 
+   *
+   * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
+   * be notified of the newly created DocHandle.
+   *
+   * @throws if the cloned handle is not yet ready or if
+   * `clonedHandle.docSync()` returns `undefined` (i.e. the handle is unavailable).
+   */
   clone<T>(clonedHandle: DocHandle<T>) {
     if (!clonedHandle.isReady()) {
       throw new Error(

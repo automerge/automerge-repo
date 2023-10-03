@@ -373,6 +373,18 @@ export class DocHandle<T> //
     return resultHeads
   }
 
+  /** Merge another document into this document
+   *
+   * @param otherHandle - the handle of the document to merge into this one
+   *
+   * @remarks
+   * This is a convenience method for
+   * `handle.change(doc => A.merge(doc, otherHandle.docSync()))`. Any peers
+   * whom we are sharing changes with will be notified of the changes resulting
+   * from the merge.
+   *
+   * @throws if either document is not ready or if `otherHandle` is unavailable (`otherHandle.docSync() === undefined`)
+   */
   merge(otherHandle: DocHandle<T>) {
     if (!this.isReady() || !otherHandle.isReady()) {
       throw new Error("Both handles must be ready to merge")
