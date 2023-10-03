@@ -47,12 +47,6 @@ export type {
   NetworkAdapterEvents,
 } from "./network/NetworkAdapter.js"
 
-// TODO: update this
-
-// This is a bit confusing right now, but:
-// Message is the type for messages used outside of the network adapters
-// there are some extra internal network adapter-only messages on NetworkAdapterMessage
-// and Message is (as of this writing) a union type for EphmeralMessage and SyncMessage
 export type {
   Message,
   ArriveMessage,
