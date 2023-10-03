@@ -765,7 +765,7 @@ describe("Repo", () => {
         }, 100)
 
         aliceHandle.on("ephemeral-message", () => {
-          reject("alice got the message")
+          reject(new Error("alice got the message"))
         })
       })
 
