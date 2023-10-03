@@ -11,7 +11,7 @@ import {
 } from "./messages.js"
 
 import debug from "debug"
-import { SessionId } from "../EphemeralData.js"
+import { SessionId } from "../types.js"
 
 type EphemeralMessageSource = `${PeerId}:${SessionId}`
 
@@ -117,11 +117,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         "count" in message
           ? message
           : {
-            ...message,
-            count: ++this.#count,
-            sessionId: this.#sessionId,
-            senderId: this.peerId,
-          }
+              ...message,
+              count: ++this.#count,
+              sessionId: this.#sessionId,
+              senderId: this.peerId,
+            }
       this.#log("Ephemeral message", outbound)
       peer.send(outbound)
     } else {
