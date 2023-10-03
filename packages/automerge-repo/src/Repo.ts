@@ -106,9 +106,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
     const synchronizer = new CollectionSynchronizer(this)
 
-    // When the synchronizer emits sync messages, send them to peers
+    // When the synchronizer emits messages, send them to peers
     synchronizer.on("message", message => {
-      this.#log(`sending sync message to ${message.targetId}`)
+      this.#log(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
     })
 
