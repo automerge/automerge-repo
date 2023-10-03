@@ -108,6 +108,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       return
     }
 
+    /** Messages come in without a senderId and other required information; this is where we make
+     * sure they have everything they need.
+     */
     const prepareMessage = (message: MessageContents): RepoMessage => {
       if (message.type === "ephemeral") {
         if ("count" in message) {
