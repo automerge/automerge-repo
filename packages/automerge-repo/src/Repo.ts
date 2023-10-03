@@ -274,17 +274,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     /** The documentId of the handle to delete */
     id: DocumentId | AutomergeUrl
   ) {
-    if (isValidAutomergeUrl(id)) {
-      ;({ documentId: id } = parseAutomergeUrl(id))
-    }
+    if (isValidAutomergeUrl(id)) id = parseAutomergeUrl(id).documentId
 
     const handle = this.#getHandle(id, false)
     handle.delete()
 
     delete this.#handleCache[id]
-    this.emit("delete-document", {
-      documentId: id,
-    })
+    this.emit("delete-document", { documentId: id })
   }
 }
 
