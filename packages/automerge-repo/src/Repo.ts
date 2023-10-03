@@ -15,7 +15,7 @@ import {
 
 import { DocHandle } from "./DocHandle.js"
 import { EventEmitter } from "eventemitter3"
-import bs58check from "bs58check"
+import { next as Automerge } from "@automerge/automerge"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -193,6 +193,29 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
+  clone<T>(clonedHandle: DocHandle<T>) {
+    if (!clonedHandle.isReady()) {
+      throw new Error(
+        `Cloned handle is not yet in ready state.
+        (Try await handle.waitForReady() first.)`
+      )
+    }
+
+    const sourceDoc = clonedHandle.docSync()
+    if (!sourceDoc) {
+      throw new Error("Cloned handle doesn't have a document.")
+    }
+
+    const handle = this.create<T>()
+
+    handle.update((doc: Automerge.Doc<T>) => {
+      // we replace the document with the new cloned one
+      return Automerge.clone(sourceDoc)
+    })
+
+    return handle
+  }
+
   /**
    * Retrieves a document by id. It gets data from the local system, but also emits a `document`
    * event to advertise interest in the document.
@@ -267,7 +290,7 @@ export interface RepoConfig {
   sharePolicy?: SharePolicy
 }
 
-/** A function that determines whether we should share a document with a peer 
+/** A function that determines whether we should share a document with a peer
  *
  * @remarks
  * This function is called by the {@link Repo} every time a new document is created
