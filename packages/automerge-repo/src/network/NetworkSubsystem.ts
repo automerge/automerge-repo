@@ -153,7 +153,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 }
 
-// Q: explain
 function randomPeerId() {
   return `user-${Math.round(Math.random() * 100000)}` as PeerId
 }
