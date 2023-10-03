@@ -48,10 +48,10 @@ export type {
 } from "./network/NetworkAdapter.js"
 
 export type {
-  Message,
+  RepoMessage as Message,
   ArriveMessage,
   WelcomeMessage,
-  NetworkAdapterMessage,
+  Message as NetworkAdapterMessage,
   EphemeralMessage,
   RequestMessage,
   DocumentUnavailableMessage,

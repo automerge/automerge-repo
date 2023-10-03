@@ -83,12 +83,20 @@ export type WelcomeMessage = MessageBase & {
   type: "welcome"
 }
 
-/** The type of messages that {@link Repo} sends and receive to {@link NetworkAdapter}s */
-export type Message =
+/** These are message types that a {@link NetworkAdapter} surfaces to a {@link Repo}. */
+export type RepoMessage =
   | SyncMessage
   | EphemeralMessage
   | RequestMessage
   | DocumentUnavailableMessage
+
+/** These are all the message types that a {@link NetworkAdapter} might see.
+ *
+ * @remarks
+ * It is not _required_ that a {@link NetworkAdapter} use these types: They are free to use
+ * whatever message type makes sense for their transport. However, this type is a useful default.
+ * */
+export type Message = RepoMessage | ArriveMessage | WelcomeMessage
 
 /**
  * The contents of a message, without the sender ID or other properties added by the {@link NetworkSubsystem})
@@ -98,19 +106,10 @@ export type MessageContents<T extends Message = Message> =
     ? Omit<T, "senderId" | "count" | "sessionId">
     : Omit<T, "senderId">
 
-/** The type of messages that {@link NetworkAdapter}s send and receive to each other
- *
- * @remarks
- * It is not _required_ that a {@link NetworkAdapter} use this message type.
- * NetworkAdapters are free to use whatever message type makes sense for their
- * transport. However, this type is a useful default.
- * */
-export type NetworkAdapterMessage = Message | ArriveMessage | WelcomeMessage
-
 // TYPE GUARDS
 
 export function isValidMessage(
-  message: NetworkAdapterMessage
+  message: Message
 ): message is
   | SyncMessage
   | EphemeralMessage
@@ -128,25 +127,21 @@ export function isValidMessage(
 }
 
 export function isDocumentUnavailableMessage(
-  message: NetworkAdapterMessage
+  message: Message
 ): message is DocumentUnavailableMessage {
   return message.type === "doc-unavailable"
 }
 
-export function isRequestMessage(
-  message: NetworkAdapterMessage
-): message is RequestMessage {
+export function isRequestMessage(message: Message): message is RequestMessage {
   return message.type === "request"
 }
 
-export function isSyncMessage(
-  message: NetworkAdapterMessage
-): message is SyncMessage {
+export function isSyncMessage(message: Message): message is SyncMessage {
   return message.type === "sync"
 }
 
 export function isEphemeralMessage(
-  message: NetworkAdapterMessage
+  message: Message
 ): message is EphemeralMessage {
   return message.type === "ephemeral"
 }

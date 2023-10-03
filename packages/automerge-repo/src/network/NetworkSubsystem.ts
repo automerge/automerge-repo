@@ -4,7 +4,7 @@ import { PeerId, SessionId } from "../types.js"
 import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
 import {
   EphemeralMessage,
-  Message,
+  RepoMessage,
   MessageContents,
   isEphemeralMessage,
   isValidMessage,
@@ -108,7 +108,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       return
     }
 
-    const prepareMessage = (message: MessageContents): Message => {
+    const prepareMessage = (message: MessageContents): RepoMessage => {
       if (message.type === "ephemeral") {
         if ("count" in message) {
           // existing ephemeral message from another peer; pass on without changes
@@ -133,7 +133,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
     const outbound = prepareMessage(message)
     this.#log("sending message", outbound)
-    peer.send(outbound as Message)
+    peer.send(outbound as RepoMessage)
   }
 
   isReady = () => {
@@ -163,7 +163,7 @@ function randomPeerId() {
 export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
-  message: (payload: Message) => void
+  message: (payload: RepoMessage) => void
   ready: () => void
 }
 

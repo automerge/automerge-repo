@@ -11,7 +11,7 @@ import {
 import {
   DocumentUnavailableMessage,
   EphemeralMessage,
-  Message,
+  RepoMessage,
   MessageContents,
   RequestMessage,
   SyncMessage,
@@ -198,7 +198,7 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  receiveMessage(message: Message) {
+  receiveMessage(message: RepoMessage) {
     switch (message.type) {
       case "sync":
       case "request":
