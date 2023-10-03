@@ -93,6 +93,65 @@ describe("Repo", () => {
       assert.equal(v?.foo, "bar")
     })
 
+    it("can clone a document", () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      const handle2 = repo.clone(handle)
+      assert.equal(handle2.isReady(), true)
+      assert.notEqual(handle.documentId, handle2.documentId)
+      assert.deepStrictEqual(handle.docSync(), handle2.docSync())
+      assert.deepStrictEqual(handle2.docSync(), { foo: "bar" })
+    })
+
+    it("the cloned documents are distinct", () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      const handle2 = repo.clone(handle)
+
+      handle.change(d => {
+        d.bar = "bif"
+      })
+      handle2.change(d => {
+        d.baz = "baz"
+      })
+
+      assert.notDeepStrictEqual(handle.docSync(), handle2.docSync())
+      assert.deepStrictEqual(handle.docSync(), { foo: "bar", bar: "bif" })
+      assert.deepStrictEqual(handle2.docSync(), { foo: "bar", baz: "baz" })
+    })
+
+    it("the cloned documents can merge", () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      const handle2 = repo.clone(handle)
+
+      handle.change(d => {
+        d.bar = "bif"
+      })
+      handle2.change(d => {
+        d.baz = "baz"
+      })
+
+      handle.merge(handle2)
+
+      assert.deepStrictEqual(handle.docSync(), {
+        foo: "bar",
+        bar: "bif",
+        baz: "baz",
+      })
+      // only the one handle should be changed
+      assert.deepStrictEqual(handle2.docSync(), { foo: "bar", baz: "baz" })
+    })
+
     it("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
       const { repo } = setup()
       try {
@@ -725,6 +784,52 @@ describe("Repo", () => {
 
       assert.deepStrictEqual(bob.message, message)
       assert.deepStrictEqual(charlie.message, message)
+    })
+
+    it("notifies peers when a document is cloned", async () => {
+      const { bobRepo, charlieRepo } = await setupMeshNetwork()
+
+      // pause to let the network set up
+      await pause(50)
+
+      const handle = bobRepo.create<TestDoc>()
+      handle.change(d => { d.foo = "bar" })
+      const handle2 = bobRepo.clone(handle) 
+
+      // pause to let the sync happen
+      await pause(50)
+
+      const charlieHandle = charlieRepo.find(handle2.url)
+      await charlieHandle.doc()
+      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "bar" })
+    })
+
+    it("notifies peers when a document is merged", async () => {
+      const { bobRepo, charlieRepo } = await setupMeshNetwork()
+
+      // pause to let the network set up
+      await pause(50)
+
+      const handle = bobRepo.create<TestDoc>()
+      handle.change(d => { d.foo = "bar" })
+      const handle2 = bobRepo.clone(handle) 
+
+      // pause to let the sync happen
+      await pause(50)
+
+      const charlieHandle = charlieRepo.find(handle2.url)
+      await charlieHandle.doc()
+      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "bar" })
+
+      // now make a change to doc2 on bobs side and merge it into doc1
+      handle2.change(d => { d.foo = "baz" })
+      handle.merge(handle2)
+      
+      // wait for the network to do it's thang
+      await pause(50)
+
+      await charlieHandle.doc() 
+      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "baz" })
     })
   })
 })

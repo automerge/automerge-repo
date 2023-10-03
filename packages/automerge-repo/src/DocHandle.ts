@@ -28,7 +28,7 @@ import { encode } from "./helpers/cbor.js"
  * A `DocHandle` represents a document which is being managed by a {@link Repo}.
  * To obtain `DocHandle` use {@link Repo.find} or {@link Repo.create}.
  *
- * To modify the underlying document use either {@link DocHandle.change} or 
+ * To modify the underlying document use either {@link DocHandle.change} or
  * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some
  * change has occured and the `Repo` will save any new changes to the
  * attached {@link StorageAdapter} and send sync messages to connected peers.
@@ -321,7 +321,7 @@ export class DocHandle<T> //
     return this.#doc
   }
 
-  /** `update` is called by the repo when we receive changes from the network 
+  /** `update` is called by the repo when we receive changes from the network
    * @hidden
    * */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
@@ -373,11 +373,37 @@ export class DocHandle<T> //
     return resultHeads
   }
 
+  /** Merge another document into this document
+   *
+   * @param otherHandle - the handle of the document to merge into this one
+   *
+   * @remarks
+   * This is a convenience method for
+   * `handle.change(doc => A.merge(doc, otherHandle.docSync()))`. Any peers
+   * whom we are sharing changes with will be notified of the changes resulting
+   * from the merge.
+   *
+   * @throws if either document is not ready or if `otherHandle` is unavailable (`otherHandle.docSync() === undefined`)
+   */
+  merge(otherHandle: DocHandle<T>) {
+    if (!this.isReady() || !otherHandle.isReady()) {
+      throw new Error("Both handles must be ready to merge")
+    }
+    const mergingDoc = otherHandle.docSync()
+    if (!mergingDoc) {
+      throw new Error("The document to be merged in is null, aborting.")
+    }
+
+    this.update(doc => {
+      return A.merge(doc, mergingDoc)
+    })
+  }
+
   unavailable() {
     this.#machine.send(MARK_UNAVAILABLE)
   }
 
-  /** `request` is called by the repo when the document is not found in storage 
+  /** `request` is called by the repo when the document is not found in storage
    * @hidden
    * */
   request() {

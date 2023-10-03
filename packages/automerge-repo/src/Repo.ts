@@ -15,7 +15,7 @@ import {
 
 import { DocHandle } from "./DocHandle.js"
 import { EventEmitter } from "eventemitter3"
-import bs58check from "bs58check"
+import { next as Automerge } from "@automerge/automerge"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -193,6 +193,44 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
+  /** Create a new DocHandle by cloning the history of an existing DocHandle.
+   *
+   * @param clonedHandle - The handle to clone
+   *
+   * @remarks This is a wrapper around the `clone` function in the Automerge library.
+   * The new `DocHandle` will have a new URL but will share history with the original, 
+   * which means that changes made to the cloned handle can be sensibly merged back 
+   * into the original. 
+   *
+   * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
+   * be notified of the newly created DocHandle.
+   *
+   * @throws if the cloned handle is not yet ready or if
+   * `clonedHandle.docSync()` returns `undefined` (i.e. the handle is unavailable).
+   */
+  clone<T>(clonedHandle: DocHandle<T>) {
+    if (!clonedHandle.isReady()) {
+      throw new Error(
+        `Cloned handle is not yet in ready state.
+        (Try await handle.waitForReady() first.)`
+      )
+    }
+
+    const sourceDoc = clonedHandle.docSync()
+    if (!sourceDoc) {
+      throw new Error("Cloned handle doesn't have a document.")
+    }
+
+    const handle = this.create<T>()
+
+    handle.update((doc: Automerge.Doc<T>) => {
+      // we replace the document with the new cloned one
+      return Automerge.clone(sourceDoc)
+    })
+
+    return handle
+  }
+
   /**
    * Retrieves a document by id. It gets data from the local system, but also emits a `document`
    * event to advertise interest in the document.
@@ -267,7 +305,7 @@ export interface RepoConfig {
   sharePolicy?: SharePolicy
 }
 
-/** A function that determines whether we should share a document with a peer 
+/** A function that determines whether we should share a document with a peer
  *
  * @remarks
  * This function is called by the {@link Repo} every time a new document is created
