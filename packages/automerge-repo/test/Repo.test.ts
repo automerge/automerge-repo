@@ -785,5 +785,51 @@ describe("Repo", () => {
       assert.deepStrictEqual(bob.message, message)
       assert.deepStrictEqual(charlie.message, message)
     })
+
+    it("notifies peers when a document is cloned", async () => {
+      const { bobRepo, charlieRepo } = await setupMeshNetwork()
+
+      // pause to let the network set up
+      await pause(50)
+
+      const handle = bobRepo.create<TestDoc>()
+      handle.change(d => { d.foo = "bar" })
+      const handle2 = bobRepo.clone(handle) 
+
+      // pause to let the sync happen
+      await pause(50)
+
+      const charlieHandle = charlieRepo.find(handle2.url)
+      await charlieHandle.doc()
+      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "bar" })
+    })
+
+    it("notifies peers when a document is merged", async () => {
+      const { bobRepo, charlieRepo } = await setupMeshNetwork()
+
+      // pause to let the network set up
+      await pause(50)
+
+      const handle = bobRepo.create<TestDoc>()
+      handle.change(d => { d.foo = "bar" })
+      const handle2 = bobRepo.clone(handle) 
+
+      // pause to let the sync happen
+      await pause(50)
+
+      const charlieHandle = charlieRepo.find(handle2.url)
+      await charlieHandle.doc()
+      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "bar" })
+
+      // now make a change to doc2 on bobs side and merge it into doc1
+      handle2.change(d => { d.foo = "baz" })
+      handle.merge(handle2)
+      
+      // wait for the network to do it's thang
+      await pause(50)
+
+      await charlieHandle.doc() 
+      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "baz" })
+    })
   })
 })
