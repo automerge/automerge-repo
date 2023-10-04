@@ -28,7 +28,7 @@ describe("BroadcastChannel", () => {
     })
 
     const cShouldNotConnect = new Promise<void>((resolve, reject) => {
-      c.once("peer-candidate", () => reject("c should not connect"))
+      c.once("peer-candidate", () => reject(new Error("c should not connect")))
 
       setTimeout(() => {
         resolve()
