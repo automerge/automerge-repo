@@ -1,3 +1,4 @@
+import { describe } from "vitest"
 import { runAdapterTests } from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
 import { MessageChannelNetworkAdapter as Adapter } from "../src/index.js"
 

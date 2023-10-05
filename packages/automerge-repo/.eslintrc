@@ -10,7 +10,7 @@
   ],
   "ignorePatterns": ["dist/**", "test/**", "node_modules/**"],
   "parser": "@typescript-eslint/parser",
-  "plugins": ["@typescript-eslint", "mocha"],
+  "plugins": ["@typescript-eslint"],
   "parserOptions": {
     "project": "./tsconfig.json",
     "ecmaVersion": "latest",

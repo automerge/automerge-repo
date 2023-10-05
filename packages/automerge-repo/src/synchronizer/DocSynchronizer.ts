@@ -222,7 +222,7 @@ export class DocSynchronizer extends Synchronizer {
 
     const { senderId, data } = message
 
-    const contents = decode(data)
+    const contents = decode(new Uint8Array(data))
 
     this.handle.emit("ephemeral-message", {
       handle: this.handle,

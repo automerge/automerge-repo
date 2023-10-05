@@ -28,8 +28,7 @@
     "jsdom": "^22.1.0",
     "react-dom": "^18.2.0",
     "vite-plugin-top-level-await": "^1.3.0",
-    "vite-plugin-wasm": "^3.2.2",
-    "vitest": "^0.33.0"
+    "vite-plugin-wasm": "^3.2.2"
   },
   "watch": {
     "build": {

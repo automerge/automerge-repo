@@ -1,9 +1,10 @@
-import { BroadcastChannelNetworkAdapter } from "../src/index.js"
-import {
-  type SetupFn,
-  runAdapterTests,
-} from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
 import { PeerId } from "@automerge/automerge-repo"
+import { describe, it } from "vitest"
+import {
+  runAdapterTests,
+  type SetupFn,
+} from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
+import { BroadcastChannelNetworkAdapter } from "../src/index.js"
 
 describe("BroadcastChannel", () => {
   const setup: SetupFn = async () => {

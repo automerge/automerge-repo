@@ -1,16 +1,15 @@
 import * as A from "@automerge/automerge/next"
+import { decode } from "cbor-x"
 import assert from "assert"
-import { it } from "mocha"
-import { DocHandle, DocHandleChangePayload } from "../src/index.js"
-import { pause } from "../src/helpers/pause.js"
-import { TestDoc } from "./types.js"
+import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
-import { decode } from "cbor-x"
+import { pause } from "../src/helpers/pause.js"
+import { DocHandle, DocHandleChangePayload } from "../src/index.js"
+import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
-  const BOGUS_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   const docFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
     return A.change<{ foo: string }>(doc, d => (d.foo = "bar"))
@@ -90,7 +89,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.docSync(), undefined)
     assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(_ => { }))
+    assert.throws(() => handle.change(_ => {}))
   })
 
   it("should become ready if the document is updated by the network", async () => {
@@ -128,16 +127,17 @@ describe("DocHandle", () => {
     assert.deepStrictEqual(changePayload.handle, handle)
   })
 
-  it("should not emit a change message if no change happens via update", done => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-    handle.once("change", () => {
-      done(new Error("shouldn't have changed"))
-    })
-    handle.update(d => {
-      setTimeout(done, 0)
-      return d
-    })
-  })
+  it("should not emit a change message if no change happens via update", () =>
+    new Promise<void>((done, reject) => {
+      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      handle.once("change", () => {
+        reject(new Error("shouldn't have changed"))
+      })
+      handle.update(d => {
+        setTimeout(done, 0)
+        return d
+      })
+    }))
 
   it("should update the internal doc prior to emitting the change message", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
@@ -200,16 +200,17 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
   })
 
-  it("should not emit a patch message if no change happens", done => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-    handle.on("change", () => {
-      done(new Error("shouldn't have changed"))
-    })
-    handle.change(_doc => {
-      // do nothing
-      setTimeout(done, 0)
-    })
-  })
+  it("should not emit a patch message if no change happens", () =>
+    new Promise<void>((done, reject) => {
+      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      handle.on("change", () => {
+        reject(new Error("shouldn't have changed"))
+      })
+      handle.change(_doc => {
+        // do nothing
+        setTimeout(done, 0)
+      })
+    }))
 
   it("should time out if the document is not loaded", async () => {
     // set docHandle time out after 5 ms

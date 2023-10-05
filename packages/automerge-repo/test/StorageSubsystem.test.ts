@@ -1,16 +1,13 @@
+import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
+import * as A from "@automerge/automerge/next"
+import assert from "assert"
 import fs from "fs"
 import os from "os"
 import path from "path"
-
-import assert from "assert"
-
-import * as A from "@automerge/automerge/next"
-
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
-import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
-
-import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
+import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
+import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 

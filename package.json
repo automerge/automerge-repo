@@ -16,9 +16,7 @@
     "pub": "lerna publish --yes",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server start",
     "repocheck": "manypkg check",
-    "test": "lerna run test",
-    "test:watch": "lerna run test:watch",
-    "test:coverage": "lerna run test:coverage",
+    "test": "vitest",
     "watch": "lerna run watch --parallel --stream"
   },
   "engines": {
@@ -35,28 +33,24 @@
     "trailingComma": "es5",
     "arrowParens": "avoid"
   },
-  "dependencies": {
+  "devDependencies": {
     "@automerge/automerge": "^2.1.0",
     "@manypkg/cli": "^0.21.0",
-    "@types/chai": "^4.3.4",
-    "@types/mocha": "^9.1.1",
     "@types/node": "^20.4.8",
     "c8": "^7.12.0",
-    "chai": "^4.3.7",
     "cross-env": "^7.0.3",
     "eslint": "^8.15.0",
     "eslint-config-airbnb": "^19.0.4",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.26.0",
-    "eslint-plugin-mocha": "^10.0.5",
     "lerna": "^6.6.0",
-    "mocha": "^10.0.0",
     "npm-run-all": "^4.1.5",
     "npm-watch": "^0.11.0",
     "prettier": "^2.7.1",
     "should": "^13.2.3",
     "ts-node": "^10.9.1",
     "typedoc": "^0.25.1",
-    "typescript": "^5.1.6"
+    "typescript": "^5.1.6",
+    "vitest": "1.0.0-beta.1"
   }
 }

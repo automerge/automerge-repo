@@ -1,11 +1,16 @@
 import assert from "assert"
+import { describe, it } from "vitest"
 import { DocHandle } from "../src/DocHandle.js"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import {
   DocumentUnavailableMessage,
   MessageContents,
 } from "../src/network/messages.js"
+import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
+import { PeerId } from "../src/types.js"
+import { TestDoc } from "./types.js"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
 import { PeerId } from "../src/types.js"
 import { TestDoc } from "./types.js"

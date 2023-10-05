@@ -4,9 +4,10 @@ import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter.js"
 import { startServer } from "./utilities/WebSockets.js"
 import * as CBOR from "cbor-x"
 import WebSocket, { AddressInfo } from "ws"
-import { assert } from "chai"
+import assert from "assert"
 import { PeerId, Repo } from "@automerge/automerge-repo"
 import { once } from "events"
+import { describe, it } from "vitest"
 
 describe("Websocket adapters", async () => {
   let port = 8080
@@ -17,7 +18,7 @@ describe("Websocket adapters", async () => {
 
     while (socket === undefined) {
       try {
-        ; ({ socket, server } = await startServer(port))
+        ;({ socket, server } = await startServer(port))
       } catch (e: any) {
         if (e.code === "EADDRINUSE") {
           port++

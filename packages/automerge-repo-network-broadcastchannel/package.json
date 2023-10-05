@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "npm-watch",
-    "test": "mocha --no-warnings --experimental-specifier-resolution=node --exit"
+    "test": "vitest"
   },
   "peerDependencies": {
     "@automerge/automerge": "^2.1.0"

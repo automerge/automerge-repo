@@ -1,4 +1,5 @@
 import assert from "assert"
+import { describe, it } from "vitest"
 import { NetworkSubsystem } from "../src/network/NetworkSubsystem.js"
 
 // Note: The sync tests in `Repo.test.ts` exercise the network subsystem, and the suite in
