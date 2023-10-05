@@ -678,7 +678,7 @@ describe("Repo", () => {
       }
     }
 
-    it.only("can emit an 'unavailable' event when it's not found on the network", async () => {
+    it("can emit an 'unavailable' event when it's not found on the network", async () => {
       const { charlieRepo } = await setupMeshNetwork()
 
       const url = generateAutomergeUrl()
