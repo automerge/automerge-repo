@@ -1,18 +1,16 @@
 import { DocumentId, PeerId, SessionId } from "../types.js"
 
-type MessageBase = {
+/**
+ * A sync message for a particular document
+ */
+export type SyncMessage = {
+  type: "sync"
+
   /** The peer ID of the sender of this message */
   senderId: PeerId
 
   /** The peer ID of the recipient of this message */
   targetId: PeerId
-}
-
-/**
- * A sync message for a particular document
- */
-export type SyncMessage = MessageBase & {
-  type: "sync"
 
   /** The automerge sync message */
   data: Uint8Array
@@ -31,8 +29,14 @@ export type SyncMessage = MessageBase & {
  * number. The combination of these two things allows us to discard messages
  * we have already seen.
  * */
-export type EphemeralMessage = MessageBase & {
+export type EphemeralMessage = {
   type: "ephemeral"
+
+  /** The peer ID of the sender of this message */
+  senderId: PeerId
+
+  /** The peer ID of the recipient of this message */
+  targetId: PeerId
 
   /** A sequence number which must be incremented for each message sent by this peer */
   count: number
@@ -48,8 +52,14 @@ export type EphemeralMessage = MessageBase & {
 }
 
 /** Sent by a {@link Repo} to indicate that it does not have the document and none of it's connected peers do either */
-export type DocumentUnavailableMessage = MessageBase & {
+export type DocumentUnavailableMessage = {
   type: "doc-unavailable"
+
+  /** The peer ID of the sender of this message */
+  senderId: PeerId
+
+  /** The peer ID of the recipient of this message */
+  targetId: PeerId
 
   /** The document which the peer claims it doesn't have */
   documentId: DocumentId
@@ -61,8 +71,14 @@ export type DocumentUnavailableMessage = MessageBase & {
  * This is identical to a {@link SyncMessage} except that it is sent by a {@link Repo}
  * as the initial sync message when asking the other peer if it has the document.
  * */
-export type RequestMessage = MessageBase & {
+export type RequestMessage = {
   type: "request"
+
+  /** The peer ID of the sender of this message */
+  senderId: PeerId
+
+  /** The peer ID of the recipient of this message */
+  targetId: PeerId
 
   /** The initial automerge sync message */
   data: Uint8Array
@@ -72,15 +88,22 @@ export type RequestMessage = MessageBase & {
 }
 
 /** Notify the network that we have arrived so everyone knows our peer ID */
-export type ArriveMessage = MessageBase & {
+export type ArriveMessage = {
   type: "arrive"
 
-  targetId: never
+  /** The peer ID of the sender of this message */
+  senderId: PeerId
 }
 
 /** Respond to an arriving peer with our peer ID */
-export type WelcomeMessage = MessageBase & {
+export type WelcomeMessage = {
   type: "welcome"
+
+  /** The peer ID of the recipient sender this message */
+  senderId: PeerId
+
+  /** The peer ID of the recipient of this message */
+  targetId: PeerId
 }
 
 /** These are message types that a {@link NetworkAdapter} surfaces to a {@link Repo}. */
