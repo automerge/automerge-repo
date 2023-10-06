@@ -26,54 +26,54 @@
  * ```
  */
 
-export {
-  DocHandle,
-  type HandleState,
-  type DocHandleOptions,
-  type DocHandleEvents,
-} from "./DocHandle.js"
-export type {
-  DocHandleChangePayload,
-  DocHandleDeletePayload,
-  DocHandleEphemeralMessagePayload,
-  DocHandleOutboundEphemeralMessagePayload,
-  DocHandleEncodedChangePayload,
-} from "./DocHandle.js"
+export { Repo } from "./Repo.js"
+export { DocHandle } from "./DocHandle.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
-export type {
-  OpenPayload,
-  PeerCandidatePayload,
-  PeerDisconnectedPayload,
-  NetworkAdapterEvents,
-} from "./network/NetworkAdapter.js"
-
-export type {
-  RepoMessage as Message,
-  ArriveMessage,
-  WelcomeMessage,
-  Message as NetworkAdapterMessage,
-  EphemeralMessage,
-  RequestMessage,
-  DocumentUnavailableMessage,
-  SyncMessage,
-} from "./network/messages.js"
-export { isValidRepoMessage as isValidMessage } from "./network/messages.js"
-
+export { StorageAdapter } from "./storage/StorageAdapter.js"
 export {
-  Repo,
-  type SharePolicy,
-  type RepoConfig,
-  type RepoEvents,
-  type DeleteDocumentPayload,
-  type DocumentPayload,
-} from "./Repo.js"
-export { StorageAdapter, type StorageKey } from "./storage/StorageAdapter.js"
-export {
-  parseAutomergeUrl,
   isValidAutomergeUrl,
-  stringifyAutomergeUrl as generateAutomergeUrl,
+  parseAutomergeUrl,
+  stringifyAutomergeUrl,
 } from "./DocUrl.js"
-export * from "./types.js"
+export { isValidRepoMessage } from "./network/messages.js"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
+
+// types
+
+export type {
+  DocHandleChangePayload,
+  DocHandleDeletePayload,
+  DocHandleEncodedChangePayload,
+  DocHandleEphemeralMessagePayload,
+  DocHandleEvents,
+  DocHandleOptions,
+  DocHandleOutboundEphemeralMessagePayload,
+  HandleState,
+} from "./DocHandle.js"
+export type {
+  DeleteDocumentPayload,
+  DocumentPayload,
+  RepoConfig,
+  RepoEvents,
+  SharePolicy,
+} from "./Repo.js"
+export type {
+  NetworkAdapterEvents,
+  OpenPayload,
+  PeerCandidatePayload,
+  PeerDisconnectedPayload,
+} from "./network/NetworkAdapter.js"
+export type {
+  ArriveMessage,
+  DocumentUnavailableMessage,
+  EphemeralMessage,
+  Message,
+  RepoMessage,
+  RequestMessage,
+  SyncMessage,
+  WelcomeMessage,
+} from "./network/messages.js"
+export type { StorageKey } from "./storage/StorageAdapter.js"
+export type * from "./types.js"
