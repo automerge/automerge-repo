@@ -93,6 +93,9 @@ export type ArriveMessage = {
 
   /** The peer ID of the sender of this message */
   senderId: PeerId
+
+  /** Arrive messages don't have a targetId */
+  targetId: never
 }
 
 /** Respond to an arriving peer with our peer ID */

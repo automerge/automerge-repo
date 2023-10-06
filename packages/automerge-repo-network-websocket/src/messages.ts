@@ -1,4 +1,4 @@
-import { type Message, type PeerId } from "@automerge/automerge-repo"
+import { type RepoMessage, type PeerId } from "@automerge/automerge-repo"
 import { ProtocolVersion } from "./protocolVersion.js"
 
 /** The sender is disconnecting */
@@ -38,8 +38,11 @@ export type ErrorMessage = {
   targetId: PeerId
 }
 
-// This adapter doesn't use NetworkAdapterMessage, it has its own idea of how to handle join/leave
+// This adapter doesn't use the network adapter Message types, it has its own idea of how to handle
+// join/leave
+
 /** A message from the client to the server */
-export type FromClientMessage = JoinMessage | LeaveMessage | Message
+export type FromClientMessage = JoinMessage | LeaveMessage | RepoMessage
+
 /** A message from the server to the client */
-export type FromServerMessage = PeerMessage | ErrorMessage | Message
+export type FromServerMessage = PeerMessage | ErrorMessage | RepoMessage

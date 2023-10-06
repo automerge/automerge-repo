@@ -6,10 +6,10 @@
  * @module
  */
 import {
-  type Message,
+  type RepoMessage,
   NetworkAdapter,
   type PeerId,
-  NetworkAdapterMessage,
+  type Message,
 } from "@automerge/automerge-repo"
 import { MessagePortRef } from "./MessagePortRef.js"
 import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
@@ -41,45 +41,42 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     log("messageport connecting")
     this.peerId = peerId
     this.messagePortRef.start()
-    this.messagePortRef.addListener(
-      "message",
-      (e: { data: NetworkAdapterMessage }) => {
-        log("message port received", e.data)
+    this.messagePortRef.addListener("message", (e: { data: Message }) => {
+      log("message port received", e.data)
 
-        const message = e.data
-        if ("targetId" in message && message.targetId !== this.peerId) {
-          throw new Error(
-            "MessagePortNetwork should never receive messages for a different peer."
-          )
-        }
-
-        const { senderId, type } = message
-
-        switch (type) {
-          case "arrive":
-            this.messagePortRef.postMessage({
-              senderId: this.peerId,
-              targetId: senderId,
-              type: "welcome",
-            })
-            this.announceConnection(senderId)
-            break
-          case "welcome":
-            this.announceConnection(senderId)
-            break
-          default:
-            if (!("data" in message)) {
-              this.emit("message", message)
-            } else {
-              this.emit("message", {
-                ...message,
-                data: new Uint8Array(message.data),
-              })
-            }
-            break
-        }
+      const message = e.data
+      if ("targetId" in message && message.targetId !== this.peerId) {
+        throw new Error(
+          "MessagePortNetwork should never receive messages for a different peer."
+        )
       }
-    )
+
+      const { senderId, type } = message
+
+      switch (type) {
+        case "arrive":
+          this.messagePortRef.postMessage({
+            senderId: this.peerId,
+            targetId: senderId,
+            type: "welcome",
+          })
+          this.announceConnection(senderId)
+          break
+        case "welcome":
+          this.announceConnection(senderId)
+          break
+        default:
+          if (!("data" in message)) {
+            this.emit("message", message)
+          } else {
+            this.emit("message", {
+              ...message,
+              data: new Uint8Array(message.data),
+            })
+          }
+          break
+      }
+    })
 
     this.messagePortRef.addListener("close", () => {
       this.emit("close")
@@ -101,7 +98,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     }, 100)
   }
 
-  send(message: Message) {
+  send(message: RepoMessage) {
     if ("data" in message) {
       const data = message.data.buffer.slice(
         message.data.byteOffset,
