@@ -131,7 +131,7 @@ export type MessageContents<T extends Message = Message> =
 
 // TYPE GUARDS
 
-export function isValidMessage(
+export function isValidRepoMessage(
   message: Message
 ): message is
   | SyncMessage

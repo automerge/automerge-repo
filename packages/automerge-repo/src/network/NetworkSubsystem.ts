@@ -7,7 +7,7 @@ import {
   RepoMessage,
   MessageContents,
   isEphemeralMessage,
-  isValidMessage,
+  isValidRepoMessage,
 } from "./messages.js"
 
 type EphemeralMessageSource = `${PeerId}:${SessionId}`
@@ -66,7 +66,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     })
 
     networkAdapter.on("message", msg => {
-      if (!isValidMessage(msg)) {
+      if (!isValidRepoMessage(msg)) {
         this.#log(`invalid message: ${JSON.stringify(msg)}`)
         return
       }

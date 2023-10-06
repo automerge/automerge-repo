@@ -57,7 +57,7 @@ export type {
   DocumentUnavailableMessage,
   SyncMessage,
 } from "./network/messages.js"
-export { isValidMessage } from "./network/messages.js"
+export { isValidRepoMessage as isValidMessage } from "./network/messages.js"
 
 export {
   Repo,
