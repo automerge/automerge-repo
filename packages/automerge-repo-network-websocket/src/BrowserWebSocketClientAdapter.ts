@@ -9,7 +9,7 @@ import {
   JoinMessage,
 } from "./messages.js"
 import { ProtocolV1 } from "./protocolVersion.js"
-import { isValidMessage } from "@automerge/automerge-repo"
+import { isValidRepoMessage } from "@automerge/automerge-repo"
 
 const log = debug("WebsocketClient")
 
@@ -159,7 +159,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
         log(`error: ${decoded.message}`)
         break
       default:
-        if (!isValidMessage(decoded)) {
+        if (!isValidRepoMessage(decoded)) {
           throw new Error("Invalid message received")
         }
         this.emit("message", decoded)

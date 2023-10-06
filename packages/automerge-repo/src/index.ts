@@ -16,9 +16,9 @@
  *
  * ```typescript
  * import { Repo } from "@automerge/automerge-repo";
- * 
+ *
  * const repo = new Repo({
- *   storage: <storage adapter>, 
+ *   storage: <storage adapter>,
  *   network: [<network adapter>, <network adapter>]
  * })
  *
@@ -26,47 +26,54 @@
  * ```
  */
 
-export { DocHandle, type HandleState, type DocHandleOptions, type DocHandleEvents } from "./DocHandle.js"
-export type { 
-  DocHandleChangePayload,
-  DocHandleDeletePayload,
-  DocHandleEphemeralMessagePayload,
-  DocHandleOutboundEphemeralMessagePayload,
-  DocHandleEncodedChangePayload,
-} from "./DocHandle.js"
+export { Repo } from "./Repo.js"
+export { DocHandle } from "./DocHandle.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
-export type {
-  OpenPayload,
-  PeerCandidatePayload,
-  PeerDisconnectedPayload,
-  NetworkAdapterEvents,
-} from "./network/NetworkAdapter.js"
-
-// This is a bit confusing right now, but:
-// Message is the type for messages used outside of the network adapters
-// there are some extra internal network adapter-only messages on NetworkAdapterMessage
-// and Message is (as of this writing) a union type for EphmeralMessage and SyncMessage
-export type {
-  Message,
-  ArriveMessage,
-  WelcomeMessage,
-  NetworkAdapterMessage,
-  EphemeralMessage,
-  RequestMessage,
-  DocumentUnavailableMessage,
-  SyncMessage,
-  SessionId,
-} from "./network/messages.js"
-export { isValidMessage } from "./network/messages.js"
-
-export { Repo, type SharePolicy, type RepoConfig, type RepoEvents, type DeleteDocumentPayload, type DocumentPayload } from "./Repo.js"
-export { StorageAdapter, type StorageKey } from "./storage/StorageAdapter.js"
+export { StorageAdapter } from "./storage/StorageAdapter.js"
 export {
-  parseAutomergeUrl,
   isValidAutomergeUrl,
-  stringifyAutomergeUrl as generateAutomergeUrl,
+  parseAutomergeUrl,
+  stringifyAutomergeUrl,
 } from "./DocUrl.js"
-export * from "./types.js"
+export { isValidRepoMessage } from "./network/messages.js"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
+
+// types
+
+export type {
+  DocHandleChangePayload,
+  DocHandleDeletePayload,
+  DocHandleEncodedChangePayload,
+  DocHandleEphemeralMessagePayload,
+  DocHandleEvents,
+  DocHandleOptions,
+  DocHandleOutboundEphemeralMessagePayload,
+  HandleState,
+} from "./DocHandle.js"
+export type {
+  DeleteDocumentPayload,
+  DocumentPayload,
+  RepoConfig,
+  RepoEvents,
+  SharePolicy,
+} from "./Repo.js"
+export type {
+  NetworkAdapterEvents,
+  OpenPayload,
+  PeerCandidatePayload,
+  PeerDisconnectedPayload,
+} from "./network/NetworkAdapter.js"
+export type {
+  ArriveMessage,
+  DocumentUnavailableMessage,
+  EphemeralMessage,
+  Message,
+  RepoMessage,
+  RequestMessage,
+  SyncMessage,
+  WelcomeMessage,
+} from "./network/messages.js"
+export type { StorageKey } from "./storage/StorageAdapter.js"
+export type * from "./types.js"

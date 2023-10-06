@@ -1,8 +1,8 @@
 /**
- * 
+ *
  * A `NetworkAdapter` which uses [BroadcastChannel](https://developer.mozilla.org/en-US/docs/Web/API/BroadcastChannel)
  * to communicate with other peers in the same browser tab. This is a bit of a
- * hack because `NetworkAdapter`s are supposed to be used as point to 
+ * hack because `NetworkAdapter`s are supposed to be used as point to
  * point communication channels. To get around this the {@link BroadcastChannelNetworkAdapter}
  * broadcasts messages to all peers and then filters out messages not intended
  * for the current peer. This is quite inefficient as messages get duplicated
@@ -15,12 +15,11 @@
  */
 
 import {
-  NetworkAdapterMessage,
+  Message,
   NetworkAdapter,
   PeerId,
-  Message,
+  RepoMessage,
 } from "@automerge/automerge-repo"
-
 
 export type BroadcastChannelNetworkAdapterOptions = {
   channelName: string
@@ -42,7 +41,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
 
     this.#broadcastChannel.addEventListener(
       "message",
-      (e: { data: NetworkAdapterMessage }) => {
+      (e: { data: Message }) => {
         const message = e.data
         if ("targetId" in message && message.targetId !== this.peerId) {
           return
@@ -88,7 +87,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.emit("peer-candidate", { peerId })
   }
 
-  send(message: Message) {
+  send(message: RepoMessage) {
     if ("data" in message) {
       this.#broadcastChannel.postMessage({
         ...message,

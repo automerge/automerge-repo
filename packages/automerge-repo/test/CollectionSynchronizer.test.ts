@@ -22,9 +22,10 @@ describe("CollectionSynchronizer", () => {
     const handle = repo.create()
     synchronizer.addPeer("peer1" as PeerId)
 
-    synchronizer.once("message", event => {
-      assert(event.targetId === "peer1")
-      assert(event.documentId === handle.documentId)
+    synchronizer.once("message", msg => {
+      assert(msg.type === "sync")
+      assert(msg.targetId === "peer1")
+      assert(msg.documentId === handle.documentId)
       done()
     })
 
@@ -34,9 +35,10 @@ describe("CollectionSynchronizer", () => {
   it("starts synchronizing existing documents when a peer is added", done => {
     const handle = repo.create()
     synchronizer.addDocument(handle.documentId)
-    synchronizer.once("message", event => {
-      assert(event.targetId === "peer1")
-      assert(event.documentId === handle.documentId)
+    synchronizer.once("message", msg => {
+      assert(msg.type === "sync")
+      assert(msg.targetId === "peer1")
+      assert(msg.documentId === handle.documentId)
       done()
     })
     synchronizer.addPeer("peer1" as PeerId)

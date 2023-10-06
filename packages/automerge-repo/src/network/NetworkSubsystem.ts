@@ -1,17 +1,14 @@
+import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import { PeerId } from "../types.js"
+import { PeerId, SessionId } from "../types.js"
 import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
-
 import {
   EphemeralMessage,
-  isEphemeralMessage,
-  isValidMessage,
-  Message,
+  RepoMessage,
   MessageContents,
+  isEphemeralMessage,
+  isValidRepoMessage,
 } from "./messages.js"
-
-import debug from "debug"
-import { SessionId } from "../EphemeralData.js"
 
 type EphemeralMessageSource = `${PeerId}:${SessionId}`
 
@@ -69,7 +66,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     })
 
     networkAdapter.on("message", msg => {
-      if (!isValidMessage(msg)) {
+      if (!isValidRepoMessage(msg)) {
         this.#log(`invalid message: ${JSON.stringify(msg)}`)
         return
       }
@@ -110,25 +107,36 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.#log(`Tried to send message but peer not found: ${message.targetId}`)
       return
     }
-    this.#log(`Sending message to ${message.targetId}`)
 
-    if (isEphemeralMessage(message)) {
-      const outbound =
-        "count" in message
-          ? message
-          : {
+    /** Messages come in without a senderId and other required information; this is where we make
+     * sure they have everything they need.
+     */
+    const prepareMessage = (message: MessageContents): RepoMessage => {
+      if (message.type === "ephemeral") {
+        if ("count" in message) {
+          // existing ephemeral message from another peer; pass on without changes
+          return message as EphemeralMessage
+        } else {
+          // new ephemeral message from us; add our senderId as well as a counter and session id
+          return {
             ...message,
             count: ++this.#count,
             sessionId: this.#sessionId,
             senderId: this.peerId,
-          }
-      this.#log("Ephemeral message", outbound)
-      peer.send(outbound)
-    } else {
-      const outbound = { ...message, senderId: this.peerId }
-      this.#log("Sync message", outbound)
-      peer.send(outbound)
+          } as EphemeralMessage
+        }
+      } else {
+        // other message type; just add our senderId
+        return {
+          ...message,
+          senderId: this.peerId,
+        } as RepoMessage
+      }
     }
+
+    const outbound = prepareMessage(message)
+    this.#log("sending message", outbound)
+    peer.send(outbound as RepoMessage)
   }
 
   isReady = () => {
@@ -157,7 +165,7 @@ function randomPeerId() {
 export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
-  message: (payload: Message) => void
+  message: (payload: RepoMessage) => void
   ready: () => void
 }
 

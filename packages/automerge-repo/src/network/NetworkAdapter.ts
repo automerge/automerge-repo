@@ -1,6 +1,6 @@
 import { EventEmitter } from "eventemitter3"
 import { PeerId } from "../types.js"
-import { Message } from "./messages.js"
+import { RepoMessage } from "./messages.js"
 
 /** An interface representing some way to connect to other peers
  *
@@ -22,7 +22,7 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
    *
    * @argument message - the message to send
    */
-  abstract send(message: Message): void
+  abstract send(message: RepoMessage): void
 
   /** Called by the {@link Repo} to disconnect from the network */
   abstract disconnect(): void
@@ -33,14 +33,18 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
 export interface NetworkAdapterEvents {
   /** Emitted when the network is ready to be used */
   ready: (payload: OpenPayload) => void
+
   /** Emitted when the network is closed */
   close: () => void
+
   /** Emitted when the network adapter learns about a new peer */
   "peer-candidate": (payload: PeerCandidatePayload) => void
+
   /** Emitted when the network adapter learns that a peer has disconnected */
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
+
   /** Emitted when the network adapter receives a message from a peer */
-  message: (payload: Message) => void
+  message: (payload: RepoMessage) => void
 }
 
 export interface OpenPayload {

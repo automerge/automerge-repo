@@ -1,5 +1,5 @@
 import { DocumentId, PeerId } from "./index.js"
-import { EphemeralMessageContents } from "./network/messages.js"
+import { EphemeralMessage, MessageContents } from "./network/messages.js"
 
 // types
 /** A randomly generated string created when the {@link Repo} starts up */
@@ -12,6 +12,6 @@ export interface EphemeralDataPayload {
 }
 
 export type EphemeralDataMessageEvents = {
-  message: (event: EphemeralMessageContents) => void
+  message: (event: MessageContents<EphemeralMessage>) => void
   data: (event: EphemeralDataPayload) => void
 }

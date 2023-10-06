@@ -1,28 +1,26 @@
 import * as A from "@automerge/automerge/next"
+import { decode } from "cbor-x"
+import debug from "debug"
 import {
-  AWAITING_NETWORK,
   DocHandle,
   DocHandleOutboundEphemeralMessagePayload,
   READY,
   REQUESTING,
   UNAVAILABLE,
 } from "../DocHandle.js"
+import {
+  DocumentUnavailableMessage,
+  EphemeralMessage,
+  RepoMessage,
+  MessageContents,
+  RequestMessage,
+  SyncMessage,
+  isRequestMessage,
+} from "../network/messages.js"
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 
-import debug from "debug"
-import {
-  EphemeralMessage,
-  isDocumentUnavailableMessage,
-  isRequestMessage,
-  Message,
-  RequestMessage,
-  SynchronizerMessage,
-  SyncMessage,
-} from "../network/messages.js"
-
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
-import { decode } from "cbor-x"
 
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
@@ -90,12 +88,13 @@ export class DocSynchronizer extends Synchronizer {
   #sendEphemeralMessage(peerId: PeerId, data: Uint8Array) {
     this.#log(`sendEphemeralMessage ->${peerId}`)
 
-    this.emit("message", {
+    const message: MessageContents<EphemeralMessage> = {
       type: "ephemeral",
       targetId: peerId,
       documentId: this.handle.documentId,
       data,
-    })
+    }
+    this.emit("message", message)
   }
 
   #getSyncState(peerId: PeerId) {
@@ -128,8 +127,6 @@ export class DocSynchronizer extends Synchronizer {
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
     this.#setSyncState(peerId, newSyncState)
     if (message) {
-      this.#logMessage(`sendSyncMessage 🡒 ${peerId}`, message)
-
       const decoded = A.decodeSyncMessage(message)
 
       if (
@@ -145,14 +142,14 @@ export class DocSynchronizer extends Synchronizer {
           targetId: peerId,
           documentId: this.handle.documentId,
           data: message,
-        })
+        } as RequestMessage)
       } else {
         this.emit("message", {
           type: "sync",
           targetId: peerId,
           data: message,
           documentId: this.handle.documentId,
-        })
+        } as SyncMessage)
       }
 
       // if we have sent heads, then the peer now has or will have the document
@@ -160,26 +157,6 @@ export class DocSynchronizer extends Synchronizer {
         this.#peerDocumentStatuses[peerId] = "has"
       }
     }
-  }
-
-  #logMessage = (label: string, message: Uint8Array) => {
-    // This is real expensive...
-    return
-
-    const size = message.byteLength
-    const logText = `${label} ${size}b`
-    const decoded = A.decodeSyncMessage(message)
-
-    this.#conciseLog(logText)
-    this.#log(logText, decoded)
-
-    // expanding is expensive, so only do it if we're logging at this level
-    const expanded = this.#opsLog.enabled
-      ? decoded.changes.flatMap((change: A.Change) =>
-        A.decodeChange(change).ops.map((op: any) => JSON.stringify(op))
-      )
-      : null
-    this.#opsLog(logText, expanded)
   }
 
   /// PUBLIC
@@ -204,7 +181,6 @@ export class DocSynchronizer extends Synchronizer {
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
     void this.handle.doc([READY, REQUESTING, UNAVAILABLE]).then(doc => {
-
       // we register out peers first, then say that sync has started
       this.#syncStarted = true
       this.#checkDocUnavailable()
@@ -222,7 +198,7 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers = this.#peers.filter(p => p !== peerId)
   }
 
-  receiveMessage(message: SynchronizerMessage) {
+  receiveMessage(message: RepoMessage) {
     switch (message.type) {
       case "sync":
       case "request":
@@ -320,11 +296,12 @@ export class DocSynchronizer extends Synchronizer {
       this.#peers
         .filter(peerId => this.#peerDocumentStatuses[peerId] === "wants")
         .forEach(peerId => {
-          this.emit("message", {
+          const message: MessageContents<DocumentUnavailableMessage> = {
             type: "doc-unavailable",
             documentId: this.handle.documentId,
             targetId: peerId,
-          })
+          }
+          this.emit("message", message)
         })
 
       this.handle.unavailable()
