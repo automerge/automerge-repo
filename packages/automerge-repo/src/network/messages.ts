@@ -131,40 +131,24 @@ export type MessageContents<T extends Message = Message> =
 
 // TYPE GUARDS
 
-export function isValidRepoMessage(
-  message: Message
-): message is
-  | SyncMessage
-  | EphemeralMessage
-  | RequestMessage
-  | DocumentUnavailableMessage {
-  return (
-    typeof message === "object" &&
-    typeof message.type === "string" &&
-    typeof message.senderId === "string" &&
-    (isSyncMessage(message) ||
-      isEphemeralMessage(message) ||
-      isRequestMessage(message) ||
-      isDocumentUnavailableMessage(message))
-  )
-}
+export const isValidRepoMessage = (message: Message): message is RepoMessage =>
+  typeof message === "object" &&
+  typeof message.type === "string" &&
+  typeof message.senderId === "string" &&
+  (isSyncMessage(message) ||
+    isEphemeralMessage(message) ||
+    isRequestMessage(message) ||
+    isDocumentUnavailableMessage(message))
 
-export function isDocumentUnavailableMessage(
-  message: Message
-): message is DocumentUnavailableMessage {
-  return message.type === "doc-unavailable"
-}
+// prettier-ignore
+export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage => 
+  msg.type === "doc-unavailable"
 
-export function isRequestMessage(message: Message): message is RequestMessage {
-  return message.type === "request"
-}
+export const isRequestMessage = (msg: Message): msg is RequestMessage =>
+  msg.type === "request"
 
-export function isSyncMessage(message: Message): message is SyncMessage {
-  return message.type === "sync"
-}
+export const isSyncMessage = (msg: Message): msg is SyncMessage =>
+  msg.type === "sync"
 
-export function isEphemeralMessage(
-  message: Message
-): message is EphemeralMessage {
-  return message.type === "ephemeral"
-}
+export const isEphemeralMessage = (msg: Message): msg is EphemeralMessage =>
+  msg.type === "ephemeral"
