@@ -25,7 +25,7 @@ import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 
 describe("Repo", () => {
-  describe("single repo", () => {
+  describe("local only", () => {
     const setup = ({ startReady = true } = {}) => {
       const storageAdapter = new DummyStorageAdapter()
       const networkAdapter = new DummyNetworkAdapter({ startReady })
@@ -377,7 +377,7 @@ describe("Repo", () => {
     })
   })
 
-  describe("sync", async () => {
+  describe("with peers", async () => {
     const charlieExcludedDocuments: DocumentId[] = []
     const bobExcludedDocuments: DocumentId[] = []
 
