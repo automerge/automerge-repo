@@ -26,9 +26,9 @@ import { TestDoc } from "./types.js"
 
 describe("Repo", () => {
   describe("single repo", () => {
-    const setup = (networkReady = true) => {
+    const setup = ({ startReady = true } = {}) => {
       const storageAdapter = new DummyStorageAdapter()
-      const networkAdapter = new DummyNetworkAdapter(networkReady)
+      const networkAdapter = new DummyNetworkAdapter({ startReady })
 
       const repo = new Repo({
         storage: storageAdapter,
