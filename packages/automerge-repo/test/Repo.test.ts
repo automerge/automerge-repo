@@ -1,4 +1,3 @@
-import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import assert from "assert"
 import * as Uuid from "uuid"
@@ -8,7 +7,7 @@ import { READY } from "../src/DocHandle.js"
 import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl.js"
 import { Repo } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
-import { pause, rejectOnTimeout } from "../src/helpers/pause.js"
+import { pause } from "../src/helpers/pause.js"
 import {
   AutomergeUrl,
   DocHandle,
@@ -396,16 +395,16 @@ describe("Repo", () => {
       return true
     }
 
-    const setupRepos = (connectAlice = true) => {
+    const setupLinearNetwork = (connectAlice = true) => {
       // Set up three repos; connect Alice to Bob, and Bob to Charlie
 
-      const aliceBobChannel = new MessageChannel()
-      const bobCharlieChannel = new MessageChannel()
+      const abChannel = new MessageChannel()
+      const bcChannel = new MessageChannel()
 
-      const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
-      const { port1: bobToCharlie, port2: charlieToBob } = bobCharlieChannel
+      const { port1: ab, port2: ba } = abChannel
+      const { port1: bc, port2: cb } = bcChannel
 
-      const aliceNetworkAdapter = new MessageChannelNetworkAdapter(aliceToBob)
+      const aliceNetworkAdapter = new MessageChannelNetworkAdapter(ab)
 
       const aliceRepo = new Repo({
         network: connectAlice ? [aliceNetworkAdapter] : [],
@@ -415,26 +414,26 @@ describe("Repo", () => {
 
       const bobRepo = new Repo({
         network: [
-          new MessageChannelNetworkAdapter(bobToAlice),
-          new MessageChannelNetworkAdapter(bobToCharlie),
+          new MessageChannelNetworkAdapter(ba),
+          new MessageChannelNetworkAdapter(bc),
         ],
         peerId: "bob" as PeerId,
         sharePolicy,
       })
 
       const charlieRepo = new Repo({
-        network: [new MessageChannelNetworkAdapter(charlieToBob)],
+        network: [new MessageChannelNetworkAdapter(cb)],
         peerId: "charlie" as PeerId,
       })
 
       const teardown = () => {
-        aliceBobChannel.port1.close()
-        bobCharlieChannel.port1.close()
+        abChannel.port1.close()
+        bcChannel.port1.close()
       }
 
       function doConnectAlice() {
         aliceRepo.networkSubsystem.addNetworkAdapter(
-          new MessageChannelNetworkAdapter(aliceToBob)
+          new MessageChannelNetworkAdapter(ab)
         )
         //bobRepo.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(bobToAlice))
       }
@@ -452,9 +451,60 @@ describe("Repo", () => {
       }
     }
 
+    const setupMeshNetwork = () => {
+      // Set up three repos; connect Alice to Bob, Bob to Charlie, and Alice to Charlie
+
+      const abChannel = new MessageChannel()
+      const bcChannel = new MessageChannel()
+      const acChannel = new MessageChannel()
+
+      const { port1: ab, port2: ba } = abChannel
+      const { port1: bc, port2: cb } = bcChannel
+      const { port1: ac, port2: ca } = acChannel
+
+      const aliceRepo = new Repo({
+        network: [
+          new MessageChannelNetworkAdapter(ab),
+          new MessageChannelNetworkAdapter(ac),
+        ],
+        peerId: "alice" as PeerId,
+        sharePolicy,
+      })
+
+      const bobRepo = new Repo({
+        network: [
+          new MessageChannelNetworkAdapter(ba),
+          new MessageChannelNetworkAdapter(bc),
+        ],
+        peerId: "bob" as PeerId,
+        sharePolicy,
+      })
+
+      const charlieRepo = new Repo({
+        network: [
+          new MessageChannelNetworkAdapter(ca),
+          new MessageChannelNetworkAdapter(cb),
+        ],
+        peerId: "charlie" as PeerId,
+      })
+
+      const teardown = () => {
+        abChannel.port1.close()
+        bcChannel.port1.close()
+        acChannel.port1.close()
+      }
+
+      return {
+        teardown,
+        aliceRepo,
+        bobRepo,
+        charlieRepo,
+      }
+    }
+
     const setup = async (connectAlice = true) => {
       const { teardown, aliceRepo, bobRepo, charlieRepo, connectAliceToBob } =
-        setupRepos(connectAlice)
+        setupLinearNetwork(connectAlice)
 
       const aliceHandle = aliceRepo.create<TestDoc>()
       aliceHandle.change(d => {
@@ -635,34 +685,8 @@ describe("Repo", () => {
       teardown()
     })
 
-    const setupMeshNetwork = async () => {
-      const aliceRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-        peerId: "alice" as PeerId,
-      })
-
-      const bobRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-        peerId: "bob" as PeerId,
-      })
-
-      const charlieRepo = new Repo({
-        network: [new BroadcastChannelNetworkAdapter()],
-        peerId: "charlie" as PeerId,
-      })
-
-      // pause to let the network set up
-      await pause(50)
-
-      return {
-        aliceRepo,
-        bobRepo,
-        charlieRepo,
-      }
-    }
-
     it("can emit an 'unavailable' event when it's not found on the network", async () => {
-      const { charlieRepo } = await setupMeshNetwork()
+      const { charlieRepo } = setupMeshNetwork()
 
       const url = generateAutomergeUrl()
       const handle = charlieRepo.find<TestDoc>(url)
@@ -741,7 +765,7 @@ describe("Repo", () => {
     })
 
     it("can broadcast a message without entering into an infinite loop", async () => {
-      const { aliceRepo, bobRepo, charlieRepo } = await setupMeshNetwork()
+      const { aliceRepo, bobRepo, charlieRepo } = setupMeshNetwork()
 
       const message = { presence: "alex" }
 
@@ -778,7 +802,7 @@ describe("Repo", () => {
     })
 
     it("notifies peers when a document is cloned", async () => {
-      const { bobRepo, charlieRepo } = await setupMeshNetwork()
+      const { bobRepo, charlieRepo } = setupMeshNetwork()
 
       // pause to let the network set up
       await pause(50)
@@ -798,7 +822,7 @@ describe("Repo", () => {
     })
 
     it("notifies peers when a document is merged", async () => {
-      const { bobRepo, charlieRepo } = await setupMeshNetwork()
+      const { bobRepo, charlieRepo } = setupMeshNetwork()
 
       // pause to let the network set up
       await pause(50)
