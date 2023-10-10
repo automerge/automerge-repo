@@ -68,8 +68,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
         this.emit("ready", { network: this })
       }
     }, 1000)
-
-    this.join()
   }
 
   join() {
