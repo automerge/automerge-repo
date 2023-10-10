@@ -24,8 +24,8 @@ function keyHash(binary: Uint8Array) {
 }
 
 function headsHash(heads: A.Heads): string {
-  let encoder = new TextEncoder()
-  let headsbinary = mergeArrays(heads.map((h: string) => encoder.encode(h)))
+  const encoder = new TextEncoder()
+  const headsbinary = mergeArrays(heads.map((h: string) => encoder.encode(h)))
   return keyHash(headsbinary)
 }
 
@@ -53,7 +53,7 @@ export class StorageSubsystem {
       if (!this.#chunkInfos.has(documentId)) {
         this.#chunkInfos.set(documentId, [])
       }
-      this.#chunkInfos.get(documentId)!!.push({
+      this.#chunkInfos.get(documentId)!.push({
         key,
         type: "incremental",
         size: binary.length,
@@ -122,18 +122,18 @@ export class StorageSubsystem {
     if (!this.#shouldSave(documentId, doc)) {
       return
     }
-    let sourceChunks = this.#chunkInfos.get(documentId) ?? []
+    const sourceChunks = this.#chunkInfos.get(documentId) ?? []
     if (this.#shouldCompact(sourceChunks)) {
-      this.#saveTotal(documentId, doc, sourceChunks)
+      void this.#saveTotal(documentId, doc, sourceChunks)
     } else {
-      this.#saveIncremental(documentId, doc)
+      void this.#saveIncremental(documentId, doc)
     }
     this.#storedHeads.set(documentId, A.getHeads(doc))
   }
 
   async remove(documentId: DocumentId) {
-    this.#storageAdapter.removeRange([documentId, "snapshot"])
-    this.#storageAdapter.removeRange([documentId, "incremental"])
+    void this.#storageAdapter.removeRange([documentId, "snapshot"])
+    void this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 
   #shouldSave(documentId: DocumentId, doc: A.Doc<unknown>): boolean {

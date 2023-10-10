@@ -43,7 +43,7 @@ export class DocSynchronizer extends Synchronizer {
 
   #syncStarted = false
 
-  constructor(private handle: DocHandle<any>) {
+  constructor(private handle: DocHandle<unknown>) {
     super()
     const docId = handle.documentId.slice(0, 5)
     this.#conciseLog = debug(`automerge-repo:concise:docsync:${docId}`) // Only logs one line per receive/send
@@ -80,7 +80,9 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
-  async #broadcastToPeers({ data }: DocHandleOutboundEphemeralMessagePayload) {
+  async #broadcastToPeers({
+    data,
+  }: DocHandleOutboundEphemeralMessagePayload<unknown>) {
     this.#log(`broadcastToPeers`, this.#peers)
     this.#peers.forEach(peerId => this.#sendEphemeralMessage(peerId, data))
   }

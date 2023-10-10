@@ -1,7 +1,7 @@
-import { PeerId, Repo, type NetworkAdapter, DocumentId } from "../../index.js"
-import { eventPromise, eventPromises } from "../eventPromise.js"
 import assert from "assert"
 import { describe, it } from "vitest"
+import { PeerId, Repo, type NetworkAdapter } from "../../index.js"
+import { eventPromise, eventPromises } from "../eventPromise.js"
 import { pause } from "../pause.js"
 
 /**

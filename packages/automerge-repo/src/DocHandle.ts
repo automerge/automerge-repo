@@ -431,7 +431,7 @@ export class DocHandle<T> //
    * a user could have multiple tabs open and would appear as multiple PeerIds.
    * every message source must have a unique PeerId.
    */
-  broadcast(message: any) {
+  broadcast(message: unknown) {
     this.emit("ephemeral-message-outbound", {
       handle: this,
       data: encode(message),
@@ -474,14 +474,14 @@ export interface DocHandleChangePayload<T> {
   patchInfo: A.PatchInfo<T>
 }
 
-export interface DocHandleEphemeralMessagePayload {
-  handle: DocHandle<any>
+export interface DocHandleEphemeralMessagePayload<T> {
+  handle: DocHandle<T>
   senderId: PeerId
   message: unknown
 }
 
-export interface DocHandleOutboundEphemeralMessagePayload {
-  handle: DocHandle<any>
+export interface DocHandleOutboundEphemeralMessagePayload<T> {
+  handle: DocHandle<T>
   data: Uint8Array
 }
 
@@ -490,9 +490,9 @@ export interface DocHandleEvents<T> {
   change: (payload: DocHandleChangePayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
   unavailable: (payload: DocHandleDeletePayload<T>) => void
-  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload) => void
+  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
   "ephemeral-message-outbound": (
-    payload: DocHandleOutboundEphemeralMessagePayload
+    payload: DocHandleOutboundEphemeralMessagePayload<T>
   ) => void
 }
 

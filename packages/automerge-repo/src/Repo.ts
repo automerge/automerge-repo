@@ -5,7 +5,7 @@ import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import { type AutomergeUrl, DocumentId, PeerId } from "./types.js"
-import { v4 as uuid } from "uuid"
+
 import {
   parseAutomergeUrl,
   generateAutomergeUrl,
@@ -198,9 +198,9 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @param clonedHandle - The handle to clone
    *
    * @remarks This is a wrapper around the `clone` function in the Automerge library.
-   * The new `DocHandle` will have a new URL but will share history with the original, 
-   * which means that changes made to the cloned handle can be sensibly merged back 
-   * into the original. 
+   * The new `DocHandle` will have a new URL but will share history with the original,
+   * which means that changes made to the cloned handle can be sensibly merged back
+   * into the original.
    *
    * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
    * be notified of the newly created DocHandle.
@@ -223,7 +223,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const handle = this.create<T>()
 
-    handle.update((doc: Automerge.Doc<T>) => {
+    handle.update(() => {
       // we replace the document with the new cloned one
       return Automerge.clone(sourceDoc)
     })
@@ -240,7 +240,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     automergeUrl: AutomergeUrl
   ): DocHandle<T> {
     if (!isValidAutomergeUrl(automergeUrl)) {
-      let maybeAutomergeUrl = parseLegacyUUID(automergeUrl)
+      const maybeAutomergeUrl = parseLegacyUUID(automergeUrl)
       if (maybeAutomergeUrl) {
         console.warn(
           "Legacy UUID document ID detected, converting to AutomergeUrl. This will be removed in a future version."
