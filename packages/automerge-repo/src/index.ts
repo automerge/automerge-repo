@@ -76,4 +76,4 @@ export type {
   WelcomeMessage,
 } from "./network/messages.js"
 export type { StorageKey } from "./storage/StorageAdapter.js"
-export type * from "./types.js"
+export * from "./types.js"

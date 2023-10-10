@@ -6,7 +6,7 @@ export const withTimeout = async <T>(
   promise: Promise<T>,
   t: number
 ): Promise<T> => {
-  let timeoutId: ReturnType<typeof setTimeout>
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(
       () => reject(new TimeoutError(`withTimeout: timed out after ${t}ms`)),
@@ -16,7 +16,7 @@ export const withTimeout = async <T>(
   try {
     return await Promise.race([promise, timeoutPromise])
   } finally {
-    clearTimeout(timeoutId!)
+    clearTimeout(timeoutId)
   }
 }
 
