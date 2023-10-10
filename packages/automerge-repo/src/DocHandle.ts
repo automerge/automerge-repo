@@ -290,7 +290,6 @@ export class DocHandle<T> //
   async doc(
     awaitStates: HandleState[] = [READY, UNAVAILABLE]
   ): Promise<A.Doc<T> | undefined> {
-    await pause() // yield one tick because reasons
     try {
       // wait for the document to enter one of the desired states
       await this.#statePromise(awaitStates)
