@@ -61,7 +61,13 @@ export class Repo extends EventEmitter<RepoEvents> {
           // Try to load from disk
           const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
           if (loadedDoc) {
-            handle.update(() => loadedDoc)
+            handle.update(() => ({
+              patches: [],
+              patchInfo: {
+                after: loadedDoc,
+                source: "load",
+              },
+            }))
           }
         }
       }
@@ -198,9 +204,9 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @param clonedHandle - The handle to clone
    *
    * @remarks This is a wrapper around the `clone` function in the Automerge library.
-   * The new `DocHandle` will have a new URL but will share history with the original, 
-   * which means that changes made to the cloned handle can be sensibly merged back 
-   * into the original. 
+   * The new `DocHandle` will have a new URL but will share history with the original,
+   * which means that changes made to the cloned handle can be sensibly merged back
+   * into the original.
    *
    * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
    * be notified of the newly created DocHandle.
@@ -223,9 +229,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const handle = this.create<T>()
 
-    handle.update((doc: Automerge.Doc<T>) => {
+    handle.update(() => {
       // we replace the document with the new cloned one
-      return Automerge.clone(sourceDoc)
+      return {
+        patches: [],
+        patchInfo: { after: Automerge.clone(sourceDoc), source: "clone" },
+      }
     })
 
     return handle

@@ -266,17 +266,30 @@ export class DocSynchronizer extends Synchronizer {
     }
 
     this.handle.update(doc => {
-      const [newDoc, newSyncState] = A.receiveSyncMessage(
+      // console.log(doc)
+      let patches: A.Patch[]
+      let patchInfo: A.PatchInfo<unknown>
+      const [_, newSyncState] = A.receiveSyncMessage(
         doc,
         this.#getSyncState(message.senderId),
-        message.data
+        message.data,
+        {
+          patchCallback: (p, pInfo) => {
+            patches = p
+            patchInfo = pInfo
+          },
+        }
       )
 
       this.#setSyncState(message.senderId, newSyncState)
 
       // respond to just this peer (as required)
       this.#sendSyncMessage(message.senderId, doc)
-      return newDoc
+
+      return {
+        patches: patches!,
+        patchInfo: patchInfo!,
+      }
     })
 
     this.#checkDocUnavailable()

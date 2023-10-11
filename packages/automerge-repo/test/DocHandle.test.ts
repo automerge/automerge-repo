@@ -11,8 +11,22 @@ import { TestDoc } from "./types.js"
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-  const docFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
-    return A.change<{ foo: string }>(doc, d => (d.foo = "bar"))
+  const updateFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
+    let patches: A.Patch[]
+    let patchInfo: A.PatchInfo<{ foo: string }>
+
+    const options: A.ChangeOptions<{ foo: string }> = {
+      patchCallback: (p, pInfo) => {
+        patches = p
+        patchInfo = pInfo
+      },
+    }
+    A.change<{ foo: string }>(doc, options, d => (d.foo = "bar"))
+
+    return {
+      patches: patches!,
+      patchInfo: patchInfo!,
+    }
   }
 
   it("should take the UUID passed into it", () => {
@@ -25,7 +39,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
@@ -37,7 +51,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
@@ -55,7 +69,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     const doc = await handle.doc()
 
@@ -71,7 +85,7 @@ describe("DocHandle", () => {
     assert.throws(() => handle.change(d => (d.foo = "baz")))
 
     // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     // now we're in READY state so we can make changes
     assert.equal(handle.isReady(), true)
@@ -230,7 +244,7 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
 
     // simulate loading from storage before the timeout expires
-    handle.update(doc => docFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     // now it should not time out
     const doc = await handle.doc()

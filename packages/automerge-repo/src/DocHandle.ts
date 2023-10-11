@@ -86,7 +86,14 @@ export class DocHandle<T> //
 
           id: "docHandle",
           initial: IDLE,
-          context: { documentId: this.documentId, doc },
+          context: {
+            documentId: this.documentId,
+            doc,
+            currentHeads: A.getHeads(doc),
+            lastPatches: [],
+            beforeDoc: doc,
+            beforeHeads: A.getHeads(doc),
+          },
           states: {
             idle: {
               on: {
@@ -170,9 +177,13 @@ export class DocHandle<T> //
               const { doc: oldDoc } = context
 
               const { callback } = payload
-              const newDoc = callback(oldDoc)
+              const changes = callback(oldDoc)
 
-              return { doc: newDoc }
+              console.log(changes)
+
+              const { patches, patchInfo } = changes
+
+              return { doc: patchInfo.after }
             }),
             onDelete: assign(() => {
               this.emit("delete", { handle: this })
@@ -324,7 +335,7 @@ export class DocHandle<T> //
   /** `update` is called by the repo when we receive changes from the network
    * @hidden
    * */
-  update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+  update(callback: UpdateEvent<T>["payload"]["callback"]) {
     this.#machine.send(UPDATE, {
       payload: { callback },
     })
@@ -337,12 +348,27 @@ export class DocHandle<T> //
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
-    this.#machine.send(UPDATE, {
-      payload: {
-        callback: (doc: A.Doc<T>) => {
-          return A.change(doc, options, callback)
+    this.update((doc: A.Doc<T>) => {
+      let patches: A.Patch[]
+      let patchInfo: A.PatchInfo<T>
+      const originalCallback = options.patchCallback
+      options = {
+        ...options,
+        patchCallback: (p, pInfo) => {
+          patches = p
+          patchInfo = pInfo
+
+          if (originalCallback) {
+            originalCallback(p, pInfo)
+          }
         },
-      },
+      }
+      A.change(doc, options, callback)
+
+      return {
+        patches: patches!,
+        patchInfo: patchInfo!,
+      }
     })
   }
 
@@ -360,15 +386,32 @@ export class DocHandle<T> //
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
-    let resultHeads: string[] | undefined = undefined
-    this.#machine.send(UPDATE, {
-      payload: {
-        callback: (doc: A.Doc<T>) => {
-          const result = A.changeAt(doc, heads, options, callback)
-          resultHeads = result.newHeads
-          return result.newDoc
+    let resultHeads: A.Heads | undefined = undefined
+
+    this.update((doc: A.Doc<T>) => {
+      let patches: A.Patch[]
+      let patchInfo: A.PatchInfo<T>
+
+      const originalCallback = options.patchCallback
+      options = {
+        ...options,
+        patchCallback: (p, pInfo) => {
+          patches = p
+          patchInfo = pInfo
+
+          if (originalCallback) {
+            originalCallback(p, pInfo)
+          }
         },
-      },
+      }
+
+      const result = A.changeAt(doc, heads, options, callback)
+      resultHeads = result.newHeads
+
+      return {
+        patches: patches!,
+        patchInfo: patchInfo!,
+      }
     })
     return resultHeads
   }
@@ -537,6 +580,10 @@ type DocHandleMachineState = {
 interface DocHandleContext<T> {
   documentId: DocumentId
   doc: A.Doc<T>
+  lastPatches: A.Patch[]
+  beforeDoc: A.Doc<T>
+  beforeHeads: A.Heads
+  currentHeads: A.Heads
 }
 
 // events
@@ -562,7 +609,16 @@ type RequestCompleteEvent = { type: typeof REQUEST_COMPLETE }
 type DeleteEvent = { type: typeof DELETE }
 type UpdateEvent<T> = {
   type: typeof UPDATE
-  payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
+  payload: {
+    callback: (doc: A.Doc<T>) => {
+      patches: A.Patch[]
+      patchInfo: {
+        before?: A.Doc<T>
+        after: A.Doc<T>
+        source: "load" | "clone" | A.PatchSource
+      }
+    }
+  }
 }
 type TimeoutEvent = { type: typeof TIMEOUT }
 type MarkUnavailableEvent = { type: typeof MARK_UNAVAILABLE }
