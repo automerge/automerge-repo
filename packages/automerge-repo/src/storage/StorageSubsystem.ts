@@ -92,7 +92,7 @@ export class StorageSubsystem {
     this.#snapshotting = false
   }
 
-  async loadDoc(documentId: DocumentId): Promise<A.Doc<unknown> | null> {
+  async loadDoc(documentId: DocumentId) {
     const loaded = await this.#storageAdapter.loadRange([documentId])
     const binaries = []
     const chunkInfos: StorageChunkInfo[] = []
@@ -113,9 +113,16 @@ export class StorageSubsystem {
     if (binary.length === 0) {
       return null
     }
-    const newDoc = A.loadIncremental(A.init(), binary)
+    let patches: A.Patch[] = []
+    let patchInfo: A.PatchInfo<unknown> | undefined
+    const newDoc = A.loadIncremental(A.init(), binary, {
+      patchCallback: (p, pInfo) => {
+        patches = p
+        patchInfo = pInfo
+      },
+    })
     this.#storedHeads.set(documentId, A.getHeads(newDoc))
-    return newDoc
+    return { patches, patchInfo, doc: newDoc }
   }
 
   async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {

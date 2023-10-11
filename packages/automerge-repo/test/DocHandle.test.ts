@@ -90,7 +90,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.docSync(), undefined)
     assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(_ => { }))
+    assert.throws(() => handle.change(_ => {}))
   })
 
   it("should become ready if the document is updated by the network", async () => {
@@ -137,9 +137,11 @@ describe("DocHandle", () => {
       handle.update(d => {
         setTimeout(done, 0)
         return {
+          doc: d,
           patches: [],
           patchInfo: {
             after: d,
+            before: d,
             source: "change",
           },
         }

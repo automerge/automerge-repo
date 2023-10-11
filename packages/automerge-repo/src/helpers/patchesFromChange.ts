@@ -25,8 +25,10 @@ export const patchesFromChange = <T>(
   const newDoc = A.change(doc, options, change)
 
   return {
+    doc: newDoc,
     patches: patches ?? [],
     patchInfo: patchInfo ?? {
+      before: doc,
       after: newDoc,
       source: "change",
     },

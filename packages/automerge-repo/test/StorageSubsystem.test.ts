@@ -34,7 +34,7 @@ describe("StorageSubsystem", () => {
         const reloadedDoc = await storage.loadDoc(key)
 
         // check that it's the same doc
-        assert.deepStrictEqual(reloadedDoc, doc)
+        assert.deepStrictEqual(reloadedDoc.doc, doc)
       })
     })
   })
@@ -60,7 +60,7 @@ describe("StorageSubsystem", () => {
     assert(reloadedDoc, "doc should be loaded")
 
     // make a change
-    const changedDoc = A.change<any>(reloadedDoc, "test 2", d => {
+    const changedDoc = A.change<any>(reloadedDoc.doc, "test 2", d => {
       d.foo = "baz"
     })
 

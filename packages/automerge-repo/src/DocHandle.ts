@@ -89,7 +89,7 @@ export class DocHandle<T> //
           context: {
             documentId: this.documentId,
             doc,
-            lastPatches: [],
+            patches: [],
           },
           states: {
             idle: {
@@ -176,9 +176,9 @@ export class DocHandle<T> //
               const { callback } = payload
               const changes = callback(oldDoc)
 
-              const { patches, patchInfo } = changes
+              const { doc, patches, patchInfo, sourcePeerId } = changes
 
-              return { doc: patchInfo.after, lastPatches: patches }
+              return { doc, patches, patchInfo, sourcePeerId }
             }),
             onDelete: assign(() => {
               this.emit("delete", { handle: this })
@@ -207,14 +207,13 @@ export class DocHandle<T> //
         if (docChanged) {
           this.emit("heads-changed", { handle: this, doc: newDoc })
 
-          const patches = A.diff(newDoc, A.getHeads(oldDoc), A.getHeads(newDoc))
-          if (patches.length > 0) {
-            const source = "change" // TODO: pass along the source (load/change/network)
+          if (context.patches.length > 0 && context.patchInfo) {
             this.emit("change", {
               handle: this,
               doc: newDoc,
-              patches,
-              patchInfo: { before: oldDoc, after: newDoc, source },
+              patches: context.patches,
+              patchInfo: context.patchInfo,
+              sourcePeerId: context.sourcePeerId,
             })
           }
 
@@ -384,8 +383,13 @@ export class DocHandle<T> //
       resultHeads = result.newHeads
 
       return {
-        patches: patches,
-        patchInfo: patchInfo,
+        doc: result.newDoc,
+        patches: patches ?? [],
+        patchInfo: patchInfo ?? {
+          before: doc,
+          after: result.newDoc,
+          source: "changeAt",
+        },
       }
     })
     return resultHeads
@@ -416,6 +420,7 @@ export class DocHandle<T> //
       const newDoc = A.merge(doc, mergingDoc)
 
       return {
+        doc: newDoc,
         patches: A.diff(newDoc, A.getHeads(doc), A.getHeads(newDoc)),
         patchInfo: {
           before: doc,
@@ -499,6 +504,8 @@ export interface DocHandleChangePayload<T> {
   patches: A.Patch[]
   /** Information about the change */
   patchInfo: A.PatchInfo<T>
+  /** The peerId of the peer who sent the change, if any */
+  sourcePeerId?: PeerId
 }
 
 export interface DocHandleEphemeralMessagePayload<T> {
@@ -565,8 +572,8 @@ interface DocHandleContext<T> {
   documentId: DocumentId
   doc: A.Doc<T>
   patches: A.Patch[]
-  patchInfo: A.PatchInfo<T>
-  source: "load" | "change" | "network"
+  patchInfo?: A.PatchInfo<T>
+  sourcePeerId?: PeerId
 }
 
 // events
@@ -594,8 +601,9 @@ type UpdateEvent<T> = {
   type: typeof UPDATE
   payload: {
     callback: (doc: A.Doc<T>) => {
+      doc: A.Doc<T>
       patches: A.Patch[]
-      patchInfo: A.PatchInfo<T>
+      patchInfo?: A.PatchInfo<T>
       sourcePeerId?: PeerId
     }
   }

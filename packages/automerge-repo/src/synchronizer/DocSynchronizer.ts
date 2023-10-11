@@ -288,11 +288,14 @@ export class DocSynchronizer extends Synchronizer {
       this.#sendSyncMessage(message.senderId, doc)
 
       return {
+        doc: newDoc,
         patches: patches ?? [],
         patchInfo: patchInfo ?? {
           after: newDoc,
+          before: doc,
           source: "receiveSyncMessage",
         },
+        syncState: message.senderId,
       }
     })
 
