@@ -5,7 +5,7 @@ import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import { type AutomergeUrl, DocumentId, PeerId } from "./types.js"
-import { v4 as uuid } from "uuid"
+
 import {
   parseAutomergeUrl,
   generateAutomergeUrl,
@@ -249,7 +249,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     automergeUrl: AutomergeUrl
   ): DocHandle<T> {
     if (!isValidAutomergeUrl(automergeUrl)) {
-      let maybeAutomergeUrl = parseLegacyUUID(automergeUrl)
+      const maybeAutomergeUrl = parseLegacyUUID(automergeUrl)
       if (maybeAutomergeUrl) {
         console.warn(
           "Legacy UUID document ID detected, converting to AutomergeUrl. This will be removed in a future version."

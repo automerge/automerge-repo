@@ -37,6 +37,7 @@ For a working example, see the [Svelte counter demo](../automerge-repo-demo-coun
   export let docId: DocumentId
 
   // `document` calls `getContextRepo` internally to access the closest `Repo`.
+  // alternatively, you may pass in a specific repo as the second parameter
   const doc = document<{count?: number}>(docId)
   const increment = () => {
     doc.change((d) => d.count = (d.count || 0) + 1)
@@ -47,6 +48,8 @@ For a working example, see the [Svelte counter demo](../automerge-repo-demo-coun
   count is {$doc?.count || 0}
 </button>
 ```
+
+
 
 ## Contributors
 Originally written by Dylan MacKenzie ([@ecstatic-morse](https://github.com/ecstatic-morse)).
