@@ -268,10 +268,9 @@ export class DocSynchronizer extends Synchronizer {
     }
 
     this.handle.update(doc => {
-      // console.log(doc)
-      let patches: A.Patch[]
-      let patchInfo: A.PatchInfo<unknown>
-      const [_, newSyncState] = A.receiveSyncMessage(
+      let patches: A.Patch[] | undefined
+      let patchInfo: A.PatchInfo<unknown> | undefined
+      const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
         this.#getSyncState(message.senderId),
         message.data,
@@ -289,8 +288,11 @@ export class DocSynchronizer extends Synchronizer {
       this.#sendSyncMessage(message.senderId, doc)
 
       return {
-        patches: patches!,
-        patchInfo: patchInfo!,
+        patches: patches ?? [],
+        patchInfo: patchInfo ?? {
+          after: newDoc,
+          source: "receiveSyncMessage",
+        },
       }
     })
 

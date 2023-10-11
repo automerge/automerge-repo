@@ -15,11 +15,11 @@ import {
 } from "xstate"
 import { waitFor } from "xstate/lib/waitFor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
-import { pause } from "./helpers/pause.js"
 import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
 import type { DocumentId, PeerId, AutomergeUrl } from "./types.js"
 import { stringifyAutomergeUrl } from "./DocUrl.js"
 import { encode } from "./helpers/cbor.js"
+import { patchesFromChange } from "./helpers/patchesFromChange.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us
  * listen for changes and notify the network and storage of new changes.
@@ -89,10 +89,7 @@ export class DocHandle<T> //
           context: {
             documentId: this.documentId,
             doc,
-            currentHeads: A.getHeads(doc),
             lastPatches: [],
-            beforeDoc: doc,
-            beforeHeads: A.getHeads(doc),
           },
           states: {
             idle: {
@@ -179,11 +176,9 @@ export class DocHandle<T> //
               const { callback } = payload
               const changes = callback(oldDoc)
 
-              console.log(changes)
-
               const { patches, patchInfo } = changes
 
-              return { doc: patchInfo.after }
+              return { doc: patchInfo.after, lastPatches: patches }
             }),
             onDelete: assign(() => {
               this.emit("delete", { handle: this })
@@ -348,26 +343,7 @@ export class DocHandle<T> //
       )
     }
     this.update((doc: A.Doc<T>) => {
-      let patches: A.Patch[]
-      let patchInfo: A.PatchInfo<T>
-      const originalCallback = options.patchCallback
-      options = {
-        ...options,
-        patchCallback: (p, pInfo) => {
-          patches = p
-          patchInfo = pInfo
-
-          if (originalCallback) {
-            originalCallback(p, pInfo)
-          }
-        },
-      }
-      A.change(doc, options, callback)
-
-      return {
-        patches: patches!,
-        patchInfo: patchInfo!,
-      }
+      return patchesFromChange(doc, callback, options)
     })
   }
 
@@ -388,8 +364,8 @@ export class DocHandle<T> //
     let resultHeads: A.Heads | undefined = undefined
 
     this.update((doc: A.Doc<T>) => {
-      let patches: A.Patch[]
-      let patchInfo: A.PatchInfo<T>
+      let patches: A.Patch[] | undefined
+      let patchInfo: A.PatchInfo<T> | undefined
 
       const originalCallback = options.patchCallback
       options = {
@@ -408,8 +384,8 @@ export class DocHandle<T> //
       resultHeads = result.newHeads
 
       return {
-        patches: patches!,
-        patchInfo: patchInfo!,
+        patches: patches,
+        patchInfo: patchInfo,
       }
     })
     return resultHeads
@@ -437,7 +413,16 @@ export class DocHandle<T> //
     }
 
     this.update(doc => {
-      return A.merge(doc, mergingDoc)
+      const newDoc = A.merge(doc, mergingDoc)
+
+      return {
+        patches: A.diff(newDoc, A.getHeads(doc), A.getHeads(newDoc)),
+        patchInfo: {
+          before: doc,
+          after: newDoc,
+          source: "merge",
+        },
+      }
     })
   }
 
@@ -579,10 +564,9 @@ type DocHandleMachineState = {
 interface DocHandleContext<T> {
   documentId: DocumentId
   doc: A.Doc<T>
-  lastPatches: A.Patch[]
-  beforeDoc: A.Doc<T>
-  beforeHeads: A.Heads
-  currentHeads: A.Heads
+  patches: A.Patch[]
+  patchInfo: A.PatchInfo<T>
+  source: "load" | "change" | "network"
 }
 
 // events
@@ -611,11 +595,8 @@ type UpdateEvent<T> = {
   payload: {
     callback: (doc: A.Doc<T>) => {
       patches: A.Patch[]
-      patchInfo: {
-        before?: A.Doc<T>
-        after: A.Doc<T>
-        source: "load" | "clone" | A.PatchSource
-      }
+      patchInfo: A.PatchInfo<T>
+      sourcePeerId?: PeerId
     }
   }
 }

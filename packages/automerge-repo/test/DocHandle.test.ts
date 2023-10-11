@@ -7,26 +7,13 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
+import { patchesFromChange } from "../src/helpers/patchesFromChange.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   const updateFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
-    let patches: A.Patch[]
-    let patchInfo: A.PatchInfo<{ foo: string }>
-
-    const options: A.ChangeOptions<{ foo: string }> = {
-      patchCallback: (p, pInfo) => {
-        patches = p
-        patchInfo = pInfo
-      },
-    }
-    A.change<{ foo: string }>(doc, options, d => (d.foo = "bar"))
-
-    return {
-      patches: patches!,
-      patchInfo: patchInfo!,
-    }
+    return patchesFromChange(doc, d => (d.foo = "bar"))
   }
 
   it("should take the UUID passed into it", () => {
@@ -103,7 +90,7 @@ describe("DocHandle", () => {
 
     assert.equal(handle.docSync(), undefined)
     assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(_ => {}))
+    assert.throws(() => handle.change(_ => { }))
   })
 
   it("should become ready if the document is updated by the network", async () => {
@@ -114,7 +101,7 @@ describe("DocHandle", () => {
 
     // simulate updating from the network
     handle.update(doc => {
-      return A.change(doc, d => (d.foo = "bar"))
+      return patchesFromChange(doc, d => (d.foo = "bar"))
     })
 
     const doc = await handle.doc()
@@ -149,7 +136,13 @@ describe("DocHandle", () => {
       })
       handle.update(d => {
         setTimeout(done, 0)
-        return d
+        return {
+          patches: [],
+          patchInfo: {
+            after: d,
+            source: "change",
+          },
+        }
       })
     }))
 
@@ -274,7 +267,7 @@ describe("DocHandle", () => {
 
     // simulate updating from the network before the timeout expires
     handle.update(doc => {
-      return A.change(doc, d => (d.foo = "bar"))
+      return patchesFromChange(doc, d => (d.foo = "bar"))
     })
 
     // now it should not time out
