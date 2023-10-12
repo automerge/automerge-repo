@@ -129,11 +129,11 @@ export class DocSynchronizer extends Synchronizer {
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
     this.#setSyncState(peerId, newSyncState)
     if (message) {
-      const decoded = A.decodeSyncMessage(message)
+      const isNew = A.getHeads(doc).length === 0
 
       if (
         !this.handle.isReady() &&
-        decoded.heads.length === 0 &&
+        isNew &&
         newSyncState.sharedHeads.length === 0 &&
         !Object.values(this.#peerDocumentStatuses).includes("has") &&
         this.#peerDocumentStatuses[peerId] === "unknown"
@@ -155,7 +155,7 @@ export class DocSynchronizer extends Synchronizer {
       }
 
       // if we have sent heads, then the peer now has or will have the document
-      if (decoded.heads.length > 0) {
+      if (!isNew) {
         this.#peerDocumentStatuses[peerId] = "has"
       }
     }
