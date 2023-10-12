@@ -663,6 +663,56 @@ describe("Repo", () => {
       teardown()
     })
 
+    it("a previously unavailable document becomes available if the network adapter initially has no peers", async () => {
+      // It is possible for a network adapter to be ready without any peer
+      // being announced (e.g. the BroadcastChannelNetworkAdapter). In this
+      // case attempting to `Repo.find` a document which is not in the storage
+      // will result in an unavailable document. If a peer is later announced
+      // on the NetworkAdapter we should attempt to sync with the new peer and
+      // if the new peer has the document, the DocHandle should eventually
+      // transition to "ready"
+
+      // first create a repo with no network adapter and add a document so that
+      // we have a storage containing the document to pass to a new repo later
+      const storage = new DummyStorageAdapter()
+      const isolatedRepo = new Repo({
+        network: [],
+        storage,
+      })
+      const unsyncedHandle = isolatedRepo.create<TestDoc>()
+      const url = unsyncedHandle.url
+
+      // Now create a message channel to connect two repos
+      const abChannel = new MessageChannel()
+      const { port1: ab, port2: ba } = abChannel
+
+      // Create an empty repo to request the document from
+      const a = new Repo({
+        network: [new MessageChannelNetworkAdapter(ab)],
+        peerId: "a" as PeerId,
+        sharePolicy: async () => true
+      })
+
+      const handle = a.find(url)
+
+      // We expect this to be unavailable as there is no connected peer and
+      // the repo has no storage.
+      await eventPromise(handle, "unavailable")
+
+      // Now create a repo pointing at the storage containing the document and
+      // connect it to the other end of the MessageChannel
+      const b = new Repo({
+        storage,
+        peerId: "b" as PeerId,
+        network: [new MessageChannelNetworkAdapter(ba)],
+      })
+
+      // The empty repo should be notified of the new peer, send it a request
+      // and eventually resolve the handle to "READY"
+      await handle.whenReady()
+
+    })
+
     it("a deleted document from charlieRepo can be refetched", async () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
 

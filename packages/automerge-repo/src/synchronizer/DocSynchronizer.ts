@@ -168,6 +168,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   beginSync(peerIds: PeerId[]) {
+    const newPeers = new Set(peerIds.filter(peerId => !this.#peers.includes(peerId)))
     this.#log(`beginSync: ${peerIds.join(", ")}`)
 
     // HACK: if we have a sync state already, we round-trip it through the encoding system to make
@@ -187,10 +188,16 @@ export class DocSynchronizer extends Synchronizer {
       this.#syncStarted = true
       this.#checkDocUnavailable()
 
-      if (doc === undefined) return
+      const wasUnavailable = doc === undefined
+      if (wasUnavailable && newPeers.size == 0) {
+        return
+      }
+      // If the doc is unavailable we still need a blank document to generate
+      // the sync message from
+      const theDoc = doc ?? A.init<unknown>()
 
       peerIds.forEach(peerId => {
-        this.#sendSyncMessage(peerId, doc)
+        this.#sendSyncMessage(peerId, theDoc)
       })
     })
   }
