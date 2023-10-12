@@ -31,6 +31,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   connect(peerId: PeerId) {
+    this.socket?.removeAllListeners()
     if (!this.timerId) {
       this.timerId = setInterval(() => this.connect(peerId), 5000)
     }
@@ -43,7 +44,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       log(`@ ${this.url}: open`)
       clearInterval(this.timerId)
       this.timerId = undefined
-      this.join()
     })
 
     // When a socket closes, or disconnects, remove it from the array.
