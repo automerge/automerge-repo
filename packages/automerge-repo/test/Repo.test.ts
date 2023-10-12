@@ -128,7 +128,7 @@ describe("Repo", () => {
       assert.deepStrictEqual(handle2.docSync(), { foo: "bar", baz: "baz" })
     })
 
-    it("the cloned documents can merge", () => {
+    it("the cloned documents can merge", async () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
       handle.change(d => {
@@ -143,7 +143,12 @@ describe("Repo", () => {
         d.baz = "baz"
       })
 
+      const p = eventPromise(handle, "change")
+
       handle.merge(handle2)
+
+      const change = await p
+      assert.deepStrictEqual(change.patchInfo.source, "merge")
 
       assert.deepStrictEqual(handle.docSync(), {
         foo: "bar",
@@ -246,6 +251,11 @@ describe("Repo", () => {
       })
 
       const bobHandle = repo2.find<TestDoc>(handle.url)
+
+      const p = eventPromise(bobHandle, "change")
+
+      const changes = await p
+      assert.equal(changes.patchInfo.source, "loadIncremental")
 
       const v = await bobHandle.doc()
       assert.equal(v?.foo, "bar")
@@ -555,6 +565,26 @@ describe("Repo", () => {
       teardown()
     })
 
+    it("emits the correct sourcePeerId when receiving a change from another peer", async () => {
+      const { bobRepo, aliceHandle, teardown } = await setup()
+
+      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.url)
+      await eventPromise(bobHandle, "change")
+
+      aliceHandle.change(d => {
+        d.foo = "baz"
+      })
+
+      const { sourcePeerId, patchInfo } = await eventPromise(
+        bobHandle,
+        "change"
+      )
+
+      assert.equal(patchInfo.source, "receiveSyncMessage")
+      assert.equal(sourcePeerId, "alice")
+      teardown()
+    })
+
     it("can load a document from aliceRepo on charlieRepo", async () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
 
@@ -708,9 +738,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-            repo.create<TestDoc>()
+              repo.create<TestDoc>()
             : // tails, pick a random doc
-            (getRandomItem(docs) as DocHandle<TestDoc>)
+              (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
@@ -857,7 +887,7 @@ describe("Repo", () => {
 
 const disableConsoleWarn = () => {
   console["_warn"] = console.warn
-  console.warn = () => { }
+  console.warn = () => {}
 }
 
 const reenableConsoleWarn = () => {

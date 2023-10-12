@@ -26,7 +26,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.update(doc => updateFromMockStorage(doc))
+    handle.updateWithPatches(doc => updateFromMockStorage(doc))
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
@@ -38,7 +38,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.update(doc => updateFromMockStorage(doc))
+    handle.updateWithPatches(doc => updateFromMockStorage(doc))
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
@@ -56,7 +56,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.update(doc => updateFromMockStorage(doc))
+    handle.updateWithPatches(doc => updateFromMockStorage(doc))
 
     const doc = await handle.doc()
 
@@ -72,7 +72,7 @@ describe("DocHandle", () => {
     assert.throws(() => handle.change(d => (d.foo = "baz")))
 
     // simulate loading from storage
-    handle.update(doc => updateFromMockStorage(doc))
+    handle.updateWithPatches(doc => updateFromMockStorage(doc))
 
     // now we're in READY state so we can make changes
     assert.equal(handle.isReady(), true)
@@ -100,7 +100,7 @@ describe("DocHandle", () => {
     handle.request()
 
     // simulate updating from the network
-    handle.update(doc => {
+    handle.updateWithPatches(doc => {
       return patchesFromChange(doc, d => (d.foo = "bar"))
     })
 
@@ -109,12 +109,53 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
   })
 
+  it("can accept an update and emit a change event with patches", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+
+    const p = new Promise<DocHandleChangePayload<TestDoc>>(resolve =>
+      handle.once("change", d => {
+        resolve(d)
+      })
+    )
+
+    const doc = await handle.doc()
+
+    const newDoc = A.from({ foo: "bar" })
+
+    handle.update(_ => {
+      return newDoc
+    })
+
+    const changePayload = await p
+    assert.deepStrictEqual(changePayload.doc, newDoc)
+    assert.deepStrictEqual(changePayload.handle, handle)
+    assert.deepStrictEqual(changePayload.patches, [
+      {
+        action: "put",
+        path: ["foo"],
+        value: "",
+      },
+      {
+        action: "splice",
+        path: ["foo", 0],
+        value: "bar",
+      },
+    ])
+    assert.deepStrictEqual(changePayload.patchInfo, {
+      before: doc,
+      after: newDoc,
+      source: "change",
+    })
+  })
+
   it("should emit a change message when changes happen", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
 
     const p = new Promise<DocHandleChangePayload<TestDoc>>(resolve =>
       handle.once("change", d => resolve(d))
     )
+
+    const beforeDoc = await handle.doc()
 
     handle.change(doc => {
       doc.foo = "bar"
@@ -126,6 +167,23 @@ describe("DocHandle", () => {
     const changePayload = await p
     assert.deepStrictEqual(changePayload.doc, doc)
     assert.deepStrictEqual(changePayload.handle, handle)
+    assert.deepStrictEqual(changePayload.patches, [
+      {
+        action: "put",
+        path: ["foo"],
+        value: "",
+      },
+      {
+        action: "splice",
+        path: ["foo", 0],
+        value: "bar",
+      },
+    ])
+    assert.deepStrictEqual(changePayload.patchInfo, {
+      before: beforeDoc,
+      after: doc,
+      source: "change",
+    })
   })
 
   it("should not emit a change message if no change happens via update", () =>
@@ -134,7 +192,7 @@ describe("DocHandle", () => {
       handle.once("change", () => {
         reject(new Error("shouldn't have changed"))
       })
-      handle.update(d => {
+      handle.updateWithPatches(d => {
         setTimeout(done, 0)
         return {
           doc: d,
@@ -209,7 +267,7 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
   })
 
-  it("should not emit a patch message if no change happens", () =>
+  it("should not emit a change message if no change happens", () =>
     new Promise<void>((done, reject) => {
       const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
       handle.on("change", () => {
@@ -239,7 +297,7 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
 
     // simulate loading from storage before the timeout expires
-    handle.update(doc => updateFromMockStorage(doc))
+    handle.updateWithPatches(doc => updateFromMockStorage(doc))
 
     // now it should not time out
     const doc = await handle.doc()
@@ -268,7 +326,7 @@ describe("DocHandle", () => {
     handle.request()
 
     // simulate updating from the network before the timeout expires
-    handle.update(doc => {
+    handle.updateWithPatches(doc => {
       return patchesFromChange(doc, d => (d.foo = "bar"))
     })
 
@@ -304,11 +362,17 @@ describe("DocHandle", () => {
       doc.foo = "rab"
     })
 
+    const p = eventPromise(handle, "change")
+
     let wasBar = false
     let newHeads = handle.changeAt(headsBefore, doc => {
       wasBar = doc.foo === "bar"
       doc.foo = "baz"
     })
+    const change = await p
+
+    assert.deepStrictEqual(change.patchInfo.source, "changeAt")
+
     assert(newHeads && newHeads.length > 0, "should have new heads")
 
     assert(wasBar, "foo should have been bar as we changed at the old heads")

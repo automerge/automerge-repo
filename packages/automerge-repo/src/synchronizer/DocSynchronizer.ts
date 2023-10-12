@@ -267,7 +267,7 @@ export class DocSynchronizer extends Synchronizer {
       this.#peerDocumentStatuses[message.senderId] = "has"
     }
 
-    this.handle.update(doc => {
+    this.handle.updateWithPatches(doc => {
       let patches: A.Patch[] | undefined
       let patchInfo: A.PatchInfo<unknown> | undefined
       const [newDoc, newSyncState] = A.receiveSyncMessage(
@@ -290,12 +290,14 @@ export class DocSynchronizer extends Synchronizer {
       return {
         doc: newDoc,
         patches: patches ?? [],
-        patchInfo: patchInfo ?? {
-          after: newDoc,
-          before: doc,
-          source: "receiveSyncMessage",
-        },
-        syncState: message.senderId,
+        patchInfo:
+          patchInfo ??
+          ({
+            after: newDoc,
+            before: doc,
+            source: "receiveSyncMessage",
+          } as const),
+        sourcePeerId: message.senderId,
       }
     })
 

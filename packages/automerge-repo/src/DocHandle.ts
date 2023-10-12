@@ -176,6 +176,28 @@ export class DocHandle<T> //
               const { callback } = payload
               const changes = callback(oldDoc)
 
+              function isDoc(doc: unknown): doc is A.Doc<T> {
+                return A.isAutomerge(doc)
+              }
+
+              if (isDoc(changes)) {
+                const patches = A.diff(
+                  changes,
+                  A.getHeads(oldDoc),
+                  A.getHeads(changes)
+                )
+
+                return {
+                  doc: changes,
+                  patches,
+                  patchInfo: {
+                    before: oldDoc,
+                    after: changes,
+                    source: "change",
+                  },
+                }
+              }
+
               const { doc, patches, patchInfo, sourcePeerId } = changes
 
               return { doc, patches, patchInfo, sourcePeerId }
@@ -334,6 +356,15 @@ export class DocHandle<T> //
     })
   }
 
+  /** `update` is called by the repo when we receive changes from the network
+   * @hidden
+   * */
+  updateWithPatches(callback: UpdateEvent<T>["payload"]["callback"]) {
+    this.#machine.send(UPDATE, {
+      payload: { callback },
+    })
+  }
+
   /** `change` is called by the repo when the document is changed locally  */
   change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (!this.isReady()) {
@@ -341,7 +372,7 @@ export class DocHandle<T> //
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
-    this.update((doc: A.Doc<T>) => {
+    this.updateWithPatches((doc: A.Doc<T>) => {
       return patchesFromChange(doc, callback, options)
     })
   }
@@ -362,7 +393,7 @@ export class DocHandle<T> //
     }
     let resultHeads: A.Heads | undefined = undefined
 
-    this.update((doc: A.Doc<T>) => {
+    this.updateWithPatches((doc: A.Doc<T>) => {
       let patches: A.Patch[] | undefined
       let patchInfo: A.PatchInfo<T> | undefined
 
@@ -385,11 +416,13 @@ export class DocHandle<T> //
       return {
         doc: result.newDoc,
         patches: patches ?? [],
-        patchInfo: patchInfo ?? {
-          before: doc,
-          after: result.newDoc,
-          source: "changeAt",
-        },
+        patchInfo:
+          patchInfo ??
+          ({
+            before: doc,
+            after: result.newDoc,
+            source: "changeAt",
+          } as const),
       }
     })
     return resultHeads
@@ -416,7 +449,7 @@ export class DocHandle<T> //
       throw new Error("The document to be merged in is null, aborting.")
     }
 
-    this.update(doc => {
+    this.updateWithPatches(doc => {
       const newDoc = A.merge(doc, mergingDoc)
 
       return {
@@ -426,7 +459,7 @@ export class DocHandle<T> //
           before: doc,
           after: newDoc,
           source: "merge",
-        },
+        } as const,
       }
     })
   }
@@ -600,12 +633,14 @@ type DeleteEvent = { type: typeof DELETE }
 type UpdateEvent<T> = {
   type: typeof UPDATE
   payload: {
-    callback: (doc: A.Doc<T>) => {
-      doc: A.Doc<T>
-      patches: A.Patch[]
-      patchInfo?: A.PatchInfo<T>
-      sourcePeerId?: PeerId
-    }
+    callback: (doc: A.Doc<T>) =>
+      | {
+          doc: A.Doc<T>
+          patches: A.Patch[]
+          patchInfo?: A.PatchInfo<T>
+          sourcePeerId?: PeerId
+        }
+      | A.Doc<T>
   }
 }
 type TimeoutEvent = { type: typeof TIMEOUT }
