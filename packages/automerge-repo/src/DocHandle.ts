@@ -174,32 +174,32 @@ export class DocHandle<T> //
               const { doc: oldDoc } = context
 
               const { callback } = payload
-              const changes = callback(oldDoc)
+              const docOrChanges = callback(oldDoc)
 
               function isDoc(doc: unknown): doc is A.Doc<T> {
                 return A.isAutomerge(doc)
               }
 
-              if (isDoc(changes)) {
-                const patches = A.diff(
-                  changes,
-                  A.getHeads(oldDoc),
-                  A.getHeads(changes)
-                )
+              if (isDoc(docOrChanges)) {
+                const doc = docOrChanges
+                // We have a document but no associated patches
+                const patches = A.diff(doc, A.getHeads(oldDoc), A.getHeads(doc))
 
                 return {
-                  doc: changes,
+                  doc,
                   patches,
                   patchInfo: {
                     before: oldDoc,
-                    after: changes,
+                    after: doc,
                     source: "change",
                   },
                 }
               }
 
-              const { doc, patches, patchInfo, sourcePeerId } = changes
+              // We have a document and associated patches
+              const { doc, patches, patchInfo, sourcePeerId } = docOrChanges
 
+              // return all values explicitly so that we overwrite any existing values
               return { doc, patches, patchInfo, sourcePeerId }
             }),
             onDelete: assign(() => {
@@ -356,15 +356,6 @@ export class DocHandle<T> //
     })
   }
 
-  /** `update` is called by the repo when we receive changes from the network
-   * @hidden
-   * */
-  updateWithPatches(callback: UpdateEvent<T>["payload"]["callback"]) {
-    this.#machine.send(UPDATE, {
-      payload: { callback },
-    })
-  }
-
   /** `change` is called by the repo when the document is changed locally  */
   change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (!this.isReady()) {
@@ -372,7 +363,7 @@ export class DocHandle<T> //
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
-    this.updateWithPatches((doc: A.Doc<T>) => {
+    this.update((doc: A.Doc<T>) => {
       return patchesFromChange(doc, callback, options)
     })
   }
@@ -393,7 +384,7 @@ export class DocHandle<T> //
     }
     let resultHeads: A.Heads | undefined = undefined
 
-    this.updateWithPatches((doc: A.Doc<T>) => {
+    this.update((doc: A.Doc<T>) => {
       let patches: A.Patch[] | undefined
       let patchInfo: A.PatchInfo<T> | undefined
 
@@ -449,7 +440,7 @@ export class DocHandle<T> //
       throw new Error("The document to be merged in is null, aborting.")
     }
 
-    this.updateWithPatches(doc => {
+    this.update(doc => {
       const newDoc = A.merge(doc, mergingDoc)
 
       return {

@@ -26,7 +26,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.updateWithPatches(doc => updateFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
@@ -38,7 +38,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.updateWithPatches(doc => updateFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     assert.equal(handle.isReady(), true)
     const doc = await handle.doc()
@@ -56,7 +56,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
-    handle.updateWithPatches(doc => updateFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     const doc = await handle.doc()
 
@@ -72,7 +72,7 @@ describe("DocHandle", () => {
     assert.throws(() => handle.change(d => (d.foo = "baz")))
 
     // simulate loading from storage
-    handle.updateWithPatches(doc => updateFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     // now we're in READY state so we can make changes
     assert.equal(handle.isReady(), true)
@@ -100,7 +100,7 @@ describe("DocHandle", () => {
     handle.request()
 
     // simulate updating from the network
-    handle.updateWithPatches(doc => {
+    handle.update(doc => {
       return patchesFromChange(doc, d => (d.foo = "bar"))
     })
 
@@ -192,7 +192,7 @@ describe("DocHandle", () => {
       handle.once("change", () => {
         reject(new Error("shouldn't have changed"))
       })
-      handle.updateWithPatches(d => {
+      handle.update(d => {
         setTimeout(done, 0)
         return {
           doc: d,
@@ -297,7 +297,7 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
 
     // simulate loading from storage before the timeout expires
-    handle.updateWithPatches(doc => updateFromMockStorage(doc))
+    handle.update(doc => updateFromMockStorage(doc))
 
     // now it should not time out
     const doc = await handle.doc()
@@ -326,7 +326,7 @@ describe("DocHandle", () => {
     handle.request()
 
     // simulate updating from the network before the timeout expires
-    handle.updateWithPatches(doc => {
+    handle.update(doc => {
       return patchesFromChange(doc, d => (d.foo = "bar"))
     })
 

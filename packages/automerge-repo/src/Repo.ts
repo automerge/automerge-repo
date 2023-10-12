@@ -61,7 +61,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           // Try to load from disk
           const loaded = await storageSubsystem.loadDoc(handle.documentId)
           if (loaded) {
-            handle.updateWithPatches(() => loaded)
+            handle.update(() => loaded)
           }
         }
       }
@@ -223,7 +223,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const handle = this.create<T>()
 
-    handle.updateWithPatches(() => {
+    handle.update(() => {
       // we replace the document with the new cloned one
       return {
         doc: Automerge.clone(sourceDoc),
