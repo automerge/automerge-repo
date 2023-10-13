@@ -29,7 +29,6 @@
     "access": "public"
   },
   "devDependencies": {
-    "@automerge/automerge": "^2.1.0",
     "svelte": "^3.0.0"
   }
 }
