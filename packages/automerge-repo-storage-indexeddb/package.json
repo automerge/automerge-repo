@@ -27,8 +27,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "devDependencies": {
-    "@automerge/automerge": "^2.1.0"
   }
 }

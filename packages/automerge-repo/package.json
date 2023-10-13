@@ -20,14 +20,7 @@
     "crypto": false
   },
   "devDependencies": {
-    "@types/debug": "^4.1.7",
-    "@types/node": "^20.4.8",
-    "@types/uuid": "^8.3.4",
-    "@types/ws": "^8.5.3",
-    "@typescript-eslint/eslint-plugin": "^5.33.0",
-    "@typescript-eslint/parser": "^5.33.0",
-    "http-server": "^14.1.0",
-    "typescript": "^5.1.6"
+    "http-server": "^14.1.0"
   },
   "peerDependencies": {
     "@automerge/automerge": "^2.1.0"
