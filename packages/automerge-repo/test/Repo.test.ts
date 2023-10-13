@@ -238,7 +238,7 @@ describe("Repo", () => {
 
       assert.equal(handle.isReady(), true)
 
-      await pause()
+      await pause(150)
 
       const repo2 = new Repo({
         storage: storageAdapter,
@@ -690,7 +690,7 @@ describe("Repo", () => {
       const a = new Repo({
         network: [new MessageChannelNetworkAdapter(ab)],
         peerId: "a" as PeerId,
-        sharePolicy: async () => true
+        sharePolicy: async () => true,
       })
 
       const handle = a.find(url)
@@ -710,7 +710,6 @@ describe("Repo", () => {
       // The empty repo should be notified of the new peer, send it a request
       // and eventually resolve the handle to "READY"
       await handle.whenReady()
-
     })
 
     it("a deleted document from charlieRepo can be refetched", async () => {
@@ -897,7 +896,7 @@ describe("Repo", () => {
       handle.merge(handle2)
 
       // wait for the network to do it's thang
-      await pause(50)
+      await pause(350)
 
       await charlieHandle.doc()
       assert.deepStrictEqual(charlieHandle.docSync(), { foo: "baz" })

@@ -31,7 +31,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   connect(peerId: PeerId) {
-    this.socket?.removeAllListeners()
     if (!this.timerId) {
       this.timerId = setInterval(() => this.connect(peerId), 5000)
     }

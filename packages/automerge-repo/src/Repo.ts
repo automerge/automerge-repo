@@ -13,9 +13,10 @@ import {
   parseLegacyUUID,
 } from "./DocUrl.js"
 
-import { DocHandle } from "./DocHandle.js"
+import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { EventEmitter } from "eventemitter3"
 import { next as Automerge } from "@automerge/automerge"
+import { debounce } from "./helpers/debounce.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -32,6 +33,11 @@ export class Repo extends EventEmitter<RepoEvents> {
   networkSubsystem: NetworkSubsystem
   /** @hidden */
   storageSubsystem?: StorageSubsystem
+
+  /** The debounce rate is adjustable on the repo. */
+  /** @hidden */
+  saveDebounceRate = 100
+
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
   /** By default, we share generously with all peers. */
@@ -49,10 +55,17 @@ export class Repo extends EventEmitter<RepoEvents> {
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle, isNew }) => {
       if (storageSubsystem) {
-        // Save when the document changes
-        handle.on("heads-changed", async ({ handle, doc }) => {
-          await storageSubsystem.saveDoc(handle.documentId, doc)
-        })
+        // Save when the document changes, but no more often than saveDebounceRate.
+        const saveFn = ({
+          handle,
+          doc,
+        }: DocHandleEncodedChangePayload<any>) => {
+          void storageSubsystem.saveDoc(handle.documentId, doc)
+        }
+        const debouncedSaveFn = handle.on(
+          "heads-changed",
+          debounce(saveFn, this.saveDebounceRate)
+        )
 
         if (isNew) {
           // this is a new document, immediately save it
