@@ -23,7 +23,7 @@
     "http-server": "^14.1.0"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0"
+    "@automerge/automerge": "^2.1.5"
   },
   "dependencies": {
     "bs58check": "^3.0.1",

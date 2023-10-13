@@ -16,7 +16,7 @@
     "@automerge/automerge-repo": "^1.0.6"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0"
+    "@automerge/automerge": "^2.1.5"
   },
   "watch": {
     "build": {
