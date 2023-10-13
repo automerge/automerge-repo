@@ -26,16 +26,16 @@
  * ```
  */
 
-export { Repo } from "./Repo.js"
 export { DocHandle } from "./DocHandle.js"
-export { NetworkAdapter } from "./network/NetworkAdapter.js"
-export { StorageAdapter } from "./storage/StorageAdapter.js"
 export {
   isValidAutomergeUrl,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
 } from "./DocUrl.js"
+export { Repo } from "./Repo.js"
+export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export { isValidRepoMessage } from "./network/messages.js"
+export { StorageAdapter } from "./storage/StorageAdapter.js"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"

@@ -1,6 +1,6 @@
 import * as A from "@automerge/automerge/next"
-import { decode } from "cbor-x"
 import assert from "assert"
+import { decode } from "cbor-x"
 import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"

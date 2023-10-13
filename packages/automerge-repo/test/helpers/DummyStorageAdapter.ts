@@ -11,10 +11,12 @@ export class DummyStorageAdapter implements StorageAdapter {
     return key.split(".")
   }
 
-  async loadRange(keyPrefix: StorageKey): Promise<{data: Uint8Array, key: StorageKey}[]> {
+  async loadRange(
+    keyPrefix: StorageKey
+  ): Promise<{ data: Uint8Array; key: StorageKey }[]> {
     const range = Object.entries(this.#data)
       .filter(([key, _]) => key.startsWith(this.#keyToString(keyPrefix)))
-      .map(([key, data]) => ({key: this.#stringToKey(key), data}))
+      .map(([key, data]) => ({ key: this.#stringToKey(key), data }))
     return Promise.resolve(range)
   }
 

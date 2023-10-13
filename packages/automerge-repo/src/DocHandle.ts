@@ -14,12 +14,11 @@ import {
   TypegenDisabled,
 } from "xstate"
 import { waitFor } from "xstate/lib/waitFor.js"
-import { headsAreSame } from "./helpers/headsAreSame.js"
-import { pause } from "./helpers/pause.js"
-import { TimeoutError, withTimeout } from "./helpers/withTimeout.js"
-import type { DocumentId, PeerId, AutomergeUrl } from "./types.js"
 import { stringifyAutomergeUrl } from "./DocUrl.js"
 import { encode } from "./helpers/cbor.js"
+import { headsAreSame } from "./helpers/headsAreSame.js"
+import { withTimeout } from "./helpers/withTimeout.js"
+import type { AutomergeUrl, DocumentId, PeerId } from "./types.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us
  * listen for changes and notify the network and storage of new changes.

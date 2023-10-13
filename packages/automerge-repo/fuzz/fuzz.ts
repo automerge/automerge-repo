@@ -1,13 +1,15 @@
-import assert from "assert"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import * as Automerge from "@automerge/automerge/next"
-
-import { DocHandle, DocumentId, PeerId, SharePolicy } from "../src"
+import assert from "assert"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
-import { Repo } from "../src/Repo.js"
-import { DummyNetworkAdapter } from "../test/helpers/DummyNetworkAdapter.js"
-import { DummyStorageAdapter } from "../test/helpers/DummyStorageAdapter.js"
+import {
+  DocHandle,
+  DocumentId,
+  PeerId,
+  Repo,
+  SharePolicy,
+} from "../src/index.js"
 import { getRandomItem } from "../test/helpers/getRandomItem.js"
 
 interface TestDoc {

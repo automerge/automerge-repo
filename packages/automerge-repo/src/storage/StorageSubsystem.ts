@@ -1,10 +1,10 @@
 import * as A from "@automerge/automerge/next"
-import { StorageAdapter, StorageKey } from "./StorageAdapter.js"
-import * as sha256 from "fast-sha256"
-import { type DocumentId } from "../types.js"
-import { mergeArrays } from "../helpers/mergeArrays.js"
 import debug from "debug"
+import * as sha256 from "fast-sha256"
 import { headsAreSame } from "../helpers/headsAreSame.js"
+import { mergeArrays } from "../helpers/mergeArrays.js"
+import { type DocumentId } from "../types.js"
+import { StorageAdapter, StorageKey } from "./StorageAdapter.js"
 
 // Metadata about a chunk of data loaded from storage. This is stored on the
 // StorageSubsystem so when we are compacting we know what chunks we can safely delete
