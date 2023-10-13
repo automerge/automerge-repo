@@ -13,6 +13,10 @@ import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 
 const { encode, decode } = cborHelpers
 
+interface WebSocketWithIsAlive extends WebSocket {
+  isAlive: boolean
+}
+
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
   sockets: { [peerId: PeerId]: WebSocket } = {}
@@ -24,7 +28,12 @@ export class NodeWSServerAdapter extends NetworkAdapter {
 
   connect(peerId: PeerId) {
     this.peerId = peerId
-    this.server.on("connection", socket => {
+
+    this.server.on("close", function close() {
+      clearInterval(interval)
+    })
+
+    this.server.on("connection", (socket: WebSocketWithIsAlive) => {
       // When a socket closes, or disconnects, remove it from our list
       socket.on("close", () => {
         for (const [otherPeerId, otherSocket] of Object.entries(this.sockets)) {
@@ -38,8 +47,35 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       socket.on("message", message =>
         this.receiveMessage(message as Uint8Array, socket)
       )
+
+      // Start out "alive", and every time we get a pong, reset that state.
+      socket.isAlive = true
+      socket.on("pong", () => (socket.isAlive = true))
+
       this.emit("ready", { network: this })
     })
+
+    // Every interval, terminate connections to lost clients,
+    // then mark all clients as potentially dead and then ping them.
+    const interval = setInterval(() => {
+      ;(this.server.clients as Set<WebSocketWithIsAlive>).forEach(socket => {
+        if (socket.isAlive === false) {
+          // Make sure we clean up this socket even though we're terminating.
+          // This might be unnecessary but I have read reports of the close() not happening for 30s.
+          for (const [otherPeerId, otherSocket] of Object.entries(
+            this.sockets
+          )) {
+            if (socket === otherSocket) {
+              this.emit("peer-disconnected", { peerId: otherPeerId as PeerId })
+              delete this.sockets[otherPeerId as PeerId]
+            }
+          }
+          return socket.terminate()
+        }
+        socket.isAlive = false
+        socket.ping()
+      })
+    }, 30000)
   }
 
   disconnect() {
