@@ -11,8 +11,8 @@ import {
 import {
   DocumentUnavailableMessage,
   EphemeralMessage,
-  RepoMessage,
   MessageContents,
+  RepoMessage,
   RequestMessage,
   SyncMessage,
   isRequestMessage,
@@ -29,8 +29,6 @@ type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
  */
 export class DocSynchronizer extends Synchronizer {
   #log: debug.Debugger
-  #conciseLog: debug.Debugger
-  #opsLog: debug.Debugger
 
   syncDebounceRate = 100
 
@@ -49,9 +47,7 @@ export class DocSynchronizer extends Synchronizer {
   constructor(private handle: DocHandle<unknown>) {
     super()
     const docId = handle.documentId.slice(0, 5)
-    this.#conciseLog = debug(`automerge-repo:concise:docsync:${docId}`) // Only logs one line per receive/send
     this.#log = debug(`automerge-repo:docsync:${docId}`)
-    this.#opsLog = debug(`automerge-repo:ops:docsync:${docId}`) // Log list of ops of each message
 
     handle.on(
       "change",

@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "Node16",
+    "noEmit": true
+  },
+  "include": ["**/*.ts"]
+}
