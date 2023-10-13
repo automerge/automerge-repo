@@ -1,7 +1,7 @@
 import { next as Automerge } from "@automerge/automerge"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import { DocHandle } from "./DocHandle.js"
+import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import {
   generateAutomergeUrl,
   isValidAutomergeUrl,
