@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-storage-nodefs",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Simple Node filesystem storage adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-storage-nodefs",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -12,10 +12,10 @@
     "watch": "npm-watch"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0"
+    "@automerge/automerge": "^2.1.5"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^1.0.6",
+    "@automerge/automerge-repo": "^1.0.7",
     "rimraf": "^5.0.1"
   },
   "watch": {

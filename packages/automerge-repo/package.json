@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "A repository object to manage a collection of automerge documents",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -23,7 +23,7 @@
     "http-server": "^14.1.0"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.0"
+    "@automerge/automerge": "^2.1.5"
   },
   "dependencies": {
     "bs58check": "^3.0.1",
