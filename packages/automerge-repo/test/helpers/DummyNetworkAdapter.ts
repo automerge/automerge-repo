@@ -1,16 +1,21 @@
 import { NetworkAdapter } from "../../src/index.js"
 
 export class DummyNetworkAdapter extends NetworkAdapter {
-  #startReady = true
-  constructor(startReady: boolean) {
+  #startReady: boolean
+
+  constructor({ startReady = true }: Options = {}) {
     super()
     this.#startReady = startReady
   }
-  send() { }
+  send() {}
   connect(_: string) {
     if (this.#startReady) {
       this.emit("ready", { network: this })
     }
   }
-  disconnect() { }
+  disconnect() {}
+}
+
+type Options = {
+  startReady?: boolean
 }
