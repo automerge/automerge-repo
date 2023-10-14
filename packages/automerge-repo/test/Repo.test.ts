@@ -182,7 +182,7 @@ describe("Repo", () => {
     })
 
     it("doesn't mark a document as unavailable until network adapters are ready", async () => {
-      const { repo, networkAdapter } = setup(false)
+      const { repo, networkAdapter } = setup({ startReady: false })
       const url = generateAutomergeUrl()
       const handle = repo.find<TestDoc>(url)
 
