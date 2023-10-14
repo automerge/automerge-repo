@@ -19,7 +19,7 @@ import {
 } from "../network/messages.js"
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
-import { debounce } from "../helpers/debounce.js"
+import { throttle } from "../helpers/throttle.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
@@ -55,7 +55,7 @@ export class DocSynchronizer extends Synchronizer {
 
     handle.on(
       "change",
-      debounce(() => this.#syncWithPeers(), this.syncDebounceRate)
+      throttle(() => this.#syncWithPeers(), this.syncDebounceRate)
     )
 
     handle.on("ephemeral-message-outbound", payload =>

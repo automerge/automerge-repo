@@ -16,7 +16,7 @@ import {
 import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { EventEmitter } from "eventemitter3"
 import { next as Automerge } from "@automerge/automerge"
-import { debounce } from "./helpers/debounce.js"
+import { throttle } from "./helpers/throttle.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -64,7 +64,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
         const debouncedSaveFn = handle.on(
           "heads-changed",
-          debounce(saveFn, this.saveDebounceRate)
+          throttle(saveFn, this.saveDebounceRate)
         )
 
         if (isNew) {
