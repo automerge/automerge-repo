@@ -31,7 +31,33 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   connect(peerId: PeerId) {
-    this.socket?.removeAllListeners()
+
+    const onOpen = () => {
+      log(`@ ${this.url}: open`)
+      clearInterval(this.timerId)
+      this.timerId = undefined
+    }
+
+    // When a socket closes, or disconnects, remove it from the array.
+    const onClose = () => {
+      log(`${this.url}: close`)
+      if (!this.timerId) {
+        this.connect(peerId)
+      }
+    }
+
+    const onMessage = (event: WebSocket.MessageEvent) => {
+      this.receiveMessage(event.data as Uint8Array)
+    }
+
+    // If we're reconnecting  make sure we remove the old event listeners
+    // before creating a new connection.
+    if (this.socket) {
+      this.socket.removeEventListener("open", onOpen)
+      this.socket.removeEventListener("close", onClose)
+      this.socket.removeEventListener("message", onMessage)
+    }
+
     if (!this.timerId) {
       this.timerId = setInterval(() => this.connect(peerId), 5000)
     }
@@ -40,24 +66,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.socket = new WebSocket(this.url)
     this.socket.binaryType = "arraybuffer"
 
-    this.socket.addEventListener("open", () => {
-      log(`@ ${this.url}: open`)
-      clearInterval(this.timerId)
-      this.timerId = undefined
-    })
-
-    // When a socket closes, or disconnects, remove it from the array.
-    this.socket.addEventListener("close", () => {
-      log(`${this.url}: close`)
-      if (!this.timerId) {
-        this.connect(peerId)
-      }
-      // log("Disconnected from server")
-    })
-
-    this.socket.addEventListener("message", (event: WebSocket.MessageEvent) =>
-      this.receiveMessage(event.data as Uint8Array)
-    )
+    this.socket.addEventListener("open", onOpen)
+    this.socket.addEventListener("close", onClose)
+    this.socket.addEventListener("message", onMessage)
 
     // mark this adapter as ready if we haven't received an ack in 1 second.
     // We might hear back from the other end at some point but we shouldn't
