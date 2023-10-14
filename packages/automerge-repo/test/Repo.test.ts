@@ -632,7 +632,7 @@ describe("Repo", () => {
       const a = new Repo({
         network: [new MessageChannelNetworkAdapter(ab)],
         peerId: "a" as PeerId,
-        sharePolicy: async () => true
+        sharePolicy: async () => true,
       })
 
       const handle = a.find(url)
@@ -652,7 +652,6 @@ describe("Repo", () => {
       // The empty repo should be notified of the new peer, send it a request
       // and eventually resolve the handle to "READY"
       await handle.whenReady()
-
     })
 
     it("a deleted document from charlieRepo can be refetched", async () => {
@@ -895,11 +894,13 @@ describe("Repo", () => {
   })
 })
 
+const warn = console.warn
+const NO_OP = () => {}
+
 const disableConsoleWarn = () => {
-  console["_warn"] = console.warn
-  console.warn = () => {}
+  console.warn = NO_OP
 }
 
 const reenableConsoleWarn = () => {
-  console.warn = console["_warn"]
+  console.warn = warn
 }
