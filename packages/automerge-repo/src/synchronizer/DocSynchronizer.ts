@@ -19,6 +19,7 @@ import {
 } from "../network/messages.js"
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
+import { throttle } from "../helpers/throttle.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
@@ -28,6 +29,7 @@ type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
  */
 export class DocSynchronizer extends Synchronizer {
   #log: debug.Debugger
+  syncDebounceRate = 100
 
   /** Active peers */
   #peers: PeerId[] = []
@@ -46,7 +48,10 @@ export class DocSynchronizer extends Synchronizer {
     const docId = handle.documentId.slice(0, 5)
     this.#log = debug(`automerge-repo:docsync:${docId}`)
 
-    handle.on("change", () => this.#syncWithPeers())
+    handle.on(
+      "change",
+      throttle(() => this.#syncWithPeers(), this.syncDebounceRate)
+    )
 
     handle.on("ephemeral-message-outbound", payload =>
       this.#broadcastToPeers(payload)
@@ -164,7 +169,9 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   beginSync(peerIds: PeerId[]) {
-    const newPeers = new Set(peerIds.filter(peerId => !this.#peers.includes(peerId)))
+    const newPeers = new Set(
+      peerIds.filter(peerId => !this.#peers.includes(peerId))
+    )
     this.#log(`beginSync: ${peerIds.join(", ")}`)
 
     // HACK: if we have a sync state already, we round-trip it through the encoding system to make

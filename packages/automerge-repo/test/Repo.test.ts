@@ -238,7 +238,7 @@ describe("Repo", () => {
 
       assert.equal(handle.isReady(), true)
 
-      await pause()
+      await pause(150)
 
       const repo2 = new Repo({
         storage: storageAdapter,
@@ -884,7 +884,7 @@ describe("Repo", () => {
       handle.merge(handle2)
 
       // wait for the network to do it's thang
-      await pause(50)
+      await pause(350)
 
       await charlieHandle.doc()
       assert.deepStrictEqual(charlieHandle.docSync(), { foo: "baz" })

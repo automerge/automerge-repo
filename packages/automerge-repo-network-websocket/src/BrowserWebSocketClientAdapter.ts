@@ -31,7 +31,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   connect(peerId: PeerId) {
-
     const onOpen = () => {
       log(`@ ${this.url}: open`)
       clearInterval(this.timerId)
