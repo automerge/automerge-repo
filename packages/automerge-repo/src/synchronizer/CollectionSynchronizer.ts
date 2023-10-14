@@ -1,12 +1,12 @@
+import debug from "debug"
 import { DocHandle } from "../DocHandle.js"
 import { stringifyAutomergeUrl } from "../DocUrl.js"
 import { Repo } from "../Repo.js"
+import { RepoMessage } from "../network/messages.js"
 import { DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
-import debug from "debug"
-import { RepoMessage } from "../network/messages.js"
 const log = debug("automerge-repo:collectionsync")
 
 /** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */

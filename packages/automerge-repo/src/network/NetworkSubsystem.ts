@@ -4,8 +4,8 @@ import { PeerId, SessionId } from "../types.js"
 import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
 import {
   EphemeralMessage,
-  RepoMessage,
   MessageContents,
+  RepoMessage,
   isEphemeralMessage,
   isValidRepoMessage,
 } from "./messages.js"

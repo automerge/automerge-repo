@@ -1,5 +1,5 @@
 import assert from "assert"
-import { describe, it, beforeEach } from "vitest"
+import { beforeEach, describe, it } from "vitest"
 import { PeerId, Repo } from "../src/index.js"
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
 

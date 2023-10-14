@@ -29,7 +29,9 @@ export const parseAutomergeUrl = (url: AutomergeUrl) => {
  */
 export const stringifyAutomergeUrl = ({
   documentId,
-}: {documentId: DocumentId | BinaryDocumentId}): AutomergeUrl => {
+}: {
+  documentId: DocumentId | BinaryDocumentId
+}): AutomergeUrl => {
   if (documentId instanceof Uint8Array)
     return (urlPrefix +
       binaryToDocumentId(documentId as BinaryDocumentId)) as AutomergeUrl

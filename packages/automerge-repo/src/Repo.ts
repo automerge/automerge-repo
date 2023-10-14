@@ -1,21 +1,19 @@
+import { next as Automerge } from "@automerge/automerge"
 import debug from "debug"
+import { EventEmitter } from "eventemitter3"
+import { DocHandle } from "./DocHandle.js"
+import {
+  generateAutomergeUrl,
+  isValidAutomergeUrl,
+  parseAutomergeUrl,
+  parseLegacyUUID,
+} from "./DocUrl.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { type AutomergeUrl, DocumentId, PeerId } from "./types.js"
-
-import {
-  parseAutomergeUrl,
-  generateAutomergeUrl,
-  isValidAutomergeUrl,
-  parseLegacyUUID,
-} from "./DocUrl.js"
-
-import { DocHandle } from "./DocHandle.js"
-import { EventEmitter } from "eventemitter3"
-import { next as Automerge } from "@automerge/automerge"
+import { DocumentId, PeerId, type AutomergeUrl } from "./types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
