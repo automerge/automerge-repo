@@ -23,16 +23,28 @@ export const parseAutomergeUrl = (url: AutomergeUrl) => {
 /**
  * Given a documentId in either binary or base58check-encoded form, returns an Automerge URL.
  * Throws on invalid input.
- * Note: This function takes an object because we anticipate adding fields in the future.
  */
-export const stringifyAutomergeUrl = ({ documentId }: UrlOptions) => {
-  if (documentId instanceof Uint8Array)
-    return (urlPrefix +
-      binaryToDocumentId(documentId as BinaryDocumentId)) as AutomergeUrl
-  else if (typeof documentId === "string") {
-    return (urlPrefix + documentId) as AutomergeUrl
-  }
-  throw new Error("Invalid documentId: " + documentId)
+export const stringifyAutomergeUrl = (
+  arg: UrlOptions | DocumentId | BinaryDocumentId
+) => {
+  let documentId =
+    arg instanceof Uint8Array || typeof arg === "string"
+      ? arg
+      : "documentId" in arg
+      ? arg.documentId
+      : undefined
+
+  const encodedDocumentId =
+    documentId instanceof Uint8Array
+      ? binaryToDocumentId(documentId)
+      : typeof documentId === "string"
+      ? documentId
+      : undefined
+
+  if (encodedDocumentId === undefined)
+    throw new Error("Invalid documentId: " + documentId)
+
+  return (urlPrefix + encodedDocumentId) as AutomergeUrl
 }
 
 /**
