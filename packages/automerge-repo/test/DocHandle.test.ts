@@ -316,4 +316,5 @@ describe("DocHandle", () => {
       assert.deepStrictEqual(decode(data), message)
     })
   })
+
 })

@@ -39,6 +39,7 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
+  #remoteHeads: Record<PeerId, {heads: A.Heads, received: Date}> = {}
 
   /** The URL of this document
    *
@@ -47,6 +48,10 @@ export class DocHandle<T> //
    */
   get url(): AutomergeUrl {
     return stringifyAutomergeUrl({ documentId: this.documentId })
+  }
+
+  get remoteHeads(): Record<PeerId, {heads: A.Heads, received: Date}> {
+    return structuredClone(this.#remoteHeads)
   }
 
   /** @hidden */
@@ -434,6 +439,11 @@ export class DocHandle<T> //
       data: encode(message),
     })
   }
+
+  /** @hidden */
+  setRemoteHeads(remote: PeerId, heads: A.Heads, at: Date) {
+    this.#remoteHeads[remote] = {heads, received: at}
+  }
 }
 
 // WRAPPER CLASS TYPES
@@ -482,6 +492,12 @@ export interface DocHandleOutboundEphemeralMessagePayload<T> {
   data: Uint8Array
 }
 
+export interface DocHandleRemoteHeadsPayload {
+  remote: PeerId;
+  heads: A.Heads;
+  received: Date;
+}
+
 export interface DocHandleEvents<T> {
   "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
@@ -491,6 +507,7 @@ export interface DocHandleEvents<T> {
   "ephemeral-message-outbound": (
     payload: DocHandleOutboundEphemeralMessagePayload<T>
   ) => void
+  "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
 }
 
 // STATE MACHINE TYPES

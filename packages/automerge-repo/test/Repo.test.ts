@@ -1,9 +1,10 @@
+import { next as A } from "@automerge/automerge"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, it } from "vitest"
 import { parseAutomergeUrl } from "../dist/DocUrl.js"
-import { READY } from "../src/DocHandle.js"
+import { DocHandleRemoteHeadsPayload, READY } from "../src/DocHandle.js"
 import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl.js"
 import { Repo } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
@@ -752,6 +753,44 @@ describe("Repo", () => {
       await charliePromise
       teardown()
     })
+
+    it("should report the remote heads when they change", async () => {
+      const { bobRepo, charlieRepo, teardown } = await setup({connectAlice: false})
+
+      const handle = bobRepo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+
+      // pause to let the sync happen
+      await pause(50)
+
+      const nextRemoteHeadsPromise = new Promise<{remote: PeerId, heads: A.Heads, received: Date}>(resolve => {
+        handle.on("remote-heads", ({remote, heads, received}) => {
+          resolve({remote, heads, received})
+        })
+      })
+
+      const charlieHandle = charlieRepo.find<TestDoc>(handle.url)
+      await charlieHandle.whenReady()
+
+      // make a change on charlie
+      charlieHandle.change(d => {
+        d.foo = "baz"
+      })
+      const charlieHeads = A.getHeads(charlieHandle.docSync())
+
+      const nextRemoteHeads = await nextRemoteHeadsPromise
+      assert.deepStrictEqual(nextRemoteHeads.remote, "charlie")
+      assert.deepStrictEqual(nextRemoteHeads.heads, A.getHeads(charlieHandle.docSync()))
+
+      assert.deepStrictEqual(handle.remoteHeads, {
+        "charlie": {
+          heads: A.getHeads(charlieHandle.docSync()),
+          received: nextRemoteHeads.received
+        }
+      })
+    })
   })
 
   describe("with peers (mesh network)", () => {
@@ -892,6 +931,7 @@ describe("Repo", () => {
       teardown()
     })
   })
+
 })
 
 const warn = console.warn

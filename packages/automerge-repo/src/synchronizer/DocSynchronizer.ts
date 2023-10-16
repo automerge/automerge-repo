@@ -23,6 +23,17 @@ import { throttle } from "../helpers/throttle.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
+type LastSync = {
+  heads: A.Heads;
+  at: Date;
+  dirty: boolean;
+}
+
+type PendingMessage = {
+  message: RequestMessage | SyncMessage;
+  received: Date;
+}
+
 /**
  * DocSynchronizer takes a handle to an Automerge document, and receives & dispatches sync messages
  * to bring it inline with all other peers' versions.
@@ -38,8 +49,9 @@ export class DocSynchronizer extends Synchronizer {
 
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
+  #lastSyncs: Record<PeerId, LastSync> = {}
 
-  #pendingSyncMessages: Array<SyncMessage | RequestMessage> = []
+  #pendingSyncMessages: Array<PendingMessage> = []
 
   #syncStarted = false
 
@@ -257,15 +269,16 @@ export class DocSynchronizer extends Synchronizer {
 
     // We need to block receiving the syncMessages until we've checked local storage
     if (!this.handle.inState([READY, REQUESTING, UNAVAILABLE])) {
-      this.#pendingSyncMessages.push(message)
+      this.#pendingSyncMessages.push({message, received: new Date()})
       return
     }
 
     this.#processAllPendingSyncMessages()
-    this.#processSyncMessage(message)
+    this.#processSyncMessage(message, new Date())
+    this.#notifyOfNewSyncStates()
   }
 
-  #processSyncMessage(message: SyncMessage | RequestMessage) {
+  #processSyncMessage(message: SyncMessage | RequestMessage, received: Date) {
     if (isRequestMessage(message)) {
       this.#peerDocumentStatuses[message.senderId] = "wants"
     }
@@ -285,6 +298,13 @@ export class DocSynchronizer extends Synchronizer {
       )
 
       this.#setSyncState(message.senderId, newSyncState)
+      if (newSyncState.theirHeads != null) {
+        this.#lastSyncs[message.senderId] = {
+          heads: newSyncState.theirHeads,
+          at: received,
+          dirty: true,
+        }
+      }
 
       // respond to just this peer (as required)
       this.#sendSyncMessage(message.senderId, doc)
@@ -322,9 +342,23 @@ export class DocSynchronizer extends Synchronizer {
 
   #processAllPendingSyncMessages() {
     for (const message of this.#pendingSyncMessages) {
-      this.#processSyncMessage(message)
+      this.#processSyncMessage(message.message, message.received)
     }
 
     this.#pendingSyncMessages = []
+  }
+
+  #notifyOfNewSyncStates() {
+    for (const [peerId, lastSync] of Object.entries(this.#lastSyncs)) {
+      if (lastSync.dirty) {
+        this.handle.setRemoteHeads(peerId as PeerId, lastSync.heads, lastSync.at)
+        this.handle.emit("remote-heads", {
+          remote: peerId as PeerId,
+          heads: lastSync.heads,
+          received: lastSync.at
+        })
+        lastSync.dirty = true
+      }
+    }
   }
 }
