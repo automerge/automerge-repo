@@ -51,10 +51,10 @@ export const isValidAutomergeUrl = (
 /**
  * Returns a new Automerge URL with a random UUID documentId. Called by create(), and also used by tests.
  */
-export const generateAutomergeUrl = (): AutomergeUrl =>
-  stringifyAutomergeUrl({
-    documentId: Uuid.v4(null, new Uint8Array(16)) as BinaryDocumentId,
-  })
+export const generateAutomergeUrl = (): AutomergeUrl => {
+  const documentId = Uuid.v4(null, new Uint8Array(16)) as BinaryDocumentId
+  return stringifyAutomergeUrl({ documentId })
+}
 
 export const documentIdToBinary = (docId: DocumentId) =>
   bs58check.decodeUnsafe(docId) as BinaryDocumentId | undefined
