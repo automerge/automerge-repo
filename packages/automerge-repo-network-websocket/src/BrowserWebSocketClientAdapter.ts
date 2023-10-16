@@ -31,30 +31,12 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   connect(peerId: PeerId) {
-    const onOpen = () => {
-      log(`@ ${this.url}: open`)
-      clearInterval(this.timerId)
-      this.timerId = undefined
-    }
-
-    // When a socket closes, or disconnects, remove it from the array.
-    const onClose = () => {
-      log(`${this.url}: close`)
-      if (!this.timerId) {
-        this.connect(peerId)
-      }
-    }
-
-    const onMessage = (event: WebSocket.MessageEvent) => {
-      this.receiveMessage(event.data as Uint8Array)
-    }
-
     // If we're reconnecting  make sure we remove the old event listeners
     // before creating a new connection.
     if (this.socket) {
-      this.socket.removeEventListener("open", onOpen)
-      this.socket.removeEventListener("close", onClose)
-      this.socket.removeEventListener("message", onMessage)
+      this.socket.removeEventListener("open", this.onOpen)
+      this.socket.removeEventListener("close", this.onClose)
+      this.socket.removeEventListener("message", this.onMessage)
     }
 
     if (!this.timerId) {
@@ -65,9 +47,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.socket = new WebSocket(this.url)
     this.socket.binaryType = "arraybuffer"
 
-    this.socket.addEventListener("open", onOpen)
-    this.socket.addEventListener("close", onClose)
-    this.socket.addEventListener("message", onMessage)
+    this.socket.addEventListener("open", this.onOpen)
+    this.socket.addEventListener("close", this.onClose)
+    this.socket.addEventListener("message", this.onMessage)
 
     // mark this adapter as ready if we haven't received an ack in 1 second.
     // We might hear back from the other end at some point but we shouldn't
@@ -82,6 +64,27 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.join()
   }
 
+  onOpen = () => {
+    log(`@ ${this.url}: open`)
+    clearInterval(this.timerId)
+    this.timerId = undefined
+    this.send(joinMessage(this.peerId!))
+  }
+
+  // When a socket closes, or disconnects, remove it from the array.
+  onClose = () => {
+    log(`${this.url}: close`)
+    if (!this.timerId) {
+      if (this.peerId) {
+        this.connect(this.peerId)
+      }
+    }
+  }
+
+  onMessage = (event: WebSocket.MessageEvent) => {
+    this.receiveMessage(event.data as Uint8Array)
+  }
+
   join() {
     if (!this.socket) {
       throw new Error("WTF, get a socket")
@@ -89,16 +92,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     if (this.socket.readyState === WebSocket.OPEN) {
       this.send(joinMessage(this.peerId!))
     } else {
-      this.socket.addEventListener(
-        "open",
-        () => {
-          if (!this.socket) {
-            throw new Error("WTF, get a socket")
-          }
-          this.send(joinMessage(this.peerId!))
-        },
-        { once: true }
-      )
+      // The onOpen handler automatically sends a join message
     }
   }
 
