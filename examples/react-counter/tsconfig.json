@@ -8,7 +8,7 @@
     "jsx": "react-jsx",
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "module": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "noEmit": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
