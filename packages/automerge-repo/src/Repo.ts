@@ -7,7 +7,7 @@ import {
   isValidAutomergeUrl,
   parseAutomergeUrl,
   parseLegacyUUID,
-} from "./DocUrl.js"
+} from "./AutomergeUrl.js"
 import { throttle } from "./helpers/throttle.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"

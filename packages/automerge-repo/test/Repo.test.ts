@@ -2,9 +2,12 @@ import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, it } from "vitest"
-import { parseAutomergeUrl } from "../dist/DocUrl.js"
+import { parseAutomergeUrl } from "../dist/AutomergeUrl.js"
 import { READY } from "../src/DocHandle.js"
-import { generateAutomergeUrl, stringifyAutomergeUrl } from "../src/DocUrl.js"
+import {
+  generateAutomergeUrl,
+  stringifyAutomergeUrl,
+} from "../src/AutomergeUrl.js"
 import { Repo } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"

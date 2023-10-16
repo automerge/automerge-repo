@@ -5,7 +5,7 @@ import fs from "fs"
 import os from "os"
 import path from "path"
 import { describe, it } from "vitest"
-import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 

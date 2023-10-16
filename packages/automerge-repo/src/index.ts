@@ -31,7 +31,7 @@ export {
   isValidAutomergeUrl,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
-} from "./DocUrl.js"
+} from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export { isValidRepoMessage } from "./network/messages.js"

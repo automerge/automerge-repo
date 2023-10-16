@@ -5,7 +5,7 @@ import {
   isValidAutomergeUrl,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
-} from "../src/DocUrl.js"
+} from "../src/AutomergeUrl.js"
 import type {
   AutomergeUrl,
   BinaryDocumentId,
