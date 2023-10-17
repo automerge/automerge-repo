@@ -10,6 +10,17 @@ import { once } from "events"
 import { describe, it } from "vitest"
 
 describe("Websocket adapters", async () => {
+  const startServerOnNextAvailablePort = async (port: number = 8080) => {
+    try {
+      const { socket, server } = await startServer(port)
+      return { socket, server, port }
+    } catch (e: any) {
+      if (e.code === "EADDRINUSE")
+        return startServerOnNextAvailablePort(port + 1)
+      throw e
+    }
+  }
+
   // run adapter acceptance tests
   runAdapterTests(async () => {
     // set up server adapter
@@ -29,6 +40,21 @@ describe("Websocket adapters", async () => {
   })
 
   describe("BrowserWebSocketClientAdapter", () => {
+    const firstMessage = async (socket: WebSocket.Server<any>) =>
+      new Promise((resolve, reject) => {
+        socket.once("connection", ws => {
+          ws.once("message", (message: any) => {
+            resolve(message)
+          })
+          ws.once("error", (error: any) => {
+            reject(error)
+          })
+        })
+        socket.once("error", error => {
+          reject(error)
+        })
+      })
+
     it("should advertise the protocol versions it supports in its join message", async () => {
       const { socket, server } = await startServer(0)
       let port = (server.address()!! as AddressInfo).port
@@ -51,6 +77,24 @@ describe("Websocket adapters", async () => {
   })
 
   describe("NodeWSServerAdapter", () => {
+    const serverHelloGivenClientHello = async (clientHello: Object) => {
+      const { socket, server } = await startServer(0)
+      let port = (server.address()!! as AddressInfo).port
+      const serverUrl = `ws://localhost:${port}`
+      const adapter = new NodeWSServerAdapter(socket)
+      const _repo = new Repo({ network: [adapter], peerId: "server" as PeerId })
+
+      const clientSocket = new WebSocket(serverUrl)
+      await once(clientSocket, "open")
+      const serverHelloPromise = once(clientSocket, "message")
+
+      clientSocket.send(CBOR.encode(clientHello))
+
+      const serverHello = await serverHelloPromise
+      const message = CBOR.decode(serverHello[0] as Uint8Array)
+      return message
+    }
+
     it("should send the negotiated protocol version in its hello message", async () => {
       const response = await serverHelloGivenClientHello({
         type: "join",
@@ -124,49 +168,6 @@ describe("Websocket adapters", async () => {
     })
   })
 })
-
-const serverHelloGivenClientHello = async (clientHello: Object) => {
-  const { socket, server } = await startServer(0)
-  let port = (server.address()!! as AddressInfo).port
-  const serverUrl = `ws://localhost:${port}`
-  const adapter = new NodeWSServerAdapter(socket)
-  const _repo = new Repo({ network: [adapter], peerId: "server" as PeerId })
-
-  const clientSocket = new WebSocket(serverUrl)
-  await once(clientSocket, "open")
-  const serverHelloPromise = once(clientSocket, "message")
-
-  clientSocket.send(CBOR.encode(clientHello))
-
-  const serverHello = await serverHelloPromise
-  const message = CBOR.decode(serverHello[0] as Uint8Array)
-  return message
-}
-
-const firstMessage = async (socket: WebSocket.Server<any>) =>
-  new Promise((resolve, reject) => {
-    socket.once("connection", ws => {
-      ws.once("message", (message: any) => {
-        resolve(message)
-      })
-      ws.once("error", (error: any) => {
-        reject(error)
-      })
-    })
-    socket.once("error", error => {
-      reject(error)
-    })
-  })
-
-const startServerOnNextAvailablePort = async (port: number = 8080) => {
-  try {
-    const { socket, server } = await startServer(port)
-    return { socket, server, port }
-  } catch (e: any) {
-    if (e.code === "EADDRINUSE") return startServerOnNextAvailablePort(port + 1)
-    throw e
-  }
-}
 
 export const pause = (t = 0) =>
   new Promise<void>(resolve => setTimeout(() => resolve(), t))
