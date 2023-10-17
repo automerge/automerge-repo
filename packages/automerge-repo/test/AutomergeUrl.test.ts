@@ -65,6 +65,10 @@ describe("AutomergeUrl", () => {
       assert(isValidAutomergeUrl(goodUrl) === true)
     })
 
+    it("should return false for null url", () => {
+      assert(isValidAutomergeUrl(null) === false)
+    })
+
     it("should return false for a url with invalid checksum", () => {
       assert(isValidAutomergeUrl(badChecksumUrl) === false)
     })
