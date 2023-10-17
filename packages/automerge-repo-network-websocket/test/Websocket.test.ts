@@ -81,13 +81,11 @@ describe("Websocket adapters", () => {
         clients: [browserAdapter],
       } = await setup()
 
-      console.log("setting up browser repo")
       const _browserRepo = new Repo({
         network: [browserAdapter],
         peerId: "browser" as PeerId,
       })
 
-      console.log("setting up server repo")
       const serverAdapter = new NodeWSServerAdapter(socket)
       const _serverRepo = new Repo({
         network: [serverAdapter],
