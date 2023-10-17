@@ -5,6 +5,15 @@ export default defineConfig({
     environment: "jsdom",
     coverage: {
       provider: "v8",
+      reporter: ["lcov", "text", "html"],
+      exclude: [
+        "**/fuzz",
+        "**/helpers",
+        "**/coverage",
+        "examples/**/*",
+        "docs/**/*",
+        "**/test/**/*",
+      ],
     },
   },
 })
