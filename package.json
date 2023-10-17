@@ -10,6 +10,7 @@
   "type": "module",
   "scripts": {
     "build": "lerna run build",
+    "coverage": "vitest run --coverage",
     "dev:demo": "yarn workspace @automerge/automerge-repo-demo-todo dev",
     "dev:svelte-demo": "yarn workspace @automerge/automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
@@ -44,7 +45,9 @@
     "@types/ws": "^8.5.3",
     "@typescript-eslint/eslint-plugin": "^5.33.0",
     "@typescript-eslint/parser": "^5.33.0",
+    "@vitest/coverage-v8": "1.0.0-beta.2",
     "@vitejs/plugin-react": "^3.0.0",
+    "@vitest/ui": "1.0.0-beta.2",
     "c8": "^7.12.0",
     "cross-env": "^7.0.3",
     "eslint": "^8.15.0",
@@ -64,6 +67,6 @@
     "vite": "^4.4.11",
     "vite-plugin-top-level-await": "^1.3.0",
     "vite-plugin-wasm": "^3.2.2",
-    "vitest": "1.0.0-beta.1"
+    "vitest": "1.0.0-beta.2"
   }
 }
