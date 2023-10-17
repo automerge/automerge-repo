@@ -10,7 +10,6 @@
   "type": "module",
   "scripts": {
     "build": "lerna run build",
-    "coverage": "vitest run --coverage",
     "dev:demo": "yarn workspace @automerge/automerge-repo-demo-todo dev",
     "dev:svelte-demo": "yarn workspace @automerge/automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
@@ -18,6 +17,8 @@
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server start",
     "repocheck": "manypkg check",
     "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "test:ui": "vitest --coverage --ui",
     "watch": "lerna run watch --parallel --stream"
   },
   "engines": {
