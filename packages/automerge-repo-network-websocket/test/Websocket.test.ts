@@ -74,6 +74,34 @@ describe("Websocket adapters", () => {
       })
     })
 
+    it.skip("should announce disconnections", async () => {
+      const {
+        server,
+        socket,
+        clients: [browserAdapter],
+      } = await setup()
+
+      console.log("setting up browser repo")
+      const _browserRepo = new Repo({
+        network: [browserAdapter],
+        peerId: "browser" as PeerId,
+      })
+
+      console.log("setting up server repo")
+      const serverAdapter = new NodeWSServerAdapter(socket)
+      const _serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: "server" as PeerId,
+      })
+
+      const disconnectPromise = new Promise<void>(resolve => {
+        browserAdapter.on("peer-disconnected", () => resolve())
+      })
+
+      server.close()
+      await disconnectPromise
+    })
+
     it("should correctly clear event handlers on reconnect", async () => {
       // This reproduces an issue where the BrowserWebSocketClientAdapter.connect
       // call registered event handlers on the websocket but didn't clear them
