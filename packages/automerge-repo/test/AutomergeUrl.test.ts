@@ -42,6 +42,12 @@ describe("AutomergeUrl", () => {
       const url = stringifyAutomergeUrl({ documentId: goodDocumentId })
       assert.strictEqual(url, goodUrl)
     })
+
+    it("supports passing a document ID without wrapping it in an object", () => {
+      const url1 = stringifyAutomergeUrl(goodDocumentId)
+      const url2 = stringifyAutomergeUrl({ documentId: goodDocumentId })
+      assert.equal(url1, url2)
+    })
   })
 
   describe("parseAutomergeUrl", () => {
