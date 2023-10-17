@@ -75,7 +75,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
         socket.isAlive = false
         socket.ping()
       })
-    }, 30000)
+    }, 5000)
   }
 
   disconnect() {
