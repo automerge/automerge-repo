@@ -56,7 +56,7 @@ describe("Websocket adapters", async () => {
       })
 
     it("should advertise the protocol versions it supports in its join message", async () => {
-      const { socket, server } = await startServer(0)
+      const { socket, server } = await startServerOnNextAvailablePort()
       let port = (server.address()!! as AddressInfo).port
       const serverUrl = `ws://localhost:${port}`
       const helloPromise = firstMessage(socket)
@@ -78,7 +78,7 @@ describe("Websocket adapters", async () => {
 
   describe("NodeWSServerAdapter", () => {
     const serverHelloGivenClientHello = async (clientHello: Object) => {
-      const { socket, server } = await startServer(0)
+      const { socket, server } = await startServerOnNextAvailablePort()
       let port = (server.address()!! as AddressInfo).port
       const serverUrl = `ws://localhost:${port}`
       const adapter = new NodeWSServerAdapter(socket)
