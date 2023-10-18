@@ -1,4 +1,5 @@
-import { WebSocket, type WebSocketServer } from "isomorphic-ws"
+import WebSocket from "isomorphic-ws"
+import { type WebSocketServer } from "isomorphic-ws"
 
 import debug from "debug"
 const log = debug("WebsocketServer")
