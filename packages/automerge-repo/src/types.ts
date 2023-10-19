@@ -19,6 +19,18 @@ export type DocumentId = string & { __documentId: true } // for logging
  */
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
+/**
+ * A UUID encoded as a hex string. As of v1.0, a {@link DocumentID} is stored as a base58-encoded string with a checksum.
+ * Support for this format will be removed in a future version.
+ */
+export type LegacyDocumentId = string & { __legacyDocumentId: true }
+
+export type AnyDocumentId =
+  | AutomergeUrl
+  | DocumentId
+  | BinaryDocumentId
+  | LegacyDocumentId
+
 /** A branded type for peer IDs */
 export type PeerId = string & { __peerId: true }
 
