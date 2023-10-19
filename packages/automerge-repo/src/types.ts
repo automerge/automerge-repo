@@ -1,22 +1,18 @@
 /**
- * A branded string representing a URL for a document
- *
- * @remarks
- * An automerge URL has the form `automerge:<base58check encoded string>`; for example,
- * `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`
- *
+ * A branded string representing a URL for a document, in the form `automerge:<base58check encoded
+ * string>`; for example, `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
  */
 export type AutomergeUrl = string & { __documentUrl: true } // for opening / linking
 
 /**
- * The base58check-encoded UUID of a document. This is the string following the `automerge:` protocol
- * prefix in an AutomergeUrl. Typically you should use a {@link AutomergeUrl} instead.
+ * The base58check-encoded UUID of a document. This is the string following the `automerge:`
+ * protocol prefix in an AutomergeUrl; for example, `4NMNnkMhL8jXrdJ9jamS58PAVdXu`. When recording
+ * links to an Automerge document in another Automerge document, you should store a
+ * {@link AutomergeUrl} instead.
  */
 export type DocumentId = string & { __documentId: true } // for logging
 
-/**
- * The unencoded UUID of a document. Typically you should use a {@link AutomergeUrl} instead.
- */
+/** The unencoded UUID of a document. Typically you should use a {@link AutomergeUrl} instead. */
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
 /**
