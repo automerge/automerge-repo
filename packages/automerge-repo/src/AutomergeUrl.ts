@@ -103,6 +103,42 @@ export const parseLegacyUUID = (str: string) => {
   return stringifyAutomergeUrl({ documentId })
 }
 
+/**
+ * Given any valid expression of a document ID, returns a DocumentId in base58check-encoded form.
+ *
+ * Currently supports:
+ * - base58check-encoded DocumentId
+ * - Automerge URL
+ * - legacy UUID
+ * - binary DocumentId
+ *
+ * Throws on invalid input.
+ */
+export const interpretAsDocumentId = (id: AnyDocumentId) => {
+  // binary
+  if (id instanceof Uint8Array) return binaryToDocumentId(id)
+
+  // url
+  if (isValidAutomergeUrl(id)) return parseAutomergeUrl(id).documentId
+
+  // base58check
+  if (isValidDocumentId(id)) return id
+
+  // legacy UUID
+  if (isValidUuid(id)) {
+    console.warn(
+      "Future versions will not support UUIDs as document IDs; use Automerge URLs instead."
+    )
+    const binaryDocumentID = Uuid.parse(id) as BinaryDocumentId
+    return binaryToDocumentId(binaryDocumentID)
+  }
+
+  // none of the above
+  throw new Error(`Invalid AutomergeUrl: '${id}'`)
+}
+
+// TYPES
+
 type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
 }
