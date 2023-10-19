@@ -1,7 +1,9 @@
-import {
-  type AutomergeUrl,
-  type BinaryDocumentId,
-  type DocumentId,
+import type {
+  LegacyDocumentId,
+  AutomergeUrl,
+  BinaryDocumentId,
+  DocumentId,
+  AnyDocumentId,
 } from "./types.js"
 import * as Uuid from "uuid"
 import bs58check from "bs58check"
@@ -61,15 +63,28 @@ export const isValidAutomergeUrl = (
   if (!str || !str.startsWith(urlPrefix)) return false
   const automergeUrl = str as AutomergeUrl
   try {
-    parseAutomergeUrl(automergeUrl)
-    return true
+    const { documentId } = parseAutomergeUrl(automergeUrl)
+    return isValidDocumentId(documentId)
   } catch {
     return false
   }
 }
 
+export const isValidDocumentId = (str: string): str is DocumentId => {
+  // try to decode from base58
+  const binaryDocumentID = documentIdToBinary(str as DocumentId)
+  if (binaryDocumentID === undefined) return false // invalid base58check encoding
+
+  // confirm that the document ID is a valid UUID
+  const documentId = Uuid.stringify(binaryDocumentID)
+  return Uuid.validate(documentId)
+}
+
+export const isValidUuid = (str: string): str is LegacyDocumentId =>
+  Uuid.validate(str)
+
 /**
- * Returns a new Automerge URL with a random UUID documentId. Called by create(), and also used by tests.
+ * Returns a new Automerge URL with a random UUID documentId. Called by Repo.create(), and also used by tests.
  */
 export const generateAutomergeUrl = (): AutomergeUrl => {
   const documentId = Uuid.v4(null, new Uint8Array(16)) as BinaryDocumentId

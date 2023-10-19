@@ -1,4 +1,5 @@
 import assert from "assert"
+import bs58check from "bs58check"
 import { describe, it } from "vitest"
 import {
   generateAutomergeUrl,
@@ -17,7 +18,10 @@ const badChecksumUrl = "automerge:badbadbad" as AutomergeUrl
 const badPrefixUrl = "yjs😉:4NMNnkMhL8jXrdJ9jamS58PAVdXu" as AutomergeUrl
 
 const goodDocumentId = "4NMNnkMhL8jXrdJ9jamS58PAVdXu" as DocumentId
-const badDocumentId = "badbadbad" as DocumentId
+const badChecksumDocumentId = "badbadbad" as DocumentId
+const badUuidDocumentId = bs58check.encode(
+  new Uint8Array([1, 2, 3, 4, 42, -1, 69, 777])
+) as DocumentId
 
 const goodBinaryDocumentId = Uint8Array.from([
   241, 194, 156, 132, 116, 200, 74, 222, 184, 0, 190, 71, 98, 125, 51, 191,
@@ -83,8 +87,13 @@ describe("AutomergeUrl", () => {
       assert(isValidAutomergeUrl(badPrefixUrl) === false)
     })
 
-    it("should return false for a url created from an invalid documentId", () => {
-      const url = stringifyAutomergeUrl({ documentId: badDocumentId })
+    it("should return false for a documentId with an invalid checksum", () => {
+      const url = stringifyAutomergeUrl({ documentId: badChecksumDocumentId })
+      assert(isValidAutomergeUrl(url) === false)
+    })
+
+    it("should return false for a documentId that is not a valid UUID ", () => {
+      const url = stringifyAutomergeUrl({ documentId: badUuidDocumentId })
       assert(isValidAutomergeUrl(url) === false)
     })
   })
