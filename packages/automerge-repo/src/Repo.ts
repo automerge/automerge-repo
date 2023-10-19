@@ -1,20 +1,19 @@
 import { next as Automerge } from "@automerge/automerge"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import {
   generateAutomergeUrl,
-  isValidAutomergeUrl,
+  interpretAsDocumentId,
   parseAutomergeUrl,
-  parseLegacyUUID,
 } from "./AutomergeUrl.js"
+import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { throttle } from "./helpers/throttle.js"
 import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { DocumentId, PeerId, type AutomergeUrl } from "./types.js"
+import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -247,22 +246,11 @@ export class Repo extends EventEmitter<RepoEvents> {
    * event to advertise interest in the document.
    */
   find<T>(
-    /** The documentId of the handle to retrieve */
-    automergeUrl: AutomergeUrl
+    /** The url or documentId of the handle to retrieve */
+    id: AnyDocumentId
   ): DocHandle<T> {
-    if (!isValidAutomergeUrl(automergeUrl)) {
-      const maybeAutomergeUrl = parseLegacyUUID(automergeUrl)
-      if (maybeAutomergeUrl) {
-        console.warn(
-          "Legacy UUID document ID detected, converting to AutomergeUrl. This will be removed in a future version."
-        )
-        automergeUrl = maybeAutomergeUrl
-      } else {
-        throw new Error(`Invalid AutomergeUrl: '${automergeUrl}'`)
-      }
-    }
+    const documentId = interpretAsDocumentId(id)
 
-    const { documentId } = parseAutomergeUrl(automergeUrl)
     // If we have the handle cached, return it
     if (this.#handleCache[documentId]) {
       if (this.#handleCache[documentId].isUnavailable()) {
@@ -282,16 +270,16 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   delete(
-    /** The documentId of the handle to delete */
-    id: DocumentId | AutomergeUrl
+    /** The url or documentId of the handle to delete */
+    id: AnyDocumentId
   ) {
-    if (isValidAutomergeUrl(id)) id = parseAutomergeUrl(id).documentId
+    const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle(id, false)
+    const handle = this.#getHandle(documentId, false)
     handle.delete()
 
-    delete this.#handleCache[id]
-    this.emit("delete-document", { documentId: id })
+    delete this.#handleCache[documentId]
+    this.emit("delete-document", { documentId })
   }
 }
 

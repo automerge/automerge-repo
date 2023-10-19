@@ -15,6 +15,7 @@ import {
   AutomergeUrl,
   DocHandle,
   DocumentId,
+  LegacyDocumentId,
   PeerId,
   SharePolicy,
 } from "../src/index.js"
@@ -54,7 +55,7 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), true)
     })
 
-    it("can find a document once it's created", () => {
+    it("can find a document by url", () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
       handle.change((d: TestDoc) => {
@@ -66,7 +67,19 @@ describe("Repo", () => {
       assert.deepEqual(handle2.docSync(), { foo: "bar" })
     })
 
-    it("can find a document using a legacy UUID (for now)", () => {
+    it("can find a document by its unprefixed document ID", () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change((d: TestDoc) => {
+        d.foo = "bar"
+      })
+
+      const handle2 = repo.find(handle.documentId)
+      assert.equal(handle, handle2)
+      assert.deepEqual(handle2.docSync(), { foo: "bar" })
+    })
+
+    it("can find a document by legacy UUID (for now)", () => {
       disableConsoleWarn()
 
       const { repo } = setup()
@@ -77,9 +90,9 @@ describe("Repo", () => {
 
       const url = handle.url
       const { binaryDocumentId } = parseAutomergeUrl(url)
-      const legacyDocumentId = Uuid.stringify(binaryDocumentId) as AutomergeUrl // a white lie
+      const legacyDocId = Uuid.stringify(binaryDocumentId) as LegacyDocumentId
 
-      const handle2 = repo.find(legacyDocumentId)
+      const handle2 = repo.find(legacyDocId)
       assert.equal(handle, handle2)
       assert.deepEqual(handle2.docSync(), { foo: "bar" })
 
