@@ -41,42 +41,45 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     log("messageport connecting")
     this.peerId = peerId
     this.messagePortRef.start()
-    this.messagePortRef.addListener("message", (e: { data: Message }) => {
-      log("message port received", e.data)
+    this.messagePortRef.addListener(
+      "message",
+      (e: { data: MessageChannelMessage }) => {
+        log("message port received", e.data)
 
-      const message = e.data
-      if ("targetId" in message && message.targetId !== this.peerId) {
-        throw new Error(
-          "MessagePortNetwork should never receive messages for a different peer."
-        )
-      }
+        const message = e.data
+        if ("targetId" in message && message.targetId !== this.peerId) {
+          throw new Error(
+            "MessagePortNetwork should never receive messages for a different peer."
+          )
+        }
 
-      const { senderId, type } = message
+        const { senderId, type } = message
 
-      switch (type) {
-        case "arrive":
-          this.messagePortRef.postMessage({
-            senderId: this.peerId,
-            targetId: senderId,
-            type: "welcome",
-          })
-          this.announceConnection(senderId)
-          break
-        case "welcome":
-          this.announceConnection(senderId)
-          break
-        default:
-          if (!("data" in message)) {
-            this.emit("message", message)
-          } else {
-            this.emit("message", {
-              ...message,
-              data: new Uint8Array(message.data),
+        switch (type) {
+          case "arrive":
+            this.messagePortRef.postMessage({
+              senderId: this.peerId,
+              targetId: senderId,
+              type: "welcome",
             })
-          }
-          break
+            this.announceConnection(senderId)
+            break
+          case "welcome":
+            this.announceConnection(senderId)
+            break
+          default:
+            if (!("data" in message)) {
+              this.emit("message", message)
+            } else {
+              this.emit("message", {
+                ...message,
+                data: new Uint8Array(message.data),
+              })
+            }
+            break
+        }
       }
-    })
+    )
 
     this.messagePortRef.addListener("close", () => {
       this.emit("close")
@@ -142,3 +145,27 @@ export interface MessageChannelNetworkAdapterConfig {
    */
   useWeakRef?: boolean
 }
+
+/** Notify the network that we have arrived so everyone knows our peer ID */
+type ArriveMessage = {
+  type: "arrive"
+
+  /** The peer ID of the sender of this message */
+  senderId: PeerId
+
+  /** Arrive messages don't have a targetId */
+  targetId: never
+}
+
+/** Respond to an arriving peer with our peer ID */
+type WelcomeMessage = {
+  type: "welcome"
+
+  /** The peer ID of the recipient sender this message */
+  senderId: PeerId
+
+  /** The peer ID of the recipient of this message */
+  targetId: PeerId
+}
+
+type MessageChannelMessage = ArriveMessage | WelcomeMessage | Message

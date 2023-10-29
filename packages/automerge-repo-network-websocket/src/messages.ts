@@ -1,4 +1,4 @@
-import { type RepoMessage, type PeerId } from "@automerge/automerge-repo"
+import { Message, type PeerId } from "@automerge/automerge-repo"
 import { ProtocolVersion } from "./protocolVersion.js"
 
 /** The sender is disconnecting */
@@ -42,7 +42,7 @@ export type ErrorMessage = {
 // join/leave
 
 /** A message from the client to the server */
-export type FromClientMessage = JoinMessage | LeaveMessage | RepoMessage
+export type FromClientMessage = JoinMessage | LeaveMessage | Message
 
 /** A message from the server to the client */
-export type FromServerMessage = PeerMessage | ErrorMessage | RepoMessage
+export type FromServerMessage = PeerMessage | ErrorMessage | Message

@@ -108,13 +108,8 @@ export type RepoMessage =
   | RequestMessage
   | DocumentUnavailableMessage
 
-/** These are all the message types that a {@link NetworkAdapter} might see.
- *
- * @remarks
- * It is not _required_ that a {@link NetworkAdapter} use these types: They are free to use
- * whatever message type makes sense for their transport. However, this type is a useful default.
- * */
-export type Message = RepoMessage | ArriveMessage | WelcomeMessage
+/** These are all the message types that a {@link NetworkAdapter} might see. */
+export type Message = RepoMessage | AuthMessage
 
 /**
  * The contents of a message, without the sender ID or other properties added by the {@link NetworkSubsystem})

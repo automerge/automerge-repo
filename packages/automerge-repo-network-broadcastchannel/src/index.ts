@@ -41,7 +41,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
 
     this.#broadcastChannel.addEventListener(
       "message",
-      (e: { data: Message }) => {
+      (e: { data: BroadcastChannelMessage }) => {
         const message = e.data
         if ("targetId" in message && message.targetId !== this.peerId) {
           return
@@ -87,7 +87,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.emit("peer-candidate", { peerId })
   }
 
-  send(message: RepoMessage) {
+  send(message: Message) {
     if ("data" in message) {
       this.#broadcastChannel.postMessage({
         ...message,
@@ -106,3 +106,27 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     throw new Error("Unimplemented: leave on BroadcastChannelNetworkAdapter")
   }
 }
+
+/** Notify the network that we have arrived so everyone knows our peer ID */
+type ArriveMessage = {
+  type: "arrive"
+
+  /** The peer ID of the sender of this message */
+  senderId: PeerId
+
+  /** Arrive messages don't have a targetId */
+  targetId: never
+}
+
+/** Respond to an arriving peer with our peer ID */
+type WelcomeMessage = {
+  type: "welcome"
+
+  /** The peer ID of the recipient sender this message */
+  senderId: PeerId
+
+  /** The peer ID of the recipient of this message */
+  targetId: PeerId
+}
+
+type BroadcastChannelMessage = ArriveMessage | WelcomeMessage | Message
