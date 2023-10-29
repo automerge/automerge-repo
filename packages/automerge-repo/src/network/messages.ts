@@ -87,26 +87,18 @@ export type RequestMessage = {
   documentId: DocumentId
 }
 
-/** Notify the network that we have arrived so everyone knows our peer ID */
-export type ArriveMessage = {
-  type: "arrive"
+/** (anticipating work in progress) */
+export type AuthMessage<TPayload = any> = {
+  type: "auth"
 
   /** The peer ID of the sender of this message */
   senderId: PeerId
 
-  /** Arrive messages don't have a targetId */
-  targetId: never
-}
-
-/** Respond to an arriving peer with our peer ID */
-export type WelcomeMessage = {
-  type: "welcome"
-
-  /** The peer ID of the recipient sender this message */
-  senderId: PeerId
-
   /** The peer ID of the recipient of this message */
   targetId: PeerId
+
+  /** The payload of the auth message (up to the specific auth provider) */
+  payload: TPayload
 }
 
 /** These are message types that a {@link NetworkAdapter} surfaces to a {@link Repo}. */
