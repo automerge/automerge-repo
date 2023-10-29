@@ -1,5 +1,5 @@
-import { Message, type PeerId } from "@automerge/automerge-repo"
-import { ProtocolVersion } from "./protocolVersion.js"
+import type { Message, PeerId } from "@automerge/automerge-repo"
+import type { ProtocolVersion } from "./protocolVersion.js"
 
 /** The sender is disconnecting */
 export type LeaveMessage = {
