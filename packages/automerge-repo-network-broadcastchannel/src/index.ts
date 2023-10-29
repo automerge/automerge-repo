@@ -14,12 +14,7 @@
  *
  */
 
-import {
-  Message,
-  NetworkAdapter,
-  PeerId,
-  RepoMessage,
-} from "@automerge/automerge-repo"
+import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
 
 export type BroadcastChannelNetworkAdapterOptions = {
   channelName: string
