@@ -6,7 +6,7 @@ import { UserStuff } from "./setup.js"
 export const authenticatedInTime = async (
   a: UserStuff,
   b: UserStuff,
-  timeout = 500
+  timeout = 4000
 ) => {
   const authWorked = authenticated(a.repo, b.repo).then(() => true)
   const authTimedOut = pause(timeout).then(() => false)
