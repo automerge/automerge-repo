@@ -87,7 +87,7 @@ export type RequestMessage = {
   documentId: DocumentId
 }
 
-/** (anticipating work in progress) */
+/** Sent by an {@link AuthProvider} to authenticate a peer */
 export type AuthMessage<TPayload = any> = {
   type: "auth"
 
@@ -142,3 +142,6 @@ export const isSyncMessage = (msg: Message): msg is SyncMessage =>
 
 export const isEphemeralMessage = (msg: Message): msg is EphemeralMessage =>
   msg.type === "ephemeral"
+
+export const isAuthMessage = (msg: Message): msg is AuthMessage =>
+  msg.type === "auth"
