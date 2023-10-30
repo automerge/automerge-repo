@@ -83,7 +83,7 @@ export class StorageSubsystem {
   /**
    * Removes the Automerge document with the given ID from storage
    */
-  async remove(documentId: DocumentId) {
+  async removeDoc(documentId: DocumentId) {
     void this.storageAdapter.removeRange([documentId, "snapshot"])
     void this.storageAdapter.removeRange([documentId, "incremental"])
   }
