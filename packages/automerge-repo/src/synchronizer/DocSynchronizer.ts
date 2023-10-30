@@ -228,7 +228,7 @@ export class DocSynchronizer extends Synchronizer {
 
   receiveEphemeralMessage(message: EphemeralMessage) {
     if (message.documentId !== this.handle.documentId)
-      throw new Error(`channelId doesn't match documentId`)
+      throw new Error(`not my documentId`)
 
     const { senderId, data } = message
 
@@ -250,7 +250,7 @@ export class DocSynchronizer extends Synchronizer {
 
   receiveSyncMessage(message: SyncMessage | RequestMessage) {
     if (message.documentId !== this.handle.documentId)
-      throw new Error(`channelId doesn't match documentId`)
+      throw new Error(`not my documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
     if (!this.handle.inState([READY, REQUESTING, UNAVAILABLE])) {
