@@ -47,8 +47,10 @@ export const stringifyAutomergeUrl = ({
  * @param str: URL candidate
  * @returns boolean
  */
-export const isValidAutomergeUrl = (str: string): str is AutomergeUrl => {
-  if (!str.startsWith(urlPrefix)) return false
+export const isValidAutomergeUrl = (
+  str: string | undefined | null
+): str is AutomergeUrl => {
+  if (!str || !str.startsWith(urlPrefix)) return false
 
   const { binaryDocumentId: documentId } = parts(str)
   return documentId ? true : false
