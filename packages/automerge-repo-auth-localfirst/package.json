@@ -1,0 +1,19 @@
+{
+  "name": "@automerge/automerge-repo-auth-localfirst",
+  "version": "0.0.50",
+  "description": "Authentication provider for automerge-repo using localfirst/auth",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-auth-localfirst",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@localfirst/auth": "^4.1.9",
+    "@automerge/automerge-repo": "^1.0.12",
+    "debug": "^4.3.4"
+  }
+}
