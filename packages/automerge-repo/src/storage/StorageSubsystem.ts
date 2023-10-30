@@ -1,46 +1,96 @@
 import * as A from "@automerge/automerge/next"
 import debug from "debug"
-import * as sha256 from "fast-sha256"
 import { headsAreSame } from "../helpers/headsAreSame.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 import { type DocumentId } from "../types.js"
-import { StorageAdapter, StorageKey } from "./StorageAdapter.js"
+import { StorageAdapter } from "./StorageAdapter.js"
+import { ChunkInfo, StorageKey } from "./types.js"
+import { keyHash, headsHash } from "./keyHash.js"
+import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
 
-// Metadata about a chunk of data loaded from storage. This is stored on the
-// StorageSubsystem so when we are compacting we know what chunks we can safely delete
-type StorageChunkInfo = {
-  key: StorageKey
-  type: ChunkType
-  size: number
-}
-
-export type ChunkType = "snapshot" | "incremental"
-
-function keyHash(binary: Uint8Array) {
-  const hash = sha256.hash(binary)
-  const hashArray = Array.from(new Uint8Array(hash)) // convert buffer to byte array
-  const hashHex = hashArray.map(b => ("00" + b.toString(16)).slice(-2)).join("") // convert bytes to hex string
-  return hashHex
-}
-
-function headsHash(heads: A.Heads): string {
-  const encoder = new TextEncoder()
-  const headsbinary = mergeArrays(heads.map((h: string) => encoder.encode(h)))
-  return keyHash(headsbinary)
-}
-
+/**
+ * The storage subsystem is responsible for saving and loading Automerge documents to and from
+ * storage adapter. It also provides a generic key/value storage interface for other uses.
+ */
 export class StorageSubsystem {
-  #storageAdapter: StorageAdapter
-  #chunkInfos: Map<DocumentId, StorageChunkInfo[]> = new Map()
+  /** Record of the latest heads we've loaded or saved for each document  */
   #storedHeads: Map<DocumentId, A.Heads> = new Map()
+
+  /** Metadata on the chunks we've already loaded for each document */
+  #chunkInfos: Map<DocumentId, ChunkInfo[]> = new Map()
+
+  /** Flag to avoid compacting when a compaction is already underway */
+  #compacting = false
+
   #log = debug(`automerge-repo:storage-subsystem`)
 
-  #snapshotting = false
+  constructor(private storageAdapter: StorageAdapter) {}
 
-  constructor(storageAdapter: StorageAdapter) {
-    this.#storageAdapter = storageAdapter
+  /**
+   * Loads the Automerge document with the given ID from storage.
+   */
+  async loadDoc<T>(documentId: DocumentId): Promise<A.Doc<T> | null> {
+    // Load all the chunks for this document
+    const chunks = await this.storageAdapter.loadRange([documentId])
+    const binaries = []
+    const chunkInfos: ChunkInfo[] = []
+
+    for (const chunk of chunks) {
+      const chunkType = chunkTypeFromKey(chunk.key)
+      if (chunkType == null) continue
+      chunkInfos.push({
+        key: chunk.key,
+        type: chunkType,
+        size: chunk.data.length,
+      })
+      binaries.push(chunk.data)
+    }
+    this.#chunkInfos.set(documentId, chunkInfos)
+
+    // Merge the chunks into a single binary
+    const binary = mergeArrays(binaries)
+    if (binary.length === 0) return null
+
+    // Load into an Automerge document
+    const newDoc = A.loadIncremental(A.init(), binary) as A.Doc<T>
+
+    // Record the latest heads for the document
+    this.#storedHeads.set(documentId, A.getHeads(newDoc))
+
+    return newDoc
   }
 
+  /**
+   * Saves the provided Automerge document to storage.
+   *
+   * @remarks
+   * Under the hood this makes incremental saves until the incremental size is greater than the
+   * snapshot size, at which point the document is compacted into a single snapshot.
+   */
+  async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+    // Don't bother saving if the document hasn't changed
+    if (!this.#shouldSave(documentId, doc)) return
+
+    const sourceChunks = this.#chunkInfos.get(documentId) ?? []
+    if (this.#shouldCompact(sourceChunks)) {
+      void this.#saveTotal(documentId, doc, sourceChunks)
+    } else {
+      void this.#saveIncremental(documentId, doc)
+    }
+    this.#storedHeads.set(documentId, A.getHeads(doc))
+  }
+
+  /**
+   * Removes the Automerge document with the given ID from storage
+   */
+  async remove(documentId: DocumentId) {
+    void this.storageAdapter.removeRange([documentId, "snapshot"])
+    void this.storageAdapter.removeRange([documentId, "incremental"])
+  }
+
+  /**
+   * Saves just the incremental changes since the last save.
+   */
   async #saveIncremental(
     documentId: DocumentId,
     doc: A.Doc<unknown>
@@ -49,7 +99,7 @@ export class StorageSubsystem {
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
       this.#log(`Saving incremental ${key} for document ${documentId}`)
-      await this.#storageAdapter.save(key, binary)
+      await this.storageAdapter.save(key, binary)
       if (!this.#chunkInfos.has(documentId)) {
         this.#chunkInfos.set(documentId, [])
       }
@@ -64,12 +114,16 @@ export class StorageSubsystem {
     }
   }
 
+  /**
+   * Compacts the document storage into a single shapshot.
+   */
   async #saveTotal(
     documentId: DocumentId,
     doc: A.Doc<unknown>,
-    sourceChunks: StorageChunkInfo[]
+    sourceChunks: ChunkInfo[]
   ): Promise<void> {
-    this.#snapshotting = true
+    this.#compacting = true
+
     const binary = A.save(doc)
     const snapshotHash = headsHash(A.getHeads(doc))
     const key = [documentId, "snapshot", snapshotHash]
@@ -80,81 +134,46 @@ export class StorageSubsystem {
     this.#log(`Saving snapshot ${key} for document ${documentId}`)
     this.#log(`deleting old chunks ${Array.from(oldKeys)}`)
 
-    await this.#storageAdapter.save(key, binary)
+    await this.storageAdapter.save(key, binary)
 
     for (const key of oldKeys) {
-      await this.#storageAdapter.remove(key)
+      await this.storageAdapter.remove(key)
     }
+
     const newChunkInfos =
       this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
     newChunkInfos.push({ key, type: "snapshot", size: binary.length })
+
     this.#chunkInfos.set(documentId, newChunkInfos)
-    this.#snapshotting = false
+
+    this.#compacting = false
   }
 
-  async loadDoc(documentId: DocumentId): Promise<A.Doc<unknown> | null> {
-    const loaded = await this.#storageAdapter.loadRange([documentId])
-    const binaries = []
-    const chunkInfos: StorageChunkInfo[] = []
-    for (const chunk of loaded) {
-      const chunkType = chunkTypeFromKey(chunk.key)
-      if (chunkType == null) {
-        continue
-      }
-      chunkInfos.push({
-        key: chunk.key,
-        type: chunkType,
-        size: chunk.data.length,
-      })
-      binaries.push(chunk.data)
-    }
-    this.#chunkInfos.set(documentId, chunkInfos)
-    const binary = mergeArrays(binaries)
-    if (binary.length === 0) {
-      return null
-    }
-    const newDoc = A.loadIncremental(A.init(), binary)
-    this.#storedHeads.set(documentId, A.getHeads(newDoc))
-    return newDoc
-  }
-
-  async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
-    if (!this.#shouldSave(documentId, doc)) {
-      return
-    }
-    const sourceChunks = this.#chunkInfos.get(documentId) ?? []
-    if (this.#shouldCompact(sourceChunks)) {
-      void this.#saveTotal(documentId, doc, sourceChunks)
-    } else {
-      void this.#saveIncremental(documentId, doc)
-    }
-    this.#storedHeads.set(documentId, A.getHeads(doc))
-  }
-
-  async remove(documentId: DocumentId) {
-    void this.#storageAdapter.removeRange([documentId, "snapshot"])
-    void this.#storageAdapter.removeRange([documentId, "incremental"])
-  }
-
+  /**
+   * Returns true if the document has changed since the last time it was saved.
+   */
   #shouldSave(documentId: DocumentId, doc: A.Doc<unknown>): boolean {
     const oldHeads = this.#storedHeads.get(documentId)
     if (!oldHeads) {
+      // we haven't saved this document before
       return true
     }
 
     const newHeads = A.getHeads(doc)
     if (headsAreSame(newHeads, oldHeads)) {
+      // the document hasn't changed
       return false
     }
 
-    return true
+    return true // the document has changed
   }
 
-  #shouldCompact(sourceChunks: StorageChunkInfo[]) {
-    if (this.#snapshotting) {
-      return false
-    }
-    // compact if the incremental size is greater than the snapshot size
+  /**
+   * We only compact if the incremental size is greater than the snapshot size.
+   */
+  #shouldCompact(sourceChunks: ChunkInfo[]) {
+    if (this.#compacting) return false
+
     let snapshotSize = 0
     let incrementalSize = 0
     for (const chunk of sourceChunks) {
@@ -165,18 +184,5 @@ export class StorageSubsystem {
       }
     }
     return incrementalSize >= snapshotSize
-  }
-}
-
-function chunkTypeFromKey(key: StorageKey): ChunkType | null {
-  if (key.length < 2) {
-    return null
-  }
-  const chunkTypeStr = key[key.length - 2]
-  if (chunkTypeStr === "snapshot" || chunkTypeStr === "incremental") {
-    const chunkType: ChunkType = chunkTypeStr
-    return chunkType
-  } else {
-    return null
   }
 }
