@@ -34,8 +34,10 @@ export {
 } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
-export { isValidRepoMessage } from "./network/messages.js"
+export { isValidRepoMessage, isAuthMessage } from "./network/messages.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
+export { AuthProvider } from "./auth/AuthProvider.js"
+export { AuthenticatedNetworkAdapter } from "./auth/AuthenticatedNetworkAdapter.js"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
@@ -60,6 +62,7 @@ export type {
 } from "./network/NetworkAdapter.js"
 
 export type {
+  AuthMessage,
   DocumentUnavailableMessage,
   EphemeralMessage,
   Message,

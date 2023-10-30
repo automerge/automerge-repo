@@ -115,9 +115,11 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
-      void this.repo.sharePolicy(peerId, documentId).then(okToShare => {
-        if (okToShare) docSynchronizer.beginSync([peerId])
-      })
+      void this.repo.authProvider
+        .okToSync(peerId, documentId)
+        .then(okToShare => {
+          if (okToShare) docSynchronizer.beginSync([peerId])
+        })
     }
   }
 
