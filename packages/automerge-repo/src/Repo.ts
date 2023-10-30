@@ -87,6 +87,11 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.networkSubsystem.on("message", msg => {
       this.#synchronizer.receiveMessage(msg)
     })
+
+    // Handle errors
+    networkSubsystem.on("error", err => {
+      this.#log("network error", { err })
+    })
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */

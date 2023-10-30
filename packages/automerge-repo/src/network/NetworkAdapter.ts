@@ -45,6 +45,9 @@ export interface NetworkAdapterEvents {
 
   /** Emitted when the network adapter receives a message from a peer */
   message: (payload: Message) => void
+
+  /** Emitted when a network adapter encounters a non-fatal error (e.g. fails to authenticate with a peer) */
+  error: (payload: ErrorPayload) => void
 }
 
 export interface OpenPayload {
@@ -57,4 +60,9 @@ export interface PeerCandidatePayload {
 
 export interface PeerDisconnectedPayload {
   peerId: PeerId
+}
+
+export interface ErrorPayload {
+  peerId: PeerId
+  error: Error
 }

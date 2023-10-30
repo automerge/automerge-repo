@@ -1,7 +1,11 @@
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import { PeerId, SessionId } from "../types.js"
-import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
+import {
+  ErrorPayload,
+  NetworkAdapter,
+  PeerDisconnectedPayload,
+} from "./NetworkAdapter.js"
 import {
   EphemeralMessage,
   MessageContents,
@@ -90,6 +94,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.emit("message", msg)
     })
 
+    networkAdapter.on("error", payload => {
+      const { peerId, error } = payload
+      this.#log(`adapter error %o`, { peerId, error: error.message })
+      this.emit("error", payload)
+    })
+
     networkAdapter.on("close", () => {
       this.#log("adapter closed")
       Object.entries(this.#adaptersByPeer).forEach(([peerId, other]) => {
@@ -161,6 +171,7 @@ export interface NetworkSubsystemEvents {
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
   message: (payload: RepoMessage) => void
   ready: () => void
+  error: (payload: ErrorPayload) => void
 }
 
 export interface PeerPayload {
