@@ -39,7 +39,7 @@ export class Server {
       storage: new NodeFSStorageAdapter(dir),
       /** @ts-ignore @type {(import("@automerge/automerge-repo").PeerId)}  */
       peerId: `storage-server-${hostname}`,
-      // Since this is a server, we don't share generously — meaning we only sync documents they already
+      // Since this is a server, we don't advertise documents -- we only sync documents peers already
       // know about and can ask for by ID.
       sharePolicy: async () => false,
     }
