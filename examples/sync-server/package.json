@@ -2,7 +2,7 @@
   "name": "@automerge/example-sync-server",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/sync-server",
   "private": true,
-  "version": "1.0.12",
+  "version": "1.0.13",
   "main": "index.js",
   "license": "MIT",
   "type": "module",
@@ -11,9 +11,9 @@
   },
   "bin": "./src/index.js",
   "dependencies": {
-    "@automerge/automerge-repo": "^1.0.12",
-    "@automerge/automerge-repo-network-websocket": "^1.0.12",
-    "@automerge/automerge-repo-storage-nodefs": "^1.0.12",
+    "@automerge/automerge-repo": "^1.0.13",
+    "@automerge/automerge-repo-network-websocket": "^1.0.13",
+    "@automerge/automerge-repo-storage-nodefs": "^1.0.13",
     "express": "^4.18.1",
     "ws": "^8.7.0"
   },
