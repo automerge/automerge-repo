@@ -47,8 +47,10 @@ export class NodeFSStorageAdapter extends StorageAdapter {
   }
 
   async remove(keyArray: string[]): Promise<void> {
+    // remove from cache
+    delete this.cache[getKey(keyArray)]
+    // remove from disk
     const filePath = this.getFilePath(keyArray)
-
     try {
       await fs.promises.unlink(filePath)
     } catch (error) {
@@ -64,6 +66,8 @@ export class NodeFSStorageAdapter extends StorageAdapter {
        and could probably be simplified. */
 
     const dirPath = this.getFilePath(keyPrefix)
+
+    // Get the list of all cached keys that match the prefix
     const cachedKeys = this.cachedKeys(keyPrefix)
 
     // Read filenames from disk
@@ -91,6 +95,10 @@ export class NodeFSStorageAdapter extends StorageAdapter {
   }
 
   async removeRange(keyPrefix: string[]): Promise<void> {
+    // remove from cache
+    this.cachedKeys(keyPrefix).forEach(key => delete this.cache[key])
+
+    // remove from disk
     const dirPath = this.getFilePath(keyPrefix)
     await rimraf(dirPath)
   }
