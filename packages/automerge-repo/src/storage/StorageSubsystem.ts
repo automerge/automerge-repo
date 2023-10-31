@@ -92,8 +92,12 @@ export class StorageSubsystem {
     const chunkInfos: ChunkInfo[] = []
 
     for (const chunk of chunks) {
+      // chunks might have been deleted in the interim
+      if (chunk.data === undefined) continue
+
       const chunkType = chunkTypeFromKey(chunk.key)
       if (chunkType == null) continue
+
       chunkInfos.push({
         key: chunk.key,
         type: chunkType,
