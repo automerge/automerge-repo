@@ -39,7 +39,7 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
-  #remoteHeads: Record<PeerId, {heads: A.Heads, received: Date}> = {}
+  #remoteHeads: Record<PeerId, { heads: A.Heads; received: Date }> = {}
 
   /** The URL of this document
    *
@@ -50,7 +50,7 @@ export class DocHandle<T> //
     return stringifyAutomergeUrl({ documentId: this.documentId })
   }
 
-  get remoteHeads(): Record<PeerId, {heads: A.Heads, received: Date}> {
+  get remoteHeads(): Record<PeerId, { heads: A.Heads; received: Date }> {
     return structuredClone(this.#remoteHeads)
   }
 
@@ -442,7 +442,7 @@ export class DocHandle<T> //
 
   /** @hidden */
   setRemoteHeads(remote: PeerId, heads: A.Heads, at: Date) {
-    this.#remoteHeads[remote] = {heads, received: at}
+    this.#remoteHeads[remote] = { heads, received: at }
   }
 }
 
@@ -493,9 +493,9 @@ export interface DocHandleOutboundEphemeralMessagePayload<T> {
 }
 
 export interface DocHandleRemoteHeadsPayload {
-  remote: PeerId;
-  heads: A.Heads;
-  received: Date;
+  remote: PeerId
+  heads: A.Heads
+  received: Date
 }
 
 export interface DocHandleEvents<T> {

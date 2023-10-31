@@ -47,7 +47,7 @@ export type {
   DocHandleDeletePayload,
   DocHandleEncodedChangePayload,
   DocHandleEphemeralMessagePayload,
-  DocHandleRemoteHeadsPayload, 
+  DocHandleRemoteHeadsPayload,
   DocHandleEvents,
   DocHandleOptions,
   DocHandleOutboundEphemeralMessagePayload,

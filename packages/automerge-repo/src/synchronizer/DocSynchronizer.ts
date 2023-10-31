@@ -24,14 +24,14 @@ import { throttle } from "../helpers/throttle.js"
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
 type LastSync = {
-  heads: A.Heads;
-  at: Date;
-  dirty: boolean;
+  heads: A.Heads
+  at: Date
+  dirty: boolean
 }
 
 type PendingMessage = {
-  message: RequestMessage | SyncMessage;
-  received: Date;
+  message: RequestMessage | SyncMessage
+  received: Date
 }
 
 /**
@@ -132,6 +132,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // TODO: we only need to do this on reconnect
 
+    this.handle.setRemoteHeads(peerId, syncState.heads, new Date())
     this.#syncStates[peerId] = syncState
   }
 
@@ -269,7 +270,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // We need to block receiving the syncMessages until we've checked local storage
     if (!this.handle.inState([READY, REQUESTING, UNAVAILABLE])) {
-      this.#pendingSyncMessages.push({message, received: new Date()})
+      this.#pendingSyncMessages.push({ message, received: new Date() })
       return
     }
 
@@ -351,11 +352,15 @@ export class DocSynchronizer extends Synchronizer {
   #notifyOfNewSyncStates() {
     for (const [peerId, lastSync] of Object.entries(this.#lastSyncs)) {
       if (lastSync.dirty) {
-        this.handle.setRemoteHeads(peerId as PeerId, lastSync.heads, lastSync.at)
+        this.handle.setRemoteHeads(
+          peerId as PeerId,
+          lastSync.heads,
+          lastSync.at
+        )
         this.handle.emit("remote-heads", {
           remote: peerId as PeerId,
           heads: lastSync.heads,
-          received: lastSync.at
+          received: lastSync.at,
         })
         lastSync.dirty = true
       }
