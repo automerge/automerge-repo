@@ -16,6 +16,7 @@ describe("localfirst/auth provider", () => {
     } = setup(["alice", "bob"])
 
     const authWorked = await authenticatedInTime(alice, bob)
+
     expect(authWorked).toBe(false)
 
     teardown()
@@ -252,6 +253,77 @@ describe("localfirst/auth provider", () => {
     ])
 
     teardown()
+  })
+
+  it("persists local context and team state", async () => {
+    const {
+      users: { alice, bob },
+      ports,
+      teardown,
+    } = setup(["alice", "bob"])
+
+    const aliceTeam = Auth.createTeam("team A", alice.context)
+    alice.authProvider.addTeam(aliceTeam)
+
+    // First use: Alice creates a team and invites Bob
+
+    const aliceAuthProvider = new LocalFirstAuthProvider(alice.context)
+
+    const aliceRepo = new Repo({
+      peerId: alice.user.userId as PeerId,
+      network: [new MessageChannelNetworkAdapter(ports.alice[0])],
+      // storage: // TODO
+      authProvider: aliceAuthProvider,
+    })
+
+    const bobAuthProvider = new LocalFirstAuthProvider(bob.context)
+
+    const bobRepo = new Repo({
+      peerId: bob.user.userId as PeerId,
+      network: [new MessageChannelNetworkAdapter(ports.bob[0])],
+      // storage: // TODO
+      authProvider: bobAuthProvider,
+    })
+
+    // Alice sends Bob an invitation
+    const { seed: bobInvite } = aliceTeam.inviteMember()
+
+    // Bob uses the invitation to join
+    bob.authProvider.addInvitation({
+      shareId: aliceTeam.id,
+      invitationSeed: bobInvite,
+    })
+
+    // they're able to authenticate and sync
+    const authWorked = await authenticatedInTime(alice, bob)
+    expect(authWorked).toBe(true)
+
+    await synced(alice, bob)
+
+    // Alice and Bob both close and reopen their apps
+
+    alice.authProvider = new LocalFirstAuthProvider(alice.context)
+
+    alice.repo = new Repo({
+      peerId: alice.user.userId as PeerId,
+      network: [new MessageChannelNetworkAdapter(ports.alice[0])],
+      authProvider: alice.authProvider,
+    })
+
+    bob.authProvider = new LocalFirstAuthProvider(bob.context)
+
+    bob.repo = new Repo({
+      peerId: bob.user.userId as PeerId,
+      network: [new MessageChannelNetworkAdapter(ports.bob[0])],
+      // storage: // TODO
+      authProvider: bob.authProvider,
+    })
+
+    // they're able to authenticate and sync
+    const authWorkedAgain = await authenticatedInTime(alice, bob)
+    expect(authWorkedAgain).toBe(true)
+
+    await synced(alice, bob)
   })
 })
 

@@ -34,8 +34,8 @@ export const setup = <T extends string>(
     const context = { user, device }
     const authProvider = new LocalFirstAuthProvider(context)
     const repo = new Repo({
-      network: ports[userName].map(p => new MessageChannelNetworkAdapter(p)),
       peerId: user.userId,
+      network: ports[userName].map(p => new MessageChannelNetworkAdapter(p)),
       authProvider,
     })
     return {
