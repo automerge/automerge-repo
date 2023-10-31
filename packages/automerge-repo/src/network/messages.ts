@@ -87,26 +87,18 @@ export type RequestMessage = {
   documentId: DocumentId
 }
 
-/** Notify the network that we have arrived so everyone knows our peer ID */
-export type ArriveMessage = {
-  type: "arrive"
+/** (anticipating work in progress) */
+export type AuthMessage<TPayload = any> = {
+  type: "auth"
 
   /** The peer ID of the sender of this message */
   senderId: PeerId
 
-  /** Arrive messages don't have a targetId */
-  targetId: never
-}
-
-/** Respond to an arriving peer with our peer ID */
-export type WelcomeMessage = {
-  type: "welcome"
-
-  /** The peer ID of the recipient sender this message */
-  senderId: PeerId
-
   /** The peer ID of the recipient of this message */
   targetId: PeerId
+
+  /** The payload of the auth message (up to the specific auth provider) */
+  payload: TPayload
 }
 
 /** These are message types that a {@link NetworkAdapter} surfaces to a {@link Repo}. */
@@ -116,13 +108,8 @@ export type RepoMessage =
   | RequestMessage
   | DocumentUnavailableMessage
 
-/** These are all the message types that a {@link NetworkAdapter} might see.
- *
- * @remarks
- * It is not _required_ that a {@link NetworkAdapter} use these types: They are free to use
- * whatever message type makes sense for their transport. However, this type is a useful default.
- * */
-export type Message = RepoMessage | ArriveMessage | WelcomeMessage
+/** These are all the message types that a {@link NetworkAdapter} might see. */
+export type Message = RepoMessage | AuthMessage
 
 /**
  * The contents of a message, without the sender ID or other properties added by the {@link NetworkSubsystem})

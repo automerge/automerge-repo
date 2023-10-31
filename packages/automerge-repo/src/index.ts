@@ -66,14 +66,12 @@ export type {
   PeerDisconnectedPayload,
 } from "./network/NetworkAdapter.js"
 export type {
-  ArriveMessage,
   DocumentUnavailableMessage,
   EphemeralMessage,
   Message,
   RepoMessage,
   RequestMessage,
   SyncMessage,
-  WelcomeMessage,
 } from "./network/messages.js"
 export type { StorageKey } from "./storage/StorageAdapter.js"
 export * from "./types.js"
