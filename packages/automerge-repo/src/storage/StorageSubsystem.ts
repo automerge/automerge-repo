@@ -26,6 +26,57 @@ export class StorageSubsystem {
 
   constructor(private storageAdapter: StorageAdapter) {}
 
+  // ARBITRARY KEY/VALUE STORAGE
+
+  // The `load`, `save`, and `remove` methods are for generic key/value storage, as opposed to
+  // Automerge documents. For example, they're used by the LocalFirstAuthProvider to persist the
+  // encrypted team graph that encodes group membership and permissions.
+  //
+  // The namespace parameter is to prevent collisions with other users of the storage subsystem.
+  // Typically this will be the name of the plug-in, adapter, or other system that is using it. For
+  // example, the LocalFirstAuthProvider uses the namespace `LocalFirstAuthProvider`.
+
+  /** Loads a value from storage. */
+  async load(
+    /** Namespace to prevent collisions with other users of the storage subsystem. */
+    namespace: string,
+
+    /** Key to load. Typically a UUID or other unique identifier, but could be any string. */
+    key: string
+  ): Promise<Uint8Array | undefined> {
+    const storageKey = [namespace, key] as StorageKey
+    return await this.storageAdapter.load(storageKey)
+  }
+
+  /** Saves a value in storage. */
+  async save(
+    /** Namespace to prevent collisions with other users of the storage subsystem. */
+    namespace: string,
+
+    /** Key to load. Typically a UUID or other unique identifier, but could be any string. */
+    key: string,
+
+    /** Data to save, as a binary blob. */
+    data: Uint8Array
+  ): Promise<void> {
+    const storageKey = [namespace, key] as StorageKey
+    await this.storageAdapter.save(storageKey, data)
+  }
+
+  /** Removes a value from storage. */
+  async remove(
+    /** Namespace to prevent collisions with other users of the storage subsystem. */
+    namespace: string,
+
+    /** Key to remove. Typically a UUID or other unique identifier, but could be any string. */
+    key: string
+  ): Promise<void> {
+    const storageKey = [namespace, key] as StorageKey
+    await this.storageAdapter.remove(storageKey)
+  }
+
+  // AUTOMERGE DOCUMENT STORAGE
+
   /**
    * Loads the Automerge document with the given ID from storage.
    */
