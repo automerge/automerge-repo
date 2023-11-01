@@ -10,7 +10,7 @@ export interface AuthProviderConfig {
   okToSync?: SharePolicy
 }
 
-export type AuthProviderEvents = {
+export interface AuthProviderEvents {
   "storage-available": () => void
 }
 

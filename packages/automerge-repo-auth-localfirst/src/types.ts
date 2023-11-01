@@ -79,7 +79,7 @@ export type ErrorPayload = Auth.ConnectionErrorPayload & {
   peerId: PeerId
 }
 
-export type LocalFirstAuthProviderEvents = AuthProviderEvents & {
+export interface LocalFirstAuthProviderEvents extends AuthProviderEvents {
   /**
    * We've successfully joined a team using an invitation. This event provides the team graph and
    * the user's info (including keys). (When we're joining as a new device for an existing user,

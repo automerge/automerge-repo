@@ -24,7 +24,7 @@ import { StorageSubsystem } from "../storage/StorageSubsystem.js"
  * the class and overriding methods.
  */
 
-export class AuthProvider<T extends AuthProviderEvents = AuthProviderEvents> //
+export class AuthProvider<T extends AuthProviderEvents = any> //
   extends EventEmitter<T | AuthProviderEvents>
 {
   private storage: StorageSubsystem | undefined

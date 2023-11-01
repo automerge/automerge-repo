@@ -15,7 +15,7 @@ import type { AnyDocumentId, DocumentId } from "./types.js"
 import { pause } from "./helpers/pause.js"
 import { RepoEvents, RepoConfig } from "./types.js"
 import { AuthProvider } from "./auth/AuthProvider.js"
-import { SharePolicy } from "./auth/types.js"
+import { AuthProviderEvents, SharePolicy } from "./auth/types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
