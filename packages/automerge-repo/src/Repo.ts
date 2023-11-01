@@ -15,6 +15,7 @@ import type { AnyDocumentId, DocumentId } from "./types.js"
 import { pause } from "./helpers/pause.js"
 import { RepoEvents, RepoConfig } from "./types.js"
 import { AuthProvider } from "./auth/AuthProvider.js"
+import { SharePolicy } from "./auth/types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -93,8 +94,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     const wrappedAdapters =
       "authProvider" in config
         ? networkAdapters.map(adapter =>
-            this.authProvider.wrapNetworkAdapter(adapter)
-          )
+          this.authProvider.wrapNetworkAdapter(adapter)
+        )
         : networkAdapters
 
     const networkSubsystem = new NetworkSubsystem(wrappedAdapters, peerId)
@@ -262,11 +263,37 @@ export class Repo extends EventEmitter<RepoEvents> {
     const handle = this.#getHandle({ documentId, isNew: false })
     handle.delete()
 
-    // remove it from the cache
-    delete this.handles[documentId]
+    delete this.#handleCache[documentId]
+    this.emit("delete-document", { documentId })
+  }
+}
 
-    // remove it from storage
-    void this.storageSubsystem?.removeDoc(documentId)
+export type RepoConfig = {
+  /** Our unique identifier */
+  peerId?: PeerId
+
+  /** A storage adapter can be provided, or not */
+  storage?: StorageAdapter
+
+  /** One or more network adapters must be provided */
+  network: NetworkAdapter[]
+} & (
+  | { authProvider?: AuthProvider } // either an AuthProvider or a SharePolicy can be provided (but not both)
+  | { sharePolicy?: SharePolicy }
+)
+
+/** A function that determines whether we should share a document with a peer
+ *
+ * @remarks
+ * This function is called by the {@link Repo} every time a new document is created
+ * or discovered (such as when another peer starts syncing with us). If this
+ * function returns `true` then the {@link Repo} will begin sharing the new
+ * document with the peer given by `peerId`.
+ * */
+export type SharePolicy = (
+  peerId: PeerId,
+  documentId?: DocumentId
+) => Promise<boolean>
 
     // TODO Pass the delete on to the network
     // synchronizer.removeDocument(documentId)

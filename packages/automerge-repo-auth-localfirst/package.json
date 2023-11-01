@@ -12,8 +12,11 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@localfirst/auth": "^4.1.9",
-    "@automerge/automerge-repo": "^1.0.12",
+    "@automerge/automerge-repo": "^1.0.13",
+    "@localfirst/auth": "^4.2.1",
     "debug": "^4.3.4"
+  },
+  "devDependencies": {
+    "@automerge/automerge-repo-storage-nodefs": "^1.0.13"
   }
 }

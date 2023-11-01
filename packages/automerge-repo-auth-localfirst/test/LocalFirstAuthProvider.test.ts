@@ -1,3 +1,4 @@
+import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import * as Auth from "@localfirst/auth"
 import { describe, expect, it } from "vitest"
 import { UserStuff, setup } from "./helpers/setup.js"
@@ -7,6 +8,10 @@ import { eventPromise } from "./helpers/eventPromise"
 import { LocalFirstAuthProvider } from "../src/LocalFirstAuthProvider"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import { PeerId, Repo } from "@automerge/automerge-repo"
+import fs from "fs"
+import os from "os"
+import path from "path"
+import { rimraf } from "rimraf"
 
 describe("localfirst/auth provider", () => {
   it("does not authenticate users that do not belong to any teams", async () => {
@@ -265,24 +270,24 @@ describe("localfirst/auth provider", () => {
     const aliceTeam = Auth.createTeam("team A", alice.context)
     alice.authProvider.addTeam(aliceTeam)
 
+    const aliceDir = await getStorageDirectory("alice")
+    const bobDir = await getStorageDirectory("bob")
+
     // First use: Alice creates a team and invites Bob
 
-    const aliceAuthProvider = new LocalFirstAuthProvider(alice.context)
-
-    const aliceRepo = new Repo({
+    // overwrite the provided repos with ones that have storage
+    alice.repo = new Repo({
       peerId: alice.user.userId as PeerId,
       network: [new MessageChannelNetworkAdapter(ports.alice[0])],
-      // storage: // TODO
-      authProvider: aliceAuthProvider,
+      storage: new NodeFSStorageAdapter(aliceDir),
+      authProvider: alice.authProvider,
     })
 
-    const bobAuthProvider = new LocalFirstAuthProvider(bob.context)
-
-    const bobRepo = new Repo({
+    bob.repo = new Repo({
       peerId: bob.user.userId as PeerId,
       network: [new MessageChannelNetworkAdapter(ports.bob[0])],
-      // storage: // TODO
-      authProvider: bobAuthProvider,
+      storage: new NodeFSStorageAdapter(bobDir),
+      authProvider: bob.authProvider,
     })
 
     // Alice sends Bob an invitation
@@ -307,6 +312,7 @@ describe("localfirst/auth provider", () => {
     alice.repo = new Repo({
       peerId: alice.user.userId as PeerId,
       network: [new MessageChannelNetworkAdapter(ports.alice[0])],
+      storage: new NodeFSStorageAdapter(aliceDir),
       authProvider: alice.authProvider,
     })
 
@@ -315,7 +321,7 @@ describe("localfirst/auth provider", () => {
     bob.repo = new Repo({
       peerId: bob.user.userId as PeerId,
       network: [new MessageChannelNetworkAdapter(ports.bob[0])],
-      // storage: // TODO
+      storage: new NodeFSStorageAdapter(bobDir),
       authProvider: bob.authProvider,
     })
 
@@ -324,12 +330,26 @@ describe("localfirst/auth provider", () => {
     expect(authWorkedAgain).toBe(true)
 
     await synced(alice, bob)
+
+    teardown()
   })
 })
+
+// HELPERS
 
 const putUserOnTeam = (team: Auth.Team, b: UserStuff) => {
   team.addForTesting(b.user, [], Auth.redactDevice(b.device))
   const serializedTeam = team.save()
   const keys = team.teamKeys()
   return Auth.loadTeam(serializedTeam, b.context, keys)
+}
+
+const getStorageDirectory = async (userName: string) => {
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "automerge-repo-tests", userName)
+  )
+  // clear out the directory to keep tests isolated
+  await rimraf(tempDir)
+
+  return tempDir
 }

@@ -1,4 +1,10 @@
-import { DocumentId, Message, PeerId } from "@automerge/automerge-repo"
+import {
+  AuthProviderEvents,
+  DocumentId,
+  Message,
+  PeerId,
+} from "@automerge/automerge-repo"
+
 import * as Auth from "@localfirst/auth"
 
 export type Config = {
@@ -73,45 +79,45 @@ export type ErrorPayload = Auth.ConnectionErrorPayload & {
   peerId: PeerId
 }
 
-export type LocalFirstAuthProviderEvents = {
+export type LocalFirstAuthProviderEvents = AuthProviderEvents & {
   /**
    * We've successfully joined a team using an invitation. This event provides the team graph and
    * the user's info (including keys). (When we're joining as a new device for an existing user,
    * this is how we get the user's keys.) This event gives the application a chance to persist the
    * team graph and the user's info.
    */
-  joined: {
+  joined: (payload: {
     shareId: ShareId
     peerId: PeerId
     team: Auth.Team
     user: Auth.User
-  }
+  }) => void
 
   /**
    * We're connected to a peer and have been mutually authenticated.
    */
-  connected: {
+  connected: (payload: {
     shareId: ShareId
     peerId: PeerId
-  }
+  }) => void
 
   /**
    * We've detected an error locally, e.g. a peer tries to join with an invalid invitation.
    */
-  localError: ErrorPayload
+  localError: (payload: ErrorPayload) => void
 
   /**
    * Our peer has detected an error and reported it to us, e.g. we tried to join with an invalid
    * invitation.
    */
-  remoteError: ErrorPayload
+  remoteError: (payload: ErrorPayload) => void
 
   /**
    * The auth connection disconnects from a peer after entering an error state.
    */
-  disconnected: {
+  disconnected: (payload: {
     shareId: ShareId
     peerId: PeerId
     event: Auth.ConnectionMessage
-  }
+  }) => void
 }

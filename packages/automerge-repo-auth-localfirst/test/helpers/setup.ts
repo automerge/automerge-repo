@@ -46,6 +46,7 @@ export const setup = <T extends string>(
 
   return {
     users,
+    ports,
     teardown: () => {
       allPorts.forEach(port => port.close())
     },

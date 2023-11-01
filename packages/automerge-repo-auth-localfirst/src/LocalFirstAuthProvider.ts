@@ -18,12 +18,10 @@ import {
   EncryptedMessage,
   Invitation,
   LocalFirstAuthProviderEvents,
-  SerializedShare,
-  SerializedState,
   Share,
   ShareId,
   isDeviceInvitation,
-  isEncryptedMessage,
+  isEncryptedMessage
 } from "./types"
 
 const { encrypt, decrypt } = Auth.symmetric
@@ -92,7 +90,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     )
 
     /**
-     * An auth connection executes the localfirst/auth protocol to authenticate a peer, negotiate a
+     * An Auth.Connection executes the localfirst/auth protocol to authenticate a peer, negotiate a
      * shared secret key for the session, and sync up the team graph. This communication happens
      * over the network adapter we're wrapping.
      */
@@ -124,7 +122,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
           // Let the application know, e.g. so it can persist this information, subscribe to team
           // updates, etc.
-          this.emit("joined", { team, user })
+          this.emit("joined", { shareId, peerId, team, user })
 
           this.#user = user
           this.#shares[shareId] = { shareId, team }
@@ -321,45 +319,45 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
   // PUBLIC API
 
-  /** Returns a serialized and partially encrypted version of the state that can be persisted and loaded later */
-  public save() {
-    const shares = {} as SerializedState
-    for (const shareId in this.#shares) {
-      const share = this.#shares[shareId]
-      shares[shareId] = {
-        encryptedTeam: share.team.save(),
-        encryptedTeamKeys: encrypt(
-          share.team.teamKeys,
-          this.#device.keys.secretKey
-        ),
-      } as SerializedShare
-    }
-    return JSON.stringify(shares)
-  }
+  // /** Returns a serialized and partially encrypted version of the state that can be persisted and loaded later */
+  // public save() {
+  //   const shares = {} as SerializedState
+  //   for (const shareId in this.#shares) {
+  //     const share = this.#shares[shareId]
+  //     shares[shareId] = {
+  //       encryptedTeam: share.team.save(),
+  //       encryptedTeamKeys: encrypt(
+  //         share.team.teamKeys,
+  //         this.#device.keys.secretKey
+  //       ),
+  //     } as SerializedShare
+  //   }
+  //   return JSON.stringify(shares)
+  // }
 
-  /** Loads and decrypts state from its serialized, persisted form */
-  public load(savedState: string) {
-    const savedShares = JSON.parse(savedState) as SerializedState
-    for (const shareId in savedShares) {
-      const share = savedShares[shareId] as SerializedShare
-      const { encryptedTeam, encryptedTeamKeys } = share
-      const teamKeys = decrypt(
-        encryptedTeamKeys,
-        this.#device.keys.secretKey
-      ) as Auth.KeysetWithSecrets
+  // /** Loads and decrypts state from its serialized, persisted form */
+  // public load(savedState: string) {
+  //   const savedShares = JSON.parse(savedState) as SerializedState
+  //   for (const shareId in savedShares) {
+  //     const share = savedShares[shareId] as SerializedShare
+  //     const { encryptedTeam, encryptedTeamKeys } = share
+  //     const teamKeys = decrypt(
+  //       encryptedTeamKeys,
+  //       this.#device.keys.secretKey
+  //     ) as Auth.KeysetWithSecrets
 
-      const context = { device: this.#device, user: this.#user }
-      this.#shares[shareId] = {
-        team: Auth.loadTeam(encryptedTeam, context, teamKeys),
-        teamKeys: teamKeys,
-        connections: {},
-      }
-    }
-  }
+  //     const context = { device: this.#device, user: this.#user }
+  //     this.#shares[shareId] = {
+  //       team: Auth.loadTeam(encryptedTeam, context, teamKeys),
+  //       teamKeys: teamKeys,
+  //       connections: {},
+  //     }
+  //   }
+  // }
 
   public addTeam(team: Auth.Team) {
-    const { id: shareId } = team
-    this.#shares[shareId] = { shareId, team }
+    const shareId = team.id
+    this.#shares[shareId] = { shareId, team, documentIds: new Set() }
   }
 
   public addInvitation(invitation: Invitation) {

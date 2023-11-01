@@ -7,6 +7,7 @@ import { AuthenticatedNetworkAdapter } from "./AuthenticatedNetworkAdapter.js"
 import { ALWAYS_OK, AUTHENTICATION_VALID } from "./constants.js"
 import {
   AuthProviderConfig,
+  AuthProviderEvents,
   AuthenticateFn,
   MessageTransformer,
   Transform,
@@ -112,6 +113,3 @@ export const authenticationError = (msg: string) => ({
 
 const NO_TRANSFORM: MessageTransformer = p => p
 
-export type AuthProviderEvents = {
-  "storage-available": () => void
-}

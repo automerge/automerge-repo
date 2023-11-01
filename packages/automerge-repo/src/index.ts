@@ -78,4 +78,16 @@ export type {
   StorageKey,
 } from "./storage/types.js"
 
+export type {
+  AuthProviderConfig,
+  AuthProviderEvents,
+  AuthenticateFn,
+  AuthenticationResult,
+  ValidAuthenticationResult,
+  InvalidAuthenticationResult,
+  Transform,
+  MessageTransformer,
+  SharePolicy,
+} from "./auth/types.js"
+
 export * from "./types.js"

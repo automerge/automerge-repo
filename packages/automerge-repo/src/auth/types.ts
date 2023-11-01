@@ -1,4 +1,3 @@
-import { EventEmitter } from "eventemitter3"
 import { DocumentId, PeerId } from "../types.js"
 import { AuthChannel } from "./AuthChannel.js"
 
@@ -9,6 +8,10 @@ export interface AuthProviderConfig {
   transform?: Transform
   okToAdvertise?: SharePolicy
   okToSync?: SharePolicy
+}
+
+export type AuthProviderEvents = {
+  "storage-available": () => void
 }
 
 // AUTHENTICATION
@@ -59,3 +62,4 @@ export type SharePolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
+
