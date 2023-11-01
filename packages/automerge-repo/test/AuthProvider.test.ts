@@ -133,7 +133,7 @@ describe("AuthProvider", () => {
 
   describe("authentication", () => {
     const setup = async (
-      authProvider: AuthProvider | Record<string, AuthProvider>
+      authProvider?: AuthProvider | Record<string, AuthProvider>
     ) => {
       if (authProvider instanceof AuthProvider)
         authProvider = {
@@ -147,13 +147,13 @@ describe("AuthProvider", () => {
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
         peerId: "alice" as PeerId,
-        authProvider: authProvider.alice,
+        ...(authProvider ? { authProvider: authProvider.alice } : {}),
       })
 
       const bobRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(bobToAlice)],
         peerId: "bob" as PeerId,
-        authProvider: authProvider.bob,
+        ...(authProvider ? { authProvider: authProvider.bob } : {}),
       })
 
       const aliceHandle = aliceRepo.create<TestDoc>()
@@ -198,16 +198,22 @@ describe("AuthProvider", () => {
       it("a maximally permissive auth provider authenticates everyone", async () => {
         const permissive = new AuthProvider() // AuthProvider is maximally permissive by default
         const { bobRepo, aliceHandle, teardown } = await setup(permissive)
-
         await pause(50)
+
         // bob has alice's document
         assert.notEqual(bobRepo.handles[aliceHandle.documentId], undefined)
 
         teardown()
       })
 
-      it("a custom auth provider might just authenticate based on peerId", async () => {
-        // TODO
+      it("the maximally permissive auth provider is the same as no auth provider", async () => {
+        const { bobRepo, aliceHandle, teardown } = await setup() // no auth provider
+        await pause(50)
+
+        // bob has alice's document
+        assert.notEqual(bobRepo.handles[aliceHandle.documentId], undefined)
+
+        teardown()
       })
     })
 
