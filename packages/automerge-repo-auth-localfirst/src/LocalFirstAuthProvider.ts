@@ -43,8 +43,6 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     // we might already have our user info, unless we're a new device using an invitation
     if ("user" in config) this.#user = config.user
 
-    // we might have persisted state to load
-    if ("source" in config) this.load(config.source)
 
     this.#log = debug(`automerge-repo:auth-localfirst:${this.#device.userId}`)
   }
