@@ -131,35 +131,35 @@ export class StorageSubsystem {
     this.#storedHeads.set(documentId, A.getHeads(doc))
   }
 
-  async loadSyncState(
-    documentId: DocumentId,
-    peerId: PeerId
-  ): Promise<A.SyncState | null> {
-    const key = [peerId, documentId, "sync-state"]
+  // todo: we should store individual sync states and load the combined syncState object with loadRange
+  // unfortunately this is currently not possible because we would have to put the documentId as the first key
+  // this conflicts with documents are currently loaded
+
+  async loadSyncStates(
+    documentId: DocumentId
+  ): Promise<Record<PeerId, A.SyncState>> {
+    const key = [documentId, "sync-states"]
 
     const serializedSyncState = await this.#storageAdapter.load(key)
 
     if (!serializedSyncState) {
-      return null
+      return {}
     }
 
     try {
-      return JSON.parse(new TextDecoder().decode(serializedSyncState))
+      return deserializeSyncStates(serializedSyncState)
     } catch (err) {
-      return null
+      return {}
     }
   }
 
-  async saveSyncState(
+  async saveSyncStates(
     documentId: DocumentId,
-    peerId: PeerId,
-    syncState: A.SyncState
+    syncStates: Record<PeerId, A.SyncState>
   ): Promise<void> {
-    const key = [peerId, documentId, "sync-state"]
-    const serializedSyncState = new TextEncoder().encode(
-      JSON.stringify(syncState)
-    )
-    await this.#storageAdapter.save(key, serializedSyncState)
+    const key = [documentId, "sync-states"]
+
+    await this.#storageAdapter.save(key, serializeSyncStates(syncStates))
   }
 
   async remove(documentId: DocumentId) {
@@ -210,4 +210,38 @@ function chunkTypeFromKey(key: StorageKey): ChunkType | null {
   } else {
     return null
   }
+}
+
+function serializeSyncStates(
+  syncStates: Record<PeerId, A.SyncState>
+): Uint8Array {
+  const encoder = new TextEncoder()
+  return encoder.encode(
+    JSON.stringify(syncStates, (key, value) => {
+      if (key === "bloom") {
+        const array = new Uint8Array(value as ArrayBuffer) // type assertion
+        const str = String.fromCharCode.apply(null, Array.from(array))
+        return btoa(str)
+      }
+      return value
+    })
+  )
+}
+
+function deserializeSyncStates(
+  serializedSyncState: Uint8Array
+): Record<PeerId, A.SyncState> {
+  const decoder = new TextDecoder()
+  return JSON.parse(decoder.decode(serializedSyncState), (key, value) => {
+    if (key === "bloom") {
+      const binaryString = atob(value)
+      const len = binaryString.length
+      const bytes = new Uint8Array(len)
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
+      }
+      return bytes
+    }
+    return value
+  })
 }

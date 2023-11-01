@@ -47,8 +47,6 @@ export class DocSynchronizer extends Synchronizer {
 
   #peerDocumentStatuses: Record<PeerId, PeerDocumentStatus> = {}
 
-  /** Sync state for each peer we've communicated with (including inactive peers) */
-  #syncStates: Record<PeerId, A.SyncState> = {}
   #lastSyncs: Record<PeerId, LastSync> = {}
 
   #pendingSyncMessages: Array<PendingMessage> = []
@@ -123,7 +121,7 @@ export class DocSynchronizer extends Synchronizer {
       this.#peerDocumentStatuses[peerId] = "unknown"
     }
 
-    return this.#syncStates[peerId] ?? A.initSyncState()
+    return this.handle.getSyncState(peerId) ?? A.initSyncState()
   }
 
   #setSyncState(peerId: PeerId, syncState: A.SyncState) {
@@ -132,14 +130,9 @@ export class DocSynchronizer extends Synchronizer {
 
     // TODO: we only need to do this on reconnect
 
-    this.emit("sync-state", {
-      documentId: this.handle.documentId,
-      peerId,
-      syncState,
-    })
-
+    // todo: compute remote heads based on sync state
     this.handle.setRemoteHeads(peerId, syncState.heads, new Date())
-    this.#syncStates[peerId] = syncState
+    this.handle.setSyncState(peerId, syncState)
   }
 
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {

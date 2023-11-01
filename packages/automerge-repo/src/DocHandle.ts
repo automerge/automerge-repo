@@ -39,6 +39,7 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
+  #syncStates: Record<PeerId, A.SyncState> = {}
   #remoteHeads: Record<PeerId, { heads: A.Heads; received: Date }> = {}
 
   /** The URL of this document
@@ -332,6 +333,29 @@ export class DocHandle<T> //
     })
   }
 
+  /** `getSyncState` is used by the doc synchronizer to read the sync state
+   * @hidden
+   */
+  getSyncState(peerId: PeerId): A.SyncState | undefined {
+    return this.#syncStates[peerId]
+  }
+
+  /** `setSyncState` is called by the doc synchronizer when the sync state changes
+   * @hidden
+   */
+  setSyncState(peerId: PeerId, syncState: A.SyncState): void {
+    this.#syncStates[peerId] = syncState
+    this.emit("sync-state", this.#syncStates)
+  }
+
+  /** `setSyncStates` is called by the repo when the doc is loaded initially
+   * @hidden
+   */
+  setSyncStates(syncStates: Record<PeerId, A.SyncState>): void {
+    this.#syncStates = syncStates
+    this.emit("sync-state", this.#syncStates)
+  }
+
   /** `change` is called by the repo when the document is changed locally  */
   change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (!this.isReady()) {
@@ -508,6 +532,7 @@ export interface DocHandleEvents<T> {
     payload: DocHandleOutboundEphemeralMessagePayload<T>
   ) => void
   "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
+  "sync-state": (payload: Record<PeerId, A.SyncState>) => void
 }
 
 // STATE MACHINE TYPES
