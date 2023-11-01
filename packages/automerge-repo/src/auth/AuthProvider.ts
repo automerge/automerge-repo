@@ -23,8 +23,7 @@ import { StorageSubsystem } from "../storage/StorageSubsystem.js"
  * An AuthProvider can be configured by passing a config object to the constructor, or by extending
  * the class and overriding methods.
  */
-
-export class AuthProvider<T extends AuthProviderEvents = any> //
+export class AuthProvider<T extends AuthProviderEvents = any>
   extends EventEmitter<T | AuthProviderEvents>
 {
   private storage: StorageSubsystem | undefined
