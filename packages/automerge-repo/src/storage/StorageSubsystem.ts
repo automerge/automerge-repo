@@ -3,7 +3,7 @@ import debug from "debug"
 import * as sha256 from "fast-sha256"
 import { headsAreSame } from "../helpers/headsAreSame.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
-import { type DocumentId } from "../types.js"
+import { PeerId, type DocumentId } from "../types.js"
 import { StorageAdapter, StorageKey } from "./StorageAdapter.js"
 
 // Metadata about a chunk of data loaded from storage. This is stored on the
@@ -129,6 +129,37 @@ export class StorageSubsystem {
       void this.#saveIncremental(documentId, doc)
     }
     this.#storedHeads.set(documentId, A.getHeads(doc))
+  }
+
+  async loadSyncState(
+    documentId: DocumentId,
+    peerId: PeerId
+  ): Promise<A.SyncState | null> {
+    const key = [peerId, documentId, "sync-state"]
+
+    const serializedSyncState = await this.#storageAdapter.load(key)
+
+    if (!serializedSyncState) {
+      return null
+    }
+
+    try {
+      return JSON.parse(new TextDecoder().decode(serializedSyncState))
+    } catch (err) {
+      return null
+    }
+  }
+
+  async saveSyncState(
+    documentId: DocumentId,
+    peerId: PeerId,
+    syncState: A.SyncState
+  ): Promise<void> {
+    const key = [peerId, documentId, "sync-state"]
+    const serializedSyncState = new TextEncoder().encode(
+      JSON.stringify(syncState)
+    )
+    await this.#storageAdapter.save(key, serializedSyncState)
   }
 
   async remove(documentId: DocumentId) {

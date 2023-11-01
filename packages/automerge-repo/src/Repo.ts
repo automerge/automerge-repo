@@ -149,10 +149,11 @@ export class Repo extends EventEmitter<RepoEvents> {
       await synchronizer.receiveMessage(msg)
     })
 
-    synchronizer.on("sync-state", syncStateMessage => {
-      // todo: save sync state
-      console.log(">>>", syncStateMessage)
-    })
+    if (storageSubsystem) {
+      synchronizer.on("sync-state", ({ documentId, peerId, syncState }) => {
+        storageSubsystem.saveSyncState(documentId, peerId, syncState)
+      })
+    }
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
