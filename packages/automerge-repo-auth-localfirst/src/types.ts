@@ -8,9 +8,11 @@ import {
 import * as Auth from "@localfirst/auth"
 
 export type Config = {
+  /** We always have the local device's info and keys */
   device: Auth.DeviceWithSecrets
+
+  /** We have our user info, unless we're a new device using an invitation */
   user?: Auth.UserWithSecrets
-  source?: string // persisted state
 }
 
 export type LocalFirstAuthMessagePayload = {
