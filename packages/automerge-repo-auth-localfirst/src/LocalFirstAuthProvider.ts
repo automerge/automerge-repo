@@ -8,6 +8,7 @@ import {
   AuthProvider,
   AuthenticatedNetworkAdapter,
   NetworkAdapter,
+  cbor,
   isAuthMessage,
 } from "@automerge/automerge-repo"
 import * as Auth from "@localfirst/auth"
@@ -18,6 +19,8 @@ import {
   EncryptedMessage,
   Invitation,
   LocalFirstAuthProviderEvents,
+  SerializedShare,
+  SerializedState,
   Share,
   ShareId,
   isDeviceInvitation,
@@ -25,6 +28,7 @@ import {
 } from "./types"
 
 const { encrypt, decrypt } = Auth.symmetric
+
 
 export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderEvents> {
   #device: Auth.DeviceWithSecrets
@@ -43,6 +47,10 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     // we might already have our user info, unless we're a new device using an invitation
     if ("user" in config) this.#user = config.user
 
+    this.on("storage-available", async () => {
+      this.#loadState()
+
+    })
 
     this.#log = debug(`automerge-repo:auth-localfirst:${this.#device.userId}`)
   }
@@ -111,16 +119,17 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
       })
 
       connection
-        .on("joined", ({ team, user }) => {
+        .on("joined", async ({ team, user }) => {
           // When we successfully join a team, the connection gives us the team graph and the user's
           // info (including keys). (When we're joining as a new device for an existing user, this
           // is how we get the user's keys.)
 
           this.#log(`joined ${team.name}`)
 
-          // Let the application know, e.g. so it can persist this information, subscribe to team
-          // updates, etc.
+          // Let the application know
           this.emit("joined", { shareId, peerId, team, user })
+
+          await this.#saveState()
 
           this.#user = user
           this.#shares[shareId] = { shareId, team }
@@ -131,12 +140,16 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
         .on("connected", () => {
           this.#log(`connected to ${peerId}`)
-
+          // 
           // Let the application know
           this.emit("connected", { shareId, peerId })
 
           // Let the repo know we've got a new peer
           authenticatedAdapter.emit("peer-candidate", { peerId })
+        })
+
+        .on("updated", async () => {
+          await this.#saveState()
         })
 
         .on("localError", event => {
@@ -315,43 +328,50 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     throw new Error(`no context for ${shareId}`)
   }
 
+  // NEXT: need to sort out timing of saving & loading vs connecting with peers
+  // If we load state after connecting to peers, we'll want to retry the connec7987tions
+
+
+  /** Returns a serialized and partially encrypted version of the state that can be persisted and loaded later */
+  async #saveState() {
+    if (!this.hasStorage()) return
+    const shares = {} as SerializedState
+    for (const shareId in this.#shares) {
+      const share = this.#shares[shareId]
+      shares[shareId] = {
+        encryptedTeam: share.team.save(),
+        encryptedTeamKeys: encrypt(
+          share.team.teamKeys,
+          this.#device.keys.secretKey
+        ),
+      } as SerializedShare
+    }
+    const serializedState = cbor.encode(shares)
+    await this.save(STORAGE_KEY, serializedState)
+  }
+
+  /** Loads and decrypts state from its serialized, persisted form */
+  async #loadState() {
+    const serializedState = await this.load(STORAGE_KEY)
+    if (!serializedState) return
+
+    const savedShares = cbor.decode(serializedState) as SerializedState
+    for (const shareId in savedShares) {
+      const share = savedShares[shareId] as SerializedShare
+      const { encryptedTeam, encryptedTeamKeys } = share
+      const teamKeys = decrypt(
+        encryptedTeamKeys,
+        this.#device.keys.secretKey
+      ) as Auth.KeysetWithSecrets
+
+      const context = { device: this.#device, user: this.#user }
+      const team = Auth.loadTeam(encryptedTeam, context, teamKeys)
+      this.addTeam(team)
+    }
+  }
+
+
   // PUBLIC API
-
-  // /** Returns a serialized and partially encrypted version of the state that can be persisted and loaded later */
-  // public save() {
-  //   const shares = {} as SerializedState
-  //   for (const shareId in this.#shares) {
-  //     const share = this.#shares[shareId]
-  //     shares[shareId] = {
-  //       encryptedTeam: share.team.save(),
-  //       encryptedTeamKeys: encrypt(
-  //         share.team.teamKeys,
-  //         this.#device.keys.secretKey
-  //       ),
-  //     } as SerializedShare
-  //   }
-  //   return JSON.stringify(shares)
-  // }
-
-  // /** Loads and decrypts state from its serialized, persisted form */
-  // public load(savedState: string) {
-  //   const savedShares = JSON.parse(savedState) as SerializedState
-  //   for (const shareId in savedShares) {
-  //     const share = savedShares[shareId] as SerializedShare
-  //     const { encryptedTeam, encryptedTeamKeys } = share
-  //     const teamKeys = decrypt(
-  //       encryptedTeamKeys,
-  //       this.#device.keys.secretKey
-  //     ) as Auth.KeysetWithSecrets
-
-  //     const context = { device: this.#device, user: this.#user }
-  //     this.#shares[shareId] = {
-  //       team: Auth.loadTeam(encryptedTeam, context, teamKeys),
-  //       teamKeys: teamKeys,
-  //       connections: {},
-  //     }
-  //   }
-  // }
 
   public addTeam(team: Auth.Team) {
     const shareId = team.id
@@ -375,3 +395,5 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     // documentIds.forEach(id => share.documentIds.delete(id))
   }
 }
+
+const STORAGE_KEY = "shares"

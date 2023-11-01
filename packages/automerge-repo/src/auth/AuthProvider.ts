@@ -92,14 +92,16 @@ export class AuthProvider<T extends AuthProviderEvents = any>
     this.emit("storage-available")
   }
 
+  hasStorage = () => this.storage !== undefined
+
   save = async (key: string, value: Uint8Array) => {
-    if (!this.storage)
+    if (this.storage === undefined)
       throw new Error("AuthProvider: no storage subsystem configured")
     await this.storage.save("AuthProvider", key, value)
   }
 
   load = async (key: string) => {
-    if (!this.storage)
+    if (this.storage === undefined)
       throw new Error("AuthProvider: no storage subsystem configured")
     return await this.storage.load("AuthProvider", key)
   }

@@ -260,6 +260,8 @@ describe("localfirst/auth provider", () => {
     teardown()
   })
 
+
+
   it("persists local context and team state", async () => {
     const {
       users: { alice, bob },
