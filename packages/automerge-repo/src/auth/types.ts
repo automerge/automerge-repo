@@ -1,3 +1,4 @@
+import { EventEmitter } from "eventemitter3"
 import { DocumentId, PeerId } from "../types.js"
 import { AuthChannel } from "./AuthChannel.js"
 

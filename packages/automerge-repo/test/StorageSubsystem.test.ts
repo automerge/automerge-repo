@@ -9,7 +9,6 @@ import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { cbor } from "../src/index.js"
-import { pause } from "../src/helpers/pause.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 

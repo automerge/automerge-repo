@@ -85,6 +85,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // The network subsystem deals with sending and receiving messages to and from peers.
 
+    if (this.authProvider && this.storageSubsystem) {
+      this.authProvider.useStorage(this.storageSubsystem)
+    }
+
     // The auth provider works by wrapping our network adapters.
     const wrappedAdapters =
       "authProvider" in config

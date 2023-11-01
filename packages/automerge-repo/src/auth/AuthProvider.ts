@@ -11,6 +11,7 @@ import {
   MessageTransformer,
   Transform,
 } from "./types.js"
+import { StorageSubsystem } from "../storage/StorageSubsystem.js"
 
 /**
  * An AuthProvider is responsible for authentication (proving that a peer is who they say they are)
@@ -21,9 +22,12 @@ import {
  * An AuthProvider can be configured by passing a config object to the constructor, or by extending
  * the class and overriding methods.
  */
-export class AuthProvider<
-  TEvents extends EventEmitter.ValidEventTypes = any
-> extends EventEmitter<TEvents> {
+
+export class AuthProvider<T extends AuthProviderEvents = AuthProviderEvents> //
+  extends EventEmitter<T | AuthProviderEvents>
+{
+  private storage: StorageSubsystem | undefined
+
   constructor(config: AuthProviderConfig = {}) {
     super()
     return Object.assign(this, config)
@@ -82,6 +86,23 @@ export class AuthProvider<
 
     return wrappedAdapter
   }
+
+  useStorage = (storage: StorageSubsystem) => {
+    this.storage = storage
+    this.emit("storage-available")
+  }
+
+  save = async (key: string, value: Uint8Array) => {
+    if (!this.storage)
+      throw new Error("AuthProvider: no storage subsystem configured")
+    await this.storage.save("AuthProvider", key, value)
+  }
+
+  load = async (key: string) => {
+    if (!this.storage)
+      throw new Error("AuthProvider: no storage subsystem configured")
+    return await this.storage.load("AuthProvider", key)
+  }
 }
 
 export const authenticationError = (msg: string) => ({
@@ -90,3 +111,7 @@ export const authenticationError = (msg: string) => ({
 })
 
 const NO_TRANSFORM: MessageTransformer = p => p
+
+export type AuthProviderEvents = {
+  "storage-available": () => void
+}
