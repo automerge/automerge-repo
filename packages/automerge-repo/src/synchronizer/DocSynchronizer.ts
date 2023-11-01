@@ -132,6 +132,12 @@ export class DocSynchronizer extends Synchronizer {
 
     // TODO: we only need to do this on reconnect
 
+    this.emit("sync-state", {
+      documentId: this.handle.documentId,
+      peerId,
+      syncState,
+    })
+
     this.handle.setRemoteHeads(peerId, syncState.heads, new Date())
     this.#syncStates[peerId] = syncState
   }

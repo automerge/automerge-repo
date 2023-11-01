@@ -37,6 +37,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer(handle)
     docSynchronizer.on("message", event => this.emit("message", event))
+    docSynchronizer.on("sync-state", event => this.emit("sync-state", event))
     return docSynchronizer
   }
 
