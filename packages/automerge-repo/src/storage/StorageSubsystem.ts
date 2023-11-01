@@ -13,6 +13,9 @@ import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
  * storage adapter. It also provides a generic key/value storage interface for other uses.
  */
 export class StorageSubsystem {
+  /** The storage adapter to use for saving and loading documents */
+  #storageAdapter: StorageAdapter
+
   /** Record of the latest heads we've loaded or saved for each document  */
   #storedHeads: Map<DocumentId, A.Heads> = new Map()
 
@@ -24,7 +27,9 @@ export class StorageSubsystem {
 
   #log = debug(`automerge-repo:storage-subsystem`)
 
-  constructor(private storageAdapter: StorageAdapter) {}
+  constructor(storageAdapter: StorageAdapter) {
+    this.#storageAdapter = storageAdapter
+  }
 
   // ARBITRARY KEY/VALUE STORAGE
 
@@ -45,7 +50,7 @@ export class StorageSubsystem {
     key: string
   ): Promise<Uint8Array | undefined> {
     const storageKey = [namespace, key] as StorageKey
-    return await this.storageAdapter.load(storageKey)
+    return await this.#storageAdapter.load(storageKey)
   }
 
   /** Saves a value in storage. */
@@ -60,7 +65,7 @@ export class StorageSubsystem {
     data: Uint8Array
   ): Promise<void> {
     const storageKey = [namespace, key] as StorageKey
-    await this.storageAdapter.save(storageKey, data)
+    await this.#storageAdapter.save(storageKey, data)
   }
 
   /** Removes a value from storage. */
@@ -72,7 +77,7 @@ export class StorageSubsystem {
     key: string
   ): Promise<void> {
     const storageKey = [namespace, key] as StorageKey
-    await this.storageAdapter.remove(storageKey)
+    await this.#storageAdapter.remove(storageKey)
   }
 
   // AUTOMERGE DOCUMENT STORAGE
@@ -82,7 +87,7 @@ export class StorageSubsystem {
    */
   async loadDoc<T>(documentId: DocumentId): Promise<A.Doc<T> | null> {
     // Load all the chunks for this document
-    const chunks = await this.storageAdapter.loadRange([documentId])
+    const chunks = await this.#storageAdapter.loadRange([documentId])
     const binaries = []
     const chunkInfos: ChunkInfo[] = []
 
@@ -135,8 +140,8 @@ export class StorageSubsystem {
    * Removes the Automerge document with the given ID from storage
    */
   async removeDoc(documentId: DocumentId) {
-    void this.storageAdapter.removeRange([documentId, "snapshot"])
-    void this.storageAdapter.removeRange([documentId, "incremental"])
+    void this.#storageAdapter.removeRange([documentId, "snapshot"])
+    void this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 
   /**
@@ -150,7 +155,7 @@ export class StorageSubsystem {
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
       this.#log(`Saving incremental ${key} for document ${documentId}`)
-      await this.storageAdapter.save(key, binary)
+      await this.#storageAdapter.save(key, binary)
       if (!this.#chunkInfos.has(documentId)) {
         this.#chunkInfos.set(documentId, [])
       }
@@ -185,10 +190,10 @@ export class StorageSubsystem {
     this.#log(`Saving snapshot ${key} for document ${documentId}`)
     this.#log(`deleting old chunks ${Array.from(oldKeys)}`)
 
-    await this.storageAdapter.save(key, binary)
+    await this.#storageAdapter.save(key, binary)
 
     for (const key of oldKeys) {
-      await this.storageAdapter.remove(key)
+      await this.#storageAdapter.remove(key)
     }
 
     const newChunkInfos =
