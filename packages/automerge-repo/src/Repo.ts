@@ -28,8 +28,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** @hidden */
   networkSubsystem: NetworkSubsystem
+
   /** @hidden */
   storageSubsystem?: StorageSubsystem
+
   /** @hidden */
   synchronizer = new CollectionSynchronizer(this)
 
@@ -54,14 +56,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.sharePolicy = sharePolicy ?? this.sharePolicy
-
-    // DOC COLLECTION
-
-    // The `document` event is fired by the DocCollection any time we create a new document or look
-    // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-    this.on("document", async ({ handle, isNew }) => {
-      this.#registerHandle(handle, isNew)
-    })
 
     this.on("delete-document", ({ documentId }) => {
       // TODO Pass the delete on to the network
@@ -128,6 +122,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
+  /** When create a new document or look up a document by ID, wire up storage and network synchronization.  */
   async #registerHandle<T>(handle: DocHandle<T>, isNew: boolean) {
     const storageSubsystem = this.storageSubsystem
     if (storageSubsystem) {
@@ -174,6 +169,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Register the document with the synchronizer. This advertises our interest in the document.
     this.synchronizer.addDocument(handle.documentId)
+    this.emit("document", { handle, isNew })
   }
 
   /** Returns all the handles we have cached. */
@@ -208,7 +204,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Generate a new UUID and store it in the buffer
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
     const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
-    this.emit("document", { handle, isNew: true })
+    this.#registerHandle(handle, true)
     return handle
   }
 
@@ -274,7 +270,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
-    this.emit("document", { handle, isNew: false })
+    this.#registerHandle(handle, false)
     return handle
   }
 
