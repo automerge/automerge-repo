@@ -8,12 +8,12 @@ import {
 } from "./AutomergeUrl.js"
 import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { throttle } from "./helpers/throttle.js"
-import { NetworkAdapter } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
-import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
+import type { AnyDocumentId, DocumentId } from "./types.js"
+import { pause } from "./helpers/pause.js"
+import { RepoEvents, SharePolicy, RepoConfig } from "./types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -38,7 +38,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   saveDebounceRate = 100
 
-  #handleCache: Record<DocumentId, DocHandle<any>> = {}
+  /** Cached handles */
+  handles: Record<DocumentId, DocHandle<any>> = {}
 
   /** By default, we share generously with all peers. */
   /** @hidden */
@@ -56,16 +57,6 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
-    this.on("delete-document", ({ documentId }) => {
-      // TODO Pass the delete on to the network
-      // synchronizer.removeDocument(documentId)
-
-      this.storageSubsystem?.removeDoc(documentId).catch(err => {
-        this.#log("error deleting document", { documentId, err })
-      })
-    })
-
-    // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
 
     // When the synchronizer emits messages, send them to peers
@@ -74,29 +65,27 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.networkSubsystem.send(message)
     })
 
-    // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     this.storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
 
-    // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
     this.networkSubsystem = new NetworkSubsystem(network, peerId)
 
-      // When we get a new peer, register it with the synchronizer
-      .on("peer", async ({ peerId }) => {
-        this.#log("peer connected", { peerId })
-        this.#synchronizer.addPeer(peerId)
-      })
+    // When we get a new peer, register it with the synchronizer
+    this.networkSubsystem.on("peer", ({ peerId }) => {
+      this.#log("peer connected", { peerId })
+      this.#synchronizer.addPeer(peerId)
+    })
 
-      // When a peer disconnects, remove it from the synchronizer
-      .on("peer-disconnected", ({ peerId }) => {
-        this.#synchronizer.removePeer(peerId)
-      })
+    // When a peer disconnects, remove it from the synchronizer
+    this.networkSubsystem.on("peer-disconnected", ({ peerId }) => {
+      this.#synchronizer.removePeer(peerId)
+    })
 
-      // Pass incoming messages on to the synchronizer
-      .on("message", async msg => {
-        await this.#synchronizer.receiveMessage(msg)
-      })
+    // Pass incoming messages on to the synchronizer
+    this.networkSubsystem.on("message", msg => {
+      this.#synchronizer.receiveMessage(msg)
+    })
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
@@ -107,13 +96,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     /** If we know we're creating a new document, specify this so we can have access to it immediately */
     isNew: boolean
   ) {
+    if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
+
     // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) return this.#handleCache[documentId]
+    if (this.handles[documentId]) return this.handles[documentId]
 
     // If not, create a new handle, cache it, and return it
-    if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
     const handle = new DocHandle<T>(documentId, { isNew })
-    this.#handleCache[documentId] = handle
+    this.handles[documentId] = handle
     return handle
   }
 
@@ -124,31 +114,27 @@ export class Repo extends EventEmitter<RepoEvents> {
   async #registerHandle<T>(handle: DocHandle<T>, isNew: boolean) {
     const { documentId } = handle
 
-    // If we have a storage subsystem, save the document when it changes
-    const storageSubsystem = this.storageSubsystem
-    if (storageSubsystem) {
-      // Save when the document changes, but no more often than saveDebounceRate.
-      const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
-        void storageSubsystem.saveDoc(documentId, doc)
+    if (this.storageSubsystem) {
+      // Listen for changes and save them to disk, but not more frequently than the debounce interval
+      const save = ({ doc }: DocHandleEncodedChangePayload<any>) => {
+        void this.storageSubsystem!.saveDoc(documentId, doc)
       }
-      const debouncedSaveFn = handle.on(
-        "heads-changed",
-        throttle(saveFn, this.saveDebounceRate)
-      )
+      const debouncedSave = throttle(save, this.saveDebounceRate)
+      handle.on("heads-changed", debouncedSave)
 
       if (isNew) {
         // this is a new document, immediately save it
-        await storageSubsystem.saveDoc(documentId, handle.docSync()!)
+        await this.storageSubsystem.saveDoc(documentId, handle.docSync()!)
       } else {
-        // Try to load from disk
-        const loadedDoc = await storageSubsystem.loadDoc(documentId)
+        // otherwise try to load it from storage
+        const loadedDoc = await this.storageSubsystem.loadDoc(documentId)
         if (loadedDoc) {
           handle.update(() => loadedDoc as Automerge.Doc<T>)
         }
       }
     }
 
-    // Forward "unavailable" events from this handle
+    // If the handle is unavailable, let the application know
     handle.on("unavailable", () => {
       this.emit("unavailable-document", { documentId })
     })
@@ -158,55 +144,26 @@ export class Repo extends EventEmitter<RepoEvents> {
       handle.request()
     } else {
       handle.awaitNetwork()
-      this.networkSubsystem
-        .whenReady()
-        .then(() => {
-          handle.networkReady()
-        })
-        .catch(err => {
-          this.#log("error waiting for network", { err })
-        })
+      await this.networkSubsystem.whenReady()
+      handle.networkReady()
     }
 
     // Register the document with the synchronizer. This advertises our interest in the document.
     this.#synchronizer.addDocument(documentId)
 
-    // Notify listeners that we have a document
+    // Notify the application that we have a document
     this.emit("document", { handle, isNew })
   }
 
-  /** Returns all the handles we have cached. */
-  get handles() {
-    return this.#handleCache
-  }
-
   /**
-   * Creates a new document and returns a handle to it. The initial value of the document is
-   * an empty object `{}`. Its documentId is generated by the system.
+   * Creates a new document, advertises it to the network, and returns a handle to it. The initial
+   * value of the document is an empty object `{}`. Its documentId is a UUID is generated by the
+   * system.
    */
   create<T>(): DocHandle<T> {
-    // TODO:
-    // either
-    // - pass an initial value and do something like this to ensure that you get a valid initial value
-
-    // const myInitialValue = {
-    //   tasks: [],
-    //   filter: "all",
-    //
-    // const guaranteeInitialValue = (doc: any) => {
-    // if (!doc.tasks) doc.tasks = []
-    // if (!doc.filter) doc.filter = "all"
-
-    //   return { ...myInitialValue, ...doc }
-    // }
-
-    // or
-    // - pass a "reify" function that takes a `<any>` and returns `<T>`
-
-    // Generate a new UUID and store it in the buffer
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
     const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
-    this.#registerHandle(handle, true)
+    void this.#registerHandle(handle, true)
     return handle
   }
 
@@ -249,8 +206,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
-   * event to advertise interest in the document.
+   * Retrieves a document by id. It gets data from the local system, but registers interest in the
+   * document with the network.
    */
   find<T>(
     /** The url or documentId of the handle to retrieve */
@@ -258,21 +215,19 @@ export class Repo extends EventEmitter<RepoEvents> {
   ): DocHandle<T> {
     const documentId = interpretAsDocumentId(id)
 
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      if (this.#handleCache[documentId].isUnavailable()) {
-        // this ensures that the event fires after the handle has been returned
-        setTimeout(() => {
-          this.#handleCache[documentId].emit("unavailable", {
-            handle: this.#handleCache[documentId],
-          })
-        })
+    {
+      // If we have the handle cached, return it
+      const handle = this.handles[documentId]
+      if (handle) {
+        // if unavailable, emit an event after returning the handle
+        if (handle.isUnavailable())
+          void pause().then(() => handle.emit("unavailable"))
+        return handle
       }
-      return this.#handleCache[documentId]
     }
 
     const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
-    this.#registerHandle(handle, false)
+    void this.#registerHandle(handle, false)
     return handle
   }
 
@@ -287,7 +242,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.delete()
 
     // remove it from the cache
-    delete this.#handleCache[documentId]
+    delete this.handles[documentId]
 
     // remove it from storage
     this.storageSubsystem?.remove(documentId).catch(err => {
@@ -297,55 +252,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // TODO Pass the delete on to the network
     // synchronizer.removeDocument(documentId)
 
+    // notify the application
     this.emit("delete-document", { documentId })
   }
-}
-
-export interface RepoConfig {
-  /** Our unique identifier */
-  peerId?: PeerId
-
-  /** A storage adapter can be provided, or not */
-  storage?: StorageAdapter
-
-  /** One or more network adapters must be provided */
-  network: NetworkAdapter[]
-
-  /**
-   * Normal peers typically share generously with everyone (meaning we sync all our documents with
-   * all peers). A server only syncs documents that a peer explicitly requests by ID.
-   */
-  sharePolicy?: SharePolicy
-}
-
-/** A function that determines whether we should share a document with a peer
- *
- * @remarks
- * This function is called by the {@link Repo} every time a new document is created
- * or discovered (such as when another peer starts syncing with us). If this
- * function returns `true` then the {@link Repo} will begin sharing the new
- * document with the peer given by `peerId`.
- * */
-export type SharePolicy = (
-  peerId: PeerId,
-  documentId?: DocumentId
-) => Promise<boolean>
-
-// events & payloads
-export interface RepoEvents {
-  /** A new document was created or discovered */
-  document: (arg: DocumentPayload) => void
-  /** A document was deleted */
-  "delete-document": (arg: DeleteDocumentPayload) => void
-  /** A document was marked as unavailable (we don't have it and none of our peers have it) */
-  "unavailable-document": (arg: DeleteDocumentPayload) => void
-}
-
-export interface DocumentPayload {
-  handle: DocHandle<any>
-  isNew: boolean
-}
-
-export interface DeleteDocumentPayload {
-  documentId: DocumentId
 }
