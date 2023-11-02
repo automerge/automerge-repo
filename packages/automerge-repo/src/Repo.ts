@@ -32,7 +32,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   storageSubsystem?: StorageSubsystem
 
   /** @hidden */
-  #synchronizer = new CollectionSynchronizer(this)
+  #synchronizer: CollectionSynchronizer
 
   /** The debounce rate is adjustable on the repo. */
   /** @hidden */
@@ -58,6 +58,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
+    this.#synchronizer = new CollectionSynchronizer(this)
 
     // When the synchronizer emits messages, send them to peers
     this.#synchronizer.on("message", message => {
@@ -89,14 +90,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
-  #getHandle<T>(
-    /** The documentId of the handle to look up or create */
-    documentId: DocumentId,
-
-    /** If we know we're creating a new document, specify this so we can have access to it immediately */
-    isNew: boolean
-  ) {
-    if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
+  #getHandle<T>(params: { documentId: DocumentId; isNew: boolean }) {
+    const { documentId, isNew } = params
 
     // If we have the handle cached, return it
     if (this.handles[documentId]) return this.handles[documentId]
@@ -111,7 +106,8 @@ export class Repo extends EventEmitter<RepoEvents> {
    * When we create a new document or look up a document by ID, wire up storage and network
    * synchronization.
    */
-  async #registerHandle<T>(handle: DocHandle<T>, isNew: boolean) {
+  async #registerHandle<T>(params: { handle: DocHandle<T>; isNew: boolean }) {
+    const { handle, isNew } = params
     const { documentId } = handle
 
     if (this.storageSubsystem) {
@@ -119,8 +115,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       const save = ({ doc }: DocHandleEncodedChangePayload<any>) => {
         void this.storageSubsystem!.saveDoc(documentId, doc)
       }
-      const debouncedSave = throttle(save, this.saveDebounceRate)
-      handle.on("heads-changed", debouncedSave)
+      handle.on("heads-changed", throttle(save, this.saveDebounceRate))
 
       if (isNew) {
         // this is a new document, immediately save it
@@ -162,46 +157,38 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   create<T>(): DocHandle<T> {
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
-    void this.#registerHandle(handle, true)
+    const handle = this.#getHandle<T>({ documentId, isNew: true })
+    void this.#registerHandle({ handle, isNew: true })
     return handle
   }
 
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
    *
-   * @param clonedHandle - The handle to clone
+   * @remarks This is a wrapper around the `clone` function in the Automerge library. The new
+   * `DocHandle` will have a new URL but will share history with the original, which means that
+   * changes made to the cloned handle can be sensibly merged back into the original.
    *
-   * @remarks This is a wrapper around the `clone` function in the Automerge library.
-   * The new `DocHandle` will have a new URL but will share history with the original,
-   * which means that changes made to the cloned handle can be sensibly merged back
-   * into the original.
+   * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will be notified of
+   * the newly created DocHandle.
    *
-   * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
-   * be notified of the newly created DocHandle.
-   *
-   * @throws if the cloned handle is not yet ready or if
-   * `clonedHandle.docSync()` returns `undefined` (i.e. the handle is unavailable).
+   * @throws if the cloned handle is not yet ready or if `clonedHandle.docSync()` returns
+   * `undefined` (i.e. the handle is unavailable).
    */
-  clone<T>(clonedHandle: DocHandle<T>) {
-    if (!clonedHandle.isReady()) {
+  clone<T>(
+    /** The handle to clone */
+    sourceHandle: DocHandle<T>
+  ) {
+    if (!sourceHandle.isReady())
       throw new Error(
-        `Cloned handle is not yet in ready state.
-        (Try await handle.waitForReady() first.)`
+        "Cloned handle is not yet in ready state. (Try await handle.waitForReady() first.)"
       )
-    }
 
-    const sourceDoc = clonedHandle.docSync()
-    if (!sourceDoc) {
-      throw new Error("Cloned handle doesn't have a document.")
-    }
+    const sourceDoc = sourceHandle.docSync()
+    if (!sourceDoc) throw new Error("Cloned handle doesn't have a document.")
 
+    // create a new handle and replace it's doc with the new cloned one
     const handle = this.create<T>()
-
-    handle.update(() => {
-      // we replace the document with the new cloned one
-      return Automerge.clone(sourceDoc)
-    })
-
+    handle.update(() => Automerge.clone(sourceDoc))
     return handle
   }
 
@@ -214,7 +201,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     id: AnyDocumentId
   ): DocHandle<T> {
     const documentId = interpretAsDocumentId(id)
-
     {
       // If we have the handle cached, return it
       const handle = this.handles[documentId]
@@ -225,10 +211,12 @@ export class Repo extends EventEmitter<RepoEvents> {
         return handle
       }
     }
-
-    const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
-    void this.#registerHandle(handle, false)
-    return handle
+    {
+      // Otherwise create a new handle and register it
+      const handle = this.#getHandle<T>({ documentId, isNew: false })
+      void this.#registerHandle({ handle, isNew: false })
+      return handle
+    }
   }
 
   delete(
@@ -238,7 +226,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const documentId = interpretAsDocumentId(id)
 
     // let the handle know it's been deleted
-    const handle = this.#getHandle(documentId, false)
+    const handle = this.#getHandle({ documentId, isNew: false })
     handle.delete()
 
     // remove it from the cache
