@@ -144,7 +144,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     }
 
     const outbound = prepareMessage(message)
-    this.#log("sending message", outbound)
+    this.#log("sending message %o", outbound)
     peer.send(outbound as RepoMessage)
   }
 
