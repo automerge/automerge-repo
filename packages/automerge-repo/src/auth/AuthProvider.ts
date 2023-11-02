@@ -23,9 +23,9 @@ import { StorageSubsystem } from "../storage/StorageSubsystem.js"
  * An AuthProvider can be configured by passing a config object to the constructor, or by extending
  * the class and overriding methods.
  */
-export class AuthProvider<T extends AuthProviderEvents = any>
-  extends EventEmitter<T | AuthProviderEvents>
-{
+export class AuthProvider<
+  T extends AuthProviderEvents = any
+> extends EventEmitter<T | AuthProviderEvents> {
   private storage: StorageSubsystem | undefined
 
   constructor(config: AuthProviderConfig = {}) {
@@ -62,6 +62,19 @@ export class AuthProvider<T extends AuthProviderEvents = any>
       baseAdapter,
       transform
     )
+
+    // transform incoming messages
+    baseAdapter.on("message", payload => {
+      try {
+        const transformedPayload = transform.inbound(payload)
+        wrappedAdapter.emit("message", transformedPayload)
+      } catch (e) {
+        wrappedAdapter.emit("error", {
+          peerId: payload.senderId,
+          error: e as Error,
+        })
+      }
+    })
 
     // try to authenticate new peers; if we succeed, we forward the peer-candidate event
     baseAdapter.on("peer-candidate", async ({ peerId }) => {
@@ -113,4 +126,3 @@ export const authenticationError = (msg: string) => ({
 })
 
 const NO_TRANSFORM: MessageTransformer = p => p
-

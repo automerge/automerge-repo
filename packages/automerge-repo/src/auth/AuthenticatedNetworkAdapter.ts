@@ -23,19 +23,6 @@ export class AuthenticatedNetworkAdapter<T extends NetworkAdapter> //
     // pass through the base adapter's connect & disconnect methods
     this.connect = this.baseAdapter.connect.bind(this.baseAdapter)
     this.disconnect = this.baseAdapter.disconnect.bind(this.baseAdapter)
-
-    // transform incoming messages
-    baseAdapter.on("message", payload => {
-      try {
-        const transformedPayload = transform.inbound(payload)
-        this.emit("message", transformedPayload)
-      } catch (e) {
-        this.emit("error", {
-          peerId: payload.senderId,
-          error: e as Error,
-        })
-      }
-    })
   }
 
   // transform outgoing messages
