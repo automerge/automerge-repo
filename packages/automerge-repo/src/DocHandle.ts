@@ -340,6 +340,10 @@ export class DocHandle<T> //
     return this.#syncStates[peerId]
   }
 
+  getSyncStates(peerId: PeerId): Record<PeerId, A.SyncState> {
+    return this.#syncStates
+  }
+
   /** `setSyncState` is called by the doc synchronizer when the sync state changes
    * @hidden
    */
