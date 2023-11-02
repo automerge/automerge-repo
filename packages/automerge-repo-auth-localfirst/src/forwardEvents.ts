@@ -1,13 +1,10 @@
 import { EventEmitter } from "eventemitter3"
 
 /** Forwards the given list of events from one EventEmitter to another of the same type */
-export const forwardEvents = <
-  T extends EventEmitter.ValidEventTypes,
-  K extends EventEmitter.EventNames<T>[]
->(
+export const forwardEvents = <T extends EventEmitter.ValidEventTypes>(
   source: EventEmitter<T>,
   target: EventEmitter<T>,
-  events: K
+  events: EventEmitter.EventNames<T>[]
 ) => {
   type Listener = EventEmitter.EventListener<T, EventEmitter.EventNames<T>>
   type Args = Parameters<Listener>
