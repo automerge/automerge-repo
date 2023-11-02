@@ -9,6 +9,7 @@ import {
   isEphemeralMessage,
   isValidRepoMessage,
 } from "./messages.js"
+import { eventPromise } from "../helpers/eventPromise.js"
 
 type EphemeralMessageSource = `${PeerId}:${SessionId}`
 
@@ -144,15 +145,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   whenReady = async () => {
-    if (this.isReady()) {
-      return
-    } else {
-      return new Promise<void>(resolve => {
-        this.once("ready", () => {
-          resolve()
-        })
-      })
-    }
+    if (this.isReady()) return
+    else return eventPromise(this, "ready")
   }
 }
 
