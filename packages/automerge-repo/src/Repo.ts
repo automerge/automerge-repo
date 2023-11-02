@@ -282,10 +282,21 @@ export class Repo extends EventEmitter<RepoEvents> {
   ) {
     const documentId = interpretAsDocumentId(id)
 
+    // let the handle know it's been deleted
     const handle = this.#getHandle(documentId, false)
     handle.delete()
 
+    // remove it from the cache
     delete this.#handleCache[documentId]
+
+    // remove it from storage
+    this.storageSubsystem?.remove(documentId).catch(err => {
+      this.#log("error deleting document", { documentId, err })
+    })
+
+    // TODO Pass the delete on to the network
+    // synchronizer.removeDocument(documentId)
+
     this.emit("delete-document", { documentId })
   }
 }
