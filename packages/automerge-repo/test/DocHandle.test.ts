@@ -124,7 +124,6 @@ describe("DocHandle", () => {
 
     const changePayload = await p
     assert.deepStrictEqual(changePayload.doc, doc)
-    assert.deepStrictEqual(changePayload.handle, handle)
   })
 
   it("should not emit a change message if no change happens via update", () =>
@@ -143,7 +142,7 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
 
     const p = new Promise<void>(resolve =>
-      handle.once("change", ({ handle, doc }) => {
+      handle.once("change", ({ doc }) => {
         assert.equal(handle.docSync()?.foo, doc.foo)
 
         resolve()

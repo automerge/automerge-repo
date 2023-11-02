@@ -44,7 +44,6 @@ export * as cbor from "./helpers/cbor.js"
 
 export type {
   DocHandleChangePayload,
-  DocHandleDeletePayload,
   DocHandleEncodedChangePayload,
   DocHandleEphemeralMessagePayload,
   DocHandleEvents,

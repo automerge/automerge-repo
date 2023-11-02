@@ -174,13 +174,13 @@ export class DocHandle<T> //
               return { doc: newDoc }
             }),
             onDelete: assign(() => {
-              this.emit("delete", { handle: this })
+              this.emit("delete")
               return { doc: undefined }
             }),
             onUnavailable: assign(context => {
               const { doc } = context
 
-              this.emit("unavailable", { handle: this })
+              this.emit("unavailable")
               return { doc }
             }),
           },
@@ -198,13 +198,12 @@ export class DocHandle<T> //
           oldDoc &&
           !headsAreSame(A.getHeads(newDoc), A.getHeads(oldDoc))
         if (docChanged) {
-          this.emit("heads-changed", { handle: this, doc: newDoc })
+          this.emit("heads-changed", { doc: newDoc })
 
           const patches = A.diff(newDoc, A.getHeads(oldDoc), A.getHeads(newDoc))
           if (patches.length > 0) {
             const source = "change" // TODO: pass along the source (load/change/network)
             this.emit("change", {
-              handle: this,
               doc: newDoc,
               patches,
               patchInfo: { before: oldDoc, after: newDoc, source },
@@ -430,7 +429,6 @@ export class DocHandle<T> //
    */
   broadcast(message: unknown) {
     this.emit("ephemeral-message-outbound", {
-      handle: this,
       data: encode(message),
     })
   }
@@ -451,18 +449,11 @@ export interface DocHandleMessagePayload {
 }
 
 export interface DocHandleEncodedChangePayload<T> {
-  handle: DocHandle<T>
   doc: A.Doc<T>
-}
-
-export interface DocHandleDeletePayload<T> {
-  handle: DocHandle<T>
 }
 
 /** Emitted when a document has changed */
 export interface DocHandleChangePayload<T> {
-  /** The hande which changed */
-  handle: DocHandle<T>
   /** The value of the document after the change */
   doc: A.Doc<T>
   /** The patches representing the change that occurred */
@@ -471,25 +462,23 @@ export interface DocHandleChangePayload<T> {
   patchInfo: A.PatchInfo<T>
 }
 
-export interface DocHandleEphemeralMessagePayload<T> {
-  handle: DocHandle<T>
+export interface DocHandleEphemeralMessagePayload {
   senderId: PeerId
   message: unknown
 }
 
-export interface DocHandleOutboundEphemeralMessagePayload<T> {
-  handle: DocHandle<T>
+export interface DocHandleOutboundEphemeralMessagePayload {
   data: Uint8Array
 }
 
 export interface DocHandleEvents<T> {
   "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
-  delete: (payload: DocHandleDeletePayload<T>) => void
-  unavailable: (payload: DocHandleDeletePayload<T>) => void
-  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
+  delete: () => void
+  unavailable: () => void
+  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload) => void
   "ephemeral-message-outbound": (
-    payload: DocHandleOutboundEphemeralMessagePayload<T>
+    payload: DocHandleOutboundEphemeralMessagePayload
   ) => void
 }
 

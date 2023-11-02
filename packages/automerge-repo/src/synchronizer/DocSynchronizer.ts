@@ -81,9 +81,7 @@ export class DocSynchronizer extends Synchronizer {
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
-  async #broadcastToPeers({
-    data,
-  }: DocHandleOutboundEphemeralMessagePayload<unknown>) {
+  async #broadcastToPeers({ data }: DocHandleOutboundEphemeralMessagePayload) {
     this.#log(`broadcastToPeers`, this.#peers)
     this.#peers.forEach(peerId => this.#sendEphemeralMessage(peerId, data))
   }
@@ -237,7 +235,6 @@ export class DocSynchronizer extends Synchronizer {
     const contents = decode(new Uint8Array(data))
 
     this.handle.emit("ephemeral-message", {
-      handle: this.handle,
       senderId,
       message: contents,
     })
