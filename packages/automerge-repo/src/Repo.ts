@@ -32,7 +32,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   storageSubsystem?: StorageSubsystem
 
   /** @hidden */
-  synchronizer = new CollectionSynchronizer(this)
+  #synchronizer = new CollectionSynchronizer(this)
 
   /** The debounce rate is adjustable on the repo. */
   /** @hidden */
@@ -69,7 +69,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
 
     // When the synchronizer emits messages, send them to peers
-    this.synchronizer.on("message", message => {
+    this.#synchronizer.on("message", message => {
       this.#log(`sending ${message.type} message to ${message.targetId}`)
       this.networkSubsystem.send(message)
     })
@@ -85,17 +85,17 @@ export class Repo extends EventEmitter<RepoEvents> {
       // When we get a new peer, register it with the synchronizer
       .on("peer", async ({ peerId }) => {
         this.#log("peer connected", { peerId })
-        this.synchronizer.addPeer(peerId)
+        this.#synchronizer.addPeer(peerId)
       })
 
       // When a peer disconnects, remove it from the synchronizer
       .on("peer-disconnected", ({ peerId }) => {
-        this.synchronizer.removePeer(peerId)
+        this.#synchronizer.removePeer(peerId)
       })
 
-      // Handle incoming messages
+      // Pass incoming messages on to the synchronizer
       .on("message", async msg => {
-        await this.synchronizer.receiveMessage(msg)
+        await this.#synchronizer.receiveMessage(msg)
       })
   }
 
@@ -169,7 +169,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     // Register the document with the synchronizer. This advertises our interest in the document.
-    this.synchronizer.addDocument(documentId)
+    this.#synchronizer.addDocument(documentId)
 
     // Notify listeners that we have a document
     this.emit("document", { handle, isNew })
