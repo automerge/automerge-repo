@@ -30,6 +30,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   networkSubsystem: NetworkSubsystem
   /** @hidden */
   storageSubsystem?: StorageSubsystem
+  /** @hidden */
+  synchronizer = new CollectionSynchronizer(this)
 
   /** The debounce rate is adjustable on the repo. */
   /** @hidden */
@@ -44,6 +46,13 @@ export class Repo extends EventEmitter<RepoEvents> {
   constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo`)
+
+    // add automatic logging to all events
+    this.emit = (event, ...args) => {
+      this.#log(`${event} %o`, args)
+      return super.emit(event, ...args)
+    }
+
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
     // DOC COLLECTION
@@ -51,54 +60,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // The `document` event is fired by the DocCollection any time we create a new document or look
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle, isNew }) => {
-      if (storageSubsystem) {
-        // Save when the document changes, but no more often than saveDebounceRate.
-        const saveFn = ({
-          handle,
-          doc,
-        }: DocHandleEncodedChangePayload<any>) => {
-          void storageSubsystem.saveDoc(handle.documentId, doc)
-        }
-        const debouncedSaveFn = handle.on(
-          "heads-changed",
-          throttle(saveFn, this.saveDebounceRate)
-        )
-
-        if (isNew) {
-          // this is a new document, immediately save it
-          await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
-        } else {
-          // Try to load from disk
-          const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
-          if (loadedDoc) {
-            handle.update(() => loadedDoc)
-          }
-        }
-      }
-
-      handle.on("unavailable", () => {
-        this.#log("document unavailable", { documentId: handle.documentId })
-        this.emit("unavailable-document", {
-          documentId: handle.documentId,
-        })
-      })
-
-      if (this.networkSubsystem.isReady()) {
-        handle.request()
-      } else {
-        handle.awaitNetwork()
-        this.networkSubsystem
-          .whenReady()
-          .then(() => {
-            handle.networkReady()
-          })
-          .catch(err => {
-            this.#log("error waiting for network", { err })
-          })
-      }
-
-      // Register the document with the synchronizer. This advertises our interest in the document.
-      synchronizer.addDocument(handle.documentId)
+      this.#registerHandle(handle, isNew)
     })
 
     this.on("delete-document", ({ documentId }) => {
@@ -114,10 +76,9 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    const synchronizer = new CollectionSynchronizer(this)
 
     // When the synchronizer emits messages, send them to peers
-    synchronizer.on("message", message => {
+    this.synchronizer.on("message", message => {
       this.#log(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
     })
@@ -135,17 +96,17 @@ export class Repo extends EventEmitter<RepoEvents> {
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId }) => {
       this.#log("peer connected", { peerId })
-      synchronizer.addPeer(peerId)
+      this.synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      synchronizer.removePeer(peerId)
+      this.synchronizer.removePeer(peerId)
     })
 
     // Handle incoming messages
     networkSubsystem.on("message", async msg => {
-      await synchronizer.receiveMessage(msg)
+      await this.synchronizer.receiveMessage(msg)
     })
   }
 
@@ -165,6 +126,54 @@ export class Repo extends EventEmitter<RepoEvents> {
     const handle = new DocHandle<T>(documentId, { isNew })
     this.#handleCache[documentId] = handle
     return handle
+  }
+
+  async #registerHandle<T>(handle: DocHandle<T>, isNew: boolean) {
+    const storageSubsystem = this.storageSubsystem
+    if (storageSubsystem) {
+      // Save when the document changes, but no more often than saveDebounceRate.
+      const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
+        void storageSubsystem.saveDoc(handle.documentId, doc)
+      }
+      const debouncedSaveFn = handle.on(
+        "heads-changed",
+        throttle(saveFn, this.saveDebounceRate)
+      )
+
+      if (isNew) {
+        // this is a new document, immediately save it
+        await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
+      } else {
+        // Try to load from disk
+        const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
+        if (loadedDoc) {
+          handle.update(() => loadedDoc as Automerge.Doc<T>)
+        }
+      }
+    }
+
+    handle.on("unavailable", () => {
+      this.emit("unavailable-document", {
+        documentId: handle.documentId,
+      })
+    })
+
+    if (this.networkSubsystem.isReady()) {
+      handle.request()
+    } else {
+      handle.awaitNetwork()
+      this.networkSubsystem
+        .whenReady()
+        .then(() => {
+          handle.networkReady()
+        })
+        .catch(err => {
+          this.#log("error waiting for network", { err })
+        })
+    }
+
+    // Register the document with the synchronizer. This advertises our interest in the document.
+    this.synchronizer.addDocument(handle.documentId)
   }
 
   /** Returns all the handles we have cached. */
