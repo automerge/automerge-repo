@@ -29,6 +29,10 @@ import {
 
 const { encrypt, decrypt } = Auth.symmetric
 
+/**
+ *  This is an {@link AuthProvider} that uses [localfirst/auth](https://github.com/local-first-web/auth) to
+ *  authenticate peers and provide an encrypted channel for communication.
+ */
 export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderEvents> {
   #device: Auth.DeviceWithSecrets
   #user?: Auth.UserWithSecrets
@@ -49,7 +53,6 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     if ("user" in config) this.#user = config.user
 
     this.on("storage-available", async () => {
-      this.#log("***** storage-available")
       this.#loadState()
     })
   }
@@ -437,35 +440,4 @@ function truncateHashes(arg: any): any {
   }
 
   return arg
-}
-
-const foo = {
-  encryptedTeam: {
-    encryptedLinks: {
-      Hvuqh: {
-        senderPublicKey: "8J8Vp",
-        recipientPublicKey: "8gVLD",
-        encryptedBody: "GdKqW",
-      },
-      D56Yz: {
-        senderPublicKey: "8J8Vp",
-        recipientPublicKey: "8gVLD",
-        encryptedBody: "cRYx6",
-      },
-      A6uwS: {
-        senderPublicKey: "8J8Vp",
-        recipientPublicKey: "8gVLD",
-        encryptedBody: "3vndu",
-      },
-      GLDpc: {
-        senderPublicKey: "3K5PF",
-        recipientPublicKey: "8gVLD",
-        encryptedBody: "Hwbay",
-      },
-    },
-    childMap: { Hvuqh: ["D56Yz"], D56Yz: ["A6uwS"], A6uwS: ["GLDpc"] },
-    head: ["GLDpc"],
-    root: "Hvuqh",
-  },
-  encryptedTeamKeys: "5SS62",
 }
