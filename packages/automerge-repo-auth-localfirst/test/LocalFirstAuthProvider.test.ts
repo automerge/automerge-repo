@@ -72,13 +72,13 @@ describe("localfirst/auth provider", () => {
     const aliceTeam = Auth.createTeam("team A", alice.context)
     alice.authProvider.addTeam(aliceTeam)
 
-    // Alice sends Bob an invitation
-    const { seed: bobInvite } = aliceTeam.inviteMember()
+    // Alice creates an invite code to send to Bob
+    const { seed: bobInviteCode } = aliceTeam.inviteMember()
 
     // Bob uses the invitation to join
     bob.authProvider.addInvitation({
       shareId: aliceTeam.id,
-      invitationSeed: bobInvite,
+      invitationSeed: bobInviteCode,
     })
 
     // they're able to authenticate and sync
@@ -120,14 +120,14 @@ describe("localfirst/auth provider", () => {
     const team = Auth.createTeam("team A", laptopContext)
     laptopAuthProvider.addTeam(team)
 
-    // She creates an invitation for her phone
-    const { seed: phoneInvite } = team.inviteDevice()
+    // She creates an invitation code for her phone
+    const { seed: phoneInviteCode } = team.inviteDevice()
 
     phoneAuthProvider.addInvitation({
       shareId: team.id,
       userId: alice.userId,
       userName: alice.userName,
-      invitationSeed: phoneInvite,
+      invitationSeed: phoneInviteCode,
     })
 
     await authenticated(laptopRepo, phoneRepo)
