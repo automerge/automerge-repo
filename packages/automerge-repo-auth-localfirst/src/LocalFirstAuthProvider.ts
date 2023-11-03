@@ -24,11 +24,10 @@ import {
   Share,
   ShareId,
   isDeviceInvitation,
-  isEncryptedMessage
+  isEncryptedMessage,
 } from "./types"
 
 const { encrypt, decrypt } = Auth.symmetric
-
 
 export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderEvents> {
   #device: Auth.DeviceWithSecrets
@@ -41,18 +40,18 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
   constructor(config: Config) {
     super()
+
     // we always are given the local device's info & keys
     this.#device = config.device
+    this.#log = debug(`automerge-repo:auth-localfirst:${this.#device.userId}`)
 
     // we might already have our user info, unless we're a new device using an invitation
     if ("user" in config) this.#user = config.user
 
     this.on("storage-available", async () => {
+      this.#log("***** storage-available")
       this.#loadState()
-
     })
-
-    this.#log = debug(`automerge-repo:auth-localfirst:${this.#device.userId}`)
   }
 
   /**
@@ -109,6 +108,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
           targetId: peerId,
           payload: { shareId, serializedConnectionMessage },
         }
+        this.#log(`sending auth message to ${peerId} %o`, authMessage)
         baseAdapter.send(authMessage)
       }
 
@@ -124,23 +124,24 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
           // info (including keys). (When we're joining as a new device for an existing user, this
           // is how we get the user's keys.)
 
-          this.#log(`joined ${team.name}`)
+          this.#log(`joined ${team.teamName}`)
 
-          // Let the application know
-          this.emit("joined", { shareId, peerId, team, user })
+          // Create a share with this team
+          this.#user = user
+          this.addTeam(team)
 
           await this.#saveState()
 
-          this.#user = user
-          this.#shares[shareId] = { shareId, team }
-
           // remove the used invitation as we no longer need it & don't want to present it to others
           delete this.#invitations[shareId]
+
+          // Let the application know
+          this.emit("joined", { shareId, peerId, team, user })
         })
 
         .on("connected", () => {
           this.#log(`connected to ${peerId}`)
-          // 
+          //
           // Let the application know
           this.emit("connected", { shareId, peerId })
 
@@ -149,6 +150,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
         })
 
         .on("updated", async () => {
+          this.#log(`updated`)
           await this.#saveState()
         })
 
@@ -208,6 +210,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     baseAdapter.on("message", message => {
       try {
         if (isAuthMessage(message)) {
+          this.#log(`auth message from ${message.senderId} %o`, message)
           const { senderId, payload } = message
           const { shareId, serializedConnectionMessage } = payload
 
@@ -220,17 +223,24 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
         } else {
           // Decrypt message if necessary
           const transformedPayload = this.transform.inbound(message)
+          this.#log(
+            `non-auth message from ${message.senderId} %o`,
+            transformedPayload
+          )
           // Forward the message to the repo
           authenticatedAdapter.emit("message", transformedPayload)
         }
       } catch (e) {
         // Surface any errors to the repo
+        this.#log(`error`, e)
         authenticatedAdapter.emit("error", {
           peerId: message.senderId,
           error: e,
         })
       }
     })
+
+    baseAdapter.on("peer-disconnected", ({ peerId }) => {})
 
     // forward all other events from the base adapter to the repo
     forwardEvents(baseAdapter, authenticatedAdapter, [
@@ -329,35 +339,42 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
   }
 
   // NEXT: need to sort out timing of saving & loading vs connecting with peers
-  // If we load state after connecting to peers, we'll want to retry the connec7987tions
+  // If we load state after connecting to peers, we'll want to retry the connections
 
-
-  /** Returns a serialized and partially encrypted version of the state that can be persisted and loaded later */
+  /** Saves a serialized and partially encrypted version of the state */
   async #saveState() {
-    if (!this.hasStorage()) return
+    this.#log("saving state for %o shares", Object.keys(this.#shares).length)
+    if (!this.hasStorage()) {
+      this.#log("no storage subsystem configured")
+      return
+    }
     const shares = {} as SerializedState
     for (const shareId in this.#shares) {
-      const share = this.#shares[shareId]
+      const share = this.#shares[shareId] as Share
       shares[shareId] = {
         encryptedTeam: share.team.save(),
         encryptedTeamKeys: encrypt(
-          share.team.teamKeys,
+          share.team.teamKeyring(),
           this.#device.keys.secretKey
         ),
       } as SerializedShare
     }
     const serializedState = cbor.encode(shares)
+    this.#log("saved state: %o", truncateHashes(shares))
     await this.save(STORAGE_KEY, serializedState)
   }
 
   /** Loads and decrypts state from its serialized, persisted form */
   async #loadState() {
+    this.#log("loading state")
+
     const serializedState = await this.load(STORAGE_KEY)
     if (!serializedState) return
 
     const savedShares = cbor.decode(serializedState) as SerializedState
     for (const shareId in savedShares) {
       const share = savedShares[shareId] as SerializedShare
+
       const { encryptedTeam, encryptedTeamKeys } = share
       const teamKeys = decrypt(
         encryptedTeamKeys,
@@ -365,11 +382,12 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
       ) as Auth.KeysetWithSecrets
 
       const context = { device: this.#device, user: this.#user }
+      this.#log("loading: %o", truncateHashes({ encryptedTeam, teamKeys }))
+
       const team = Auth.loadTeam(encryptedTeam, context, teamKeys)
       this.addTeam(team)
     }
   }
-
 
   // PUBLIC API
 
@@ -397,3 +415,57 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 }
 
 const STORAGE_KEY = "shares"
+
+function truncateHashes(arg: any): any {
+  if (typeof arg === "string") {
+    const hashRx = /(?:[A-Za-z\d+/=]{32,9999999})?/g
+    return arg.replaceAll(hashRx, s => s.slice(0, 5))
+  }
+
+  if (Array.isArray(arg)) {
+    return arg.map(truncateHashes)
+  }
+
+  if (typeof arg === "object") {
+    const object = {} as any
+    for (const prop in arg) {
+      const value = arg[prop]
+      object[truncateHashes(prop)] = truncateHashes(value)
+    }
+
+    return object
+  }
+
+  return arg
+}
+
+const foo = {
+  encryptedTeam: {
+    encryptedLinks: {
+      Hvuqh: {
+        senderPublicKey: "8J8Vp",
+        recipientPublicKey: "8gVLD",
+        encryptedBody: "GdKqW",
+      },
+      D56Yz: {
+        senderPublicKey: "8J8Vp",
+        recipientPublicKey: "8gVLD",
+        encryptedBody: "cRYx6",
+      },
+      A6uwS: {
+        senderPublicKey: "8J8Vp",
+        recipientPublicKey: "8gVLD",
+        encryptedBody: "3vndu",
+      },
+      GLDpc: {
+        senderPublicKey: "3K5PF",
+        recipientPublicKey: "8gVLD",
+        encryptedBody: "Hwbay",
+      },
+    },
+    childMap: { Hvuqh: ["D56Yz"], D56Yz: ["A6uwS"], A6uwS: ["GLDpc"] },
+    head: ["GLDpc"],
+    root: "Hvuqh",
+  },
+  encryptedTeamKeys: "5SS62",
+}

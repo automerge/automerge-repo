@@ -11,12 +11,14 @@ import {
   Repo,
   RepoMessage,
   SharePolicy,
+  cbor,
 } from "../src/index.js"
 import { decrypt, encrypt } from "./helpers/encrypt.js"
 import { expectPromises } from "./helpers/expectPromises.js"
 import type { TestDoc } from "./types.js"
 import { AuthenticateFn, AuthenticationResult } from "../src/auth/types.js"
 import { AUTHENTICATION_VALID } from "../src/auth/constants.js"
+import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
 describe("AuthProvider", () => {
   describe("authorization", async () => {
@@ -48,7 +50,7 @@ describe("AuthProvider", () => {
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
         peerId: "alice" as PeerId,
-        authProvider,
+        auth: authProvider,
       })
 
       const bobRepo = new Repo({
@@ -57,7 +59,7 @@ describe("AuthProvider", () => {
           new MessageChannelNetworkAdapter(bobToCharlie),
         ],
         peerId: "bob" as PeerId,
-        authProvider,
+        auth: authProvider,
       })
 
       const charlieRepo = new Repo({
@@ -147,13 +149,13 @@ describe("AuthProvider", () => {
       const aliceRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
         peerId: "alice" as PeerId,
-        ...(authProvider ? { authProvider: authProvider.alice } : {}),
+        ...(authProvider ? { auth: authProvider.alice } : {}),
       })
 
       const bobRepo = new Repo({
         network: [new MessageChannelNetworkAdapter(bobToAlice)],
         peerId: "bob" as PeerId,
-        ...(authProvider ? { authProvider: authProvider.bob } : {}),
+        ...(authProvider ? { auth: authProvider.bob } : {}),
       })
 
       const aliceHandle = aliceRepo.create<TestDoc>()
@@ -367,6 +369,31 @@ describe("AuthProvider", () => {
 
         teardown()
       })
+    })
+  })
+
+  describe("storage", () => {
+    it("saves and retrieves an arbitrary value", async () => {
+      const authProvider = new AuthProvider()
+      const aliceBobChannel = new MessageChannel()
+      const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
+
+      //  The repo wires up the auth provider with storage
+      const _aliceRepo = new Repo({
+        peerId: "alice" as PeerId,
+        network: [new MessageChannelNetworkAdapter(aliceToBob)],
+        storage: new NodeFSStorageAdapter("./test-storage"),
+        auth: authProvider,
+      })
+
+      const id = "12345-abcdef"
+      const value = { foo: "bar" }
+      const valueBytes = cbor.encode(value)
+      await authProvider.save(id, valueBytes)
+
+      const retrievedBytes = await authProvider.load(id)
+      const retrievedValue = cbor.decode(retrievedBytes)
+      assert.deepEqual(retrievedValue, { foo: "bar" })
     })
   })
 })

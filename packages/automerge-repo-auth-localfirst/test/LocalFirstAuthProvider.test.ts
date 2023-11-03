@@ -1,17 +1,13 @@
-import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
+import { PeerId, Repo } from "@automerge/automerge-repo"
+import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import * as Auth from "@localfirst/auth"
 import { describe, expect, it } from "vitest"
-import { UserStuff, setup } from "./helpers/setup.js"
-import { synced } from "./helpers/synced.js"
+import { LocalFirstAuthProvider } from "../src/LocalFirstAuthProvider"
 import { authenticated, authenticatedInTime } from "./helpers/authenticated.js"
 import { eventPromise } from "./helpers/eventPromise"
-import { LocalFirstAuthProvider } from "../src/LocalFirstAuthProvider"
-import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
-import { PeerId, Repo } from "@automerge/automerge-repo"
-import fs from "fs"
-import os from "os"
-import path from "path"
-import { rimraf } from "rimraf"
+import { pause } from "./helpers/pause"
+import { UserStuff, setup } from "./helpers/setup.js"
+import { synced } from "./helpers/synced.js"
 
 describe("localfirst/auth provider", () => {
   it("does not authenticate users that do not belong to any teams", async () => {
@@ -107,7 +103,7 @@ describe("localfirst/auth provider", () => {
     const laptopRepo = new Repo({
       network: [new MessageChannelNetworkAdapter(laptopToPhone)],
       peerId: laptop.deviceName as PeerId,
-      authProvider: laptopAuthProvider,
+      auth: laptopAuthProvider,
     })
 
     const phone = Auth.createDevice(alice.userId, "Alice's phone")
@@ -117,7 +113,7 @@ describe("localfirst/auth provider", () => {
     const phoneRepo = new Repo({
       network: [new MessageChannelNetworkAdapter(phoneToLaptop)],
       peerId: phone.deviceName as PeerId,
-      authProvider: phoneAuthProvider,
+      auth: phoneAuthProvider,
     })
 
     // Alice creates team A on her laptop
@@ -260,7 +256,7 @@ describe("localfirst/auth provider", () => {
     teardown()
   })
 
-
+  // TODO test adding a share after I'm connected
 
   it("persists local context and team state", async () => {
     const {
@@ -271,26 +267,6 @@ describe("localfirst/auth provider", () => {
 
     const aliceTeam = Auth.createTeam("team A", alice.context)
     alice.authProvider.addTeam(aliceTeam)
-
-    const aliceDir = await getStorageDirectory("alice")
-    const bobDir = await getStorageDirectory("bob")
-
-    // First use: Alice creates a team and invites Bob
-
-    // overwrite the provided repos with ones that have storage
-    alice.repo = new Repo({
-      peerId: alice.user.userId as PeerId,
-      network: [new MessageChannelNetworkAdapter(ports.alice[0])],
-      storage: new NodeFSStorageAdapter(aliceDir),
-      authProvider: alice.authProvider,
-    })
-
-    bob.repo = new Repo({
-      peerId: bob.user.userId as PeerId,
-      network: [new MessageChannelNetworkAdapter(ports.bob[0])],
-      storage: new NodeFSStorageAdapter(bobDir),
-      authProvider: bob.authProvider,
-    })
 
     // Alice sends Bob an invitation
     const { seed: bobInvite } = aliceTeam.inviteMember()
@@ -307,31 +283,20 @@ describe("localfirst/auth provider", () => {
 
     await synced(alice, bob)
 
+    await pause(500)
+
     // Alice and Bob both close and reopen their apps
 
-    alice.authProvider = new LocalFirstAuthProvider(alice.context)
+    ports.forEach(port => port.close())
 
-    alice.repo = new Repo({
-      peerId: alice.user.userId as PeerId,
-      network: [new MessageChannelNetworkAdapter(ports.alice[0])],
-      storage: new NodeFSStorageAdapter(aliceDir),
-      authProvider: alice.authProvider,
-    })
-
-    bob.authProvider = new LocalFirstAuthProvider(bob.context)
-
-    bob.repo = new Repo({
-      peerId: bob.user.userId as PeerId,
-      network: [new MessageChannelNetworkAdapter(ports.bob[0])],
-      storage: new NodeFSStorageAdapter(bobDir),
-      authProvider: bob.authProvider,
-    })
+    const alice2 = alice.restartRepo()
+    const bob2 = bob.restartRepo()
 
     // they're able to authenticate and sync
-    const authWorkedAgain = await authenticatedInTime(alice, bob)
+    const authWorkedAgain = await authenticatedInTime(alice2, bob2)
     expect(authWorkedAgain).toBe(true)
 
-    await synced(alice, bob)
+    await synced(alice2, bob2)
 
     teardown()
   })
@@ -344,14 +309,4 @@ const putUserOnTeam = (team: Auth.Team, b: UserStuff) => {
   const serializedTeam = team.save()
   const keys = team.teamKeys()
   return Auth.loadTeam(serializedTeam, b.context, keys)
-}
-
-const getStorageDirectory = async (userName: string) => {
-  const tempDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "automerge-repo-tests", userName)
-  )
-  // clear out the directory to keep tests isolated
-  await rimraf(tempDir)
-
-  return tempDir
 }

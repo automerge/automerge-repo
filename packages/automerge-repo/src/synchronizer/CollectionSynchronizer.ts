@@ -45,7 +45,7 @@ export class CollectionSynchronizer extends Synchronizer {
     const peers = Array.from(this.#peers)
     const peersToAdvertise: PeerId[] = []
     for (const peerId of peers) {
-      const okToAdvertise = await this.repo.authProvider.okToAdvertise(
+      const okToAdvertise = await this.repo.auth.okToAdvertise(
         peerId,
         documentId
       )
@@ -115,11 +115,9 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
-      void this.repo.authProvider
-        .okToSync(peerId, documentId)
-        .then(okToShare => {
-          if (okToShare) docSynchronizer.beginSync([peerId])
-        })
+      void this.repo.auth.okToSync(peerId, documentId).then(okToShare => {
+        if (okToShare) docSynchronizer.beginSync([peerId])
+      })
     }
   }
 

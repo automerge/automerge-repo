@@ -15,7 +15,6 @@ import type { AnyDocumentId, DocumentId } from "./types.js"
 import { pause } from "./helpers/pause.js"
 import { RepoEvents, RepoConfig } from "./types.js"
 import { AuthProvider } from "./auth/AuthProvider.js"
-import { AuthProviderEvents, SharePolicy } from "./auth/types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -27,7 +26,7 @@ import { AuthProviderEvents, SharePolicy } from "./auth/types.js"
 export class Repo extends EventEmitter<RepoEvents> {
   #log: debug.Debugger
 
-  authProvider: AuthProvider
+  auth: AuthProvider
 
   /** @hidden */
   networkSubsystem: NetworkSubsystem
@@ -55,15 +54,15 @@ export class Repo extends EventEmitter<RepoEvents> {
       peerId,
     } = config
 
-    if ("authProvider" in config) {
-      this.authProvider = config.authProvider!
-    } else if ("sharePolicy" in config) {
-      this.authProvider = new AuthProvider({
-        okToAdvertise: config.sharePolicy!,
-        okToSync: config.sharePolicy!,
+    if ("auth" in config && config.auth) {
+      this.auth = config.auth
+    } else if ("sharePolicy" in config && config.sharePolicy) {
+      this.auth = new AuthProvider({
+        okToAdvertise: config.sharePolicy,
+        okToSync: config.sharePolicy,
       })
     } else {
-      this.authProvider = new AuthProvider() // maximally permissive by default
+      this.auth = new AuthProvider() // maximally permissive by default
     }
 
     // add automatic logging to all events
@@ -86,20 +85,21 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // The network subsystem deals with sending and receiving messages to and from peers.
 
-    if (this.authProvider && this.storageSubsystem) {
-      this.authProvider.useStorage(this.storageSubsystem)
+    if (this.auth && this.storageSubsystem) {
+      this.auth.useStorage(this.storageSubsystem)
     }
 
-    // The auth provider works by wrapping our network adapters.
-    const wrappedAdapters =
-      "authProvider" in config
-        ? networkAdapters.map(adapter =>
-          this.authProvider.wrapNetworkAdapter(adapter)
-        )
-        : networkAdapters
-
-    const networkSubsystem = new NetworkSubsystem(wrappedAdapters, peerId)
-    this.networkSubsystem = networkSubsystem
+    if (this.auth) {
+      const authenticatedAdapters = networkAdapters.map(adapter =>
+        this.auth.wrapNetworkAdapter(adapter)
+      )
+      this.networkSubsystem = new NetworkSubsystem(
+        authenticatedAdapters,
+        peerId
+      )
+    } else {
+      this.networkSubsystem = new NetworkSubsystem(networkAdapters, peerId)
+    }
 
     // When we get a new peer, register it with the synchronizer
     this.networkSubsystem.on("peer", ({ peerId }) => {
@@ -118,7 +118,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     // Handle errors
-    networkSubsystem.on("error", err => {
+    this.networkSubsystem.on("error", err => {
       this.#log("network error", { err })
     })
   }
@@ -168,7 +168,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.emit("unavailable-document", { documentId })
     })
 
-    // Let the handle know when the network is ready
     if (this.networkSubsystem.isReady()) {
       handle.request()
     } else {
@@ -263,40 +262,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const handle = this.#getHandle({ documentId, isNew: false })
     handle.delete()
 
-    delete this.#handleCache[documentId]
-    this.emit("delete-document", { documentId })
-  }
-}
-
-export type RepoConfig = {
-  /** Our unique identifier */
-  peerId?: PeerId
-
-  /** A storage adapter can be provided, or not */
-  storage?: StorageAdapter
-
-  /** One or more network adapters must be provided */
-  network: NetworkAdapter[]
-} & (
-  | { authProvider?: AuthProvider } // either an AuthProvider or a SharePolicy can be provided (but not both)
-  | { sharePolicy?: SharePolicy }
-)
-
-/** A function that determines whether we should share a document with a peer
- *
- * @remarks
- * This function is called by the {@link Repo} every time a new document is created
- * or discovered (such as when another peer starts syncing with us). If this
- * function returns `true` then the {@link Repo} will begin sharing the new
- * document with the peer given by `peerId`.
- * */
-export type SharePolicy = (
-  peerId: PeerId,
-  documentId?: DocumentId
-) => Promise<boolean>
-
-    // TODO Pass the delete on to the network
-    // synchronizer.removeDocument(documentId)
+    delete this.handles[documentId]
 
     // notify the application
     this.emit("delete-document", { documentId })
