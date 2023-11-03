@@ -4,9 +4,10 @@ width="300" alt="@localfirst/auth logo" />
 # Local-first auth provider for Automerge Repo
 
 This is an `AuthProvider` that uses the [localfirst/auth](https://github.com/local-first-web/auth)
-library to provide Automerge Repo with authentication and end-to-end encryption.
+library to provide Automerge Repo with authentication and end-to-end encryption, without the need
+for a central server.
 
-## Configuration
+## How to use it
 
 A `LocalFirstAuthProvider` is configured with information about the local user and device.
 
@@ -16,125 +17,80 @@ import { LocalFirstAuthProvider } from "@automerge/automerge-repo-auth-localfirs
 
 // Create the user & device, or retrieve them from storage.
 // These objects include secret keys, so need to be stored securely.
-const user = createUser("alice")
-const device = createDevice(user.userId, "ALICE-MACBOOK-2023")
+const alice = createUser("alice")
+const aliceLaptop = createDevice(alice.userId, "ALICE-MACBOOK-2023")
+const aliceContext = { user: alice, device: aliceLaptop }
 
-const auth = new LocalFirstAuthProvider({ user, device })
+const aliceAuthProvider = new LocalFirstAuthProvider(aliceContext)
 
-const repo = new Repo({ network, storage, auth })
+const repo = new Repo({
+  network: [SomeNetworkAdapter],
+  storage: SomeStorageAdapter,
+  auth: aliceAuthProvider,
+})
 ```
 
-### Saving provider state to storage
+The context for authentication is a localfirst/auth `Team`. For example, Alice might create a team
+and invite Bob to it.
 
 ```ts
-const savedState = auth.getState()
-// Persist `savedState` to the storage medium of your choice
+// Alice creates a team
+const aliceTeam = Auth.createTeam("team A", aliceContext)
+aliceAuthProvider.addTeam(aliceTeam)
+
+// Alice creates an invitation code to send to Bob
+const { seed: bobInviteCode } = aliceTeam.inviteMember()
 ```
 
-### Loading provider from stored state
+Alice now needs to communicate this code, along with the team's ID, to Bob, using an existing
+communications channel that she trusts. For example, she could send it via WhatsApp or Signal or
+email; or she could create a QR code for Bob to scan; or she could read it to him over the phone.
+
+Bob sets up his auth provider and his repo much like Alice did:
 
 ```ts
-const savedState = // ... retrieve from storage
-const auth = new LocalFirstAuthProvider({ user, device, source: savedState })
+const bob = createUser("bob")
+const bobLaptop = createDevice(bob.userId, "BOB-IPHONE-2023")
+const bobContext = { user: bob, device: bobLaptop }
+
+const bobAuthProvider = new LocalFirstAuthProvider(bobContext)
+
+const repo = new Repo({
+  network: [SomeNetworkAdapter],
+  storage: SomeStorageAdapter,
+  auth: bobAuthProvider,
+})
 ```
 
-## Shares
-
-A "share" represents one or more documents that are shared with one or more other people. A share might include many documents shared with a long-lasting entity like a team. Or, it might represent a single document being shared with one other person.
-
-### Create a new share
-
-When you create a share, you'll get back a unique ID.
+Rather than add a `Team` to the provider, Bob registers his invitation:
 
 ```ts
-const shareId = auth.createShare()
+bobAuthProvider.addInvitation({
+  shareId: aliceTeam.id,
+  invitationSeed: bobInviteCode,
+})
 ```
 
-### Join an existing share
+If all goes well, Alice's repo and Bob's repo will each receive a `peer` event, just like without
+the auth provider -- but with an authenticated peer on the other end, and an encrypted channel for
+communication.
 
-You'll need the `shareId` as well as an invitation seed.
+Here's how that works under the hood:
 
-```ts
-auth.joinShare({ shareId, invitationSeed })
-```
+- The `LocalFirstAuthProvider` wraps the network adapter so it can intercept its messages and
+  events.
+- When the adapter connects and emits a `peer-candidate` event, we run the localfirst/auth
+  connection protocol over that channel.
+- In this case, Bob sends Alice cryptographic proof that he has the invitation code; and Alice can
+  use that proof to validate his invitation and admit him to the team. He gives her his public keys,
+  which she records on the team.
+- Alice then sends him the team's serialized graph, so he has a complete copy. He can use this to
+  verify that this is in fact the team he was invited to, and to obtain Alice's public keys.
+- Alice and Bob use each other's public keys to exchange asymmetrically encrypted seed information
+  and agree on a session key, which they begin using to symmetrically encrypt further communication.
+- Once that is done, the authenticated network adapter re-emits the `peer-candidate` event to the
+  network subsystem.
 
-### Invite someone to a share
-
-```ts
-const { id, seed } = auth.inviteMember(shareId)
-```
-
-Send `seed` to the person you're inviting (along with the `shareId`) via a side channel (e.g. email, Signal, QR code). You can use `id` to revoke the invitation.
-
-### Look up members
-
-```ts
-// Retrieve the full list of members
-const members = auth.members(shareId)
-
-// Retrieve a specific member
-const bob = auth.members(shareId, "bob")
-```
-
-### Invite a device
-
-```ts
-const { id, seed } = auth.inviteDevice(shareId)
-```
-
-Send `seed` and `shareId` to the device by a side channel (e.g. bluetooth, QR code). You can use `id` to revoke the invitation.
-
-### Add a known user to a share
-
-If you already have a user's ID and public keys (e.g. because you've shared something else with them via an invitation), you can add them directly to a share.
-
-```ts
-auth.addMember({ shareId, user })
-```
-
-### Add a known device to a share
-
-Likewise, if you have already shared something with a device, you can add it directly to a share.
-
-```ts
-auth.addDevice({ shareId, device })
-```
-
-## Documents & permissions
-
-### Add documents to a share
-
-```ts
-const documentIds = [documentId1, documentId2]
-auth.addDocument({ shareId, documentIds })
-```
-
-All documents must be added explicitly. If some documents reference other documents, you'll need to add the referenced documents as well.
-
-By default, all documents can be read and written by all share members. To limit access to documents by role, specify one or more roles when adding the documents:
-
-```ts
-const roles = ["ADMIN", "MANAGEMENT"]
-auth.addDocument({ shareId, documentIds, roles })
-```
-
-When specified this way, any member of any of these roles will have both read and write permissions. To set separate read and write permissions, pass an object with `read` and (optionally) `write` properties:
-
-```ts
-const roles = {
-  read: ["OPERATIONS", "SUPPORT"],
-  write: "MANAGEMENT",
-}
-```
-
-Any roles with `write` permission automatically have `read` permissions.
-
-If no `write` roles are provided, only you will be able to make changes to the document.
-
-### Set permissions on a document
-
-You can change permissions on a document or group of documents at any time:
-
-```ts
-auth.setRoles({ documentId, roles })
-```
+The repo can then go about its business of synchronizing documents, but with the assurance that
+every peer ID reported by the network has been authenticated, and that all traffic is also
+authenticated and safe from eavesdropping.
