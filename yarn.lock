@@ -626,16 +626,16 @@
     write-pkg "4.0.0"
     yargs "16.2.0"
 
-"@localfirst/auth@^4.1.9":
-  version "4.2.0"
-  resolved "https://registry.yarnpkg.com/@localfirst/auth/-/auth-4.2.0.tgz#59e58990a3f655775d3d533e51188fd225f17c0f"
-  integrity sha512-7TfqntxRB1+2fwa+k4/FZu32fm1OooPFzeVp/6KNMugIcgm1RQg1htz2i5WFoZQSQev5uDzLzCspJfU6qG8pGw==
+"@localfirst/auth@^4.2.1":
+  version "4.2.1"
+  resolved "https://registry.yarnpkg.com/@localfirst/auth/-/auth-4.2.1.tgz#be4e8a25243e8e808a5abe57c3754548823fe4df"
+  integrity sha512-Ve1TNfyIa78ruK0vcWxYtl4P/XAIXs0TFr7iNIywxcWz6mj/Fp3ppINxvOoC8cCD3RH4rMhg0kqTobCZ6GOJwQ==
   dependencies:
     "@localfirst/crdx" "^4.2.0"
     "@localfirst/crypto" "^4.2.0"
     buffer "^6.0.3"
     debug "^4.3.4"
-    eventemitter3 "^4.0.7"
+    eventemitter3 "^5.0.1"
     fast-memoize "^2.5.2"
     lodash "^4.17.21"
     xstate "4.26"
@@ -3689,7 +3689,7 @@ event-target-shim@^5.0.0:
   resolved "https://registry.yarnpkg.com/event-target-shim/-/event-target-shim-5.0.1.tgz#5d4d3ebdf9583d63a5333ce2deb7480ab2b05789"
   integrity sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==
 
-eventemitter3@^4.0.0, eventemitter3@^4.0.4, eventemitter3@^4.0.7:
+eventemitter3@^4.0.0, eventemitter3@^4.0.4:
   version "4.0.7"
   resolved "https://registry.yarnpkg.com/eventemitter3/-/eventemitter3-4.0.7.tgz#2de9b68f6528d5644ef5c59526a1b4a07306169f"
   integrity sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==
@@ -4248,7 +4248,7 @@ glob@7.1.6:
     once "^1.3.0"
     path-is-absolute "^1.0.0"
 
-glob@^10.2.2, glob@^10.3.7:
+glob@^10.2.2, glob@^10.2.5:
   version "10.3.10"
   resolved "https://registry.yarnpkg.com/glob/-/glob-10.3.10.tgz#0351ebb809fd187fe421ab96af83d3a70715df4b"
   integrity sha512-fa46+tv1Ak0UPK1TOy/pZrIybNNt4HCv7SDzwyfiOZkvZLEbjsZkJBPtDHVshZjbecAoAGSC20MjLDG/qr679g==
@@ -7553,7 +7553,7 @@ rimraf@^5.0.1, rimraf@^5.0.5:
   resolved "https://registry.yarnpkg.com/rimraf/-/rimraf-5.0.5.tgz#9be65d2d6e683447d2e9013da2bf451139a61ccf"
   integrity sha512-CqDakW+hMe/Bz202FPEymy68P+G50RfMQK+Qo5YUqc9SPipvbGjCGKd0RSKEelbsfQuw3g5NZDSrlZZAJurH1A==
   dependencies:
-    glob "^10.2.5"
+    glob "^10.3.7"
 
 rollup@^3.27.1:
   version "3.29.4"
