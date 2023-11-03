@@ -3,7 +3,7 @@
  */
 export type Chunk = {
   key: StorageKey
-  data: Uint8Array
+  data: Uint8Array | undefined
 }
 
 /**

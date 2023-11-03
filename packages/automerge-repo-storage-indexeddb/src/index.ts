@@ -4,7 +4,11 @@
  * @packageDocumentation
  */
 
-import {StorageAdapter, type StorageKey} from "@automerge/automerge-repo"
+import {
+  Chunk,
+  StorageAdapter,
+  type StorageKey,
+} from "@automerge/automerge-repo"
 
 export class IndexedDBStorageAdapter extends StorageAdapter {
   private dbPromise: Promise<IDBDatabase>
@@ -56,7 +60,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
       request.onsuccess = event => {
         const result = (event.target as IDBRequest).result
         if (result && typeof result === "object" && "binary" in result) {
-          resolve((result as {binary: Uint8Array}).binary)
+          resolve((result as { binary: Uint8Array }).binary)
         } else {
           resolve(undefined)
         }
@@ -69,7 +73,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
 
     const transaction = db.transaction(this.store, "readwrite")
     const objectStore = transaction.objectStore(this.store)
-    objectStore.put({key: keyArray, binary: binary}, keyArray)
+    objectStore.put({ key: keyArray, binary: binary }, keyArray)
 
     return new Promise((resolve, reject) => {
       transaction.onerror = () => {
@@ -98,7 +102,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
     })
   }
 
-  async loadRange(keyPrefix: string[]): Promise<{data: Uint8Array, key: StorageKey}[]> {
+  async loadRange(keyPrefix: string[]): Promise<Chunk[]> {
     const db = await this.dbPromise
     const lowerBound = keyPrefix
     const upperBound = [...keyPrefix, "\uffff"]
@@ -107,7 +111,7 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
     const transaction = db.transaction(this.store)
     const objectStore = transaction.objectStore(this.store)
     const request = objectStore.openCursor(range)
-    const result: {data: Uint8Array, key: StorageKey}[] = []
+    const result: { data: Uint8Array; key: StorageKey }[] = []
 
     return new Promise((resolve, reject) => {
       transaction.onerror = () => {
@@ -117,7 +121,10 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
       request.onsuccess = event => {
         const cursor = (event.target as IDBRequest).result as IDBCursorWithValue
         if (cursor) {
-          result.push({data: (cursor.value as {binary: Uint8Array}).binary, key: cursor.key as StorageKey})
+          result.push({
+            data: (cursor.value as { binary: Uint8Array }).binary,
+            key: cursor.key as StorageKey,
+          })
           cursor.continue()
         } else {
           resolve(result)

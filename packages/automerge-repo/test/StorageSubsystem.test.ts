@@ -23,49 +23,73 @@ describe("StorageSubsystem", () => {
     describe(adapterName, () => {
       describe("Automerge document storage", () => {
         it("stores and retrieves an Automerge document", async () => {
-        const storage = new StorageSubsystem(adapter)
+          const storage = new StorageSubsystem(adapter)
 
-        const doc = A.change(A.init<any>(), "test", d => {
-          d.foo = "bar"
+          const doc = A.change(A.init<any>(), "test", d => {
+            d.foo = "bar"
+          })
+
+          // save it to storage
+          const key = parseAutomergeUrl(generateAutomergeUrl()).documentId
+          await storage.saveDoc(key, doc)
+
+          // reload it from storage
+          const reloadedDoc = await storage.loadDoc(key)
+
+          // check that it's the same doc
+          assert.deepStrictEqual(reloadedDoc, doc)
         })
 
-        // save it to storage
-        const key = parseAutomergeUrl(generateAutomergeUrl()).documentId
-        await storage.saveDoc(key, doc)
+        it("retrieves an Automerge document following lots of changes", async () => {
+          const storage = new StorageSubsystem(adapter)
 
-        // reload it from storage
-        const reloadedDoc = await storage.loadDoc(key)
+          type TestDoc = { foo: number }
 
-        // check that it's the same doc
-        assert.deepStrictEqual(reloadedDoc, doc)
-      })
+          const key = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-      it("correctly stores incremental changes following a load", async () => {
-        const storage = new StorageSubsystem(adapter)
+          let doc = A.init<TestDoc>()
 
-        const doc = A.change(A.init<any>(), "test", d => {
-          d.foo = "bar"
+          const N = 100
+          for (let i = 0; i < N; i++) {
+            doc = A.change(doc, "test", d => {
+              d.foo = i
+            })
+            // save it to storage
+            await storage.saveDoc(key, doc)
+          }
+
+          // reload it from storage, simulating a new process
+          const storage2 = new StorageSubsystem(adapter)
+          const reloadedDoc = await storage2.loadDoc<TestDoc>(key)
+
+          // check that the doc has the right value
+          assert.equal(reloadedDoc?.foo, N - 1)
         })
 
-        // save it to storage
-        const key = parseAutomergeUrl(generateAutomergeUrl()).documentId
-        storage.saveDoc(key, doc)
+        it("stores incremental changes following a load", async () => {
+          const storage = new StorageSubsystem(adapter)
 
-        // create new storage subsystem to simulate a new process
-        const storage2 = new StorageSubsystem(adapter)
+          const doc = A.change(A.init<any>(), "test", d => {
+            d.foo = "bar"
+          })
 
-        // reload it from storage
-        const reloadedDoc = await storage2.loadDoc(key)
+          // save it to storage
+          const key = parseAutomergeUrl(generateAutomergeUrl()).documentId
+          storage.saveDoc(key, doc)
 
-        assert(reloadedDoc, "doc should be loaded")
+          // reload it from storage, simulating a new process
+          const storage2 = new StorageSubsystem(adapter)
+          const reloadedDoc = await storage2.loadDoc(key)
 
-        // make a change
-        const changedDoc = A.change<any>(reloadedDoc, "test 2", d => {
-          d.foo = "baz"
-        })
+          assert(reloadedDoc, "doc should be loaded")
 
-        // save it to storage
-        storage2.saveDoc(key, changedDoc)
+          // make a change
+          const changedDoc = A.change<any>(reloadedDoc, "test 2", d => {
+            d.foo = "baz"
+          })
+
+          // save it to storage
+          storage2.saveDoc(key, changedDoc)
         })
 
         it("removes an Automerge document", async () => {

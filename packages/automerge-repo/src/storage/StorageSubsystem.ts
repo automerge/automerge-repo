@@ -92,8 +92,12 @@ export class StorageSubsystem {
     const chunkInfos: ChunkInfo[] = []
 
     for (const chunk of chunks) {
+      // chunks might have been deleted in the interim
+      if (chunk.data === undefined) continue
+
       const chunkType = chunkTypeFromKey(chunk.key)
       if (chunkType == null) continue
+
       chunkInfos.push({
         key: chunk.key,
         type: chunkType,
@@ -129,9 +133,9 @@ export class StorageSubsystem {
 
     const sourceChunks = this.#chunkInfos.get(documentId) ?? []
     if (this.#shouldCompact(sourceChunks)) {
-      void this.#saveTotal(documentId, doc, sourceChunks)
+      await this.#saveTotal(documentId, doc, sourceChunks)
     } else {
-      void this.#saveIncremental(documentId, doc)
+      await this.#saveIncremental(documentId, doc)
     }
     this.#storedHeads.set(documentId, A.getHeads(doc))
   }
@@ -140,8 +144,8 @@ export class StorageSubsystem {
    * Removes the Automerge document with the given ID from storage
    */
   async removeDoc(documentId: DocumentId) {
-    void this.#storageAdapter.removeRange([documentId, "snapshot"])
-    void this.#storageAdapter.removeRange([documentId, "incremental"])
+    await this.#storageAdapter.removeRange([documentId, "snapshot"])
+    await this.#storageAdapter.removeRange([documentId, "incremental"])
   }
 
   /**
