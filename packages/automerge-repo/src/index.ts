@@ -53,14 +53,6 @@ export type {
 } from "./DocHandle.js"
 
 export type {
-  DeleteDocumentPayload,
-  DocumentPayload,
-  RepoConfig,
-  RepoEvents,
-  SharePolicy,
-} from "./Repo.js"
-
-export type {
   NetworkAdapterEvents,
   OpenPayload,
   PeerCandidatePayload,
