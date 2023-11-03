@@ -233,7 +233,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     delete this.handles[documentId]
 
     // remove it from storage
-    void this.storageSubsystem?.remove(documentId)
+    void this.storageSubsystem?.removeDoc(documentId)
 
     // TODO Pass the delete on to the network
     // synchronizer.removeDocument(documentId)
