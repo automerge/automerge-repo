@@ -769,6 +769,62 @@ describe("Repo", () => {
       await charliePromise
       teardown()
     })
+
+    it("should save & reload remote heads", async () => {
+      throw new Error("not implemented")
+    })
+
+    it("should report the remote heads when they change", async () => {
+      const { bobRepo, charlieRepo, teardown } = await setup({
+        connectAlice: false,
+      })
+
+      const handle = bobRepo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+
+      // pause to let the sync happen
+      await pause(50)
+
+      const nextRemoteHeadsPromise = new Promise<{
+        peerId: PeerId
+        syncState: A.SyncState
+      }>(resolve => {
+        handle.on("sync-state", ({ peerId, syncState }) => {
+          resolve({ peerId, syncState })
+        })
+      })
+
+      const charlieHandle = charlieRepo.find<TestDoc>(handle.url)
+      await charlieHandle.whenReady()
+
+      // make a change on charlie
+      charlieHandle.change(d => {
+        d.foo = "baz"
+      })
+
+      // pause to let the sync happen
+      await pause(500)
+
+      const charlieHeads = A.getHeads(charlieHandle.docSync())
+      const bobHeads = A.getHeads(handle.docSync())
+
+      console.log("Charlie Heads", charlieHeads)
+      console.log("Bob Heads", bobHeads)
+      assert.deepStrictEqual(charlieHeads, bobHeads)
+
+      const nextRemoteHeads = await nextRemoteHeadsPromise
+      assert.deepStrictEqual(nextRemoteHeads.peerId, "charlie")
+      assert.deepStrictEqual(nextRemoteHeads.syncState, charlieHeads)
+
+      assert.deepStrictEqual(handle.getSyncState("charlie" as PeerId), {
+        charlie: {
+          heads: A.getHeads(charlieHandle.docSync()),
+          received: nextRemoteHeads.received,
+        },
+      })
+    })
   })
 
   describe("with peers (mesh network)", () => {

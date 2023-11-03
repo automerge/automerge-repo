@@ -222,7 +222,7 @@ export class StorageSubsystem {
         console.warn(`Failed to load a syncState for ${documentId}:${peerId}`)
         continue
       }
-      const syncState = deserializeSyncState(chunk.data)
+      const syncState = A.decodeSyncState(chunk.data)
       syncStates[peerId] = syncState
     }
 
@@ -235,7 +235,7 @@ export class StorageSubsystem {
     syncState: A.SyncState
   ): Promise<void> {
     const key = [documentId, "sync-state", peerId]
-    await this.#storageAdapter.save(key, serializeSyncState(syncState))
+    await this.#storageAdapter.save(key, A.encodeSyncState(syncState))
   }
 
   /**
@@ -274,34 +274,4 @@ export class StorageSubsystem {
     }
     return incrementalSize >= snapshotSize
   }
-}
-
-function serializeSyncState(syncState: A.SyncState): Uint8Array {
-  const encoder = new TextEncoder()
-  return encoder.encode(
-    JSON.stringify(syncState, (key, value) => {
-      if (key === "bloom") {
-        const array = new Uint8Array(value as ArrayBuffer) // type assertion
-        const str = String.fromCharCode.apply(null, Array.from(array))
-        return btoa(str)
-      }
-      return value
-    })
-  )
-}
-
-function deserializeSyncState(serializedSyncState: Uint8Array): A.SyncState {
-  const decoder = new TextDecoder()
-  return JSON.parse(decoder.decode(serializedSyncState), (key, value) => {
-    if (key === "bloom") {
-      const binaryString = atob(value)
-      const len = binaryString.length
-      const bytes = new Uint8Array(len)
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i)
-      }
-      return bytes
-    }
-    return value
-  })
 }

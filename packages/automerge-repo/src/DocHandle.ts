@@ -339,6 +339,8 @@ export class DocHandle<T> //
    */
   setSyncState(peerId: PeerId, syncState: A.SyncState): void {
     this.#syncStates[peerId] = syncState
+    const { theirHeads, sharedHeads } = syncState
+
     this.emit("sync-state", { peerId, syncState })
   }
 
