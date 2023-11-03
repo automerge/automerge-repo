@@ -1,4 +1,4 @@
-import { StorageAdapter, type StorageKey } from "../../src/index.js"
+import { Chunk, StorageAdapter, type StorageKey } from "../../src/index.js"
 
 export class DummyStorageAdapter implements StorageAdapter {
   #data: Record<string, Uint8Array> = {}
@@ -11,9 +11,7 @@ export class DummyStorageAdapter implements StorageAdapter {
     return key.split(".")
   }
 
-  async loadRange(
-    keyPrefix: StorageKey
-  ): Promise<{ data: Uint8Array; key: StorageKey }[]> {
+  async loadRange(keyPrefix: StorageKey): Promise<Chunk[]> {
     const range = Object.entries(this.#data)
       .filter(([key, _]) => key.startsWith(this.#keyToString(keyPrefix)))
       .map(([key, data]) => ({ key: this.#stringToKey(key), data }))

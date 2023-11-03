@@ -1,6 +1,6 @@
 import debug from "debug"
 import { DocHandle } from "../DocHandle.js"
-import { stringifyAutomergeUrl } from "../DocUrl.js"
+import { stringifyAutomergeUrl } from "../AutomergeUrl.js"
 import { Repo } from "../Repo.js"
 import { RepoMessage } from "../network/messages.js"
 import { DocumentId, PeerId } from "../types.js"

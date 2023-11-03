@@ -1,4 +1,5 @@
-import { WebSocket, type WebSocketServer } from "isomorphic-ws"
+import WebSocket from "isomorphic-ws"
+import { type WebSocketServer } from "isomorphic-ws"
 
 import debug from "debug"
 const log = debug("WebsocketServer")
@@ -75,7 +76,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
         socket.isAlive = false
         socket.ping()
       })
-    }, 30000)
+    }, 5000)
   }
 
   disconnect() {
@@ -123,6 +124,14 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     )
     switch (type) {
       case "join":
+        const existingSocket = this.sockets[senderId]
+        if (existingSocket) {
+          if (existingSocket.readyState === WebSocket.OPEN) {
+            existingSocket.close()
+          }
+          this.emit("peer-disconnected", {peerId: senderId})
+        }
+
         // Let the rest of the system know that we have a new connection.
         this.emit("peer-candidate", { peerId: senderId })
         this.sockets[senderId] = socket

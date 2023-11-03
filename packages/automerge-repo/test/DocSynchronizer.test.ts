@@ -1,7 +1,7 @@
 import assert from "assert"
 import { describe, it } from "vitest"
 import { DocHandle } from "../src/DocHandle.js"
-import { generateAutomergeUrl, parseAutomergeUrl } from "../src/DocUrl.js"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import {
   DocumentUnavailableMessage,

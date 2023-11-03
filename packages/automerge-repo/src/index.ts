@@ -31,7 +31,7 @@ export {
   isValidAutomergeUrl,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
-} from "./DocUrl.js"
+} from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export { isValidRepoMessage } from "./network/messages.js"
@@ -53,6 +53,7 @@ export type {
   DocHandleOutboundEphemeralMessagePayload,
   HandleState,
 } from "./DocHandle.js"
+
 export type {
   DeleteDocumentPayload,
   DocumentPayload,
@@ -60,21 +61,28 @@ export type {
   RepoEvents,
   SharePolicy,
 } from "./Repo.js"
+
 export type {
   NetworkAdapterEvents,
   OpenPayload,
   PeerCandidatePayload,
   PeerDisconnectedPayload,
 } from "./network/NetworkAdapter.js"
+
 export type {
-  ArriveMessage,
   DocumentUnavailableMessage,
   EphemeralMessage,
   Message,
   RepoMessage,
   RequestMessage,
   SyncMessage,
-  WelcomeMessage,
 } from "./network/messages.js"
-export type { StorageKey } from "./storage/StorageAdapter.js"
+
+export type {
+  Chunk,
+  ChunkInfo,
+  ChunkType,
+  StorageKey,
+} from "./storage/types.js"
+
 export * from "./types.js"

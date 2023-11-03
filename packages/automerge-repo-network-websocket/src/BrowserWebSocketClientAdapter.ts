@@ -21,6 +21,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   // Type trickery required for platform independence,
   // see https://stackoverflow.com/questions/45802988/typescript-use-correct-version-of-settimeout-node-vs-window
   timerId?: ReturnType<typeof setTimeout>
+  remotePeerId?: PeerId // this adapter only connects to one remote client at a time
   #startupComplete: boolean = false
 
   url: string
@@ -74,6 +75,11 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   // When a socket closes, or disconnects, remove it from the array.
   onClose = () => {
     log(`${this.url}: close`)
+
+    if (this.remotePeerId) {
+      this.emit("peer-disconnected", { peerId: this.remotePeerId })
+    }
+
     if (!this.timerId) {
       if (this.peerId) {
         this.connect(this.peerId)
@@ -137,6 +143,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       this.#startupComplete = true
       this.emit("ready", { network: this })
     }
+    this.remotePeerId = peerId
     this.emit("peer-candidate", { peerId })
   }
 

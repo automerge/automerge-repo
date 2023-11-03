@@ -14,7 +14,7 @@ import {
   TypegenDisabled,
 } from "xstate"
 import { waitFor } from "xstate/lib/waitFor.js"
-import { stringifyAutomergeUrl } from "./DocUrl.js"
+import { stringifyAutomergeUrl } from "./AutomergeUrl.js"
 import { encode } from "./helpers/cbor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { withTimeout } from "./helpers/withTimeout.js"
