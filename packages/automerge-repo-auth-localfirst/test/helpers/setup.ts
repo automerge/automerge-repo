@@ -1,4 +1,4 @@
-import { AuthProvider, Repo } from "@automerge/automerge-repo"
+import { Repo } from "@automerge/automerge-repo"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import * as Auth from "@localfirst/auth"
