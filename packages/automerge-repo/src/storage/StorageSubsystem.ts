@@ -98,6 +98,7 @@ export class StorageSubsystem {
     const chunkInfos: StorageChunkInfo[] = []
     for (const chunk of loaded) {
       const chunkType = chunkTypeFromKey(chunk.key)
+      // filter out keys that are not "snapshot" or "incremental"
       if (chunkType == null) {
         continue
       }
@@ -131,35 +132,31 @@ export class StorageSubsystem {
     this.#storedHeads.set(documentId, A.getHeads(doc))
   }
 
-  // todo: we should store individual sync states and load the combined syncState object with loadRange
-  // unfortunately this is currently not possible because we would have to put the documentId as the first key
-  // this conflicts with documents are currently loaded
-
   async loadSyncStates(
     documentId: DocumentId
   ): Promise<Record<PeerId, A.SyncState>> {
-    const key = [documentId, "sync-states"]
+    const key = [documentId, "sync-state"]
+    const loaded = await this.#storageAdapter.loadRange(key)
 
-    const serializedSyncState = await this.#storageAdapter.load(key)
+    const syncStates: Record<PeerId, A.SyncState> = {}
 
-    if (!serializedSyncState) {
-      return {}
+    for (const chunk of loaded) {
+      const peerId = chunk.key[2] as PeerId
+      const syncState = deserializeSyncState(chunk.data)
+
+      syncStates[peerId] = syncState
     }
 
-    try {
-      return deserializeSyncStates(serializedSyncState)
-    } catch (err) {
-      return {}
-    }
+    return syncStates
   }
 
-  async saveSyncStates(
+  async saveSyncState(
     documentId: DocumentId,
-    syncStates: Record<PeerId, A.SyncState>
+    peerId: PeerId,
+    syncState: A.SyncState
   ): Promise<void> {
-    const key = [documentId, "sync-states"]
-
-    await this.#storageAdapter.save(key, serializeSyncStates(syncStates))
+    const key = [documentId, "sync-state", peerId]
+    await this.#storageAdapter.save(key, serializeSyncState(syncState))
   }
 
   async remove(documentId: DocumentId) {
@@ -212,12 +209,10 @@ function chunkTypeFromKey(key: StorageKey): ChunkType | null {
   }
 }
 
-function serializeSyncStates(
-  syncStates: Record<PeerId, A.SyncState>
-): Uint8Array {
+function serializeSyncState(syncState: A.SyncState): Uint8Array {
   const encoder = new TextEncoder()
   return encoder.encode(
-    JSON.stringify(syncStates, (key, value) => {
+    JSON.stringify(syncState, (key, value) => {
       if (key === "bloom") {
         const array = new Uint8Array(value as ArrayBuffer) // type assertion
         const str = String.fromCharCode.apply(null, Array.from(array))
@@ -228,9 +223,7 @@ function serializeSyncStates(
   )
 }
 
-function deserializeSyncStates(
-  serializedSyncState: Uint8Array
-): Record<PeerId, A.SyncState> {
+function deserializeSyncState(serializedSyncState: Uint8Array): A.SyncState {
   const decoder = new TextDecoder()
   return JSON.parse(decoder.decode(serializedSyncState), (key, value) => {
     if (key === "bloom") {

@@ -125,13 +125,8 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #setSyncState(peerId: PeerId, syncState: A.SyncState) {
-    // TODO: we maybe should be persisting sync states. But we want to be careful about how often we
-    // do that, because it can generate a lot of disk activity.
-
     // TODO: we only need to do this on reconnect
 
-    // todo: compute remote heads based on sync state
-    this.handle.setRemoteHeads(peerId, syncState.heads, new Date())
     this.handle.setSyncState(peerId, syncState)
   }
 
@@ -275,7 +270,6 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#processAllPendingSyncMessages()
     this.#processSyncMessage(message, new Date())
-    this.#notifyOfNewSyncStates()
   }
 
   #processSyncMessage(message: SyncMessage | RequestMessage, received: Date) {
@@ -346,23 +340,5 @@ export class DocSynchronizer extends Synchronizer {
     }
 
     this.#pendingSyncMessages = []
-  }
-
-  #notifyOfNewSyncStates() {
-    for (const [peerId, lastSync] of Object.entries(this.#lastSyncs)) {
-      if (lastSync.dirty) {
-        this.handle.setRemoteHeads(
-          peerId as PeerId,
-          lastSync.heads,
-          lastSync.at
-        )
-        this.handle.emit("remote-heads", {
-          remote: peerId as PeerId,
-          heads: lastSync.heads,
-          received: lastSync.at,
-        })
-        lastSync.dirty = true
-      }
-    }
   }
 }

@@ -79,14 +79,14 @@ export class Repo extends EventEmitter<RepoEvents> {
 
           if (loadedDoc) {
             handle.update(() => loadedDoc)
-            handle.setSyncStates(loadedSyncStates)
+            handle.initSyncStates(loadedSyncStates)
           }
         }
 
         // todo: debounce
-        handle.on("sync-state", syncStates =>
-          storageSubsystem.saveSyncStates(handle.documentId, syncStates)
-        )
+        handle.on("sync-state", ({ syncState, peerId }) => {
+          storageSubsystem.saveSyncState(handle.documentId, peerId, syncState)
+        })
       }
 
       handle.on("unavailable", () => {

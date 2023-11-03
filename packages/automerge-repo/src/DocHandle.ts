@@ -40,7 +40,6 @@ export class DocHandle<T> //
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
   #syncStates: Record<PeerId, A.SyncState> = {}
-  #remoteHeads: Record<PeerId, { heads: A.Heads; received: Date }> = {}
 
   /** The URL of this document
    *
@@ -49,10 +48,6 @@ export class DocHandle<T> //
    */
   get url(): AutomergeUrl {
     return stringifyAutomergeUrl({ documentId: this.documentId })
-  }
-
-  get remoteHeads(): Record<PeerId, { heads: A.Heads; received: Date }> {
-    return structuredClone(this.#remoteHeads)
   }
 
   /** @hidden */
@@ -333,15 +328,10 @@ export class DocHandle<T> //
     })
   }
 
-  /** `getSyncState` is used by the doc synchronizer to read the sync state
-   * @hidden
+  /** `getSyncState` can be used to read the sync state of a specific peer
    */
   getSyncState(peerId: PeerId): A.SyncState | undefined {
     return this.#syncStates[peerId]
-  }
-
-  getSyncStates(peerId: PeerId): Record<PeerId, A.SyncState> {
-    return this.#syncStates
   }
 
   /** `setSyncState` is called by the doc synchronizer when the sync state changes
@@ -349,15 +339,14 @@ export class DocHandle<T> //
    */
   setSyncState(peerId: PeerId, syncState: A.SyncState): void {
     this.#syncStates[peerId] = syncState
-    this.emit("sync-state", this.#syncStates)
+    this.emit("sync-state", { peerId, syncState })
   }
 
   /** `setSyncStates` is called by the repo when the doc is loaded initially
    * @hidden
    */
-  setSyncStates(syncStates: Record<PeerId, A.SyncState>): void {
+  initSyncStates(syncStates: Record<PeerId, A.SyncState>): void {
     this.#syncStates = syncStates
-    this.emit("sync-state", this.#syncStates)
   }
 
   /** `change` is called by the repo when the document is changed locally  */
@@ -467,11 +456,6 @@ export class DocHandle<T> //
       data: encode(message),
     })
   }
-
-  /** @hidden */
-  setRemoteHeads(remote: PeerId, heads: A.Heads, at: Date) {
-    this.#remoteHeads[remote] = { heads, received: at }
-  }
 }
 
 // WRAPPER CLASS TYPES
@@ -526,6 +510,11 @@ export interface DocHandleRemoteHeadsPayload {
   received: Date
 }
 
+export interface DocHandleSyncStatePayload {
+  peerId: PeerId
+  syncState: A.SyncState
+}
+
 export interface DocHandleEvents<T> {
   "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
@@ -536,7 +525,7 @@ export interface DocHandleEvents<T> {
     payload: DocHandleOutboundEphemeralMessagePayload<T>
   ) => void
   "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
-  "sync-state": (payload: Record<PeerId, A.SyncState>) => void
+  "sync-state": (payload: DocHandleSyncStatePayload) => void
 }
 
 // STATE MACHINE TYPES
