@@ -3,7 +3,11 @@
  * A `StorageAdapter` which stores data in the local filesystem
  */
 
-import { StorageAdapter, type StorageKey } from "@automerge/automerge-repo"
+import {
+  Chunk,
+  StorageAdapter,
+  type StorageKey,
+} from "@automerge/automerge-repo"
 import fs from "fs"
 import path from "path"
 import { rimraf } from "rimraf"
@@ -47,8 +51,10 @@ export class NodeFSStorageAdapter extends StorageAdapter {
   }
 
   async remove(keyArray: string[]): Promise<void> {
+    // remove from cache
+    delete this.cache[getKey(keyArray)]
+    // remove from disk
     const filePath = this.getFilePath(keyArray)
-
     try {
       await fs.promises.unlink(filePath)
     } catch (error) {
@@ -57,13 +63,13 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     }
   }
 
-  async loadRange(
-    keyPrefix: StorageKey
-  ): Promise<{ data: Uint8Array; key: StorageKey }[]> {
+  async loadRange(keyPrefix: StorageKey): Promise<Chunk[]> {
     /* This whole function does a bunch of gratuitious string manipulation
        and could probably be simplified. */
 
     const dirPath = this.getFilePath(keyPrefix)
+
+    // Get the list of all cached keys that match the prefix
     const cachedKeys = this.cachedKeys(keyPrefix)
 
     // Read filenames from disk
@@ -79,7 +85,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
 
     // Load all files
-    const result = await Promise.all(
+    const chunks = await Promise.all(
       allKeys.map(async keyString => {
         const key: StorageKey = keyString.split(path.sep)
         const data = await this.load(key)
@@ -87,10 +93,14 @@ export class NodeFSStorageAdapter extends StorageAdapter {
       })
     )
 
-    return result
+    return chunks
   }
 
   async removeRange(keyPrefix: string[]): Promise<void> {
+    // remove from cache
+    this.cachedKeys(keyPrefix).forEach(key => delete this.cache[key])
+
+    // remove from disk
     const dirPath = this.getFilePath(keyPrefix)
     await rimraf(dirPath)
   }
