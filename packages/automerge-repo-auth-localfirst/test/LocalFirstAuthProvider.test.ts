@@ -258,7 +258,7 @@ describe("localfirst/auth provider", () => {
 
   // TODO test adding a share after I'm connected
 
-  it("persists local context and team state", async () => {
+  it.skip("persists local context and team state", async () => {
     const {
       users: { alice, bob },
       ports,

@@ -35,6 +35,8 @@ export const setup = <T extends string>(
 
   const users = userNames.reduce((result, userName) => {
     const setupRepo = () => {
+      const storageDir = getStorageDirectory()
+
       portsByUser[userName].forEach(port => {
         port.start()
       })
@@ -46,7 +48,7 @@ export const setup = <T extends string>(
         network: portsByUser[userName].map(
           p => new MessageChannelNetworkAdapter(p)
         ),
-        storage: new NodeFSStorageAdapter(getStorageDirectory(userName)),
+        storage: new NodeFSStorageAdapter(storageDir),
         auth: authProvider,
       })
       return { authProvider, repo }
@@ -90,18 +92,15 @@ export const setup = <T extends string>(
 
     // clear storage directories
     userNames.forEach(userName => {
-      rimraf.sync(getStorageDirectory(userName))
+      rimraf.sync(getStorageDirectory())
     })
   }
 
   return { users, ports, teardown }
 }
 
-const getStorageDirectory = (userName: string) => {
-  const tempPath = path.join(os.tmpdir(), "automerge-repo-tests", userName)
-  if (!fs.existsSync(tempPath)) fs.mkdirSync(tempPath)
-  return tempPath
-}
+const getStorageDirectory = () =>
+  fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
 export interface TestDoc {
   foo: string

@@ -1,7 +1,13 @@
-import assert from "assert"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
+import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
+import assert from "assert"
+import fs from "fs"
+import os from "os"
+import path from "path"
 import { describe, it } from "vitest"
-import { authenticationError, AuthProvider } from "../src/auth/AuthProvider.js"
+import { AuthProvider, authenticationError } from "../src/auth/AuthProvider.js"
+import { AUTHENTICATION_VALID } from "../src/auth/constants.js"
+import { AuthenticateFn, AuthenticationResult } from "../src/auth/types.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { withTimeout } from "../src/helpers/withTimeout.js"
@@ -16,9 +22,6 @@ import {
 import { decrypt, encrypt } from "./helpers/encrypt.js"
 import { expectPromises } from "./helpers/expectPromises.js"
 import type { TestDoc } from "./types.js"
-import { AuthenticateFn, AuthenticationResult } from "../src/auth/types.js"
-import { AUTHENTICATION_VALID } from "../src/auth/constants.js"
-import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
 describe("AuthProvider", () => {
   describe("authorization", async () => {
@@ -374,6 +377,10 @@ describe("AuthProvider", () => {
 
   describe("storage", () => {
     it("saves and retrieves an arbitrary value", async () => {
+      const testDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "automerge-repo-tests")
+      )
+
       const authProvider = new AuthProvider()
       const aliceBobChannel = new MessageChannel()
       const { port1: aliceToBob, port2: bobToAlice } = aliceBobChannel
@@ -382,7 +389,7 @@ describe("AuthProvider", () => {
       const _aliceRepo = new Repo({
         peerId: "alice" as PeerId,
         network: [new MessageChannelNetworkAdapter(aliceToBob)],
-        storage: new NodeFSStorageAdapter("./test-storage"),
+        storage: new NodeFSStorageAdapter(testDir),
         auth: authProvider,
       })
 
