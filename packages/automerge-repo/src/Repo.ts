@@ -106,7 +106,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       // synchronizer.removeDocument(documentId)
 
       if (storageSubsystem) {
-        storageSubsystem.remove(documentId).catch(err => {
+        storageSubsystem.removeDoc(documentId).catch(err => {
           this.#log("error deleting document", { documentId, err })
         })
       }
