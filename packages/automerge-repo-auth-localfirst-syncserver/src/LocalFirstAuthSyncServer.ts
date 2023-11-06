@@ -35,7 +35,9 @@ export class Server {
     app.use(express.static("public"))
 
     // TODO: localfirst/auth could shield us from this nonsense of casting a
-    // server as a fake user and a fake device.
+    // server as a fake user and a fake device. Ideally our context would just
+    // be as a server instead of having to pretend:
+    // const authContext = { server: { host, keys } }
     const userId = host
     const userName = host
     const deviceName = host
