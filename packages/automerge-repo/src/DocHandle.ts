@@ -39,7 +39,7 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
-  #syncStates: Record<PeerId, A.SyncState> = {}
+  #remoteHeads: Record<PeerId, A.Heads> = {}
 
   /** The URL of this document
    *
@@ -328,42 +328,16 @@ export class DocHandle<T> //
     })
   }
 
-  /** `getSyncState` can be used to read the sync state of a specific peer
-   */
-  getSyncState(peerId: PeerId): A.SyncState | undefined {
-    return this.#syncStates[peerId]
-  }
-
-  /** `setSyncState` is called by the doc synchronizer when the sync state changes
+  /** `setRemoteHeads` is called by the doc synchronizer
    * @hidden
    */
-  setSyncState(peerId: PeerId, syncState: A.SyncState): void {
-    const previousSyncState = this.#syncStates[peerId]
-
-    this.#syncStates[peerId] = syncState
-    const { theirHeads, sharedHeads } = syncState
-
-    if (
-      syncState.theirHeads &&
-      (!previousSyncState ||
-        !previousSyncState.theirHeads ||
-        !arraysEqual(previousSyncState.theirHeads, syncState.theirHeads))
-    ) {
-      this.emit("remote-heads", { peerId, heads: syncState.theirHeads })
-    }
-
-    this.emit("sync-state", { peerId, syncState })
+  setRemoteHeads(peerId: PeerId, heads: A.Heads) {
+    this.#remoteHeads[peerId] = heads
+    this.emit("remote-heads", { peerId, heads })
   }
 
   getRemoteHeads(peerId: PeerId): A.Heads | undefined {
-    return this.#syncStates[peerId].theirHeads
-  }
-
-  /** `setSyncStates` is called by the repo when the doc is loaded initially
-   * @hidden
-   */
-  initSyncStates(syncStates: Record<PeerId, A.SyncState>): void {
-    this.#syncStates = syncStates
+    return this.#remoteHeads[peerId]
   }
 
   /** `change` is called by the repo when the document is changed locally  */
@@ -668,11 +642,3 @@ const {
   AWAIT_NETWORK,
   NETWORK_READY,
 } = Event
-
-function arraysEqual<T>(a: T[], b: T[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}

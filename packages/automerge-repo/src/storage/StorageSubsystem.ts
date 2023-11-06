@@ -208,25 +208,13 @@ export class StorageSubsystem {
     this.#compacting = false
   }
 
-  async loadSyncStates(
-    documentId: DocumentId
-  ): Promise<Record<PeerId, A.SyncState>> {
-    const key = [documentId, "sync-state"]
-    const loaded = await this.#storageAdapter.loadRange(key)
-
-    const syncStates: Record<PeerId, A.SyncState> = {}
-
-    for (const chunk of loaded) {
-      const peerId = chunk.key[2] as PeerId
-      if (chunk.data === undefined) {
-        console.warn(`Failed to load a syncState for ${documentId}:${peerId}`)
-        continue
-      }
-      const syncState = A.decodeSyncState(chunk.data)
-      syncStates[peerId] = syncState
-    }
-
-    return syncStates
+  async loadSyncState(
+    documentId: DocumentId,
+    peerId: PeerId
+  ): Promise<A.SyncState | undefined> {
+    const key = [documentId, "sync-state", peerId]
+    const loaded = await this.#storageAdapter.load(key)
+    return loaded ? A.decodeSyncState(loaded) : undefined
   }
 
   async saveSyncState(

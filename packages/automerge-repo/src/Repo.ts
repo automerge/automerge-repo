@@ -69,23 +69,11 @@ export class Repo extends EventEmitter<RepoEvents> {
           await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
         } else {
           // Try to load from disk
-          const [loadedDoc, loadedSyncStates] = await Promise.all([
-            storageSubsystem.loadDoc(handle.documentId),
-            storageSubsystem.loadSyncStates(handle.documentId),
-          ])
-
-          console.log("loadedSyncStates", handle.documentId, loadedSyncStates)
-
+          const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
           if (loadedDoc) {
             handle.update(() => loadedDoc)
-            handle.initSyncStates(loadedSyncStates)
           }
         }
-
-        // todo: debounce
-        handle.on("sync-state", ({ syncState, peerId }) => {
-          storageSubsystem.saveSyncState(handle.documentId, peerId, syncState)
-        })
       }
 
       handle.on("unavailable", () => {
@@ -159,6 +147,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     networkSubsystem.on("message", async msg => {
       await synchronizer.receiveMessage(msg)
     })
+
+    if (storageSubsystem) {
+      // todo: debounce
+      synchronizer.on("sync-state", ({ documentId, peerId, syncState }) => {
+        storageSubsystem.saveSyncState(documentId, peerId, syncState)
+      })
+    }
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */

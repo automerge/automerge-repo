@@ -20,6 +20,7 @@ import {
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 import { throttle } from "../helpers/throttle.js"
+import { headsAreSame } from "../helpers/headsAreSame.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
@@ -32,6 +33,11 @@ type LastSync = {
 type PendingMessage = {
   message: RequestMessage | SyncMessage
   received: Date
+}
+
+interface DocSynchronizerConfig {
+  handle: DocHandle<unknown>
+  onLoadSyncState?: (peerId: PeerId) => A.SyncState | undefined
 }
 
 /**
@@ -47,14 +53,23 @@ export class DocSynchronizer extends Synchronizer {
 
   #peerDocumentStatuses: Record<PeerId, PeerDocumentStatus> = {}
 
+  /** Sync state for each peer we've communicated with (including inactive peers) */
+  #syncStates: Record<PeerId, A.SyncState> = {}
+
   #lastSyncs: Record<PeerId, LastSync> = {}
 
   #pendingSyncMessages: Array<PendingMessage> = []
 
   #syncStarted = false
 
-  constructor(private handle: DocHandle<unknown>) {
+  #handle: DocHandle<unknown>
+  #onLoadSyncState: (peerId: PeerId) => Promise<A.SyncState | undefined>
+
+  constructor({ handle, onLoadSyncState }: DocSynchronizerConfig) {
     super()
+    this.#handle = handle
+    this.#onLoadSyncState = onLoadSyncState ?? (() => undefined)
+
     const docId = handle.documentId.slice(0, 5)
     this.#log = debug(`automerge-repo:docsync:${docId}`)
 
@@ -79,14 +94,14 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   get documentId() {
-    return this.handle.documentId
+    return this.#handle.documentId
   }
 
   /// PRIVATE
 
   async #syncWithPeers() {
     this.#log(`syncWithPeers`)
-    const doc = await this.handle.doc()
+    const doc = await this.#handle.doc()
     if (doc === undefined) return
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
@@ -104,7 +119,7 @@ export class DocSynchronizer extends Synchronizer {
     const message: MessageContents<EphemeralMessage> = {
       type: "ephemeral",
       targetId: peerId,
-      documentId: this.handle.documentId,
+      documentId: this.#handle.documentId,
       data,
     }
     this.emit("message", message)
@@ -121,13 +136,36 @@ export class DocSynchronizer extends Synchronizer {
       this.#peerDocumentStatuses[peerId] = "unknown"
     }
 
-    return this.handle.getSyncState(peerId) ?? A.initSyncState()
+    const prevSyncState = this.#syncStates[peerId]
+    if (prevSyncState) {
+      return prevSyncState
+    }
+
+    return A.initSyncState()
   }
 
   #setSyncState(peerId: PeerId, syncState: A.SyncState) {
     // TODO: we only need to do this on reconnect
 
-    this.handle.setSyncState(peerId, syncState)
+    const previousSyncState = this.#syncStates[peerId]
+
+    this.#syncStates[peerId] = syncState
+
+    const haveTheirSyncedHeadsChanged =
+      syncState.theirHeads &&
+      (!previousSyncState ||
+        !previousSyncState.theirHeads ||
+        !headsAreSame(previousSyncState.theirHeads, syncState.theirHeads))
+
+    if (haveTheirSyncedHeadsChanged) {
+      this.#handle.setRemoteHeads(peerId, syncState.theirHeads)
+    }
+
+    this.emit("sync-state", {
+      peerId,
+      syncState,
+      documentId: this.#handle.documentId,
+    })
   }
 
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
@@ -140,7 +178,7 @@ export class DocSynchronizer extends Synchronizer {
       const isNew = A.getHeads(doc).length === 0
 
       if (
-        !this.handle.isReady() &&
+        !this.#handle.isReady() &&
         isNew &&
         newSyncState.sharedHeads.length === 0 &&
         !Object.values(this.#peerDocumentStatuses).includes("has") &&
@@ -150,7 +188,7 @@ export class DocSynchronizer extends Synchronizer {
         this.emit("message", {
           type: "request",
           targetId: peerId,
-          documentId: this.handle.documentId,
+          documentId: this.#handle.documentId,
           data: message,
         } as RequestMessage)
       } else {
@@ -158,7 +196,7 @@ export class DocSynchronizer extends Synchronizer {
           type: "sync",
           targetId: peerId,
           data: message,
-          documentId: this.handle.documentId,
+          documentId: this.#handle.documentId,
         } as SyncMessage)
       }
 
@@ -186,14 +224,14 @@ export class DocSynchronizer extends Synchronizer {
     // messages during disconnection.
     // TODO: cover that case with a test and remove this hack
     peerIds.forEach(peerId => {
-      const syncStateRaw = this.#getSyncState(peerId)
-      const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
+      const syncState = this.#getSyncState(peerId)
+      //      const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
       this.#setSyncState(peerId, syncState)
     })
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
-    void this.handle.doc([READY, REQUESTING, UNAVAILABLE]).then(doc => {
+    void this.#handle.doc([READY, REQUESTING, UNAVAILABLE]).then(doc => {
       // we register out peers first, then say that sync has started
       this.#syncStarted = true
       this.#checkDocUnavailable()
@@ -236,15 +274,15 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   receiveEphemeralMessage(message: EphemeralMessage) {
-    if (message.documentId !== this.handle.documentId)
+    if (message.documentId !== this.#handle.documentId)
       throw new Error(`channelId doesn't match documentId`)
 
     const { senderId, data } = message
 
     const contents = decode(new Uint8Array(data))
 
-    this.handle.emit("ephemeral-message", {
-      handle: this.handle,
+    this.#handle.emit("ephemeral-message", {
+      handle: this.#handle,
       senderId,
       message: contents,
     })
@@ -259,11 +297,11 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   receiveSyncMessage(message: SyncMessage | RequestMessage) {
-    if (message.documentId !== this.handle.documentId)
+    if (message.documentId !== this.#handle.documentId)
       throw new Error(`channelId doesn't match documentId`)
 
     // We need to block receiving the syncMessages until we've checked local storage
-    if (!this.handle.inState([READY, REQUESTING, UNAVAILABLE])) {
+    if (!this.#handle.inState([READY, REQUESTING, UNAVAILABLE])) {
       this.#pendingSyncMessages.push({ message, received: new Date() })
       return
     }
@@ -284,7 +322,7 @@ export class DocSynchronizer extends Synchronizer {
       this.#peerDocumentStatuses[message.senderId] = "has"
     }
 
-    this.handle.update(doc => {
+    this.#handle.update(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
         this.#getSyncState(message.senderId),
@@ -312,7 +350,7 @@ export class DocSynchronizer extends Synchronizer {
     // if we know none of the peers have the document, tell all our peers that we don't either
     if (
       this.#syncStarted &&
-      this.handle.inState([REQUESTING]) &&
+      this.#handle.inState([REQUESTING]) &&
       this.#peers.every(
         peerId =>
           this.#peerDocumentStatuses[peerId] === "unavailable" ||
@@ -324,13 +362,13 @@ export class DocSynchronizer extends Synchronizer {
         .forEach(peerId => {
           const message: MessageContents<DocumentUnavailableMessage> = {
             type: "doc-unavailable",
-            documentId: this.handle.documentId,
+            documentId: this.#handle.documentId,
             targetId: peerId,
           }
           this.emit("message", message)
         })
 
-      this.handle.unavailable()
+      this.#handle.unavailable()
     }
   }
 

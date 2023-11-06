@@ -35,7 +35,19 @@ export class CollectionSynchronizer extends Synchronizer {
 
   /** Creates a new docSynchronizer and sets it up to propagate messages */
   #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
-    const docSynchronizer = new DocSynchronizer(handle)
+    const docSynchronizer = new DocSynchronizer({
+      handle,
+      onLoadSyncState: peerId => {
+        if (!this.repo.storageSubsystem) {
+          return undefined
+        }
+
+        return this.repo.storageSubsystem.loadSyncState(
+          handle.documentId,
+          peerId
+        )
+      },
+    })
     docSynchronizer.on("message", event => this.emit("message", event))
     docSynchronizer.on("sync-state", event => this.emit("sync-state", event))
     return docSynchronizer

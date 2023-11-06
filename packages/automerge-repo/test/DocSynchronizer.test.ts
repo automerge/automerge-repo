@@ -22,7 +22,9 @@ describe("DocSynchronizer", () => {
   const setup = () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
     handle = new DocHandle<TestDoc>(docId, { isNew: true })
-    docSynchronizer = new DocSynchronizer(handle)
+    docSynchronizer = new DocSynchronizer({
+      handle: handle as DocHandle<unknown>,
+    })
     return { handle, docSynchronizer }
   }
 
@@ -81,7 +83,9 @@ describe("DocSynchronizer", () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
     const handle = new DocHandle<TestDoc>(docId, { isNew: false })
-    docSynchronizer = new DocSynchronizer(handle)
+    docSynchronizer = new DocSynchronizer({
+      handle: handle as DocHandle<unknown>,
+    })
     docSynchronizer.beginSync([alice])
     handle.request()
     const message = await eventPromise(docSynchronizer, "message")
@@ -93,13 +97,17 @@ describe("DocSynchronizer", () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
     const bobHandle = new DocHandle<TestDoc>(docId, { isNew: false })
-    const bobDocSynchronizer = new DocSynchronizer(bobHandle)
+    const bobDocSynchronizer = new DocSynchronizer({
+      handle: bobHandle as DocHandle<unknown>,
+    })
     bobDocSynchronizer.beginSync([alice])
     bobHandle.request()
     const message = await eventPromise(bobDocSynchronizer, "message")
 
     const aliceHandle = new DocHandle<TestDoc>(docId, { isNew: false })
-    const aliceDocSynchronizer = new DocSynchronizer(aliceHandle)
+    const aliceDocSynchronizer = new DocSynchronizer({
+      handle: aliceHandle as DocHandle<unknown>,
+    })
     aliceHandle.request()
 
     aliceDocSynchronizer.receiveSyncMessage({ ...message, senderId: bob })

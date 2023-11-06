@@ -770,9 +770,7 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("should save & reload remote heads", async () => {
-      throw new Error("not implemented")
-    })
+    it.todo("should save & reload remote heads")
 
     it("should report the remote heads when they change", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup({
@@ -810,8 +808,6 @@ describe("Repo", () => {
       const charlieHeads = A.getHeads(charlieHandle.docSync())
       const bobHeads = A.getHeads(handle.docSync())
 
-      console.log("Charlie Heads", charlieHeads)
-      console.log("Bob Heads", bobHeads)
       assert.deepStrictEqual(charlieHeads, bobHeads)
 
       const nextRemoteHeads = await nextRemoteHeadsPromise
