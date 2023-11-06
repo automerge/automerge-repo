@@ -224,8 +224,8 @@ export class DocSynchronizer extends Synchronizer {
     // messages during disconnection.
     // TODO: cover that case with a test and remove this hack
     peerIds.forEach(peerId => {
-      const syncState = this.#getSyncState(peerId)
-      //      const syncState = A.decodeSyncState(A.encodeSyncState(syncStateRaw))
+      const rawSyncState = this.#getSyncState(peerId)
+      const syncState = A.decodeSyncState(A.encodeSyncState(rawSyncState))
       this.#setSyncState(peerId, syncState)
     })
 
