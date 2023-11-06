@@ -27,6 +27,12 @@ import {
   isEncryptedMessage,
 } from "./types"
 
+// NEXT: If we add a new team after `peer-candidate`, we need to spin up a new connection for that
+// peer.
+
+// Basically we should try to have a connection for each team+peer combination. So we need to keep a list
+// of peers, and when we add a new team, try to spin up a connection for each peer (if one doesn't already exist.)
+
 const { encrypt, decrypt } = Auth.symmetric
 
 /**
@@ -193,6 +199,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
     // try to authenticate new peers; if we succeed, we forward the peer-candidate event
     baseAdapter.on("peer-candidate", async ({ peerId }) => {
+      this.#log(`peer-candidate from ${peerId}`)
       this.#peers.push(peerId)
 
       const shareIds = [
@@ -341,9 +348,6 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     throw new Error(`no context for ${shareId}`)
   }
 
-  // NEXT: need to sort out timing of saving & loading vs connecting with peers
-  // If we load state after connecting to peers, we'll want to retry the connections
-
   /** Saves a serialized and partially encrypted version of the state */
   async #saveState() {
     this.#log("saving state for %o shares", Object.keys(this.#shares).length)
@@ -369,8 +373,6 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
   /** Loads and decrypts state from its serialized, persisted form */
   async #loadState() {
-    this.#log("loading state")
-
     const serializedState = await this.load(STORAGE_KEY)
     if (!serializedState) return
 
@@ -385,7 +387,6 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
       ) as Auth.KeysetWithSecrets
 
       const context = { device: this.#device, user: this.#user }
-      this.#log("loading: %o", truncateHashes({ encryptedTeam, teamKeys }))
 
       const team = Auth.loadTeam(encryptedTeam, context, teamKeys)
       this.addTeam(team)
@@ -395,6 +396,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
   // PUBLIC API
 
   public addTeam(team: Auth.Team) {
+    this.#log(`adding team ${team.teamName}`)
     const shareId = team.id
     this.#shares[shareId] = { shareId, team, documentIds: new Set() }
   }
