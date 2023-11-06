@@ -258,10 +258,9 @@ describe("localfirst/auth provider", () => {
 
   // TODO test adding a share after I'm connected
 
-  it.skip("persists local context and team state", async () => {
+  it.only("persists local context.only and team state", async () => {
     const {
       users: { alice, bob },
-      ports,
       teardown,
     } = setup(["alice", "bob"])
 
@@ -284,13 +283,13 @@ describe("localfirst/auth provider", () => {
     await synced(alice, bob)
 
     await pause(500)
-
     // Alice and Bob both close and reopen their apps
 
-    ports.forEach(port => port.close())
-
-    const alice2 = alice.restartRepo()
-    const bob2 = bob.restartRepo()
+    // create a new channel
+    const channel = new MessageChannel()
+    const { port1: aliceToBob, port2: bobToAlice } = channel
+    const alice2 = alice.restartRepo([aliceToBob])
+    const bob2 = bob.restartRepo([bobToAlice])
 
     // they're able to authenticate and sync
     const authWorkedAgain = await authenticatedInTime(alice2, bob2)

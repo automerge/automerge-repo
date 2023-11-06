@@ -31,23 +31,16 @@ export const setup = <T extends string>(
     }
   }, {} as Record<string, MessagePort[]>)
 
-  const ports = Object.values(portsByUser).flat()
+  const allPorts = Object.values(portsByUser).flat()
 
   const users = userNames.reduce((result, userName) => {
-    const setupRepo = () => {
-      const storageDir = getStorageDirectory()
-
-      portsByUser[userName].forEach(port => {
-        port.start()
-      })
-
+    const storageDir = getStorageDirectory()
+    const setupRepo = (ports: MessagePort[]) => {
       const authProvider = new LocalFirstAuthProvider(context)
 
       const repo = new Repo({
         peerId: user.userId,
-        network: portsByUser[userName].map(
-          p => new MessageChannelNetworkAdapter(p)
-        ),
+        network: ports.map(port => new MessageChannelNetworkAdapter(port)),
         storage: new NodeFSStorageAdapter(storageDir),
         auth: authProvider,
       })
@@ -57,17 +50,16 @@ export const setup = <T extends string>(
     const user = Auth.createUser(userName, userName)
     const device = Auth.createDevice(user.userId, `${userName}'s device`)
     const context = { user, device }
-    const { authProvider, repo } = setupRepo()
+    const { authProvider, repo } = setupRepo(portsByUser[userName])
 
-    const restartRepo = () => {
-      const { authProvider, repo } = setupRepo()
+    const restartRepo = (ports: MessagePort[]) => {
+      const { authProvider, repo } = setupRepo(ports)
       return {
         user,
         device,
         context,
         authProvider,
         repo,
-        ports,
         restartRepo,
       }
     }
@@ -80,7 +72,6 @@ export const setup = <T extends string>(
         context,
         authProvider,
         repo,
-        ports,
         restartRepo,
       },
     }
@@ -88,7 +79,7 @@ export const setup = <T extends string>(
 
   const teardown = () => {
     // close network ports
-    ports.forEach(port => port.close())
+    allPorts.forEach(port => port.close())
 
     // clear storage directories
     userNames.forEach(userName => {
@@ -96,7 +87,7 @@ export const setup = <T extends string>(
     })
   }
 
-  return { users, ports, teardown }
+  return { users, teardown }
 }
 
 const getStorageDirectory = () =>
@@ -112,6 +103,5 @@ export type UserStuff = {
   context: Auth.LocalUserContext
   authProvider: LocalFirstAuthProvider
   repo: Repo
-  ports: MessagePort[]
-  restartRepo: () => UserStuff
+  restartRepo: (ports: MessagePort[]) => UserStuff
 }
