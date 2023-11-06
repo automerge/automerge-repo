@@ -789,10 +789,10 @@ describe("Repo", () => {
 
       const nextRemoteHeadsPromise = new Promise<{
         peerId: PeerId
-        syncState: A.SyncState
+        heads: A.Heads
       }>(resolve => {
-        handle.on("sync-state", ({ peerId, syncState }) => {
-          resolve({ peerId, syncState })
+        handle.on("remote-heads", ({ peerId, heads }) => {
+          resolve({ peerId, heads })
         })
       })
 
@@ -816,14 +816,12 @@ describe("Repo", () => {
 
       const nextRemoteHeads = await nextRemoteHeadsPromise
       assert.deepStrictEqual(nextRemoteHeads.peerId, "charlie")
-      assert.deepStrictEqual(nextRemoteHeads.syncState, charlieHeads)
+      assert.deepStrictEqual(nextRemoteHeads.heads, charlieHeads)
 
-      assert.deepStrictEqual(handle.getSyncState("charlie" as PeerId), {
-        charlie: {
-          heads: A.getHeads(charlieHandle.docSync()),
-          received: nextRemoteHeads.received,
-        },
-      })
+      assert.deepStrictEqual(
+        handle.getRemoteHeads("charlie" as PeerId),
+        A.getHeads(charlieHandle.docSync())
+      )
     })
   })
 

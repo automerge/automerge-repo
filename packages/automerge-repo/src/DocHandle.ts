@@ -338,10 +338,25 @@ export class DocHandle<T> //
    * @hidden
    */
   setSyncState(peerId: PeerId, syncState: A.SyncState): void {
+    const previousSyncState = this.#syncStates[peerId]
+
     this.#syncStates[peerId] = syncState
     const { theirHeads, sharedHeads } = syncState
 
+    if (
+      syncState.theirHeads &&
+      (!previousSyncState ||
+        !previousSyncState.theirHeads ||
+        !arraysEqual(previousSyncState.theirHeads, syncState.theirHeads))
+    ) {
+      this.emit("remote-heads", { peerId, heads: syncState.theirHeads })
+    }
+
     this.emit("sync-state", { peerId, syncState })
+  }
+
+  getRemoteHeads(peerId: PeerId): A.Heads | undefined {
+    return this.#syncStates[peerId].theirHeads
   }
 
   /** `setSyncStates` is called by the repo when the doc is loaded initially
@@ -507,9 +522,8 @@ export interface DocHandleOutboundEphemeralMessagePayload<T> {
 }
 
 export interface DocHandleRemoteHeadsPayload {
-  remote: PeerId
+  peerId: PeerId
   heads: A.Heads
-  received: Date
 }
 
 export interface DocHandleSyncStatePayload {
@@ -654,3 +668,11 @@ const {
   AWAIT_NETWORK,
   NETWORK_READY,
 } = Event
+
+function arraysEqual<T>(a: T[], b: T[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
