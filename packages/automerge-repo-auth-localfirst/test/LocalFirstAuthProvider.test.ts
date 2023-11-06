@@ -256,7 +256,7 @@ describe("localfirst/auth provider", () => {
     teardown()
   })
 
-  it.only("persists local context and team state", async () => {
+  it("persists local context and team state", async () => {
     const {
       users: { alice, bob },
       teardown,
