@@ -7,7 +7,7 @@ This is an `AuthProvider` that uses the [localfirst/auth](https://github.com/loc
 library to provide Automerge Repo with authentication and end-to-end encryption, without the need
 for a central server.
 
-## How to use it
+## Making an authenticated connection
 
 A `LocalFirstAuthProvider` is configured with information about the local user and device.
 
@@ -94,3 +94,5 @@ Here's how that works under the hood:
 The repo can then go about its business of synchronizing documents, but with the assurance that
 every peer ID reported by the network has been authenticated, and that all traffic is also
 authenticated and safe from eavesdropping.
+
+##
