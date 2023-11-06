@@ -52,28 +52,14 @@ export const setup = <T extends string>(
     const context = { user, device }
     const { authProvider, repo } = setupRepo(portsByUser[userName])
 
-    const restartRepo = (ports: MessagePort[]) => {
+    const restart = (ports: MessagePort[]) => {
       const { authProvider, repo } = setupRepo(ports)
-      return {
-        user,
-        device,
-        context,
-        authProvider,
-        repo,
-        restartRepo,
-      }
+      return { user, device, context, authProvider, repo, restart }
     }
 
     return {
       ...result,
-      [userName]: {
-        user,
-        device,
-        context,
-        authProvider,
-        repo,
-        restartRepo,
-      },
+      [userName]: { user, device, context, authProvider, repo, restart },
     }
   }, {} as Record<string, UserStuff>)
 
@@ -103,5 +89,5 @@ export type UserStuff = {
   context: Auth.LocalUserContext
   authProvider: LocalFirstAuthProvider
   repo: Repo
-  restartRepo: (ports: MessagePort[]) => UserStuff
+  restart: (ports: MessagePort[]) => UserStuff
 }

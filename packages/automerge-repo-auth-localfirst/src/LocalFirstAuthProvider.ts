@@ -40,12 +40,13 @@ const { encrypt, decrypt } = Auth.symmetric
  *  authenticate peers and provide an encrypted channel for communication.
  */
 export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderEvents> {
+  #adapters: AuthenticatedNetworkAdapter<NetworkAdapter>[] = []
   #device: Auth.DeviceWithSecrets
   #user?: Auth.UserWithSecrets
   #invitations = {} as Record<ShareId, Invitation>
   #shares = {} as Record<ShareId, Share>
   #connections = {} as Record<ShareId, Record<PeerId, Auth.Connection>>
-  #peers: PeerId[] = []
+  #peers: Map<NetworkAdapter, PeerId[]> = new Map()
   #log: debug.Debugger
 
   constructor(config: Config) {
@@ -103,104 +104,10 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
       this.transform
     )
 
-    /**
-     * An Auth.Connection executes the localfirst/auth protocol to authenticate a peer, negotiate a
-     * shared secret key for the session, and sync up the team graph. This communication happens
-     * over the network adapter we're wrapping.
-     */
-    const createAuthConnection = (shareId: ShareId, peerId: PeerId) => {
-      // Use the base adapter to send auth messages to the peer
-      const sendMessage: Auth.SendFunction = serializedConnectionMessage => {
-        const authMessage: AuthMessage = {
-          type: "auth",
-          senderId: baseAdapter.peerId!,
-          targetId: peerId,
-          payload: { shareId, serializedConnectionMessage },
-        }
-        this.#log(`sending auth message to ${peerId} %o`, authMessage)
-        baseAdapter.send(authMessage)
-      }
-
-      const connection = new Auth.Connection({
-        context: this.#getContext(shareId),
-        sendMessage,
-        peerUserId: peerId,
-      })
-
-      connection
-        .on("joined", async ({ team, user }) => {
-          // When we successfully join a team, the connection gives us the team graph and the user's
-          // info (including keys). (When we're joining as a new device for an existing user, this
-          // is how we get the user's keys.)
-
-          this.#log(`joined ${team.teamName}`)
-
-          // Create a share with this team
-          this.#user = user
-          this.addTeam(team)
-
-          await this.#saveState()
-
-          // remove the used invitation as we no longer need it & don't want to present it to others
-          delete this.#invitations[shareId]
-
-          // Let the application know
-          this.emit("joined", { shareId, peerId, team, user })
-        })
-
-        .on("connected", () => {
-          this.#log(`connected to ${peerId}`)
-          //
-          // Let the application know
-          this.emit("connected", { shareId, peerId })
-
-          // Let the repo know we've got a new peer
-          authenticatedAdapter.emit("peer-candidate", { peerId })
-        })
-
-        .on("updated", async () => {
-          this.#log(`updated`)
-          await this.#saveState()
-        })
-
-        .on("localError", event => {
-          // These are errors that are detected locally, e.g. a peer tries to join with an invalid
-          // invitation
-          this.#log(`localError: ${JSON.stringify(event)}`)
-
-          // Let the application know, e.g. to let me decide if I want to allow the peer to retry
-          this.emit("localError", { shareId, peerId, ...event })
-        })
-
-        .on("remoteError", event => {
-          // These are errors that are detected on the peer and reported to us, e.g. a peer rejects
-          // an invitation we tried to join with
-          this.#log(`remoteError: ${JSON.stringify(event)}`)
-
-          // Let the application know, e.g. to let me retry
-          this.emit("remoteError", { shareId, peerId, ...event })
-        })
-
-        .on("disconnected", event => {
-          this.#log(`disconnected from ${peerId} (${JSON.stringify(event)})`)
-          this.#removeConnection(shareId, peerId)
-
-          // Let the application know
-          this.emit("disconnected", { shareId, peerId, event })
-
-          // Let the repo know
-          authenticatedAdapter.emit("peer-disconnected", { peerId })
-        })
-
-      connection.start()
-
-      return connection
-    }
-
-    // try to authenticate new peers; if we succeed, we forward the peer-candidate event
+    // try to authenticate new peers; if we succeed, we forward the peer-candidate to the network subsystem
     baseAdapter.on("peer-candidate", async ({ peerId }) => {
       this.#log(`peer-candidate from ${peerId}`)
-      this.#peers.push(peerId)
+      this.#addPeer(baseAdapter, peerId)
 
       const shareIds = [
         ...Object.keys(this.#shares),
@@ -209,10 +116,8 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
       // We optimistically spin up a connection for each share we have and every unused invitation
       // we have. Messages regarding shares we're not a member of will be ignored.
-      for (const shareId of shareIds) {
-        const connection = createAuthConnection(shareId, peerId)
-        this.#addConnection(shareId, peerId, connection)
-      }
+      for (const shareId of shareIds)
+        this.#createConnection({ shareId, peerId, authenticatedAdapter })
     })
 
     // examine inbound messages; deliver auth connection messages to the appropriate connection, and
@@ -260,21 +165,125 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
       "error",
     ])
 
+    this.#adapters.push(authenticatedAdapter)
     return authenticatedAdapter
   }
 
-  #addConnection = (
-    shareId: ShareId,
-    peerId: PeerId,
-    connection: Auth.Connection
-  ) => {
-    if (!this.#connections[shareId]) this.#connections[shareId] = {}
-    this.#connections[shareId][peerId] = connection
+  /**
+   * An Auth.Connection executes the localfirst/auth protocol to authenticate a peer, negotiate a
+   * shared secret key for the session, and sync up the team graph. This communication happens
+   * over a network adapter that we've wrapped.
+   */
+  #createConnection = <T extends NetworkAdapter>({
+    shareId,
+    peerId,
+    authenticatedAdapter,
+  }: {
+    shareId: ShareId
+    peerId: PeerId
+    authenticatedAdapter: AuthenticatedNetworkAdapter<T>
+  }) => {
+    const { baseAdapter } = authenticatedAdapter
+    // Use the base adapter to send auth messages to the peer
+    const sendMessage: Auth.SendFunction = serializedConnectionMessage => {
+      const authMessage: AuthMessage = {
+        type: "auth",
+        senderId: baseAdapter.peerId!,
+        targetId: peerId,
+        payload: { shareId, serializedConnectionMessage },
+      }
+      this.#log(`sending auth message to ${peerId} %o`, authMessage)
+      baseAdapter.send(authMessage)
+    }
+
+    const connection = new Auth.Connection({
+      context: this.#getContext(shareId),
+      sendMessage,
+      peerUserId: peerId,
+    })
+
+    connection
+      .on("joined", async ({ team, user }) => {
+        // When we successfully join a team, the connection gives us the team graph and the user's
+        // info (including keys). (When we're joining as a new device for an existing user, this
+        // is how we get the user's keys.)
+
+        this.#log(`joined ${team.teamName}`)
+
+        // Create a share with this team
+        this.#user = user
+        this.addTeam(team)
+
+        await this.#saveState()
+
+        // remove the used invitation as we no longer need it & don't want to present it to others
+        delete this.#invitations[shareId]
+
+        // Let the application know
+        this.emit("joined", { shareId, peerId, team, user })
+      })
+
+      .on("connected", () => {
+        this.#log(`connected to ${peerId}`)
+        //
+        // Let the application know
+        this.emit("connected", { shareId, peerId })
+
+        // Let the repo know we've got a new peer
+        authenticatedAdapter.emit("peer-candidate", { peerId })
+      })
+
+      .on("updated", async () => {
+        this.#log(`updated`)
+        await this.#saveState()
+      })
+
+      .on("localError", event => {
+        // These are errors that are detected locally, e.g. a peer tries to join with an invalid
+        // invitation
+        this.#log(`localError: ${JSON.stringify(event)}`)
+
+        // Let the application know, e.g. to let me decide if I want to allow the peer to retry
+        this.emit("localError", { shareId, peerId, ...event })
+      })
+
+      .on("remoteError", event => {
+        // These are errors that are detected on the peer and reported to us, e.g. a peer rejects
+        // an invitation we tried to join with
+        this.#log(`remoteError: ${JSON.stringify(event)}`)
+
+        // Let the application know, e.g. to let me retry
+        this.emit("remoteError", { shareId, peerId, ...event })
+      })
+
+      .on("disconnected", event => {
+        this.#log(`disconnected from ${peerId} (${JSON.stringify(event)})`)
+        this.#removeConnection(shareId, peerId)
+
+        // Let the application know
+        this.emit("disconnected", { shareId, peerId, event })
+
+        // Let the repo know
+        authenticatedAdapter.emit("peer-disconnected", { peerId })
+      })
+
+    connection.start()
+
+    // Track the connection
+    const connections = this.#connections[shareId] || {}
+    this.#connections[shareId] = { ...connections, [peerId]: connection }
+  }
+
+  #addPeer(baseAdapter: NetworkAdapter, peerId: PeerId) {
+    const peers = this.#peers.get(baseAdapter) || []
+    if (!peers.includes(peerId)) {
+      peers.push(peerId)
+      this.#peers.set(baseAdapter, peers)
+    }
   }
 
   #getConnection = (shareId: ShareId, peerId: PeerId) => {
-    const connections = this.#connections[shareId]
-    const connection = connections?.[peerId]
+    const connection = this.#connections[shareId]?.[peerId]
     if (!connection) throw new Error(`Connection not found`)
     return connection
   }
@@ -393,17 +402,29 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     }
   }
 
+  #createConnectionsForShare(shareId: ShareId) {
+    for (const authenticatedAdapter of this.#adapters) {
+      for (const peerId of this.#peers.get(authenticatedAdapter.baseAdapter) ||
+        []) {
+        const connection = this.#connections[shareId]?.[peerId]
+        if (!connection)
+          this.#createConnection({ shareId, peerId, authenticatedAdapter })
+      }
+    }
+  }
   // PUBLIC API
 
   public addTeam(team: Auth.Team) {
     this.#log(`adding team ${team.teamName}`)
     const shareId = team.id
     this.#shares[shareId] = { shareId, team, documentIds: new Set() }
+    this.#createConnectionsForShare(shareId)
   }
 
   public addInvitation(invitation: Invitation) {
     const { shareId } = invitation
     this.#invitations[shareId] = invitation
+    this.#createConnectionsForShare(shareId)
   }
 
   public addDocuments(shareId: ShareId, documentIds: DocumentId[]) {

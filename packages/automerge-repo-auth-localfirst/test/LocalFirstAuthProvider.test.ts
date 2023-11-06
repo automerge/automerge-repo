@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest"
 import { LocalFirstAuthProvider } from "../src/LocalFirstAuthProvider"
 import { authenticated, authenticatedInTime } from "./helpers/authenticated.js"
 import { eventPromise } from "./helpers/eventPromise"
-import { pause } from "./helpers/pause"
 import { UserStuff, setup } from "./helpers/setup.js"
 import { synced } from "./helpers/synced.js"
 
@@ -130,7 +129,8 @@ describe("localfirst/auth provider", () => {
       invitationSeed: phoneInviteCode,
     })
 
-    await authenticated(laptopRepo, phoneRepo)
+    // Alice's phone is able to authenticate using the invitation
+    await authenticated(laptopRepo, phoneRepo) // ✅
 
     laptopToPhone.close()
     phoneToLaptop.close()
@@ -156,7 +156,7 @@ describe("localfirst/auth provider", () => {
 
     // grrr foiled again
     const authWorked = await authenticatedInTime(alice, eve)
-    expect(authWorked).toBe(false)
+    expect(authWorked).toBe(false) // ✅
 
     teardown()
   })
@@ -182,7 +182,7 @@ describe("localfirst/auth provider", () => {
 
     // Bob sees the change
     await eventPromise(bobTeam, "updated")
-    expect(bobTeam.roles()).toHaveLength(2)
+    expect(bobTeam.roles()).toHaveLength(2) // ✅
 
     teardown()
   })
@@ -213,7 +213,7 @@ describe("localfirst/auth provider", () => {
       synced(alice, bob),
       synced(alice, charlie),
       synced(bob, charlie),
-    ])
+    ]) // ✅
 
     teardown()
   })
@@ -251,14 +251,12 @@ describe("localfirst/auth provider", () => {
       synced(alice, dwight),
       synced(bob, dwight),
       synced(charlie, dwight),
-    ])
+    ]) // ✅
 
     teardown()
   })
 
-  // TODO test adding a share after I'm connected
-
-  it.only("persists local context.only and team state", async () => {
+  it.only("persists local context and team state", async () => {
     const {
       users: { alice, bob },
       teardown,
@@ -278,24 +276,23 @@ describe("localfirst/auth provider", () => {
 
     // they're able to authenticate and sync
     const authWorked = await authenticatedInTime(alice, bob)
-    expect(authWorked).toBe(true)
+    expect(authWorked).toBe(true) // ✅
+    await synced(alice, bob) // ✅
 
-    await synced(alice, bob)
-
-    await pause(500)
     // Alice and Bob both close and reopen their apps
 
-    // create a new channel
+    // reconnect via a new channel
     const channel = new MessageChannel()
     const { port1: aliceToBob, port2: bobToAlice } = channel
-    const alice2 = alice.restartRepo([aliceToBob])
-    const bob2 = bob.restartRepo([bobToAlice])
+
+    // instantiate new authProviders and repos using this channel
+    const alice2 = alice.restart([aliceToBob])
+    const bob2 = bob.restart([bobToAlice])
 
     // they're able to authenticate and sync
     const authWorkedAgain = await authenticatedInTime(alice2, bob2)
-    expect(authWorkedAgain).toBe(true)
-
-    await synced(alice2, bob2)
+    expect(authWorkedAgain).toBe(true) // ✅
+    await synced(alice2, bob2) // ✅
 
     teardown()
   })
