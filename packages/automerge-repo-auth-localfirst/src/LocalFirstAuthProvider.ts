@@ -64,6 +64,8 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     })
   }
 
+  // OVERRIDES
+
   /**
    * Encrypt and decrypt messages using the session keys from the auth connections.
    */
@@ -167,6 +169,33 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
     this.#adapters.push(authenticatedAdapter)
     return authenticatedAdapter
+  }
+
+  // PUBLIC API
+
+  public addTeam(team: Auth.Team) {
+    this.#log(`adding team ${team.teamName}`)
+    const shareId = team.id
+    this.#shares[shareId] = { shareId, team, documentIds: new Set() }
+    this.#createConnectionsForShare(shareId)
+  }
+
+  public addInvitation(invitation: Invitation) {
+    const { shareId } = invitation
+    this.#invitations[shareId] = invitation
+    this.#createConnectionsForShare(shareId)
+  }
+
+  public addDocuments(shareId: ShareId, documentIds: DocumentId[]) {
+    throw new Error("not implemented")
+    // const share = this.getShare(shareId)
+    // documentIds.forEach(id => share.documentIds.add(id))
+  }
+
+  public removeDocuments(shareId: ShareId, documentIds: DocumentId[]) {
+    throw new Error("not implemented")
+    // const share = this.getShare(shareId)
+    // documentIds.forEach(id => share.documentIds.delete(id))
   }
 
   /**
@@ -411,32 +440,6 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
           this.#createConnection({ shareId, peerId, authenticatedAdapter })
       }
     }
-  }
-  // PUBLIC API
-
-  public addTeam(team: Auth.Team) {
-    this.#log(`adding team ${team.teamName}`)
-    const shareId = team.id
-    this.#shares[shareId] = { shareId, team, documentIds: new Set() }
-    this.#createConnectionsForShare(shareId)
-  }
-
-  public addInvitation(invitation: Invitation) {
-    const { shareId } = invitation
-    this.#invitations[shareId] = invitation
-    this.#createConnectionsForShare(shareId)
-  }
-
-  public addDocuments(shareId: ShareId, documentIds: DocumentId[]) {
-    throw new Error("not implemented")
-    // const share = this.getShare(shareId)
-    // documentIds.forEach(id => share.documentIds.add(id))
-  }
-
-  public removeDocuments(shareId: ShareId, documentIds: DocumentId[]) {
-    throw new Error("not implemented")
-    // const share = this.getShare(shareId)
-    // documentIds.forEach(id => share.documentIds.delete(id))
   }
 }
 
