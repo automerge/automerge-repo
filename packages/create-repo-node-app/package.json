@@ -10,5 +10,8 @@
   "scripts": {
     "build": "tsc && chmod a+x dist/index.js",
     "watch": "npm-watch build"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
