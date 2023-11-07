@@ -27,12 +27,6 @@ import {
   isEncryptedMessage,
 } from "./types"
 
-// NEXT: If we add a new team after `peer-candidate`, we need to spin up a new connection for that
-// peer.
-
-// Basically we should try to have a connection for each team+peer combination. So we need to keep a list
-// of peers, and when we add a new team, try to spin up a connection for each peer (if one doesn't already exist.)
-
 const { encrypt, decrypt } = Auth.symmetric
 
 /**
@@ -132,7 +126,13 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
           const { shareId, serializedConnectionMessage } = payload
 
           // If we don't have this shareId, ignore the message
-          if (!(shareId in this.#connections)) return
+          if (!(shareId in this.#connections)) {
+            console.log(
+              `***** no connection available for this message %o`,
+              message
+            )
+            return
+          }
 
           const connection = this.#getConnection(shareId, senderId)
           // Pass message to the auth connection  (these messages aren't the repo's concern)
@@ -225,6 +225,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
       baseAdapter.send(authMessage)
     }
 
+    this.#log(`creating auth connection to ${peerId}`)
     const connection = new Auth.Connection({
       context: this.#getContext(shareId),
       sendMessage,
@@ -431,10 +432,11 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     }
   }
 
+  /** Go through all our peers and try to connect in case they're on the team */
   #createConnectionsForShare(shareId: ShareId) {
     for (const authenticatedAdapter of this.#adapters) {
-      for (const peerId of this.#peers.get(authenticatedAdapter.baseAdapter) ||
-        []) {
+      const peerIds = this.#peers.get(authenticatedAdapter.baseAdapter) || []
+      for (const peerId of peerIds) {
         const connection = this.#connections[shareId]?.[peerId]
         if (!connection)
           this.#createConnection({ shareId, peerId, authenticatedAdapter })
