@@ -23,6 +23,7 @@ export class LocalFirstAuthSyncServer {
   server: HttpServer
   host: string
   storageDir: string
+  publicKeys: Keyset
 
   constructor(
     /** The domain name or IP address of this server. This should match the name added to the
@@ -50,8 +51,8 @@ export class LocalFirstAuthSyncServer {
       if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir)
 
       // Get keys from storage or create new ones
-      const keys = this.getKeys()
-      const publicKeys = redactKeys(keys)
+      const keys = this.#getKeys()
+      this.publicKeys = redactKeys(keys)
 
       // Create the socket we will use. localfirst/auth will use this to send and receive
       // authentication messages, and Automerge Repo will use it to send and receive sync messages
@@ -114,11 +115,11 @@ export class LocalFirstAuthSyncServer {
         auth.addTeam(team)
 
         // return the server's public keys
-        res.send(publicKeys)
+        res.send(this.publicKeys)
       })
 
       app.get("/keys", (req, res) => {
-        res.send(publicKeys)
+        res.send(this.publicKeys)
       })
 
       this.server = app.listen(port, () => {
@@ -146,7 +147,7 @@ export class LocalFirstAuthSyncServer {
     this.server.close()
   }
 
-  getKeys = () => {
+  #getKeys = () => {
     const keysPath = path.join(this.storageDir, "__SERVER_KEYS.json")
     if (fs.existsSync(keysPath)) {
       // retrieve from storage
