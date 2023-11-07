@@ -1,4 +1,5 @@
 import {
+  AuthMessage,
   AuthProviderEvents,
   DocumentId,
   Message,
@@ -19,6 +20,8 @@ export type LocalFirstAuthMessagePayload = {
   shareId: ShareId
   serializedConnectionMessage: string
 }
+
+export type LocalFirstAuthMessage = AuthMessage<LocalFirstAuthMessagePayload>
 
 export type EncryptedMessage = {
   type: "encrypted"
@@ -98,10 +101,7 @@ export interface LocalFirstAuthProviderEvents extends AuthProviderEvents {
   /**
    * We're connected to a peer and have been mutually authenticated.
    */
-  connected: (payload: {
-    shareId: ShareId
-    peerId: PeerId
-  }) => void
+  connected: (payload: { shareId: ShareId; peerId: PeerId }) => void
 
   /**
    * We've detected an error locally, e.g. a peer tries to join with an invalid invitation.

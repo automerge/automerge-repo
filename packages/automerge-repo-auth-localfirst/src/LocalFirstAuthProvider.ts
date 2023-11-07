@@ -1,9 +1,4 @@
-import type {
-  AuthMessage,
-  DocumentId,
-  PeerId,
-  RepoMessage,
-} from "@automerge/automerge-repo"
+import type { DocumentId, PeerId, RepoMessage } from "@automerge/automerge-repo"
 import {
   AuthProvider,
   AuthenticatedNetworkAdapter,
@@ -18,6 +13,8 @@ import {
   Config,
   EncryptedMessage,
   Invitation,
+  LocalFirstAuthMessage,
+  LocalFirstAuthMessagePayload,
   LocalFirstAuthProviderEvents,
   SerializedShare,
   SerializedState,
@@ -40,6 +37,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
   #invitations = {} as Record<ShareId, Invitation>
   #shares = {} as Record<ShareId, Share>
   #connections = {} as Record<ShareId, Record<PeerId, Auth.Connection>>
+  #messageStore = {} as Record<ShareId, Record<PeerId, string[]>>
   #peers: Map<NetworkAdapter, PeerId[]> = new Map()
   #log: debug.Debugger
 
@@ -113,7 +111,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
       // We optimistically spin up a connection for each share we have and every unused invitation
       // we have. Messages regarding shares we're not a member of will be ignored.
       for (const shareId of shareIds)
-        this.#createConnection({ shareId, peerId, authenticatedAdapter })
+        await this.#createConnection({ shareId, peerId, authenticatedAdapter })
     })
 
     // examine inbound messages; deliver auth connection messages to the appropriate connection, and
@@ -121,16 +119,14 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     baseAdapter.on("message", message => {
       try {
         if (isAuthMessage(message)) {
-          this.#log(`auth message from ${message.senderId} %o`, message)
           const { senderId, payload } = message
-          const { shareId, serializedConnectionMessage } = payload
+          const { shareId, serializedConnectionMessage } =
+            payload as LocalFirstAuthMessagePayload
 
-          // If we don't have this shareId, ignore the message
+          // If we don't have a connection for this message, store it until we do
           if (!(shareId in this.#connections)) {
-            console.log(
-              `***** no connection available for this message %o`,
-              message
-            )
+            this.#log(`no connection for message ${message}`)
+            this.#storeMessage(shareId, senderId, serializedConnectionMessage)
             return
           }
 
@@ -173,17 +169,17 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
 
   // PUBLIC API
 
-  public addTeam(team: Auth.Team) {
+  public async addTeam(team: Auth.Team) {
     this.#log(`adding team ${team.teamName}`)
     const shareId = team.id
     this.#shares[shareId] = { shareId, team, documentIds: new Set() }
-    this.#createConnectionsForShare(shareId)
+    await this.#createConnectionsForShare(shareId)
   }
 
-  public addInvitation(invitation: Invitation) {
+  public async addInvitation(invitation: Invitation) {
     const { shareId } = invitation
     this.#invitations[shareId] = invitation
-    this.#createConnectionsForShare(shareId)
+    await this.#createConnectionsForShare(shareId)
   }
 
   public addDocuments(shareId: ShareId, documentIds: DocumentId[]) {
@@ -199,11 +195,30 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
   }
 
   /**
+   * We might get messages from a peer before we've set up an Auth.Connection with them.
+   * We store these messages until there's a connection to hand them off to.
+   */
+  #storeMessage = (shareId: ShareId, peerId: PeerId, message: string) => {
+    const messages = this.#messageStore[shareId]?.[peerId] || []
+    this.#messageStore[shareId] = {
+      ...this.#messageStore[shareId],
+      [peerId]: [...messages, message],
+    }
+  }
+
+  #popStoredMessage = (shareId: ShareId, peerId: PeerId) => {
+    const messages = this.#messageStore[shareId]?.[peerId] || []
+    if (messages.length === 0) return undefined
+    const message = messages.shift()
+    return message
+  }
+
+  /**
    * An Auth.Connection executes the localfirst/auth protocol to authenticate a peer, negotiate a
    * shared secret key for the session, and sync up the team graph. This communication happens
    * over a network adapter that we've wrapped.
    */
-  #createConnection = <T extends NetworkAdapter>({
+  #createConnection = async <T extends NetworkAdapter>({
     shareId,
     peerId,
     authenticatedAdapter,
@@ -213,9 +228,10 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     authenticatedAdapter: AuthenticatedNetworkAdapter<T>
   }) => {
     const { baseAdapter } = authenticatedAdapter
+
     // Use the base adapter to send auth messages to the peer
     const sendMessage: Auth.SendFunction = serializedConnectionMessage => {
-      const authMessage: AuthMessage = {
+      const authMessage: LocalFirstAuthMessage = {
         type: "auth",
         senderId: baseAdapter.peerId!,
         targetId: peerId,
@@ -298,6 +314,13 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
       })
 
     connection.start()
+
+    // If we already had messages for this peer, pass them to the connection
+    let message: string
+    do {
+      message = this.#popStoredMessage(shareId, peerId)
+      if (message) await connection.deliver(message)
+    } while (message)
 
     // Track the connection
     const connections = this.#connections[shareId] || {}
@@ -433,13 +456,17 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
   }
 
   /** Go through all our peers and try to connect in case they're on the team */
-  #createConnectionsForShare(shareId: ShareId) {
+  async #createConnectionsForShare(shareId: ShareId) {
     for (const authenticatedAdapter of this.#adapters) {
       const peerIds = this.#peers.get(authenticatedAdapter.baseAdapter) || []
       for (const peerId of peerIds) {
         const connection = this.#connections[shareId]?.[peerId]
         if (!connection)
-          this.#createConnection({ shareId, peerId, authenticatedAdapter })
+          await this.#createConnection({
+            shareId,
+            peerId,
+            authenticatedAdapter,
+          })
       }
     }
   }

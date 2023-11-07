@@ -17,6 +17,7 @@
     "debug": "^4.3.4"
   },
   "devDependencies": {
+    "rimraf": "^5.0.5",
     "@automerge/automerge-repo-storage-nodefs": "^1.0.13"
   }
 }
