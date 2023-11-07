@@ -1,5 +1,6 @@
 import fs from "fs"
 import express from "express"
+import bodyParser from "body-parser"
 import { Server as HttpServer } from "http"
 import { WebSocketServer } from "ws"
 import { PeerId, Repo, RepoConfig } from "@automerge/automerge-repo"
@@ -82,6 +83,9 @@ export class LocalFirstAuthSyncServer {
 
       const app = express()
 
+      // parse application/json
+      app.use(bodyParser.json())
+
       const confirmation = `👍 Sync server for Automerge Repo + localfirst/auth running`
       app.get("/", (req, res) => {
         res.send(confirmation)
@@ -103,8 +107,9 @@ export class LocalFirstAuthSyncServer {
        * server.
        */
       app.post("/teams", (req, res) => {
-        // rehydrate the team using the serialized graph and the keys
+        // rehydrate the team using the serialized graph and the keys passed in the request
         const { serializedGraph, teamKeyring } = req.body
+
         const team = new Team({
           source: serializedGraph,
           context: authContext,
@@ -113,9 +118,6 @@ export class LocalFirstAuthSyncServer {
 
         // add the team to our auth provider
         auth.addTeam(team)
-
-        // return the server's public keys
-        res.send(this.publicKeys)
       })
 
       app.get("/keys", (req, res) => {
