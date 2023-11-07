@@ -56,8 +56,6 @@ export class DocSynchronizer extends Synchronizer {
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  #lastSyncs: Record<PeerId, LastSync> = {}
-
   #pendingSyncMessages: Array<PendingMessage> = []
 
   #syncStarted = false
@@ -126,6 +124,8 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #getSyncState(peerId: PeerId) {
+    // remove init logic
+
     if (!this.#peers.includes(peerId)) {
       this.#log("adding a new peer", peerId)
       this.#peers.push(peerId)
@@ -142,6 +142,22 @@ export class DocSynchronizer extends Synchronizer {
     }
 
     return A.initSyncState()
+  }
+
+  async #addPeer(peerId: PeerId) {
+    // make sure we haven't added peerId already
+    if (this.#peers.includes(peerId)) {
+      return
+    }
+
+    this.#peers.push(peerId)
+    const syncState = (this.#syncStates[peerId] = await this.#onLoadSyncState(
+      peerId
+    ))
+
+    // when a peer is added, we don't know if it has the document or not
+    // todo: I think based on the stored sync state we could be smarter and figure out if the user has the document
+    this.#peerDocumentStatuses[peerId] = "unknown"
   }
 
   #setSyncState(peerId: PeerId, syncState: A.SyncState) {
@@ -168,8 +184,10 @@ export class DocSynchronizer extends Synchronizer {
     })
   }
 
-  #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
+  async #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
     this.#log(`sendSyncMessage ->${peerId}`)
+
+    await this.#addPeer(peerId)
 
     const syncState = this.#getSyncState(peerId)
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
@@ -213,10 +231,13 @@ export class DocSynchronizer extends Synchronizer {
     return this.#peers.includes(peerId)
   }
 
-  beginSync(peerIds: PeerId[]) {
+  async beginSync(peerIds: PeerId[]) {
     const newPeers = new Set(
       peerIds.filter(peerId => !this.#peers.includes(peerId))
     )
+
+    await Promise.all(peerIds.map(peerId => this.#addPeer(peerId)))
+
     this.#log(`beginSync: ${peerIds.join(", ")}`)
 
     // HACK: if we have a sync state already, we round-trip it through the encoding system to make
@@ -310,7 +331,10 @@ export class DocSynchronizer extends Synchronizer {
     this.#processSyncMessage(message, new Date())
   }
 
-  #processSyncMessage(message: SyncMessage | RequestMessage, received: Date) {
+  async #processSyncMessage(
+    message: SyncMessage | RequestMessage,
+    received: Date
+  ) {
     if (isRequestMessage(message)) {
       this.#peerDocumentStatuses[message.senderId] = "wants"
     }
@@ -322,6 +346,8 @@ export class DocSynchronizer extends Synchronizer {
       this.#peerDocumentStatuses[message.senderId] = "has"
     }
 
+    await this.#addPeer(message.senderId)
+
     this.#handle.update(doc => {
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
@@ -330,13 +356,6 @@ export class DocSynchronizer extends Synchronizer {
       )
 
       this.#setSyncState(message.senderId, newSyncState)
-      if (newSyncState.theirHeads != null) {
-        this.#lastSyncs[message.senderId] = {
-          heads: newSyncState.theirHeads,
-          at: received,
-          dirty: true,
-        }
-      }
 
       // respond to just this peer (as required)
       this.#sendSyncMessage(message.senderId, doc)

@@ -100,7 +100,7 @@ describe("DocSynchronizer", () => {
     const bobDocSynchronizer = new DocSynchronizer({
       handle: bobHandle as DocHandle<unknown>,
     })
-    bobDocSynchronizer.beginSync([alice])
+    await bobDocSynchronizer.beginSync([alice])
     bobHandle.request()
     const message = await eventPromise(bobDocSynchronizer, "message")
 
@@ -111,7 +111,7 @@ describe("DocSynchronizer", () => {
     aliceHandle.request()
 
     aliceDocSynchronizer.receiveSyncMessage({ ...message, senderId: bob })
-    aliceDocSynchronizer.beginSync([charlie, bob])
+    await aliceDocSynchronizer.beginSync([charlie, bob])
 
     const [charlieMessage, bobMessage] = await new Promise<MessageContents[]>(
       resolve => {
@@ -124,6 +124,9 @@ describe("DocSynchronizer", () => {
         })
       }
     )
+
+    console.log("bobMessage", bobMessage)
+    console.log("charlieMessage", charlieMessage)
 
     // the response should be a sync message, not a request message
     assert.equal(charlieMessage.targetId, "charlie")

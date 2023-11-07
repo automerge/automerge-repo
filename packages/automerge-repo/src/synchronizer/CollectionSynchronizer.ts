@@ -1,3 +1,4 @@
+import * as A from "@automerge/automerge"
 import debug from "debug"
 import { DocHandle } from "../DocHandle.js"
 import { stringifyAutomergeUrl } from "../AutomergeUrl.js"
@@ -64,6 +65,28 @@ export class CollectionSynchronizer extends Synchronizer {
     return generousPeers
   }
 
+  /** load stored sync state for generous peers and begin sync on doc synchronizer */
+  async #beginSync(docSynchronizer: DocSynchronizer, peers: PeerId[]) {
+    const documentId = docSynchronizer.documentId
+    const storedSyncStates: Record<PeerId, A.SyncState> = {}
+    const newPeers: PeerId[] = []
+
+    for (const peerId of peers) {
+      if (!docSynchronizer.hasPeer(peerId)) {
+        const syncState = await this.repo.storageSubsystem?.loadSyncState(
+          documentId,
+          peerId
+        )
+
+        if (syncState) {
+          storedSyncStates[peerId] = syncState
+        }
+        newPeers.push(peerId)
+      }
+    }
+    docSynchronizer.beginSync(newPeers)
+  }
+
   // PUBLIC
 
   /**
@@ -90,6 +113,9 @@ export class CollectionSynchronizer extends Synchronizer {
 
     // Initiate sync with any new peers
     const peers = await this.#documentGenerousPeers(documentId)
+
+    // todo: call load sync state on doc synchronizer
+
     docSynchronizer.beginSync(
       peers.filter(peerId => !docSynchronizer.hasPeer(peerId))
     )

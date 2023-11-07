@@ -183,6 +183,7 @@ describe("Repo", () => {
     it("doesn't find a document that doesn't exist", async () => {
       const { repo } = setup()
       const handle = repo.find<TestDoc>(generateAutomergeUrl())
+
       assert.equal(handle.isReady(), false)
 
       const doc = await handle.doc()
