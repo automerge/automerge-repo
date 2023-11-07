@@ -1,0 +1,14 @@
+{
+  "name": "@automerge/create-repo-node-app",
+  "version": "1.0.0",
+  "description": "Create an automerge-repo app for node",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/create-repo-node-app",
+  "author": "Alex Good <alex@memoryandthought.me>",
+  "license": "MIT",
+  "type": "module",
+  "bin": "dist/index.js",
+  "scripts": {
+    "build": "tsc && chmod a+x dist/index.js",
+    "watch": "npm-watch build"
+  }
+}
