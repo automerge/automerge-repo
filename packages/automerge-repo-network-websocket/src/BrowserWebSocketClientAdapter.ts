@@ -170,9 +170,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
         log(`error: ${decoded.message}`)
         break
       default:
-        if (!isValidRepoMessage(decoded)) {
-          throw new Error("Invalid message received")
-        }
         this.emit("message", decoded)
     }
   }
