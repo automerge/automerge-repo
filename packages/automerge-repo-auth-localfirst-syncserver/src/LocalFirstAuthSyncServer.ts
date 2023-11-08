@@ -18,6 +18,15 @@ import {
 
 /**
  * This is a sync server for use with automerge-repo and the LocalFirstAuthProvider.
+ *
+ * The intended workflow for a client application is:
+ * - Create a team
+ * - GET `/keys` to obtain the server's public keys
+ * - Add the server with its public keys to the team
+ * - POST to `/teams` to send the team graph and keys to the server
+ *
+ * At this point anyone on the team can use automerge-repo with a LocalFirstAuthProvider to
+ * authenticate with the server.
  */
 export class LocalFirstAuthSyncServer {
   socket: WebSocketServer
@@ -27,8 +36,10 @@ export class LocalFirstAuthSyncServer {
   publicKeys: Keyset
 
   constructor(
-    /** The domain name or IP address of this server. This should match the name added to the
-     * localfirst/auth team. */
+    /**
+     * A unique name for this server - probably its domain name or IP address. This should match the
+     * name added to the localfirst/auth team.
+     */
     host: string
   ) {
     this.host = host
@@ -60,7 +71,8 @@ export class LocalFirstAuthSyncServer {
       this.socket = new WebSocketServer({ noServer: true })
 
       // Set up the auth provider
-      // TODO: localfirst/auth could shield us from this nonsense of casting a server as a fake user
+
+      // TODO: localfirst/auth should shield us from this nonsense of casting a server as a fake user
       // and a fake device. Ideally we would just pass our server name and keys as context instead of
       // having to pretend:
       // ```ts
@@ -91,21 +103,12 @@ export class LocalFirstAuthSyncServer {
         res.send(confirmation)
       })
 
-      /**
-       * Endpoint to register a team.
-       *
-       * The intended workflow is:
-       * - The application creates a team
-       * - The application uses this endpoint to send the team graph and keys to the server
-       * - The server adds the team to its auth provider
-       * - The server responds with its public keys
-       * - The application adds the server to the team
-       * - The application can now use localfirst/auth to authenticate with the server
-       *
-       * No invitation or authentication is necessary when calling this endpoint, as a TLS connection
-       * to a trusted address is sufficient to ensure that the application is talking to the right
-       * server.
-       */
+      /** Endpoint to request the server's public keys. */
+      app.get("/keys", (req, res) => {
+        res.send(this.publicKeys)
+      })
+
+      /** Endpoint to register a team. */
       app.post("/teams", (req, res) => {
         // rehydrate the team using the serialized graph and the keys passed in the request
         const { serializedGraph, teamKeyring } = req.body
@@ -118,10 +121,6 @@ export class LocalFirstAuthSyncServer {
 
         // add the team to our auth provider
         auth.addTeam(team)
-      })
-
-      app.get("/keys", (req, res) => {
-        res.send(this.publicKeys)
       })
 
       this.server = app.listen(port, () => {
