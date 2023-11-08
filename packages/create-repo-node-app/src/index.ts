@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// This is needed to tell your system that this file is a Node script.
 
 import fs from 'fs'
 import path from 'path'
@@ -18,9 +17,9 @@ function createPackageJson(projectName: string) {
       start: 'node index.js',
     },
     dependencies: {
-      '@automerge/automerge-repo': '^0.1',
-      '@automerge/automerge-repo-network-websocket': '^0.1',
-      '@automerge/automerge-repo-storage-nodefs': '^0.1',
+      '@automerge/automerge-repo': '^1.0',
+      '@automerge/automerge-repo-network-websocket': '^1.0',
+      '@automerge/automerge-repo-storage-nodefs': '^1.0',
     },
   }
   fs.writeFileSync(
@@ -36,7 +35,7 @@ import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import { next as Automerge } from "@automerge/automerge"
 
 const repo = new Repo({
-  storage: [new NodeFSStorageAdapter("./db")],
+  storage: new NodeFSStorageAdapter("./db"),
   network: [new BrowserWebSocketClientAdapter("wss://sync.automerge.org")]
 })
 `
