@@ -46,3 +46,19 @@ export type FromClientMessage = JoinMessage | LeaveMessage | Message
 
 /** A message from the server to the client */
 export type FromServerMessage = PeerMessage | ErrorMessage | Message
+
+export const isJoinMessage = (
+  message: FromClientMessage
+): message is JoinMessage => message.type === "join"
+
+export const isLeaveMessage = (
+  message: FromClientMessage
+): message is LeaveMessage => message.type === "leave"
+
+export const isPeerMessage = (
+  message: FromServerMessage
+): message is PeerMessage => message.type === "peer"
+
+export const isErrorMessage = (
+  message: FromServerMessage
+): message is ErrorMessage => message.type === "error"

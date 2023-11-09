@@ -14,7 +14,12 @@
  *
  */
 
-import { Message, NetworkAdapter, PeerId } from "@automerge/automerge-repo"
+import {
+  Message,
+  NetworkAdapter,
+  PeerId,
+  RepoMessage,
+} from "@automerge/automerge-repo"
 
 export type BroadcastChannelNetworkAdapterOptions = {
   channelName: string
@@ -44,28 +49,24 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
 
         const { senderId, type } = message
 
-        switch (type) {
-          case "arrive":
-            this.#broadcastChannel.postMessage({
-              senderId: this.peerId,
-              targetId: senderId,
-              type: "welcome",
-            })
-            this.#announceConnection(senderId)
-            break
-          case "welcome":
-            this.#announceConnection(senderId)
-            break
-          default:
-            if (!("data" in message)) {
-              this.emit("message", message)
-            } else {
-              this.emit("message", {
-                ...message,
-                data: new Uint8Array(message.data),
-              })
-            }
-            break
+        if (isArriveMessage(message)) {
+          this.#broadcastChannel.postMessage({
+            senderId: this.peerId,
+            targetId: senderId,
+            type: "welcome",
+          })
+          this.#announceConnection(senderId)
+        } else if (isWelcomeMessage(message)) {
+          this.#announceConnection(senderId)
+        } else {
+          if (!("data" in message)) {
+            this.emit("message", message)
+          } else {
+            this.emit("message", {
+              ...message,
+              data: new Uint8Array(message.data),
+            } as RepoMessage)
+          }
         }
       }
     )
@@ -125,3 +126,11 @@ type WelcomeMessage = {
 }
 
 type BroadcastChannelMessage = ArriveMessage | WelcomeMessage | Message
+
+export const isArriveMessage = (
+  message: BroadcastChannelMessage
+): message is ArriveMessage => message.type === "arrive"
+
+export const isWelcomeMessage = (
+  message: BroadcastChannelMessage
+): message is WelcomeMessage => message.type === "welcome"

@@ -1,4 +1,9 @@
-import { NetworkAdapter, PeerId, cbor } from "@automerge/automerge-repo"
+import {
+  NetworkAdapter,
+  PeerId,
+  cbor,
+  isValidRepoMessage,
+} from "@automerge/automerge-repo"
 import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
@@ -7,9 +12,10 @@ import {
   FromClientMessage,
   FromServerMessage,
   JoinMessage,
+  isErrorMessage,
+  isPeerMessage,
 } from "./messages.js"
 import { ProtocolV1 } from "./protocolVersion.js"
-import { isValidRepoMessage } from "@automerge/automerge-repo"
 
 const log = debug("WebsocketClient")
 
@@ -110,7 +116,11 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   send(message: FromClientMessage) {
-    if ("data" in message && message.data.byteLength === 0) {
+    if (
+      isValidRepoMessage(message) &&
+      "data" in message &&
+      message.data.byteLength === 0
+    ) {
       throw new Error("tried to send a zero-length message")
     }
 
@@ -147,30 +157,22 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.emit("peer-candidate", { peerId })
   }
 
-  receiveMessage(message: Uint8Array) {
-    const decoded: FromServerMessage = cbor.decode(new Uint8Array(message))
-
-    const { type, senderId } = decoded
+  receiveMessage(messageBytes: Uint8Array) {
+    const message: FromServerMessage = cbor.decode(new Uint8Array(messageBytes))
 
     const socket = this.socket
-    if (!socket) {
-      throw new Error("Missing socket at receiveMessage")
-    }
+    if (!socket) throw new Error("Missing socket at receiveMessage")
 
-    if (message.byteLength === 0) {
+    if (messageBytes.byteLength === 0)
       throw new Error("received a zero-length message")
-    }
 
-    switch (type) {
-      case "peer":
-        log(`peer: ${senderId}`)
-        this.announceConnection(senderId)
-        break
-      case "error":
-        log(`error: ${decoded.message}`)
-        break
-      default:
-        this.emit("message", decoded)
+    if (isPeerMessage(message)) {
+      log(`peer: ${message.senderId}`)
+      this.announceConnection(message.senderId)
+    } else if (isErrorMessage(message)) {
+      log(`error: ${message.message}`)
+    } else {
+      this.emit("message", message)
     }
   }
 }

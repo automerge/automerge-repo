@@ -1,16 +1,21 @@
-import WebSocket from "isomorphic-ws"
-import { type WebSocketServer } from "isomorphic-ws"
-
-import debug from "debug"
-const log = debug("WebsocketServer")
-
 import {
   cbor as cborHelpers,
+  isValidRepoMessage,
   NetworkAdapter,
   type PeerId,
 } from "@automerge/automerge-repo"
-import { FromClientMessage, FromServerMessage } from "./messages.js"
+import assert from "assert"
+import debug from "debug"
+import WebSocket, { type WebSocketServer } from "isomorphic-ws"
+import {
+  FromClientMessage,
+  FromServerMessage,
+  isJoinMessage,
+  isLeaveMessage,
+} from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
+
+const log = debug("WebsocketServer")
 
 const { encode, decode } = cborHelpers
 
@@ -84,15 +89,25 @@ export class NodeWSServerAdapter extends NetworkAdapter {
   }
 
   send(message: FromServerMessage) {
-    if ("data" in message && message.data.byteLength === 0) {
+    assert("targetId" in message && message.targetId !== undefined)
+
+    if (
+      isValidRepoMessage(message) &&
+      "data" in message &&
+      message.data.byteLength === 0
+    ) {
       throw new Error("tried to send a zero-length message")
     }
+
     const senderId = this.peerId
     if (!senderId) {
       throw new Error("No peerId set for the websocket server network adapter.")
     }
 
-    if (this.sockets[message.targetId] === undefined) {
+    if (
+      isValidRepoMessage(message) &&
+      this.sockets[message.targetId] === undefined
+    ) {
       log(`Tried to send message to disconnected peer: ${message.targetId}`)
       return
     }
@@ -108,67 +123,60 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     this.sockets[message.targetId]?.send(arrayBuf)
   }
 
-  receiveMessage(message: Uint8Array, socket: WebSocket) {
-    const cbor: FromClientMessage = decode(message)
+  receiveMessage(messageBytes: Uint8Array, socket: WebSocket) {
+    const message: FromClientMessage = decode(messageBytes)
 
-    const { type, senderId } = cbor
+    const { type, senderId } = message
 
     const myPeerId = this.peerId
-    if (!myPeerId) {
-      throw new Error("Missing my peer ID.")
-    }
-    log(
-      `[${senderId}->${myPeerId}${
-        "documentId" in cbor ? "@" + cbor.documentId : ""
-      }] ${type} | ${message.byteLength} bytes`
-    )
-    switch (type) {
-      case "join":
-        const existingSocket = this.sockets[senderId]
-        if (existingSocket) {
-          if (existingSocket.readyState === WebSocket.OPEN) {
-            existingSocket.close()
-          }
-          this.emit("peer-disconnected", {peerId: senderId})
+    if (!myPeerId) throw new Error("Missing my peer ID.")
+
+    const documentId = "documentId" in message ? "@" + message.documentId : ""
+    const { byteLength } = messageBytes
+    log(`[${senderId}->${myPeerId}${documentId}] ${type} | ${byteLength} bytes`)
+
+    if (isJoinMessage(message)) {
+      const existingSocket = this.sockets[senderId]
+      if (existingSocket) {
+        if (existingSocket.readyState === WebSocket.OPEN) {
+          existingSocket.close()
         }
+        this.emit("peer-disconnected", { peerId: senderId })
+      }
 
-        // Let the rest of the system know that we have a new connection.
-        this.emit("peer-candidate", { peerId: senderId })
-        this.sockets[senderId] = socket
+      // Let the rest of the system know that we have a new connection.
+      this.emit("peer-candidate", { peerId: senderId })
+      this.sockets[senderId] = socket
 
-        // In this client-server connection, there's only ever one peer: us!
-        // (and we pretend to be joined to every channel)
-        const selectedProtocolVersion = selectProtocol(
-          cbor.supportedProtocolVersions
-        )
-        if (selectedProtocolVersion === null) {
-          this.send({
-            type: "error",
-            senderId: this.peerId!,
-            message: "unsupported protocol version",
-            targetId: senderId,
-          })
-          this.sockets[senderId].close()
-          delete this.sockets[senderId]
-        } else {
-          this.send({
-            type: "peer",
-            senderId: this.peerId!,
-            selectedProtocolVersion: ProtocolV1,
-            targetId: senderId,
-          })
-        }
-        break
-      case "leave":
-        // It doesn't seem like this gets called;
-        // we handle leaving in the socket close logic
-        // TODO: confirm this
-        // ?
-        break
-
-      default:
-        this.emit("message", cbor)
-        break
+      // In this client-server connection, there's only ever one peer: us!
+      // (and we pretend to be joined to every channel)
+      const selectedProtocolVersion = selectProtocol(
+        message.supportedProtocolVersions
+      )
+      if (selectedProtocolVersion === null) {
+        this.send({
+          type: "error",
+          senderId: this.peerId!,
+          message: "unsupported protocol version",
+          targetId: senderId,
+        })
+        this.sockets[senderId].close()
+        delete this.sockets[senderId]
+      } else {
+        this.send({
+          type: "peer",
+          senderId: this.peerId!,
+          selectedProtocolVersion: ProtocolV1,
+          targetId: senderId,
+        })
+      }
+    } else if (isLeaveMessage(message)) {
+      // It doesn't seem like this gets called;
+      // we handle leaving in the socket close logic
+      // TODO: confirm this
+      // ?
+    } else {
+      this.emit("message", message)
     }
   }
 }
