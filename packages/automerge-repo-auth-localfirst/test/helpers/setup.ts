@@ -40,9 +40,11 @@ export const setup = <T extends string>(
 
       const repo = new Repo({
         peerId: user.userId,
-        network: ports.map(port => new MessageChannelNetworkAdapter(port)),
+        network: ports.map(port => {
+          const adapter = new MessageChannelNetworkAdapter(port)
+          return authProvider.wrapNetworkAdapter(adapter)
+        }),
         storage: new NodeFSStorageAdapter(storageDir),
-        auth: authProvider,
       })
       return { authProvider, repo }
     }
