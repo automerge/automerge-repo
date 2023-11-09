@@ -156,11 +156,11 @@ describe("Websocket adapters", () => {
     }
 
     async function recvOrTimeout(socket: WebSocket): Promise<Buffer | null> {
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const timer = setTimeout(() => {
           resolve(null)
         }, 1000)
-        socket.once("message", (msg) => {
+        socket.once("message", msg => {
           clearTimeout(timer)
           resolve(msg as Buffer)
         })
@@ -215,14 +215,16 @@ describe("Websocket adapters", () => {
      *
      *  @param contents - The contents to initialize the document with
      */
-    async function initDocAndStorage<T extends Record<string, unknown>>(contents: T): Promise<{
-          storage: DummyStorageAdapter,
-          url: AutomergeUrl,
-          doc: A.Doc<T>,
+    async function initDocAndStorage<T extends Record<string, unknown>>(
+      contents: T
+    ): Promise<{
+      storage: DummyStorageAdapter
+      url: AutomergeUrl
+      doc: A.Doc<T>
           documentId: DocumentId
         }> {
       const storage = new DummyStorageAdapter()
-      const silentRepo = new Repo({storage, network: []})
+      const silentRepo = new Repo({ storage, network: [] })
       const doc = A.from<T>(contents)
       const handle = silentRepo.create()
       handle.update(() => A.clone(doc))
@@ -246,7 +248,10 @@ describe("Websocket adapters", () => {
       }
     }
 
-    function assertIsSyncMessage(forDocument: DocumentId, msg: Buffer | null): SyncMessage {
+    function assertIsSyncMessage(
+      forDocument: DocumentId,
+      msg: Buffer | null
+    ): SyncMessage {
       if (msg == null) {
         throw new Error("expected a peer message, got null")
       }
@@ -255,7 +260,9 @@ describe("Websocket adapters", () => {
         throw new Error(`expected a peer message, got type: ${decoded.type}`)
       }
       if (decoded.documentId !== forDocument) {
-        throw new Error(`expected a sync message for ${forDocument}, not for ${decoded.documentId}`)
+        throw new Error(
+          `expected a sync message for ${forDocument}, not for ${decoded.documentId}`
+        )
       }
       return decoded
     }
@@ -283,20 +290,26 @@ describe("Websocket adapters", () => {
       const { socket, serverUrl } = await setup(0)
 
       // Create a doc, populate a DummyStorageAdapter with that doc
-      const {storage, url, doc, documentId} = await initDocAndStorage({foo: "bar"})
+      const { storage, url, doc, documentId } = await initDocAndStorage({
+        foo: "bar",
+      })
 
       // Create a copy of the document to represent the client state
-      let clientDoc = A.clone<{foo: string}>(doc)
-      clientDoc = A.change(clientDoc, d => d.foo = "qux")
+      let clientDoc = A.clone<{ foo: string }>(doc)
+      clientDoc = A.change(clientDoc, d => (d.foo = "qux"))
 
       // Now create a websocket sync server with the original document in it's storage
       const adapter = new NodeWSServerAdapter(socket)
-      const repo = new Repo({ network: [adapter], storage, peerId: "server" as PeerId })
+      const repo = new Repo({
+        network: [adapter],
+        storage,
+        peerId: "server" as PeerId,
+      })
 
       // make a change to the handle on the sync server
-      const handle = repo.find<{foo: string}>(url)
+      const handle = repo.find<{ foo: string }>(url)
       await handle.whenReady()
-      handle.change(d => d.foo = "baz")
+      handle.change(d => (d.foo = "baz"))
 
       // Okay, so now there is a document on both the client and the server
       // which has concurrent changes on each peer.
@@ -306,11 +319,13 @@ describe("Websocket adapters", () => {
       await once(clientSocket, "open")
 
       // Run through the client/server hello
-      clientSocket.send(CBOR.encode({
+      clientSocket.send(
+        CBOR.encode({
         type: "join",
         senderId: "client",
         supportedProtocolVersions: ["1"],
-      }))
+        })
+      )
 
       let response = await recvOrTimeout(clientSocket)
       assertIsPeerMessage(response)
@@ -318,17 +333,22 @@ describe("Websocket adapters", () => {
       // Okay now we start syncing
 
       let clientState = A.initSyncState()
-      let [newSyncState, message] = A.generateSyncMessage(clientDoc, clientState)
+      let [newSyncState, message] = A.generateSyncMessage(
+        clientDoc,
+        clientState
+      )
       clientState = newSyncState
 
       // Send the initial sync state
-      clientSocket.send(CBOR.encode({
+      clientSocket.send(
+        CBOR.encode({
         type: "request",
         documentId,
         targetId: "server",
         senderId: "client",
-        data: message
-      }))
+          data: message,
+        })
+      )
 
       response = await recvOrTimeout(clientSocket)
       assertIsSyncMessage(documentId, response)
@@ -344,34 +364,42 @@ describe("Websocket adapters", () => {
       await once(clientSocket, "open")
 
       // and we also make a change to the client doc
-      clientDoc = A.change(clientDoc, d => d.foo = "quoxen")
+      clientDoc = A.change(clientDoc, d => (d.foo = "quoxen"))
 
       // Run through the whole client/server hello dance again
-      clientSocket.send(CBOR.encode({
+      clientSocket.send(
+        CBOR.encode({
         type: "join",
         senderId: "client",
         supportedProtocolVersions: ["1"],
-      }))
+        })
+      )
 
       response = await recvOrTimeout(clientSocket)
       assertIsPeerMessage(response)
 
       // Now, we start syncing. If we're not buggy, this loop should terminate.
-      while(true) {
+      while (true) {
         ;[clientState, message] = A.generateSyncMessage(clientDoc, clientState)
         if (message) {
-          clientSocket.send(CBOR.encode({
+          clientSocket.send(
+            CBOR.encode({
             type: "sync",
             documentId,
             targetId: "server",
             senderId: "client",
-            data: message
-          }))
+              data: message,
+            })
+          )
         }
         const response = await recvOrTimeout(clientSocket)
         if (response) {
           const decoded = assertIsSyncMessage(documentId, response)
-          ;[clientDoc, clientState] = A.receiveSyncMessage(clientDoc, clientState, decoded.data)
+          ;[clientDoc, clientState] = A.receiveSyncMessage(
+            clientDoc,
+            clientState,
+            decoded.data
+          )
         }
         if (response == null && message == null) {
           break
