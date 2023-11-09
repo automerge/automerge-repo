@@ -56,6 +56,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
       if (!this.#adaptersByPeer[peerId]) {
         // TODO: handle losing a server here
+
+        // If we're connected to the same peer via multiple networkAdapters, we only
+        // use the first one we find.
         this.#adaptersByPeer[peerId] = networkAdapter
       }
 
