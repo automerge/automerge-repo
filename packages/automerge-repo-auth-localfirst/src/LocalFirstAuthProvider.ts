@@ -1,8 +1,12 @@
-import type { DocumentId, PeerId, RepoMessage } from "@automerge/automerge-repo"
+import type {
+  DocumentId,
+  PeerId,
+  RepoMessage,
+  StorageAdapter,
+} from "@automerge/automerge-repo"
 import { NetworkAdapter, cbor, isAuthMessage } from "@automerge/automerge-repo"
 import * as Auth from "@localfirst/auth"
-import { AuthProvider } from "./temp/AuthProvider.js"
-import { AuthenticatedNetworkAdapter } from "./temp/AuthenticatedNetworkAdapter.js"
+import { AuthenticatedNetworkAdapter } from "./AuthenticatedNetworkAdapter.js"
 import debug from "debug"
 import { forwardEvents } from "./forwardEvents"
 import {
@@ -19,14 +23,15 @@ import {
   isDeviceInvitation,
   isEncryptedMessage,
 } from "./types"
-
+import EventEmitter from "eventemitter3"
+import { pause } from "../../automerge-repo/src/helpers/pause.js"
 const { encrypt, decrypt } = Auth.symmetric
 
 /**
  *  This is an {@link AuthProvider} that uses [localfirst/auth](https://github.com/local-first-web/auth) to
  *  authenticate peers and provide an encrypted channel for communication.
  */
-export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderEvents> {
+export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderEvents> {
   #adapters: AuthenticatedNetworkAdapter<NetworkAdapter>[] = []
   #device: Auth.DeviceWithSecrets
   #user?: Auth.UserWithSecrets
@@ -36,6 +41,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
   #messageStore = {} as Record<ShareId, Record<PeerId, string[]>>
   #peers: Map<NetworkAdapter, PeerId[]> = new Map()
   #log: debug.Debugger
+  storage: StorageAdapter
 
   constructor(config: Config) {
     super()
@@ -47,52 +53,19 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     // we might already have our user info, unless we're a new device using an invitation
     if ("user" in config) this.#user = config.user
 
-    this.on("storage-available", async () => {
-      this.#loadState()
-    })
-    if ("storage" in config) this.useStorage(config.storage)
-  }
-
-  // OVERRIDES
-
-  /**
-   * Encrypt and decrypt messages using the session keys from the auth connections.
-   */
-  transform = {
-    inbound: (message: RepoMessage | EncryptedMessage) => {
-      if (isEncryptedMessage(message)) {
-        const { encryptedMessage, shareId, senderId } = message
-        const { sessionKey } = this.#getConnection(shareId, senderId)
-        const decryptedMessage = decrypt(encryptedMessage, sessionKey)
-        return decryptedMessage as RepoMessage
-      } else {
-        return message
-      }
-    },
-    outbound: (message: RepoMessage): EncryptedMessage => {
-      const { targetId } = message
-      const shareId = this.#getShareIdForMessage(message)
-      const sessionKey = this.#getConnection(shareId, targetId).sessionKey
-
-      return {
-        type: "encrypted",
-        senderId: this.#device.userId as PeerId,
-        targetId,
-        shareId,
-        encryptedMessage: encrypt(message, sessionKey),
-      }
-    },
+    this.storage = config.storage
+    pause(500).then(() => this.#loadState())
   }
 
   /**
    * Intercept the network adapter's events. For each new peer, we create a localfirst/auth
    * connection and use it to mutually authenticate before forwarding the peer-candidate event.
    */
-  wrapNetworkAdapter = (baseAdapter: NetworkAdapter) => {
+  wrap = (baseAdapter: NetworkAdapter) => {
     this.#log("wrapping network adapter")
     const authenticatedAdapter = new AuthenticatedNetworkAdapter(
       baseAdapter,
-      this.transform
+      this.#transform
     )
 
     // try to authenticate new peers; if we succeed, we forward the peer-candidate to the network subsystem
@@ -132,7 +105,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
           connection.deliver(serializedConnectionMessage)
         } else {
           // Decrypt message if necessary
-          const transformedPayload = this.transform.inbound(message)
+          const transformedPayload = this.#transform.inbound(message)
           this.#log(
             `non-auth message from ${message.senderId} %o`,
             transformedPayload
@@ -164,8 +137,6 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     return authenticatedAdapter
   }
 
-  // PUBLIC API
-
   public async addTeam(team: Auth.Team) {
     this.#log(`adding team ${team.teamName}`)
     const shareId = team.id
@@ -189,6 +160,42 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     throw new Error("not implemented")
     // const share = this.getShare(shareId)
     // documentIds.forEach(id => share.documentIds.delete(id))
+  }
+
+  // PRIVATE
+
+  #save = async (key: string, value: Uint8Array) =>
+    this.storage.save(["AuthProvider", key], value)
+
+  #load = async (key: string) => this.storage.load(["AuthProvider", key])
+
+  /**
+   * Encrypt and decrypt messages using the session keys from the auth connections.
+   */
+  #transform = {
+    inbound: (message: RepoMessage | EncryptedMessage) => {
+      if (isEncryptedMessage(message)) {
+        const { encryptedMessage, shareId, senderId } = message
+        const { sessionKey } = this.#getConnection(shareId, senderId)
+        const decryptedMessage = decrypt(encryptedMessage, sessionKey)
+        return decryptedMessage as RepoMessage
+      } else {
+        return message
+      }
+    },
+    outbound: (message: RepoMessage): EncryptedMessage => {
+      const { targetId } = message
+      const shareId = this.#getShareIdForMessage(message)
+      const sessionKey = this.#getConnection(shareId, targetId).sessionKey
+
+      return {
+        type: "encrypted",
+        senderId: this.#device.userId as PeerId,
+        targetId,
+        shareId,
+        encryptedMessage: encrypt(message, sessionKey),
+      }
+    },
   }
 
   /**
@@ -410,10 +417,6 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
   /** Saves a serialized and partially encrypted version of the state */
   async #saveState() {
     this.#log("saving state for %o shares", Object.keys(this.#shares).length)
-    if (!this.hasStorage()) {
-      this.#log("no storage subsystem configured")
-      return
-    }
     const shares = {} as SerializedState
     for (const shareId in this.#shares) {
       const share = this.#shares[shareId] as Share
@@ -427,12 +430,12 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     }
     const serializedState = cbor.encode(shares)
     this.#log("saved state: %o", truncateHashes(shares))
-    await this.save(STORAGE_KEY, serializedState)
+    await this.#save(STORAGE_KEY, serializedState)
   }
 
   /** Loads and decrypts state from its serialized, persisted form */
   async #loadState() {
-    const serializedState = await this.load(STORAGE_KEY)
+    const serializedState = await this.#load(STORAGE_KEY)
     if (!serializedState) return
 
     const savedShares = cbor.decode(serializedState) as SerializedState

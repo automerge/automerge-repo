@@ -43,7 +43,7 @@ export const setup = <T extends string>(
         peerId: user.userId,
         network: ports.map(port => {
           const adapter = new MessageChannelNetworkAdapter(port)
-          return authProvider.wrapNetworkAdapter(adapter)
+          return authProvider.wrap(adapter)
         }),
         storage,
       })

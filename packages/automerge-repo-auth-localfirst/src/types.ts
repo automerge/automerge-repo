@@ -16,7 +16,8 @@ export type Config = {
   /** We have our user info, unless we're a new device using an invitation */
   user?: Auth.UserWithSecrets
 
-  storage?: StorageAdapter
+  /** We need to be given some way to persist our state */
+  storage: StorageAdapter
 }
 
 export type LocalFirstAuthMessagePayload = {
@@ -88,6 +89,8 @@ export type ErrorPayload = Auth.ConnectionErrorPayload & {
 }
 
 export interface LocalFirstAuthProviderEvents extends AuthProviderEvents {
+  "storage-available": () => void
+
   /**
    * We've successfully joined a team using an invitation. This event provides the team graph and
    * the user's info (including keys). (When we're joining as a new device for an existing user,

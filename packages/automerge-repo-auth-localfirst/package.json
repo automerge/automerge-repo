@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "^1.0.13",
+    "eventemitter3": "^5.0.1",
     "@localfirst/auth": "^4.2.1",
     "debug": "^4.3.4"
   },

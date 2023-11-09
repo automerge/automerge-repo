@@ -18,6 +18,7 @@
     "repocheck": "manypkg check",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
+    "test:log": "cross-env DEBUG='automerge-repo:*' yarn test",
     "test:ui": "vitest --coverage --ui",
     "watch": "lerna run watch --parallel --stream"
   },
