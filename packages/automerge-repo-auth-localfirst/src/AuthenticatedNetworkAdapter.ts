@@ -1,5 +1,5 @@
 import { NetworkAdapter, RepoMessage } from "@automerge/automerge-repo"
-import { Transform } from "./temp/types.js"
+import { Transform } from "./types.js"
 
 /**
  * An AuthenticatedNetworkAdapter is a NetworkAdapter that wraps another NetworkAdapter and

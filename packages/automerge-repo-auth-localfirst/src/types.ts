@@ -1,6 +1,4 @@
 import {
-  AuthMessage,
-  AuthProviderEvents,
   DocumentId,
   Message,
   PeerId,
@@ -88,7 +86,7 @@ export type ErrorPayload = Auth.ConnectionErrorPayload & {
   peerId: PeerId
 }
 
-export interface LocalFirstAuthProviderEvents extends AuthProviderEvents {
+export interface LocalFirstAuthProviderEvents {
   "storage-available": () => void
 
   /**
@@ -129,3 +127,30 @@ export interface LocalFirstAuthProviderEvents extends AuthProviderEvents {
     event: Auth.ConnectionMessage
   }) => void
 }
+
+/** Sent by an {@link AuthProvider} to authenticate a peer */
+export type AuthMessage<TPayload = any> = {
+  type: "auth"
+
+  /** The peer ID of the sender of this message */
+  senderId: PeerId
+
+  /** The peer ID of the recipient of this message */
+  targetId: PeerId
+
+  /** The payload of the auth message (up to the specific auth provider) */
+  payload: TPayload
+}
+
+export const isAuthMessage = (msg: any): msg is AuthMessage =>
+  msg.type === "auth"
+
+// TRANSFORMATION
+
+/** A Transform consists of two functions, for transforming inbound and outbound messages, respectively. */
+export type Transform = {
+  inbound: MessageTransformer
+  outbound: MessageTransformer
+}
+
+export type MessageTransformer = (msg: any) => any

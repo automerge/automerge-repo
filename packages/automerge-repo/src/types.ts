@@ -1,5 +1,5 @@
 import { DocHandle } from "./DocHandle.js"
-import { StorageAdapter, NetworkAdapter, AuthProvider } from "./index.js"
+import { StorageAdapter, NetworkAdapter } from "./index.js"
 
 /**
  * A branded string representing a URL for a document, in the form `automerge:<base58check encoded
@@ -45,10 +45,13 @@ export type RepoConfig = {
 
   /** One or more network adapters must be provided */
   network: NetworkAdapter[]
-} & (
-  | { auth?: AuthProvider } // either an AuthProvider or a SharePolicy can be provided (but not both)
-  | { sharePolicy?: SharePolicy }
-)
+
+  /**
+   * Normal peers typically share generously with everyone (meaning we sync all our documents with
+   * all peers). A server only syncs documents that a peer explicitly requests by ID.
+   */
+  sharePolicy?: SharePolicy
+}
 
 /** A function that determines whether we should share a document with a peer
  *

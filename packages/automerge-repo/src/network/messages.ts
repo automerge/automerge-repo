@@ -87,20 +87,6 @@ export type RequestMessage = {
   documentId: DocumentId
 }
 
-/** Sent by an {@link AuthProvider} to authenticate a peer */
-export type AuthMessage<TPayload = any> = {
-  type: "auth"
-
-  /** The peer ID of the sender of this message */
-  senderId: PeerId
-
-  /** The peer ID of the recipient of this message */
-  targetId: PeerId
-
-  /** The payload of the auth message (up to the specific auth provider) */
-  payload: TPayload
-}
-
 /** These are message types that a {@link NetworkAdapter} surfaces to a {@link Repo}. */
 export type RepoMessage =
   | SyncMessage
@@ -109,12 +95,17 @@ export type RepoMessage =
   | DocumentUnavailableMessage
 
 /** These are all the message types that a {@link NetworkAdapter} might see. */
-export type Message = RepoMessage | AuthMessage
+export type Message = {
+  type: string
+  senderId: PeerId
+  targetId?: PeerId
+  data?: Uint8Array
+}
 
 /**
  * The contents of a message, without the sender ID or other properties added by the {@link NetworkSubsystem})
  */
-export type MessageContents<T extends Message = Message> =
+export type MessageContents<T extends RepoMessage = RepoMessage> =
   T extends EphemeralMessage
     ? Omit<T, "senderId" | "count" | "sessionId">
     : Omit<T, "senderId">
@@ -142,6 +133,3 @@ export const isSyncMessage = (msg: Message): msg is SyncMessage =>
 
 export const isEphemeralMessage = (msg: Message): msg is EphemeralMessage =>
   msg.type === "ephemeral"
-
-export const isAuthMessage = (msg: Message): msg is AuthMessage =>
-  msg.type === "auth"

@@ -40,18 +40,15 @@ export class CollectionSynchronizer extends Synchronizer {
     return docSynchronizer
   }
 
-  /** returns an array of peerIds that we should advertise this document to */
-  async #peersOkToAdvertise(documentId: DocumentId): Promise<PeerId[]> {
+  /** returns an array of peerIds that we share this document generously with */
+  async #documentGenerousPeers(documentId: DocumentId): Promise<PeerId[]> {
     const peers = Array.from(this.#peers)
-    const peersToAdvertise: PeerId[] = []
+    const generousPeers: PeerId[] = []
     for (const peerId of peers) {
-      const okToAdvertise = await this.repo.auth.okToAdvertise(
-        peerId,
-        documentId
-      )
-      if (okToAdvertise) peersToAdvertise.push(peerId)
+      const okToShare = await this.repo.sharePolicy(peerId, documentId)
+      if (okToShare) generousPeers.push(peerId)
     }
-    return peersToAdvertise
+    return generousPeers
   }
 
   // PUBLIC
@@ -79,14 +76,14 @@ export class CollectionSynchronizer extends Synchronizer {
     docSynchronizer.receiveMessage(message)
 
     // Initiate sync with any new peers
-    const peers = await this.#peersOkToAdvertise(documentId)
+    const peers = await this.#documentGenerousPeers(documentId)
     docSynchronizer.beginSync(
       peers.filter(peerId => !docSynchronizer.hasPeer(peerId))
     )
   }
 
   /**
-   * Starts synchronizing the given document with all peers that we advertise it to
+   * Starts synchronizing the given document with all peers that we share it generously with.
    */
   addDocument(documentId: DocumentId) {
     // HACK: this is a hack to prevent us from adding the same document twice
@@ -94,7 +91,7 @@ export class CollectionSynchronizer extends Synchronizer {
       return
     }
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
-    void this.#peersOkToAdvertise(documentId).then(peers => {
+    void this.#documentGenerousPeers(documentId).then(peers => {
       docSynchronizer.beginSync(peers)
     })
   }
@@ -115,7 +112,7 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
       const { documentId } = docSynchronizer
-      void this.repo.auth.okToSync(peerId, documentId).then(okToShare => {
+      void this.repo.sharePolicy(peerId, documentId).then(okToShare => {
         if (okToShare) docSynchronizer.beginSync([peerId])
       })
     }

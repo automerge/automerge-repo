@@ -86,12 +86,12 @@ export class LocalFirstAuthSyncServer {
         device: { userId, deviceName, keys },
       }
 
-      const auth = new LocalFirstAuthProvider(authContext)
-      const network = [new NodeWSServerAdapter(this.socket)]
       const storage = new NodeFSStorageAdapter(storageDir)
+      const auth = new LocalFirstAuthProvider({ ...authContext, storage })
+      const network = [new NodeWSServerAdapter(this.socket)]
 
       const peerId = this.host as PeerId
-      const _repo = new Repo({ peerId, network, storage, auth })
+      const _repo = new Repo({ peerId, network, storage })
 
       const app = express()
 

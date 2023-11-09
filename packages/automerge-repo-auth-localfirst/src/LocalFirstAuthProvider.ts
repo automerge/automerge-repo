@@ -1,13 +1,15 @@
 import type {
   DocumentId,
+  Message,
   PeerId,
   RepoMessage,
   StorageAdapter,
 } from "@automerge/automerge-repo"
-import { NetworkAdapter, cbor, isAuthMessage } from "@automerge/automerge-repo"
+import { NetworkAdapter, cbor } from "@automerge/automerge-repo"
 import * as Auth from "@localfirst/auth"
-import { AuthenticatedNetworkAdapter } from "./AuthenticatedNetworkAdapter.js"
 import debug from "debug"
+import EventEmitter from "eventemitter3"
+import { AuthenticatedNetworkAdapter } from "./AuthenticatedNetworkAdapter.js"
 import { forwardEvents } from "./forwardEvents"
 import {
   Config,
@@ -20,11 +22,10 @@ import {
   SerializedState,
   Share,
   ShareId,
+  isAuthMessage,
   isDeviceInvitation,
   isEncryptedMessage,
 } from "./types"
-import EventEmitter from "eventemitter3"
-import { pause } from "../../automerge-repo/src/helpers/pause.js"
 const { encrypt, decrypt } = Auth.symmetric
 
 /**
@@ -173,7 +174,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
    * Encrypt and decrypt messages using the session keys from the auth connections.
    */
   #transform = {
-    inbound: (message: RepoMessage | EncryptedMessage) => {
+    inbound: (message: Message) => {
       if (isEncryptedMessage(message)) {
         const { encryptedMessage, shareId, senderId } = message
         const { sessionKey } = this.#getConnection(shareId, senderId)

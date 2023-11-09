@@ -9,6 +9,7 @@ import path from "path"
 import { getPortPromise as getAvailablePort } from "portfinder"
 import { describe, expect, it } from "vitest"
 import { LocalFirstAuthSyncServer } from "../src/index.js"
+import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
 const storageDir = fs.mkdtempSync(
   path.join(os.tmpdir(), "automerge-repo-tests")
@@ -63,14 +64,16 @@ describe("LocalFirstAuthSyncServer", () => {
     })
 
     // add the team to a new auth provider
-    const auth = new LocalFirstAuthProvider({ user, device })
+
+    const storage = new NodeFSStorageAdapter(storageDir)
+    const auth = new LocalFirstAuthProvider({ user, device, storage })
     auth.addTeam(team)
 
     // set up our repo
     const repo = new Repo({
       peerId: user.userId as PeerId,
       network: [new BrowserWebSocketClientAdapter(`ws://${url}`)],
-      auth,
+      storage,
     })
 
     // get the server's public keys

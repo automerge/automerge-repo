@@ -13,8 +13,7 @@ import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import type { AnyDocumentId, DocumentId } from "./types.js"
 import { pause } from "./helpers/pause.js"
-import { RepoEvents, RepoConfig } from "./types.js"
-import { AuthProvider } from "./auth/AuthProvider.js"
+import { RepoEvents, SharePolicy, RepoConfig } from "./types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -25,8 +24,6 @@ import { AuthProvider } from "./auth/AuthProvider.js"
  */
 export class Repo extends EventEmitter<RepoEvents> {
   #log: debug.Debugger
-
-  auth: AuthProvider
 
   /** @hidden */
   networkSubsystem: NetworkSubsystem
@@ -44,32 +41,21 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Cached handles */
   handles: Record<DocumentId, DocHandle<any>> = {}
 
-  constructor(config: RepoConfig) {
+  /** By default, we share generously with all peers. */
+  /** @hidden */
+  sharePolicy: SharePolicy = async () => true
+
+  constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo`)
-
-    const {
-      storage, //
-      network: networkAdapters,
-      peerId,
-    } = config
-
-    if ("auth" in config && config.auth) {
-      this.auth = config.auth
-    } else if ("sharePolicy" in config && config.sharePolicy) {
-      this.auth = new AuthProvider({
-        okToAdvertise: config.sharePolicy,
-        okToSync: config.sharePolicy,
-      })
-    } else {
-      this.auth = new AuthProvider() // maximally permissive by default
-    }
 
     // add automatic logging to all events
     this.emit = (event, ...args) => {
       this.#log(`${event} %o`, args)
       return super.emit(event, ...args)
     }
+
+    this.sharePolicy = sharePolicy ?? this.sharePolicy
 
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
     this.#synchronizer = new CollectionSynchronizer(this)
@@ -84,8 +70,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
 
     // The network subsystem deals with sending and receiving messages to and from peers.
-
-    this.networkSubsystem = new NetworkSubsystem(networkAdapters, peerId)
+    this.networkSubsystem = new NetworkSubsystem(network, peerId)
 
     // When we get a new peer, register it with the synchronizer
     this.networkSubsystem.on("peer", ({ peerId }) => {
@@ -154,6 +139,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.emit("unavailable-document", { documentId })
     })
 
+    // Let the handle know when the network is ready
     if (this.networkSubsystem.isReady()) {
       handle.request()
     } else {
@@ -248,7 +234,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     const handle = this.#getHandle({ documentId, isNew: false })
     handle.delete()
 
+    // remove it from the cache
     delete this.handles[documentId]
+
+    // remove it from storage
+    void this.storageSubsystem?.removeDoc(documentId)
+
+    // TODO Pass the delete on to the network
+    // synchronizer.removeDocument(documentId)
 
     // notify the application
     this.emit("delete-document", { documentId })
