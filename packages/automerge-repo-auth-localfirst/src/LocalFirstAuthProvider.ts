@@ -1,12 +1,8 @@
 import type { DocumentId, PeerId, RepoMessage } from "@automerge/automerge-repo"
-import {
-  AuthProvider,
-  AuthenticatedNetworkAdapter,
-  NetworkAdapter,
-  cbor,
-  isAuthMessage,
-} from "@automerge/automerge-repo"
+import { NetworkAdapter, cbor, isAuthMessage } from "@automerge/automerge-repo"
 import * as Auth from "@localfirst/auth"
+import { AuthProvider } from "./temp/AuthProvider.js"
+import { AuthenticatedNetworkAdapter } from "./temp/AuthenticatedNetworkAdapter.js"
 import debug from "debug"
 import { forwardEvents } from "./forwardEvents"
 import {
@@ -54,6 +50,7 @@ export class LocalFirstAuthProvider extends AuthProvider<LocalFirstAuthProviderE
     this.on("storage-available", async () => {
       this.#loadState()
     })
+    if ("storage" in config) this.useStorage(config.storage)
   }
 
   // OVERRIDES

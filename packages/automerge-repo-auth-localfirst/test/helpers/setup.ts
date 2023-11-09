@@ -36,7 +36,8 @@ export const setup = <T extends string>(
   const users = userNames.reduce((result, userName) => {
     const storageDir = getStorageDirectory()
     const setupRepo = (ports: MessagePort[]) => {
-      const authProvider = new LocalFirstAuthProvider(context)
+      const storage = new NodeFSStorageAdapter(storageDir)
+      const authProvider = new LocalFirstAuthProvider({ user, device, storage })
 
       const repo = new Repo({
         peerId: user.userId,
@@ -44,7 +45,7 @@ export const setup = <T extends string>(
           const adapter = new MessageChannelNetworkAdapter(port)
           return authProvider.wrapNetworkAdapter(adapter)
         }),
-        storage: new NodeFSStorageAdapter(storageDir),
+        storage,
       })
       return { authProvider, repo }
     }

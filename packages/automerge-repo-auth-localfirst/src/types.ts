@@ -4,6 +4,7 @@ import {
   DocumentId,
   Message,
   PeerId,
+  StorageAdapter,
 } from "@automerge/automerge-repo"
 
 import * as Auth from "@localfirst/auth"
@@ -14,6 +15,8 @@ export type Config = {
 
   /** We have our user info, unless we're a new device using an invitation */
   user?: Auth.UserWithSecrets
+
+  storage?: StorageAdapter
 }
 
 export type LocalFirstAuthMessagePayload = {
