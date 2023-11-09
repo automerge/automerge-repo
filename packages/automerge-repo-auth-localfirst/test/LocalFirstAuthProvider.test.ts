@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest"
 import { LocalFirstAuthProvider } from "../src/LocalFirstAuthProvider"
 import { authenticated, authenticatedInTime } from "./helpers/authenticated.js"
 import { eventPromise } from "./helpers/eventPromise"
-import { UserStuff, setup } from "./helpers/setup.js"
+import { UserStuff, getStorageDirectory, setup } from "./helpers/setup.js"
 import { synced } from "./helpers/synced.js"
+import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
 describe("localfirst/auth provider", () => {
   it("does not authenticate users that do not belong to any teams", async () => {
@@ -95,24 +96,30 @@ describe("localfirst/auth provider", () => {
 
     const alice = Auth.createUser("alice")
 
+    const laptopStorage = new NodeFSStorageAdapter(getStorageDirectory())
     const laptop = Auth.createDevice(alice.userId, "Alice's laptop")
     const laptopContext = { user: alice, device: laptop }
-    const laptopAuthProvider = new LocalFirstAuthProvider(laptopContext)
+    const laptopAuthProvider = new LocalFirstAuthProvider({
+      ...laptopContext,
+      storage: laptopStorage,
+    })
 
     const laptopRepo = new Repo({
       network: [new MessageChannelNetworkAdapter(laptopToPhone)],
       peerId: laptop.deviceName as PeerId,
-      auth: laptopAuthProvider,
     })
 
+    const phoneStorage = new NodeFSStorageAdapter(getStorageDirectory())
     const phone = Auth.createDevice(alice.userId, "Alice's phone")
     const phoneContext = { user: alice, device: phone }
-    const phoneAuthProvider = new LocalFirstAuthProvider(phoneContext)
+    const phoneAuthProvider = new LocalFirstAuthProvider({
+      ...phoneContext,
+      storage: phoneStorage,
+    })
 
     const phoneRepo = new Repo({
       network: [new MessageChannelNetworkAdapter(phoneToLaptop)],
       peerId: phone.deviceName as PeerId,
-      auth: phoneAuthProvider,
     })
 
     // Alice creates team A on her laptop

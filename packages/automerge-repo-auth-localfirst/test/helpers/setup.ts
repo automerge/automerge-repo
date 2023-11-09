@@ -79,7 +79,7 @@ export const setup = <T extends string>(
   return { users, teardown }
 }
 
-const getStorageDirectory = () =>
+export const getStorageDirectory = () =>
   fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
 export interface TestDoc {

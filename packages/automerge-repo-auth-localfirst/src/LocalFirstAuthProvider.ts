@@ -54,7 +54,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     if ("user" in config) this.#user = config.user
 
     this.storage = config.storage
-    pause(500).then(() => this.#loadState())
+    this.#loadState()
   }
 
   /**
