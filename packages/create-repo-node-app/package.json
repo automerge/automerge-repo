@@ -8,7 +8,8 @@
   "type": "module",
   "bin": "dist/index.js",
   "scripts": {
-    "build": "tsc && chmod a+x dist/index.js",
+    "build": "tsc",
+    "postbuild": "node postbuild.js",
     "watch": "npm-watch build"
   },
   "publishConfig": {
