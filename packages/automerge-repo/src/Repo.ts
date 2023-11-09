@@ -85,21 +85,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // The network subsystem deals with sending and receiving messages to and from peers.
 
-    if (this.auth && this.storageSubsystem) {
-      this.auth.useStorage(this.storageSubsystem)
-    }
-
-    if (this.auth) {
-      const authenticatedAdapters = networkAdapters.map(adapter =>
-        this.auth.wrapNetworkAdapter(adapter)
-      )
-      this.networkSubsystem = new NetworkSubsystem(
-        authenticatedAdapters,
-        peerId
-      )
-    } else {
-      this.networkSubsystem = new NetworkSubsystem(networkAdapters, peerId)
-    }
+    this.networkSubsystem = new NetworkSubsystem(networkAdapters, peerId)
 
     // When we get a new peer, register it with the synchronizer
     this.networkSubsystem.on("peer", ({ peerId }) => {
