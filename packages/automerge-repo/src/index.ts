@@ -74,11 +74,5 @@ export type {
 
 export * from "./types.js"
 
-// helpers
-
-export { runAdapterTests } from "./helpers/tests/network-adapter-tests.js"
-export { DummyStorageAdapter } from "../test/helpers/DummyStorageAdapter.js"
-export { headsAreSame } from "./helpers/headsAreSame.js"
-
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
