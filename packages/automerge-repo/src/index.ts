@@ -37,9 +37,6 @@ export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export { isValidRepoMessage } from "./network/messages.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
 
-/** @hidden **/
-export * as cbor from "./helpers/cbor.js"
-
 // types
 
 export type {
@@ -76,3 +73,12 @@ export type {
 } from "./storage/types.js"
 
 export * from "./types.js"
+
+// helpers
+
+export { runAdapterTests } from "./helpers/tests/network-adapter-tests.js"
+export { DummyStorageAdapter } from "../test/helpers/DummyStorageAdapter.js"
+export { headsAreSame } from "./helpers/headsAreSame.js"
+
+/** @hidden **/
+export * as cbor from "./helpers/cbor.js"

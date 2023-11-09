@@ -1,16 +1,23 @@
 import { next as A } from "@automerge/automerge"
-import { AutomergeUrl, DocumentId, PeerId, Repo, SyncMessage, parseAutomergeUrl } from "@automerge/automerge-repo"
+import {
+  AutomergeUrl,
+  DocumentId,
+  DummyStorageAdapter,
+  PeerId,
+  Repo,
+  SyncMessage,
+  headsAreSame,
+  parseAutomergeUrl,
+  runAdapterTests,
+} from "@automerge/automerge-repo"
 import assert from "assert"
 import * as CBOR from "cbor-x"
 import { once } from "events"
 import http from "http"
 import { describe, it } from "vitest"
 import WebSocket, { AddressInfo } from "ws"
-import { runAdapterTests } from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
-import { DummyStorageAdapter } from "../../automerge-repo/test/helpers/DummyStorageAdapter.js"
 import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter.js"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter.js"
-import {headsAreSame} from "@automerge/automerge-repo/src/helpers/headsAreSame.js"
 
 describe("Websocket adapters", () => {
   const setup = async (clientCount = 1) => {
@@ -208,7 +215,7 @@ describe("Websocket adapters", () => {
       })
     })
 
-    /** 
+    /**
      *  Create a new document, initialized with the given contents and return a
      *  storage containign that document as well as the URL and a fork of the
      *  document
@@ -221,8 +228,8 @@ describe("Websocket adapters", () => {
       storage: DummyStorageAdapter
       url: AutomergeUrl
       doc: A.Doc<T>
-          documentId: DocumentId
-        }> {
+      documentId: DocumentId
+    }> {
       const storage = new DummyStorageAdapter()
       const silentRepo = new Repo({ storage, network: [] })
       const doc = A.from<T>(contents)
@@ -268,7 +275,7 @@ describe("Websocket adapters", () => {
     }
 
     it("should disconnect existing peers on reconnect before announcing them", async () => {
-      // This test exercises a sync loop which is exposed in the following 
+      // This test exercises a sync loop which is exposed in the following
       // sequence of events:
       //
       // 1. A document exists on both the server and the client with divergent
@@ -283,7 +290,7 @@ describe("Websocket adapters", () => {
       //    asks for them
       // 7. The server responds with an empty sync message because it thinks it
       //    has already sent the changes
-      // 
+      //
       // 6 and 7 continue in an infinite loop. The root cause is the servers
       // failure to clear the sync state associated with the given peer when
       // it receives a new connection from the same peer ID.
@@ -321,9 +328,9 @@ describe("Websocket adapters", () => {
       // Run through the client/server hello
       clientSocket.send(
         CBOR.encode({
-        type: "join",
-        senderId: "client",
-        supportedProtocolVersions: ["1"],
+          type: "join",
+          senderId: "client",
+          supportedProtocolVersions: ["1"],
         })
       )
 
@@ -342,10 +349,10 @@ describe("Websocket adapters", () => {
       // Send the initial sync state
       clientSocket.send(
         CBOR.encode({
-        type: "request",
-        documentId,
-        targetId: "server",
-        senderId: "client",
+          type: "request",
+          documentId,
+          targetId: "server",
+          senderId: "client",
           data: message,
         })
       )
@@ -353,9 +360,9 @@ describe("Websocket adapters", () => {
       response = await recvOrTimeout(clientSocket)
       assertIsSyncMessage(documentId, response)
 
-      // Now, assume either the network or the server is going slow, so the 
+      // Now, assume either the network or the server is going slow, so the
       // server thinks it has sent the response above, but for whatever reason
-      // it never gets to the client. In that case the reconnect timer in the 
+      // it never gets to the client. In that case the reconnect timer in the
       // BrowserWebSocketClientAdapter will fire and we'll create a new
       // websocket and connect it. To simulate this we drop the above response
       // on the floor and start connecting again.
@@ -369,9 +376,9 @@ describe("Websocket adapters", () => {
       // Run through the whole client/server hello dance again
       clientSocket.send(
         CBOR.encode({
-        type: "join",
-        senderId: "client",
-        supportedProtocolVersions: ["1"],
+          type: "join",
+          senderId: "client",
+          supportedProtocolVersions: ["1"],
         })
       )
 
@@ -384,10 +391,10 @@ describe("Websocket adapters", () => {
         if (message) {
           clientSocket.send(
             CBOR.encode({
-            type: "sync",
-            documentId,
-            targetId: "server",
-            senderId: "client",
+              type: "sync",
+              documentId,
+              targetId: "server",
+              senderId: "client",
               data: message,
             })
           )
