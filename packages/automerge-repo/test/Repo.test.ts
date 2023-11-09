@@ -542,6 +542,9 @@ describe("Repo", () => {
       const handle = charlieRepo.find<TestDoc>(
         stringifyAutomergeUrl({ documentId: notForCharlie })
       )
+
+      await pause(50)
+
       const doc = await handle.doc()
 
       assert.deepStrictEqual(doc, { foo: "baz" })
@@ -555,6 +558,9 @@ describe("Repo", () => {
       const handle = charlieRepo.find<TestDoc>(
         stringifyAutomergeUrl({ documentId: notForBob })
       )
+
+      await pause(50)
+
       const doc = await handle.doc()
       assert.deepStrictEqual(doc, { foo: "bap" })
 

@@ -51,6 +51,11 @@ export class DocSynchronizer extends Synchronizer {
   /** Active peers */
   #peers: PeerId[] = []
 
+  #pendingSyncStateCallbacks: Record<
+    PeerId,
+    ((syncState: A.SyncState) => void)[]
+  > = {}
+
   #peerDocumentStatuses: Record<PeerId, PeerDocumentStatus> = {}
 
   /** Sync state for each peer we've communicated with (including inactive peers) */
@@ -68,7 +73,8 @@ export class DocSynchronizer extends Synchronizer {
   constructor({ handle, onLoadSyncState }: DocSynchronizerConfig) {
     super()
     this.#handle = handle
-    this.#onLoadSyncState = onLoadSyncState ?? (() => undefined)
+    this.#onLoadSyncState =
+      onLoadSyncState ?? (() => Promise.resolve(undefined))
 
     const docId = handle.documentId.slice(0, 5)
     this.#log = debug(`automerge-repo:docsync:${docId}`)
@@ -125,28 +131,47 @@ export class DocSynchronizer extends Synchronizer {
     this.emit("message", message)
   }
 
-  #getSyncState(peerId: PeerId) {
+  #withSyncState(peerId: PeerId, callback: (syncState: A.SyncState) => void) {
     if (!this.#peers.includes(peerId)) {
-      this.#log("adding a new peer", peerId)
       this.#peers.push(peerId)
     }
 
-    // when a peer is added, we don't know if it has the document or not
+    // todo: I think we set sync states to "has" here if there is sync state available
     if (!(peerId in this.#peerDocumentStatuses)) {
       this.#peerDocumentStatuses[peerId] = "unknown"
     }
 
-    const prevSyncState = this.#syncStates[peerId]
-    if (prevSyncState) {
-      return prevSyncState
+    const syncState = this.#syncStates[peerId]
+    if (syncState) {
+      callback(syncState)
+      return
     }
 
-    return A.initSyncState()
+    let pendingCallbacks = this.#pendingSyncStateCallbacks[peerId]
+    if (!pendingCallbacks) {
+      this.#onLoadSyncState(peerId).then(syncState => {
+        this.#initSyncState(peerId, syncState ?? A.initSyncState())
+      })
+      pendingCallbacks = this.#pendingSyncStateCallbacks[peerId] = []
+    }
+
+    pendingCallbacks.push(callback)
+  }
+
+  #initSyncState(peerId: PeerId, syncState: A.SyncState) {
+    const pendingCallbacks = this.#pendingSyncStateCallbacks[peerId]
+    if (pendingCallbacks) {
+      for (const callback of pendingCallbacks) {
+        callback(syncState)
+      }
+    }
+
+    delete this.#pendingSyncStateCallbacks[peerId]
+
+    this.#syncStates[peerId] = syncState
   }
 
   #setSyncState(peerId: PeerId, syncState: A.SyncState) {
-    // TODO: we only need to do this on reconnect
-
     const previousSyncState = this.#syncStates[peerId]
 
     this.#syncStates[peerId] = syncState
@@ -171,40 +196,41 @@ export class DocSynchronizer extends Synchronizer {
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
     this.#log(`sendSyncMessage ->${peerId}`)
 
-    const syncState = this.#getSyncState(peerId)
-    const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
-    this.#setSyncState(peerId, newSyncState)
-    if (message) {
-      const isNew = A.getHeads(doc).length === 0
+    this.#withSyncState(peerId, syncState => {
+      const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
+      this.#setSyncState(peerId, newSyncState)
+      if (message) {
+        const isNew = A.getHeads(doc).length === 0
 
-      if (
-        !this.#handle.isReady() &&
-        isNew &&
-        newSyncState.sharedHeads.length === 0 &&
-        !Object.values(this.#peerDocumentStatuses).includes("has") &&
-        this.#peerDocumentStatuses[peerId] === "unknown"
-      ) {
-        // we don't have the document (or access to it), so we request it
-        this.emit("message", {
-          type: "request",
-          targetId: peerId,
-          documentId: this.#handle.documentId,
-          data: message,
-        } as RequestMessage)
-      } else {
-        this.emit("message", {
-          type: "sync",
-          targetId: peerId,
-          data: message,
-          documentId: this.#handle.documentId,
-        } as SyncMessage)
-      }
+        if (
+          !this.#handle.isReady() &&
+          isNew &&
+          newSyncState.sharedHeads.length === 0 &&
+          !Object.values(this.#peerDocumentStatuses).includes("has") &&
+          this.#peerDocumentStatuses[peerId] === "unknown"
+        ) {
+          // we don't have the document (or access to it), so we request it
+          this.emit("message", {
+            type: "request",
+            targetId: peerId,
+            documentId: this.#handle.documentId,
+            data: message,
+          } as RequestMessage)
+        } else {
+          this.emit("message", {
+            type: "sync",
+            targetId: peerId,
+            data: message,
+            documentId: this.#handle.documentId,
+          } as SyncMessage)
+        }
 
-      // if we have sent heads, then the peer now has or will have the document
-      if (!isNew) {
-        this.#peerDocumentStatuses[peerId] = "has"
+        // if we have sent heads, then the peer now has or will have the document
+        if (!isNew) {
+          this.#peerDocumentStatuses[peerId] = "has"
+        }
       }
-    }
+    })
   }
 
   /// PUBLIC
@@ -217,35 +243,50 @@ export class DocSynchronizer extends Synchronizer {
     const newPeers = new Set(
       peerIds.filter(peerId => !this.#peers.includes(peerId))
     )
-    this.#log(`beginSync: ${peerIds.join(", ")}`)
 
-    // HACK: if we have a sync state already, we round-trip it through the encoding system to make
-    // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
-    // messages during disconnection.
-    // TODO: cover that case with a test and remove this hack
-    peerIds.forEach(peerId => {
-      const rawSyncState = this.#getSyncState(peerId)
-      const syncState = A.decodeSyncState(A.encodeSyncState(rawSyncState))
-      this.#setSyncState(peerId, syncState)
-    })
+    // todo: figure out a single point where to add need peer ids
+    for (const peerId of newPeers.values()) {
+      this.#peers.push(peerId)
+    }
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
-    void this.#handle.doc([READY, REQUESTING, UNAVAILABLE]).then(doc => {
-      // we register out peers first, then say that sync has started
-      this.#syncStarted = true
-      this.#checkDocUnavailable()
 
-      const wasUnavailable = doc === undefined
-      if (wasUnavailable && newPeers.size == 0) {
-        return
-      }
-      // If the doc is unavailable we still need a blank document to generate
-      // the sync message from
-      const theDoc = doc ?? A.init<unknown>()
+    const docPromise = this.#handle
+      .doc([READY, REQUESTING, UNAVAILABLE])
+      .then(doc => {
+        // we register out peers first, then say that sync has started
+        this.#syncStarted = true
+        this.#checkDocUnavailable()
 
-      peerIds.forEach(peerId => {
-        this.#sendSyncMessage(peerId, theDoc)
+        const wasUnavailable = doc === undefined
+        if (wasUnavailable && newPeers.size == 0) {
+          return
+        }
+
+        // If the doc is unavailable we still need a blank document to generate
+        // the sync message from
+        return doc ?? A.init<unknown>()
+      })
+
+    this.#log(`beginSync: ${peerIds.join(", ")}`)
+
+    peerIds.forEach(peerId => {
+      this.#withSyncState(peerId, syncState => {
+        // HACK: if we have a sync state already, we round-trip it through the encoding system to make
+        // sure state is preserved. This prevents an infinite loop caused by failed attempts to send
+        // messages during disconnection.
+        // TODO: cover that case with a test and remove this hack
+        const reparsedSyncState = A.decodeSyncState(
+          A.encodeSyncState(syncState)
+        )
+        this.#setSyncState(peerId, reparsedSyncState)
+
+        docPromise.then(doc => {
+          if (doc) {
+            this.#sendSyncMessage(peerId, doc)
+          }
+        })
       })
     })
   }
@@ -322,28 +363,30 @@ export class DocSynchronizer extends Synchronizer {
       this.#peerDocumentStatuses[message.senderId] = "has"
     }
 
-    this.#handle.update(doc => {
-      const [newDoc, newSyncState] = A.receiveSyncMessage(
-        doc,
-        this.#getSyncState(message.senderId),
-        message.data
-      )
+    this.#withSyncState(message.senderId, syncState => {
+      this.#handle.update(doc => {
+        const [newDoc, newSyncState] = A.receiveSyncMessage(
+          doc,
+          syncState,
+          message.data
+        )
 
-      this.#setSyncState(message.senderId, newSyncState)
-      if (newSyncState.theirHeads != null) {
-        this.#lastSyncs[message.senderId] = {
-          heads: newSyncState.theirHeads,
-          at: received,
-          dirty: true,
+        this.#setSyncState(message.senderId, newSyncState)
+        if (newSyncState.theirHeads != null) {
+          this.#lastSyncs[message.senderId] = {
+            heads: newSyncState.theirHeads,
+            at: received,
+            dirty: true,
+          }
         }
-      }
 
-      // respond to just this peer (as required)
-      this.#sendSyncMessage(message.senderId, doc)
-      return newDoc
+        // respond to just this peer (as required)
+        this.#sendSyncMessage(message.senderId, doc)
+        return newDoc
+      })
+
+      this.#checkDocUnavailable()
     })
-
-    this.#checkDocUnavailable()
   }
 
   #checkDocUnavailable() {

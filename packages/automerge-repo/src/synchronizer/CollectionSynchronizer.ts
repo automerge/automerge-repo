@@ -39,7 +39,7 @@ export class CollectionSynchronizer extends Synchronizer {
       handle,
       onLoadSyncState: peerId => {
         if (!this.repo.storageSubsystem) {
-          return undefined
+          return Promise.resolve(undefined)
         }
 
         return this.repo.storageSubsystem.loadSyncState(
