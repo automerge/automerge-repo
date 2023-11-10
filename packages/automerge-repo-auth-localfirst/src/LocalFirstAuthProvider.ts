@@ -10,7 +10,7 @@ import * as Auth from "@localfirst/auth"
 import debug from "debug"
 import EventEmitter from "eventemitter3"
 import { AuthenticatedNetworkAdapter } from "./AuthenticatedNetworkAdapter.js"
-import { forwardEvents } from "./forwardEvents"
+import { forwardEvents } from "./forwardEvents.js"
 import {
   Config,
   EncryptedMessage,
@@ -25,7 +25,7 @@ import {
   isAuthMessage,
   isDeviceInvitation,
   isEncryptedMessage,
-} from "./types"
+} from "./types.js"
 const { encrypt, decrypt } = Auth.symmetric
 
 /**
