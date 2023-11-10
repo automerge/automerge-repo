@@ -1,5 +1,4 @@
 import { NetworkAdapter, RepoMessage } from "@automerge/automerge-repo"
-import { Transform } from "./types.js"
 
 /**
  * An AuthenticatedNetworkAdapter is a NetworkAdapter that wraps another NetworkAdapter and
@@ -8,24 +7,19 @@ import { Transform } from "./types.js"
 export class AuthenticatedNetworkAdapter<T extends NetworkAdapter> //
   extends NetworkAdapter
 {
-  baseAdapter: T
-  transform: Transform
-
   connect: typeof NetworkAdapter.prototype.connect
   disconnect: typeof NetworkAdapter.prototype.disconnect
 
-  constructor(baseAdapter: T, transform: Transform) {
+  /**
+   * The LocalFirstAuthProvider wraps a NetworkAdapter
+   * @param baseAdapter
+   * @param send
+   */
+  constructor(public baseAdapter: T, public send: (msg: RepoMessage) => void) {
     super()
-    this.baseAdapter = baseAdapter
-    this.transform = transform
 
     // pass through the base adapter's connect & disconnect methods
     this.connect = this.baseAdapter.connect.bind(this.baseAdapter)
     this.disconnect = this.baseAdapter.disconnect.bind(this.baseAdapter)
-  }
-
-  // transform outgoing messages
-  send = (message: RepoMessage) => {
-    this.baseAdapter.send(this.transform.outbound(message))
   }
 }
