@@ -34,7 +34,7 @@ export const setup = <T extends string>(
   const allPorts = Object.values(portsByUser).flat()
 
   const users = userNames.reduce((result, userName) => {
-    const storageDir = getStorageDirectory()
+    const storageDir = getStorageDirectory(userName)
     const setupRepo = (ports: MessagePort[]) => {
       const storage = new NodeFSStorageAdapter(storageDir)
       const authProvider = new LocalFirstAuthProvider({ user, device, storage })
@@ -72,15 +72,15 @@ export const setup = <T extends string>(
 
     // clear storage directories
     userNames.forEach(userName => {
-      rimraf.sync(getStorageDirectory())
+      rimraf.sync(getStorageDirectory(userName))
     })
   }
 
   return { users, teardown }
 }
 
-export const getStorageDirectory = () =>
-  fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
+export const getStorageDirectory = (userName: string) =>
+  fs.mkdtempSync(path.join(os.tmpdir(), `automerge-repo-tests-${userName}-`))
 
 export interface TestDoc {
   foo: string
