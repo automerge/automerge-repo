@@ -426,24 +426,31 @@ describe("Repo", () => {
 
       const aliceNetworkAdapter = new MessageChannelNetworkAdapter(ab)
 
+      const alice = "alice" as PeerId
       const aliceRepo = new Repo({
         network: connectAlice ? [aliceNetworkAdapter] : [],
-        peerId: "alice" as PeerId,
+        peerId: alice,
         sharePolicy,
       })
 
+      const bob = "bob" as PeerId
+      const bobStorage = new DummyStorageAdapter()
       const bobRepo = new Repo({
+        storage: bobStorage,
         network: [
           new MessageChannelNetworkAdapter(ba),
           new MessageChannelNetworkAdapter(bc),
         ],
-        peerId: "bob" as PeerId,
+        peerId: bob,
         sharePolicy,
       })
 
+      const charlie = "charlie" as PeerId
+      const charlieStorage = new DummyStorageAdapter()
       const charlieRepo = new Repo({
+        storage: charlieStorage,
         network: [new MessageChannelNetworkAdapter(cb)],
-        peerId: "charlie" as PeerId,
+        peerId: charlie,
       })
 
       const teardown = () => {
@@ -489,8 +496,13 @@ describe("Repo", () => {
       ])
 
       return {
+        alice,
         aliceRepo,
+        bob,
+        bobStorage,
         bobRepo,
+        charlie,
+        charlieStorage,
         charlieRepo,
         aliceHandle,
         notForCharlie,
@@ -776,7 +788,34 @@ describe("Repo", () => {
       teardown()
     })
 
-    it.todo("should save & reload remote heads")
+    it("should save sync state of other peers", async () => {
+      const { bobRepo, teardown, charlie } = await setup({
+        connectAlice: false,
+      })
+
+      const bobHandle = bobRepo.create<TestDoc>()
+      bobHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      await pause(50)
+
+      // bob should store the sync state of charlie
+      const storedSyncState = await bobRepo.storageSubsystem.loadSyncState(
+        bobHandle.documentId,
+        charlie
+      )
+      assert.deepStrictEqual(
+        storedSyncState.sharedHeads,
+        A.getHeads(bobHandle.docSync())
+      )
+
+      teardown()
+    })
+
+    it.todo(
+      "should try to load sync state from storage before syncing with other peers"
+    )
 
     it("should report the remote heads when they change", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup({
@@ -824,6 +863,8 @@ describe("Repo", () => {
         handle.getRemoteHeads("charlie" as PeerId),
         A.getHeads(charlieHandle.docSync())
       )
+
+      teardown()
     })
 
     it("can report the connected peers", async () => {

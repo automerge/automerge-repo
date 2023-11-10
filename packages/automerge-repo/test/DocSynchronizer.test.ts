@@ -113,17 +113,18 @@ describe("DocSynchronizer", () => {
     aliceDocSynchronizer.receiveSyncMessage({ ...message, senderId: bob })
     aliceDocSynchronizer.beginSync([charlie, bob])
 
-    const [charlieMessage, bobMessage] = await new Promise<MessageContents[]>(
-      resolve => {
-        const messages: MessageContents[] = []
-        aliceDocSynchronizer.on("message", message => {
-          messages.push(message)
-          if (messages.length === 2) {
-            resolve(messages)
-          }
-        })
-      }
-    )
+    const messages = await new Promise<MessageContents[]>(resolve => {
+      const messages: MessageContents[] = []
+      aliceDocSynchronizer.on("message", message => {
+        messages.push(message)
+        if (messages.length === 2) {
+          resolve(messages)
+        }
+      })
+    })
+
+    const bobMessage = messages.find(m => m.targetId === bob)
+    const charlieMessage = messages.find(m => m.targetId === charlie)
 
     // the response should be a sync message, not a request message
     assert.equal(charlieMessage.targetId, "charlie")
