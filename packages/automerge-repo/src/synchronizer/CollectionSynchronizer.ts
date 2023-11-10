@@ -140,4 +140,9 @@ export class CollectionSynchronizer extends Synchronizer {
       docSynchronizer.endSync(peerId)
     }
   }
+
+  /** Returns a list of all connected peer ids */
+  get peers(): PeerId[] {
+    return Array.from(this.#peers)
+  }
 }

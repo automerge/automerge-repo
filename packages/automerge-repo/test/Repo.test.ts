@@ -825,6 +825,15 @@ describe("Repo", () => {
         A.getHeads(charlieHandle.docSync())
       )
     })
+
+    it("can report the connected peers", async () => {
+      const { bobRepo, charlieRepo, teardown } = await setup()
+
+      assert.deepStrictEqual(bobRepo.peers, ["alice", "charlie"])
+      assert.deepStrictEqual(charlieRepo.peers, ["bob"])
+
+      teardown()
+    })
   })
 
   describe("with peers (mesh network)", () => {

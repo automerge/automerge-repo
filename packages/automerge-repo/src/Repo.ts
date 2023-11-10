@@ -37,6 +37,8 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
+  #synchronizer: CollectionSynchronizer
+
   /** By default, we share generously with all peers. */
   /** @hidden */
   sharePolicy: SharePolicy = async () => true
@@ -98,7 +100,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
 
       // Register the document with the synchronizer. This advertises our interest in the document.
-      synchronizer.addDocument(handle.documentId)
+      this.#synchronizer.addDocument(handle.documentId)
     })
 
     this.on("delete-document", ({ documentId }) => {
@@ -114,10 +116,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    const synchronizer = new CollectionSynchronizer(this)
+    this.#synchronizer = new CollectionSynchronizer(this)
 
     // When the synchronizer emits messages, send them to peers
-    synchronizer.on("message", message => {
+    this.#synchronizer.on("message", message => {
       this.#log(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
     })
@@ -135,24 +137,27 @@ export class Repo extends EventEmitter<RepoEvents> {
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId }) => {
       this.#log("peer connected", { peerId })
-      synchronizer.addPeer(peerId)
+      this.#synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      synchronizer.removePeer(peerId)
+      this.#synchronizer.removePeer(peerId)
     })
 
     // Handle incoming messages
     networkSubsystem.on("message", async msg => {
-      await synchronizer.receiveMessage(msg)
+      await this.#synchronizer.receiveMessage(msg)
     })
 
     if (storageSubsystem) {
       // todo: debounce
-      synchronizer.on("sync-state", ({ documentId, peerId, syncState }) => {
-        storageSubsystem.saveSyncState(documentId, peerId, syncState)
-      })
+      this.#synchronizer.on(
+        "sync-state",
+        ({ documentId, peerId, syncState }) => {
+          storageSubsystem.saveSyncState(documentId, peerId, syncState)
+        }
+      )
     }
   }
 
@@ -177,6 +182,11 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Returns all the handles we have cached. */
   get handles() {
     return this.#handleCache
+  }
+
+  /** Returns a list of all connected peer ids */
+  get peers(): PeerId[] {
+    return this.#synchronizer.peers
   }
 
   /**
