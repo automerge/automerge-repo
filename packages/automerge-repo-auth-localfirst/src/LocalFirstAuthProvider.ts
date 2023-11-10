@@ -30,30 +30,7 @@ const { encrypt, decrypt } = Auth.symmetric
  * This class is used to wrap automerge-repo network adapters so that they authenticate peers and
  * encrypt network traffic, using [localfirst/auth](https://github.com/local-first-web/auth).
  *
- * To use, create a LocalFirstAuthProvider and wrap your network adapter(s) with its `wrap` method.
- *
- * ```ts
- * const storage = new SomeStorageAdapter()
- * const authProvider = new LocalFirstAuthProvider({
- *   storage, // <- use the same storage adapter
- *   //...
- * })
- *
- * const websocketAdapter = new BrowserWebSocketClientAdapter()
- * const broadcastAdapter = new BroadcastChannelNetworkAdapter()
- * const network = [
- *   authProvider.wrap(networkAdapter), // <- wrap one but not the other
- *   broadcastAdapter,
- * ]
- *
- * const sharePolicy = authProvider.getSharePolicy() // <- use the provider's state to make sharing decisions
- *
- * const repo = new Repo({
- *   network,
- *   storage,
- *   sharePolicy,
- * })
- * ```
+ * To use, create a LocalFirstAuthProvider, using the same and wrap your network adapter(s) with its `wrap` method.
  */
 export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderEvents> {
   #adapters: AuthNetworkAdapter<NetworkAdapter>[] = []
@@ -188,11 +165,8 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     }
   }
 
-  #popStoredMessage = (shareId: ShareId, peerId: PeerId) => {
-    const messages = this.#messageStore[shareId]?.[peerId] || []
-    if (messages.length === 0) return undefined
-    const message = messages.shift()
-    return message
+  #getStoredMessages = (shareId: ShareId, peerId: PeerId) => {
+    return this.#messageStore[shareId]?.[peerId] || []
   }
 
   /**
@@ -255,14 +229,14 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
         authenticatedAdapter.emit("peer-candidate", { peerId })
       })
 
-      .on("updated", async () => {
-        await this.#saveState()
+      .on("message", (message: RepoMessage) => {
+        // Forward messages that arrive via the connection's encrypted channel to the repo
+        authenticatedAdapter.emit("message", message)
       })
 
-      .on("message", (message: RepoMessage) => {
-        // These are messages sent via the connection's encrypted channel
-        // Forward the message to the repo
-        authenticatedAdapter.emit("message", message)
+      .on("updated", async () => {
+        // Team state has changed, so save our entire state
+        await this.#saveState()
       })
 
       .on("localError", event => {
@@ -290,11 +264,8 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     connection.start()
 
     // If we already had messages for this peer, pass them to the connection
-    let message: string = this.#popStoredMessage(shareId, peerId)
-    while (message) {
+    for (const message of this.#getStoredMessages(shareId, peerId))
       await connection.deliver(message)
-      message = this.#popStoredMessage(shareId, peerId)
-    }
 
     // Track the connection
     const connections = this.#connections[shareId] || {}
@@ -302,6 +273,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
   }
 
   #addPeer(baseAdapter: NetworkAdapter, peerId: PeerId) {
+    // Track each peer by the adapter uses to connect to it
     const peers = this.#peers.get(baseAdapter) || []
     if (!peers.includes(peerId)) {
       peers.push(peerId)
@@ -320,8 +292,13 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     this.emit("disconnected", { shareId, peerId, event })
 
     // Let the repo know
-    // TODO: find the right adapter
-    // authenticatedAdapter.emit("peer-disconnected", { peerId })
+    for (const authenticatedAdapter of this.#adapters) {
+      // Find the adapter that has this peer
+      if (this.#peers.get(authenticatedAdapter.baseAdapter).includes(peerId)) {
+        authenticatedAdapter.emit("peer-disconnected", { peerId })
+        break
+      }
+    }
   }
 
   #getConnection = (shareId: ShareId, peerId: PeerId) => {
@@ -349,15 +326,12 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
       } as SerializedShare
     }
     const serializedState = cbor.encode(shares)
-    await this.storage.save(["AuthProvider", STORAGE_KEY], serializedState)
+    await this.storage.save(STORAGE_KEY, serializedState)
   }
 
   /** Loads and decrypts state from its serialized, persisted form */
   async #loadState() {
-    const serializedState = await this.storage.load([
-      "AuthProvider",
-      STORAGE_KEY,
-    ])
+    const serializedState = await this.storage.load(STORAGE_KEY)
     if (!serializedState) return
 
     const savedShares = cbor.decode(serializedState) as SerializedState
@@ -466,4 +440,4 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
   }
 }
 
-const STORAGE_KEY = "shares"
+const STORAGE_KEY = ["LocalFirstAuthProvider", "shares"]
