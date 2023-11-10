@@ -15,6 +15,7 @@
     "dev": "run-p watch start:syncserver dev:demo",
     "pub": "lerna publish --yes",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server start",
+    "start:syncserver:localfirst": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server-localfirst start",
     "repocheck": "manypkg check",
     "test": "vitest",
     "test:coverage": "vitest --coverage",

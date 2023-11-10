@@ -1,0 +1,31 @@
+{
+  "name": "@automerge/example-sync-server-localfirst",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/sync-server-localfirst",
+  "private": true,
+  "version": "1.0.13",
+  "main": "index.js",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node ./index.js"
+  },
+  "bin": "./index.js",
+  "dependencies": {
+    "@automerge/automerge-repo": "^1.0.13",
+    "@automerge/automerge-repo-network-websocket": "^1.0.13",
+    "@automerge/automerge-repo-storage-nodefs": "^1.0.13",
+    "@automerge/automerge-repo-auth-localfirst": "link:../../packages/automerge-repo-auth-localfirst",
+    "@automerge/automerge-repo-auth-localfirst-syncserver": "link:../../packages/automerge-repo-auth-localfirst",
+    "express": "^4.18.1",
+    "ws": "^8.7.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.17"
+  },
+  "prettier": {
+    "semi": false
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

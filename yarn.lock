@@ -20,6 +20,22 @@
     "@jridgewell/gen-mapping" "^0.3.0"
     "@jridgewell/trace-mapping" "^0.3.9"
 
+"@automerge/automerge-repo-auth-localfirst-syncserver@link:packages/automerge-repo-auth-localfirst":
+  version "0.0.50"
+  dependencies:
+    "@automerge/automerge-repo" "^1.0.13"
+    "@localfirst/auth" "^4.2.1"
+    debug "^4.3.4"
+    eventemitter3 "^5.0.1"
+
+"@automerge/automerge-repo-auth-localfirst@link:packages/automerge-repo-auth-localfirst":
+  version "0.0.50"
+  dependencies:
+    "@automerge/automerge-repo" "^1.0.13"
+    "@localfirst/auth" "^4.2.1"
+    debug "^4.3.4"
+    eventemitter3 "^5.0.1"
+
 "@automerge/automerge-wasm@^0.4.0":
   version "0.4.0"
   resolved "https://registry.yarnpkg.com/@automerge/automerge-wasm/-/automerge-wasm-0.4.0.tgz#46dd61b9f8217e6630f93bbbf76b05394de38303"
@@ -9194,7 +9210,7 @@ write-pkg@4.0.0:
     type-fest "^0.4.1"
     write-json-file "^3.2.0"
 
-ws@^8.13.0, ws@^8.14.2:
+ws@^8.13.0, ws@^8.14.2, ws@^8.7.0:
   version "8.14.2"
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.14.2.tgz#6c249a806eb2db7a20d26d51e7709eab7b2e6c7f"
   integrity sha512-wEBG1ftX4jcglPxgFCMJmZ2PLtSbJ2Peg6TmpJFTbe9GZYOQCDPdMYu/Tm0/bGZkw8paZnJY45J4K2PZrLYq8g==
