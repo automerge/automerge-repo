@@ -61,8 +61,6 @@ export class DocSynchronizer extends Synchronizer {
   /** Sync state for each peer we've communicated with (including inactive peers) */
   #syncStates: Record<PeerId, A.SyncState> = {}
 
-  #lastSyncs: Record<PeerId, LastSync> = {}
-
   #pendingSyncMessages: Array<PendingMessage> = []
 
   #syncStarted = false
@@ -372,13 +370,6 @@ export class DocSynchronizer extends Synchronizer {
         )
 
         this.#setSyncState(message.senderId, newSyncState)
-        if (newSyncState.theirHeads != null) {
-          this.#lastSyncs[message.senderId] = {
-            heads: newSyncState.theirHeads,
-            at: received,
-            dirty: true,
-          }
-        }
 
         // respond to just this peer (as required)
         this.#sendSyncMessage(message.senderId, doc)
