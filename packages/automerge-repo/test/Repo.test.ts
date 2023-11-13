@@ -853,7 +853,7 @@ describe("Repo", () => {
       bob2Repo.networkSubsystem.on("message", m => {
         bob2SyncMessages++
       })
-      await pause(500)
+      await pause(100)
 
       // repo has stored sync state for charlie so we should see one sync messages
       assert.strictEqual(bob2SyncMessages, 1)
@@ -893,7 +893,7 @@ describe("Repo", () => {
       })
 
       // pause to let the sync happen
-      await pause(500)
+      await pause(100)
 
       const charlieHeads = A.getHeads(charlieHandle.docSync())
       const bobHeads = A.getHeads(handle.docSync())
@@ -914,6 +914,9 @@ describe("Repo", () => {
 
     it("can report the connected peers", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup()
+
+      // pause to let the connections happen
+      await pause(1)
 
       assert.deepStrictEqual(bobRepo.peers, ["alice", "charlie"])
       assert.deepStrictEqual(charlieRepo.peers, ["bob"])
