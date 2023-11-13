@@ -1,6 +1,7 @@
 import fs from "fs"
 import express from "express"
 import bodyParser from "body-parser"
+import cors from "cors"
 import { Server as HttpServer } from "http"
 import { WebSocketServer } from "ws"
 import { PeerId, Repo, RepoConfig } from "@automerge/automerge-repo"
@@ -97,6 +98,9 @@ export class LocalFirstAuthSyncServer {
 
       // parse application/json
       app.use(bodyParser.json())
+      // enable CORS
+      // TODO: allow providing custom CORS config
+      app.use(cors())
 
       const confirmation = `👍 Sync server for Automerge Repo + localfirst/auth running`
       app.get("/", (req, res) => {
