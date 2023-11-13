@@ -12,10 +12,8 @@
     "test": "vitest run",
     "watch": "npm-watch"
   },
-  "peerDependencies": {
-    "@automerge/automerge": "2.1.7-sync-changes-preview-1"
-  },
   "dependencies": {
+    "@automerge/automerge": "^2.1.7",
     "@automerge/automerge-repo": "^1.0.17",
     "eventemitter3": "^5.0.1",
     "react": "^18.2.0",

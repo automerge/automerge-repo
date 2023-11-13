@@ -11,9 +11,6 @@
     "build": "tsc",
     "watch": "npm-watch"
   },
-  "peerDependencies": {
-    "@automerge/automerge": "2.1.7-sync-changes-preview-1"
-  },
   "dependencies": {
     "@automerge/automerge-repo": "^1.0.17",
     "rimraf": "^5.0.1"
