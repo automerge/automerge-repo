@@ -516,7 +516,6 @@ export interface DocHandleEvents<T> {
     payload: DocHandleOutboundEphemeralMessagePayload<T>
   ) => void
   "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
-  "sync-state": (payload: DocHandleSyncStatePayload) => void
 }
 
 // STATE MACHINE TYPES
