@@ -134,6 +134,7 @@ export class LocalFirstAuthSyncServer {
 
         // add the team to our auth provider
         auth.addTeam(team)
+        res.end()
       })
 
       this.server = app.listen(port, () => {
