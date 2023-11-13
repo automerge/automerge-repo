@@ -4,7 +4,12 @@ import bodyParser from "body-parser"
 import cors from "cors"
 import { Server as HttpServer } from "http"
 import { WebSocketServer } from "ws"
-import { PeerId, Repo, RepoConfig } from "@automerge/automerge-repo"
+import {
+  PeerId,
+  Repo,
+  RepoConfig,
+  SharePolicy,
+} from "@automerge/automerge-repo"
 import { NodeWSServerAdapter } from "@automerge/automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import { LocalFirstAuthProvider } from "@automerge/automerge-repo-auth-localfirst"
@@ -92,7 +97,11 @@ export class LocalFirstAuthSyncServer {
       const network = [new NodeWSServerAdapter(this.socket)]
 
       const peerId = this.host as PeerId
-      const _repo = new Repo({ peerId, network, storage })
+      // Since this is a server, we don't share generously —
+      // meaning we only sync documents they already know about and can ask for by ID.
+      const sharePolicy: SharePolicy = async peerId => false
+
+      const _repo = new Repo({ peerId, network, storage, sharePolicy })
 
       const app = express()
 
