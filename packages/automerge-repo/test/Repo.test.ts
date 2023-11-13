@@ -805,17 +805,62 @@ describe("Repo", () => {
         bobHandle.documentId,
         charlie
       )
-      assert.deepStrictEqual(
-        storedSyncState.sharedHeads,
-        A.getHeads(bobHandle.docSync())
-      )
+      const docHeads = A.getHeads(bobHandle.docSync())
+      assert.deepStrictEqual(storedSyncState.sharedHeads, docHeads)
 
       teardown()
     })
 
-    it.todo(
-      "should try to load sync state from storage before syncing with other peers"
-    )
+    it.only("should load sync state from storage", async () => {
+      const { bobRepo, teardown, charlie, charlieRepo, bobStorage, bob } =
+        await setup({
+          connectAlice: false,
+        })
+
+      // create a new doc and count sync messages
+      const bobHandle = bobRepo.create<TestDoc>()
+      bobHandle.change(d => {
+        d.foo = "bar"
+      })
+      let bobSyncMessages = 0
+      bobRepo.networkSubsystem.on("message", () => {
+        bobSyncMessages++
+      })
+      await pause(500)
+
+      // repo has no stored sync state for charlie so we should see two sync messages
+      assert.strictEqual(bobSyncMessages, 2)
+
+      // setup new repo which uses bob's storage
+      const bob2Repo = new Repo({
+        storage: bobStorage,
+        network: [],
+        peerId: "bob-2" as PeerId,
+      })
+
+      // connnect it with charlie
+      const channel = new MessageChannel()
+      bob2Repo.networkSubsystem.addNetworkAdapter(
+        new MessageChannelNetworkAdapter(channel.port2)
+      )
+      charlieRepo.networkSubsystem.addNetworkAdapter(
+        new MessageChannelNetworkAdapter(channel.port1)
+      )
+
+      // lookup doc we've previously created and count the messages
+      bob2Repo.find(bobHandle.documentId)
+      let bob2SyncMessages = 0
+      bob2Repo.networkSubsystem.on("message", m => {
+        bob2SyncMessages++
+      })
+      await pause(500)
+
+      // repo has stored sync state for charlie so we should see one sync messages
+      assert.strictEqual(bob2SyncMessages, 1)
+
+      channel.port1.close()
+      teardown()
+    })
 
     it("should report the remote heads when they change", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup({
