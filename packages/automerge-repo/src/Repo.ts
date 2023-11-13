@@ -14,6 +14,7 @@ import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
+import { SyncStateMessage } from "./network/messages.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -151,8 +152,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     if (storageSubsystem) {
-      const debouncedSaveSyncState: (syncState: Automerge.SyncState) => void =
-        throttle(({ documentId, peerId, syncState }: Automerge.SyncState) => {
+      const debouncedSaveSyncState: (syncState: SyncStateMessage) => void =
+        throttle(({ documentId, peerId, syncState }: SyncStateMessage) => {
           storageSubsystem.saveSyncState(documentId, peerId, syncState)
         }, this.saveDebounceRate)
 
