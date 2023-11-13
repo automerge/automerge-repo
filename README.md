@@ -16,10 +16,10 @@ This is a monorepo containing the following packages:
 
 #### Demos / Example Code
 
-- [automerge-repo-demo-todo](/examples/automerge-repo-demo-todo/): A React-based to-do list.
-- [automerge-repo-demo-counter](/examples/automerge-repo-demo-counter/): A React-based demonstration
+- [automerge-repo-demo-todo](/examples/react-todo/): A React-based to-do list.
+- [automerge-repo-demo-counter](/examples/react-counter/): A React-based demonstration
   application.
-- [automerge-repo-demo-counter-svelte](/examples/automerge-repo-demo-counter-svelte/): A Svelte-based
+- [automerge-repo-demo-counter-svelte](/examples/svelte-counter/): A Svelte-based
   example project.
 - [sync-server](/examples/sync-server): A very simple sync server which the other examples can use
   - Please note this is different from [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server)

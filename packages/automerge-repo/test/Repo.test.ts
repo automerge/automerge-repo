@@ -811,7 +811,7 @@ describe("Repo", () => {
       teardown()
     })
 
-    it.only("should load sync state from storage", async () => {
+    it("should load sync state from storage", async () => {
       const { bobRepo, teardown, charlie, charlieRepo, bobStorage, bob } =
         await setup({
           connectAlice: false,
