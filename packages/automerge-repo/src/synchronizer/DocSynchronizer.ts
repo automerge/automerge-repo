@@ -134,7 +134,6 @@ export class DocSynchronizer extends Synchronizer {
       this.#peers.push(peerId)
     }
 
-    // todo: I think we set sync states to "has" here if there is sync state available
     if (!(peerId in this.#peerDocumentStatuses)) {
       this.#peerDocumentStatuses[peerId] = "unknown"
     }
@@ -196,8 +195,8 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#withSyncState(peerId, syncState => {
       const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
-      this.#setSyncState(peerId, newSyncState)
       if (message) {
+        this.#setSyncState(peerId, newSyncState)
         const isNew = A.getHeads(doc).length === 0
 
         if (
@@ -241,11 +240,6 @@ export class DocSynchronizer extends Synchronizer {
     const newPeers = new Set(
       peerIds.filter(peerId => !this.#peers.includes(peerId))
     )
-
-    // todo: figure out a single point where to add need peer ids
-    for (const peerId of newPeers.values()) {
-      this.#peers.push(peerId)
-    }
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end

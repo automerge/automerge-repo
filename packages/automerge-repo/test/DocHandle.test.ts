@@ -5,7 +5,7 @@ import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
-import { DocHandle, DocHandleChangePayload } from "../src/index.js"
+import { DocHandle, DocHandleChangePayload, PeerId } from "../src/index.js"
 import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
@@ -303,6 +303,23 @@ describe("DocHandle", () => {
     assert(wasBar, "foo should have been bar as we changed at the old heads")
   })
 
+  it("should allow to listen for remote head changes and manually read remote heads", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const bob = "bob" as PeerId
+
+    const remoteHeadsMessagePromise = eventPromise(handle, "remote-heads")
+
+    handle.setRemoteHeads(bob, [])
+
+    const remoteHeadsMessage = await remoteHeadsMessagePromise
+
+    assert.strictEqual(remoteHeadsMessage.peerId, bob)
+    assert.deepStrictEqual(remoteHeadsMessage.heads, [])
+
+    // read remote heads manually
+    assert.deepStrictEqual(handle.getRemoteHeads(bob), [])
+  })
+
   describe("ephemeral messaging", () => {
     it("can broadcast a message for the network to send out", async () => {
       const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
@@ -316,5 +333,4 @@ describe("DocHandle", () => {
       assert.deepStrictEqual(decode(data), message)
     })
   })
-
 })

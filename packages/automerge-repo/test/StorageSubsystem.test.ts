@@ -6,10 +6,9 @@ import os from "os"
 import path from "path"
 import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import { PeerId, cbor } from "../src/index.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
-import { cbor } from "../src/index.js"
-import { pause } from "../src/helpers/pause.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -174,6 +173,35 @@ describe("StorageSubsystem", () => {
 
           const reloadedValue2 = await storage.load(namespace, key)
           assert.equal(reloadedValue2, undefined)
+        })
+      })
+
+      describe("sync state", () => {
+        it("stores and retrieve sync state", async () => {
+          const storage = new StorageSubsystem(adapter)
+
+          const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+          const syncState = A.initSyncState()
+          const bob = "bob" as PeerId
+
+          const rawSyncState = A.decodeSyncState(A.encodeSyncState(syncState))
+
+          await storage.saveSyncState(documentId, bob, syncState)
+          const loadedSyncState = await storage.loadSyncState(documentId, bob)
+          assert.deepStrictEqual(loadedSyncState, rawSyncState)
+        })
+
+        it("delete sync state if document is deleted", async () => {
+          const storage = new StorageSubsystem(adapter)
+
+          const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+          const syncState = A.initSyncState()
+          const bob = "bob" as PeerId
+
+          await storage.saveSyncState(documentId, bob, syncState)
+          await storage.removeDoc(documentId)
+          const loadedSyncState = await storage.loadSyncState(documentId, bob)
+          assert.strictEqual(loadedSyncState, undefined)
         })
       })
     })

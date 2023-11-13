@@ -1,7 +1,8 @@
 import assert from "assert"
+import * as A from "@automerge/automerge"
 import { describe, it } from "vitest"
-import { DocHandle } from "../src/DocHandle.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import { DocHandle } from "../src/DocHandle.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import {
   DocumentUnavailableMessage,
@@ -50,6 +51,27 @@ describe("DocSynchronizer", () => {
     const { targetId, type } = await eventPromise(docSynchronizer, "message")
     assert.equal(targetId, "alice")
     assert.equal(type, "sync")
+  })
+
+  it("emits a syncState message when the sync state is updated", async () => {
+    const { handle, docSynchronizer } = setup()
+    docSynchronizer.beginSync([alice])
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+    const message1 = await eventPromise(docSynchronizer, "sync-state")
+    const message2 = await eventPromise(docSynchronizer, "sync-state")
+
+    assert.equal(message1.peerId, "alice")
+    assert.equal(message1.documentId, handle.documentId)
+    assert.deepEqual(message1.syncState.lastSentHeads, [])
+
+    assert.equal(message2.peerId, "alice")
+    assert.equal(message2.documentId, handle.documentId)
+    assert.deepEqual(
+      message2.syncState.lastSentHeads,
+      A.getHeads(handle.docSync())
+    )
   })
 
   it("still syncs with a peer after it disconnects and reconnects", async () => {

@@ -336,6 +336,7 @@ export class DocHandle<T> //
     this.emit("remote-heads", { peerId, heads })
   }
 
+  /** Returns the heads of the peer */
   getRemoteHeads(peerId: PeerId): A.Heads | undefined {
     return this.#remoteHeads[peerId]
   }

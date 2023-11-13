@@ -146,6 +146,7 @@ export class StorageSubsystem {
   async removeDoc(documentId: DocumentId) {
     await this.#storageAdapter.removeRange([documentId, "snapshot"])
     await this.#storageAdapter.removeRange([documentId, "incremental"])
+    await this.#storageAdapter.removeRange([documentId, "sync-state"])
   }
 
   /**
