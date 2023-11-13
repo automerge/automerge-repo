@@ -151,13 +151,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     if (storageSubsystem) {
-      // todo: debounce
-      this.#synchronizer.on(
-        "sync-state",
-        ({ documentId, peerId, syncState }) => {
+      const debouncedSaveSyncState: (syncState: Automerge.SyncState) => void =
+        throttle(({ documentId, peerId, syncState }: Automerge.SyncState) => {
           storageSubsystem.saveSyncState(documentId, peerId, syncState)
-        }
-      )
+        }, this.saveDebounceRate)
+
+      this.#synchronizer.on("sync-state", debouncedSaveSyncState)
     }
   }
 

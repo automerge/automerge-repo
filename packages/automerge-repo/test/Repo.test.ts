@@ -798,7 +798,7 @@ describe("Repo", () => {
         d.foo = "bar"
       })
 
-      await pause(50)
+      await pause(200)
 
       // bob should store the sync state of charlie
       const storedSyncState = await bobRepo.storageSubsystem.loadSyncState(
