@@ -20,6 +20,11 @@
     "@jridgewell/gen-mapping" "^0.3.0"
     "@jridgewell/trace-mapping" "^0.3.9"
 
+"@automerge/automerge-wasm@0.5.0-sync-changes-preview-1":
+  version "0.5.0-sync-changes-preview-1"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge-wasm/-/automerge-wasm-0.5.0-sync-changes-preview-1.tgz#236f5a517c6f53ee792f9d5f126ab0f54f0c0702"
+  integrity sha512-hpnwViagV/1wiH5Urs0dnCGNTsjeJOC9SmVvrnWU2fnXIbGrdtC+F2FtoeNp5sQqpihaGE+UvnHkVEE4U9pGpw==
+
 "@automerge/automerge-wasm@^0.2.14":
   version "0.2.14"
   resolved "https://registry.yarnpkg.com/@automerge/automerge-wasm/-/automerge-wasm-0.2.14.tgz#aa6668783f247ecd8598919b98f78d8eca27ccd1"
@@ -29,6 +34,14 @@
   version "0.3.0"
   resolved "https://registry.yarnpkg.com/@automerge/automerge-wasm/-/automerge-wasm-0.3.0.tgz#83a9f30c4d39f5f5bbae72451c876cbdef9366d1"
   integrity sha512-piRG3yw9bMZ5ksjz3paXuhSll9LLlMR5nmmQ9FG3Mu7F21wJf7Ubs7yykEVGiJVm1IbAPUmQz0TKUcpLfhiM8w==
+
+"@automerge/automerge@2.1.7-sync-changes-preview-1":
+  version "2.1.7-sync-changes-preview-1"
+  resolved "https://registry.yarnpkg.com/@automerge/automerge/-/automerge-2.1.7-sync-changes-preview-1.tgz#b778e400a6b179b213ca9ac79d4dc24b87e99bb5"
+  integrity sha512-DXhiEkyZqKZbgRWHf0+ob09wiHi8KeaZwtAUeQQ2pLmWF+Xnwc3eBy/mFGWVCEMfLWeEcMxa/nbu913y0STD8A==
+  dependencies:
+    "@automerge/automerge-wasm" "0.5.0-sync-changes-preview-1"
+    uuid "^9.0.0"
 
 "@automerge/automerge@^2.1.0":
   version "2.1.3"

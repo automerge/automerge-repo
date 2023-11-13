@@ -15,6 +15,7 @@
     "@automerge/automerge": "^2.1.5"
   },
   "dependencies": {
+    "@automerge/automerge": "2.1.7-sync-changes-preview-1",
     "@automerge/automerge-repo": "^1.0.13",
     "rimraf": "^5.0.1"
   },
