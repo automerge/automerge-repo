@@ -24,12 +24,6 @@ import { headsAreSame } from "../helpers/headsAreSame.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
-type LastSync = {
-  heads: A.Heads
-  at: Date
-  dirty: boolean
-}
-
 type PendingMessage = {
   message: RequestMessage | SyncMessage
   received: Date
