@@ -25,18 +25,26 @@ export function App({ userId }) {
 
   return (
     <div>
-      <input
-        type="number"
-        value={newCount ?? count}
-        placeholder={count}
-        style={{ color: newCount ? "red" : "black" }}
-        onChange={(e) =>
-          updateLocalState((state) => ({
-            ...state,
-            count: e.target.value,
-          }))
-        }
-      />
+      <p>
+        This is an example of useAwareness, which is used to share ephemeral state that won't be saved to the document.
+        It's most commonly used for showing which peers are online and their cursor positions, but you can use any serializable data you'd like. 
+      </p>
+      <hr />
+      <div>
+        Ephemeral state:
+        <input
+          type="number"
+          value={newCount ?? count}
+          placeholder={count}
+          style={{ color: newCount ? "red" : "black" }}
+          onChange={(e) =>
+            updateLocalState((state) => ({
+              ...state,
+              count: e.target.value,
+            }))
+          }
+        />
+      </div>
       <div>
         Doc state:
         <span
@@ -65,7 +73,7 @@ export function App({ userId }) {
           })
         }
         disabled={newCount === undefined}
-        children="commit"
+        children="commit to doc"
       />
       <button
         onClick={() =>

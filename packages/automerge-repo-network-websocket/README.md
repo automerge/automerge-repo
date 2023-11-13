@@ -81,7 +81,7 @@ peer_id = str
 protocol_version = "1"
 ; The bytes of an automerge sync message
 sync_message = bstr
-; The base64 encoded bytes of a document ID
+; The base58check encoded bytes of a document ID
 document_id = str
 ```
 
