@@ -7,6 +7,7 @@ import { StorageAdapter } from "./StorageAdapter.js"
 import { ChunkInfo, StorageKey } from "./types.js"
 import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
+import * as Uuid from "uuid"
 
 /**
  * The storage subsystem is responsible for saving and loading Automerge documents to and from
@@ -29,6 +30,23 @@ export class StorageSubsystem {
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
+  }
+
+  async id(): Promise<string> {
+    let storedId = await this.#storageAdapter.load(["storage-adapter-id"])
+
+    let id
+    if (storedId) {
+      id = new TextDecoder().decode(storedId)
+    } else {
+      id = Uuid.v4()
+      await this.#storageAdapter.save(
+        ["storage-adapter-id"],
+        new TextEncoder().encode(id)
+      )
+    }
+
+    return id
   }
 
   // ARBITRARY KEY/VALUE STORAGE

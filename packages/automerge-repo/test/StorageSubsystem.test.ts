@@ -9,6 +9,7 @@ import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { PeerId, cbor } from "../src/index.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import * as Uuid from "uuid"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -202,6 +203,20 @@ describe("StorageSubsystem", () => {
           await storage.removeDoc(documentId)
           const loadedSyncState = await storage.loadSyncState(documentId, bob)
           assert.strictEqual(loadedSyncState, undefined)
+        })
+      })
+
+      describe("storage adapter id", () => {
+        it("generates a unique id", async () => {
+          const storage = new StorageSubsystem(adapter)
+
+          // generate unique id and return same id on subsequence calls
+          const id1 = await storage.id()
+          const id2 = await storage.id()
+
+          assert.strictEqual(Uuid.validate(id1), true)
+          assert.strictEqual(Uuid.validate(id2), true)
+          assert.strictEqual(id1, id2)
         })
       })
     })
