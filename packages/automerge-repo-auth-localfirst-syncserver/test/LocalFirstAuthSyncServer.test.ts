@@ -69,10 +69,14 @@ describe("LocalFirstAuthSyncServer", () => {
     const auth = new LocalFirstAuthProvider({ user, device, storage })
     auth.addTeam(team)
 
+    const socketAdapter = auth.wrap(
+      new BrowserWebSocketClientAdapter(`ws://${url}`)
+    )
+
     // set up our repo
     const repo = new Repo({
       peerId: user.userId as PeerId,
-      network: [new BrowserWebSocketClientAdapter(`ws://${url}`)],
+      network: [socketAdapter],
       storage,
     })
 

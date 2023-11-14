@@ -94,7 +94,8 @@ export class LocalFirstAuthSyncServer {
 
       const storage = new NodeFSStorageAdapter(storageDir)
       const auth = new LocalFirstAuthProvider({ ...authContext, storage })
-      const network = [new NodeWSServerAdapter(this.socket)]
+      const socketAdapter = auth.wrap(new NodeWSServerAdapter(this.socket))
+      const network = [socketAdapter]
 
       const peerId = this.host as PeerId
       // Since this is a server, we don't share generously —
