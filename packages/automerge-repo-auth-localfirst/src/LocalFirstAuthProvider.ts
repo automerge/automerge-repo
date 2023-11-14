@@ -6,12 +6,11 @@ import type {
 } from "@automerge/automerge-repo"
 import { NetworkAdapter, cbor } from "@automerge/automerge-repo"
 import * as Auth from "@localfirst/auth"
-import assert from "assert"
 import debug from "debug"
 import EventEmitter from "eventemitter3"
 import { AuthenticatedNetworkAdapter as AuthNetworkAdapter } from "./AuthenticatedNetworkAdapter.js"
 import { forwardEvents } from "./forwardEvents.js"
-import {
+import type {
   Config,
   Invitation,
   LocalFirstAuthMessage,
@@ -21,9 +20,8 @@ import {
   SerializedState,
   Share,
   ShareId,
-  isAuthMessage,
-  isDeviceInvitation,
 } from "./types"
+import { isAuthMessage, isDeviceInvitation } from "./types.js"
 const { encrypt, decrypt } = Auth.symmetric
 
 /**
@@ -85,7 +83,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     // Intercept any incoming messages and pass them to the Auth.Connection.
     baseAdapter.on("message", message => {
       try {
-        assert(isAuthMessage(message), "Not an auth message")
+        if (!isAuthMessage(message)) throw new Error("Not an auth message")
         const { senderId, payload } = message
         const { shareId, serializedConnectionMessage } =
           payload as LocalFirstAuthMessagePayload
