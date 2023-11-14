@@ -96,7 +96,9 @@ describe("localfirst/auth provider", () => {
 
     const alice = Auth.createUser("alice")
 
-    const laptopStorage = new NodeFSStorageAdapter(getStorageDirectory())
+    const laptopStorage = new NodeFSStorageAdapter(
+      getStorageDirectory("alice-laptop")
+    )
     const laptop = Auth.createDevice(alice.userId, "Alice's laptop")
     const laptopContext = { user: alice, device: laptop }
     const laptopAuthProvider = new LocalFirstAuthProvider({
@@ -109,7 +111,9 @@ describe("localfirst/auth provider", () => {
       peerId: laptop.deviceName as PeerId,
     })
 
-    const phoneStorage = new NodeFSStorageAdapter(getStorageDirectory())
+    const phoneStorage = new NodeFSStorageAdapter(
+      getStorageDirectory("alice-phone")
+    )
     const phone = Auth.createDevice(alice.userId, "Alice's phone")
     const phoneContext = { user: alice, device: phone }
     const phoneAuthProvider = new LocalFirstAuthProvider({
