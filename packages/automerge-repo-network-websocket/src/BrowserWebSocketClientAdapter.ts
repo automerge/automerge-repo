@@ -31,16 +31,21 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   #startupComplete: boolean = false
 
   url: string
+  autoReconnect: boolean
 
-  constructor(url: string) {
+  constructor(url: string, autoReconnect = true) {
     super()
     this.url = url
+    this.autoReconnect = autoReconnect
   }
 
   connect(peerId: PeerId) {
+    log("socketAdapter connect")
+
     // If we're reconnecting  make sure we remove the old event listeners
     // before creating a new connection.
     if (this.socket) {
+      log("removing old listeners on reconnect")
       this.socket.removeEventListener("open", this.onOpen)
       this.socket.removeEventListener("close", this.onClose)
       this.socket.removeEventListener("message", this.onMessage)
@@ -86,7 +91,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       this.emit("peer-disconnected", { peerId: this.remotePeerId })
     }
 
-    if (!this.timerId) {
+    if (!this.timerId && this.autoReconnect) {
       if (this.peerId) {
         this.connect(this.peerId)
       }
