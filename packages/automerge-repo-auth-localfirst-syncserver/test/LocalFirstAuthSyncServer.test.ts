@@ -55,19 +55,10 @@ describe("LocalFirstAuthSyncServer", () => {
     const user = createUser("alice", "alice")
     const device = createDevice(user.userId, "laptop")
 
-    // create a team
-    const teamKeys = createKeyset({ type: "TEAM", name: "TEAM" })
-    const team = new Team({
-      teamName: "team A",
-      context: { user, device },
-      teamKeys,
-    })
-
     // add the team to a new auth provider
 
     const storage = new NodeFSStorageAdapter(storageDir)
     const auth = new LocalFirstAuthProvider({ user, device, storage })
-    auth.addTeam(team)
 
     const socketAdapter = auth.wrap(
       new BrowserWebSocketClientAdapter(`ws://${url}`)
@@ -79,6 +70,15 @@ describe("LocalFirstAuthSyncServer", () => {
       network: [socketAdapter],
       storage,
     })
+
+    // create a team
+    const teamKeys = createKeyset({ type: "TEAM", name: "TEAM" })
+    const team = new Team({
+      teamName: "team A",
+      context: { user, device },
+      teamKeys,
+    })
+    auth.addTeam(team)
 
     // get the server's public keys
     const response = await fetch(`http://${url}/keys`)
