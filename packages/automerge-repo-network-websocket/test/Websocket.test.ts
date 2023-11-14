@@ -2,20 +2,20 @@ import { next as A } from "@automerge/automerge"
 import {
   AutomergeUrl,
   DocumentId,
-  DummyStorageAdapter,
   PeerId,
   Repo,
   SyncMessage,
-  headsAreSame,
   parseAutomergeUrl,
-  runAdapterTests,
 } from "@automerge/automerge-repo"
+import { headsAreSame } from "@automerge/automerge-repo/src/helpers/headsAreSame.js"
 import assert from "assert"
 import * as CBOR from "cbor-x"
 import { once } from "events"
 import http from "http"
 import { describe, it } from "vitest"
 import WebSocket, { AddressInfo } from "ws"
+import { runAdapterTests } from "@automerge/automerge-repo/src/helpers/tests/network-adapter-tests.js"
+import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter.js"
 import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter.js"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter.js"
 
