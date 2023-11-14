@@ -32,14 +32,14 @@ export class StorageSubsystem {
     this.#storageAdapter = storageAdapter
   }
 
-  async id(): Promise<string> {
+  async id(): Promise<StorageId> {
     let storedId = await this.#storageAdapter.load(["storage-adapter-id"])
 
-    let id
+    let id: StorageId
     if (storedId) {
-      id = new TextDecoder().decode(storedId)
+      id = new TextDecoder().decode(storedId) as StorageId
     } else {
-      id = Uuid.v4()
+      id = Uuid.v4() as StorageId
       await this.#storageAdapter.save(
         ["storage-adapter-id"],
         new TextEncoder().encode(id)
@@ -282,3 +282,6 @@ export class StorageSubsystem {
     return incrementalSize >= snapshotSize
   }
 }
+
+/** A branded type for storage IDs */
+export type StorageId = string & { __storageId: true }
