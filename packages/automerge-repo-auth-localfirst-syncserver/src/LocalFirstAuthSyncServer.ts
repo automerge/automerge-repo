@@ -124,9 +124,12 @@ export class LocalFirstAuthSyncServer {
 
       /** Endpoint to register a team. */
       app.post("/teams", (req, res) => {
+        // TODO: could we do this with a special document instead of a custom endpoint?
+
         // rehydrate the team using the serialized graph and the keys passed in the request
         const { serializedGraph, teamKeyring } = req.body
 
+        // TODO: check that this team doesn't already exist, otherwise someone could slip you a fake team
         const team = new Team({
           source: serializedGraph,
           context: authContext,
