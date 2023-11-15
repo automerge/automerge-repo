@@ -71,9 +71,9 @@ export class DocHandle<T> //
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
      * avoid requesting data we already have, or surfacing intermediate values to the consumer.
      *
-     *                          ┌─────────────────────┬─────────TIMEOUT────►┌────────┐
-     *                      ┌───┴─────┐           ┌───┴────────┐            │ failed │
-     *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐  └────────┘
+     *                          ┌─────────────────────┬─────────TIMEOUT────►┌─────────────┐
+     *                      ┌───┴─────┐           ┌───┴────────┐            │ unavailable │
+     *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐  └─────────────┘
      *  │ idle  ├──┤        └───┬─────┘           └────────────┘         │
      *  └───────┘  │            │                                        └─►┌────────┐
      *             │            └───────LOAD───────────────────────────────►│ ready  │
@@ -111,7 +111,7 @@ export class DocHandle<T> //
               after: [
                 {
                   delay: this.#timeoutDelay,
-                  target: FAILED,
+                  target: UNAVAILABLE,
                 },
               ],
             },
@@ -135,7 +135,7 @@ export class DocHandle<T> //
               after: [
                 {
                   delay: this.#timeoutDelay,
-                  target: FAILED,
+                  target: UNAVAILABLE,
                 },
               ],
             },
@@ -145,9 +145,6 @@ export class DocHandle<T> //
                 UPDATE: { actions: "onUpdate", target: READY },
                 DELETE: { actions: "onDelete", target: DELETED },
               },
-            },
-            failed: {
-              type: "final",
             },
             deleted: {
               type: "final",
@@ -240,7 +237,7 @@ export class DocHandle<T> //
     return Promise.any(
       awaitStates.map(state =>
         waitFor(this.#machine, s => s.matches(state), {
-          timeout: this.#timeoutDelay * 2000, // longer than the delay above for testing
+          timeout: this.#timeoutDelay * 2, // use a longer delay here so as not to race with other delays
         })
       )
     )
@@ -294,7 +291,7 @@ export class DocHandle<T> //
       // wait for the document to enter one of the desired states
       await this.#statePromise(awaitStates)
     } catch (error) {
-      // if we timed out (or the load has already failed), return undefined
+      // if we timed out (or have determined the document is currently unavailable), return undefined
       return undefined
     }
     // Return the document
@@ -538,8 +535,6 @@ export const HandleState = {
   REQUESTING: "requesting",
   /** The document is available */
   READY: "ready",
-  /** We were unable to load or request the document for some reason */
-  FAILED: "failed",
   /** The document has been deleted from the repo */
   DELETED: "deleted",
   /** The document was not available in storage or from any connected peers */
@@ -626,7 +621,6 @@ export const {
   AWAITING_NETWORK,
   REQUESTING,
   READY,
-  FAILED,
   DELETED,
   UNAVAILABLE,
 } = HandleState
