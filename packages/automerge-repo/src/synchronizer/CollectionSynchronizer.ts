@@ -37,14 +37,19 @@ export class CollectionSynchronizer extends Synchronizer {
   #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer({
       handle,
-      onLoadSyncState: peerId => {
+      onLoadSyncState: async peerId => {
         if (!this.repo.storageSubsystem) {
-          return Promise.resolve(undefined)
+          return
+        }
+
+        const persistanceInfo = this.repo.persistanceInfoByPeerId[peerId]
+        if (!persistanceInfo || persistanceInfo.isEphemeral) {
+          return
         }
 
         return this.repo.storageSubsystem.loadSyncState(
           handle.documentId,
-          peerId
+          persistanceInfo.storageId
         )
       },
     })

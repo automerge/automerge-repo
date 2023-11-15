@@ -8,6 +8,7 @@ import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { PeerId, cbor } from "../src/index.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
+import { StorageId } from "../src/storage/types.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import * as Uuid from "uuid"
 
@@ -183,12 +184,15 @@ describe("StorageSubsystem", () => {
 
           const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
           const syncState = A.initSyncState()
-          const bob = "bob" as PeerId
+          const bobStorageId = Uuid.v4() as StorageId
 
           const rawSyncState = A.decodeSyncState(A.encodeSyncState(syncState))
 
-          await storage.saveSyncState(documentId, bob, syncState)
-          const loadedSyncState = await storage.loadSyncState(documentId, bob)
+          await storage.saveSyncState(documentId, bobStorageId, syncState)
+          const loadedSyncState = await storage.loadSyncState(
+            documentId,
+            bobStorageId
+          )
           assert.deepStrictEqual(loadedSyncState, rawSyncState)
         })
 
@@ -197,16 +201,19 @@ describe("StorageSubsystem", () => {
 
           const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
           const syncState = A.initSyncState()
-          const bob = "bob" as PeerId
+          const bobStorageId = Uuid.v4() as StorageId
 
-          await storage.saveSyncState(documentId, bob, syncState)
+          await storage.saveSyncState(documentId, bobStorageId, syncState)
           await storage.removeDoc(documentId)
-          const loadedSyncState = await storage.loadSyncState(documentId, bob)
+          const loadedSyncState = await storage.loadSyncState(
+            documentId,
+            bobStorageId
+          )
           assert.strictEqual(loadedSyncState, undefined)
         })
       })
 
-      describe("storage adapter id", () => {
+      describe("storage id", () => {
         it("generates a unique id", async () => {
           const storage = new StorageSubsystem(adapter)
 

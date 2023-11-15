@@ -15,6 +15,7 @@ import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
 import { SyncStateMessage } from "./network/messages.js"
+import { StorageId } from "./storage/types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -44,7 +45,17 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   sharePolicy: SharePolicy = async () => true
 
-  constructor({ storage, network, peerId, sharePolicy }: RepoConfig) {
+  /** maps peer id to to persistance information (storageId, isEphemeral), access by collection synchronizer  */
+  /** @hidden */
+  persistanceInfoByPeerId: Record<PeerId, PersistanceInfo> = {}
+
+  constructor({
+    storage,
+    network,
+    peerId,
+    sharePolicy,
+    isEphemeral = false,
+  }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
@@ -132,12 +143,25 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
-    const networkSubsystem = new NetworkSubsystem(network, peerId)
+    const networkSubsystem = new NetworkSubsystem(
+      network,
+      peerId,
+      storageSubsystem?.id() ?? Promise.resolve(undefined),
+      isEphemeral
+    )
     this.networkSubsystem = networkSubsystem
 
     // When we get a new peer, register it with the synchronizer
-    networkSubsystem.on("peer", async ({ peerId }) => {
+    networkSubsystem.on("peer", async ({ peerId, storageId, isEphemeral }) => {
       this.#log("peer connected", { peerId })
+
+      if (storageId) {
+        this.persistanceInfoByPeerId[peerId] = {
+          storageId,
+          isEphemeral,
+        }
+      }
+
       this.#synchronizer.addPeer(peerId)
     })
 
@@ -152,13 +176,35 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     if (storageSubsystem) {
-      const debouncedSaveSyncState: (syncState: SyncStateMessage) => void =
-        throttle(({ documentId, peerId, syncState }: SyncStateMessage) => {
-          storageSubsystem.saveSyncState(documentId, peerId, syncState)
-        }, this.saveDebounceRate)
-
-      this.#synchronizer.on("sync-state", debouncedSaveSyncState)
+      this.#synchronizer.on("sync-state", message => {
+        this.#saveSyncState(message)
+      })
     }
+  }
+
+  #throttledSaveSyncStateHandlers: Record<
+    StorageId,
+    (message: SyncStateMessage) => void
+  > = {}
+
+  /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
+  #saveSyncState(message: SyncStateMessage) {
+    const persistanceInfo = this.persistanceInfoByPeerId[message.peerId]
+
+    if (!persistanceInfo || persistanceInfo.isEphemeral) {
+      return
+    }
+
+    const { storageId } = persistanceInfo
+
+    let handler = this.#throttledSaveSyncStateHandlers[storageId]
+    if (!handler) {
+      handler = throttle(({ documentId, syncState }: SyncStateMessage) => {
+        this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
+      }, this.saveDebounceRate)
+    }
+
+    handler(message)
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
@@ -300,9 +346,18 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 }
 
+interface PersistanceInfo {
+  storageId: StorageId
+  isEphemeral: boolean
+}
+
 export interface RepoConfig {
   /** Our unique identifier */
   peerId?: PeerId
+
+  /** Indicates whether other peers should persist the sync state of this peer.
+   * Sync state is only persisted for non-ephemeral peers */
+  isEphemeral?: boolean
 
   /** A storage adapter can be provided, or not */
   storage?: StorageAdapter

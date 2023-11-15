@@ -10,6 +10,7 @@ import {
   NetworkAdapter,
   type PeerId,
   type Message,
+  type StorageId,
 } from "@automerge/automerge-repo"
 import { MessagePortRef } from "./MessagePortRef.js"
 import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
@@ -37,9 +38,15 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
       : new StrongMessagePortRef(messagePort)
   }
 
-  connect(peerId: PeerId) {
+  connect(
+    peerId: PeerId,
+    storageId: StorageId | undefined,
+    isEphemeral: boolean
+  ) {
     log("messageport connecting")
     this.peerId = peerId
+    this.storageId = storageId
+    this.isEphemeral = isEphemeral
     this.messagePortRef.start()
     this.messagePortRef.addListener(
       "message",
@@ -57,15 +64,23 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
 
         switch (type) {
           case "arrive":
-            this.messagePortRef.postMessage({
-              senderId: this.peerId,
-              targetId: senderId,
-              type: "welcome",
-            })
-            this.announceConnection(senderId)
+            {
+              const { storageId, isEphemeral } = message
+              this.messagePortRef.postMessage({
+                senderId: this.peerId,
+                storageId: this.storageId,
+                isEphemeral: this.isEphemeral,
+                targetId: senderId,
+                type: "welcome",
+              })
+              this.announceConnection(senderId, storageId, isEphemeral)
+            }
             break
           case "welcome":
-            this.announceConnection(senderId)
+            {
+              const { storageId, isEphemeral } = message
+              this.announceConnection(senderId, storageId, isEphemeral)
+            }
             break
           default:
             if (!("data" in message)) {
@@ -120,12 +135,16 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     }
   }
 
-  announceConnection(peerId: PeerId) {
+  announceConnection(
+    peerId: PeerId,
+    storageId: StorageId | undefined,
+    isEphemeral: boolean
+  ) {
     if (!this.#startupComplete) {
       this.#startupComplete = true
       this.emit("ready", { network: this })
     }
-    this.emit("peer-candidate", { peerId })
+    this.emit("peer-candidate", { peerId, storageId, isEphemeral })
   }
 
   disconnect() {
@@ -153,6 +172,13 @@ type ArriveMessage = {
   /** The peer ID of the sender of this message */
   senderId: PeerId
 
+  /** Unique ID of the storage that the sender peer is using, is persistent across sessions */
+  storageId?: StorageId
+
+  /** Indicates whether other peers should persist the sync state of the sender peer.
+   * Sync state is only persisted for non-ephemeral peers */
+  isEphemeral: boolean
+
   /** Arrive messages don't have a targetId */
   targetId: never
 }
@@ -163,6 +189,13 @@ type WelcomeMessage = {
 
   /** The peer ID of the recipient sender this message */
   senderId: PeerId
+
+  /** Unique ID of the storage that the sender peer is using, is persistent across sessions */
+  storageId?: StorageId
+
+  /** Indicates whether other peers should persist the sync state of the sender peer.
+   * Sync state is only persisted for non-ephemeral peers */
+  isEphemeral: boolean
 
   /** The peer ID of the recipient of this message */
   targetId: PeerId

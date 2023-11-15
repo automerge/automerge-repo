@@ -83,6 +83,7 @@ export type {
   ChunkInfo,
   ChunkType,
   StorageKey,
+  StorageId,
 } from "./storage/types.js"
 
 export * from "./types.js"

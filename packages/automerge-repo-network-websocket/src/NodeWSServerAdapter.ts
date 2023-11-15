@@ -8,6 +8,7 @@ import {
   cbor as cborHelpers,
   NetworkAdapter,
   type PeerId,
+  type StorageId,
 } from "@automerge/automerge-repo"
 import { FromClientMessage, FromServerMessage } from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
@@ -27,8 +28,14 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     this.server = server
   }
 
-  connect(peerId: PeerId) {
+  connect(
+    peerId: PeerId,
+    storageId: StorageId | undefined,
+    isEphemeral: boolean
+  ) {
     this.peerId = peerId
+    this.storageId = storageId
+    this.isEphemeral = isEphemeral
 
     this.server.on("close", function close() {
       clearInterval(interval)
@@ -124,39 +131,48 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     )
     switch (type) {
       case "join":
-        const existingSocket = this.sockets[senderId]
-        if (existingSocket) {
-          if (existingSocket.readyState === WebSocket.OPEN) {
-            existingSocket.close()
+        {
+          const existingSocket = this.sockets[senderId]
+          if (existingSocket) {
+            if (existingSocket.readyState === WebSocket.OPEN) {
+              existingSocket.close()
+            }
+            this.emit("peer-disconnected", { peerId: senderId })
           }
-          this.emit("peer-disconnected", {peerId: senderId})
-        }
 
-        // Let the rest of the system know that we have a new connection.
-        this.emit("peer-candidate", { peerId: senderId })
-        this.sockets[senderId] = socket
+          const { storageId, isEphemeral } = cbor
+          // Let the rest of the system know that we have a new connection.
+          this.emit("peer-candidate", {
+            peerId: senderId,
+            storageId,
+            isEphemeral,
+          })
+          this.sockets[senderId] = socket
 
-        // In this client-server connection, there's only ever one peer: us!
-        // (and we pretend to be joined to every channel)
-        const selectedProtocolVersion = selectProtocol(
-          cbor.supportedProtocolVersions
-        )
-        if (selectedProtocolVersion === null) {
-          this.send({
-            type: "error",
-            senderId: this.peerId!,
-            message: "unsupported protocol version",
-            targetId: senderId,
-          })
-          this.sockets[senderId].close()
-          delete this.sockets[senderId]
-        } else {
-          this.send({
-            type: "peer",
-            senderId: this.peerId!,
-            selectedProtocolVersion: ProtocolV1,
-            targetId: senderId,
-          })
+          // In this client-server connection, there's only ever one peer: us!
+          // (and we pretend to be joined to every channel)
+          const selectedProtocolVersion = selectProtocol(
+            cbor.supportedProtocolVersions
+          )
+          if (selectedProtocolVersion === null) {
+            this.send({
+              type: "error",
+              senderId: this.peerId!,
+              message: "unsupported protocol version",
+              targetId: senderId,
+            })
+            this.sockets[senderId].close()
+            delete this.sockets[senderId]
+          } else {
+            this.send({
+              type: "peer",
+              senderId: this.peerId!,
+              storageId: this.storageId,
+              isEphemeral: this.isEphemeral,
+              selectedProtocolVersion: ProtocolV1,
+              targetId: senderId,
+            })
+          }
         }
         break
       case "leave":
