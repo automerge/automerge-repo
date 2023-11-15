@@ -237,7 +237,7 @@ export class DocHandle<T> //
     return Promise.any(
       awaitStates.map(state =>
         waitFor(this.#machine, s => s.matches(state), {
-          timeout: this.#timeoutDelay * 2000, // longer than the delay above for testing
+          timeout: this.#timeoutDelay * 2, // use a longer delay here so as not to race with other delays
         })
       )
     )
