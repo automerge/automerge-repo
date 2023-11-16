@@ -76,6 +76,10 @@ export class LocalFirstAuthSyncServer {
       // authentication messages, and Automerge Repo will use it to send and receive sync messages
       this.socket = new WebSocketServer({ noServer: true })
 
+      this.socket.on("close", (payload: any) => {
+        console.log("socket closed %o", payload)
+      })
+
       // Set up the auth provider
 
       // TODO: localfirst/auth should shield us from this nonsense of casting a server as a fake user
@@ -124,6 +128,8 @@ export class LocalFirstAuthSyncServer {
 
       /** Endpoint to register a team. */
       app.post("/teams", (req, res) => {
+        console.log("POST /teams", req.body)
+
         // TODO: could we do this with a special document instead of a custom endpoint?
 
         // rehydrate the team using the serialized graph and the keys passed in the request

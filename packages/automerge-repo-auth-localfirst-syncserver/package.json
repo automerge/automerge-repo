@@ -12,7 +12,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^1.0.13",
+    "@automerge/automerge-repo": "^1.0.17",
     "@automerge/automerge-repo-auth-localfirst": "link:../automerge-repo-auth-localfirst",
     "@localfirst/auth": "^4.2.1",
     "body-parser": "^1.20.2",

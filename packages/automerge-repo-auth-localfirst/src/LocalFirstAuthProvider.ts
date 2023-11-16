@@ -54,7 +54,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
 
     // Load any existing state from storage
     this.storage = config.storage
-    this.#loadState()
+    this.#loadState().then(() => this.emit("ready"))
   }
 
   /**
@@ -83,6 +83,8 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     // Intercept any incoming messages and pass them to the Auth.Connection.
     baseAdapter.on("message", message => {
       try {
+        this.#log("message from adapter %o", message)
+
         if (!isAuthMessage(message)) throw new Error("Not an auth message")
         const { senderId, payload } = message
         const { shareId, serializedConnectionMessage } =
@@ -108,6 +110,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     })
 
     baseAdapter.on("peer-disconnected", ({ peerId }) => {
+      this.#log("peer-disconnected %o", peerId)
       for (const shareId of this.#allShareIds())
         if (peerId in this.#connections[shareId])
           this.#disconnect(shareId, peerId)
@@ -129,6 +132,12 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     const shareId = team.id
     this.#shares[shareId] = { shareId, team, documentIds: new Set() }
     await this.#createConnectionsForShare(shareId)
+  }
+
+  public getTeam(shareId: ShareId) {
+    const share = this.#shares[shareId]
+    if (!share) throw new Error(`Share not found`)
+    return share.team
   }
 
   public async addInvitation(invitation: Invitation) {
@@ -271,6 +280,8 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
   }
 
   #addPeer(baseAdapter: NetworkAdapter, peerId: PeerId) {
+    this.#log("adding peer %o", peerId)
+
     // Track each peer by the adapter uses to connect to it
     const peers = this.#peers.get(baseAdapter) || []
     if (!peers.includes(peerId)) {
@@ -292,7 +303,8 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     // Let the repo know
     for (const authenticatedAdapter of this.#adapters) {
       // Find the adapter that has this peer
-      if (this.#peers.get(authenticatedAdapter.baseAdapter).includes(peerId)) {
+      const peers = this.#peers.get(authenticatedAdapter.baseAdapter) || []
+      if (peers.includes(peerId)) {
         authenticatedAdapter.emit("peer-disconnected", { peerId })
         break
       }

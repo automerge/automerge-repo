@@ -7,6 +7,9 @@ import {
 
 import * as Auth from "@localfirst/auth"
 
+/** The team's ID is used as the ID for a share */
+export type ShareId = Auth.Hash & { __shareId: true }
+
 export type Config = {
   /** We always have the local device's info and keys */
   device: Auth.DeviceWithSecrets
@@ -32,6 +35,7 @@ export type EncryptedMessage = {
   shareId: ShareId
   encryptedMessage: Auth.Base58
 }
+
 export const isEncryptedMessage = (
   message: Message | EncryptedMessage
 ): message is EncryptedMessage => message.type === "encrypted"
@@ -47,11 +51,8 @@ export type Share = {
   /** If no document IDs are specified, then all documents are assumed to be shared */
   documentIds?: Set<DocumentId>
 }
-/** The team's ID is used as the ID for the share */
 
-export type ShareId = Auth.Hash & { __shareId: true }
 /** To save our state, we serialize each share */
-
 export type SerializedShare = {
   shareId: ShareId
   encryptedTeam: Auth.Base58
@@ -61,14 +62,14 @@ export type SerializedShare = {
 
 export type SerializedState = Record<ShareId, SerializedShare>
 
-type DeviceInvitation = {
+export type DeviceInvitation = {
   shareId: ShareId
   userName: string
   userId: string
   invitationSeed: string
 }
 
-type MemberInvitation = {
+export type MemberInvitation = {
   shareId: ShareId
   invitationSeed: string
 }
@@ -87,7 +88,8 @@ export type ErrorPayload = Auth.ConnectionErrorPayload & {
 }
 
 export interface LocalFirstAuthProviderEvents {
-  "storage-available": () => void
+  /** We've loaded any persisted state so for example you can ask for a team */
+  ready: () => void
 
   /**
    * We've successfully joined a team using an invitation. This event provides the team graph and
