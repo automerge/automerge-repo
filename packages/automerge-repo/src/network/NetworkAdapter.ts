@@ -13,7 +13,7 @@ import { StorageId } from "../storage/types.js"
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
   storageId?: StorageId
-  isEphemeral: boolean = true
+  isEphemeral = true
 
   /** Called by the {@link Repo} to start the connection process
    *
