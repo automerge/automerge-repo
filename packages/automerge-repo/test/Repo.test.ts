@@ -3,7 +3,7 @@ import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, it } from "vitest"
-import { DocHandleRemoteHeadsPayload, READY } from "../src/DocHandle.js"
+import { READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
   generateAutomergeUrl,
@@ -28,6 +28,7 @@ import {
 } from "./helpers/generate-large-object.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
+import { StorageId } from "../src/storage/types.js"
 
 describe("Repo", () => {
   describe("local only", () => {
@@ -853,12 +854,14 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       let bobSyncMessages = 0
-      bobRepo.networkSubsystem.on("message", () => {
-        bobSyncMessages++
+      bobRepo.networkSubsystem.on("message", message => {
+        if (message.type === "sync") {
+          bobSyncMessages++
+        }
       })
       await pause(500)
 
-      // repo has no stored sync state for charlie so we should see three sync messages
+      // repo has no stored sync state for charlie so we should see 3 sync messages
       assert.strictEqual(bobSyncMessages, 3)
 
       // setup new repo which uses bob's storage
@@ -880,8 +883,10 @@ describe("Repo", () => {
       // lookup doc we've previously created and count the messages
       bob2Repo.find(bobHandle.documentId)
       let bob2SyncMessages = 0
-      bob2Repo.networkSubsystem.on("message", m => {
-        bob2SyncMessages++
+      bob2Repo.networkSubsystem.on("message", message => {
+        if (message.type === "sync") {
+          bob2SyncMessages++
+        }
       })
       await pause(100)
 
@@ -896,6 +901,7 @@ describe("Repo", () => {
       const { bobRepo, charlieRepo, teardown } = await setup({
         connectAlice: false,
       })
+      const charliedStorageId = await charlieRepo.storageSubsystem.id()
 
       const handle = bobRepo.create<TestDoc>()
       handle.change(d => {
@@ -906,11 +912,11 @@ describe("Repo", () => {
       await pause(50)
 
       const nextRemoteHeadsPromise = new Promise<{
-        peerId: PeerId
+        storageId: StorageId
         heads: A.Heads
       }>(resolve => {
-        handle.on("remote-heads", ({ peerId, heads }) => {
-          resolve({ peerId, heads })
+        handle.on("remote-heads", ({ storageId, heads }) => {
+          resolve({ storageId, heads })
         })
       })
 
@@ -931,11 +937,11 @@ describe("Repo", () => {
       assert.deepStrictEqual(charlieHeads, bobHeads)
 
       const nextRemoteHeads = await nextRemoteHeadsPromise
-      assert.deepStrictEqual(nextRemoteHeads.peerId, "charlie")
+      assert.deepStrictEqual(nextRemoteHeads.storageId, charliedStorageId)
       assert.deepStrictEqual(nextRemoteHeads.heads, charlieHeads)
 
       assert.deepStrictEqual(
-        handle.getRemoteHeads("charlie" as PeerId),
+        handle.getRemoteHeads(charliedStorageId),
         A.getHeads(charlieHandle.docSync())
       )
 
