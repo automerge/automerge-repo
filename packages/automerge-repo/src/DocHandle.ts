@@ -19,6 +19,7 @@ import { encode } from "./helpers/cbor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { withTimeout } from "./helpers/withTimeout.js"
 import type { AutomergeUrl, DocumentId, PeerId } from "./types.js"
+import { StorageId } from "./storage/types.js"
 
 /** DocHandle is a wrapper around a single Automerge document that lets us
  * listen for changes and notify the network and storage of new changes.
@@ -39,7 +40,7 @@ export class DocHandle<T> //
 
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
-  #remoteHeads: Record<PeerId, A.Heads> = {}
+  #remoteHeads: Record<StorageId, A.Heads> = {}
 
   /** The URL of this document
    *
@@ -331,14 +332,14 @@ export class DocHandle<T> //
   /** `setRemoteHeads` is called by the doc synchronizer
    * @hidden
    */
-  setRemoteHeads(peerId: PeerId, heads: A.Heads) {
-    this.#remoteHeads[peerId] = heads
-    this.emit("remote-heads", { peerId, heads })
+  setRemoteHeads(storageId: StorageId, heads: A.Heads) {
+    this.#remoteHeads[storageId] = heads
+    this.emit("remote-heads", { storageId, heads })
   }
 
-  /** Returns the heads of the peer */
-  getRemoteHeads(peerId: PeerId): A.Heads | undefined {
-    return this.#remoteHeads[peerId]
+  /** Returns the heads of the storageId */
+  getRemoteHeads(storageId: StorageId): A.Heads | undefined {
+    return this.#remoteHeads[storageId]
   }
 
   /** `change` is called by the repo when the document is changed locally  */
@@ -497,7 +498,7 @@ export interface DocHandleOutboundEphemeralMessagePayload<T> {
 }
 
 export interface DocHandleRemoteHeadsPayload {
-  peerId: PeerId
+  storageId: StorageId
   heads: A.Heads
 }
 

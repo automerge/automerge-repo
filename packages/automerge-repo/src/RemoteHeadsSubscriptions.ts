@@ -1,32 +1,35 @@
-import {next as A} from "@automerge/automerge"
-import {EventEmitter} from "eventemitter3"
-import {DocumentId, PeerId} from "./types.js"
-import {RemoteHeadsChanged, RemoteSubscriptionControlMessage} from "./network/messages.js"
-import {StorageId} from "./index.js"
+import { next as A } from "@automerge/automerge"
+import { EventEmitter } from "eventemitter3"
+import { DocumentId, PeerId } from "./types.js"
+import {
+  RemoteHeadsChanged,
+  RemoteSubscriptionControlMessage,
+} from "./network/messages.js"
+import { StorageId } from "./index.js"
 import debug from "debug"
 
 // Notify a DocHandle that remote heads have changed
 type RemoteHeadsSubscriptionEventPayload = {
-  documentId: DocumentId,
-  storageId: StorageId,
-  remoteHeads: A.Heads,
-  timestamp: number,
+  documentId: DocumentId
+  storageId: StorageId
+  remoteHeads: A.Heads
+  timestamp: number
 }
 
 // Send a message to the given peer notifying them of new heads
 type NotifyRemoteHeadsPayload = {
-  targetId: PeerId,
-  documentId: DocumentId,
-  storageId: StorageId,
-  heads: A.Heads,
-  timestamp: number,
+  targetId: PeerId
+  documentId: DocumentId
+  storageId: StorageId
+  heads: A.Heads
+  timestamp: number
 }
 
 type RemoteHeadsSubscriptionEvents = {
-  "remote-heads-changed": (payload: RemoteHeadsSubscriptionEventPayload) => void,
-  "add-remotes": (payload: {remotes: StorageId[], peers: PeerId[]}) => void,
-  "remove-remotes": (payload: {remotes: StorageId[]}) => void,
-  "notify-remote-heads": (payload: NotifyRemoteHeadsPayload) => void,
+  "remote-heads-changed": (payload: RemoteHeadsSubscriptionEventPayload) => void
+  "add-remotes": (payload: { remotes: StorageId[]; peers: PeerId[] }) => void
+  "remove-remotes": (payload: { remotes: StorageId[] }) => void
+  "notify-remote-heads": (payload: NotifyRemoteHeadsPayload) => void
 }
 
 export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscriptionEvents> {
@@ -49,7 +52,10 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
         newRemotes.push(remote)
       }
     }
-    this.emit("add-remotes", {remotes: newRemotes, peers: Array.from(this.#generousPeers)})
+    this.emit("add-remotes", {
+      remotes: newRemotes,
+      peers: Array.from(this.#generousPeers),
+    })
   }
 
   handleControlMessage(control: RemoteSubscriptionControlMessage) {
@@ -63,7 +69,10 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
         }
         theirSubs.add(control.senderId)
       }
-      this.emit("add-remotes", {remotes: control.add, peers: Array.from(this.#generousPeers)})
+      this.emit("add-remotes", {
+        remotes: control.add,
+        peers: Array.from(this.#generousPeers),
+      })
     }
     if (control.remove) {
       for (const remote of control.remove) {
@@ -90,12 +99,17 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     // Notify generous peers of these changes regardless of if they are subscribed to us
     for (const event of changedHeads) {
       for (const peer of this.#generousPeers) {
+        // don't emit event to sender if sender is a generous peer
+        if (peer === msg.senderId) {
+          continue
+        }
+
         this.emit("notify-remote-heads", {
           targetId: peer,
           documentId: event.documentId,
           heads: event.remoteHeads,
           timestamp: event.timestamp,
-          storageId: event.storageId
+          storageId: event.storageId,
         })
       }
     }
@@ -110,7 +124,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
             documentId: event.documentId,
             heads: event.remoteHeads,
             timestamp: event.timestamp,
-            storageId: event.storageId
+            storageId: event.storageId,
           })
         }
       }
@@ -118,16 +132,23 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   }
 
   /** A peer we are directly connected to has updated their heads */
-  handleImmediateRemoteHeadsChanged(documentId: DocumentId, storageId: StorageId, heads: A.Heads) {
+  handleImmediateRemoteHeadsChanged(
+    documentId: DocumentId,
+    storageId: StorageId,
+    heads: A.Heads
+  ) {
     this.#log("handleLocalHeadsChanged", documentId, storageId, heads)
     const remote = this.#knownHeads.get(documentId)
     const timestamp = Date.now()
     if (!remote) {
-      this.#knownHeads.set(documentId, new Map([[storageId, {heads, timestamp}]]))
+      this.#knownHeads.set(
+        documentId,
+        new Map([[storageId, { heads, timestamp }]])
+      )
     } else {
       const docRemote = remote.get(storageId)
       if (!docRemote || docRemote.timestamp < Date.now()) {
-        remote.set(storageId, {heads, timestamp: Date.now()})
+        remote.set(storageId, { heads, timestamp: Date.now() })
       }
     }
     const theirSubs = this.#theirSubscriptions.get(storageId)
@@ -138,27 +159,29 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
           documentId: documentId,
           heads: heads,
           timestamp: timestamp,
-          storageId: storageId
+          storageId: storageId,
         })
       }
     }
   }
 
-
   addGenerousPeer = (peerId: PeerId) => {
     this.#log("addGenerousPeer", peerId)
     this.#generousPeers.add(peerId)
 
-    this.emit("add-remotes", {remotes: Array.from(this.#ourSubscriptions), peers: [peerId]})
+    this.emit("add-remotes", {
+      remotes: Array.from(this.#ourSubscriptions),
+      peers: [peerId],
+    })
 
     for (const [documentId, remote] of this.#knownHeads) {
-      for (const [storageId, {heads, timestamp}] of remote) {
+      for (const [storageId, { heads, timestamp }] of remote) {
         this.emit("notify-remote-heads", {
           targetId: peerId,
           documentId: documentId,
           heads: heads,
           timestamp: timestamp,
-          storageId: storageId
+          storageId: storageId,
         })
       }
     }
@@ -166,22 +189,23 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
 
   /** Returns the (document, storageId) pairs which have changed after processing msg */
   #changedHeads(msg: RemoteHeadsChanged): {
-      documentId: DocumentId,
-      storageId: StorageId,
-      remoteHeads: A.Heads,
-      timestamp: number
-    }[] 
-  {
+    documentId: DocumentId
+    storageId: StorageId
+    remoteHeads: A.Heads
+    timestamp: number
+  }[] {
     const changedHeads = []
-    const {documentId, newHeads} = msg
-    for (const [storageId, {heads, timestamp}] of Object.entries(newHeads)) {
-      if (!this.#ourSubscriptions.has(storageId as StorageId)
-        && !this.#theirSubscriptions.has(storageId as StorageId)) {
+    const { documentId, newHeads } = msg
+    for (const [storageId, { heads, timestamp }] of Object.entries(newHeads)) {
+      if (
+        !this.#ourSubscriptions.has(storageId as StorageId) &&
+        !this.#theirSubscriptions.has(storageId as StorageId)
+      ) {
         continue
       }
       let remote = this.#knownHeads.get(documentId)
       if (!remote) {
-        remote = new Map([[storageId as StorageId, {heads, timestamp}]])
+        remote = new Map([[storageId as StorageId, { heads, timestamp }]])
         this.#knownHeads.set(documentId, remote)
       }
 
@@ -189,8 +213,13 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       if (docRemote && docRemote.timestamp > timestamp) {
         continue
       } else {
-        remote.set(storageId as StorageId, {timestamp, heads})
-        changedHeads.push({documentId, storageId: storageId as StorageId, remoteHeads: heads, timestamp})
+        remote.set(storageId as StorageId, { timestamp, heads })
+        changedHeads.push({
+          documentId,
+          storageId: storageId as StorageId,
+          remoteHeads: heads,
+          timestamp,
+        })
       }
     }
     return changedHeads
@@ -198,6 +227,6 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
 }
 
 type LastHeads = {
-  timestamp: number,
-  heads: A.Heads,
+  timestamp: number
+  heads: A.Heads
 }

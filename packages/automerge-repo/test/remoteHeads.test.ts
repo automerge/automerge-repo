@@ -5,33 +5,42 @@ import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
-import { DocHandle, DocHandleChangePayload, DocHandleRemoteHeadsPayload, PeerId, Repo, StorageId } from "../src/index.js"
+import {
+  DocHandle,
+  DocHandleRemoteHeadsPayload,
+  PeerId,
+  Repo,
+} from "../src/index.js"
 import { TestDoc } from "./types.js"
-import {MessageChannelNetworkAdapter} from "@automerge/automerge-repo-network-messagechannel"
-import {setTimeout} from "timers/promises"
-import {DummyStorageAdapter} from "./helpers/DummyStorageAdapter.js"
+import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
+import { setTimeout } from "timers/promises"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 
 describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   it("should allow to listen for remote head changes and manually read remote heads", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-    const bob = "bob" as PeerId
+    const bobRepo = new Repo({
+      peerId: "bob" as PeerId,
+      network: [],
+      storage: new DummyStorageAdapter(),
+    })
+    const bobStorageId = await bobRepo.storageSubsystem.id()
 
     const remoteHeadsMessagePromise = eventPromise(handle, "remote-heads")
-
-    handle.setRemoteHeads(bob, [])
+    handle.setRemoteHeads(bobStorageId, [])
 
     const remoteHeadsMessage = await remoteHeadsMessagePromise
 
-    assert.strictEqual(remoteHeadsMessage.peerId, bob)
+    assert.strictEqual(remoteHeadsMessage.storageId, bobStorageId)
     assert.deepStrictEqual(remoteHeadsMessage.heads, [])
 
     // read remote heads manually
-    assert.deepStrictEqual(handle.getRemoteHeads(bob), [])
+    assert.deepStrictEqual(handle.getRemoteHeads(bobStorageId), [])
   })
 
-  it.only("should report remoteHeads for peers who are several hops away", async () => {
+  it("should report remoteHeads for peers who are several hops away", async () => {
     // replicates a tab -> service worker -> sync server <- service worker <- tab scenario
     const leftTab = new Repo({
       peerId: "left-tab" as PeerId,
@@ -41,7 +50,7 @@ describe("DocHandle.remoteHeads", () => {
     const leftServiceWorker = new Repo({
       peerId: "left-service-worker" as PeerId,
       network: [],
-      sharePolicy: async (peer) => peer === "sync-server",
+      sharePolicy: async peer => peer === "sync-server",
       storage: new DummyStorageAdapter(),
       isEphemeral: false,
     })
@@ -55,7 +64,7 @@ describe("DocHandle.remoteHeads", () => {
     const rightServiceWorker = new Repo({
       peerId: "right-service-worker" as PeerId,
       network: [],
-      sharePolicy: async (peer) => peer === "sync-server",
+      sharePolicy: async peer => peer === "sync-server",
       isEphemeral: false,
       storage: new DummyStorageAdapter(),
     })
@@ -80,32 +89,47 @@ describe("DocHandle.remoteHeads", () => {
 
     // create a doc in the left tab
     const leftTabDoc = leftTab.create<TestDoc>()
-    leftTabDoc.change(d => d.foo = "bar")
+    leftTabDoc.change(d => (d.foo = "bar"))
 
     // wait for the document to arrive on the right tab
     const rightTabDoc = rightTab.find<TestDoc>(leftTabDoc.url)
     await rightTabDoc.whenReady()
 
-    let leftSeenByRightPromise = new Promise<DocHandleRemoteHeadsPayload>((resolve) => {
-      rightTabDoc.on("remote-heads", (message) => {
-        if (message.peerId === "left-service-worker") {
-          resolve(message)
-        }
-      })
-    })
+    // wait for the document to arrive in the left service worker
+    const leftServiceWorkerDoc = leftServiceWorker.find(leftTabDoc.documentId)
+    await leftServiceWorkerDoc.whenReady()
+
+    const leftServiceWorkerStorageId = await leftServiceWorker.storageId()
+    let leftSeenByRightPromise = new Promise<DocHandleRemoteHeadsPayload>(
+      resolve => {
+        rightTabDoc.on("remote-heads", message => {
+          if (message.storageId === leftServiceWorkerStorageId) {
+            resolve(message)
+          }
+        })
+      }
+    )
 
     // make a change on the right
-    rightTabDoc.change(d => d.foo = "baz")
+    rightTabDoc.change(d => (d.foo = "baz"))
 
     // wait for the change to be acknolwedged by the left
     const leftSeenByRight = await leftSeenByRightPromise
-    assert.deepStrictEqual(leftSeenByRight.heads, [A.getHeads(leftTabDoc.doc)])
+
+    assert.deepStrictEqual(
+      leftSeenByRight.heads,
+      A.getHeads(leftServiceWorkerDoc.docSync())
+    )
   })
 })
 
 function connectRepos(repo1: Repo, repo2: Repo) {
   const { port1: leftToRight, port2: rightToLeft } = new MessageChannel()
 
-  repo1.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(leftToRight))
-  repo2.networkSubsystem.addNetworkAdapter(new MessageChannelNetworkAdapter(rightToLeft))
+  repo1.networkSubsystem.addNetworkAdapter(
+    new MessageChannelNetworkAdapter(leftToRight)
+  )
+  repo2.networkSubsystem.addNetworkAdapter(
+    new MessageChannelNetworkAdapter(rightToLeft)
+  )
 }

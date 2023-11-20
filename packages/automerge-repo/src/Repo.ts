@@ -14,9 +14,10 @@ import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
-import { RepoMessage, SyncMessage, SyncStateMessage } from "./network/messages.js"
+import { RepoMessage, SyncStateMessage } from "./network/messages.js"
 import { StorageId } from "./storage/types.js"
-import {RemoteHeadsSubscriptions} from "./RemoteHeadsSubscriptions.js"
+import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
+import { headsAreSame } from "./helpers/headsAreSame.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -114,17 +115,6 @@ export class Repo extends EventEmitter<RepoEvents> {
           })
       }
 
-      handle.on("remote-heads", ({ heads, peerId }) => {
-        const storageId = this.persistanceInfoByPeerId[peerId]?.storageId
-        if (storageId) {
-          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-            handle.documentId,
-            storageId,
-            heads,
-          )
-        }
-      })
-
       // Register the document with the synchronizer. This advertises our interest in the document.
       this.#synchronizer.addDocument(handle.documentId)
     })
@@ -176,13 +166,15 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
       }
 
-      this.sharePolicy(peerId).then(shouldShare => {
-        if (shouldShare) {
-          this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
-        }
-      }).catch(err => {
-        console.log("error in share policy", { err })
-      })
+      this.sharePolicy(peerId)
+        .then(shouldShare => {
+          if (shouldShare) {
+            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
+          }
+        })
+        .catch(err => {
+          console.log("error in share policy", { err })
+        })
 
       this.#synchronizer.addPeer(peerId)
     })
@@ -197,11 +189,34 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#receiveMessage(msg)
     })
 
-    if (storageSubsystem) {
-      this.#synchronizer.on("sync-state", message => {
-        this.#saveSyncState(message)
-      })
-    }
+    this.#synchronizer.on("sync-state", message => {
+      this.#saveSyncState(message)
+
+      const handle = this.#handleCache[message.documentId]
+
+      const info = this.persistanceInfoByPeerId[message.peerId]
+      if (!info) {
+        return
+      }
+
+      const { storageId } = info
+      const heads = handle.getRemoteHeads(storageId)
+      const haveHeadsChanged =
+        message.syncState.theirHeads &&
+        (!heads || !headsAreSame(heads, message.syncState.theirHeads))
+
+      if (haveHeadsChanged) {
+        handle.setRemoteHeads(storageId, message.syncState.theirHeads)
+
+        if (storageId) {
+          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+            message.documentId,
+            storageId,
+            message.syncState.theirHeads
+          )
+        }
+      }
+    })
 
     this.#remoteHeadsSubscriptions.on("notify-remote-heads", message => {
       this.networkSubsystem.send({
@@ -228,21 +243,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     })
 
-    this.#remoteHeadsSubscriptions.on("remote-heads-changed", change => {
-      for (const handle of Object.values(this.#handleCache)) {
-        if (handle.documentId === change.documentId) {
-          for (const [peerId, info] of Object.entries(this.persistanceInfoByPeerId)) {
-            if (info.storageId === change.storageId) {
-              handle.emit("remote-heads", { heads: change.remoteHeads, peerId: peerId as PeerId })
-            }
-          }
-        }
-      }
+    this.#remoteHeadsSubscriptions.on("remote-heads-changed", message => {
+      const handle = this.#handleCache[message.documentId]
+      handle.setRemoteHeads(message.storageId, message.remoteHeads)
     })
   }
 
   #receiveMessage(message: RepoMessage) {
-    switch(message.type) {
+    switch (message.type) {
       case "remote-subscription-change":
         this.#remoteHeadsSubscriptions.handleControlMessage(message)
         break
@@ -259,7 +267,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
-
   #throttledSaveSyncStateHandlers: Record<
     StorageId,
     (message: SyncStateMessage) => void
@@ -267,6 +274,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
   #saveSyncState(message: SyncStateMessage) {
+    if (!this.storageSubsystem) {
+      return
+    }
+
     const persistanceInfo = this.persistanceInfoByPeerId[message.peerId]
 
     if (!persistanceInfo || persistanceInfo.isEphemeral) {
@@ -277,9 +288,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     let handler = this.#throttledSaveSyncStateHandlers[storageId]
     if (!handler) {
-      handler = throttle(({ documentId, syncState }: SyncStateMessage) => {
-        this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
-      }, this.saveDebounceRate)
+      handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
+        ({ documentId, syncState }: SyncStateMessage) => {
+          this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
+        },
+        this.saveDebounceRate
+      )
     }
 
     handler(message)
