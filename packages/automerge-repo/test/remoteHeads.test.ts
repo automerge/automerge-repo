@@ -26,7 +26,7 @@ describe("DocHandle.remoteHeads", () => {
       network: [],
       storage: new DummyStorageAdapter(),
     })
-    const bobStorageId = await bobRepo.storageSubsystem.id()
+    const bobStorageId = await bobRepo.storageId()
 
     const remoteHeadsMessagePromise = eventPromise(handle, "remote-heads")
     handle.setRemoteHeads(bobStorageId, [])

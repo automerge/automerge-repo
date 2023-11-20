@@ -329,7 +329,7 @@ export class DocHandle<T> //
     })
   }
 
-  /** `setRemoteHeads` is called by the doc synchronizer
+  /** `setRemoteHeads` is called by the repo either when a doc handle changes or we receive new remote heads
    * @hidden
    */
   setRemoteHeads(storageId: StorageId, heads: A.Heads) {
