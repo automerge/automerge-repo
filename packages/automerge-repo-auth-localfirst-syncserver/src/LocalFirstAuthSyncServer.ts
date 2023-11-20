@@ -91,9 +91,10 @@ export class LocalFirstAuthSyncServer {
       const userId = this.host
       const userName = this.host
       const deviceName = this.host
+      const deviceId = this.host
       const authContext = {
         user: { userId, userName, keys },
-        device: { userId, deviceName, keys },
+        device: { userId, deviceName, deviceId, keys },
       }
 
       const storage = new NodeFSStorageAdapter(storageDir)
