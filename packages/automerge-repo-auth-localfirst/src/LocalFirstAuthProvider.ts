@@ -206,7 +206,6 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     const connection = new Auth.Connection({
       context: this.#getContextForShare(shareId),
       sendMessage,
-      peerUserId: peerId,
     })
 
     connection
