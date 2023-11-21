@@ -4,12 +4,7 @@ import bodyParser from "body-parser"
 import cors from "cors"
 import { Server as HttpServer } from "http"
 import { WebSocketServer } from "ws"
-import {
-  PeerId,
-  Repo,
-  RepoConfig,
-  SharePolicy,
-} from "@automerge/automerge-repo"
+import { PeerId, Repo, SharePolicy } from "@automerge/automerge-repo"
 import { NodeWSServerAdapter } from "@automerge/automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import { LocalFirstAuthProvider } from "@automerge/automerge-repo-auth-localfirst"
@@ -21,6 +16,7 @@ import {
   createKeyset,
   redactKeys,
 } from "@localfirst/auth"
+import { debug } from "./debug.js"
 
 /**
  * This is a sync server for use with automerge-repo and the LocalFirstAuthProvider.
@@ -41,6 +37,8 @@ export class LocalFirstAuthSyncServer {
   storageDir: string
   publicKeys: Keyset
 
+  log = debug
+
   constructor(
     /**
      * A unique name for this server - probably its domain name or IP address. This should match the
@@ -49,6 +47,7 @@ export class LocalFirstAuthSyncServer {
     host: string
   ) {
     this.host = host
+    this.log.extend(host)
   }
 
   async listen(
@@ -77,7 +76,7 @@ export class LocalFirstAuthSyncServer {
       this.socket = new WebSocketServer({ noServer: true })
 
       this.socket.on("close", (payload: any) => {
-        console.log("socket closed %o", payload)
+        this.log("socket closed %o", payload)
       })
 
       // Set up the auth provider
@@ -97,12 +96,12 @@ export class LocalFirstAuthSyncServer {
         device: { userId, deviceName, deviceId, keys },
       }
 
+      const peerId = this.host as PeerId
       const storage = new NodeFSStorageAdapter(storageDir)
       const auth = new LocalFirstAuthProvider({ ...authContext, storage })
       const socketAdapter = auth.wrap(new NodeWSServerAdapter(this.socket))
       const network = [socketAdapter]
 
-      const peerId = this.host as PeerId
       // Since this is a server, we don't share generously —
       // meaning we only sync documents they already know about and can ask for by ID.
       const sharePolicy: SharePolicy = async peerId => false
@@ -113,6 +112,7 @@ export class LocalFirstAuthSyncServer {
 
       // parse application/json
       app.use(bodyParser.json())
+
       // enable CORS
       // TODO: allow providing custom CORS config
       app.use(cors())
@@ -129,9 +129,7 @@ export class LocalFirstAuthSyncServer {
 
       /** Endpoint to register a team. */
       app.post("/teams", (req, res) => {
-        console.log("POST /teams", req.body)
-
-        // TODO: could we do this with a special document instead of a custom endpoint?
+        this.log("POST /teams %o", req.body)
 
         // rehydrate the team using the serialized graph and the keys passed in the request
         const { serializedGraph, teamKeyring } = req.body
