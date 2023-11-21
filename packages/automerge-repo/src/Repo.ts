@@ -58,7 +58,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     network,
     peerId,
     sharePolicy,
-    isEphemeral = false,
+    isEphemeral = storage === undefined,
   }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo`)
