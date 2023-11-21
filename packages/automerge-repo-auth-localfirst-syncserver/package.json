@@ -9,7 +9,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "test": "vitest"
+    "test": "vitest",
+    "test:log": "cross-env DEBUG='lf*,automerge*' DEBUG_COLORS=1 vitest --reporter basic"
   },
   "dependencies": {
     "@automerge/automerge-repo": "^1.0.17",
