@@ -52,22 +52,19 @@ describe("LocalFirstAuthSyncServer", () => {
   it("should add a team", async () => {
     const { url, server } = await setup()
 
-    const user = createUser("alice", "alice")
+    const user = createUser("alice")
     const device = createDevice(user.userId, "laptop")
 
     // add the team to a new auth provider
-
     const storage = new NodeFSStorageAdapter(storageDir)
     const auth = new LocalFirstAuthProvider({ user, device, storage })
 
-    const socketAdapter = auth.wrap(
-      new BrowserWebSocketClientAdapter(`ws://${url}`)
-    )
+    const adapter = auth.wrap(new BrowserWebSocketClientAdapter(`ws://${url}`))
 
     // set up our repo
     const repo = new Repo({
-      peerId: user.userId as PeerId,
-      network: [socketAdapter],
+      peerId: device.deviceId as PeerId,
+      network: [adapter],
       storage,
     })
 
