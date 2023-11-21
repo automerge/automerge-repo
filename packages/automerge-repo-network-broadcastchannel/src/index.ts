@@ -27,7 +27,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
 
   constructor(options?: BroadcastChannelNetworkAdapterOptions) {
     super()
-    this.#options = { ...(options ?? {}), channelName: "broadcast" }
+    this.#options = { channelName: "broadcast", ...(options ?? {}) }
   }
 
   connect(peerId: PeerId) {
