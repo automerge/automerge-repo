@@ -39,12 +39,13 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
   #connections = {} as Record<ShareId, Record<PeerId, Auth.Connection>>
   #messageStore = {} as Record<ShareId, Record<PeerId, string[]>>
   #peers: Map<NetworkAdapter, PeerId[]> = new Map()
-  #log: debug.Debugger
   storage: StorageAdapter
+
+  #log = debug("automerge-repo:auth-localfirst")
 
   constructor(config: Config) {
     super()
-    this.#log = debug(`automerge-repo:auth-localfirst:${config.device.userId}`)
+    this.#log.extend(config.device.deviceId)
 
     // We always are given the local device's info & keys
     this.#device = config.device
@@ -62,16 +63,19 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
    * connection and use it to mutually authenticate before forwarding the peer-candidate event.
    */
   wrap = (baseAdapter: NetworkAdapter) => {
-    // All messages for this adapter are handled by the Auth.Connection
-    const sendMessage = (message: RepoMessage) => {
+    // All repo messages for this adapter are handled by the Auth.Connection, which encrypts them
+    // and guarantees authenticity.
+    const send = (message: RepoMessage) => {
+      this.#log("sending message from connection %o", message)
       const shareId = this.#getShareIdForMessage(message)
       const connection = this.#getConnection(shareId, message.targetId)
       connection.send(message)
     }
-    const authAdapter = new AuthNetworkAdapter(baseAdapter, sendMessage)
+    const authAdapter = new AuthNetworkAdapter(baseAdapter, send)
 
     // try to authenticate new peers; if we succeed, we forward the peer-candidate to the network subsystem
     baseAdapter.on("peer-candidate", ({ peerId }) => {
+      this.#log("peer-candidate %o", peerId)
       this.#addPeer(baseAdapter, peerId)
 
       // We optimistically spin up a connection for each share we have and every unused invitation
@@ -92,12 +96,15 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
 
         // If we don't have a connection for this message, store it until we do
         if (!(shareId in this.#connections)) {
+          this.#log("no connection yet, storing message")
           this.#storeMessage(shareId, senderId, serializedConnectionMessage)
           return
         }
 
         // Pass message to the auth connection
         const connection = this.#getConnection(shareId, senderId)
+
+        this.#log("delivering message to connection %o", message)
         connection.deliver(serializedConnectionMessage)
       } catch (e) {
         // Surface any errors to the repo
@@ -129,6 +136,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
   }
 
   public async addTeam(team: Auth.Team) {
+    this.#log("adding team %o", team.teamName)
     const shareId = team.id
     this.#shares[shareId] = { shareId, team, documentIds: new Set() }
     await this.#createConnectionsForShare(shareId)
@@ -190,6 +198,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     peerId: PeerId
     authAdapter: AuthNetworkAdapter<T>
   }) => {
+    this.#log("creating connection", { shareId, peerId })
     const { baseAdapter } = authenticatedAdapter
 
     // The Auth connection uses the base adapter as its network transport
@@ -401,8 +410,10 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
 
   /** Go through all our peers and try to connect in case they're on the team */
   async #createConnectionsForShare(shareId: ShareId) {
+    this.#log("createConnectionsForShare", shareId)
     for (const authenticatedAdapter of this.#adapters) {
       const peerIds = this.#peers.get(authenticatedAdapter.baseAdapter) || []
+      this.#log("creating connections for %o", peerIds)
       for (const peerId of peerIds) {
         const connection = this.#connections[shareId]?.[peerId]
         if (!connection)
