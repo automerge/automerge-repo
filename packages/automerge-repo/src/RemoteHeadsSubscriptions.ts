@@ -52,10 +52,13 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
         newRemotes.push(remote)
       }
     }
-    this.emit("add-remotes", {
-      remotes: newRemotes,
-      peers: Array.from(this.#generousPeers),
-    })
+
+    if (newRemotes.length > 0) {
+      this.emit("add-remotes", {
+        remotes: newRemotes,
+        peers: Array.from(this.#generousPeers),
+      })
+    }
   }
 
   handleControlMessage(control: RemoteSubscriptionControlMessage) {
@@ -169,10 +172,12 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     this.#log("addGenerousPeer", peerId)
     this.#generousPeers.add(peerId)
 
-    this.emit("add-remotes", {
-      remotes: Array.from(this.#ourSubscriptions),
-      peers: [peerId],
-    })
+    if (this.#ourSubscriptions.size > 0) {
+      this.emit("add-remotes", {
+        remotes: Array.from(this.#ourSubscriptions),
+        peers: [peerId],
+      })
+    }
 
     for (const [documentId, remote] of this.#knownHeads) {
       for (const [storageId, { heads, timestamp }] of remote) {
