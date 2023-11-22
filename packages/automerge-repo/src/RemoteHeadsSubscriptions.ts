@@ -9,7 +9,7 @@ import { StorageId } from "./index.js"
 import debug from "debug"
 
 // Notify a DocHandle that remote heads have changed
-type RemoteHeadsSubscriptionEventPayload = {
+export type RemoteHeadsSubscriptionEventPayload = {
   documentId: DocumentId
   storageId: StorageId
   remoteHeads: A.Heads
@@ -17,7 +17,7 @@ type RemoteHeadsSubscriptionEventPayload = {
 }
 
 // Send a message to the given peer notifying them of new heads
-type NotifyRemoteHeadsPayload = {
+export type NotifyRemoteHeadsPayload = {
   targetId: PeerId
   documentId: DocumentId
   storageId: StorageId
