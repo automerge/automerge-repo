@@ -220,7 +220,7 @@ describe("DocHandle", () => {
 
     assert.equal(doc, undefined)
 
-    assert.equal(handle.state, "failed")
+    assert.equal(handle.state, "unavailable")
   })
 
   it("should not time out if the document is loaded in time", async () => {
