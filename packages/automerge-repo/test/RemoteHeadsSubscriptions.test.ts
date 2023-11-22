@@ -1,3 +1,4 @@
+import * as A from "@automerge/automerge"
 import assert from "assert"
 import { describe, it } from "vitest"
 import { RemoteHeadsSubscriptions } from "../src/RemoteHeadsSubscriptions.js"
@@ -17,6 +18,7 @@ describe("RepoHeadsSubscriptions", () => {
   const peerB = "peer-b" as PeerId
   const peerC = "peer-c" as PeerId
   const peerD = "peer-d" as PeerId
+
   const { documentId: docA } = parseAutomergeUrl(generateAutomergeUrl())
   const { documentId: docB } = parseAutomergeUrl(generateAutomergeUrl())
   const { documentId: docC } = parseAutomergeUrl(generateAutomergeUrl())
@@ -43,6 +45,25 @@ describe("RepoHeadsSubscriptions", () => {
       [storageB]: {
         heads: [],
         timestamp: Date.now(),
+      },
+    },
+  }
+
+  const docBHeads = A.getHeads(
+    A.change(A.init(), doc => {
+      ;(doc as any).foo = "123"
+    })
+  )
+
+  const docBHeadsChangedForStorageB2: RemoteHeadsChanged = {
+    type: "remote-heads-changed",
+    senderId: peerD,
+    targetId: peerA,
+    documentId: docB,
+    newHeads: {
+      [storageB]: {
+        heads: docBHeads,
+        timestamp: Date.now() + 1,
       },
     },
   }
@@ -148,7 +169,7 @@ describe("RepoHeadsSubscriptions", () => {
     assert.strictEqual(messages.length, 0)
   })
 
-  it("should allow peers to subscribe and unsubscribe to changes", async () => {
+  it("should allow peers to subscribe and unsubscribe to storageIds", async () => {
     const remoteHeadsSubscription = new RemoteHeadsSubscriptions()
     remoteHeadsSubscription.subscribeToRemotes([storageB])
 
@@ -192,6 +213,27 @@ describe("RepoHeadsSubscriptions", () => {
     // expect not to be be notified
     messages = await messagesAfteUnsubscribePromise
     assert.strictEqual(messages.length, 0)
+  })
+
+  it("should ignore sync states with an older timestamp", async () => {
+    const remoteHeadsSubscription = new RemoteHeadsSubscriptions()
+
+    const messagesPromise = waitForMessages(
+      remoteHeadsSubscription,
+      "remote-heads-changed"
+    )
+
+    remoteHeadsSubscription.subscribeToRemotes([storageB])
+    remoteHeadsSubscription.handleRemoteHeads(docBHeadsChangedForStorageB2)
+
+    // send message with old heads
+    remoteHeadsSubscription.handleRemoteHeads(docBHeadsChangedForStorageB)
+
+    const messages = await messagesPromise
+    assert.strictEqual(messages.length, 1)
+    assert.strictEqual(messages[0].storageId, storageB)
+    assert.strictEqual(messages[0].documentId, docB)
+    assert.deepStrictEqual(messages[0].remoteHeads, docBHeads)
   })
 })
 
