@@ -211,7 +211,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     }
   }
 
-  addGenerousPeer = (peerId: PeerId) => {
+  addGenerousPeer(peerId: PeerId) {
     this.#log("addGenerousPeer", peerId)
     this.#generousPeers.add(peerId)
 
@@ -232,6 +232,32 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
           storageId: storageId,
         })
       }
+    }
+  }
+
+  removePeer(peerId: PeerId) {
+    this.#log("removePeer", peerId)
+
+    const remotesToRemove = []
+
+    this.#generousPeers.delete(peerId)
+
+    for (const [storageId, peerIds] of this.#theirSubscriptions) {
+      if (peerIds.has(peerId)) {
+        peerIds.delete(peerId)
+
+        if (peerIds.size == 0) {
+          remotesToRemove.push(storageId)
+          this.#theirSubscriptions.delete(storageId)
+        }
+      }
+    }
+
+    if (remotesToRemove.length > 0) {
+      this.emit("change-remote-subs", {
+        remove: remotesToRemove,
+        peers: Array.from(this.#generousPeers),
+      })
     }
   }
 

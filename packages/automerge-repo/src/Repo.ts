@@ -182,6 +182,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
       this.#synchronizer.removePeer(peerId)
+      this.#remoteHeadsSubscriptions.removePeer(peerId)
     })
 
     // Handle incoming messages
