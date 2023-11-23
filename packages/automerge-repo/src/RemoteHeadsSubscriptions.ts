@@ -27,8 +27,11 @@ export type NotifyRemoteHeadsPayload = {
 
 type RemoteHeadsSubscriptionEvents = {
   "remote-heads-changed": (payload: RemoteHeadsSubscriptionEventPayload) => void
-  "add-remotes": (payload: { remotes: StorageId[]; peers: PeerId[] }) => void
-  "remove-remotes": (payload: { remotes: StorageId[] }) => void
+  "change-remote-subs": (payload: {
+    peers: PeerId[]
+    add?: StorageId[]
+    remove?: StorageId[]
+  }) => void
   "notify-remote-heads": (payload: NotifyRemoteHeadsPayload) => void
 }
 
@@ -45,23 +48,48 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
 
   subscribeToRemotes(remotes: StorageId[]) {
     this.#log("subscribeToRemotes", remotes)
-    const newRemotes = []
+    const remotesToAdd = []
     for (const remote of remotes) {
       if (!this.#ourSubscriptions.has(remote)) {
         this.#ourSubscriptions.add(remote)
-        newRemotes.push(remote)
+        remotesToAdd.push(remote)
       }
     }
 
-    if (newRemotes.length > 0) {
-      this.emit("add-remotes", {
-        remotes: newRemotes,
+    if (remotesToAdd.length > 0) {
+      this.emit("change-remote-subs", {
+        add: remotesToAdd,
+        peers: Array.from(this.#generousPeers),
+      })
+    }
+  }
+
+  unsubscribeFromRemotes(remotes: StorageId[]) {
+    this.#log("subscribeToRemotes", remotes)
+    const remotesToRemove = []
+
+    for (const remote of remotes) {
+      if (this.#ourSubscriptions.has(remote)) {
+        this.#ourSubscriptions.delete(remote)
+
+        if (!this.#theirSubscriptions.has(remote)) {
+          remotesToRemove.push(remote)
+        }
+      }
+    }
+
+    if (remotesToRemove.length > 0) {
+      this.emit("change-remote-subs", {
+        remove: remotesToRemove,
         peers: Array.from(this.#generousPeers),
       })
     }
   }
 
   handleControlMessage(control: RemoteSubscriptionControlMessage) {
+    const remotesToAdd: StorageId[] = []
+    const remotesToRemove: StorageId[] = []
+
     this.#log("handleControlMessage", control)
     if (control.add) {
       for (const remote of control.add) {
@@ -69,21 +97,36 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
         if (!theirSubs) {
           theirSubs = new Set()
           this.#theirSubscriptions.set(remote, theirSubs)
+
+          if (!this.#ourSubscriptions.has(remote)) {
+            remotesToAdd.push(remote)
+          }
         }
+
         theirSubs.add(control.senderId)
       }
-      this.emit("add-remotes", {
-        remotes: control.add,
-        peers: Array.from(this.#generousPeers),
-      })
     }
+
     if (control.remove) {
       for (const remote of control.remove) {
         const theirSubs = this.#theirSubscriptions.get(remote)
         if (theirSubs) {
           theirSubs.delete(control.senderId)
+
+          // if no one is subscribed anymore remove remote
+          if (theirSubs.size == 0 && !this.#ourSubscriptions.has(remote)) {
+            remotesToRemove.push(remote)
+          }
         }
       }
+    }
+
+    if (remotesToAdd.length > 0 || remotesToRemove.length > 0) {
+      this.emit("change-remote-subs", {
+        peers: Array.from(this.#generousPeers),
+        add: remotesToAdd,
+        remove: remotesToRemove,
+      })
     }
   }
 
@@ -173,8 +216,8 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     this.#generousPeers.add(peerId)
 
     if (this.#ourSubscriptions.size > 0) {
-      this.emit("add-remotes", {
-        remotes: Array.from(this.#ourSubscriptions),
+      this.emit("change-remote-subs", {
+        add: Array.from(this.#ourSubscriptions),
         peers: [peerId],
       })
     }

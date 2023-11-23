@@ -232,13 +232,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       })
     })
 
-    this.#remoteHeadsSubscriptions.on("add-remotes", message => {
-      this.#log("add-remotes", message)
+    this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
+      this.#log("change-remote-subs", message)
       for (const peer of message.peers) {
         this.networkSubsystem.send({
           type: "remote-subscription-change",
           targetId: peer,
-          add: message.remotes,
+          add: message.add,
+          remove: message.remove,
         })
       }
     })

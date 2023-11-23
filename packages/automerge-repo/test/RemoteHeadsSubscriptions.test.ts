@@ -82,22 +82,51 @@ describe("RepoHeadsSubscriptions", () => {
     remove: [storageB],
   }
 
-  it("should emit changed remote heads", async () => {
+  it("should allow to subscribe and unsubscribe to storage ids", async () => {
     const remoteHeadsSubscription = new RemoteHeadsSubscriptions()
 
-    const messagesPromise = waitForMessages(
+    const remoteHeadsMessages = waitForMessages(
       remoteHeadsSubscription,
       "remote-heads-changed"
     )
 
+    const changeRemoteSubsAfterSubscribe = waitForMessages(
+      remoteHeadsSubscription,
+      "change-remote-subs"
+    )
+
+    // subscribe to storageB and change storageB heads
     remoteHeadsSubscription.subscribeToRemotes([storageB])
     remoteHeadsSubscription.handleRemoteHeads(docAHeadsChangedForStorageB)
 
-    const messages = await messagesPromise
+    // receive event for new heads of storageB
+    let messages = await remoteHeadsMessages
     assert.strictEqual(messages.length, 1)
     assert.strictEqual(messages[0].storageId, storageB)
     assert.strictEqual(messages[0].documentId, docA)
     assert.deepStrictEqual(messages[0].remoteHeads, [])
+
+    // receive event for add sub to storageB
+    messages = await changeRemoteSubsAfterSubscribe
+    assert.strictEqual(messages.length, 1)
+    assert.deepStrictEqual(messages[0].add, [storageB])
+    assert.deepStrictEqual(messages[0].remove, undefined)
+    assert.deepStrictEqual(messages[0].peers, [])
+
+    const remoteHeadsMessagesAfterUnsub = waitForMessages(
+      remoteHeadsSubscription,
+      "change-remote-subs"
+    )
+
+    // unsubscribe from storageB
+    remoteHeadsSubscription.unsubscribeFromRemotes([storageB])
+
+    // receive event for remove sub from storageB
+    messages = await remoteHeadsMessagesAfterUnsub
+    assert.strictEqual(messages.length, 1)
+    assert.deepStrictEqual(messages[0].add, undefined)
+    assert.deepStrictEqual(messages[0].remove, [storageB])
+    assert.deepStrictEqual(messages[0].peers, [])
   })
 
   it("should forward all changes to generous peers", async () => {
@@ -108,9 +137,9 @@ describe("RepoHeadsSubscriptions", () => {
       "notify-remote-heads"
     )
 
-    const addRemotesMessagesPromise = waitForMessages(
+    const changeRemoteSubsMessagesPromise = waitForMessages(
       remoteHeadsSubscription,
-      "add-remotes"
+      "change-remote-subs"
     )
 
     remoteHeadsSubscription.addGenerousPeer(peerC)
@@ -133,13 +162,27 @@ describe("RepoHeadsSubscriptions", () => {
     assert.strictEqual(messages[0].storageId, storageB)
     assert.deepStrictEqual(messages[0].heads, [])
 
-    // should forward subscriptions to remotes
-    messages = await addRemotesMessagesPromise
+    // should forward subscriptions to generous peer
+    messages = await changeRemoteSubsMessagesPromise
     assert.strictEqual(messages.length, 1)
-    assert.deepStrictEqual(messages[0].remotes, [storageB])
+    assert.deepStrictEqual(messages[0].add, [storageB])
+    assert.deepStrictEqual(messages[0].remove, undefined)
     assert.deepStrictEqual(messages[0].peers, [peerC])
 
-    // todo: should forward unsubscribe to remotes
+    const changeRemoteSubsMessagesAfterUnsubPromise = waitForMessages(
+      remoteHeadsSubscription,
+      "change-remote-subs"
+    )
+
+    // unsubsscribe from storage B
+    remoteHeadsSubscription.unsubscribeFromRemotes([storageB])
+
+    // should forward unsubscribe to generous peer
+    messages = await changeRemoteSubsMessagesAfterUnsubPromise
+    assert.strictEqual(messages.length, 1)
+    assert.deepStrictEqual(messages[0].add, undefined)
+    assert.deepStrictEqual(messages[0].remove, [storageB])
+    assert.deepStrictEqual(messages[0].peers, [peerC])
   })
 
   it("should not notify generous peers of changed remote heads, if they send the heads originally", async () => {
