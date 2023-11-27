@@ -74,7 +74,8 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     const authAdapter = new AuthNetworkAdapter(baseAdapter, send)
 
     // try to authenticate new peers; if we succeed, we forward the peer-candidate to the network subsystem
-    baseAdapter.on("peer-candidate", ({ peerId }) => {
+    baseAdapter
+      .on("peer-candidate", ({ peerId }) => {
       this.#log("peer-candidate %o", peerId)
       this.#addPeer(baseAdapter, peerId)
 
@@ -85,7 +86,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     })
 
     // Intercept any incoming messages and pass them to the Auth.Connection.
-    baseAdapter.on("message", message => {
+      .on("message", message => {
       try {
         this.#log("message from adapter %o", message)
 
@@ -116,11 +117,13 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
       }
     })
 
-    baseAdapter.on("peer-disconnected", ({ peerId }) => {
+      .on("peer-disconnected", ({ peerId }) => {
       this.#log("peer-disconnected %o", peerId)
-      for (const shareId of this.#allShareIds())
-        if (peerId in this.#connections[shareId])
-          this.#disconnect(shareId, peerId)
+        // Disconnect all connections with this peer
+        for (const shareId of this.#allShareIds()) {
+          const connections = this.#connections[shareId]
+          if (peerId in connections) this.#disconnect(shareId, peerId)
+        }
     })
 
     // forward all other events from the base adapter to the repo
