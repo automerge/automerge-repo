@@ -292,7 +292,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
 
     // If we already had messages for this peer, pass them to the connection
     for (const message of this.#getStoredMessages(shareId, peerId))
-      await connection.deliver(message)
+      connection.deliver(message)
 
     // Track the connection
     const connections = this.#connections[shareId] || {}
