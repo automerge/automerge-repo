@@ -340,7 +340,11 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
 
   #removeConnection = (shareId: ShareId, peerId: PeerId) => {
     const connections = this.#connections[shareId]
-    if (connections && peerId in connections) delete connections[peerId]
+    if (connections && peerId in connections) {
+      const connection = connections[peerId]
+      connection.stop()
+      delete connections[peerId]
+    }
   }
 
   /** Saves a serialized and partially encrypted version of the state */
