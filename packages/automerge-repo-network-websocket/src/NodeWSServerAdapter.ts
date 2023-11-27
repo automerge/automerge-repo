@@ -15,7 +15,7 @@ import {
 } from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 
-const log = debug("WebsocketServer")
+const log = debug("automerge-repo:websocket:server")
 
 const { encode, decode } = cborHelpers
 

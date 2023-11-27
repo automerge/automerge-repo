@@ -16,46 +16,45 @@ import {
   isPeerMessage,
 } from "./messages.js"
 import { ProtocolV1 } from "./protocolVersion.js"
-
-const log = debug("WebsocketClient")
+import { assert } from "./assert.js"
 
 abstract class WebSocketNetworkAdapter extends NetworkAdapter {
   socket?: WebSocket
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  // Type trickery required for platform independence,
-  // see https://stackoverflow.com/questions/45802988/typescript-use-correct-version-of-settimeout-node-vs-window
-  timerId?: ReturnType<typeof setTimeout>
+  #isReady: boolean = false
+  #retryTimer?: TimeoutId
+  #log = debug("automerge-repo:websocket:browser")
+
   remotePeerId?: PeerId // this adapter only connects to one remote client at a time
-  #startupComplete: boolean = false
 
-  url: string
-  autoReconnect: boolean
-
-  constructor(url: string, autoReconnect = true) {
+  constructor(
+    public readonly url: string,
+    public readonly autoReconnect = true
+  ) {
     super()
-    this.url = url
-    this.autoReconnect = autoReconnect
+    this.#log = this.#log.extend(url)
   }
 
   connect(peerId: PeerId) {
-    log("socketAdapter connect")
-
-    // If we're reconnecting  make sure we remove the old event listeners
-    // before creating a new connection.
-    if (this.socket) {
-      log("removing old listeners on reconnect")
+    if (!this.socket || !this.peerId) {
+      // first time connecting
+      this.#log("connecting")
+      this.peerId = peerId
+    } else {
+      this.#log("reconnecting")
+      assert(peerId === this.peerId)
+      // Remove the old event listeners before creating a new connection.
       this.socket.removeEventListener("open", this.onOpen)
       this.socket.removeEventListener("close", this.onClose)
       this.socket.removeEventListener("message", this.onMessage)
     }
 
-    if (!this.timerId) {
-      this.timerId = setInterval(() => this.connect(peerId), 5000)
-    }
+    // Wire up retries
+    if (!this.#retryTimer)
+      this.#retryTimer = setInterval(() => this.connect(peerId), 5000)
 
-    this.peerId = peerId
     this.socket = new WebSocket(this.url)
     this.socket.binaryType = "arraybuffer"
 
@@ -63,61 +62,57 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.socket.addEventListener("close", this.onClose)
     this.socket.addEventListener("message", this.onMessage)
 
-    // mark this adapter as ready if we haven't received an ack in 1 second.
+    // Mark this adapter as ready if we haven't received an ack in 1 second.
     // We might hear back from the other end at some point but we shouldn't
     // hold up marking things as unavailable for any longer
-    setTimeout(() => {
-      if (!this.#startupComplete) {
-        this.#startupComplete = true
-        this.emit("ready", { network: this })
-      }
-    }, 1000)
-
+    setTimeout(() => this.#ready(), 1000)
     this.join()
   }
 
   onOpen = () => {
-    log(`@ ${this.url}: open`)
-    clearInterval(this.timerId)
-    this.timerId = undefined
-    this.send(joinMessage(this.peerId!))
+    this.#log("open")
+    clearInterval(this.#retryTimer)
+    this.#retryTimer = undefined
+    this.join()
   }
 
   // When a socket closes, or disconnects, remove it from the array.
   onClose = () => {
-    log(`${this.url}: close`)
-
-    if (this.remotePeerId) {
+    this.#log("close")
+    assert(this.peerId)
+    if (this.remotePeerId)
       this.emit("peer-disconnected", { peerId: this.remotePeerId })
-    }
 
-    if (!this.timerId && this.autoReconnect) {
-      if (this.peerId) {
-        this.connect(this.peerId)
-      }
-    }
+    if (!this.#retryTimer && this.autoReconnect)
+      // try to reconnect
+      this.connect(this.peerId)
   }
 
   onMessage = (event: WebSocket.MessageEvent) => {
     this.receiveMessage(event.data as Uint8Array)
   }
 
+  #ready() {
+    if (this.#isReady) return
+
+    this.#isReady = true
+    this.emit("ready", { network: this })
+  }
+
   join() {
-    if (!this.socket) {
-      throw new Error("WTF, get a socket")
-    }
+    assert(this.peerId)
+    assert(this.socket)
     if (this.socket.readyState === WebSocket.OPEN) {
-      this.send(joinMessage(this.peerId!))
+      this.send(joinMessage(this.peerId))
     } else {
-      // The onOpen handler automatically sends a join message
+      // We'll try again in the `onOpen` handler
     }
   }
 
   disconnect() {
-    if (!this.socket) {
-      throw new Error("WTF, get a socket")
-    }
-    this.send({ type: "leave", senderId: this.peerId! })
+    assert(this.peerId)
+    assert(this.socket)
+    this.send({ type: "leave", senderId: this.peerId })
   }
 
   send(message: FromClientMessage) {
@@ -125,17 +120,12 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       isValidRepoMessage(message) &&
       "data" in message &&
       message.data.byteLength === 0
-    ) {
+    )
       throw new Error("tried to send a zero-length message")
-    }
-
-    if (!this.peerId) {
-      throw new Error("Why don't we have a PeerID?")
-    }
-
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      throw new Error("Websocket Socket not ready!")
-    }
+    assert(this.peerId)
+    assert(this.socket)
+    if (this.socket.readyState !== WebSocket.OPEN)
+      throw new Error(`Websocket not ready (${this.socket.readyState})`)
 
     const encoded = cbor.encode(message)
     // This incantation deals with websocket sending the whole
@@ -148,34 +138,25 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.socket?.send(arrayBuf)
   }
 
-  announceConnection(peerId: PeerId) {
-    // return a peer object
-    const myPeerId = this.peerId
-    if (!myPeerId) {
-      throw new Error("we should have a peer ID by now")
-    }
-    if (!this.#startupComplete) {
-      this.#startupComplete = true
-      this.emit("ready", { network: this })
-    }
-    this.remotePeerId = peerId
-    this.emit("peer-candidate", { peerId })
+  peerCandidate(remotePeerId: PeerId) {
+    assert(this.socket)
+    this.#ready()
+    this.remotePeerId = remotePeerId
+    this.emit("peer-candidate", { peerId: remotePeerId })
   }
 
   receiveMessage(messageBytes: Uint8Array) {
     const message: FromServerMessage = cbor.decode(new Uint8Array(messageBytes))
 
-    const socket = this.socket
-    if (!socket) throw new Error("Missing socket at receiveMessage")
-
+    assert(this.socket)
     if (messageBytes.byteLength === 0)
       throw new Error("received a zero-length message")
 
     if (isPeerMessage(message)) {
-      log(`peer: ${message.senderId}`)
-      this.announceConnection(message.senderId)
+      this.#log(`peer: ${message.senderId}`)
+      this.peerCandidate(message.senderId)
     } else if (isErrorMessage(message)) {
-      log(`error: ${message.message}`)
+      this.#log(`error: ${message.message}`)
     } else {
       this.emit("message", message)
     }
@@ -189,3 +170,5 @@ function joinMessage(senderId: PeerId): JoinMessage {
     supportedProtocolVersions: [ProtocolV1],
   }
 }
+
+type TimeoutId = ReturnType<typeof setTimeout> //  https://stackoverflow.com/questions/45802988
