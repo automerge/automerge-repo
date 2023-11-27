@@ -148,6 +148,10 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     this.#log("adding team %o", team.teamName)
     const shareId = team.id
     this.#shares[shareId] = { shareId, team, documentIds: new Set() }
+    await this.#saveState()
+    team.on("updated", () => {
+      this.#saveState()
+    })
     await this.#createConnectionsForShare(shareId)
   }
 
