@@ -214,8 +214,10 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     this.#log("creating connection", { shareId, peerId })
     const { baseAdapter } = authenticatedAdapter
 
+    const connection = new Auth.Connection({
+      context: this.#getContextForShare(shareId),
     // The Auth connection uses the base adapter as its network transport
-    const sendMessage: Auth.SendFunction = serializedConnectionMessage => {
+      sendMessage: serializedConnectionMessage => {
       const authMessage: LocalFirstAuthMessage = {
         type: "auth",
         senderId: baseAdapter.peerId!,
@@ -223,11 +225,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
         payload: { shareId, serializedConnectionMessage },
       }
       baseAdapter.send(authMessage)
-    }
-
-    const connection = new Auth.Connection({
-      context: this.#getContextForShare(shareId),
-      sendMessage,
+      },
     })
 
     connection
