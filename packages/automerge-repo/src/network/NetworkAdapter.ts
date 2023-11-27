@@ -10,7 +10,7 @@ import { Message } from "./messages.js"
  * until the adapter emits a `ready` event before it starts trying to use it
  */
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
-  peerId?: PeerId // hmmm, maybe not
+  peerId?: PeerId
 
   /** Called by the {@link Repo} to start the connection process
    *
