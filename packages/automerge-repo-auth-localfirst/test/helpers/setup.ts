@@ -1,4 +1,4 @@
-import { Repo } from "@automerge/automerge-repo"
+import { PeerId, Repo } from "@automerge/automerge-repo"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import * as Auth from "@localfirst/auth"
@@ -35,12 +35,13 @@ export const setup = <T extends string>(
 
   const users = userNames.reduce((result, userName) => {
     const storageDir = getStorageDirectory(userName)
+
     const setupRepo = (ports: MessagePort[]) => {
       const storage = new NodeFSStorageAdapter(storageDir)
       const authProvider = new LocalFirstAuthProvider({ user, device, storage })
 
       const repo = new Repo({
-        peerId: user.userId,
+        peerId: device.deviceId as PeerId,
         network: ports.map(port => {
           const adapter = new MessageChannelNetworkAdapter(port)
           return authProvider.wrap(adapter)
@@ -50,8 +51,9 @@ export const setup = <T extends string>(
       return { authProvider, repo }
     }
 
-    const user = Auth.createUser(userName, userName)
-    const device = Auth.createDevice(user.userId, `${userName}'s device`)
+    const user = Auth.createUser(userName)
+    const { userId } = user
+    const device = Auth.createDevice(userId, `${userName}'s device`)
     const context = { user, device }
     const { authProvider, repo } = setupRepo(portsByUser[userName])
 

@@ -1,5 +1,5 @@
 import { Repo } from "@automerge/automerge-repo"
-import { eventPromise } from "./eventPromise.js"
+import { eventPromise } from "../../src/eventPromise.js"
 import { pause } from "./pause"
 import { UserStuff } from "./setup.js"
 
