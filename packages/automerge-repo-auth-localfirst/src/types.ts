@@ -23,7 +23,7 @@ export type Config = {
 
 export type LocalFirstAuthMessagePayload = {
   shareId: ShareId
-  serializedConnectionMessage: string
+  serializedConnectionMessage: Uint8Array
 }
 
 export type LocalFirstAuthMessage = AuthMessage<LocalFirstAuthMessagePayload>

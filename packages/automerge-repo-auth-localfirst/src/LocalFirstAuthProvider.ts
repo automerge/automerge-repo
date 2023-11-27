@@ -37,7 +37,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
   #invitations = {} as Record<ShareId, Invitation>
   #shares = {} as Record<ShareId, Share>
   #connections = {} as Record<ShareId, Record<PeerId, Auth.Connection>>
-  #messageStore = {} as Record<ShareId, Record<PeerId, string[]>>
+  #messageStore = {} as Record<ShareId, Record<PeerId, Uint8Array[]>>
   #peers: Map<NetworkAdapter, PeerId[]> = new Map()
   storage: StorageAdapter
 
@@ -82,55 +82,55 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     // try to authenticate new peers; if we succeed, we forward the peer-candidate to the network subsystem
     baseAdapter
       .on("peer-candidate", ({ peerId }) => {
-      this.#log("peer-candidate %o", peerId)
-      this.#addPeer(baseAdapter, peerId)
+        this.#log("peer-candidate %o", peerId)
+        this.#addPeer(baseAdapter, peerId)
 
-      // We optimistically spin up a connection for each share we have and every unused invitation
-      // we have. Messages regarding shares we're not a member of will be ignored.
-      for (const shareId of this.#allShareIds())
-        void this.#createConnection({ shareId, peerId, authAdapter })
-    })
+        // We optimistically spin up a connection for each share we have and every unused invitation
+        // we have. Messages regarding shares we're not a member of will be ignored.
+        for (const shareId of this.#allShareIds())
+          void this.#createConnection({ shareId, peerId, authAdapter })
+      })
 
-    // Intercept any incoming messages and pass them to the Auth.Connection.
+      // Intercept any incoming messages and pass them to the Auth.Connection.
       .on("message", message => {
-      try {
-        this.#log("message from adapter %o", message)
+        try {
+          this.#log("message from adapter %o", message)
 
-        if (!isAuthMessage(message)) throw new Error("Not an auth message")
-        const { senderId, payload } = message
-        const { shareId, serializedConnectionMessage } =
-          payload as LocalFirstAuthMessagePayload
+          if (!isAuthMessage(message)) throw new Error("Not an auth message")
+          const { senderId, payload } = message
+          const { shareId, serializedConnectionMessage } =
+            payload as LocalFirstAuthMessagePayload
 
-        // If we don't have a connection for this message, store it until we do
-        if (!(shareId in this.#connections)) {
-          this.#log("no connection yet, storing message")
-          this.#storeMessage(shareId, senderId, serializedConnectionMessage)
-          return
+          // If we don't have a connection for this message, store it until we do
+          if (!(shareId in this.#connections)) {
+            this.#log("no connection yet, storing message")
+            this.#storeMessage(shareId, senderId, serializedConnectionMessage)
+            return
+          }
+
+          // Pass message to the auth connection
+          const connection = this.#getConnection(shareId, senderId)
+
+          this.#log("delivering message to connection %o", message)
+          connection.deliver(serializedConnectionMessage)
+        } catch (e) {
+          // Surface any errors to the repo
+          this.#log(`error`, e)
+          authAdapter.emit("error", {
+            peerId: message.senderId,
+            error: e,
+          })
         }
-
-        // Pass message to the auth connection
-        const connection = this.#getConnection(shareId, senderId)
-
-        this.#log("delivering message to connection %o", message)
-        connection.deliver(serializedConnectionMessage)
-      } catch (e) {
-        // Surface any errors to the repo
-        this.#log(`error`, e)
-        authAdapter.emit("error", {
-          peerId: message.senderId,
-          error: e,
-        })
-      }
-    })
+      })
 
       .on("peer-disconnected", ({ peerId }) => {
-      this.#log("peer-disconnected %o", peerId)
+        this.#log("peer-disconnected %o", peerId)
         // Disconnect all connections with this peer
         for (const shareId of this.#allShareIds()) {
           const connections = this.#connections[shareId]
           if (peerId in connections) this.#disconnect(shareId, peerId)
         }
-    })
+      })
 
     // forward all other events from the base adapter to the repo
     forwardEvents(baseAdapter, authAdapter, [
@@ -185,7 +185,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
    * We might get messages from a peer before we've set up an Auth.Connection with them.
    * We store these messages until there's a connection to hand them off to.
    */
-  #storeMessage = (shareId: ShareId, peerId: PeerId, message: string) => {
+  #storeMessage = (shareId: ShareId, peerId: PeerId, message: Uint8Array) => {
     const messages = this.#messageStore[shareId]?.[peerId] || []
     this.#messageStore[shareId] = {
       ...this.#messageStore[shareId],
@@ -216,15 +216,15 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
 
     const connection = new Auth.Connection({
       context: this.#getContextForShare(shareId),
-    // The Auth connection uses the base adapter as its network transport
+      // The Auth connection uses the base adapter as its network transport
       sendMessage: serializedConnectionMessage => {
-      const authMessage: LocalFirstAuthMessage = {
-        type: "auth",
-        senderId: baseAdapter.peerId!,
-        targetId: peerId,
-        payload: { shareId, serializedConnectionMessage },
-      }
-      baseAdapter.send(authMessage)
+        const authMessage: LocalFirstAuthMessage = {
+          type: "auth",
+          senderId: baseAdapter.peerId!,
+          targetId: peerId,
+          payload: { shareId, serializedConnectionMessage },
+        }
+        baseAdapter.send(authMessage)
       },
     })
 
@@ -353,11 +353,14 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     for (const shareId in this.#shares) {
       const share = this.#shares[shareId] as Share
       shares[shareId] = {
+        shareId,
         encryptedTeam: share.team.save(),
         encryptedTeamKeys: encrypt(
           share.team.teamKeyring(),
           this.#device.keys.secretKey
         ),
+        documentIds: [...share.documentIds],
+      }
       this.#log("saving state", Auth.graphSummary(share.team.graph))
     }
     const serializedState = cbor.encode(shares)
@@ -406,21 +409,21 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
         device,
         user,
         team: share.team,
-      } as Auth.MemberInitialContext
+      } as Auth.MemberContext
     else if (invitation)
       if (isDeviceInvitation(invitation))
         // this is a share we've been invited to as a device
         return {
           device,
           ...invitation,
-        } as Auth.InviteeDeviceInitialContext
+        } as Auth.InviteeDeviceContext
       else {
         // this is a share we've been invited to as a member
         return {
           device,
           user,
           ...invitation,
-        } as Auth.InviteeMemberInitialContext
+        } as Auth.InviteeMemberContext
       }
 
     // we don't know about this share
