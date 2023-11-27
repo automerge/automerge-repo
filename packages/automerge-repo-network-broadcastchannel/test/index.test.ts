@@ -18,11 +18,11 @@ describe("BroadcastChannel", () => {
   runAdapterTests(setup)
 
   it("allows a channel name to be specified in the options and limits messages to that channel", async () => {
-    const a = new BroadcastChannelNetworkAdapter({ channelName: "test" })
-    const b = new BroadcastChannelNetworkAdapter({ channelName: "test" })
+    const a = new BroadcastChannelNetworkAdapter()
+    const b = new BroadcastChannelNetworkAdapter()
 
     // this adapter should never connect
-    const c = new BroadcastChannelNetworkAdapter()
+    const c = new BroadcastChannelNetworkAdapter({ channelName: "other" })
 
     const aConnect = new Promise<void>(resolve => {
       a.once("peer-candidate", () => resolve())
@@ -38,6 +38,7 @@ describe("BroadcastChannel", () => {
 
     a.connect("a" as PeerId)
     b.connect("b" as PeerId)
+    c.connect("c" as PeerId)
 
     return Promise.all([aConnect, cShouldNotConnect])
   })
