@@ -460,13 +460,8 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     // use any of those session keys, but we need to pick one consistently.
 
     // TODO: use documentId to pick the right share
-    // For now, just pick the shareId with the lowest session key
-    const bySessionKey = (a: ShareId, b: ShareId) => {
-      const aConnection = this.#getConnection(a, targetId)
-      const bConnection = this.#getConnection(b, targetId)
-      return aConnection.sessionKey.localeCompare(bConnection.sessionKey)
-    }
-    return shareIdsForPeer.sort(bySessionKey)[0]
+    // For now, just pick the lowest ShareId
+    return shareIdsForPeer.sort()[0]
   }
 }
 
