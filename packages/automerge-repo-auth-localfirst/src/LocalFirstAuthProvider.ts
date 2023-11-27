@@ -236,8 +236,11 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
         // info (including keys). (When we're joining as a new device for an existing user, this
         // is how we get the user's keys.)
 
+        if (user !== this.#user) this.#log = this.#log.extend(user.userName)
+
         // Create a share with this team
         this.#user = user
+
         this.addTeam(team)
 
         await this.#saveState()
