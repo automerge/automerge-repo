@@ -6,7 +6,7 @@ import type {
 } from "@automerge/automerge-repo"
 import { NetworkAdapter, cbor } from "@automerge/automerge-repo"
 import * as Auth from "@localfirst/auth"
-import debug from "debug"
+import { debug } from "./debug.js"
 import EventEmitter from "eventemitter3"
 import { AuthenticatedNetworkAdapter as AuthNetworkAdapter } from "./AuthenticatedNetworkAdapter.js"
 import { forwardEvents } from "./forwardEvents.js"
@@ -41,20 +41,26 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
   #peers: Map<NetworkAdapter, PeerId[]> = new Map()
   storage: StorageAdapter
 
-  #log = debug("automerge-repo:auth-localfirst")
+  #log = debug.extend("auth-localfirst")
 
-  constructor(config: Config) {
+  constructor({ device, user, storage }: Config) {
     super()
-    this.#log.extend(config.device.deviceId)
 
     // We always are given the local device's info & keys
-    this.#device = config.device
+    this.#device = device
 
     // We might already have our user info, unless we're a new device using an invitation
-    if ("user" in config) this.#user = config.user
+    if (user && user.userName) {
+      this.#user = user
+      this.#log = this.#log.extend(user.userName)
+    }
 
+    this.#log("instantiating %o", {
+      userName: user?.userName,
+      deviceId: device.deviceId,
+    })
     // Load any existing state from storage
-    this.storage = config.storage
+    this.storage = storage
     this.#loadState().then(() => this.emit("ready"))
   }
 
@@ -242,7 +248,6 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
       .on("connected", () => {
         // Let the application know
         this.emit("connected", { shareId, peerId })
-
         // Let the repo know we've got a new peer
         authenticatedAdapter.emit("peer-candidate", { peerId })
       })
@@ -344,9 +349,10 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
           share.team.teamKeyring(),
           this.#device.keys.secretKey
         ),
-      } as SerializedShare
+      this.#log("saving state", Auth.graphSummary(share.team.graph))
     }
     const serializedState = cbor.encode(shares)
+
     await this.storage.save(STORAGE_KEY, serializedState)
   }
 
@@ -357,6 +363,7 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
 
     const savedShares = cbor.decode(serializedState) as SerializedState
     for (const shareId in savedShares) {
+      this.#log("loading state", shareId)
       const share = savedShares[shareId] as SerializedShare
 
       const { encryptedTeam, encryptedTeamKeys } = share
