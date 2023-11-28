@@ -13,7 +13,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.1.7",
+    "@automerge/automerge": "^2.1.8-alpha.1",
     "@automerge/automerge-repo": "^1.0.19",
     "eventemitter3": "^5.0.1",
     "react": "^18.2.0",
