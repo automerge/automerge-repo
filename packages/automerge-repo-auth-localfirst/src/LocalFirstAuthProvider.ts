@@ -4,11 +4,12 @@ import type {
   RepoMessage,
   StorageAdapter,
 } from "@automerge/automerge-repo"
-import { NetworkAdapter, cbor } from "@automerge/automerge-repo"
+import { NetworkAdapter } from "@automerge/automerge-repo"
 import * as Auth from "@localfirst/auth"
-import { debug } from "./debug.js"
 import EventEmitter from "eventemitter3"
+import { pack, unpack } from "msgpackr"
 import { AuthenticatedNetworkAdapter as AuthNetworkAdapter } from "./AuthenticatedNetworkAdapter.js"
+import { debug } from "./debug.js"
 import { forwardEvents } from "./forwardEvents.js"
 import type {
   Config,
@@ -22,7 +23,7 @@ import type {
   ShareId,
 } from "./types"
 import { isAuthMessage, isDeviceInvitation } from "./types.js"
-const { encrypt, decrypt } = Auth.symmetric
+const { encryptBytes, decryptBytes } = Auth.symmetric
 
 /**
  * This class is used to wrap automerge-repo network adapters so that they authenticate peers and
@@ -355,15 +356,15 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
       shares[shareId] = {
         shareId,
         encryptedTeam: share.team.save(),
-        encryptedTeamKeys: encrypt(
+        encryptedTeamKeys: encryptBytes(
           share.team.teamKeyring(),
           this.#device.keys.secretKey
         ),
         documentIds: [...share.documentIds],
       }
-      this.#log("saving state", Auth.graphSummary(share.team.graph))
+      // this.#log("saving state", Auth.graphSummary(share.team.graph))
     }
-    const serializedState = cbor.encode(shares)
+    const serializedState = pack(shares)
 
     await this.storage.save(STORAGE_KEY, serializedState)
   }
@@ -373,13 +374,13 @@ export class LocalFirstAuthProvider extends EventEmitter<LocalFirstAuthProviderE
     const serializedState = await this.storage.load(STORAGE_KEY)
     if (!serializedState) return
 
-    const savedShares = cbor.decode(serializedState) as SerializedState
+    const savedShares = unpack(serializedState) as SerializedState
     for (const shareId in savedShares) {
       this.#log("loading state", shareId)
       const share = savedShares[shareId] as SerializedShare
 
       const { encryptedTeam, encryptedTeamKeys } = share
-      const teamKeys = decrypt(
+      const teamKeys = decryptBytes(
         encryptedTeamKeys,
         this.#device.keys.secretKey
       ) as Auth.KeysetWithSecrets
