@@ -1,21 +1,24 @@
-import fs from "fs"
-import express from "express"
-import bodyParser from "body-parser"
-import cors from "cors"
-import { Server as HttpServer } from "http"
-import { WebSocketServer } from "ws"
-import { PeerId, Repo, SharePolicy } from "@automerge/automerge-repo"
+import { PeerId, Repo } from "@automerge/automerge-repo"
+import { LocalFirstAuthProvider } from "@automerge/automerge-repo-auth-localfirst"
 import { NodeWSServerAdapter } from "@automerge/automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
-import { LocalFirstAuthProvider } from "@automerge/automerge-repo-auth-localfirst"
-import path from "path"
 import {
+  Keyring,
   Keyset,
   KeysetWithSecrets,
+  ServerWithSecrets,
   Team,
+  castServer,
   createKeyset,
   redactKeys,
 } from "@localfirst/auth"
+import bodyParser from "body-parser"
+import cors from "cors"
+import express, { ErrorRequestHandler } from "express"
+import fs from "fs"
+import { Server as HttpServer } from "http"
+import path from "path"
+import { WebSocketServer } from "ws"
 import { debug } from "./debug.js"
 
 /**
@@ -76,83 +79,87 @@ export class LocalFirstAuthSyncServer {
       this.socket = new WebSocketServer({ noServer: true })
 
       this.socket.on("close", (payload: any) => {
-        this.log("socket closed %o", payload)
+        this.close(payload)
       })
 
       // Set up the auth provider
-
-      // TODO: localfirst/auth should shield us from this nonsense of casting a server as a fake user
-      // and a fake device. Ideally we would just pass our server name and keys as context instead of
-      // having to pretend:
-      // ```ts
-      //  const authContext = { server: { host, keys } }
-      // ```
-      const userId = this.host
-      const userName = this.host
-      const deviceName = this.host
-      const deviceId = this.host
-      const authContext = {
-        user: { userId, userName, keys },
-        device: { userId, deviceName, deviceId, keys },
-      }
-
+      const server: ServerWithSecrets = { host: this.host, keys }
+      const user = castServer.toUser(server)
+      const device = castServer.toDevice(server)
       const peerId = this.host as PeerId
       const storage = new NodeFSStorageAdapter(storageDir)
-      const auth = new LocalFirstAuthProvider({ ...authContext, storage })
-      const socketAdapter = auth.wrap(new NodeWSServerAdapter(this.socket))
-      const network = [socketAdapter]
+      const auth = new LocalFirstAuthProvider({ user, device, storage })
 
-      // Since this is a server, we don't share generously —
-      // meaning we only sync documents they already know about and can ask for by ID.
-      const sharePolicy: SharePolicy = async peerId => false
+      // Set up the repo
+      const adapter = new NodeWSServerAdapter(this.socket)
+      const _repo = new Repo({
+        peerId,
+        // Use the auth provider to wrap our network adapter
+        network: [auth.wrap(adapter)],
+        // Use the same storage that the auth provider uses
+        storage,
+        // Since this is a server, we don't share generously — meaning we only sync documents they
+        // already know about and can ask for by ID.
+        sharePolicy: async peerId => false,
+      })
 
-      const _repo = new Repo({ peerId, network, storage, sharePolicy })
-
-      const app = express()
-
-      // parse application/json
-      app.use(bodyParser.json())
-
-      // enable CORS
-      // TODO: allow providing custom CORS config
-      app.use(cors())
-
+      // Set up the server
       const confirmation = `👍 Sync server for Automerge Repo + localfirst/auth running`
-      app.get("/", (req, res) => {
-        res.send(confirmation)
-      })
 
-      /** Endpoint to request the server's public keys. */
-      app.get("/keys", (req, res) => {
-        res.send(this.publicKeys)
-      })
+      const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+        console.error(err.stack)
+        res.status(500).send(err.message)
+      }
 
-      /** Endpoint to register a team. */
-      app.post("/teams", (req, res) => {
-        this.log("POST /teams %o", req.body)
+      this.server = express()
+        // parse application/json
+        .use(bodyParser.json())
 
-        // rehydrate the team using the serialized graph and the keys passed in the request
-        const { serializedGraph, teamKeyring } = req.body
+        // enable CORS
+        // TODO: allow providing custom CORS config
+        .use(cors())
 
-        // TODO: check that this team doesn't already exist, otherwise someone could slip you a fake team
-        const team = new Team({
-          source: serializedGraph,
-          context: authContext,
-          teamKeyring,
+        /** So you can visit the sync server in a browser to get confirmation that it's running */
+        .get("/", (req, res) => {
+          res.send(confirmation)
         })
 
-        // add the team to our auth provider
-        auth.addTeam(team)
-        res.end()
-      })
+        /** Endpoint to request the server's public keys. */
+        .get("/keys", (req, res) => {
+          this.log("GET /keys %o", req.body)
+          res.send(this.publicKeys)
+        })
 
-      this.server = app.listen(port, () => {
-        if (!silent) {
-          console.log(confirmation)
-          console.log(`listening on port ${port}`)
-        }
-        resolve()
-      })
+        /** Endpoint to register a team. */
+        .post("/teams", (req, res) => {
+          this.log("POST /teams %o", req.body)
+          const { serializedGraph, teamKeyring } = req.body as {
+            serializedGraph: Uint8Array
+            teamKeyring: Keyring
+          }
+
+          // rehydrate the team using the serialized graph and the keys passed in the request
+          //! TODO: check that this team doesn't already exist, otherwise someone could slip you a fake team
+          const team = new Team({
+            source: objectToUint8Array(serializedGraph),
+            context: { server },
+            teamKeyring,
+          })
+
+          // add the team to our auth provider
+          auth.addTeam(team)
+          res.end()
+        })
+
+        .use(errorHandler)
+
+        .listen(port, () => {
+          if (!silent) {
+            console.log(confirmation)
+            console.log(`listening on port ${port}`)
+          }
+          resolve()
+        })
 
       /**
        * When we successfully upgrade the client to a WebSocket connection, we emit a "connection"
@@ -166,8 +173,8 @@ export class LocalFirstAuthSyncServer {
     })
   }
 
-  close() {
-    this.socket.close()
+  close(payload: any) {
+    this.log("socket closed %o", payload)
     this.server.close()
   }
 
@@ -185,4 +192,12 @@ export class LocalFirstAuthSyncServer {
       return keys
     }
   }
+}
+
+/**
+ *
+ */
+function objectToUint8Array(obj: { [key: number]: number }): Uint8Array {
+  const arr = Object.values(obj)
+  return new Uint8Array(arr)
 }
