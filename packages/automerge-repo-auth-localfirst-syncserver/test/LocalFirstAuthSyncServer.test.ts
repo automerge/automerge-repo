@@ -1,14 +1,11 @@
-import { eventPromise } from "@automerge/automerge-repo-auth-localfirst/test/helpers/eventPromise"
+import { eventPromise } from "./helpers/eventPromise"
 import { Team, createTeam, loadTeam, device } from "@localfirst/auth"
-
+import { pack } from "msgpackr"
 import { describe, expect, it } from "vitest"
 import { LocalFirstAuthSyncServer } from "../src/index.js"
 import { host, setup } from "./helpers/setup.js"
 
 describe("LocalFirstAuthSyncServer", () => {
-  let url: string
-  let server: LocalFirstAuthSyncServer
-
   it("should start a server", async () => {
     const { url } = await setup()
     const response = await fetch(`http://${url}`)
@@ -36,7 +33,6 @@ describe("LocalFirstAuthSyncServer", () => {
 
     // create a team
     const teamContext = { user: alice.user, device: alice.device }
-
     const team = createTeam("team A", teamContext)
     alice.authProvider.addTeam(team)
 
@@ -48,8 +44,7 @@ describe("LocalFirstAuthSyncServer", () => {
     team.addServer({ host, keys })
 
     // register the team with the server
-    // (we don't await this because otherwise peer will fire before we're listening)
-    void fetch(`http://${url}/teams`, {
+    await fetch(`http://${url}/teams`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -121,3 +116,5 @@ const lookLikeServerKeys = (maybeKeyset: any) =>
   maybeKeyset.generation === 0 &&
   typeof maybeKeyset.encryption === "string" &&
   typeof maybeKeyset.signature === "string"
+
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
