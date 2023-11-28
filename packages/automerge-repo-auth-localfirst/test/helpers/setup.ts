@@ -91,7 +91,10 @@ export interface TestDoc {
 export type UserStuff = {
   user: Auth.UserWithSecrets
   device: Auth.DeviceWithSecrets
-  context: Auth.LocalUserContext
+  context: {
+    user: Auth.UserWithSecrets
+    device: Auth.DeviceWithSecrets
+  }
   authProvider: LocalFirstAuthProvider
   repo: Repo
   restart: (ports: MessagePort[]) => UserStuff
