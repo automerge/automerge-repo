@@ -163,19 +163,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #setSyncState(peerId: PeerId, syncState: A.SyncState) {
-    const previousSyncState = this.#syncStates[peerId]
-
     this.#syncStates[peerId] = syncState
-
-    const haveTheirSyncedHeadsChanged =
-      syncState.theirHeads &&
-      (!previousSyncState ||
-        !previousSyncState.theirHeads ||
-        !headsAreSame(previousSyncState.theirHeads, syncState.theirHeads))
-
-    if (haveTheirSyncedHeadsChanged) {
-      this.#handle.setRemoteHeads(peerId, syncState.theirHeads)
-    }
 
     this.emit("sync-state", {
       peerId,

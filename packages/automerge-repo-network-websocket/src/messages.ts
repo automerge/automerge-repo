@@ -1,4 +1,4 @@
-import type { Message, PeerId } from "@automerge/automerge-repo"
+import type { Message, PeerId, StorageId } from "@automerge/automerge-repo"
 import type { ProtocolVersion } from "./protocolVersion.js"
 
 /** The sender is disconnecting */
@@ -12,6 +12,14 @@ export type JoinMessage = {
   type: "join"
   /** The PeerID of the client */
   senderId: PeerId
+
+  /** Unique ID of the storage that the sender peer is using, is persistent across sessions */
+  storageId?: StorageId
+
+  /** Indicates whether other peers should persist the sync state of the sender peer.
+   * Sync state is only persisted for non-ephemeral peers */
+  isEphemeral: boolean
+
   /** The protocol version the client supports */
   supportedProtocolVersions: ProtocolVersion[]
 }
@@ -21,6 +29,14 @@ export type PeerMessage = {
   type: "peer"
   /** The PeerID of the server */
   senderId: PeerId
+
+  /** Unique ID of the storage that the sender peer is using, is persistent across sessions */
+  storageId?: StorageId
+
+  /** Indicates whether other peers should persist the sync state of the sender peer.
+   * Sync state is only persisted for non-ephemeral peers */
+  isEphemeral: boolean
+
   /** The protocol version the server selected for this connection */
   selectedProtocolVersion: ProtocolVersion
   /** The PeerID of the client */

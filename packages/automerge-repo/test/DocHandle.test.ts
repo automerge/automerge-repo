@@ -303,23 +303,6 @@ describe("DocHandle", () => {
     assert(wasBar, "foo should have been bar as we changed at the old heads")
   })
 
-  it("should allow to listen for remote head changes and manually read remote heads", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-    const bob = "bob" as PeerId
-
-    const remoteHeadsMessagePromise = eventPromise(handle, "remote-heads")
-
-    handle.setRemoteHeads(bob, [])
-
-    const remoteHeadsMessage = await remoteHeadsMessagePromise
-
-    assert.strictEqual(remoteHeadsMessage.peerId, bob)
-    assert.deepStrictEqual(remoteHeadsMessage.heads, [])
-
-    // read remote heads manually
-    assert.deepStrictEqual(handle.getRemoteHeads(bob), [])
-  })
-
   describe("ephemeral messaging", () => {
     it("can broadcast a message for the network to send out", async () => {
       const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })

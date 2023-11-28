@@ -3,7 +3,7 @@ import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, it } from "vitest"
-import { DocHandleRemoteHeadsPayload, READY } from "../src/DocHandle.js"
+import { READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
   generateAutomergeUrl,
@@ -28,6 +28,7 @@ import {
 } from "./helpers/generate-large-object.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
+import { StorageId } from "../src/storage/types.js"
 
 describe("Repo", () => {
   describe("local only", () => {
@@ -337,6 +338,9 @@ describe("Repo", () => {
         d.count = 1
       })
 
+      // wait because storage id is not initialized immediately
+      await pause()
+
       const initialKeys = storage.keys()
 
       const repo2 = new Repo({
@@ -395,7 +399,10 @@ describe("Repo", () => {
   })
 
   describe("with peers (linear network)", async () => {
-    const setup = async ({ connectAlice = true } = {}) => {
+    const setup = async ({
+      connectAlice = true,
+      isCharlieEphemeral = false,
+    } = {}) => {
       const charlieExcludedDocuments: DocumentId[] = []
       const bobExcludedDocuments: DocumentId[] = []
 
@@ -451,6 +458,7 @@ describe("Repo", () => {
         storage: charlieStorage,
         network: [new MessageChannelNetworkAdapter(cb)],
         peerId: charlie,
+        isEphemeral: isCharlieEphemeral,
       })
 
       const teardown = () => {
@@ -789,7 +797,7 @@ describe("Repo", () => {
     })
 
     it("should save sync state of other peers", async () => {
-      const { bobRepo, teardown, charlie } = await setup({
+      const { bobRepo, teardown, charlieRepo } = await setup({
         connectAlice: false,
       })
 
@@ -803,10 +811,33 @@ describe("Repo", () => {
       // bob should store the sync state of charlie
       const storedSyncState = await bobRepo.storageSubsystem.loadSyncState(
         bobHandle.documentId,
-        charlie
+        await charlieRepo!.storageSubsystem.id()
       )
       const docHeads = A.getHeads(bobHandle.docSync())
       assert.deepStrictEqual(storedSyncState.sharedHeads, docHeads)
+
+      teardown()
+    })
+
+    it("should not save sync state of ephemeral peers", async () => {
+      const { bobRepo, teardown, charlieRepo } = await setup({
+        connectAlice: false,
+        isCharlieEphemeral: true,
+      })
+
+      const bobHandle = bobRepo.create<TestDoc>()
+      bobHandle.change(d => {
+        d.foo = "bar"
+      })
+
+      await pause(200)
+
+      // bob should not store the sync state for charlie because charly is an ephemeral peer
+      const storedSyncState = await bobRepo.storageSubsystem.loadSyncState(
+        bobHandle.documentId,
+        await charlieRepo!.storageSubsystem.id()
+      )
+      assert.deepStrictEqual(storedSyncState, undefined)
 
       teardown()
     })
@@ -823,13 +854,15 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       let bobSyncMessages = 0
-      bobRepo.networkSubsystem.on("message", () => {
-        bobSyncMessages++
+      bobRepo.networkSubsystem.on("message", message => {
+        if (message.type === "sync") {
+          bobSyncMessages++
+        }
       })
       await pause(500)
 
-      // repo has no stored sync state for charlie so we should see two sync messages
-      assert.strictEqual(bobSyncMessages, 2)
+      // repo has no stored sync state for charlie so we should see 3 sync messages
+      assert.strictEqual(bobSyncMessages, 3)
 
       // setup new repo which uses bob's storage
       const bob2Repo = new Repo({
@@ -850,8 +883,10 @@ describe("Repo", () => {
       // lookup doc we've previously created and count the messages
       bob2Repo.find(bobHandle.documentId)
       let bob2SyncMessages = 0
-      bob2Repo.networkSubsystem.on("message", m => {
-        bob2SyncMessages++
+      bob2Repo.networkSubsystem.on("message", message => {
+        if (message.type === "sync") {
+          bob2SyncMessages++
+        }
       })
       await pause(100)
 
@@ -866,6 +901,7 @@ describe("Repo", () => {
       const { bobRepo, charlieRepo, teardown } = await setup({
         connectAlice: false,
       })
+      const charliedStorageId = await charlieRepo.storageSubsystem.id()
 
       const handle = bobRepo.create<TestDoc>()
       handle.change(d => {
@@ -876,11 +912,11 @@ describe("Repo", () => {
       await pause(50)
 
       const nextRemoteHeadsPromise = new Promise<{
-        peerId: PeerId
+        storageId: StorageId
         heads: A.Heads
       }>(resolve => {
-        handle.on("remote-heads", ({ peerId, heads }) => {
-          resolve({ peerId, heads })
+        handle.on("remote-heads", ({ storageId, heads }) => {
+          resolve({ storageId, heads })
         })
       })
 
@@ -901,11 +937,11 @@ describe("Repo", () => {
       assert.deepStrictEqual(charlieHeads, bobHeads)
 
       const nextRemoteHeads = await nextRemoteHeadsPromise
-      assert.deepStrictEqual(nextRemoteHeads.peerId, "charlie")
+      assert.deepStrictEqual(nextRemoteHeads.storageId, charliedStorageId)
       assert.deepStrictEqual(nextRemoteHeads.heads, charlieHeads)
 
       assert.deepStrictEqual(
-        handle.getRemoteHeads("charlie" as PeerId),
+        handle.getRemoteHeads(charliedStorageId),
         A.getHeads(charlieHandle.docSync())
       )
 

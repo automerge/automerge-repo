@@ -37,3 +37,6 @@ export type ChunkType = "snapshot" | "incremental"
  * should not assume any particular structure.
  **/
 export type StorageKey = string[]
+
+/** A branded type for storage IDs */
+export type StorageId = string & { __storageId: true }

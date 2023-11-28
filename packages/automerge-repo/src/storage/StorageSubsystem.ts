@@ -2,11 +2,12 @@ import * as A from "@automerge/automerge/next"
 import debug from "debug"
 import { headsAreSame } from "../helpers/headsAreSame.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
-import { PeerId, type DocumentId } from "../types.js"
+import { type DocumentId } from "../types.js"
 import { StorageAdapter } from "./StorageAdapter.js"
-import { ChunkInfo, StorageKey } from "./types.js"
+import { ChunkInfo, StorageKey, StorageId } from "./types.js"
 import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
+import * as Uuid from "uuid"
 
 /**
  * The storage subsystem is responsible for saving and loading Automerge documents to and from
@@ -29,6 +30,23 @@ export class StorageSubsystem {
 
   constructor(storageAdapter: StorageAdapter) {
     this.#storageAdapter = storageAdapter
+  }
+
+  async id(): Promise<StorageId> {
+    let storedId = await this.#storageAdapter.load(["storage-adapter-id"])
+
+    let id: StorageId
+    if (storedId) {
+      id = new TextDecoder().decode(storedId) as StorageId
+    } else {
+      id = Uuid.v4() as StorageId
+      await this.#storageAdapter.save(
+        ["storage-adapter-id"],
+        new TextEncoder().encode(id)
+      )
+    }
+
+    return id
   }
 
   // ARBITRARY KEY/VALUE STORAGE
@@ -211,19 +229,19 @@ export class StorageSubsystem {
 
   async loadSyncState(
     documentId: DocumentId,
-    peerId: PeerId
+    storageId: StorageId
   ): Promise<A.SyncState | undefined> {
-    const key = [documentId, "sync-state", peerId]
+    const key = [documentId, "sync-state", storageId]
     const loaded = await this.#storageAdapter.load(key)
     return loaded ? A.decodeSyncState(loaded) : undefined
   }
 
   async saveSyncState(
     documentId: DocumentId,
-    peerId: PeerId,
+    storageId: StorageId,
     syncState: A.SyncState
   ): Promise<void> {
-    const key = [documentId, "sync-state", peerId]
+    const key = [documentId, "sync-state", storageId]
     await this.#storageAdapter.save(key, A.encodeSyncState(syncState))
   }
 
