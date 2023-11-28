@@ -14,12 +14,13 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "^1.0.17",
-    "eventemitter3": "^5.0.1",
     "@localfirst/auth": "^4.2.1",
-    "debug": "^4.3.4"
+    "debug": "^4.3.4",
+    "eventemitter3": "^5.0.1",
+    "msgpackr": "^1.10.0"
   },
   "devDependencies": {
-    "rimraf": "^5.0.5",
-    "@automerge/automerge-repo-storage-nodefs": "^1.0.17"
+    "@automerge/automerge-repo-storage-nodefs": "^1.0.17",
+    "rimraf": "^5.0.5"
   }
 }
