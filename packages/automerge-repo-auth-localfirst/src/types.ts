@@ -55,8 +55,8 @@ export type Share = {
 /** To save our state, we serialize each share */
 export type SerializedShare = {
   shareId: ShareId
-  encryptedTeam: Auth.Base58
-  encryptedTeamKeys: Auth.Base58
+  encryptedTeam: Uint8Array
+  encryptedTeamKeys: Uint8Array
   documentIds: DocumentId[]
 }
 
