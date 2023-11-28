@@ -20,6 +20,7 @@
     "cors": "^2.8.5",
     "debug": "^4.3.4",
     "express": "^4.18.2",
+    "msgpackr": "^1.10.0",
     "ws": "^8.14.2"
   },
   "devDependencies": {

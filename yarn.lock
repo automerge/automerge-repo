@@ -23,18 +23,20 @@
 "@automerge/automerge-repo-auth-localfirst-syncserver@link:packages/automerge-repo-auth-localfirst":
   version "0.0.50"
   dependencies:
-    "@automerge/automerge-repo" "^1.0.13"
+    "@automerge/automerge-repo" "^1.0.17"
     "@localfirst/auth" "^4.2.1"
     debug "^4.3.4"
     eventemitter3 "^5.0.1"
+    msgpackr "^1.10.0"
 
 "@automerge/automerge-repo-auth-localfirst@link:packages/automerge-repo-auth-localfirst":
   version "0.0.50"
   dependencies:
-    "@automerge/automerge-repo" "^1.0.13"
+    "@automerge/automerge-repo" "^1.0.17"
     "@localfirst/auth" "^4.2.1"
     debug "^4.3.4"
     eventemitter3 "^5.0.1"
+    msgpackr "^1.10.0"
 
 "@automerge/automerge-wasm@0.5.0":
   version "0.5.0"
@@ -6048,6 +6050,13 @@ msgpackr-extract@^3.0.2:
     "@msgpackr-extract/msgpackr-extract-linux-arm64" "3.0.2"
     "@msgpackr-extract/msgpackr-extract-linux-x64" "3.0.2"
     "@msgpackr-extract/msgpackr-extract-win32-x64" "3.0.2"
+
+msgpackr@^1.10.0:
+  version "1.10.0"
+  resolved "https://registry.yarnpkg.com/msgpackr/-/msgpackr-1.10.0.tgz#adbca9c951f06647a808f76bc00a519cf6f7fbe4"
+  integrity sha512-rVQ5YAQDoZKZLX+h8tNq7FiHrPJoeGHViz3U4wIcykhAEpwF/nH2Vbk8dQxmpX5JavkI8C7pt4bnkJ02ZmRoUw==
+  optionalDependencies:
+    msgpackr-extract "^3.0.2"
 
 msgpackr@^1.8.5:
   version "1.9.9"
