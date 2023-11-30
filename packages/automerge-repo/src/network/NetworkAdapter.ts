@@ -11,7 +11,7 @@ import { StorageId } from "../storage/types.js"
  * until the adapter emits a `ready` event before it starts trying to use it
  */
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
-  peerId?: PeerId // hmmm, maybe not
+  peerId?: PeerId
   storageId?: StorageId
   isEphemeral = true
 
