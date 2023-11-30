@@ -13,6 +13,8 @@ import path from "path"
 import { rimraf } from "rimraf"
 
 export class NodeFSStorageAdapter extends StorageAdapter {
+  private isWriting = false
+
   private baseDirectory: string
   private cache: { [key: string]: Uint8Array } = {}
 
@@ -25,6 +27,8 @@ export class NodeFSStorageAdapter extends StorageAdapter {
   }
 
   async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
+    // If we're in the middle of a write, don't try to load from disk
+    while (this.isWriting) await pause(100)
     const key = getKey(keyArray)
     if (this.cache[key]) return this.cache[key]
 
@@ -41,6 +45,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
   }
 
   async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
+    this.isWriting = true
     const key = getKey(keyArray)
     this.cache[key] = binary
 
@@ -48,6 +53,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
 
     await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
     await fs.promises.writeFile(filePath, binary)
+    this.isWriting = false
   }
 
   async remove(keyArray: string[]): Promise<void> {
@@ -145,3 +151,5 @@ const walkdir = async (dirPath: string): Promise<string[]> => {
     throw error
   }
 }
+
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
