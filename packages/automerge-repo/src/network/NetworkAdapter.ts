@@ -15,7 +15,7 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
   storageId?: StorageId
   isEphemeral = true
 
-  /** Called by the {@link Repo} to start the connection proces.s */
+  /** Called by the {@link Repo} to start the connection process. */
   abstract connect(
     /** Our peer ID */
     peerId: PeerId,
@@ -26,7 +26,10 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
   ): void
 
   /** Called by the {@link Repo} to send a message to a peer. */
-  abstract send(message: Message): void
+  abstract send(
+    /** The message to send */
+    message: Message
+  ): void
 
   /** Called by the {@link Repo} to disconnect from the network */
   abstract disconnect(): void
