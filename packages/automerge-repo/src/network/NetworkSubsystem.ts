@@ -54,7 +54,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
     networkAdapter.on(
       "peer-candidate",
-      ({ peerId, storageId, isEphemeral }) => {
+      ({ peerId, storageId, isEphemeral = false }) => {
         this.#log(`peer candidate: ${peerId} `)
 
         // TODO: This is where authentication would happen
