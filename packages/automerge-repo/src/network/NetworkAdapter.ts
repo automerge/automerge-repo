@@ -63,7 +63,7 @@ export interface OpenPayload {
 export interface PeerCandidatePayload {
   peerId: PeerId
   storageId?: StorageId
-  isEphemeral: boolean
+  isEphemeral?: boolean
 }
 
 export interface PeerDisconnectedPayload {
