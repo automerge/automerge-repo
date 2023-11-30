@@ -47,9 +47,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   sharePolicy: SharePolicy = async () => true
 
-  /** maps peer id to to persistance information (storageId, isEphemeral), access by collection synchronizer  */
+  /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
   /** @hidden */
-  persistanceInfoByPeerId: Record<PeerId, PersistanceInfo> = {}
+  persistenceInfoByPeerId: Record<PeerId, PersistenceInfo> = {}
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
 
@@ -160,7 +160,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#log("peer connected", { peerId })
 
       if (storageId) {
-        this.persistanceInfoByPeerId[peerId] = {
+        this.persistenceInfoByPeerId[peerId] = {
           storageId,
           isEphemeral,
         }
@@ -195,7 +195,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
       const handle = this.#handleCache[message.documentId]
 
-      const info = this.persistanceInfoByPeerId[message.peerId]
+      const info = this.persistenceInfoByPeerId[message.peerId]
       if (!info) {
         return
       }
@@ -280,13 +280,13 @@ export class Repo extends EventEmitter<RepoEvents> {
       return
     }
 
-    const persistanceInfo = this.persistanceInfoByPeerId[message.peerId]
+    const persistenceInfo = this.persistenceInfoByPeerId[message.peerId]
 
-    if (!persistanceInfo || persistanceInfo.isEphemeral) {
+    if (!persistenceInfo || persistenceInfo.isEphemeral) {
       return
     }
 
-    const { storageId } = persistanceInfo
+    const { storageId } = persistenceInfo
 
     let handler = this.#throttledSaveSyncStateHandlers[storageId]
     if (!handler) {
@@ -453,7 +453,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 }
 
-interface PersistanceInfo {
+interface PersistenceInfo {
   storageId: StorageId
   isEphemeral: boolean
 }
