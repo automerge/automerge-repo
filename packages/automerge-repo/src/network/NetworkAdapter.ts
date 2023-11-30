@@ -15,22 +15,17 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
   storageId?: StorageId
   isEphemeral = true
 
-  /** Called by the {@link Repo} to start the connection process
-   *
-   * @argument peerId - the peerId of this repo
-   * @argument storageId - the storage id of the peer
-   * @argument isEphemeral - weather or not the other end should persist our sync state
-   */
+  /** Called by the {@link Repo} to start the connection proces.s */
   abstract connect(
+    /** Our peer ID */
     peerId: PeerId,
+    /** Our storage ID */
     storageId: StorageId | undefined,
+    /** Should the other end persist our sync state? */
     isEphemeral: boolean
   ): void
 
-  /** Called by the {@link Repo} to send a message to a peer
-   *
-   * @argument message - the message to send
-   */
+  /** Called by the {@link Repo} to send a message to a peer. */
   abstract send(message: Message): void
 
   /** Called by the {@link Repo} to disconnect from the network */
