@@ -42,14 +42,14 @@ export class CollectionSynchronizer extends Synchronizer {
           return
         }
 
-        const persistanceInfo = this.repo.persistanceInfoByPeerId[peerId]
-        if (!persistanceInfo || persistanceInfo.isEphemeral) {
+        const persistenceInfo = this.repo.persistenceInfoByPeerId[peerId]
+        if (!persistenceInfo || persistenceInfo.isEphemeral) {
           return
         }
 
         return this.repo.storageSubsystem.loadSyncState(
           handle.documentId,
-          persistanceInfo.storageId
+          persistenceInfo.storageId
         )
       },
     })
