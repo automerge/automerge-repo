@@ -1,7 +1,11 @@
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import { PeerId, SessionId } from "../types.js"
-import { NetworkAdapter, PeerDisconnectedPayload } from "./NetworkAdapter.js"
+import type {
+  NetworkAdapter,
+  PeerDisconnectedPayload,
+  PeerMetadata,
+} from "./NetworkAdapter.js"
 import {
   EphemeralMessage,
   MessageContents,
@@ -29,8 +33,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   constructor(
     adapters: NetworkAdapter[],
     public peerId = randomPeerId(),
-    private storageId: Promise<StorageId | undefined>, // todo: we shouldn't pass a promise here
-    private isEphemeral: boolean
+    private peerMetadata: Promise<PeerMetadata>
   ) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
@@ -52,21 +55,17 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       }
     })
 
-    networkAdapter.on(
-      "peer-candidate",
-      ({ peerId, storageId, isEphemeral = false }) => {
-        this.#log(`peer candidate: ${peerId} `)
+    networkAdapter.on("peer-candidate", ({ peerId, peerMetadata }) => {
+      this.#log(`peer candidate: ${peerId} `)
+      // TODO: This is where authentication would happen
 
-        // TODO: This is where authentication would happen
-
-        if (!this.#adaptersByPeer[peerId]) {
-          // TODO: handle losing a server here
-          this.#adaptersByPeer[peerId] = networkAdapter
-        }
-
-        this.emit("peer", { peerId, storageId, isEphemeral })
+      if (!this.#adaptersByPeer[peerId]) {
+        // TODO: handle losing a server here
+        this.#adaptersByPeer[peerId] = networkAdapter
       }
-    )
+
+      this.emit("peer", { peerId, peerMetadata })
+    })
 
     networkAdapter.on("peer-disconnected", ({ peerId }) => {
       this.#log(`peer disconnected: ${peerId} `)
@@ -107,8 +106,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       })
     })
 
-    this.storageId.then(storageId => {
-      networkAdapter.connect(this.peerId, storageId, this.isEphemeral)
+    this.peerMetadata.then(peerMetadata => {
+      networkAdapter.connect(this.peerId, peerMetadata)
     })
   }
 
@@ -182,6 +181,5 @@ export interface NetworkSubsystemEvents {
 
 export interface PeerPayload {
   peerId: PeerId
-  storageId?: StorageId
-  isEphemeral: boolean
+  peerMetadata: PeerMetadata
 }

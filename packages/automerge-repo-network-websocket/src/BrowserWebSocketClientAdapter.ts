@@ -1,8 +1,8 @@
 import {
   NetworkAdapter,
   type PeerId,
+  type PeerMetadata,
   cbor,
-  type StorageId,
 } from "@automerge/automerge-repo"
 import WebSocket from "isomorphic-ws"
 
@@ -36,11 +36,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.url = url
   }
 
-  connect(
-    peerId: PeerId,
-    storageId: StorageId | undefined,
-    isEphemeral: boolean
-  ) {
+  connect(peerId: PeerId, peerMetadata: PeerMetadata) {
     // If we're reconnecting  make sure we remove the old event listeners
     // before creating a new connection.
     if (this.socket) {
@@ -50,15 +46,11 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     }
 
     if (!this.timerId) {
-      this.timerId = setInterval(
-        () => this.connect(peerId, storageId, isEphemeral),
-        5000
-      )
+      this.timerId = setInterval(() => this.connect(peerId, peerMetadata), 5000)
     }
 
     this.peerId = peerId
-    this.storageId = storageId
-    this.isEphemeral = isEphemeral
+    this.peerMetadata = peerMetadata
     this.socket = new WebSocket(this.url)
     this.socket.binaryType = "arraybuffer"
 
@@ -83,7 +75,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     log(`@ ${this.url}: open`)
     clearInterval(this.timerId)
     this.timerId = undefined
-    this.send(joinMessage(this.peerId!, this.storageId, this.isEphemeral))
+    this.send(joinMessage(this.peerId!, this.peerMetadata!))
   }
 
   // When a socket closes, or disconnects, remove it from the array.
@@ -96,7 +88,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
 
     if (!this.timerId) {
       if (this.peerId) {
-        this.connect(this.peerId, this.storageId, this.isEphemeral)
+        this.connect(this.peerId, this.peerMetadata!)
       }
     }
   }
@@ -110,7 +102,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       throw new Error("WTF, get a socket")
     }
     if (this.socket.readyState === WebSocket.OPEN) {
-      this.send(joinMessage(this.peerId!, this.storageId, this.isEphemeral))
+      this.send(joinMessage(this.peerId!, this.peerMetadata!))
     } else {
       // The onOpen handler automatically sends a join message
     }
@@ -147,11 +139,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.socket?.send(arrayBuf)
   }
 
-  announceConnection(
-    peerId: PeerId,
-    storageId: StorageId | undefined,
-    isEphemeral: boolean
-  ) {
+  announceConnection(peerId: PeerId, peerMetadata: PeerMetadata) {
     // return a peer object
     const myPeerId = this.peerId
     if (!myPeerId) {
@@ -162,7 +150,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       this.emit("ready", { network: this })
     }
     this.remotePeerId = peerId
-    this.emit("peer-candidate", { peerId, storageId, isEphemeral })
+    this.emit("peer-candidate", { peerId, peerMetadata })
   }
 
   receiveMessage(message: Uint8Array) {
@@ -181,9 +169,9 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
 
     switch (type) {
       case "peer": {
-        const { storageId, isEphemeral } = decoded
+        const { peerMetadata } = decoded
         log(`peer: ${senderId}`)
-        this.announceConnection(senderId, storageId, isEphemeral)
+        this.announceConnection(senderId, peerMetadata)
         break
       }
       case "error":
@@ -197,14 +185,12 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
 
 function joinMessage(
   senderId: PeerId,
-  storageId: StorageId | undefined,
-  isEphemeral: boolean
+  peerMetadata: PeerMetadata
 ): JoinMessage {
   return {
     type: "join",
     senderId,
-    storageId,
-    isEphemeral,
+    peerMetadata,
     supportedProtocolVersions: [ProtocolV1],
   }
 }

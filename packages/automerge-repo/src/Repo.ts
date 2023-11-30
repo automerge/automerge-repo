@@ -8,7 +8,7 @@ import {
 } from "./AutomergeUrl.js"
 import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { throttle } from "./helpers/throttle.js"
-import { NetworkAdapter } from "./network/NetworkAdapter.js"
+import { NetworkAdapter, type PeerMetadata } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
@@ -49,7 +49,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
   /** @hidden */
-  persistenceInfoByPeerId: Record<PeerId, PersistenceInfo> = {}
+  peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
 
@@ -147,23 +147,28 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
+
+    const myPeerMetadata: Promise<PeerMetadata> = new Promise(
+      async (resolve, reject) =>
+        resolve({
+          storageId: await storageSubsystem?.id(),
+          isEphemeral,
+        } as PeerMetadata)
+    )
+
     const networkSubsystem = new NetworkSubsystem(
       network,
       peerId,
-      storageSubsystem?.id() ?? Promise.resolve(undefined),
-      isEphemeral
+      myPeerMetadata
     )
     this.networkSubsystem = networkSubsystem
 
     // When we get a new peer, register it with the synchronizer
-    networkSubsystem.on("peer", async ({ peerId, storageId, isEphemeral }) => {
+    networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
       this.#log("peer connected", { peerId })
 
-      if (storageId) {
-        this.persistenceInfoByPeerId[peerId] = {
-          storageId,
-          isEphemeral,
-        }
+      if (peerMetadata) {
+        this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
       }
 
       this.sharePolicy(peerId)
@@ -195,12 +200,11 @@ export class Repo extends EventEmitter<RepoEvents> {
 
       const handle = this.#handleCache[message.documentId]
 
-      const info = this.persistenceInfoByPeerId[message.peerId]
-      if (!info) {
+      const { storageId } = this.peerMetadataByPeerId[message.peerId] || {}
+      if (!storageId) {
         return
       }
 
-      const { storageId } = info
       const heads = handle.getRemoteHeads(storageId)
       const haveHeadsChanged =
         message.syncState.theirHeads &&
@@ -280,13 +284,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       return
     }
 
-    const persistenceInfo = this.persistenceInfoByPeerId[message.peerId]
+    const { storageId, isEphemeral } =
+      this.peerMetadataByPeerId[message.peerId] || {}
 
-    if (!persistenceInfo || persistenceInfo.isEphemeral) {
+    if (!storageId || isEphemeral) {
       return
     }
-
-    const { storageId } = persistenceInfo
 
     let handler = this.#throttledSaveSyncStateHandlers[storageId]
     if (!handler) {
@@ -451,11 +454,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       return this.storageSubsystem.id()
     }
   }
-}
-
-interface PersistenceInfo {
-  storageId: StorageId
-  isEphemeral: boolean
 }
 
 export interface RepoConfig {

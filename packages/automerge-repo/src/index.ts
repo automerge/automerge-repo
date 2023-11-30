@@ -67,6 +67,7 @@ export type {
   OpenPayload,
   PeerCandidatePayload,
   PeerDisconnectedPayload,
+  PeerMetadata,
 } from "./network/NetworkAdapter.js"
 
 export type {
