@@ -130,7 +130,15 @@ export class StorageSubsystem {
     if (binary.length === 0) return null
 
     // Load into an Automerge document
+    const start = performance.now()
     const newDoc = A.loadIncremental(A.init(), binary) as A.Doc<T>
+    const mark = performance.measure(`loadIncremental:${documentId}`, {
+      start,
+      end: performance.now(),
+    })
+    if (mark.duration > 1000) {
+      console.warn("long document load:", mark)
+    }
 
     // Record the latest heads for the document
     this.#storedHeads.set(documentId, A.getHeads(newDoc))
