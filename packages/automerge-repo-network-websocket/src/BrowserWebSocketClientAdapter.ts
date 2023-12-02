@@ -23,9 +23,7 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  // Type trickery required for platform independence,
-  // see https://stackoverflow.com/questions/45802988/typescript-use-correct-version-of-settimeout-node-vs-window
-  timerId?: ReturnType<typeof setTimeout>
+  timerId?: TimeoutId
   remotePeerId?: PeerId // this adapter only connects to one remote client at a time
   #startupComplete: boolean = false
 
@@ -194,3 +192,5 @@ function joinMessage(
     supportedProtocolVersions: [ProtocolV1],
   }
 }
+
+type TimeoutId = ReturnType<typeof setTimeout> //  https://stackoverflow.com/questions/45802988
