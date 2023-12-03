@@ -20,7 +20,8 @@
     "crypto": false
   },
   "devDependencies": {
-    "http-server": "^14.1.0"
+    "http-server": "^14.1.0",
+    "vite": "^4.4.11"
   },
   "dependencies": {
     "@automerge/automerge": "^2.1.8-alpha.1",
