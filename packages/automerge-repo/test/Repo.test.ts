@@ -146,6 +146,46 @@ describe("Repo", () => {
       assert.deepStrictEqual(handle2.docSync(), { foo: "bar", baz: "baz" })
     })
 
+    it("retains history when creating a handle to a loaded document", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "foo"
+      })
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      handle.change(d => {
+        d.foo = "baz"
+      })
+      handle.change(d => {
+        d.foo = "a"
+      })
+      handle.change(d => {
+        d.foo = "b"
+      })
+      handle.change(d => {
+        d.foo = "c"
+      })
+      const doc = await handle.doc()
+      const loadedDoc = A.load(A.save(doc))
+
+      // The two documents should have the same history
+      assert.deepStrictEqual(A.getHistory(loadedDoc), A.getHistory(doc))
+
+      const handle2 = repo.create()
+      handle2.change(d => {
+        Object.assign(d, loadedDoc)
+      })
+
+      const doc2 = await handle2.doc()
+      // History gets compressed into two changes, the first change is just the initial state, the second is the final state
+      for (const state of A.getHistory(doc2)) {
+        console.log(state.change.ops)
+      }
+      assert.deepStrictEqual(A.getHistory(doc).length, A.getHistory(doc2).length)
+    })
+
     it("the cloned documents can merge", () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
