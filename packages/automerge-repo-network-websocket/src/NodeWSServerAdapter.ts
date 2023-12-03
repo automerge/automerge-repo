@@ -113,6 +113,11 @@ export class NodeWSServerAdapter extends NetworkAdapter {
 
     const myPeerId = this.peerId
     if (!myPeerId) throw new Error("Missing my peer ID.")
+
+    const documentId = "documentId" in message ? "@" + message.documentId : ""
+    const { byteLength } = messageBytes
+    log(`[${senderId}->${myPeerId}${documentId}] ${type} | ${byteLength} bytes`)
+
     switch (type) {
       case "join":
         {
