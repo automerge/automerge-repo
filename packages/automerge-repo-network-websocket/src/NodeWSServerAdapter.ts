@@ -15,10 +15,6 @@ import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 
 const { encode, decode } = cborHelpers
 
-interface WebSocketWithIsAlive extends WebSocket {
-  isAlive: boolean
-}
-
 export class NodeWSServerAdapter extends NetworkAdapter {
   server: WebSocketServer
   sockets: { [peerId: PeerId]: WebSocket } = {}
@@ -190,4 +186,8 @@ function selectProtocol(versions?: ProtocolVersion[]): ProtocolVersion | null {
     return ProtocolV1
   }
   return null
+}
+
+interface WebSocketWithIsAlive extends WebSocket {
+  isAlive: boolean
 }
