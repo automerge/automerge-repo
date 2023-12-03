@@ -13,7 +13,6 @@
     "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text yarn test",
     "test": "vitest",
     "test:watch": "npm-watch test",
-    "test:log": "cross-env DEBUG='automerge-repo:*' yarn test",
     "fuzz": "ts-node --esm --experimentalSpecifierResolution=node fuzz/fuzz.ts"
   },
   "browser": {
