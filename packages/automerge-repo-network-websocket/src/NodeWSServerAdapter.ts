@@ -106,20 +106,13 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     this.sockets[message.targetId]?.send(arrayBuf)
   }
 
-  receiveMessage(message: Uint8Array, socket: WebSocket) {
-    const cbor: FromClientMessage = decode(message)
+  receiveMessage(messageBytes: Uint8Array, socket: WebSocket) {
+    const message: FromClientMessage = decode(messageBytes)
 
-    const { type, senderId } = cbor
+    const { type, senderId } = message
 
     const myPeerId = this.peerId
-    if (!myPeerId) {
-      throw new Error("Missing my peer ID.")
-    }
-    log(
-      `[${senderId}->${myPeerId}${
-        "documentId" in cbor ? "@" + cbor.documentId : ""
-      }] ${type} | ${message.byteLength} bytes`
-    )
+    if (!myPeerId) throw new Error("Missing my peer ID.")
     switch (type) {
       case "join":
         {
@@ -131,7 +124,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
             this.emit("peer-disconnected", { peerId: senderId })
           }
 
-          const { peerMetadata } = cbor
+          const { peerMetadata } = message
           // Let the rest of the system know that we have a new connection.
           this.emit("peer-candidate", {
             peerId: senderId,
@@ -142,7 +135,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
           // In this client-server connection, there's only ever one peer: us!
           // (and we pretend to be joined to every channel)
           const selectedProtocolVersion = selectProtocol(
-            cbor.supportedProtocolVersions
+            message.supportedProtocolVersions
           )
           if (selectedProtocolVersion === null) {
             this.send({
@@ -172,7 +165,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
         break
 
       default:
-        this.emit("message", cbor)
+        this.emit("message", message)
         break
     }
   }
