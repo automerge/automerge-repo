@@ -63,6 +63,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
+      - uses: pnpm/action-setup@v2
       - name: Install Dependencies
         id: deps
         run: |
