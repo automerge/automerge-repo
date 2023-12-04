@@ -7,43 +7,32 @@ import {
   SyncMessage,
   parseAutomergeUrl,
 } from "@automerge/automerge-repo"
+import { generateAutomergeUrl } from "@automerge/automerge-repo/dist/AutomergeUrl"
+import { eventPromise } from "@automerge/automerge-repo/src/helpers/eventPromise"
+import { headsAreSame } from "@automerge/automerge-repo/src/helpers/headsAreSame.js"
+import { runAdapterTests } from "@automerge/automerge-repo/src/helpers/tests/network-adapter-tests.js"
+import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter.js"
 import assert from "assert"
 import * as CBOR from "cbor-x"
 import { once } from "events"
 import http from "http"
+import { getPortPromise as getAvailablePort } from "portfinder"
 import { describe, it } from "vitest"
-import WebSocket, { AddressInfo } from "ws"
-import { runAdapterTests } from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
-import { DummyStorageAdapter } from "../../automerge-repo/test/helpers/DummyStorageAdapter.js"
+import WebSocket from "ws"
 import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter.js"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter.js"
-import { headsAreSame } from "@automerge/automerge-repo/src/helpers/headsAreSame.js"
 
-describe("Websocket adapters", () => {
-  const setup = async (clientCount = 1) => {
-    const server = http.createServer()
-    const socket = new WebSocket.Server({ server })
+describe.only("Websocket adapters", () => {
+  const browserPeerId = "browser" as PeerId
+  const serverPeerId = "server" as PeerId
+  const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-    await new Promise<void>(resolve => server.listen(0, resolve))
-    const { port } = server.address() as AddressInfo
-    const serverUrl = `ws://localhost:${port}`
-
-    const clients = [] as BrowserWebSocketClientAdapter[]
-    for (let i = 0; i < clientCount; i++) {
-      clients.push(new BrowserWebSocketClientAdapter(serverUrl))
-    }
-
-    return { socket, server, port, serverUrl, clients }
-  }
-
-  // run adapter acceptance tests
   runAdapterTests(async () => {
     const {
       clients: [aliceAdapter, bobAdapter],
-      socket,
       server,
-    } = await setup(2)
-    const serverAdapter = new NodeWSServerAdapter(socket)
+      serverAdapter,
+    } = await setup({ clientCount: 2 })
 
     const teardown = () => {
       server.close()
@@ -53,62 +42,179 @@ describe("Websocket adapters", () => {
   })
 
   describe("BrowserWebSocketClientAdapter", () => {
-    const firstMessage = async (socket: WebSocket.Server<any>) =>
-      new Promise((resolve, reject) => {
-        socket.once("connection", ws => {
-          ws.once("message", (message: any) => resolve(message))
-          ws.once("error", (error: any) => reject(error))
-        })
-        socket.once("error", error => reject(error))
-      })
-
     it("should advertise the protocol versions it supports in its join message", async () => {
       const {
-        socket,
+        serverSocket: socket,
         clients: [browser],
       } = await setup()
 
-      const helloPromise = firstMessage(socket)
-
-      const _repo = new Repo({
-        network: [browser],
-        peerId: "browser" as PeerId,
+      const helloPromise = new Promise((resolve, reject) => {
+        socket.once("connection", ws => {
+          ws.once("message", (message: any) => resolve(message))
+        })
       })
+
+      const _repo = new Repo({ network: [browser], peerId: browserPeerId })
 
       const encodedMessage = await helloPromise
       const message = CBOR.decode(encodedMessage as Uint8Array)
       assert.deepEqual(message, {
         type: "join",
-        senderId: "browser",
+        senderId: browserPeerId,
         peerMetadata: { storageId: undefined, isEphemeral: true },
         supportedProtocolVersions: ["1"],
       })
     })
 
-    it.skip("should announce disconnections", async () => {
+    it("should announce disconnections", async () => {
       const {
-        server,
-        socket,
+        serverAdapter,
         clients: [browserAdapter],
       } = await setup()
 
+      const browserRepo = new Repo({
+        network: [browserAdapter],
+        peerId: browserPeerId,
+      })
+
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      await eventPromise(serverRepo.networkSubsystem, "peer")
+
+      browserAdapter.disconnect()
+
+      await Promise.all([
+        eventPromise(browserAdapter, "peer-disconnected"),
+        eventPromise(serverAdapter, "peer-disconnected"),
+      ])
+    })
+
+    it("should connect even when server is not initially available", async () => {
+      const port = await getPort() //?
+      const retryInterval = 100
+
+      const browserAdapter = await setupClient({ port, retryInterval })
+
       const _browserRepo = new Repo({
         network: [browserAdapter],
-        peerId: "browser" as PeerId,
+        peerId: browserPeerId,
       })
 
-      const serverAdapter = new NodeWSServerAdapter(socket)
-      const _serverRepo = new Repo({
+      await pause(500)
+
+      const { serverAdapter } = await setupServer({ port, retryInterval })
+      const serverRepo = new Repo({
         network: [serverAdapter],
-        peerId: "server" as PeerId,
+        peerId: serverPeerId,
       })
 
-      const disconnectPromise = new Promise<void>(resolve => {
-        browserAdapter.on("peer-disconnected", () => resolve())
+      await eventPromise(browserAdapter, "peer-candidate")
+    })
+
+    it("should reconnect after being disconnected", async () => {
+      const port = await getPort()
+      const retryInterval = 100
+
+      const browser = await setupClient({ port, retryInterval })
+
+      {
+        const { server, serverSocket, serverAdapter } = await setupServer({
+          port,
+          retryInterval,
+        })
+
+        const _browserRepo = new Repo({
+          network: [browser],
+          peerId: browserPeerId,
+        })
+
+        const serverRepo = new Repo({
+          network: [serverAdapter],
+          peerId: serverPeerId,
+        })
+
+        await eventPromise(browser, "peer-candidate")
+
+        // Stop the server
+        serverAdapter.disconnect()
+        server.close()
+        serverSocket.close()
+
+        await eventPromise(browser, "peer-disconnected")
+      }
+
+      {
+        // Restart the server (on the same port)
+        const { serverAdapter } = await setupServer({ port, retryInterval })
+
+        const serverRepo = new Repo({
+          network: [serverAdapter],
+          peerId: serverPeerId,
+        })
+
+        //  The browserAdapter reconnects on its own
+        await eventPromise(browser, "peer-candidate")
+      }
+    })
+
+    it("should throw an error if asked to send a zero-length message", async () => {
+      const {
+        clients: [browser],
+      } = await setup()
+      const sendNoData = () => {
+        browser.send({
+          type: "sync",
+          data: new Uint8Array(), // <- empty
+          documentId,
+          senderId: browserPeerId,
+          targetId: serverPeerId,
+        })
+      }
+      assert.throws(sendNoData, /zero/)
+    })
+
+    it("should throw an error if asked to send before ready", async () => {
+      const port = await getPort()
+
+      const serverUrl = `ws://localhost:${port}`
+
+      const retry = 100
+      const browser = new BrowserWebSocketClientAdapter(serverUrl, retry)
+
+      const _browserRepo = new Repo({
+        network: [browser],
+        peerId: browserPeerId,
       })
 
-      server.close()
-      await disconnectPromise
+      const server = http.createServer()
+      const serverSocket = new WebSocket.Server({ server })
+
+      await new Promise<void>(resolve => server.listen(port, resolve))
+      const serverAdapter = new NodeWSServerAdapter(serverSocket, retry)
+
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      const sendMessage = () => {
+        browser.send({
+          // @ts-ignore
+          type: "foo",
+          data: new Uint8Array([1, 2, 3]),
+          documentId,
+          senderId: browserPeerId,
+          targetId: serverPeerId,
+        })
+      }
+      assert.throws(sendMessage, /not ready/)
+
+      // once the server is ready, we can send
+      await eventPromise(browser, "peer-candidate")
+      assert.doesNotThrow(sendMessage)
     })
 
     it("should correctly clear event handlers on reconnect", async () => {
@@ -130,12 +236,12 @@ describe("Websocket adapters", () => {
       } = await setup()
 
       const peerId = "testclient" as PeerId
-      browser.connect(peerId, undefined, true)
+      browser.connect(peerId)
 
       // simulate the reconnect timer firing before the other end has responded
       // (which works here because we haven't yielded to the event loop yet so
       // the server, which is on the same event loop as us, can't respond)
-      browser.connect(peerId, undefined, true)
+      browser.connect(peerId)
 
       // Now yield, so the server responds on the first socket, if the listeners
       // are cleaned up correctly we shouldn't throw
@@ -145,11 +251,13 @@ describe("Websocket adapters", () => {
 
   describe("NodeWSServerAdapter", () => {
     const serverResponse = async (clientHello: Object) => {
-      const { socket, serverUrl } = await setup(0)
-      const server = new NodeWSServerAdapter(socket)
+      const { serverSocket, serverUrl } = await setup({
+        clientCount: 0,
+      })
+      const server = new NodeWSServerAdapter(serverSocket)
       const _serverRepo = new Repo({
         network: [server],
-        peerId: "server" as PeerId,
+        peerId: serverPeerId,
       })
 
       const clientSocket = new WebSocket(serverUrl)
@@ -163,7 +271,7 @@ describe("Websocket adapters", () => {
       return message
     }
 
-    async function recvOrTimeout(socket: WebSocket): Promise<Buffer | null> {
+    async function messageOrTimeout(socket: WebSocket): Promise<Buffer | null> {
       return new Promise(resolve => {
         const timer = setTimeout(() => {
           resolve(null)
@@ -175,10 +283,69 @@ describe("Websocket adapters", () => {
       })
     }
 
+    it("should disconnect from a closed client", async () => {
+      const {
+        serverAdapter,
+        clients: [browserAdapter],
+      } = await setup()
+
+      const _browserRepo = new Repo({
+        network: [browserAdapter],
+        peerId: browserPeerId,
+      })
+
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      await eventPromise(serverRepo.networkSubsystem, "peer")
+
+      const disconnectPromise = new Promise<void>(resolve => {
+        serverAdapter.on("peer-disconnected", () => resolve())
+      })
+
+      browserAdapter.socket!.close()
+
+      await disconnectPromise
+    })
+
+    it("should disconnect from a client that doesn't respond to pings", async () => {
+      const port = await getPort()
+
+      const serverUrl = `ws://localhost:${port}`
+
+      const retry = 100
+      const browserAdapter = new BrowserWebSocketClientAdapter(serverUrl, retry)
+
+      const server = http.createServer()
+      const serverSocket = new WebSocket.Server({ server })
+
+      await new Promise<void>(resolve => server.listen(port, resolve))
+      const serverAdapter = new NodeWSServerAdapter(serverSocket, retry)
+
+      const _browserRepo = new Repo({
+        network: [browserAdapter],
+        peerId: browserPeerId,
+      })
+
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      await eventPromise(serverAdapter, "peer-candidate")
+
+      // Simulate the client not responding to pings
+      browserAdapter.socket!.pong = () => {}
+
+      await eventPromise(serverAdapter, "peer-disconnected")
+    })
+
     it("should send the negotiated protocol version in its hello message", async () => {
       const response = await serverResponse({
         type: "join",
-        senderId: "browser",
+        senderId: browserPeerId,
         supportedProtocolVersions: ["1"],
       })
       assert.deepEqual(response, {
@@ -193,7 +360,7 @@ describe("Websocket adapters", () => {
     it("should return an error message if the protocol version is not supported", async () => {
       const response = await serverResponse({
         type: "join",
-        senderId: "browser",
+        senderId: browserPeerId,
         supportedProtocolVersions: ["fake"],
       })
       assert.deepEqual(response, {
@@ -207,7 +374,7 @@ describe("Websocket adapters", () => {
     it("should respond with protocol v1 if no protocol version is specified", async () => {
       const response = await serverResponse({
         type: "join",
-        senderId: "browser",
+        senderId: browserPeerId,
       })
       assert.deepEqual(response, {
         type: "peer",
@@ -217,65 +384,6 @@ describe("Websocket adapters", () => {
         selectedProtocolVersion: "1",
       })
     })
-
-    /**
-     *  Create a new document, initialized with the given contents and return a
-     *  storage containign that document as well as the URL and a fork of the
-     *  document
-     *
-     *  @param contents - The contents to initialize the document with
-     */
-    async function initDocAndStorage<T extends Record<string, unknown>>(
-      contents: T
-    ): Promise<{
-      storage: DummyStorageAdapter
-      url: AutomergeUrl
-      doc: A.Doc<T>
-      documentId: DocumentId
-    }> {
-      const storage = new DummyStorageAdapter()
-      const silentRepo = new Repo({ storage, network: [] })
-      const doc = A.from<T>(contents)
-      const handle = silentRepo.create()
-      handle.update(() => A.clone(doc))
-      const { documentId } = parseAutomergeUrl(handle.url)
-      await pause(150)
-      return {
-        url: handle.url,
-        doc,
-        documentId,
-        storage,
-      }
-    }
-
-    function assertIsPeerMessage(msg: Buffer | null) {
-      if (msg == null) {
-        throw new Error("expected a peer message, got null")
-      }
-      let decoded = CBOR.decode(msg)
-      if (decoded.type !== "peer") {
-        throw new Error(`expected a peer message, got type: ${decoded.type}`)
-      }
-    }
-
-    function assertIsSyncMessage(
-      forDocument: DocumentId,
-      msg: Buffer | null
-    ): SyncMessage {
-      if (msg == null) {
-        throw new Error("expected a peer message, got null")
-      }
-      let decoded = CBOR.decode(msg)
-      if (decoded.type !== "sync") {
-        throw new Error(`expected a peer message, got type: ${decoded.type}`)
-      }
-      if (decoded.documentId !== forDocument) {
-        throw new Error(
-          `expected a sync message for ${forDocument}, not for ${decoded.documentId}`
-        )
-      }
-      return decoded
-    }
 
     it("should disconnect existing peers on reconnect before announcing them", async () => {
       // This test exercises a sync loop which is exposed in the following
@@ -297,7 +405,67 @@ describe("Websocket adapters", () => {
       // 6 and 7 continue in an infinite loop. The root cause is the servers
       // failure to clear the sync state associated with the given peer when
       // it receives a new connection from the same peer ID.
-      const { socket, serverUrl } = await setup(0)
+
+      /**
+       *  Create a new document, initialized with the given contents and return a
+       *  storage containing that document as well as the URL and a fork of the
+       *  document
+       *
+       *  @param contents - The contents to initialize the document with
+       */
+      async function initDocAndStorage<T extends Record<string, unknown>>(
+        contents: T
+      ): Promise<{
+        storage: DummyStorageAdapter
+        url: AutomergeUrl
+        doc: A.Doc<T>
+        documentId: DocumentId
+      }> {
+        const storage = new DummyStorageAdapter()
+        const silentRepo = new Repo({ storage, network: [] })
+        const doc = A.from<T>(contents)
+        const handle = silentRepo.create()
+        handle.update(() => A.clone(doc))
+        const { documentId } = parseAutomergeUrl(handle.url)
+        await pause(150)
+        return {
+          url: handle.url,
+          doc,
+          documentId,
+          storage,
+        }
+      }
+
+      function assertIsPeerMessage(msg: Buffer | null) {
+        if (msg == null) {
+          throw new Error("expected a peer message, got null")
+        }
+        let decoded = CBOR.decode(msg)
+        if (decoded.type !== "peer") {
+          throw new Error(`expected a peer message, got type: ${decoded.type}`)
+        }
+      }
+
+      function assertIsSyncMessage(
+        forDocument: DocumentId,
+        msg: Buffer | null
+      ): SyncMessage {
+        if (msg == null) {
+          throw new Error("expected a peer message, got null")
+        }
+        let decoded = CBOR.decode(msg)
+        if (decoded.type !== "sync") {
+          throw new Error(`expected a peer message, got type: ${decoded.type}`)
+        }
+        if (decoded.documentId !== forDocument) {
+          throw new Error(
+            `expected a sync message for ${forDocument}, not for ${decoded.documentId}`
+          )
+        }
+        return decoded
+      }
+
+      const { serverSocket: socket, serverUrl } = await setupServer()
 
       // Create a doc, populate a DummyStorageAdapter with that doc
       const { storage, url, doc, documentId } = await initDocAndStorage({
@@ -313,7 +481,7 @@ describe("Websocket adapters", () => {
       const repo = new Repo({
         network: [adapter],
         storage,
-        peerId: "server" as PeerId,
+        peerId: serverPeerId,
       })
 
       // make a change to the handle on the sync server
@@ -337,7 +505,7 @@ describe("Websocket adapters", () => {
         })
       )
 
-      let response = await recvOrTimeout(clientSocket)
+      let response = await messageOrTimeout(clientSocket)
       assertIsPeerMessage(response)
 
       // Okay now we start syncing
@@ -360,7 +528,7 @@ describe("Websocket adapters", () => {
         })
       )
 
-      response = await recvOrTimeout(clientSocket)
+      response = await messageOrTimeout(clientSocket)
       assertIsSyncMessage(documentId, response)
 
       // Now, assume either the network or the server is going slow, so the
@@ -385,7 +553,7 @@ describe("Websocket adapters", () => {
         })
       )
 
-      response = await recvOrTimeout(clientSocket)
+      response = await messageOrTimeout(clientSocket)
       assertIsPeerMessage(response)
 
       // Now, we start syncing. If we're not buggy, this loop should terminate.
@@ -402,7 +570,7 @@ describe("Websocket adapters", () => {
             })
           )
         }
-        const response = await recvOrTimeout(clientSocket)
+        const response = await messageOrTimeout(clientSocket)
         if (response) {
           const decoded = assertIsSyncMessage(documentId, response)
           ;[clientDoc, clientState] = A.receiveSyncMessage(
@@ -427,5 +595,62 @@ describe("Websocket adapters", () => {
   })
 })
 
-export const pause = (t = 0) =>
+// HELPERS
+
+const setup = async (options: SetupOptions = {}) => {
+  const {
+    clientCount = 1,
+    retryInterval = 1000,
+    port = await getPort(),
+  } = options
+
+  const { server, serverAdapter, serverSocket, serverUrl } = await setupServer(
+    options
+  )
+  const clients = await Promise.all(
+    Array.from({ length: clientCount }).map(() =>
+      setupClient({ retryInterval, port })
+    )
+  )
+  return { serverSocket, server, port, serverUrl, clients, serverAdapter }
+}
+
+const setupServer = async (options: SetupOptions = {}) => {
+  const {
+    clientCount = 1,
+    retryInterval = 1000,
+    port = await getPort(),
+  } = options
+  const serverUrl = `ws://localhost:${port}`
+  const server = http.createServer()
+  const serverSocket = new WebSocket.Server({ server })
+  await new Promise<void>(resolve => server.listen(port, resolve))
+  const serverAdapter = new NodeWSServerAdapter(serverSocket, retryInterval)
+  return { server, serverAdapter, serverSocket, serverUrl }
+}
+
+const setupClient = async (options: SetupOptions = {}) => {
+  const {
+    clientCount = 1,
+    retryInterval = 1000,
+    port = await getPort(),
+  } = options
+  const serverUrl = `ws://localhost:${port}`
+  return new BrowserWebSocketClientAdapter(serverUrl, retryInterval)
+}
+
+const pause = (t = 0) =>
   new Promise<void>(resolve => setTimeout(() => resolve(), t))
+
+const getPort = () => {
+  const base = 3010
+  return getAvailablePort({ port: base })
+}
+
+// TYPES
+
+type SetupOptions = {
+  clientCount?: number
+  retryInterval?: number
+  port?: number
+}
