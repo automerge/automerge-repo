@@ -17,6 +17,7 @@
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server start",
     "repocheck": "manypkg check",
     "test": "vitest",
+    "test:log": "cross-env DEBUG='automerge-repo:*' vitest",
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
     "watch": "lerna run watch --parallel --stream"
