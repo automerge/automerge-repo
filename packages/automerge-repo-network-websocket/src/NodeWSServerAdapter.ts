@@ -10,37 +10,41 @@ import {
   type PeerMetadata,
   type PeerId,
 } from "@automerge/automerge-repo"
-import { FromClientMessage, FromServerMessage } from "./messages.js"
+import {
+  FromClientMessage,
+  FromServerMessage,
+  isJoinMessage,
+  isLeaveMessage,
+} from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
+import assert from "assert"
+import { toArrayBuffer } from "./toArrayBuffer.js"
 
 const { encode, decode } = cborHelpers
 
 export class NodeWSServerAdapter extends NetworkAdapter {
-  server: WebSocketServer
   sockets: { [peerId: PeerId]: WebSocket } = {}
 
-  constructor(server: WebSocketServer) {
+  constructor(
+    private server: WebSocketServer,
+    private keepAliveInterval = 5000
+  ) {
     super()
-    this.server = server
   }
 
   connect(peerId: PeerId, peerMetadata: PeerMetadata) {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
 
-    this.server.on("close", function close() {
-      clearInterval(interval)
+    this.server.on("close", () => {
+      clearInterval(keepAliveId)
+      this.disconnect()
     })
 
     this.server.on("connection", (socket: WebSocketWithIsAlive) => {
       // When a socket closes, or disconnects, remove it from our list
       socket.on("close", () => {
-        for (const [otherPeerId, otherSocket] of Object.entries(this.sockets)) {
-          if (socket === otherSocket) {
-            this.emit("peer-disconnected", { peerId: otherPeerId as PeerId })
-            delete this.sockets[otherPeerId as PeerId]
-          }
-        }
+        this.#removeSocket(socket)
       })
 
       socket.on("message", message =>
@@ -54,56 +58,45 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       this.emit("ready", { network: this })
     })
 
-    // Every interval, terminate connections to lost clients,
-    // then mark all clients as potentially dead and then ping them.
-    const interval = setInterval(() => {
-      ;(this.server.clients as Set<WebSocketWithIsAlive>).forEach(socket => {
-        if (socket.isAlive === false) {
-          // Make sure we clean up this socket even though we're terminating.
-          // This might be unnecessary but I have read reports of the close() not happening for 30s.
-          for (const [otherPeerId, otherSocket] of Object.entries(
-            this.sockets
-          )) {
-            if (socket === otherSocket) {
-              this.emit("peer-disconnected", { peerId: otherPeerId as PeerId })
-              delete this.sockets[otherPeerId as PeerId]
-            }
-          }
-          return socket.terminate()
+    const keepAliveId = setInterval(() => {
+      // Terminate connections to lost clients
+      const clients = this.server.clients as Set<WebSocketWithIsAlive>
+      clients.forEach(socket => {
+        if (socket.isAlive) {
+          // Mark all clients as potentially dead until we hear from them
+          socket.isAlive = false
+          socket.ping()
+        } else {
+          this.#terminate(socket)
         }
-        socket.isAlive = false
-        socket.ping()
       })
-    }, 5000)
+    }, this.keepAliveInterval)
   }
 
   disconnect() {
-    // throw new Error("The server doesn't join channels.")
+    const clients = this.server.clients as Set<WebSocketWithIsAlive>
+    clients.forEach(socket => {
+      this.#terminate(socket)
+      this.#removeSocket(socket)
+    })
   }
 
   send(message: FromServerMessage) {
-    if ("data" in message && message.data.byteLength === 0) {
-      throw new Error("tried to send a zero-length message")
-    }
-    const senderId = this.peerId
-    if (!senderId) {
-      throw new Error("No peerId set for the websocket server network adapter.")
-    }
+    assert("targetId" in message && message.targetId !== undefined)
+    if ("data" in message)
+      assert(message.data.length > 0, "Tried to send a zero-length message.")
 
-    if (this.sockets[message.targetId] === undefined) {
-      log(`Tried to send message to disconnected peer: ${message.targetId}`)
-      return
-    }
+    const senderId = this.peerId
+    assert(senderId, "No peerId set for the websocket server network adapter.")
+
+    const socket = this.sockets[message.targetId]
+
+    assert(socket, `Tried to send to disconnected peer: ${message.targetId}`)
 
     const encoded = encode(message)
-    // This incantation deals with websocket sending the whole
-    // underlying buffer even if we just have a uint8array view on it
-    const arrayBuf = encoded.buffer.slice(
-      encoded.byteOffset,
-      encoded.byteOffset + encoded.byteLength
-    )
+    const arrayBuf = toArrayBuffer(encoded)
 
-    this.sockets[message.targetId]?.send(arrayBuf)
+    socket.send(arrayBuf)
   }
 
   receiveMessage(messageBytes: Uint8Array, socket: WebSocket) {
@@ -112,77 +105,79 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     const { type, senderId } = message
 
     const myPeerId = this.peerId
-    if (!myPeerId) throw new Error("Missing my peer ID.")
+    assert(myPeerId)
 
     const documentId = "documentId" in message ? "@" + message.documentId : ""
     const { byteLength } = messageBytes
     log(`[${senderId}->${myPeerId}${documentId}] ${type} | ${byteLength} bytes`)
 
-    switch (type) {
-      case "join":
-        {
-          const existingSocket = this.sockets[senderId]
-          if (existingSocket) {
-            if (existingSocket.readyState === WebSocket.OPEN) {
-              existingSocket.close()
-            }
-            this.emit("peer-disconnected", { peerId: senderId })
-          }
-
-          const { peerMetadata } = message
-          // Let the rest of the system know that we have a new connection.
-          this.emit("peer-candidate", {
-            peerId: senderId,
-            peerMetadata,
-          })
-          this.sockets[senderId] = socket
-
-          // In this client-server connection, there's only ever one peer: us!
-          // (and we pretend to be joined to every channel)
-          const selectedProtocolVersion = selectProtocol(
-            message.supportedProtocolVersions
-          )
-          if (selectedProtocolVersion === null) {
-            this.send({
-              type: "error",
-              senderId: this.peerId!,
-              message: "unsupported protocol version",
-              targetId: senderId,
-            })
-            this.sockets[senderId].close()
-            delete this.sockets[senderId]
-          } else {
-            this.send({
-              type: "peer",
-              senderId: this.peerId!,
-              peerMetadata: this.peerMetadata!,
-              selectedProtocolVersion: ProtocolV1,
-              targetId: senderId,
-            })
-          }
+    if (isJoinMessage(message)) {
+      const { peerMetadata, supportedProtocolVersions } = message
+      const existingSocket = this.sockets[senderId]
+      if (existingSocket) {
+        if (existingSocket.readyState === WebSocket.OPEN) {
+          existingSocket.close()
         }
-        break
-      case "leave":
-        // It doesn't seem like this gets called;
-        // we handle leaving in the socket close logic
-        // TODO: confirm this
-        // ?
-        break
+        this.emit("peer-disconnected", { peerId: senderId })
+      }
 
-      default:
-        this.emit("message", message)
-        break
+      // Let the repo know that we have a new connection.
+      this.emit("peer-candidate", { peerId: senderId, peerMetadata })
+      this.sockets[senderId] = socket
+
+      const selectedProtocolVersion = selectProtocol(supportedProtocolVersions)
+      if (selectedProtocolVersion === null) {
+        this.send({
+          type: "error",
+          senderId: this.peerId!,
+          message: "unsupported protocol version",
+          targetId: senderId,
+        })
+        this.sockets[senderId].close()
+        delete this.sockets[senderId]
+      } else {
+        this.send({
+          type: "peer",
+          senderId: this.peerId!,
+          peerMetadata: this.peerMetadata!,
+          selectedProtocolVersion: ProtocolV1,
+          targetId: senderId,
+        })
+      }
+    } else if (isLeaveMessage(message)) {
+      const { senderId } = message
+      const socket = this.sockets[senderId]
+      /* c8 ignore next */
+      if (!socket) return
+      this.#terminate(socket as WebSocketWithIsAlive)
+    } else {
+      this.emit("message", message)
     }
+  }
+
+  #terminate(socket: WebSocketWithIsAlive) {
+    this.#removeSocket(socket)
+    socket.terminate()
+  }
+
+  #removeSocket(socket: WebSocketWithIsAlive) {
+    const peerId = this.#peerIdBySocket(socket)
+    if (!peerId) return
+    this.emit("peer-disconnected", { peerId })
+    delete this.sockets[peerId as PeerId]
+  }
+
+  #peerIdBySocket = (socket: WebSocket) => {
+    const isThisSocket = (peerId: string) =>
+      this.sockets[peerId as PeerId] === socket
+    const result = Object.keys(this.sockets).find(isThisSocket) as PeerId
+    return result ?? null
   }
 }
 
-function selectProtocol(versions?: ProtocolVersion[]): ProtocolVersion | null {
-  if (versions === undefined) {
-    return ProtocolV1
-  }
-  if (versions.includes(ProtocolV1)) {
-    return ProtocolV1
-  }
+const selectProtocol = (versions?: ProtocolVersion[]) => {
+  if (versions === undefined) return ProtocolV1
+  if (versions.includes(ProtocolV1)) return ProtocolV1
   return null
 }
 
