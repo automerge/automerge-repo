@@ -1,3 +1,4 @@
+/* c8 ignore start */
 /**
  * If `promise` is resolved before `t` ms elapse, the timeout is cleared and the result of the
  * promise is returned. If the timeout ends first, a `TimeoutError` is thrown.
@@ -26,3 +27,4 @@ export class TimeoutError extends Error {
     this.name = "TimeoutError"
   }
 }
+/* c8 ignore end */

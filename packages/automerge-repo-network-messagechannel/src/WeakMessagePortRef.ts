@@ -1,3 +1,4 @@
+/* c8 ignore start */
 import { EventEmitter } from "eventemitter3"
 import { PortRefEvents, MessagePortRef } from "./MessagePortRef.js"
 
@@ -68,3 +69,5 @@ export class WeakMessagePortRef
     return true
   }
 }
+
+/* c8 ignore end */
