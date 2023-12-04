@@ -52,6 +52,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       this.socket.removeEventListener("open", this.onOpen)
       this.socket.removeEventListener("close", this.onClose)
       this.socket.removeEventListener("message", this.onMessage)
+      this.socket.removeEventListener("error", this.onError)
     }
     // Wire up retries
     if (!this.#retryIntervalId)
