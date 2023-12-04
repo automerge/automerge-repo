@@ -1,13 +1,15 @@
+/* c8 ignore start */
+
 import { EventEmitter } from "eventemitter3"
 import { PeerId } from "../types.js"
 import { Message } from "./messages.js"
 import { StorageId } from "../storage/types.js"
 
-/** 
+/**
  * Describes a peer intent to the system
  * storageId: the key for syncState to decide what the other peer already has
  * isEphemeral: to decide if we bother recording this peer's sync state
- * 
+ *
  */
 export interface PeerMetadata {
   storageId?: StorageId

@@ -22,6 +22,7 @@ export class StrongMessagePortRef
   }
 
   isAlive(): boolean {
+    /* c8 ignore next */
     return true
   }
 }
