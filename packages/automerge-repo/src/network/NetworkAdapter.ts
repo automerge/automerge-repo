@@ -30,10 +30,7 @@ export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> 
    * @argument peerId - the peerId of this repo
    * @argument peerMetadata - how this adapter should present itself to other peers
    */
-  abstract connect(
-    peerId: PeerId,
-    peerMetadata?: PeerMetadata
-  ): void
+  abstract connect(peerId: PeerId, peerMetadata?: PeerMetadata): void
 
   /** Called by the {@link Repo} to send a message to a peer
    *
