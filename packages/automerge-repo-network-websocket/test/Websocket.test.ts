@@ -19,6 +19,7 @@ import http from "http"
 import { getPortPromise as getAvailablePort } from "portfinder"
 import { describe, it } from "vitest"
 import WebSocket from "ws"
+import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter.js"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter.js"
 
 describe("Websocket adapters", () => {
