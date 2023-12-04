@@ -1,20 +1,18 @@
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
-import { decode } from "cbor-x"
+import { setTimeout } from "timers/promises"
 import { describe, it } from "vitest"
+import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
-import { pause } from "../src/helpers/pause.js"
 import {
   DocHandle,
   DocHandleRemoteHeadsPayload,
   PeerId,
   Repo,
 } from "../src/index.js"
-import { TestDoc } from "./types.js"
-import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
-import { setTimeout } from "timers/promises"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { TestDoc } from "./types.js"
 
 describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId

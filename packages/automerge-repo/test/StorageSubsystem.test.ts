@@ -1,4 +1,4 @@
-import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
+import { NodeFSStorageAdapter } from "../../automerge-repo-storage-nodefs/src/index.js"
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import fs from "fs"

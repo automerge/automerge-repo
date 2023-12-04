@@ -12,7 +12,7 @@
     "watch": "npm-watch"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^1.1.0-alpha.3",
+    "@automerge/automerge-repo": "workspace:*",
     "rimraf": "^5.0.1"
   },
   "watch": {

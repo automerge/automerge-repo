@@ -13,7 +13,9 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "^1.1.0-alpha.3"
+    "@automerge/automerge-repo": "workspace:*",
+    "debug": "^4.3.4",
+    "eventemitter3": "^5.0.1"
   },
   "watch": {
     "build": {

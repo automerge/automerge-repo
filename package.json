@@ -9,27 +9,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "lerna run build",
-    "dev:demo": "yarn workspace @automerge/automerge-repo-demo-todo dev",
-    "dev:svelte-demo": "yarn workspace @automerge/automerge-repo-demo-counter-svelte dev",
+    "build": "pnpm -r build",
+    "dev:demo": "pnpm -F @automerge/automerge-repo-demo-todo dev",
+    "dev:svelte-demo": "pnpm -F @automerge/automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
     "pub": "lerna publish --yes",
-    "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server start",
+    "start:syncserver": "cross-env DEBUG='WebsocketServer' pnpm -F @automerge/example-sync-server start",
+    "preinstall": "npx only-allow pnpm",
     "repocheck": "manypkg check",
     "test": "vitest",
     "test:log": "cross-env DEBUG='automerge-repo:*' vitest",
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
-    "watch": "lerna run watch --parallel --stream"
+    "watch": "pnpm -r watch --parallel --stream"
   },
   "engines": {
     "node": ">= 18.x",
-    "yarn": "^1.0.0"
+    "pnpm": ">= 8.x"
   },
-  "workspaces": [
-    "packages/*",
-    "examples/*"
-  ],
   "prettier": {
     "semi": false,
     "singleQuote": false,
