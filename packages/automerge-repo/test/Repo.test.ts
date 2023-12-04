@@ -32,6 +32,15 @@ import { TestDoc } from "./types.js"
 import { StorageId } from "../src/storage/types.js"
 
 describe("Repo", () => {
+  describe("constructor", () => {
+    it("can be instantiated without network adapters", () => {
+      const repo = new Repo({
+        network: [],
+      })
+      expect(repo).toBeInstanceOf(Repo)
+    })
+  })
+
   describe("local only", () => {
     const setup = ({ startReady = true } = {}) => {
       const storageAdapter = new DummyStorageAdapter()
