@@ -37,8 +37,8 @@ jobs:
           ref: ${{ github.ref }}
       - name: Install and Build
         run: |
-          yarn install --no-lockfile
-          yarn build
+          pnpm install --no-lockfile
+          pnpm build
       - name: Build docs
         run: npx typedoc
       - name: Deploy 🚀
@@ -66,15 +66,15 @@ jobs:
       - name: Install Dependencies
         id: deps
         run: |
-          yarn install --no-lockfile
+          pnpm install --no-lockfile
       - name: Build Release
         id: build_release
         run: |
-          yarn build
+          pnpm build
       - name: Run Tests
         id: tests
         run: |
-          yarn test
+          pnpm test
       - name: Publish Release
         if: steps.tests.outcome == 'success'
         run: |

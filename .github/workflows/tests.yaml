@@ -23,7 +23,7 @@ jobs:
           ref: ${{ github.ref }}
       - name: Install and Build
         run: |
-          yarn install --no-lockfile
-          yarn build
+          pnpm install --no-lockfile
+          pnpm build
       - name: Run Tests
-        run: yarn test
+        run: pnpm test
