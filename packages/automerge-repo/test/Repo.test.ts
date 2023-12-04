@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import assert from "assert"
 import * as Uuid from "uuid"
-import { describe, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
@@ -31,6 +31,15 @@ import { TestDoc } from "./types.js"
 import { StorageId } from "../src/storage/types.js"
 
 describe("Repo", () => {
+  describe("constructor", () => {
+    it("can be instantiated without network adapters", () => {
+      const repo = new Repo({
+        network: [],
+      })
+      expect(repo).toBeInstanceOf(Repo)
+    })
+  })
+
   describe("local only", () => {
     const setup = ({ startReady = true } = {}) => {
       const storageAdapter = new DummyStorageAdapter()
