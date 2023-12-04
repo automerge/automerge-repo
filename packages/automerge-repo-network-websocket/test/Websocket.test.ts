@@ -19,10 +19,9 @@ import http from "http"
 import { getPortPromise as getAvailablePort } from "portfinder"
 import { describe, it } from "vitest"
 import WebSocket from "ws"
-import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter.js"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter.js"
 
-describe.only("Websocket adapters", () => {
+describe("Websocket adapters", () => {
   const browserPeerId = "browser" as PeerId
   const serverPeerId = "server" as PeerId
   const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
