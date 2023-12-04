@@ -25,9 +25,9 @@
     "watch": "pnpm -r watch --parallel --stream"
   },
   "engines": {
-    "node": ">= 18.x",
-    "pnpm": ">= 8.x"
+    "node": ">= 18.x"
   },
+  "packageManager": "pnpm@8.11.0",
   "prettier": {
     "semi": false,
     "singleQuote": false,
