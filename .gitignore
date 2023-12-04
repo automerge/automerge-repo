@@ -6,3 +6,5 @@ build
 vite.config.ts.timestamp-*
 coverage
 docs
+.DS_Store
+wallaby.conf.cjs
