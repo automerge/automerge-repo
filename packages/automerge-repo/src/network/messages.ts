@@ -1,6 +1,5 @@
-import { SyncState } from "@automerge/automerge"
-import { DocumentId, PeerId, SessionId } from "../types.js"
 import { StorageId } from "../storage/types.js"
+import { DocumentId, PeerId, SessionId } from "../types.js"
 
 export type Message = {
   type: string
@@ -136,10 +135,10 @@ export interface OpenDocMessage {
 
 export const isRepoMessage = (message: Message): message is RepoMessage =>
   isSyncMessage(message) ||
-    isEphemeralMessage(message) ||
-    isRequestMessage(message) ||
-    isDocumentUnavailableMessage(message) ||
-    isRemoteSubscriptionControlMessage(message) ||
+  isEphemeralMessage(message) ||
+  isRequestMessage(message) ||
+  isDocumentUnavailableMessage(message) ||
+  isRemoteSubscriptionControlMessage(message) ||
   isRemoteHeadsChanged(message)
 
 // prettier-ignore
