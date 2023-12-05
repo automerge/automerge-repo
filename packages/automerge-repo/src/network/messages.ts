@@ -74,7 +74,11 @@ export type RequestMessage = {
   type: "request"
   senderId: PeerId
   targetId: PeerId
+
+  /** The automerge sync message */
   data: Uint8Array
+
+  /** The document ID of the document this message is for */
   documentId: DocumentId
 }
 
@@ -82,7 +86,11 @@ export type RemoteSubscriptionControlMessage = {
   type: "remote-subscription-change"
   senderId: PeerId
   targetId: PeerId
+
+  /** The storage IDs to add to the subscription */
   add?: StorageId[]
+
+  /** The storage IDs to remove from the subscription */
   remove?: StorageId[]
 }
 
@@ -90,7 +98,11 @@ export type RemoteHeadsChanged = {
   type: "remote-heads-changed"
   senderId: PeerId
   targetId: PeerId
+
+  /** The document ID of the document that has changed */
   documentId: DocumentId
+
+  /** The document's new heads */
   newHeads: { [key: StorageId]: { heads: string[]; timestamp: number } }
 }
 
