@@ -9,6 +9,10 @@ export type Message = {
 
   /** The peer ID of the recipient of this message */
   targetId: PeerId
+
+  data?: Uint8Array
+
+  documentId?: DocumentId
 }
 
 /**
