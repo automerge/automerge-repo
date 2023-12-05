@@ -134,8 +134,8 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   send(message: FromClientMessage) {
-    if ("data" in message && message.data.byteLength === 0)
-      throw new Error("tried to send a zero-length message")
+    if ("data" in message && message.data?.byteLength === 0)
+      throw new Error("Tried to send a zero-length message")
     assert(this.peerId)
     assert(this.socket)
     if (this.socket.readyState !== WebSocket.OPEN)

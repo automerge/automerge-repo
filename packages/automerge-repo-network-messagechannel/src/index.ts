@@ -61,19 +61,19 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
         switch (type) {
           case "arrive":
             {
-              const { peerMetadata } = message
+              const { peerMetadata } = message as ArriveMessage
               this.messagePortRef.postMessage({
+                type: "welcome",
                 senderId: this.peerId,
                 peerMetadata: this.peerMetadata,
                 targetId: senderId,
-                type: "welcome",
               })
               this.announceConnection(senderId, peerMetadata)
             }
             break
           case "welcome":
             {
-              const { peerMetadata } = message
+              const { peerMetadata } = message as WelcomeMessage
               this.announceConnection(senderId, peerMetadata)
             }
             break
