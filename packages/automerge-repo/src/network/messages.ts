@@ -108,6 +108,7 @@ export type RepoMessage =
   | RemoteSubscriptionControlMessage
   | RemoteHeadsChanged
 
+/** These are message types that pertain to a specific `documentId`. */
 export type DocMessage =
   | SyncMessage
   | EphemeralMessage
@@ -124,13 +125,6 @@ export type MessageContents<T extends Message = Message> =
   T extends EphemeralMessage
     ? Omit<T, "senderId" | "count" | "sessionId">
     : Omit<T, "senderId">
-
-/** Notify the repo that the sync state has changed  */
-export interface SyncStateMessage {
-  peerId: PeerId
-  documentId: DocumentId
-  syncState: SyncState
-}
 
 // TYPE GUARDS
 

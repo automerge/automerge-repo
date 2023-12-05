@@ -7,17 +7,18 @@ import {
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
+import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
+import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
 import { NetworkAdapter, type PeerMetadata } from "./network/NetworkAdapter.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
+import { RepoMessage } from "./network/messages.js"
 import { StorageAdapter } from "./storage/StorageAdapter.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
-import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
-import { RepoMessage, SyncStateMessage } from "./network/messages.js"
 import { StorageId } from "./storage/types.js"
-import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
-import { headsAreSame } from "./helpers/headsAreSame.js"
+import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
+import { SyncStatePayload } from "./synchronizer/Synchronizer.js"
+import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -275,11 +276,11 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #throttledSaveSyncStateHandlers: Record<
     StorageId,
-    (message: SyncStateMessage) => void
+    (message: SyncStatePayload) => void
   > = {}
 
   /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
-  #saveSyncState(message: SyncStateMessage) {
+  #saveSyncState(message: SyncStatePayload) {
     if (!this.storageSubsystem) {
       return
     }
@@ -294,7 +295,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     let handler = this.#throttledSaveSyncStateHandlers[storageId]
     if (!handler) {
       handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
-        ({ documentId, syncState }: SyncStateMessage) => {
+        ({ documentId, syncState }: SyncStatePayload) => {
           this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
         },
         this.saveDebounceRate
