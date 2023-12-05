@@ -2,16 +2,22 @@ import { SyncState } from "@automerge/automerge"
 import { DocumentId, PeerId, SessionId } from "../types.js"
 import { StorageId } from "../storage/types.js"
 
-/**
- * A sync message for a particular document
- */
-export type SyncMessage = {
+export type GenericMessage = {
   type: "sync"
 
   /** The peer ID of the sender of this message */
   senderId: PeerId
 
   /** The peer ID of the recipient of this message */
+  targetId: PeerId
+}
+
+/**
+ * A sync message for a particular document
+ */
+export type SyncMessage = {
+  type: "sync"
+  senderId: PeerId
   targetId: PeerId
 
   /** The automerge sync message */
@@ -33,11 +39,7 @@ export type SyncMessage = {
  * */
 export type EphemeralMessage = {
   type: "ephemeral"
-
-  /** The peer ID of the sender of this message */
   senderId: PeerId
-
-  /** The peer ID of the recipient of this message */
   targetId: PeerId
 
   /** A sequence number which must be incremented for each message sent by this peer */
@@ -56,11 +58,7 @@ export type EphemeralMessage = {
 /** Sent by a {@link Repo} to indicate that it does not have the document and none of it's connected peers do either */
 export type DocumentUnavailableMessage = {
   type: "doc-unavailable"
-
-  /** The peer ID of the sender of this message */
   senderId: PeerId
-
-  /** The peer ID of the recipient of this message */
   targetId: PeerId
 
   /** The document which the peer claims it doesn't have */
@@ -75,11 +73,7 @@ export type DocumentUnavailableMessage = {
  * */
 export type RequestMessage = {
   type: "request"
-
-  /** The peer ID of the sender of this message */
   senderId: PeerId
-
-  /** The peer ID of the recipient of this message */
   targetId: PeerId
 
   /** The initial automerge sync message */
@@ -164,6 +158,7 @@ export const isSyncMessage = (msg: Message): msg is SyncMessage =>
 export const isEphemeralMessage = (msg: Message): msg is EphemeralMessage =>
   msg.type === "ephemeral"
 
+// prettier-ignore
 export const isRemoteSubscriptionControlMessage = (msg: Message): msg is RemoteSubscriptionControlMessage =>
   msg.type === "remote-subscription-change"
 
