@@ -8,8 +8,8 @@ export abstract class Synchronizer extends EventEmitter<SynchronizerEvents> {
 }
 
 export interface SynchronizerEvents {
-  message: (arg: MessageContents) => void
-  "sync-state": (arg: SyncStatePayload) => void
+  message: (payload: MessageContents) => void
+  "sync-state": (payload: SyncStatePayload) => void
 }
 
 /** Notify the repo that the sync state has changed  */
