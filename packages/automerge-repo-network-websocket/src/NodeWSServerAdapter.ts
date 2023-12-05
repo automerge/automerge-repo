@@ -83,8 +83,8 @@ export class NodeWSServerAdapter extends NetworkAdapter {
 
   send(message: FromServerMessage) {
     assert("targetId" in message && message.targetId !== undefined)
-    if ("data" in message)
-      assert(message.data.length > 0, "Tried to send a zero-length message.")
+    if ("data" in message && message.data?.byteLength === 0)
+      throw new Error("Tried to send a zero-length message")
 
     const senderId = this.peerId
     assert(senderId, "No peerId set for the websocket server network adapter.")
