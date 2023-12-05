@@ -2,8 +2,8 @@ import { SyncState } from "@automerge/automerge"
 import { DocumentId, PeerId, SessionId } from "../types.js"
 import { StorageId } from "../storage/types.js"
 
-export type GenericMessage = {
-  type: "sync"
+export type Message = {
+  type: string
 
   /** The peer ID of the sender of this message */
   senderId: PeerId
@@ -75,11 +75,7 @@ export type RequestMessage = {
   type: "request"
   senderId: PeerId
   targetId: PeerId
-
-  /** The initial automerge sync message */
   data: Uint8Array
-
-  /** The document ID this message requests */
   documentId: DocumentId
 }
 
@@ -115,13 +111,10 @@ export type DocMessage =
   | RequestMessage
   | DocumentUnavailableMessage
 
-/** These are all the message types that a {@link NetworkAdapter} might see. */
-export type Message = RepoMessage
-
 /**
  * The contents of a message, without the sender ID or other properties added by the {@link NetworkSubsystem})
  */
-export type MessageContents<T extends Message = Message> =
+export type MessageContents<T extends Message = RepoMessage> =
   T extends EphemeralMessage
     ? Omit<T, "senderId" | "count" | "sessionId">
     : Omit<T, "senderId">
