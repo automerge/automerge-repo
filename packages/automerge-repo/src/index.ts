@@ -34,7 +34,7 @@ export {
 } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
-export { isValidRepoMessage } from "./network/messages.js"
+export { isRepoMessage } from "./network/messages.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
 
 /** @hidden **/

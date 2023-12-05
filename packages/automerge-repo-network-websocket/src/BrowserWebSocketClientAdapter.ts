@@ -3,7 +3,7 @@ import {
   PeerId,
   PeerMetadata,
   cbor,
-  isValidRepoMessage,
+  isRepoMessage,
 } from "@automerge/automerge-repo"
 import WebSocket from "isomorphic-ws"
 
