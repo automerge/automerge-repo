@@ -1,4 +1,4 @@
-name: Release
+jname: Release
 on:
   push:
     branches:
@@ -29,8 +29,12 @@ jobs:
     steps:
       - uses: actions/setup-node@v3
         with:
-          node-version: '18.x'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "18.x"
+          registry-url: "https://registry.npmjs.org"
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -57,10 +61,9 @@ jobs:
     steps:
       - uses: actions/setup-node@v3
         with:
-          node-version: '18.x'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "18.x"
+          registry-url: "https://registry.npmjs.org"
       - uses: pnpm/action-setup@v2
-        name: Install pnpm
         with:
           version: 8
           run_install: false
