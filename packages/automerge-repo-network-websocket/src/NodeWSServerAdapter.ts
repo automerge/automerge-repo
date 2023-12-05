@@ -91,7 +91,10 @@ export class NodeWSServerAdapter extends NetworkAdapter {
 
     const socket = this.sockets[message.targetId]
 
-    assert(socket, `Tried to send to disconnected peer: ${message.targetId}`)
+    if (!socket) {
+      log(`Tried to send to disconnected peer: ${message.targetId}`)
+      return
+    }
 
     const encoded = encode(message)
     const arrayBuf = toArrayBuffer(encoded)
