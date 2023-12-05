@@ -108,6 +108,7 @@ export type RepoMessage =
   | RemoteSubscriptionControlMessage
   | RemoteHeadsChanged
 
+/** These are message types that pertain to a specific `documentId`. */
 export type DocMessage =
   | SyncMessage
   | EphemeralMessage
