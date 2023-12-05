@@ -89,34 +89,20 @@ export type RequestMessage = {
   documentId: DocumentId
 }
 
-/** (anticipating work in progress) */
-export type AuthMessage<TPayload = any> = {
-  type: "auth"
-
-  /** The peer ID of the sender of this message */
-  senderId: PeerId
-
-  /** The peer ID of the recipient of this message */
-  targetId: PeerId
-
-  /** The payload of the auth message (up to the specific auth provider) */
-  payload: TPayload
-}
-
 export type RemoteSubscriptionControlMessage = {
-  type: "remote-subscription-change",
-  senderId: PeerId,
-  targetId: PeerId,
-  add?: StorageId[],
-  remove?: StorageId[],
+  type: "remote-subscription-change"
+  senderId: PeerId
+  targetId: PeerId
+  add?: StorageId[]
+  remove?: StorageId[]
 }
 
 export type RemoteHeadsChanged = {
-  type: "remote-heads-changed",
-  senderId: PeerId,
-  targetId: PeerId,
-  documentId: DocumentId,
-  newHeads: {[key: StorageId]: {heads: string[], timestamp: number}},
+  type: "remote-heads-changed"
+  senderId: PeerId
+  targetId: PeerId
+  documentId: DocumentId
+  newHeads: { [key: StorageId]: { heads: string[]; timestamp: number } }
 }
 
 /** These are message types that a {@link NetworkAdapter} surfaces to a {@link Repo}. */
@@ -128,10 +114,14 @@ export type RepoMessage =
   | RemoteSubscriptionControlMessage
   | RemoteHeadsChanged
 
-export type DocMessage = SyncMessage | EphemeralMessage | RequestMessage | DocumentUnavailableMessage
+export type DocMessage =
+  | SyncMessage
+  | EphemeralMessage
+  | RequestMessage
+  | DocumentUnavailableMessage
 
 /** These are all the message types that a {@link NetworkAdapter} might see. */
-export type Message = RepoMessage | AuthMessage
+export type Message = RepoMessage
 
 /**
  * The contents of a message, without the sender ID or other properties added by the {@link NetworkSubsystem})
