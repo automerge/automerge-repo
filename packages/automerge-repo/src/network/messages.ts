@@ -122,15 +122,12 @@ export type MessageContents<T extends Message = RepoMessage> =
 // TYPE GUARDS
 
 export const isRepoMessage = (message: Message): message is RepoMessage =>
-  typeof message === "object" &&
-  typeof message.type === "string" &&
-  typeof message.senderId === "string" &&
-  (isSyncMessage(message) ||
+  isSyncMessage(message) ||
     isEphemeralMessage(message) ||
     isRequestMessage(message) ||
     isDocumentUnavailableMessage(message) ||
     isRemoteSubscriptionControlMessage(message) ||
-    isRemoteHeadsChanged(message))
+  isRemoteHeadsChanged(message)
 
 // prettier-ignore
 export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage => 
