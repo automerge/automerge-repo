@@ -289,17 +289,17 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #throttledSaveSyncStateHandlers: Record<
     StorageId,
-    (message: SyncStatePayload) => void
+    (payload: SyncStatePayload) => void
   > = {}
 
   /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
-  #saveSyncState(message: SyncStatePayload) {
+  #saveSyncState(payload: SyncStatePayload) {
     if (!this.storageSubsystem) {
       return
     }
 
     const { storageId, isEphemeral } =
-      this.peerMetadataByPeerId[message.peerId] || {}
+      this.peerMetadataByPeerId[payload.peerId] || {}
 
     if (!storageId || isEphemeral) {
       return
@@ -315,7 +315,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
     }
 
-    handler(message)
+    handler(payload)
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
