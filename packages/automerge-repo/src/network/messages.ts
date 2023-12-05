@@ -89,20 +89,6 @@ export type RequestMessage = {
   documentId: DocumentId
 }
 
-/** (anticipating work in progress) */
-export type AuthMessage<TPayload = any> = {
-  type: "auth"
-
-  /** The peer ID of the sender of this message */
-  senderId: PeerId
-
-  /** The peer ID of the recipient of this message */
-  targetId: PeerId
-
-  /** The payload of the auth message (up to the specific auth provider) */
-  payload: TPayload
-}
-
 export type RemoteSubscriptionControlMessage = {
   type: "remote-subscription-change"
   senderId: PeerId
@@ -135,7 +121,7 @@ export type DocMessage =
   | DocumentUnavailableMessage
 
 /** These are all the message types that a {@link NetworkAdapter} might see. */
-export type Message = RepoMessage | AuthMessage
+export type Message = RepoMessage
 
 /**
  * The contents of a message, without the sender ID or other properties added by the {@link NetworkSubsystem})
