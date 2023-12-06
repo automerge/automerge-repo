@@ -442,6 +442,23 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.emit("delete-document", { documentId })
   }
 
+  /**
+   * Imports an existing document into the repo.
+   */
+  import<T>(doc: Automerge.Doc<T>) {
+    if (!Automerge.isAutomerge(doc)) {
+      throw new Error("Invalid Automerge document")
+    }
+
+    const handle = this.create<T>()
+
+    handle.update(() => {
+      return Automerge.clone(doc)
+    })
+
+    return handle
+  }
+
   subscribeToRemotes = (remotes: StorageId[]) => {
     this.#log("subscribeToRemotes", { remotes })
     this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
