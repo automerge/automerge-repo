@@ -77,10 +77,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         }: DocHandleEncodedChangePayload<any>) => {
           void storageSubsystem.saveDoc(handle.documentId, doc)
         }
-        handle.on(
-          "heads-changed",
-          throttle(saveFn, this.saveDebounceRate)
-        )
+        handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
 
         if (isNew) {
           // this is a new document, immediately save it
@@ -154,7 +151,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const myPeerMetadata: Promise<PeerMetadata> = new Promise(
       // eslint-disable-next-line no-async-promise-executor -- TODO: fix
-      async (resolve) =>
+      async resolve =>
         resolve({
           storageId: await storageSubsystem?.id(),
           isEphemeral,
@@ -300,10 +297,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!handler) {
       handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
         ({ documentId, syncState }: SyncStateMessage) => {
-          this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
-            .catch(err => {
-              this.#log("error saving sync state", { err })
-            })
+          this.storageSubsystem!.saveSyncState(
+            documentId,
+            storageId,
+            syncState
+          ).catch(err => {
+            this.#log("error saving sync state", { err })
+          })
         },
         this.saveDebounceRate
       )
@@ -461,15 +461,30 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @returns Promise<Uint8Array | undefined> - A Promise containing the binary document,
    * or undefined if the document is unavailable.
    */
-  async export(
-    id: AnyDocumentId
-  ): Promise<Uint8Array | undefined> {
+  async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const documentId = interpretAsDocumentId(id)
 
     const handle = this.#getHandle(documentId, false)
     const doc = await handle.doc()
     if (!doc) return undefined
     return Automerge.save(doc)
+  }
+
+  /**
+   * Imports an existing document into the repo.
+   */
+  import<T>(doc: Automerge.Doc<T>) {
+    if (!Automerge.isAutomerge(doc)) {
+      throw new Error("Invalid Automerge document")
+    }
+
+    const handle = this.create<T>()
+
+    handle.update(() => {
+      return Automerge.clone(doc)
+    })
+
+    return handle
   }
 
   subscribeToRemotes = (remotes: StorageId[]) => {

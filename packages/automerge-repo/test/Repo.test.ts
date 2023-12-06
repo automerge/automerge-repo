@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import assert from "assert"
 import * as Uuid from "uuid"
-import { describe, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
@@ -418,6 +418,29 @@ describe("Repo", () => {
       const storageKeyTypes = storageAdapter.keys().map(k => k.split(".")[1])
       assert(storageKeyTypes.filter(k => k === "snapshot").length === 1)
     })
+
+    it("can import an existing document", async () => {
+      const { repo } = setup()
+      const doc = A.init<TestDoc>()
+      const updatedDoc = A.change(doc, d => {
+        d.foo = "bar"
+      })
+      const handle = repo.import<TestDoc>(updatedDoc)
+      assert.equal(handle.isReady(), true)
+      const v = await handle.doc()
+      assert.equal(v?.foo, "bar")
+
+      expect(A.getHistory(v)).toEqual(A.getHistory(updatedDoc))
+    })
+
+    it("throws an error if we try to import an invalid document", async () => {
+      const { repo } = setup()
+      try {
+        repo.import<TestDoc>("invalid-doc" as unknown as TestDoc)
+      } catch (e: any) {
+        assert.equal(e.message, "Invalid Automerge document")
+      }
+    })
   })
 
   describe("with peers (linear network)", async () => {
@@ -765,9 +788,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-              repo.create<TestDoc>()
+            repo.create<TestDoc>()
             : // tails, pick a random doc
-              (getRandomItem(docs) as DocHandle<TestDoc>)
+            (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
@@ -1124,7 +1147,7 @@ describe("Repo", () => {
 })
 
 const warn = console.warn
-const NO_OP = () => {}
+const NO_OP = () => { }
 
 const disableConsoleWarn = () => {
   console.warn = NO_OP
