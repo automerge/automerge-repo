@@ -279,6 +279,11 @@ export class StorageSubsystem {
         incrementalSize += chunk.size
       }
     }
-    return incrementalSize >= snapshotSize
+    // if the file is currently small, don't worry, just compact
+    // this might seem a bit arbitrary (1k is arbitrary) but is designed to ensure compaction
+    // for documents with only a single large change on top of an empty (or nearly empty) document
+    // for example: imported NPM modules, images, etc.
+    // if we have even more incrementals (so far) than the snapshot, compact
+    return snapshotSize < 1024 || incrementalSize >= snapshotSize
   }
 }

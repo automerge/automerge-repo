@@ -3,6 +3,17 @@ import { PeerId } from "../types.js"
 import { Message } from "./messages.js"
 import { StorageId } from "../storage/types.js"
 
+/** 
+ * Describes a peer intent to the system
+ * storageId: the key for syncState to decide what the other peer already has
+ * isEphemeral: to decide if we bother recording this peer's sync state
+ * 
+ */
+export interface PeerMetadata {
+  storageId?: StorageId
+  isEphemeral?: boolean
+}
+
 /** An interface representing some way to connect to other peers
  *
  * @remarks
@@ -12,20 +23,14 @@ import { StorageId } from "../storage/types.js"
  */
 export abstract class NetworkAdapter extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId // hmmm, maybe not
-  storageId?: StorageId
-  isEphemeral = true
+  peerMetadata?: PeerMetadata
 
   /** Called by the {@link Repo} to start the connection process
    *
    * @argument peerId - the peerId of this repo
-   * @argument storageId - the storage id of the peer
-   * @argument isEphemeral - weather or not the other end should persist our sync state
+   * @argument peerMetadata - how this adapter should present itself to other peers
    */
-  abstract connect(
-    peerId: PeerId,
-    storageId: StorageId | undefined,
-    isEphemeral: boolean
-  ): void
+  abstract connect(peerId: PeerId, peerMetadata?: PeerMetadata): void
 
   /** Called by the {@link Repo} to send a message to a peer
    *
@@ -62,8 +67,7 @@ export interface OpenPayload {
 
 export interface PeerCandidatePayload {
   peerId: PeerId
-  storageId?: StorageId
-  isEphemeral: boolean
+  peerMetadata: PeerMetadata
 }
 
 export interface PeerDisconnectedPayload {
