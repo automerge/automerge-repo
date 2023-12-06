@@ -1,4 +1,4 @@
-jname: Release
+name: Release
 on:
   push:
     branches:
@@ -41,7 +41,7 @@ jobs:
           ref: ${{ github.ref }}
       - name: Install and Build
         run: |
-          pnpm install --no-lockfile
+          pnpm install 
           pnpm build
       - name: Build docs
         run: npx typedoc
