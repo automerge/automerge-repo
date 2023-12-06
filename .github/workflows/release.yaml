@@ -74,7 +74,7 @@ jobs:
       - name: Install Dependencies
         id: deps
         run: |
-          pnpm install --no-lockfile
+          pnpm install
       - name: Build Release
         id: build_release
         run: |

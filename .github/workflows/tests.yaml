@@ -27,7 +27,7 @@ jobs:
           ref: ${{ github.ref }}
       - name: Install and Build
         run: |
-          pnpm install --no-lockfile
+          pnpm install
           pnpm build
       - name: Run Tests
         run: pnpm test
