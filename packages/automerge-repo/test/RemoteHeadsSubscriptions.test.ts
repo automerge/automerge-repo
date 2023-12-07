@@ -1,15 +1,14 @@
 import * as A from "@automerge/automerge"
 import assert from "assert"
 import { describe, it } from "vitest"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { RemoteHeadsSubscriptions } from "../src/RemoteHeadsSubscriptions.js"
 import { PeerId, StorageId } from "../src/index.js"
-import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
-import { pause } from "../src/helpers/pause.js"
-import { EventEmitter } from "eventemitter3"
 import {
   RemoteHeadsChanged,
   RemoteSubscriptionControlMessage,
 } from "../src/network/messages.js"
+import { waitForMessages } from "./helpers/waitForMessages.js"
 
 describe("RepoHeadsSubscriptions", () => {
   const storageA = "remote-a" as StorageId
@@ -321,23 +320,3 @@ describe("RepoHeadsSubscriptions", () => {
     assert.deepStrictEqual(messages[2].peers, [])
   })
 })
-
-async function waitForMessages(
-  emitter: EventEmitter,
-  event: string,
-  timeout: number = 100
-): Promise<any[]> {
-  const messages = []
-
-  const onEvent = message => {
-    messages.push(message)
-  }
-
-  emitter.on(event, onEvent)
-
-  await pause(timeout)
-
-  emitter.off(event)
-
-  return messages
-}
