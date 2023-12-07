@@ -150,7 +150,6 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
           }
 
           const lastHeads = knownHeads.get(remote)
-
           if (lastHeads) {
             this.emit("notify-remote-heads", {
               targetId: control.senderId,
@@ -280,6 +279,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     const remotesToRemove = []
 
     this.#generousPeers.delete(peerId)
+    this.#subscribedDocsByPeer.delete(peerId)
 
     for (const [storageId, peerIds] of this.#theirSubscriptions) {
       if (peerIds.has(peerId)) {
@@ -308,6 +308,22 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     }
 
     subscribedDocs.add(documentId)
+
+    const remoteHeads = this.#knownHeads.get(documentId)
+    if (remoteHeads) {
+      for (const [storageId, lastHeads] of remoteHeads) {
+        const subscribedPeers = this.#theirSubscriptions.get(storageId)
+        if (subscribedPeers && subscribedPeers.has(peerId)) {
+          this.emit("notify-remote-heads", {
+            targetId: peerId,
+            documentId,
+            heads: lastHeads.heads,
+            timestamp: lastHeads.timestamp,
+            storageId,
+          })
+        }
+      }
+    }
   }
 
   #isPeerSubscribedToDoc(peerId: PeerId, documentId: DocumentId) {

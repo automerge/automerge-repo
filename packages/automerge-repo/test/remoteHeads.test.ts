@@ -189,7 +189,7 @@ describe("DocHandle.remoteHeads", () => {
       // subscribe leftTab 1 to storageId of rightServiceWorker
       leftTab1.subscribeToRemotes([await rightServiceWorker.storageId()!])
 
-      await setTimeout(100)
+      await setTimeout(200)
 
       // now the left service worker has the remote heads of the right service worker for both doc A and doc B
       // if we subscribe from left tab 1 the left service workers should send it's stored remote heads immediately
@@ -220,17 +220,19 @@ describe("DocHandle.remoteHeads", () => {
       const rightTabDocB = rightTab.create<TestDoc>()
       rightTabDocB.change(d => (d.foo = "B"))
 
+      await setTimeout(200)
+
       // subscribe leftTab 1 to storageId of rightServiceWorker
       leftTab1.subscribeToRemotes([await rightServiceWorker.storageId()!])
-
-      await setTimeout(100)
 
       // in leftTab 1 open doc A
       const leftTab1DocA = leftTab1.find<TestDoc>(rightTabDocA.url)
 
       const remoteHeadsChangedMessages = (
-        await waitForMessages(leftTab2.networkSubsystem, "message")
+        await waitForMessages(leftTab1.networkSubsystem, "message")
       ).filter(({ type }) => type === "remote-heads-changed")
+
+      console.log(JSON.stringify(remoteHeadsChangedMessages, null, 2))
 
       assert.strictEqual(remoteHeadsChangedMessages.length, 1)
       assert.strictEqual(
