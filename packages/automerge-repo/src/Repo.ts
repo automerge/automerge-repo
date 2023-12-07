@@ -337,7 +337,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
-    return this.persistanceInfoByPeerId[peerId]?.storageId
+    return this.peerMetadataByPeerId[peerId]?.storageId
   }
 
   /**
