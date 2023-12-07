@@ -1,15 +1,14 @@
 import * as A from "@automerge/automerge"
 import assert from "assert"
 import { describe, it } from "vitest"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { RemoteHeadsSubscriptions } from "../src/RemoteHeadsSubscriptions.js"
 import { PeerId, StorageId } from "../src/index.js"
-import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
-import { pause } from "../src/helpers/pause.js"
-import { EventEmitter } from "eventemitter3"
 import {
   RemoteHeadsChanged,
   RemoteSubscriptionControlMessage,
 } from "../src/network/messages.js"
+import { waitForMessages } from "./helpers/waitForMessages.js"
 
 describe("RepoHeadsSubscriptions", () => {
   const storageA = "remote-a" as StorageId
@@ -224,6 +223,8 @@ describe("RepoHeadsSubscriptions", () => {
       remoteHeadsSubscriptions,
       "notify-remote-heads"
     )
+    remoteHeadsSubscriptions.subscribePeerToDoc(peerC, docA)
+    remoteHeadsSubscriptions.subscribePeerToDoc(peerC, docC)
 
     // change message for docA in storageB
     remoteHeadsSubscriptions.handleRemoteHeads(docAHeadsChangedForStorageB)
@@ -257,6 +258,32 @@ describe("RepoHeadsSubscriptions", () => {
 
     // expect not to be be notified
     messages = await messagesAfteUnsubscribePromise
+    assert.strictEqual(messages.length, 0)
+  })
+
+  it("should not send remote heads for docs that the peer is not subscribed to", async () => {
+    const remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
+    remoteHeadsSubscriptions.subscribeToRemotes([storageB])
+
+    // subscribe peer c to storage b
+    remoteHeadsSubscriptions.handleControlMessage(subscribePeerCToStorageB)
+    const messagesAfterSubscribePromise = waitForMessages(
+      remoteHeadsSubscriptions,
+      "notify-remote-heads"
+    )
+
+    // change message for docA in storageB
+    remoteHeadsSubscriptions.handleRemoteHeads(docAHeadsChangedForStorageB)
+
+    // change heads directly
+    remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+      docC,
+      storageB,
+      []
+    )
+
+    // expect peer c to be notified both changes
+    let messages = await messagesAfterSubscribePromise
     assert.strictEqual(messages.length, 0)
   })
 
@@ -321,23 +348,3 @@ describe("RepoHeadsSubscriptions", () => {
     assert.deepStrictEqual(messages[2].peers, [])
   })
 })
-
-async function waitForMessages(
-  emitter: EventEmitter,
-  event: string,
-  timeout: number = 100
-): Promise<any[]> {
-  const messages = []
-
-  const onEvent = message => {
-    messages.push(message)
-  }
-
-  emitter.on(event, onEvent)
-
-  await pause(timeout)
-
-  emitter.off(event)
-
-  return messages
-}

@@ -104,19 +104,19 @@ export type AuthMessage<TPayload = any> = {
 }
 
 export type RemoteSubscriptionControlMessage = {
-  type: "remote-subscription-change",
-  senderId: PeerId,
-  targetId: PeerId,
-  add?: StorageId[],
-  remove?: StorageId[],
+  type: "remote-subscription-change"
+  senderId: PeerId
+  targetId: PeerId
+  add?: StorageId[]
+  remove?: StorageId[]
 }
 
 export type RemoteHeadsChanged = {
-  type: "remote-heads-changed",
-  senderId: PeerId,
-  targetId: PeerId,
-  documentId: DocumentId,
-  newHeads: {[key: StorageId]: {heads: string[], timestamp: number}},
+  type: "remote-heads-changed"
+  senderId: PeerId
+  targetId: PeerId
+  documentId: DocumentId
+  newHeads: { [key: StorageId]: { heads: string[]; timestamp: number } }
 }
 
 /** These are message types that a {@link NetworkAdapter} surfaces to a {@link Repo}. */
@@ -128,7 +128,11 @@ export type RepoMessage =
   | RemoteSubscriptionControlMessage
   | RemoteHeadsChanged
 
-export type DocMessage = SyncMessage | EphemeralMessage | RequestMessage | DocumentUnavailableMessage
+export type DocMessage =
+  | SyncMessage
+  | EphemeralMessage
+  | RequestMessage
+  | DocumentUnavailableMessage
 
 /** These are all the message types that a {@link NetworkAdapter} might see. */
 export type Message = RepoMessage | AuthMessage
@@ -146,6 +150,12 @@ export interface SyncStateMessage {
   peerId: PeerId
   documentId: DocumentId
   syncState: SyncState
+}
+
+/** Notify the repo that a peer started syncing with a doc */
+export interface OpenDocMessage {
+  peerId: PeerId
+  documentId: DocumentId
 }
 
 // TYPE GUARDS
@@ -174,7 +184,9 @@ export const isSyncMessage = (msg: Message): msg is SyncMessage =>
 export const isEphemeralMessage = (msg: Message): msg is EphemeralMessage =>
   msg.type === "ephemeral"
 
-export const isRemoteSubscriptionControlMessage = (msg: Message): msg is RemoteSubscriptionControlMessage =>
+export const isRemoteSubscriptionControlMessage = (
+  msg: Message
+): msg is RemoteSubscriptionControlMessage =>
   msg.type === "remote-subscription-change"
 
 export const isRemoteHeadsChanged = (msg: Message): msg is RemoteHeadsChanged =>

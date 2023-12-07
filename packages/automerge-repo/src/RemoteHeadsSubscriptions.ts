@@ -44,6 +44,9 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   #theirSubscriptions: Map<StorageId, Set<PeerId>> = new Map()
   // Peers we will always share remote heads with even if they are not subscribed
   #generousPeers: Set<PeerId> = new Set()
+  // Documents each peer has open, we need this information so we only send remote heads of documents that the peer knows
+  #subscribedDocsByPeer: Map<PeerId, Set<DocumentId>> = new Map()
+
   #log = debug("automerge-repo:remote-heads-subscriptions")
 
   subscribeToRemotes(remotes: StorageId[]) {
@@ -89,11 +92,17 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   handleControlMessage(control: RemoteSubscriptionControlMessage) {
     const remotesToAdd: StorageId[] = []
     const remotesToRemove: StorageId[] = []
+    const addedRemotesWeKnow: StorageId[] = []
 
     this.#log("handleControlMessage", control)
     if (control.add) {
       for (const remote of control.add) {
         let theirSubs = this.#theirSubscriptions.get(remote)
+
+        if (this.#ourSubscriptions.has(remote) || theirSubs) {
+          addedRemotesWeKnow.push(remote)
+        }
+
         if (!theirSubs) {
           theirSubs = new Set()
           this.#theirSubscriptions.set(remote, theirSubs)
@@ -127,6 +136,30 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
         add: remotesToAdd,
         remove: remotesToRemove,
       })
+    }
+
+    // send all our stored heads of documents the peer knows for the remotes they've added
+    for (const remote of addedRemotesWeKnow) {
+      const subscribedDocs = this.#subscribedDocsByPeer.get(control.senderId)
+      if (subscribedDocs) {
+        for (const documentId of subscribedDocs) {
+          const knownHeads = this.#knownHeads.get(documentId)
+          if (!knownHeads) {
+            continue
+          }
+
+          const lastHeads = knownHeads.get(remote)
+          if (lastHeads) {
+            this.emit("notify-remote-heads", {
+              targetId: control.senderId,
+              documentId,
+              heads: lastHeads.heads,
+              timestamp: lastHeads.timestamp,
+              storageId: remote,
+            })
+          }
+        }
+      }
     }
   }
 
@@ -165,13 +198,15 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       const theirSubs = this.#theirSubscriptions.get(event.storageId)
       if (theirSubs) {
         for (const peerId of theirSubs) {
-          this.emit("notify-remote-heads", {
-            targetId: peerId,
-            documentId: event.documentId,
-            heads: event.remoteHeads,
-            timestamp: event.timestamp,
-            storageId: event.storageId,
-          })
+          if (this.#isPeerSubscribedToDoc(peerId, event.documentId)) {
+            this.emit("notify-remote-heads", {
+              targetId: peerId,
+              documentId: event.documentId,
+              heads: event.remoteHeads,
+              timestamp: event.timestamp,
+              storageId: event.storageId,
+            })
+          }
         }
       }
     }
@@ -200,13 +235,15 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     const theirSubs = this.#theirSubscriptions.get(storageId)
     if (theirSubs) {
       for (const peerId of theirSubs) {
-        this.emit("notify-remote-heads", {
-          targetId: peerId,
-          documentId: documentId,
-          heads: heads,
-          timestamp: timestamp,
-          storageId: storageId,
-        })
+        if (this.#isPeerSubscribedToDoc(peerId, documentId)) {
+          this.emit("notify-remote-heads", {
+            targetId: peerId,
+            documentId: documentId,
+            heads: heads,
+            timestamp: timestamp,
+            storageId: storageId,
+          })
+        }
       }
     }
   }
@@ -241,6 +278,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     const remotesToRemove = []
 
     this.#generousPeers.delete(peerId)
+    this.#subscribedDocsByPeer.delete(peerId)
 
     for (const [storageId, peerIds] of this.#theirSubscriptions) {
       if (peerIds.has(peerId)) {
@@ -259,6 +297,37 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
         peers: Array.from(this.#generousPeers),
       })
     }
+  }
+
+  subscribePeerToDoc(peerId: PeerId, documentId: DocumentId) {
+    let subscribedDocs = this.#subscribedDocsByPeer.get(peerId)
+    if (!subscribedDocs) {
+      subscribedDocs = new Set()
+      this.#subscribedDocsByPeer.set(peerId, subscribedDocs)
+    }
+
+    subscribedDocs.add(documentId)
+
+    const remoteHeads = this.#knownHeads.get(documentId)
+    if (remoteHeads) {
+      for (const [storageId, lastHeads] of remoteHeads) {
+        const subscribedPeers = this.#theirSubscriptions.get(storageId)
+        if (subscribedPeers && subscribedPeers.has(peerId)) {
+          this.emit("notify-remote-heads", {
+            targetId: peerId,
+            documentId,
+            heads: lastHeads.heads,
+            timestamp: lastHeads.timestamp,
+            storageId,
+          })
+        }
+      }
+    }
+  }
+
+  #isPeerSubscribedToDoc(peerId: PeerId, documentId: DocumentId) {
+    let subscribedDocs = this.#subscribedDocsByPeer.get(peerId)
+    return subscribedDocs && subscribedDocs.has(documentId)
   }
 
   /** Returns the (document, storageId) pairs which have changed after processing msg */
