@@ -45,7 +45,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   // Peers we will always share remote heads with even if they are not subscribed
   #generousPeers: Set<PeerId> = new Set()
 
-  // Documents each peer has open, we need this information so we don't send heads to peers of documents that they don't know
+  // Documents each peer has open, we need this information so we only send remote heads of documents that the peer knows
   #subscribedDocsByPeer: Map<PeerId, Set<DocumentId>> = new Map()
 
   #log = debug("automerge-repo:remote-heads-subscriptions")
@@ -93,11 +93,17 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   handleControlMessage(control: RemoteSubscriptionControlMessage) {
     const remotesToAdd: StorageId[] = []
     const remotesToRemove: StorageId[] = []
+    const addedRemotesWeKnow: StorageId[] = []
 
     this.#log("handleControlMessage", control)
     if (control.add) {
       for (const remote of control.add) {
         let theirSubs = this.#theirSubscriptions.get(remote)
+
+        if (this.#ourSubscriptions.has(remote) || theirSubs) {
+          addedRemotesWeKnow.push(remote)
+        }
+
         if (!theirSubs) {
           theirSubs = new Set()
           this.#theirSubscriptions.set(remote, theirSubs)
@@ -131,6 +137,31 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
         add: remotesToAdd,
         remove: remotesToRemove,
       })
+    }
+
+    // send all our stored heads of documents the peer knows for the remotes they've added
+    for (const remote of addedRemotesWeKnow) {
+      const subscribedDocs = this.#subscribedDocsByPeer.get(control.senderId)
+      if (subscribedDocs) {
+        for (const documentId of subscribedDocs) {
+          const knownHeads = this.#knownHeads.get(documentId)
+          if (!knownHeads) {
+            continue
+          }
+
+          const lastHeads = knownHeads.get(remote)
+
+          if (lastHeads) {
+            this.emit("notify-remote-heads", {
+              targetId: control.senderId,
+              documentId,
+              heads: lastHeads.heads,
+              timestamp: lastHeads.timestamp,
+              storageId: remote,
+            })
+          }
+        }
+      }
     }
   }
 

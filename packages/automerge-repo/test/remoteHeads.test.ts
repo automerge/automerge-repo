@@ -81,6 +81,7 @@ describe("DocHandle.remoteHeads", () => {
 
       // connect them all up
       connectRepos(leftTab1, leftServiceWorker)
+      connectRepos(leftTab2, leftServiceWorker)
       connectRepos(leftServiceWorker, syncServer)
       connectRepos(syncServer, rightServiceWorker)
       connectRepos(rightServiceWorker, rightTab)
@@ -194,7 +195,7 @@ describe("DocHandle.remoteHeads", () => {
       // if we subscribe from left tab 1 the left service workers should send it's stored remote heads immediately
 
       // open doc and subscribe leftTab 2 to storageId of rightServiceWorker
-      const leftTab2DocA = leftTab1.find<TestDoc>(rightTabDocA.url)
+      const leftTab2DocA = leftTab2.find<TestDoc>(rightTabDocA.url)
       leftTab2.subscribeToRemotes([await rightServiceWorker.storageId()!])
 
       const remoteHeadsChangedMessages = (
