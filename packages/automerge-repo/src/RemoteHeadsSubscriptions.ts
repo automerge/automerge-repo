@@ -44,6 +44,10 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   #theirSubscriptions: Map<StorageId, Set<PeerId>> = new Map()
   // Peers we will always share remote heads with even if they are not subscribed
   #generousPeers: Set<PeerId> = new Set()
+
+  // Documents each peer has open, we need this information so we don't send heads to peers of documents that they don't know
+  #subscribedDocsByPeer: Map<PeerId, Set<DocumentId>> = new Map()
+
   #log = debug("automerge-repo:remote-heads-subscriptions")
 
   subscribeToRemotes(remotes: StorageId[]) {
@@ -165,13 +169,15 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       const theirSubs = this.#theirSubscriptions.get(event.storageId)
       if (theirSubs) {
         for (const peerId of theirSubs) {
-          this.emit("notify-remote-heads", {
-            targetId: peerId,
-            documentId: event.documentId,
-            heads: event.remoteHeads,
-            timestamp: event.timestamp,
-            storageId: event.storageId,
-          })
+          if (this.#isPeerSubscribedToDoc(peerId, event.documentId)) {
+            this.emit("notify-remote-heads", {
+              targetId: peerId,
+              documentId: event.documentId,
+              heads: event.remoteHeads,
+              timestamp: event.timestamp,
+              storageId: event.storageId,
+            })
+          }
         }
       }
     }
@@ -200,13 +206,15 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     const theirSubs = this.#theirSubscriptions.get(storageId)
     if (theirSubs) {
       for (const peerId of theirSubs) {
-        this.emit("notify-remote-heads", {
-          targetId: peerId,
-          documentId: documentId,
-          heads: heads,
-          timestamp: timestamp,
-          storageId: storageId,
-        })
+        if (this.#isPeerSubscribedToDoc(peerId, documentId)) {
+          this.emit("notify-remote-heads", {
+            targetId: peerId,
+            documentId: documentId,
+            heads: heads,
+            timestamp: timestamp,
+            storageId: storageId,
+          })
+        }
       }
     }
   }
@@ -259,6 +267,21 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
         peers: Array.from(this.#generousPeers),
       })
     }
+  }
+
+  subscribePeerToDoc(peerId: PeerId, documentId: DocumentId) {
+    let subscribedDocs = this.#subscribedDocsByPeer.get(peerId)
+    if (!subscribedDocs) {
+      subscribedDocs = new Set()
+      this.#subscribedDocsByPeer.set(peerId, subscribedDocs)
+    }
+
+    subscribedDocs.add(documentId)
+  }
+
+  #isPeerSubscribedToDoc(peerId: PeerId, documentId: DocumentId) {
+    let subscribedDocs = this.#subscribedDocsByPeer.get(peerId)
+    return subscribedDocs && subscribedDocs.has(documentId)
   }
 
   /** Returns the (document, storageId) pairs which have changed after processing msg */

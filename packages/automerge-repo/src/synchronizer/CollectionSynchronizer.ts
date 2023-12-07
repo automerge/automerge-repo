@@ -55,6 +55,7 @@ export class CollectionSynchronizer extends Synchronizer {
       },
     })
     docSynchronizer.on("message", event => this.emit("message", event))
+    docSynchronizer.on("open-doc", event => this.emit("open-doc", event))
     docSynchronizer.on("sync-state", event => this.emit("sync-state", event))
     return docSynchronizer
   }

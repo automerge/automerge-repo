@@ -140,6 +140,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       networkSubsystem.send(message)
     })
 
+    this.#synchronizer.on("open-doc", ({ peerId, documentId }) => {
+      this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
+    })
+
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined

@@ -223,6 +223,8 @@ describe("RepoHeadsSubscriptions", () => {
       remoteHeadsSubscriptions,
       "notify-remote-heads"
     )
+    remoteHeadsSubscriptions.subscribePeerToDoc(peerC, docA)
+    remoteHeadsSubscriptions.subscribePeerToDoc(peerC, docC)
 
     // change message for docA in storageB
     remoteHeadsSubscriptions.handleRemoteHeads(docAHeadsChangedForStorageB)
@@ -256,6 +258,32 @@ describe("RepoHeadsSubscriptions", () => {
 
     // expect not to be be notified
     messages = await messagesAfteUnsubscribePromise
+    assert.strictEqual(messages.length, 0)
+  })
+
+  it("should not send remote heads for docs that the peer is not subscribed to", async () => {
+    const remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
+    remoteHeadsSubscriptions.subscribeToRemotes([storageB])
+
+    // subscribe peer c to storage b
+    remoteHeadsSubscriptions.handleControlMessage(subscribePeerCToStorageB)
+    const messagesAfterSubscribePromise = waitForMessages(
+      remoteHeadsSubscriptions,
+      "notify-remote-heads"
+    )
+
+    // change message for docA in storageB
+    remoteHeadsSubscriptions.handleRemoteHeads(docAHeadsChangedForStorageB)
+
+    // change heads directly
+    remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+      docC,
+      storageB,
+      []
+    )
+
+    // expect peer c to be notified both changes
+    let messages = await messagesAfterSubscribePromise
     assert.strictEqual(messages.length, 0)
   })
 
