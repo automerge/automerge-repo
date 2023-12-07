@@ -1,5 +1,6 @@
 import { SyncState } from "@automerge/automerge"
 import { DocumentId, PeerId, SessionId } from "../types.js"
+import { StorageId } from "../storage/types.js"
 
 /**
  * A sync message for a particular document
@@ -102,8 +103,32 @@ export type AuthMessage<TPayload = any> = {
   payload: TPayload
 }
 
+export type RemoteSubscriptionControlMessage = {
+  type: "remote-subscription-change"
+  senderId: PeerId
+  targetId: PeerId
+  add?: StorageId[]
+  remove?: StorageId[]
+}
+
+export type RemoteHeadsChanged = {
+  type: "remote-heads-changed"
+  senderId: PeerId
+  targetId: PeerId
+  documentId: DocumentId
+  newHeads: { [key: StorageId]: { heads: string[]; timestamp: number } }
+}
+
 /** These are message types that a {@link NetworkAdapter} surfaces to a {@link Repo}. */
 export type RepoMessage =
+  | SyncMessage
+  | EphemeralMessage
+  | RequestMessage
+  | DocumentUnavailableMessage
+  | RemoteSubscriptionControlMessage
+  | RemoteHeadsChanged
+
+export type DocMessage =
   | SyncMessage
   | EphemeralMessage
   | RequestMessage
@@ -127,6 +152,12 @@ export interface SyncStateMessage {
   syncState: SyncState
 }
 
+/** Notify the repo that a peer started syncing with a doc */
+export interface OpenDocMessage {
+  peerId: PeerId
+  documentId: DocumentId
+}
+
 // TYPE GUARDS
 
 export const isValidRepoMessage = (message: Message): message is RepoMessage =>
@@ -136,7 +167,9 @@ export const isValidRepoMessage = (message: Message): message is RepoMessage =>
   (isSyncMessage(message) ||
     isEphemeralMessage(message) ||
     isRequestMessage(message) ||
-    isDocumentUnavailableMessage(message))
+    isDocumentUnavailableMessage(message) ||
+    isRemoteSubscriptionControlMessage(message) ||
+    isRemoteHeadsChanged(message))
 
 // prettier-ignore
 export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage => 
@@ -150,3 +183,11 @@ export const isSyncMessage = (msg: Message): msg is SyncMessage =>
 
 export const isEphemeralMessage = (msg: Message): msg is EphemeralMessage =>
   msg.type === "ephemeral"
+
+export const isRemoteSubscriptionControlMessage = (
+  msg: Message
+): msg is RemoteSubscriptionControlMessage =>
+  msg.type === "remote-subscription-change"
+
+export const isRemoteHeadsChanged = (msg: Message): msg is RemoteHeadsChanged =>
+  msg.type === "remote-heads-changed"

@@ -20,7 +20,6 @@ import {
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 import { throttle } from "../helpers/throttle.js"
-import { headsAreSame } from "../helpers/headsAreSame.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
@@ -124,9 +123,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #withSyncState(peerId: PeerId, callback: (syncState: A.SyncState) => void) {
-    if (!this.#peers.includes(peerId)) {
-      this.#peers.push(peerId)
-    }
+    this.#addPeer(peerId)
 
     if (!(peerId in this.#peerDocumentStatuses)) {
       this.#peerDocumentStatuses[peerId] = "unknown"
@@ -149,6 +146,13 @@ export class DocSynchronizer extends Synchronizer {
     pendingCallbacks.push(callback)
   }
 
+  #addPeer(peerId: PeerId) {
+    if (!this.#peers.includes(peerId)) {
+      this.#peers.push(peerId)
+      this.emit("open-doc", { documentId: this.documentId, peerId })
+    }
+  }
+
   #initSyncState(peerId: PeerId, syncState: A.SyncState) {
     const pendingCallbacks = this.#pendingSyncStateCallbacks[peerId]
     if (pendingCallbacks) {
@@ -163,19 +167,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #setSyncState(peerId: PeerId, syncState: A.SyncState) {
-    const previousSyncState = this.#syncStates[peerId]
-
     this.#syncStates[peerId] = syncState
-
-    const haveTheirSyncedHeadsChanged =
-      syncState.theirHeads &&
-      (!previousSyncState ||
-        !previousSyncState.theirHeads ||
-        !headsAreSame(previousSyncState.theirHeads, syncState.theirHeads))
-
-    if (haveTheirSyncedHeadsChanged) {
-      this.#handle.setRemoteHeads(peerId, syncState.theirHeads)
-    }
 
     this.emit("sync-state", {
       peerId,

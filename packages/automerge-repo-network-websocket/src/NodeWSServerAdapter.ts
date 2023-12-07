@@ -7,8 +7,8 @@ const log = debug("WebsocketServer")
 import {
   cbor as cborHelpers,
   NetworkAdapter,
+  type PeerMetadata,
   type PeerId,
-  type StorageId,
 } from "@automerge/automerge-repo"
 import { FromClientMessage, FromServerMessage } from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
@@ -28,14 +28,9 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     this.server = server
   }
 
-  connect(
-    peerId: PeerId,
-    storageId: StorageId | undefined,
-    isEphemeral: boolean
-  ) {
+  connect(peerId: PeerId, peerMetadata: PeerMetadata) {
     this.peerId = peerId
-    this.storageId = storageId
-    this.isEphemeral = isEphemeral
+    this.peerMetadata = peerMetadata
 
     this.server.on("close", function close() {
       clearInterval(interval)
@@ -140,12 +135,11 @@ export class NodeWSServerAdapter extends NetworkAdapter {
             this.emit("peer-disconnected", { peerId: senderId })
           }
 
-          const { storageId, isEphemeral } = cbor
+          const { peerMetadata } = cbor
           // Let the rest of the system know that we have a new connection.
           this.emit("peer-candidate", {
             peerId: senderId,
-            storageId,
-            isEphemeral,
+            peerMetadata,
           })
           this.sockets[senderId] = socket
 
@@ -167,8 +161,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
             this.send({
               type: "peer",
               senderId: this.peerId!,
-              storageId: this.storageId,
-              isEphemeral: this.isEphemeral,
+              peerMetadata: this.peerMetadata!,
               selectedProtocolVersion: ProtocolV1,
               targetId: senderId,
             })

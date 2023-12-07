@@ -2,7 +2,7 @@ import debug from "debug"
 import { DocHandle } from "../DocHandle.js"
 import { stringifyAutomergeUrl } from "../AutomergeUrl.js"
 import { Repo } from "../Repo.js"
-import { RepoMessage } from "../network/messages.js"
+import { DocMessage, RepoMessage } from "../network/messages.js"
 import { DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
@@ -42,18 +42,20 @@ export class CollectionSynchronizer extends Synchronizer {
           return
         }
 
-        const persistanceInfo = this.repo.persistanceInfoByPeerId[peerId]
-        if (!persistanceInfo || persistanceInfo.isEphemeral) {
+        const { storageId, isEphemeral } =
+          this.repo.peerMetadataByPeerId[peerId] || {}
+        if (!storageId || isEphemeral) {
           return
         }
 
         return this.repo.storageSubsystem.loadSyncState(
           handle.documentId,
-          persistanceInfo.storageId
+          storageId
         )
       },
     })
     docSynchronizer.on("message", event => this.emit("message", event))
+    docSynchronizer.on("open-doc", event => this.emit("open-doc", event))
     docSynchronizer.on("sync-state", event => this.emit("sync-state", event))
     return docSynchronizer
   }
@@ -75,7 +77,7 @@ export class CollectionSynchronizer extends Synchronizer {
    * When we receive a sync message for a document we haven't got in memory, we
    * register it with the repo and start synchronizing
    */
-  async receiveMessage(message: RepoMessage) {
+  async receiveMessage(message: DocMessage) {
     log(
       `onSyncMessage: ${message.senderId}, ${message.documentId}, ${
         "data" in message ? message.data.byteLength + "bytes" : ""

@@ -80,8 +80,7 @@ describe("Websocket adapters", () => {
       assert.deepEqual(message, {
         type: "join",
         senderId: "browser",
-        storageId: undefined,
-        isEphemeral: true,
+        peerMetadata: { storageId: undefined, isEphemeral: true },
         supportedProtocolVersions: ["1"],
       })
     })
@@ -185,8 +184,7 @@ describe("Websocket adapters", () => {
       assert.deepEqual(response, {
         type: "peer",
         senderId: "server",
-        storageId: undefined,
-        isEphemeral: true,
+        peerMetadata: { storageId: undefined, isEphemeral: true },
         targetId: "browser",
         selectedProtocolVersion: "1",
       })
@@ -214,8 +212,7 @@ describe("Websocket adapters", () => {
       assert.deepEqual(response, {
         type: "peer",
         senderId: "server",
-        storageId: undefined,
-        isEphemeral: true,
+        peerMetadata: { storageId: undefined, isEphemeral: true },
         targetId: "browser",
         selectedProtocolVersion: "1",
       })

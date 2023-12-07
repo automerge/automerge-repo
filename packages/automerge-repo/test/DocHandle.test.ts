@@ -220,7 +220,7 @@ describe("DocHandle", () => {
 
     assert.equal(doc, undefined)
 
-    assert.equal(handle.state, "failed")
+    assert.equal(handle.state, "unavailable")
   })
 
   it("should not time out if the document is loaded in time", async () => {
@@ -301,23 +301,6 @@ describe("DocHandle", () => {
     assert(newHeads && newHeads.length > 0, "should have new heads")
 
     assert(wasBar, "foo should have been bar as we changed at the old heads")
-  })
-
-  it("should allow to listen for remote head changes and manually read remote heads", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-    const bob = "bob" as PeerId
-
-    const remoteHeadsMessagePromise = eventPromise(handle, "remote-heads")
-
-    handle.setRemoteHeads(bob, [])
-
-    const remoteHeadsMessage = await remoteHeadsMessagePromise
-
-    assert.strictEqual(remoteHeadsMessage.peerId, bob)
-    assert.deepStrictEqual(remoteHeadsMessage.heads, [])
-
-    // read remote heads manually
-    assert.deepStrictEqual(handle.getRemoteHeads(bob), [])
   })
 
   describe("ephemeral messaging", () => {
