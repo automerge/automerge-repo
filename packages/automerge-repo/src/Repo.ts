@@ -120,15 +120,14 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.peerMetadata[peerId] = { ...peerMetadata }
       }
 
-      this.sharePolicy(peerId)
-        .then(shouldShare => {
-          if (shouldShare) {
-            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
-          }
-        })
-        .catch(err => {
-          console.log("error in share policy", { err })
-        })
+      try {
+        const shouldShare = await this.sharePolicy(peerId)
+        if (shouldShare) {
+          this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
+        }
+      } catch (err) {
+        console.log("error in share policy", { err })
+      }
 
       this.#synchronizer.addPeer(peerId)
     })
