@@ -287,26 +287,24 @@ export class Repo extends EventEmitter<RepoEvents> {
    * is not persisted
    */
   #saveSyncState(payload: SyncStatePayload) {
-    if (!this.storageSubsystem) {
-      return
-    }
+    const storage = this.storageSubsystem
+    if (!storage) return
 
     const { storageId, isEphemeral } =
       this.peerMetadataByPeerId[payload.peerId] || {}
 
-    if (!storageId || isEphemeral) {
-      return
+    if (!storageId || isEphemeral) return
+
+    const createHandler = () => {
+      const handler = ({ documentId, syncState }: SyncStatePayload) => {
+        storage.saveSyncState(documentId, storageId, syncState)
+      }
+      const throttledHandler = throttle(handler, this.saveDebounceRate)
+      this.#syncStateHandlers[storageId] = throttledHandler
+      return throttledHandler
     }
 
-    let handler = this.#syncStateHandlers[storageId]
-    if (!handler) {
-      handler = this.#syncStateHandlers[storageId] = throttle(
-        ({ documentId, syncState }: SyncStatePayload) => {
-          this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
-        },
-        this.saveDebounceRate
-      )
-    }
+    const handler = this.#syncStateHandlers[storageId] ?? createHandler
 
     handler(payload)
   }
