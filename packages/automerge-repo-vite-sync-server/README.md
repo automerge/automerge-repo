@@ -29,3 +29,7 @@ export default defineConfig({
 })
 
 ```
+
+## References
+
+The majority of the Websocket server code was pulled from https://github.com/suhaildawood/SvelteKit-integrated-WebSocket/. Thanks, @suhaildawood!
