@@ -82,109 +82,91 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     this.sharePolicy = sharePolicy
 
-    // SYNCHRONIZER
-    // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    this.#synchronizer = new CollectionSynchronizer(this)
-
-    // When the synchronizer emits messages, send them to peers
-    this.#synchronizer.on("message", message => {
-      this.#log(`sending ${message.type} message to ${message.targetId}`)
-      networkSubsystem.send(message)
-    })
-
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
-    const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
-    this.storageSubsystem = storageSubsystem
+    this.storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
 
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
 
-    const getMyPeerMetadata = async () => {
-      const storageId = await storageSubsystem?.id()
+    const myMetadata = async () => {
+      const storageId = await this.storageSubsystem?.id()
       return { storageId, isEphemeral } as PeerMetadata
     }
-    const myPeerMetadata: Promise<PeerMetadata> = getMyPeerMetadata()
 
-    const networkSubsystem = new NetworkSubsystem(
-      network,
-      peerId,
-      myPeerMetadata
-    )
-    this.networkSubsystem = networkSubsystem
+    this.networkSubsystem = new NetworkSubsystem(network, peerId, myMetadata())
+      // When we get a new peer, register it with the synchronizer
+      .on("peer", async ({ peerId, peerMetadata }) => {
+        this.#log("peer connected", { peerId })
 
-    // When we get a new peer, register it with the synchronizer
-    networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
-      this.#log("peer connected", { peerId })
-
-      if (peerMetadata) {
-        this.peerMetadata[peerId] = { ...peerMetadata }
-      }
-
-      try {
-        const shouldShare = await this.sharePolicy(peerId)
-        if (shouldShare) {
-          this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
+        if (peerMetadata) this.peerMetadata[peerId] = { ...peerMetadata }
+        try {
+          const shouldShare = await this.sharePolicy(peerId)
+          if (shouldShare) {
+            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
+          }
+        } catch (err) {
+          console.log("error in share policy", { err })
         }
-      } catch (err) {
-        console.log("error in share policy", { err })
-      }
 
-      this.#synchronizer.addPeer(peerId)
-    })
+        this.#synchronizer.addPeer(peerId)
+      })
+      // When a peer disconnects, remove it from the synchronizer
+      .on("peer-disconnected", ({ peerId }) => {
+        this.#synchronizer.removePeer(peerId)
+        this.#remoteHeadsSubscriptions.removePeer(peerId)
+      })
+      // Handle incoming messages
+      .on("message", async msg => {
+        this.#receiveMessage(msg)
+      })
 
-    // When a peer disconnects, remove it from the synchronizer
-    networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      this.#synchronizer.removePeer(peerId)
-      this.#remoteHeadsSubscriptions.removePeer(peerId)
-    })
+    // SYNCHRONIZER
+    // The synchronizer uses the network subsystem to keep documents in sync with peers.
+    this.#synchronizer = new CollectionSynchronizer(this)
+      // When the synchronizer emits messages, send them to peers
+      .on("message", message => {
+        this.#log(`sending ${message.type} message to ${message.targetId}`)
+        this.networkSubsystem.send(message)
+      })
+      // When a peer's sync state changes, save it to storage
+      .on("sync-state", ({ documentId, peerId, syncState }) => {
+        this.#saveSyncState({ documentId, peerId, syncState })
+        const { theirHeads } = syncState
+        const handle = this.#handles[documentId]
 
-    // Handle incoming messages
-    networkSubsystem.on("message", async msg => {
-      this.#receiveMessage(msg)
-    })
+        const { storageId } = this.peerMetadata[peerId] || {}
+        if (!storageId) return
 
-    this.#synchronizer.on("sync-state", ({ documentId, peerId, syncState }) => {
-      this.#saveSyncState({ documentId, peerId, syncState })
-      const { theirHeads } = syncState
-      const handle = this.#handles[documentId]
+        const prevHeads = handle.getRemoteHeads(storageId)
+        const headsChanged =
+          theirHeads && (!prevHeads || !headsAreSame(prevHeads, theirHeads))
 
-      const { storageId } = this.peerMetadata[peerId] || {}
-      if (!storageId) {
-        return
-      }
+        if (headsChanged) {
+          handle.setRemoteHeads(storageId, theirHeads)
 
-      const prevHeads = handle.getRemoteHeads(storageId)
-      const headsChanged =
-        theirHeads && (!prevHeads || !headsAreSame(prevHeads, theirHeads))
+          if (storageId)
+            this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+              documentId,
+              storageId,
+              theirHeads
+            )
+        }
+      })
 
-      if (headsChanged) {
-        handle.setRemoteHeads(storageId, theirHeads)
-
-        if (storageId) {
-          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+    // REMOTE HEADS
+    this.#remoteHeadsSubscriptions
+      .on(
+        "notify-remote-heads",
+        ({ targetId, documentId, storageId, heads, timestamp }) =>
+          this.networkSubsystem.send({
+            type: "remote-heads-changed",
+            targetId,
             documentId,
-            storageId,
-            theirHeads
-          )
-        }
-      }
-    })
-
-    this.#remoteHeadsSubscriptions.on(
-      "notify-remote-heads",
-      ({ targetId, documentId, storageId, heads, timestamp }) =>
-        this.networkSubsystem.send({
-          type: "remote-heads-changed",
-          targetId,
-          documentId,
-          newHeads: { [storageId]: { heads, timestamp } },
-        })
-    )
-
-    this.#remoteHeadsSubscriptions.on(
-      "change-remote-subs",
-      ({ peers, add, remove }) => {
+            newHeads: { [storageId]: { heads, timestamp } },
+          })
+      )
+      .on("change-remote-subs", ({ peers, add, remove }) => {
         for (const targetId of peers)
           this.networkSubsystem.send({
             type: "remote-subscription-change",
@@ -192,70 +174,77 @@ export class Repo extends EventEmitter<RepoEvents> {
             add,
             remove,
           })
-      }
-    )
-
-    this.#remoteHeadsSubscriptions.on(
-      "remote-heads-changed",
-      ({ documentId, remoteHeads, storageId }) =>
+      })
+      .on("remote-heads-changed", ({ documentId, remoteHeads, storageId }) =>
         this.#handles[documentId].setRemoteHeads(storageId, remoteHeads)
-    )
+      )
   }
 
   /**
    * When we create a new document or look up a document by ID, wire up storage and network
    * synchronization.
    */
-  async #registerHandle<T>(params: { handle: DocHandle<T>; isNew: boolean }) {
-    const { handle, isNew } = params
-    const { documentId } = handle
+  #registerHandle<T>({
+    documentId,
+    isNew = true,
+  }: {
+    documentId: DocumentId
+    isNew: boolean
+  }) {
+    // These things need to happen in order - specifically, we need to load from storage before wiring up
+    // the network. But all of this can happen after we return the handle.
+    const registerAsynchronously = async () => {
+      // Wire up storage
+      const storageSubsystem = this.storageSubsystem
+      if (storageSubsystem) {
+        // Save when the document changes, but no more often than saveDebounceRate.
+        const save = ({ doc }: DocHandleEncodedChangePayload<any>) => {
+          void storageSubsystem.saveDoc(documentId, doc)
+        }
+        handle.on("heads-changed", throttle(save, this.saveDebounceRate))
 
-    const storageSubsystem = this.storageSubsystem
-    if (storageSubsystem) {
-      // Save when the document changes, but no more often than saveDebounceRate.
-      const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
-        void storageSubsystem.saveDoc(handle.documentId, doc)
-      }
-      const debouncedSaveFn = handle.on(
-        "heads-changed",
-        throttle(saveFn, this.saveDebounceRate)
-      )
-
-      if (isNew) {
-        // this is a new document, immediately save it
-        await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
-      } else {
-        // Try to load from disk
-        const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
-        if (loadedDoc) {
-          handle.update(() => loadedDoc as Automerge.Doc<T>)
+        if (isNew) {
+          // this is a new document, immediately save it
+          await storageSubsystem.saveDoc(documentId, handle.docSync()!)
+        } else {
+          // Try to load from disk
+          const loadedDoc = await storageSubsystem.loadDoc(documentId)
+          if (loadedDoc) {
+            handle.update(() => loadedDoc as Automerge.Doc<T>)
+          }
         }
       }
-    }
 
-    handle.on("unavailable", () => {
-      this.emit("unavailable-document", {
-        documentId: handle.documentId,
+      // Wire up network
+      handle.on("unavailable", () => {
+        this.emit("unavailable-document", {
+          documentId: handle.documentId,
+        })
       })
-    })
-
-    if (this.networkSubsystem.isReady()) {
-      handle.request()
-    } else {
-      handle.awaitNetwork()
-      try {
-        await this.networkSubsystem.whenReady()
-        handle.networkReady()
-      } catch (error) {
-        this.#log("error waiting for network", { error })
+      if (this.networkSubsystem.isReady()) {
+        handle.request()
+      } else {
+        handle.awaitNetwork()
+        try {
+          await this.networkSubsystem.whenReady()
+          handle.networkReady()
+        } catch (error) {
+          this.#log("error waiting for network", { error })
+        }
       }
+
+      // Wire up the synchronizer. This advertises our interest in the document.
+      this.#synchronizer.addDocument(handle.documentId)
     }
 
-    // Register the document with the synchronizer. This advertises our interest in the document.
-    this.#synchronizer.addDocument(handle.documentId)
+    const handle = this.#getHandle<T>(documentId, isNew) as DocHandle<T>
+
+    // Don't wait for the handle to be registered
+    void registerAsynchronously()
 
     // Notify the application that we have a document
     this.emit("document", { handle, isNew })
+    return handle
   }
 
   async #receiveMessage(message: RepoMessage) {
@@ -338,8 +327,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   create<T>(): DocHandle<T> {
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
-    void this.#registerHandle({ handle, isNew: true })
+    const handle = this.#registerHandle<T>({ documentId, isNew: true })
     return handle
   }
 
@@ -396,8 +384,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     }
     // Otherwise create a new handle and register it
-    const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
-    void this.#registerHandle({ handle, isNew: false })
+    const handle = this.#registerHandle<T>({ documentId, isNew: false })
     return handle
   }
 
