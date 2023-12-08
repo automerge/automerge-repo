@@ -42,8 +42,7 @@ export class CollectionSynchronizer extends Synchronizer {
           return
         }
 
-        const { storageId, isEphemeral } =
-          this.repo.peerMetadataByPeerId[peerId] || {}
+        const { storageId, isEphemeral } = this.repo.peerMetadata[peerId] || {}
         if (!storageId || isEphemeral) {
           return
         }
