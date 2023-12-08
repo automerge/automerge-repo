@@ -1,3 +1,6 @@
+import { DocHandle } from "./DocHandle.js"
+import { StorageAdapter, NetworkAdapter } from "./index.js"
+
 /**
  * A branded string representing a URL for a document, in the form `automerge:<base58check encoded
  * string>`; for example, `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
@@ -32,3 +35,56 @@ export type PeerId = string & { __peerId: true }
 
 /** A randomly generated string created when the {@link Repo} starts up */
 export type SessionId = string & { __SessionId: true }
+
+export interface RepoConfig {
+  /** Our unique identifier */
+  peerId?: PeerId
+
+  /** Indicates whether other peers should persist the sync state of this peer.
+   * Sync state is only persisted for non-ephemeral peers */
+  isEphemeral?: boolean
+
+  /** A storage adapter can be provided, or not */
+  storage?: StorageAdapter
+
+  /** One or more network adapters must be provided */
+  network: NetworkAdapter[]
+
+  /**
+   * Normal peers typically share generously with everyone (meaning we sync all our documents with
+   * all peers). A server only syncs documents that a peer explicitly requests by ID.
+   */
+  sharePolicy?: SharePolicy
+}
+/** A function that determines whether we should share a document with a peer
+ *
+ * @remarks
+ * This function is called by the {@link Repo} every time a new document is created
+ * or discovered (such as when another peer starts syncing with us). If this
+ * function returns `true` then the {@link Repo} will begin sharing the new
+ * document with the peer given by `peerId`.
+ * */
+
+export type SharePolicy = (
+  peerId: PeerId,
+  documentId?: DocumentId
+) => Promise<boolean>
+// events & payloads
+
+export interface RepoEvents {
+  /** A new document was created or discovered */
+  document: (arg: DocumentPayload) => void
+  /** A document was deleted */
+  "delete-document": (arg: DeleteDocumentPayload) => void
+  /** A document was marked as unavailable (we don't have it and none of our peers have it) */
+  "unavailable-document": (arg: DeleteDocumentPayload) => void
+}
+
+export interface DocumentPayload {
+  handle: DocHandle<any>
+  isNew: boolean
+}
+
+export interface DeleteDocumentPayload {
+  documentId: DocumentId
+}
