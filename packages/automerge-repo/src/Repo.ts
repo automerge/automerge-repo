@@ -53,7 +53,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** By default, we share generously with all peers. */
   /** @hidden */
-  sharePolicy: SharePolicy = async () => true
+  sharePolicy: SharePolicy
 
   /** Maps peer id to to persistence information (storageId, isEphemeral). This is used by `CollectionSynchronizer`. */
   /** @hidden */
@@ -67,7 +67,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     storage,
     network,
     peerId,
-    sharePolicy,
+    sharePolicy = GENEROUS_SHARE_POLICY,
     isEphemeral = storage === undefined,
   }: RepoConfig) {
     super()
@@ -79,7 +79,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       return super.emit(event, ...args)
     }
 
-    this.sharePolicy = sharePolicy ?? this.sharePolicy
+    this.sharePolicy = sharePolicy
 
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
@@ -441,3 +441,5 @@ export class Repo extends EventEmitter<RepoEvents> {
 }
 
 type SyncStateHandler = (payload: SyncStatePayload) => void
+
+const GENEROUS_SHARE_POLICY = async () => true
