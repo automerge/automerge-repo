@@ -815,12 +815,12 @@ describe("Repo", () => {
         d.foo = "bar"
       })
 
-      await pause(200)
+      await pause(500)
 
       // bob should store the sync state of charlie
       const storedSyncState = await bobRepo.storageSubsystem.loadSyncState(
         bobHandle.documentId,
-        await charlieRepo!.storageSubsystem.id()
+        await charlieRepo.storageSubsystem.id()
       )
       const docHeads = A.getHeads(bobHandle.docSync())
       assert.deepStrictEqual(storedSyncState.sharedHeads, docHeads)
@@ -918,7 +918,7 @@ describe("Repo", () => {
       })
 
       // pause to let the sync happen
-      await pause(50)
+      await pause(500)
 
       const nextRemoteHeadsPromise = new Promise<{
         storageId: StorageId

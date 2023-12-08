@@ -81,71 +81,6 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
-    // DOC COLLECTION
-
-    // The `document` event is fired by the DocCollection any time we create a new document or look
-    // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-    this.on("document", async ({ handle, isNew }) => {
-      if (storageSubsystem) {
-        // Save when the document changes, but no more often than saveDebounceRate.
-        const saveFn = ({
-          handle,
-          doc,
-        }: DocHandleEncodedChangePayload<any>) => {
-          void storageSubsystem.saveDoc(handle.documentId, doc)
-        }
-        const debouncedSaveFn = handle.on(
-          "heads-changed",
-          throttle(saveFn, this.saveDebounceRate)
-        )
-
-        if (isNew) {
-          // this is a new document, immediately save it
-          await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
-        } else {
-          // Try to load from disk
-          const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
-          if (loadedDoc) {
-            handle.update(() => loadedDoc)
-          }
-        }
-      }
-
-      handle.on("unavailable", () => {
-        this.emit("unavailable-document", {
-          documentId: handle.documentId,
-        })
-      })
-
-      if (this.networkSubsystem.isReady()) {
-        handle.request()
-      } else {
-        handle.awaitNetwork()
-        this.networkSubsystem
-          .whenReady()
-          .then(() => {
-            handle.networkReady()
-          })
-          .catch(err => {
-            this.#log("error waiting for network", { err })
-          })
-      }
-
-      // Register the document with the synchronizer. This advertises our interest in the document.
-      this.#synchronizer.addDocument(handle.documentId)
-    })
-
-    this.on("delete-document", ({ documentId }) => {
-      // TODO Pass the delete on to the network
-      // synchronizer.removeDocument(documentId)
-
-      if (storageSubsystem) {
-        storageSubsystem.removeDoc(documentId).catch(err => {
-          this.#log("error deleting document", { documentId, err })
-        })
-      }
-    })
-
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
     this.#synchronizer = new CollectionSynchronizer(this)
@@ -271,6 +206,62 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
   }
 
+  /**
+   * When we create a new document or look up a document by ID, wire up storage and network
+   * synchronization.
+   */
+  async #registerHandle<T>(params: { handle: DocHandle<T>; isNew: boolean }) {
+    const { handle, isNew } = params
+    const { documentId } = handle
+
+    const storageSubsystem = this.storageSubsystem
+    if (storageSubsystem) {
+      // Save when the document changes, but no more often than saveDebounceRate.
+      const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
+        void storageSubsystem.saveDoc(handle.documentId, doc)
+      }
+      const debouncedSaveFn = handle.on(
+        "heads-changed",
+        throttle(saveFn, this.saveDebounceRate)
+      )
+
+      if (isNew) {
+        // this is a new document, immediately save it
+        await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
+      } else {
+        // Try to load from disk
+        const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
+        if (loadedDoc) {
+          handle.update(() => loadedDoc as Automerge.Doc<T>)
+        }
+      }
+    }
+
+    handle.on("unavailable", () => {
+      this.emit("unavailable-document", {
+        documentId: handle.documentId,
+      })
+    })
+
+    if (this.networkSubsystem.isReady()) {
+      handle.request()
+    } else {
+      handle.awaitNetwork()
+      try {
+        await this.networkSubsystem.whenReady()
+        handle.networkReady()
+      } catch (error) {
+        this.#log("error waiting for network", { error })
+      }
+    }
+
+    // Register the document with the synchronizer. This advertises our interest in the document.
+    this.#synchronizer.addDocument(handle.documentId)
+
+    // Notify the application that we have a document
+    this.emit("document", { handle, isNew })
+  }
+
   async #receiveMessage(message: RepoMessage) {
     switch (message.type) {
       case "remote-subscription-change":
@@ -332,7 +323,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (this.#handleCache[documentId]) return this.#handleCache[documentId]
 
     // If not, create a new handle, cache it, and return it
-    if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
     const handle = new DocHandle<T>(documentId, { isNew })
     this.#handleCache[documentId] = handle
     return handle
@@ -349,17 +339,14 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-
-  /**
    * Creates a new document, advertises it to the network, and returns a handle to it. The initial
    * value of the document is an empty object `{}`. Its documentId is a UUID is generated by the
    * system.
    */
   create<T>(): DocHandle<T> {
-    // Generate a new UUID and store it in the buffer
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
     const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
-    this.emit("document", { handle, isNew: true })
+    void this.#registerHandle({ handle, isNew: true })
     return handle
   }
 
@@ -419,7 +406,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
-    this.emit("document", { handle, isNew: false })
+    void this.#registerHandle({ handle, isNew: false })
     return handle
   }
 
@@ -435,6 +422,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // remove it from the cache
     delete this.#handleCache[documentId]
+
+    // remove it from storage
+    void this.storageSubsystem?.removeDoc(documentId)
+
+    // TODO Pass the delete on to the network
+    // synchronizer.removeDocument(documentId)
 
     // notify the application
     this.emit("delete-document", { documentId })
