@@ -1,4 +1,4 @@
-Unfinished Automerge websocket server for SvelteKit
+Unfinished Automerge websocket server for Vite (Svelte, SvelteKit, etc)
 
 How to get started:
 
