@@ -111,7 +111,13 @@ export class NodeWSServerAdapter extends NetworkAdapter {
   }
 
   receiveMessage(message: Uint8Array, socket: WebSocket) {
-    const cbor: FromClientMessage = decode(message)
+    let cbor: FromClientMessage
+    try {
+      cbor = decode(message)
+    } catch {
+      log("Failed to decode message", message)
+      return
+    }
 
     const { type, senderId } = cbor
 
