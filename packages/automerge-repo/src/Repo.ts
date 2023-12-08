@@ -100,13 +100,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#log("peer connected", { peerId })
 
         if (peerMetadata) this.peerMetadata[peerId] = { ...peerMetadata }
-        try {
-          const shouldShare = await this.sharePolicy(peerId)
-          if (shouldShare) {
-            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
-          }
-        } catch (err) {
-          console.log("error in share policy", { err })
+        const shouldShare = await this.sharePolicy(peerId)
+        if (shouldShare) {
+          this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
         }
 
         this.#synchronizer.addPeer(peerId)
@@ -338,12 +334,8 @@ export class Repo extends EventEmitter<RepoEvents> {
         handle.request()
       } else {
         handle.awaitNetwork()
-        try {
-          await this.networkSubsystem.whenReady()
-          handle.networkReady()
-        } catch (error) {
-          this.#log("error waiting for network", { error })
-        }
+        await this.networkSubsystem.whenReady()
+        handle.networkReady()
       }
 
       // Wire up the synchronizer. This advertises our interest in the document.
@@ -372,11 +364,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "request":
       case "ephemeral":
       case "doc-unavailable":
-        try {
-          void this.#synchronizer.receiveMessage(message)
-        } catch (err) {
-          console.log("error receiving message", { err })
-        }
+        void this.#synchronizer.receiveMessage(message)
     }
   }
 
