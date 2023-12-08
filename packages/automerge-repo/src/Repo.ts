@@ -117,7 +117,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#remoteHeadsSubscriptions.removePeer(peerId)
       })
       // Handle incoming messages
-      .on("message", async msg => {
+      .on("message", msg => {
         this.#receiveMessage(msg)
       })
 
@@ -180,140 +180,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
   }
 
-  /**
-   * When we create a new document or look up a document by ID, wire up storage and network
-   * synchronization.
-   */
-  #registerHandle<T>({
-    documentId,
-    isNew = true,
-  }: {
-    documentId: DocumentId
-    isNew: boolean
-  }) {
-    // These things need to happen in order - specifically, we need to load from storage before wiring up
-    // the network. But all of this can happen after we return the handle.
-    const registerAsynchronously = async () => {
-      // Wire up storage
-      const storageSubsystem = this.storageSubsystem
-      if (storageSubsystem) {
-        // Save when the document changes, but no more often than saveDebounceRate.
-        const save = ({ doc }: DocHandleEncodedChangePayload<any>) => {
-          void storageSubsystem.saveDoc(documentId, doc)
-        }
-        handle.on("heads-changed", throttle(save, this.saveDebounceRate))
-
-        if (isNew) {
-          // this is a new document, immediately save it
-          await storageSubsystem.saveDoc(documentId, handle.docSync()!)
-        } else {
-          // Try to load from disk
-          const loadedDoc = await storageSubsystem.loadDoc(documentId)
-          if (loadedDoc) {
-            handle.update(() => loadedDoc as Automerge.Doc<T>)
-          }
-        }
-      }
-
-      // Wire up network
-      handle.on("unavailable", () => {
-        this.emit("unavailable-document", {
-          documentId: handle.documentId,
-        })
-      })
-      if (this.networkSubsystem.isReady()) {
-        handle.request()
-      } else {
-        handle.awaitNetwork()
-        try {
-          await this.networkSubsystem.whenReady()
-          handle.networkReady()
-        } catch (error) {
-          this.#log("error waiting for network", { error })
-        }
-      }
-
-      // Wire up the synchronizer. This advertises our interest in the document.
-      this.#synchronizer.addDocument(handle.documentId)
-    }
-
-    const handle = this.#getHandle<T>(documentId, isNew) as DocHandle<T>
-
-    // Don't wait for the handle to be registered
-    void registerAsynchronously()
-
-    // Notify the application that we have a document
-    this.emit("document", { handle, isNew })
-    return handle
-  }
-
-  async #receiveMessage(message: RepoMessage) {
-    switch (message.type) {
-      case "remote-subscription-change":
-        this.#remoteHeadsSubscriptions.handleControlMessage(message)
-        break
-      case "remote-heads-changed":
-        this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
-        break
-      case "sync":
-      case "request":
-      case "ephemeral":
-      case "doc-unavailable":
-        try {
-          await this.#synchronizer.receiveMessage(message)
-        } catch (err) {
-          console.log("error receiving message", { err })
-        }
-    }
-  }
-
-  /**
-   * Saves sync state throttled per storage id. If a peer doesn't have a storage id, its sync state
-   * is not persisted
-   */
-  #saveSyncState(payload: SyncStatePayload) {
-    const storage = this.storageSubsystem
-    if (!storage) return
-
-    const { storageId, isEphemeral } = this.peerMetadata[payload.peerId] || {}
-
-    if (!storageId || isEphemeral) return
-
-    const createHandler = () => {
-      const handler = ({ documentId, syncState }: SyncStatePayload) => {
-        storage.saveSyncState(documentId, storageId, syncState)
-      }
-      const throttledHandler = throttle(handler, this.saveDebounceRate)
-      this.#syncStateHandlers[storageId] = throttledHandler
-      return throttledHandler
-    }
-
-    const handler = this.#syncStateHandlers[storageId] ?? createHandler
-
-    handler(payload)
-  }
-
-  /** Returns an existing handle if we have it; creates one otherwise. */
-  #getHandle<T>(
-    /** The documentId of the handle to look up or create */
-    documentId: DocumentId,
-
-    /** If we know we're creating a new document, specify this so we can have access to it immediately */
-    isNew: boolean
-  ) {
-    // If we have the handle cached, return it
-    if (this.handles[documentId]) return this.handles[documentId]
-
-    // If not, create a new handle, cache it, and return it
-    const handle = new DocHandle<T>(documentId, { isNew })
-    this.handles[documentId] = handle
-    return handle
-  }
-
-  /** Returns a list of all connected peer ids */
-  get peers(): PeerId[] {
-    return this.#synchronizer.peers
-  }
+  // PUBLIC API
 
   /**
    * Creates a new document, advertises it to the network, and returns a handle to it. The initial
@@ -417,6 +284,143 @@ export class Repo extends EventEmitter<RepoEvents> {
     } else {
       return this.storageSubsystem.id()
     }
+  }
+
+  /** Returns a list of all connected peer ids */
+  get peers(): PeerId[] {
+    return this.#synchronizer.peers
+  }
+
+  // PRIVATE
+
+  /**
+   * When we create a new document or look up a document by ID, wire up storage and network
+   * synchronization.
+   */
+  #registerHandle<T>({
+    documentId,
+    isNew = true,
+  }: {
+    documentId: DocumentId
+    isNew: boolean
+  }) {
+    // These things need to happen in order - specifically, we need to load from storage before wiring up
+    // the network. But all of this can happen after we return the handle.
+    const registerAsynchronously = async () => {
+      // Wire up storage
+      const storageSubsystem = this.storageSubsystem
+      if (storageSubsystem) {
+        // Save when the document changes, but no more often than saveDebounceRate.
+        const save = ({ doc }: DocHandleEncodedChangePayload<any>) => {
+          void storageSubsystem.saveDoc(documentId, doc)
+        }
+        handle.on("heads-changed", throttle(save, this.saveDebounceRate))
+
+        if (isNew) {
+          // this is a new document, immediately save it
+          await storageSubsystem.saveDoc(documentId, handle.docSync()!)
+        } else {
+          // Try to load from disk
+          const loadedDoc = await storageSubsystem.loadDoc(documentId)
+          if (loadedDoc) {
+            handle.update(() => loadedDoc as Automerge.Doc<T>)
+          }
+        }
+      }
+
+      // Wire up network
+      handle.on("unavailable", () => {
+        this.emit("unavailable-document", {
+          documentId: handle.documentId,
+        })
+      })
+      if (this.networkSubsystem.isReady()) {
+        handle.request()
+      } else {
+        handle.awaitNetwork()
+        try {
+          await this.networkSubsystem.whenReady()
+          handle.networkReady()
+        } catch (error) {
+          this.#log("error waiting for network", { error })
+        }
+      }
+
+      // Wire up the synchronizer. This advertises our interest in the document.
+      this.#synchronizer.addDocument(handle.documentId)
+    }
+
+    const handle = this.#getHandle<T>(documentId, isNew) as DocHandle<T>
+
+    // Don't wait for the handle to be registered
+    void registerAsynchronously()
+
+    // Notify the application that we have a document
+    this.emit("document", { handle, isNew })
+    return handle
+  }
+
+  async #receiveMessage(message: RepoMessage) {
+    switch (message.type) {
+      case "remote-subscription-change":
+        this.#remoteHeadsSubscriptions.handleControlMessage(message)
+        break
+      case "remote-heads-changed":
+        this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
+        break
+      case "sync":
+      case "request":
+      case "ephemeral":
+      case "doc-unavailable":
+        try {
+          this.#synchronizer.receiveMessage(message)
+        } catch (err) {
+          console.log("error receiving message", { err })
+        }
+    }
+  }
+
+  /**
+   * Saves sync state throttled per storage id. If a peer doesn't have a storage id, its sync state
+   * is not persisted
+   */
+  #saveSyncState(payload: SyncStatePayload) {
+    const storage = this.storageSubsystem
+    if (!storage) return
+
+    const { storageId, isEphemeral } = this.peerMetadata[payload.peerId] || {}
+
+    if (!storageId || isEphemeral) return
+
+    const createHandler = () => {
+      const handler = ({ documentId, syncState }: SyncStatePayload) => {
+        storage.saveSyncState(documentId, storageId, syncState)
+      }
+      const throttledHandler = throttle(handler, this.saveDebounceRate)
+      this.#syncStateHandlers[storageId] = throttledHandler
+      return throttledHandler
+    }
+
+    const handler = this.#syncStateHandlers[storageId] ?? createHandler
+
+    handler(payload)
+  }
+
+  /** Returns an existing handle if we have it; creates one otherwise. */
+  #getHandle<T>(
+    /** The documentId of the handle to look up or create */
+    documentId: DocumentId,
+
+    /** If we know we're creating a new document, specify this so we can have access to it immediately */
+    isNew: boolean
+  ) {
+    // If we have the handle cached, return it
+    if (this.handles[documentId]) return this.handles[documentId]
+
+    // If not, create a new handle, cache it, and return it
+    const handle = new DocHandle<T>(documentId, { isNew })
+    this.handles[documentId] = handle
+    return handle
   }
 }
 
