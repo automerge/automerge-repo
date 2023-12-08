@@ -144,64 +144,62 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#receiveMessage(msg)
     })
 
-    this.#synchronizer.on("sync-state", message => {
-      this.#saveSyncState(message)
+    this.#synchronizer.on("sync-state", ({ documentId, peerId, syncState }) => {
+      this.#saveSyncState({ documentId, peerId, syncState })
+      const { theirHeads } = syncState
+      const handle = this.#handles[documentId]
 
-      const handle = this.#handles[message.documentId]
-
-      const { storageId } = this.peerMetadata[message.peerId] || {}
+      const { storageId } = this.peerMetadata[peerId] || {}
       if (!storageId) {
         return
       }
 
-      const heads = handle.getRemoteHeads(storageId)
-      const haveHeadsChanged =
-        message.syncState.theirHeads &&
-        (!heads || !headsAreSame(heads, message.syncState.theirHeads))
+      const prevHeads = handle.getRemoteHeads(storageId)
+      const headsChanged =
+        theirHeads && (!prevHeads || !headsAreSame(prevHeads, theirHeads))
 
-      if (haveHeadsChanged) {
-        handle.setRemoteHeads(storageId, message.syncState.theirHeads)
+      if (headsChanged) {
+        handle.setRemoteHeads(storageId, theirHeads)
 
         if (storageId) {
           this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-            message.documentId,
+            documentId,
             storageId,
-            message.syncState.theirHeads
+            theirHeads
           )
         }
       }
     })
 
-    this.#remoteHeadsSubscriptions.on("notify-remote-heads", message => {
-      this.networkSubsystem.send({
-        type: "remote-heads-changed",
-        targetId: message.targetId,
-        documentId: message.documentId,
-        newHeads: {
-          [message.storageId]: {
-            heads: message.heads,
-            timestamp: message.timestamp,
-          },
-        },
-      })
-    })
-
-    this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
-      this.#log("change-remote-subs", message)
-      for (const peer of message.peers) {
+    this.#remoteHeadsSubscriptions.on(
+      "notify-remote-heads",
+      ({ targetId, documentId, storageId, heads, timestamp }) =>
         this.networkSubsystem.send({
-          type: "remote-subscription-change",
-          targetId: peer,
-          add: message.add,
-          remove: message.remove,
+          type: "remote-heads-changed",
+          targetId,
+          documentId,
+          newHeads: { [storageId]: { heads, timestamp } },
         })
-      }
-    })
+    )
 
-    this.#remoteHeadsSubscriptions.on("remote-heads-changed", message => {
-      const handle = this.#handles[message.documentId]
-      handle.setRemoteHeads(message.storageId, message.remoteHeads)
-    })
+    this.#remoteHeadsSubscriptions.on(
+      "change-remote-subs",
+      ({ peers, add, remove }) => {
+        for (const targetId of peers)
+          this.networkSubsystem.send({
+            type: "remote-subscription-change",
+            targetId,
+            add,
+            remove,
+          })
+      }
+    )
+
+    this.#remoteHeadsSubscriptions.on(
+      "remote-heads-changed",
+      ({ documentId, remoteHeads, storageId }) =>
+        this.#handles[documentId].setRemoteHeads(storageId, remoteHeads)
+    )
   }
 
   /**
