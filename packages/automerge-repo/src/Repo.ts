@@ -61,6 +61,8 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
 
+  #syncStateHandlers: Record<StorageId, SyncStateHandler> = {}
+
   constructor({
     storage,
     network,
@@ -269,7 +271,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
   }
 
-  #receiveMessage(message: RepoMessage) {
+  async #receiveMessage(message: RepoMessage) {
     switch (message.type) {
       case "remote-subscription-change":
         this.#remoteHeadsSubscriptions.handleControlMessage(message)
@@ -281,18 +283,18 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "request":
       case "ephemeral":
       case "doc-unavailable":
-        this.#synchronizer.receiveMessage(message).catch(err => {
+        try {
+          await this.#synchronizer.receiveMessage(message)
+        } catch (err) {
           console.log("error receiving message", { err })
-        })
+        }
     }
   }
 
-  #throttledSaveSyncStateHandlers: Record<
-    StorageId,
-    (payload: SyncStatePayload) => void
-  > = {}
-
-  /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
+  /**
+   * Saves sync state throttled per storage id. If a peer doesn't have a storage id, its sync state
+   * is not persisted
+   */
   #saveSyncState(payload: SyncStatePayload) {
     if (!this.storageSubsystem) {
       return
@@ -305,9 +307,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       return
     }
 
-    let handler = this.#throttledSaveSyncStateHandlers[storageId]
+    let handler = this.#syncStateHandlers[storageId]
     if (!handler) {
-      handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
+      handler = this.#syncStateHandlers[storageId] = throttle(
         ({ documentId, syncState }: SyncStatePayload) => {
           this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
         },
@@ -470,3 +472,4 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 }
 
+type SyncStateHandler = (payload: SyncStatePayload) => void
