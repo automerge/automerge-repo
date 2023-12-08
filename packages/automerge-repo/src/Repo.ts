@@ -47,7 +47,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   saveDebounceRate = 100
 
-  #handleCache: Record<DocumentId, DocHandle<any>> = {}
+  #handles: Record<DocumentId, DocHandle<any>> = {}
 
   #synchronizer: CollectionSynchronizer
 
@@ -147,7 +147,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#synchronizer.on("sync-state", message => {
       this.#saveSyncState(message)
 
-      const handle = this.#handleCache[message.documentId]
+      const handle = this.#handles[message.documentId]
 
       const { storageId } = this.peerMetadata[message.peerId] || {}
       if (!storageId) {
@@ -199,7 +199,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     this.#remoteHeadsSubscriptions.on("remote-heads-changed", message => {
-      const handle = this.#handleCache[message.documentId]
+      const handle = this.#handles[message.documentId]
       handle.setRemoteHeads(message.storageId, message.remoteHeads)
     })
   }
@@ -315,17 +315,17 @@ export class Repo extends EventEmitter<RepoEvents> {
     isNew: boolean
   ) {
     // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) return this.#handleCache[documentId]
+    if (this.#handles[documentId]) return this.#handles[documentId]
 
     // If not, create a new handle, cache it, and return it
     const handle = new DocHandle<T>(documentId, { isNew })
-    this.#handleCache[documentId] = handle
+    this.#handles[documentId] = handle
     return handle
   }
 
   /** Returns all the handles we have cached. */
   get handles() {
-    return this.#handleCache
+    return this.#handles
   }
 
   /** Returns a list of all connected peer ids */
@@ -388,16 +388,16 @@ export class Repo extends EventEmitter<RepoEvents> {
     const documentId = interpretAsDocumentId(id)
 
     // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      if (this.#handleCache[documentId].isUnavailable()) {
+    if (this.#handles[documentId]) {
+      if (this.#handles[documentId].isUnavailable()) {
         // this ensures that the event fires after the handle has been returned
         setTimeout(() => {
-          this.#handleCache[documentId].emit("unavailable", {
-            handle: this.#handleCache[documentId],
+          this.#handles[documentId].emit("unavailable", {
+            handle: this.#handles[documentId],
           })
         })
       }
-      return this.#handleCache[documentId]
+      return this.#handles[documentId]
     }
 
     const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
@@ -416,7 +416,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.delete()
 
     // remove it from the cache
-    delete this.#handleCache[documentId]
+    delete this.#handles[documentId]
 
     // remove it from storage
     void this.storageSubsystem?.removeDoc(documentId)
