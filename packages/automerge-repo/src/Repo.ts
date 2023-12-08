@@ -63,6 +63,13 @@ export class Repo extends EventEmitter<RepoEvents> {
   }: RepoConfig) {
     super()
     this.#log = debug(`automerge-repo:repo`)
+
+    // add automatic logging to all events
+    this.emit = (event, ...args) => {
+      this.#log(`${event} %o`, args)
+      return super.emit(event, ...args)
+    }
+
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
     // DOC COLLECTION
@@ -96,7 +103,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
 
       handle.on("unavailable", () => {
-        this.#log("document unavailable", { documentId: handle.documentId })
         this.emit("unavailable-document", {
           documentId: handle.documentId,
         })
