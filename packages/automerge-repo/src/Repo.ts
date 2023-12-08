@@ -48,7 +48,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   saveDebounceRate = 100
 
-  #handles: Record<DocumentId, DocHandle<any>> = {}
+  handles: Record<DocumentId, DocHandle<any>> = {}
 
   #synchronizer: CollectionSynchronizer
 
@@ -133,7 +133,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       .on("sync-state", ({ documentId, peerId, syncState }) => {
         this.#saveSyncState({ documentId, peerId, syncState })
         const { theirHeads } = syncState
-        const handle = this.#handles[documentId]
+        const handle = this.handles[documentId]
 
         const { storageId } = this.peerMetadata[peerId] || {}
         if (!storageId) return
@@ -176,7 +176,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           })
       })
       .on("remote-heads-changed", ({ documentId, remoteHeads, storageId }) =>
-        this.#handles[documentId].setRemoteHeads(storageId, remoteHeads)
+        this.handles[documentId].setRemoteHeads(storageId, remoteHeads)
       )
   }
 
@@ -302,17 +302,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     isNew: boolean
   ) {
     // If we have the handle cached, return it
-    if (this.#handles[documentId]) return this.#handles[documentId]
+    if (this.handles[documentId]) return this.handles[documentId]
 
     // If not, create a new handle, cache it, and return it
     const handle = new DocHandle<T>(documentId, { isNew })
-    this.#handles[documentId] = handle
+    this.handles[documentId] = handle
     return handle
-  }
-
-  /** Returns all the handles we have cached. */
-  get handles() {
-    return this.#handles
   }
 
   /** Returns a list of all connected peer ids */
@@ -399,7 +394,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.delete()
 
     // remove it from the cache
-    delete this.#handles[documentId]
+    delete this.handles[documentId]
 
     // remove it from storage
     void this.storageSubsystem?.removeDoc(documentId)
