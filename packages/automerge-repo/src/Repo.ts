@@ -381,38 +381,32 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
    *
-   * @param clonedHandle - The handle to clone
+   * @remarks This is a wrapper around the `clone` function in the Automerge library. The new
+   * `DocHandle` will have a new URL but will share history with the original, which means that
+   * changes made to the cloned handle can be sensibly merged back into the original.
    *
-   * @remarks This is a wrapper around the `clone` function in the Automerge library.
-   * The new `DocHandle` will have a new URL but will share history with the original,
-   * which means that changes made to the cloned handle can be sensibly merged back
-   * into the original.
+   * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will be notified of
+   * the newly created DocHandle.
    *
-   * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
-   * be notified of the newly created DocHandle.
-   *
-   * @throws if the cloned handle is not yet ready or if
-   * `clonedHandle.docSync()` returns `undefined` (i.e. the handle is unavailable).
+   * @throws if the cloned handle is not yet ready or if `clonedHandle.docSync()` returns
+   * `undefined` (i.e. the handle is unavailable).
    */
-  clone<T>(clonedHandle: DocHandle<T>) {
-    if (!clonedHandle.isReady()) {
+  clone<T>(
+    /** The handle to clone */
+    sourceHandle: DocHandle<T>
+  ) {
+    if (!sourceHandle.isReady())
       throw new Error(
-        `Cloned handle is not yet in ready state.
-        (Try await handle.waitForReady() first.)`
+        `Cloned handle is not yet in ready state. Try \`await handle.waitForReady()\` first.`
       )
-    }
 
-    const sourceDoc = clonedHandle.docSync()
-    if (!sourceDoc) {
-      throw new Error("Cloned handle doesn't have a document.")
-    }
+    const sourceDoc = sourceHandle.docSync()
+    if (!sourceDoc) throw new Error("Cloned handle doesn't have a document.")
 
     const handle = this.create<T>()
 
-    handle.update(() => {
-      // we replace the document with the new cloned one
-      return Automerge.clone(sourceDoc)
-    })
+    // we replace the new document with the clone
+    handle.update(() => Automerge.clone(sourceDoc))
 
     return handle
   }
