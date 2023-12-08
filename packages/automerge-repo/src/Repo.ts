@@ -360,7 +360,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
-  async #receiveMessage(message: RepoMessage) {
+  #receiveMessage(message: RepoMessage) {
     switch (message.type) {
       case "remote-subscription-change":
         this.#remoteHeadsSubscriptions.handleControlMessage(message)
@@ -373,7 +373,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "ephemeral":
       case "doc-unavailable":
         try {
-          this.#synchronizer.receiveMessage(message)
+          void this.#synchronizer.receiveMessage(message)
         } catch (err) {
           console.log("error receiving message", { err })
         }
