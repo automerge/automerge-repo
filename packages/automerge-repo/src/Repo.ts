@@ -26,6 +26,7 @@ import type {
   RepoEvents,
   SharePolicy,
 } from "./types.js"
+import { pause } from "./helpers/pause.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -383,20 +384,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     id: AnyDocumentId
   ): DocHandle<T> {
     const documentId = interpretAsDocumentId(id)
-
-    // If we have the handle cached, return it
-    if (this.#handles[documentId]) {
-      if (this.#handles[documentId].isUnavailable()) {
-        // this ensures that the event fires after the handle has been returned
-        setTimeout(() => {
-          this.#handles[documentId].emit("unavailable", {
-            handle: this.#handles[documentId],
-          })
-        })
+    {
+      // If we have the handle cached, return it
+      const handle = this.handles[documentId]
+      if (handle) {
+        // if unavailable, emit an event after returning the handle
+        if (handle.isUnavailable())
+          // emit unavailable after returning the document
+          void pause().then(() => handle.emit("unavailable", { handle }))
+        return handle
       }
-      return this.#handles[documentId]
     }
-
+    // Otherwise create a new handle and register it
     const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
     void this.#registerHandle({ handle, isNew: false })
     return handle
