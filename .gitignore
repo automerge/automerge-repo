@@ -8,3 +8,5 @@ coverage
 docs
 stats.html
 yarn-error.log
+.DS_Store
+wallaby.conf.cjs

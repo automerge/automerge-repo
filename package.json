@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-monorepo",
-  "version": "1.1.0-alpha.2",
+  "version": "1.1.0-alpha.4",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
   "repository": "https://github.com/automerge/automerge-repo",
@@ -17,6 +17,7 @@
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server start",
     "repocheck": "manypkg check",
     "test": "vitest",
+    "test:log": "cross-env DEBUG='automerge-repo:*' vitest",
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
     "watch": "lerna run watch --parallel --stream"
@@ -36,7 +37,7 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "2.1.8-alpha.1",
+    "@automerge/automerge": "^2.1.8-alpha.2",
     "@manypkg/cli": "^0.21.0",
     "@types/debug": "^4.1.7",
     "@types/node": "^20.4.8",
