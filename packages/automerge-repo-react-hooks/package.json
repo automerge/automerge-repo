@@ -8,9 +8,10 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "watch": "npm-watch"
+    "watch": "npm-watch",
+    "visualize": "VISUALIZE=true vite build"
   },
   "dependencies": {
     "@automerge/automerge": "^2.1.8-alpha.1",
@@ -22,7 +23,13 @@
   },
   "devDependencies": {
     "@testing-library/react": "^14.0.0",
-    "jsdom": "^22.1.0"
+    "jsdom": "^22.1.0",
+    "rollup-plugin-visualizer": "^5.9.3",
+    "vite-plugin-dts": "^3.6.4"
+  },
+  "peerDependencies": {
+    "react": ">16.8.0",
+    "react-dom": ">16.8.0"
   },
   "watch": {
     "build": {
