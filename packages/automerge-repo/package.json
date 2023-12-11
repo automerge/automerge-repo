@@ -23,7 +23,7 @@
     "vite": "^4.4.11"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.1.8-alpha.2",
+    "@automerge/automerge": "^2.1.8",
     "bs58check": "^3.0.1",
     "cbor-x": "^1.3.0",
     "debug": "^4.3.4",
