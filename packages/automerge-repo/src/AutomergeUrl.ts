@@ -33,7 +33,7 @@ export const parseAutomergeUrl = (url: AutomergeUrl) => {
 export const stringifyAutomergeUrl = (
   arg: UrlOptions | DocumentId | BinaryDocumentId
 ) => {
-  let documentId =
+  const documentId =
     arg instanceof Uint8Array || typeof arg === "string"
       ? arg
       : "documentId" in arg

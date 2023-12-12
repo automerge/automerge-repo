@@ -9,6 +9,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "lint": "eslint --ext .ts src",
     "watch": "npm-watch build",
     "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text yarn test",
     "test": "vitest",

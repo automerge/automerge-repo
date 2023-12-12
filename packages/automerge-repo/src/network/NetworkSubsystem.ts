@@ -13,7 +13,6 @@ import {
   isEphemeralMessage,
   isValidRepoMessage,
 } from "./messages.js"
-import { StorageId } from "../storage/types.js"
 
 type EphemeralMessageSource = `${PeerId}:${SessionId}`
 
@@ -108,6 +107,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
     this.peerMetadata.then(peerMetadata => {
       networkAdapter.connect(this.peerId, peerMetadata)
+    }).catch(err => {
+      this.#log("error connecting to network", err)
     })
   }
 

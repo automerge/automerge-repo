@@ -19,7 +19,7 @@ export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
   return function (...args: Parameters<F>) {
     clearTimeout(timeout)
     timeout = setTimeout(() => {
-      fn.apply(null, args)
+      fn(...args)
     }, rate)
   }
 }

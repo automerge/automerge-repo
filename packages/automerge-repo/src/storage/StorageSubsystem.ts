@@ -33,7 +33,7 @@ export class StorageSubsystem {
   }
 
   async id(): Promise<StorageId> {
-    let storedId = await this.#storageAdapter.load(["storage-adapter-id"])
+    const storedId = await this.#storageAdapter.load(["storage-adapter-id"])
 
     let id: StorageId
     if (storedId) {
