@@ -37,7 +37,7 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "^2.1.8",
+    "@automerge/automerge": "^2.1.9",
     "@manypkg/cli": "^0.21.0",
     "@types/debug": "^4.1.7",
     "@types/node": "^20.4.8",
