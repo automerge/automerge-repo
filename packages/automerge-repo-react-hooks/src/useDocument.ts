@@ -3,22 +3,30 @@ import { AutomergeUrl, DocHandleChangePayload } from "@automerge/automerge-repo"
 import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
-/** A hook which returns a document identified by a URL and a function to change the document. 
+/** A hook which returns a document identified by a URL and a function to change the document.
  *
  * @returns a tuple of the document and a function to change the document.
  * The document will be `undefined` if the document is not available in storage or from any peers
- * 
+ *
  * @remarks
- * This requires a {@link RepoContext} to be provided by a parent component. 
+ * This requires a {@link RepoContext} to be provided by a parent component.
  * */
-export function useDocument<T>(documentUrl?: AutomergeUrl): [Doc<T> | undefined, (changeFn: ChangeFn<T>) => void] {
+export function useDocument<T>(
+  documentUrl?: AutomergeUrl
+): [Doc<T> | undefined, (changeFn: ChangeFn<T>) => void] {
   const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()
 
   const handle = documentUrl ? repo.find<T>(documentUrl) : null
 
   useEffect(() => {
-    if (!handle) return
+    if (!handle) {
+      if (doc) {
+        setDoc(undefined)
+      }
+
+      return
+    }
 
     handle.doc().then(v => setDoc(v))
 
