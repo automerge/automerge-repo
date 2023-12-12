@@ -45,6 +45,8 @@ A `Repo` exposes these methods:
   networks.
 - `delete(docId: DocumentId)`  
   Deletes the local copy of a document from the local cache and local storage. _This does not currently delete the document from any other peers_.
+- `import(binary: Uint8Array)`  
+  Imports a document binary (from `Automerge.save(doc)`) into the repo, returning a new handle
 - `.on("document", ({handle: DocHandle}) => void)`  
   Registers a callback to be fired each time a new document is loaded or created.
 - `.on("delete-document", ({handle: DocHandle}) => void)`  
@@ -64,7 +66,7 @@ the document.
 
 A `DocHandle` also emits these events:
 
-- `change({handle: DocHandle, patches: Patch[], patchInfo: PatchInfo})` 
+- `change({handle: DocHandle, patches: Patch[], patchInfo: PatchInfo})`
   Called whenever the document changes, the handle's .doc
 - `delete`  
   Called when the document is deleted locally.
@@ -85,11 +87,12 @@ network adapter:
 const repo = new Repo({
   network: [new BroadcastChannelNetworkAdapter()],
   storage: new IndexedDBStorageAdapter(),
-  sharePolicy: async (peerId: PeerId, documentId: DocumentId) => true // this is the default
+  sharePolicy: async (peerId: PeerId, documentId: DocumentId) => true, // this is the default
 })
 ```
 
 ### Share Policy
+
 The share policy is used to determine which document in your repo should be _automatically_ shared with other peers. **The default setting is to share all documents with all peers.**
 
 > **Warning**
@@ -99,13 +102,13 @@ You can override this by providing a custom share policy. The function should re
 
 The share policy will not stop a document being _requested_ by another peer by its `DocumentId`.
 
-```ts
+````ts
 ## Starting the demo app
 
 ```bash
 yarn
 yarn dev
-```
+````
 
 ## Quickstart
 
@@ -272,7 +275,8 @@ you'll need to manually copy the `rootDocId` value between the browsers.)
 Originally authored by Peter van Hardenberg.
 
 With gratitude for contributions by:
- - Herb Caudill
- - Jeremy Rose
- - Alex Currie-Clark
- - Dylan Mackenzie
+
+- Herb Caudill
+- Jeremy Rose
+- Alex Currie-Clark
+- Dylan Mackenzie

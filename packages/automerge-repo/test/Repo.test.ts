@@ -403,7 +403,10 @@ describe("Repo", () => {
       const updatedDoc = A.change(doc, d => {
         d.foo = "bar"
       })
-      const handle = repo.import<TestDoc>(updatedDoc)
+
+      const saved = A.save(updatedDoc)
+
+      const handle = repo.import<TestDoc>(saved)
       assert.equal(handle.isReady(), true)
       const v = await handle.doc()
       assert.equal(v?.foo, "bar")
@@ -413,11 +416,9 @@ describe("Repo", () => {
 
     it("throws an error if we try to import an invalid document", async () => {
       const { repo } = setup()
-      try {
-        repo.import<TestDoc>("invalid-doc" as unknown as TestDoc)
-      } catch (e: any) {
-        assert.equal(e.message, "Invalid Automerge document")
-      }
+      expect(() => {
+        repo.import<TestDoc>(A.init<TestDoc> as unknown as Uint8Array)
+      }).toThrow()
     })
   })
 
@@ -766,9 +767,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-            repo.create<TestDoc>()
+              repo.create<TestDoc>()
             : // tails, pick a random doc
-            (getRandomItem(docs) as DocHandle<TestDoc>)
+              (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
@@ -1125,7 +1126,7 @@ describe("Repo", () => {
 })
 
 const warn = console.warn
-const NO_OP = () => { }
+const NO_OP = () => {}
 
 const disableConsoleWarn = () => {
   console.warn = NO_OP
