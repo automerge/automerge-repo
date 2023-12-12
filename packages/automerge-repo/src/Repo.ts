@@ -450,6 +450,24 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.emit("delete-document", { documentId })
   }
 
+  /**
+   * Exports a document to a binary format.
+   * @param id - The url or documentId of the handle to export
+   *
+   * @returns Promise<Uint8Array | undefined> - A Promise containing the binary document,
+   * or undefined if the document is unavailable.
+   */
+  async export(
+    id: AnyDocumentId
+  ): Promise<Uint8Array | undefined> {
+    const documentId = interpretAsDocumentId(id)
+
+    const handle = this.#getHandle(documentId, false)
+    const doc = await handle.doc()
+    if (!doc) return undefined
+    return Automerge.save(doc)
+  }
+
   subscribeToRemotes = (remotes: StorageId[]) => {
     this.#log("subscribeToRemotes", { remotes })
     this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)

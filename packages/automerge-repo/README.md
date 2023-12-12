@@ -45,6 +45,8 @@ A `Repo` exposes these methods:
   networks.
 - `delete(docId: DocumentId)`  
   Deletes the local copy of a document from the local cache and local storage. _This does not currently delete the document from any other peers_.
+- `export(docId: DocumentId)`  
+  Exports the document. Returns a Promise containing either the Uint8Array of the document or undefined if the document is currently unavailable. See the [Automerge binary format spec](https://automerge.org/automerge-binary-format-spec/) for more details on the shape of the Uint8Array.
 - `.on("document", ({handle: DocHandle}) => void)`  
   Registers a callback to be fired each time a new document is loaded or created.
 - `.on("delete-document", ({handle: DocHandle}) => void)`  

@@ -13,6 +13,7 @@ import { Repo } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
+  AnyDocumentId,
   AutomergeUrl,
   DocHandle,
   DocumentId,
@@ -320,6 +321,27 @@ describe("Repo", () => {
 
         repo.delete(handle.documentId)
       }))
+
+    it("exports a document", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      assert.equal(handle.isReady(), true)
+
+      const exported = await repo.export(handle.documentId)
+      const loaded = A.load(exported)
+      const doc = await handle.doc()
+      assert.deepEqual(doc, loaded)
+    })
+
+    it("rejects when exporting a document that does not exist", async () => {
+      const { repo } = setup()
+      assert.rejects(async () => {
+        await repo.export("foo" as AnyDocumentId)
+      })
+    })
 
     it("storage state doesn't change across reloads when the document hasn't changed", async () => {
       const storage = new DummyStorageAdapter()
