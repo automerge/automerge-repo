@@ -471,12 +471,11 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Imports an existing document into the repo.
+   * Imports document binary into the repo.
+   * @param binary - The binary to import
    */
-  import<T>(doc: Automerge.Doc<T>) {
-    if (!Automerge.isAutomerge(doc)) {
-      throw new Error("Invalid Automerge document")
-    }
+  import<T>(binary: Uint8Array) {
+    const doc = Automerge.load<T>(binary)
 
     const handle = this.create<T>()
 
