@@ -1,6 +1,6 @@
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/next"
 import { AutomergeUrl, DocHandleChangePayload } from "@automerge/automerge-repo"
-import { useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
 /** A hook which returns a document identified by a URL and a function to change the document.
@@ -18,13 +18,9 @@ export function useDocument<T>(
   const repo = useRepo()
 
   const handle = documentUrl ? repo.find<T>(documentUrl) : null
-
   const handleRef = useRef(null)
 
-  // Doing this in a useLayoutEffect seems to help make sure that
-  // a loading state gets rendered before we block the UI thread
-  // with a slow load.
-  useLayoutEffect(() => {
+  useEffect(() => {
     // When the handle has changed, reset the doc to an empty state.
     // This ensures that if loading the doc takes a long time, the UI
     // shows a loading state during that time rather than a stale doc.
