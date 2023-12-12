@@ -11,7 +11,7 @@
     "watch": "npm-watch"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.1.8",
+    "@automerge/automerge": "^2.1.9",
     "svelte": "^3.0.0"
   },
   "dependencies": {
