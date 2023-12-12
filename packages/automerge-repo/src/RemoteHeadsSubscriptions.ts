@@ -326,7 +326,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   }
 
   #isPeerSubscribedToDoc(peerId: PeerId, documentId: DocumentId) {
-    let subscribedDocs = this.#subscribedDocsByPeer.get(peerId)
+    const subscribedDocs = this.#subscribedDocsByPeer.get(peerId)
     return subscribedDocs && subscribedDocs.has(documentId)
   }
 

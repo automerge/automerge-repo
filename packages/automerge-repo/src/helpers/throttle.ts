@@ -36,7 +36,7 @@ export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
     wait = lastCall + delay - Date.now()
     clearTimeout(timeout)
     timeout = setTimeout(() => {
-      fn.apply(null, args)
+      fn(...args)
       lastCall = Date.now()
     }, wait)
   }
