@@ -287,7 +287,7 @@ describe("RepoHeadsSubscriptions", () => {
     assert.strictEqual(messages.length, 0)
   })
 
-  it("should ignore sync states with an older timestamp", async () => {
+  it("should only notify of sync states with a more recent timestamp", async () => {
     const remoteHeadsSubscription = new RemoteHeadsSubscriptions()
 
     const messagesPromise = waitForMessages(
@@ -296,6 +296,9 @@ describe("RepoHeadsSubscriptions", () => {
     )
 
     remoteHeadsSubscription.subscribeToRemotes([storageB])
+    remoteHeadsSubscription.handleRemoteHeads(docBHeadsChangedForStorageB2)
+
+    // send same message
     remoteHeadsSubscription.handleRemoteHeads(docBHeadsChangedForStorageB2)
 
     // send message with old heads
