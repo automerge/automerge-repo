@@ -348,12 +348,12 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       }
       let remote = this.#knownHeads.get(documentId)
       if (!remote) {
-        remote = new Map([[storageId as StorageId, { heads, timestamp }]])
+        remote = new Map()
         this.#knownHeads.set(documentId, remote)
       }
 
       const docRemote = remote.get(storageId as StorageId)
-      if (docRemote && docRemote.timestamp > timestamp) {
+      if (docRemote && docRemote.timestamp >= timestamp) {
         continue
       } else {
         remote.set(storageId as StorageId, { timestamp, heads })
