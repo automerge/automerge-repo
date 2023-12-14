@@ -104,13 +104,12 @@ You can override this by providing a custom share policy. The function should re
 
 The share policy will not stop a document being _requested_ by another peer by its `DocumentId`.
 
-````ts
 ## Starting the demo app
 
 ```bash
 yarn
 yarn dev
-````
+```
 
 ## Quickstart
 
