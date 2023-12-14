@@ -8,6 +8,7 @@ import { ChunkInfo, StorageKey, StorageId } from "./types.js"
 import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
 import * as Uuid from "uuid"
+import { perfLog } from "../logger.js"
 
 /**
  * The storage subsystem is responsible for saving and loading Automerge documents to and from
@@ -136,8 +137,8 @@ export class StorageSubsystem {
       start,
       end: performance.now(),
     })
-    if (mark.duration > 1000) {
-      console.warn("long document load:", mark)
+    if (mark.duration > 10) {
+      perfLog.log("long document load:", mark)
     }
 
     // Record the latest heads for the document
