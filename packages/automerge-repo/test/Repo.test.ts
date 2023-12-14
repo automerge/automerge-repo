@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 import assert from "assert"
 import * as Uuid from "uuid"
-import { describe, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
@@ -395,6 +395,30 @@ describe("Repo", () => {
 
       const storageKeyTypes = storageAdapter.keys().map(k => k.split(".")[1])
       assert(storageKeyTypes.filter(k => k === "snapshot").length === 1)
+    })
+
+    it("can import an existing document", async () => {
+      const { repo } = setup()
+      const doc = A.init<TestDoc>()
+      const updatedDoc = A.change(doc, d => {
+        d.foo = "bar"
+      })
+
+      const saved = A.save(updatedDoc)
+
+      const handle = repo.import<TestDoc>(saved)
+      assert.equal(handle.isReady(), true)
+      const v = await handle.doc()
+      assert.equal(v?.foo, "bar")
+
+      expect(A.getHistory(v)).toEqual(A.getHistory(updatedDoc))
+    })
+
+    it("throws an error if we try to import an invalid document", async () => {
+      const { repo } = setup()
+      expect(() => {
+        repo.import<TestDoc>(A.init<TestDoc> as unknown as Uint8Array)
+      }).toThrow()
     })
   })
 

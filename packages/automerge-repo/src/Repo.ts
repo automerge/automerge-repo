@@ -454,6 +454,22 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.emit("delete-document", { documentId })
   }
 
+  /**
+   * Imports document binary into the repo.
+   * @param binary - The binary to import
+   */
+  import<T>(binary: Uint8Array) {
+    const doc = Automerge.load<T>(binary)
+
+    const handle = this.create<T>()
+
+    handle.update(() => {
+      return Automerge.clone(doc)
+    })
+
+    return handle
+  }
+
   subscribeToRemotes = (remotes: StorageId[]) => {
     this.#log("subscribeToRemotes", { remotes })
     this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
