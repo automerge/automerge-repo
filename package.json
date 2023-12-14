@@ -16,6 +16,7 @@
     "pub": "lerna publish --yes",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' yarn workspace @automerge/example-sync-server start",
     "repocheck": "manypkg check",
+    "lint": "lerna run lint",
     "test": "vitest",
     "test:log": "cross-env DEBUG='automerge-repo:*' vitest",
     "test:coverage": "vitest --coverage",

@@ -139,6 +139,8 @@ export class DocSynchronizer extends Synchronizer {
     if (!pendingCallbacks) {
       this.#onLoadSyncState(peerId).then(syncState => {
         this.#initSyncState(peerId, syncState ?? A.initSyncState())
+      }).catch(err => {
+        this.#log(`Error loading sync state for ${peerId}: ${err}`)
       })
       pendingCallbacks = this.#pendingSyncStateCallbacks[peerId] = []
     }
@@ -264,6 +266,8 @@ export class DocSynchronizer extends Synchronizer {
           if (doc) {
             this.#sendSyncMessage(peerId, doc)
           }
+        }).catch(err => {
+          this.#log(`Error loading doc for ${peerId}: ${err}`)
         })
       })
     })

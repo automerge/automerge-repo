@@ -77,7 +77,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         }: DocHandleEncodedChangePayload<any>) => {
           void storageSubsystem.saveDoc(handle.documentId, doc)
         }
-        const debouncedSaveFn = handle.on(
+        handle.on(
           "heads-changed",
           throttle(saveFn, this.saveDebounceRate)
         )
@@ -153,7 +153,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     // The network subsystem deals with sending and receiving messages to and from peers.
 
     const myPeerMetadata: Promise<PeerMetadata> = new Promise(
-      async (resolve, reject) =>
+      // eslint-disable-next-line no-async-promise-executor -- TODO: fix
+      async (resolve) =>
         resolve({
           storageId: await storageSubsystem?.id(),
           isEphemeral,
@@ -300,6 +301,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
         ({ documentId, syncState }: SyncStateMessage) => {
           this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
+            .catch(err => {
+              this.#log("error saving sync state", { err })
+            })
         },
         this.saveDebounceRate
       )
