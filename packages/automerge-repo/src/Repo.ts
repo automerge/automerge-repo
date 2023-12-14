@@ -52,6 +52,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
+  #remoteHeadsGossipingEnabled = false
 
   constructor({
     storage,
@@ -59,8 +60,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     peerId,
     sharePolicy,
     isEphemeral = storage === undefined,
+    enableRemoteHeadsGossiping = false,
   }: RepoConfig) {
     super()
+    this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
@@ -140,9 +143,11 @@ export class Repo extends EventEmitter<RepoEvents> {
       networkSubsystem.send(message)
     })
 
-    this.#synchronizer.on("open-doc", ({ peerId, documentId }) => {
-      this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-    })
+    if (this.#remoteHeadsGossipingEnabled) {
+      this.#synchronizer.on("open-doc", ({ peerId, documentId }) => {
+        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
+      })
+    }
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
@@ -177,7 +182,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
       this.sharePolicy(peerId)
         .then(shouldShare => {
-          if (shouldShare) {
+          if (shouldShare && this.#remoteHeadsGossipingEnabled) {
             this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
           }
         })
@@ -217,7 +222,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (haveHeadsChanged) {
         handle.setRemoteHeads(storageId, message.syncState.theirHeads)
 
-        if (storageId) {
+        if (storageId && this.#remoteHeadsGossipingEnabled) {
           this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
             message.documentId,
             storageId,
@@ -227,45 +232,51 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     })
 
-    this.#remoteHeadsSubscriptions.on("notify-remote-heads", message => {
-      this.networkSubsystem.send({
-        type: "remote-heads-changed",
-        targetId: message.targetId,
-        documentId: message.documentId,
-        newHeads: {
-          [message.storageId]: {
-            heads: message.heads,
-            timestamp: message.timestamp,
-          },
-        },
-      })
-    })
-
-    this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
-      this.#log("change-remote-subs", message)
-      for (const peer of message.peers) {
+    if (this.#remoteHeadsGossipingEnabled) {
+      this.#remoteHeadsSubscriptions.on("notify-remote-heads", message => {
         this.networkSubsystem.send({
-          type: "remote-subscription-change",
-          targetId: peer,
-          add: message.add,
-          remove: message.remove,
+          type: "remote-heads-changed",
+          targetId: message.targetId,
+          documentId: message.documentId,
+          newHeads: {
+            [message.storageId]: {
+              heads: message.heads,
+              timestamp: message.timestamp,
+            },
+          },
         })
-      }
-    })
+      })
 
-    this.#remoteHeadsSubscriptions.on("remote-heads-changed", message => {
-      const handle = this.#handleCache[message.documentId]
-      handle.setRemoteHeads(message.storageId, message.remoteHeads)
-    })
+      this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
+        this.#log("change-remote-subs", message)
+        for (const peer of message.peers) {
+          this.networkSubsystem.send({
+            type: "remote-subscription-change",
+            targetId: peer,
+            add: message.add,
+            remove: message.remove,
+          })
+        }
+      })
+
+      this.#remoteHeadsSubscriptions.on("remote-heads-changed", message => {
+        const handle = this.#handleCache[message.documentId]
+        handle.setRemoteHeads(message.storageId, message.remoteHeads)
+      })
+    }
   }
 
   #receiveMessage(message: RepoMessage) {
     switch (message.type) {
       case "remote-subscription-change":
-        this.#remoteHeadsSubscriptions.handleControlMessage(message)
+        if (this.#remoteHeadsGossipingEnabled) {
+          this.#remoteHeadsSubscriptions.handleControlMessage(message)
+        }
         break
       case "remote-heads-changed":
-        this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
+        if (this.#remoteHeadsGossipingEnabled) {
+          this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
+        }
         break
       case "sync":
       case "request":
@@ -451,8 +462,12 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   subscribeToRemotes = (remotes: StorageId[]) => {
-    this.#log("subscribeToRemotes", { remotes })
-    this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
+    if (this.#remoteHeadsGossipingEnabled) {
+      this.#log("subscribeToRemotes", { remotes })
+      this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
+    } else {
+      this.#log("WARN: subscribeToRemotes called but remote heads gossiping is not enabled")
+    }
   }
 
   storageId = async (): Promise<StorageId | undefined> => {
@@ -483,6 +498,11 @@ export interface RepoConfig {
    * all peers). A server only syncs documents that a peer explicitly requests by ID.
    */
   sharePolicy?: SharePolicy
+
+  /**
+   * Whether to enable the experimental remote heads gossiping feature
+   */
+  enableRemoteHeadsGossiping?: boolean
 }
 
 /** A function that determines whether we should share a document with a peer

@@ -24,6 +24,7 @@ describe("DocHandle.remoteHeads", () => {
       peerId: "bob" as PeerId,
       network: [],
       storage: new DummyStorageAdapter(),
+      enableRemoteHeadsGossiping: true,
     })
     const bobStorageId = await bobRepo.storageId()
 
@@ -46,11 +47,13 @@ describe("DocHandle.remoteHeads", () => {
         peerId: "left-tab-1" as PeerId,
         network: [],
         sharePolicy: async () => true,
+        enableRemoteHeadsGossiping: true,
       })
       const leftTab2 = new Repo({
         peerId: "left-tab-2" as PeerId,
         network: [],
         sharePolicy: async () => true,
+        enableRemoteHeadsGossiping: true,
       })
       const leftServiceWorker = new Repo({
         peerId: "left-service-worker" as PeerId,
@@ -58,6 +61,7 @@ describe("DocHandle.remoteHeads", () => {
         sharePolicy: async peer => peer === "sync-server",
         storage: new DummyStorageAdapter(),
         isEphemeral: false,
+        enableRemoteHeadsGossiping: true,
       })
       const syncServer = new Repo({
         peerId: "sync-server" as PeerId,
@@ -65,6 +69,7 @@ describe("DocHandle.remoteHeads", () => {
         isEphemeral: false,
         sharePolicy: async () => false,
         storage: new DummyStorageAdapter(),
+        enableRemoteHeadsGossiping: true,
       })
       const rightServiceWorker = new Repo({
         peerId: "right-service-worker" as PeerId,
@@ -72,11 +77,13 @@ describe("DocHandle.remoteHeads", () => {
         sharePolicy: async peer => peer === "sync-server",
         isEphemeral: false,
         storage: new DummyStorageAdapter(),
+        enableRemoteHeadsGossiping: true,
       })
       const rightTab = new Repo({
         peerId: "right-tab" as PeerId,
         network: [],
         sharePolicy: async () => true,
+        enableRemoteHeadsGossiping: true,
       })
 
       // connect them all up
