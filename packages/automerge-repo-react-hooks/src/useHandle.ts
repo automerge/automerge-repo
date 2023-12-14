@@ -1,5 +1,5 @@
 import { AutomergeUrl, DocHandle } from "@automerge/automerge-repo"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
 /** A hook which returns a {@link DocHandle} identified by a URL.
@@ -7,8 +7,15 @@ import { useRepo } from "./useRepo.js"
  * @remarks
  * This requires a {@link RepoContext} to be provided by a parent component.
  */
-export function useHandle<T>(automergeUrl: AutomergeUrl): DocHandle<T> {
+export function useHandle<T>(docUrl?: AutomergeUrl): DocHandle<T> | undefined {
   const repo = useRepo()
-  const [handle] = useState<DocHandle<T>>(repo.find(automergeUrl))
+  const [handle, setHandle] = useState<DocHandle<T>>(
+    docUrl ? repo.find(docUrl) : undefined
+  )
+
+  useEffect(() => {
+    setHandle(docUrl ? repo.find(docUrl) : undefined)
+  }, [docUrl])
+
   return handle
 }
