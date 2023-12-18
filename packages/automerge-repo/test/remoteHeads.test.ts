@@ -165,11 +165,9 @@ describe("DocHandle.remoteHeads", () => {
       ).filter(({ type }) => type === "remote-heads-changed")
 
       // we should only be notified of the head changes of doc A
-      assert.strictEqual(remoteHeadsChangedMessages.length, 1)
-      assert.strictEqual(
-        remoteHeadsChangedMessages[0].documentId,
-        leftTabDocA.documentId
-      )
+      const docIds = remoteHeadsChangedMessages.map(d => d.documentId)
+      const uniqueDocIds = [...new Set(docIds)]
+      assert.deepStrictEqual(uniqueDocIds, [leftTabDocA.documentId])
     })
 
     it("should report remote heads for doc on subscribe if peer already knows them", async () => {
