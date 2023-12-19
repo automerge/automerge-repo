@@ -80,10 +80,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         }: DocHandleEncodedChangePayload<any>) => {
           void storageSubsystem.saveDoc(handle.documentId, doc)
         }
-        handle.on(
-          "heads-changed",
-          throttle(saveFn, this.saveDebounceRate)
-        )
+        handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
 
         if (isNew) {
           // this is a new document, immediately save it
@@ -159,7 +156,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const myPeerMetadata: Promise<PeerMetadata> = new Promise(
       // eslint-disable-next-line no-async-promise-executor -- TODO: fix
-      async (resolve) =>
+      async resolve =>
         resolve({
           storageId: await storageSubsystem?.id(),
           isEphemeral,
@@ -311,10 +308,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!handler) {
       handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
         ({ documentId, syncState }: SyncStateMessage) => {
-          this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
-            .catch(err => {
-              this.#log("error saving sync state", { err })
-            })
+          this.storageSubsystem!.saveSyncState(
+            documentId,
+            storageId,
+            syncState
+          ).catch(err => {
+            this.#log("error saving sync state", { err })
+          })
         },
         this.saveDebounceRate
       )
@@ -466,6 +466,22 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
+   * Exports a document to a binary format.
+   * @param id - The url or documentId of the handle to export
+   *
+   * @returns Promise<Uint8Array | undefined> - A Promise containing the binary document,
+   * or undefined if the document is unavailable.
+   */
+  async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
+    const documentId = interpretAsDocumentId(id)
+
+    const handle = this.#getHandle(documentId, false)
+    const doc = await handle.doc()
+    if (!doc) return undefined
+    return Automerge.save(doc)
+  }
+
+  /**
    * Imports document binary into the repo.
    * @param binary - The binary to import
    */
@@ -486,7 +502,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#log("subscribeToRemotes", { remotes })
       this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
     } else {
-      this.#log("WARN: subscribeToRemotes called but remote heads gossiping is not enabled")
+      this.#log(
+        "WARN: subscribeToRemotes called but remote heads gossiping is not enabled"
+      )
     }
   }
 
