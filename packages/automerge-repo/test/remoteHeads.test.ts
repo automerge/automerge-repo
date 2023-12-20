@@ -1,4 +1,4 @@
-import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
+import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/dist/index.js"
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import { setTimeout } from "timers/promises"
@@ -237,7 +237,7 @@ describe("DocHandle.remoteHeads", () => {
         await waitForMessages(leftTab1.networkSubsystem, "message")
       ).filter(({ type }) => type === "remote-heads-changed")
 
-      console.log(JSON.stringify(remoteHeadsChangedMessages, null, 2))
+      // console.log(JSON.stringify(remoteHeadsChangedMessages, null, 2))
 
       assert.strictEqual(remoteHeadsChangedMessages.length, 1)
       assert.strictEqual(
