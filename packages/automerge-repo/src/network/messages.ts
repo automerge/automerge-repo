@@ -1,3 +1,4 @@
+import { SyncState } from "@automerge/automerge"
 import { StorageId } from "../storage/types.js"
 import { DocumentId, PeerId, SessionId } from "../types.js"
 
