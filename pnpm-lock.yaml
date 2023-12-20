@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@automerge/automerge':
-        specifier: ^2.1.9
-        version: 2.1.9
+        specifier: ^2.1.10-alpha.1
+        version: 2.1.10-alpha.1
       '@manypkg/cli':
         specifier: ^0.21.0
         version: 0.21.1
@@ -436,12 +436,25 @@ packages:
 
   /@automerge/automerge-wasm@0.7.0:
     resolution: {integrity: sha512-nql3kAO0xAYslEfrr2uTQe595fasKsOKxXEkNpilP97F3T0PD7n0YP9MirLiAytNRBXYccMayhN+hP5Af4xprA==}
+    dev: false
+
+  /@automerge/automerge-wasm@0.8.0:
+    resolution: {integrity: sha512-sfau/X8T4gJWL5aQM3d1MnaYwKMN57kxUKZYxFpBmjoi9x0+TvO78vPhHrjIFqIZ8C6WXv1H+T16n/26HAEYDw==}
+    dev: true
+
+  /@automerge/automerge@2.1.10-alpha.1:
+    resolution: {integrity: sha512-riX35kCtQ+TQHzO9l0FUQyET9on25Yp2rV7j5Ei3s+OCz/f5g3LzVfYeoWP+I5hffVS2Vuky7Vx3oCJQ7Qtc2w==}
+    dependencies:
+      '@automerge/automerge-wasm': 0.8.0
+      uuid: 9.0.1
+    dev: true
 
   /@automerge/automerge@2.1.9:
     resolution: {integrity: sha512-KcSJaCGDaWU7wuqBoM8pmrnFhsp0g7Bs6Smf0HtaBLS7BjtRK9l/PQNXtSEwAdsfoWhA8XjYDkIpOpKMY1pmpA==}
     dependencies:
       '@automerge/automerge-wasm': 0.7.0
       uuid: 9.0.1
+    dev: false
 
   /@babel/code-frame@7.23.5:
     resolution: {integrity: sha512-CgH3s1a96LipHCmSUmYFPwY7MNx8C3avkq7i4Wl3cfa662ldtUe4VM1TPXX70pfmrlWTb6jLqTYrZyT2ZTJBgA==}
