@@ -11,11 +11,11 @@
   },
   "dependencies": {
     "@automerge/automerge": "^2.1.9",
-    "@automerge/automerge-repo": "^1.1.0-alpha.7",
-    "@automerge/automerge-repo-network-broadcastchannel": "^1.1.0-alpha.7",
-    "@automerge/automerge-repo-network-websocket": "^1.1.0-alpha.7",
-    "@automerge/automerge-repo-storage-indexeddb": "^1.1.0-alpha.7",
-    "@automerge/automerge-repo-svelte-store": "^1.1.0-alpha.7",
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
+    "@automerge/automerge-repo-network-websocket": "workspace:*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-repo-svelte-store": "workspace:*",
     "svelte": "^3.0.0"
   },
   "devDependencies": {

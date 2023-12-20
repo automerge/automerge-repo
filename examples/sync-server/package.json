@@ -11,9 +11,9 @@
   },
   "bin": "./src/index.js",
   "dependencies": {
-    "@automerge/automerge-repo": "^1.1.0-alpha.7",
-    "@automerge/automerge-repo-network-websocket": "^1.1.0-alpha.7",
-    "@automerge/automerge-repo-storage-nodefs": "^1.1.0-alpha.7",
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-network-websocket": "workspace:*",
+    "@automerge/automerge-repo-storage-nodefs": "workspace:*",
     "express": "^4.18.1",
     "ws": "^8.7.0"
   },

@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge"
-import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
+import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"

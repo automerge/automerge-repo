@@ -6,7 +6,7 @@ networking and storage.
 
 ## Getting started
 
-After cloning this repo, run `yarn install` and `yarn build`.
+After cloning this repo, run `pnpm install` and `pnpm build`.
 
 This is a monorepo containing the following packages:
 
