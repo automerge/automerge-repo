@@ -47,7 +47,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.messagePortRef.addListener(
       "message",
       (e: { data: MessageChannelMessage }) => {
-        log("message port received", e.data)
+        log("message port received %o", e.data)
 
         const message = e.data
         if ("targetId" in message && message.targetId !== this.peerId) {
