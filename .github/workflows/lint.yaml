@@ -15,14 +15,18 @@ jobs:
     steps:
       - uses: actions/setup-node@v3
         with:
-          node-version: '18.x'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "18.x"
+          registry-url: "https://registry.npmjs.org"
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
       - name: Install
         run: |
-          yarn install --no-lockfile
+          pnpm install
       - name: Lint
-        run: yarn lint
+        run: pnpm lint
