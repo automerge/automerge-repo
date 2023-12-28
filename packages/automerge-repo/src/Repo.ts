@@ -309,7 +309,11 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!handler) {
       handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
         ({ documentId, syncState }: SyncStatePayload) => {
-          this.storageSubsystem!.saveSyncState(documentId, storageId, syncState)
+          void this.storageSubsystem!.saveSyncState(
+            documentId,
+            storageId,
+            syncState
+          )
         },
         this.saveDebounceRate
       )
