@@ -103,7 +103,10 @@ export class StorageSubsystem {
   /**
    * Loads the Automerge document with the given ID from storage.
    */
-  async loadDoc<T>(documentId: DocumentId): Promise<A.Doc<T> | null> {
+  async loadDoc<T>(
+    documentId: DocumentId,
+    actorId?: A.ActorId
+  ): Promise<A.Doc<T> | null> {
     // Load all the chunks for this document
     const chunks = await this.#storageAdapter.loadRange([documentId])
     const binaries = []
@@ -130,7 +133,7 @@ export class StorageSubsystem {
     if (binary.length === 0) return null
 
     // Load into an Automerge document
-    const newDoc = A.loadIncremental(A.init(), binary) as A.Doc<T>
+    const newDoc = A.loadIncremental(A.init(actorId), binary) as A.Doc<T>
 
     // Record the latest heads for the document
     this.#storedHeads.set(documentId, A.getHeads(newDoc))

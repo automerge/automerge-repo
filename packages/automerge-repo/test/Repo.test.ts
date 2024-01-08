@@ -30,6 +30,7 @@ import {
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId } from "../src/storage/types.js"
+import { hexToString } from "../src/helpers/hexToString.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -42,13 +43,17 @@ describe("Repo", () => {
   })
 
   describe("local only", () => {
-    const setup = ({ startReady = true } = {}) => {
+    const setup = ({
+      startReady = true,
+      actorIdPrefix,
+    }: { startReady?: boolean; actorIdPrefix?: string } = {}) => {
       const storageAdapter = new DummyStorageAdapter()
       const networkAdapter = new DummyNetworkAdapter({ startReady })
 
       const repo = new Repo({
         storage: storageAdapter,
         network: [networkAdapter],
+        actorIdPrefix,
       })
       return { repo, storageAdapter, networkAdapter }
     }
@@ -450,6 +455,25 @@ describe("Repo", () => {
       expect(() => {
         repo.import<TestDoc>(A.init<TestDoc> as unknown as Uint8Array)
       }).toThrow()
+    })
+
+    it("can instantiate a Repo with a custom actorIdPrefix", async () => {
+      const { repo } = setup({ actorIdPrefix: "myPrefix" })
+
+      const handle = repo.create<TestDoc>()
+
+      const doc1 = await handle.doc()
+
+      handle.change(d => {
+        d.foo = "bar"
+      })
+
+      const doc2 = await handle.doc()
+
+      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
+
+      assert.equal(changes.length, 1)
+      assert(hexToString(changes[0].actor).startsWith("myPrefix"))
     })
   })
 

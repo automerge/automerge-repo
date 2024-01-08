@@ -1,6 +1,7 @@
 import { next as Automerge } from "@automerge/automerge"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
+import { v4 } from "uuid"
 import {
   generateAutomergeUrl,
   interpretAsDocumentId,
@@ -19,6 +20,7 @@ import { StorageId } from "./storage/types.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import { SyncStatePayload } from "./synchronizer/Synchronizer.js"
 import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
+import { stringToHex } from "./helpers/stringToHex.js"
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -55,6 +57,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
 
+  #actorId: Automerge.ActorId | undefined
+
   constructor({
     storage,
     network,
@@ -62,11 +66,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     sharePolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
+    actorIdPrefix,
   }: RepoConfig) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
+
+    // ACTOR ID
+    if (actorIdPrefix) {
+      // append a random session id, so the actor id is guaranteed to be unique per repo instance
+      this.#actorId = stringToHex(`${actorIdPrefix}:${v4()}`)
+    }
 
     // DOC COLLECTION
 
@@ -88,7 +99,10 @@ export class Repo extends EventEmitter<RepoEvents> {
           await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
         } else {
           // Try to load from disk
-          const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
+          const loadedDoc = await storageSubsystem.loadDoc(
+            handle.documentId,
+            this.#actorId
+          )
           if (loadedDoc) {
             handle.update(() => loadedDoc)
           }
@@ -331,7 +345,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // If not, create a new handle, cache it, and return it
     if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
-    const handle = new DocHandle<T>(documentId, { isNew })
+    const handle = new DocHandle<T>(documentId, {
+      isNew,
+      actorId: this.#actorId,
+    })
     this.#handleCache[documentId] = handle
     return handle
   }
@@ -513,6 +530,11 @@ export class Repo extends EventEmitter<RepoEvents> {
 }
 
 export interface RepoConfig {
+  /** If a custom actorId prefix is provided all changes made through the repo will have an
+   * actorId that starts with this prefix. This can be useful to attribute changes to individual users or devices
+   */
+  actorIdPrefix?: string
+
   /** Our unique identifier */
   peerId?: PeerId
 

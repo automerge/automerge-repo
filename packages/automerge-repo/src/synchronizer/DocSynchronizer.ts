@@ -31,6 +31,7 @@ type PendingMessage = {
 interface DocSynchronizerConfig {
   handle: DocHandle<unknown>
   onLoadSyncState?: (peerId: PeerId) => A.SyncState | undefined
+  actorId?: A.ActorId
 }
 
 /**
@@ -60,12 +61,14 @@ export class DocSynchronizer extends Synchronizer {
 
   #handle: DocHandle<unknown>
   #onLoadSyncState: (peerId: PeerId) => Promise<A.SyncState | undefined>
+  #actorId: A.ActorId
 
-  constructor({ handle, onLoadSyncState }: DocSynchronizerConfig) {
+  constructor({ handle, onLoadSyncState, actorId }: DocSynchronizerConfig) {
     super()
     this.#handle = handle
     this.#onLoadSyncState =
       onLoadSyncState ?? (() => Promise.resolve(undefined))
+    this.#actorId = actorId
 
     const docId = handle.documentId.slice(0, 5)
     this.#log = debug(`automerge-repo:docsync:${docId}`)
@@ -137,11 +140,13 @@ export class DocSynchronizer extends Synchronizer {
 
     let pendingCallbacks = this.#pendingSyncStateCallbacks[peerId]
     if (!pendingCallbacks) {
-      this.#onLoadSyncState(peerId).then(syncState => {
-        this.#initSyncState(peerId, syncState ?? A.initSyncState())
-      }).catch(err => {
-        this.#log(`Error loading sync state for ${peerId}: ${err}`)
-      })
+      this.#onLoadSyncState(peerId)
+        .then(syncState => {
+          this.#initSyncState(peerId, syncState ?? A.initSyncState())
+        })
+        .catch(err => {
+          this.#log(`Error loading sync state for ${peerId}: ${err}`)
+        })
       pendingCallbacks = this.#pendingSyncStateCallbacks[peerId] = []
     }
 
@@ -246,7 +251,7 @@ export class DocSynchronizer extends Synchronizer {
 
         // If the doc is unavailable we still need a blank document to generate
         // the sync message from
-        return doc ?? A.init<unknown>()
+        return doc ?? A.init<unknown>(this.#actorId)
       })
 
     this.#log(`beginSync: ${peerIds.join(", ")}`)
@@ -262,13 +267,15 @@ export class DocSynchronizer extends Synchronizer {
         )
         this.#setSyncState(peerId, reparsedSyncState)
 
-        docPromise.then(doc => {
-          if (doc) {
-            this.#sendSyncMessage(peerId, doc)
-          }
-        }).catch(err => {
-          this.#log(`Error loading doc for ${peerId}: ${err}`)
-        })
+        docPromise
+          .then(doc => {
+            if (doc) {
+              this.#sendSyncMessage(peerId, doc)
+            }
+          })
+          .catch(err => {
+            this.#log(`Error loading doc for ${peerId}: ${err}`)
+          })
       })
     })
   }

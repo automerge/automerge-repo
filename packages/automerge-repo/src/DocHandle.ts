@@ -54,14 +54,14 @@ export class DocHandle<T> //
   /** @hidden */
   constructor(
     public documentId: DocumentId,
-    { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
+    { isNew = false, timeoutDelay = 60_000, actorId }: DocHandleOptions = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
     // initial doc
-    let doc = A.init<T>()
+    let doc = A.init<T>(actorId)
 
     // Make an empty change so that we have something to save to disk
     if (isNew) {
@@ -454,6 +454,7 @@ export class DocHandle<T> //
 export interface DocHandleOptions {
   isNew?: boolean
   timeoutDelay?: number
+  actorId?: A.ActorId
 }
 
 export interface DocHandleMessagePayload {
