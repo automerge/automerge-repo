@@ -349,7 +349,8 @@ export class DocHandle<T> //
     this.#machine.send(UPDATE, {
       payload: {
         callback: (doc: A.Doc<T>) => {
-          return A.change(doc, options, callback)
+          const time = Date.now()
+          return A.change(doc, { time, ...options }, callback)
         },
       },
     })
