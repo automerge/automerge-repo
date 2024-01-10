@@ -42,6 +42,9 @@ export class DocHandle<T> //
   #timeoutDelay: number
   #remoteHeads: Record<StorageId, A.Heads> = {}
 
+  // Reference to global meta data that is set on the repo to be attached to each change
+  #globalMetadataRef?: ChangeMetadataRef
+
   /** The URL of this document
    *
    * @remarks
@@ -54,10 +57,15 @@ export class DocHandle<T> //
   /** @hidden */
   constructor(
     public documentId: DocumentId,
-    { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
+    {
+      isNew = false,
+      timeoutDelay = 60_000,
+      globalMetadataRef,
+    }: DocHandleOptions = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
+    this.#globalMetadataRef = globalMetadataRef
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
     // initial doc
@@ -340,7 +348,7 @@ export class DocHandle<T> //
   }
 
   /** `change` is called by the repo when the document is changed locally  */
-  change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+  change(callback: A.ChangeFn<T>, options: DocHandleChangeOptions<T> = {}) {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
@@ -349,7 +357,14 @@ export class DocHandle<T> //
     this.#machine.send(UPDATE, {
       payload: {
         callback: (doc: A.Doc<T>) => {
-          return A.change(doc, options, callback)
+          return A.change(
+            doc,
+            optionsWithGlobalMetadata(
+              options,
+              this.#globalMetadataRef?.current ?? {}
+            ),
+            callback
+          )
         },
       },
     })
@@ -362,7 +377,7 @@ export class DocHandle<T> //
   changeAt(
     heads: A.Heads,
     callback: A.ChangeFn<T>,
-    options: A.ChangeOptions<T> = {}
+    options: DocHandleChangeOptions<T> = {}
   ): string[] | undefined {
     if (!this.isReady()) {
       throw new Error(
@@ -373,7 +388,15 @@ export class DocHandle<T> //
     this.#machine.send(UPDATE, {
       payload: {
         callback: (doc: A.Doc<T>) => {
-          const result = A.changeAt(doc, heads, options, callback)
+          const result = A.changeAt(
+            doc,
+            heads,
+            optionsWithGlobalMetadata(
+              options,
+              this.#globalMetadataRef?.current ?? {}
+            ),
+            callback
+          )
           resultHeads = result.newHeads
           return result.newDoc
         },
@@ -448,12 +471,48 @@ export class DocHandle<T> //
   }
 }
 
+function optionsWithGlobalMetadata<T>(
+  options: DocHandleChangeOptions<T>,
+  globalMetadata: ChangeMetadata
+): A.ChangeOptions<T> {
+  let metadata = { ...globalMetadata }
+
+  if (options.metadata) {
+    if (!metadata) {
+      metadata = {}
+    }
+
+    Object.assign(metadata, options.metadata)
+  }
+
+  return {
+    time: options.time,
+    message:
+      Object.values(metadata).length > 0 ? JSON.stringify(metadata) : undefined,
+    patchCallback: options.patchCallback,
+  }
+}
+
 // WRAPPER CLASS TYPES
 
 /** @hidden */
 export interface DocHandleOptions {
   isNew?: boolean
   timeoutDelay?: number
+  globalMetadataRef?: ChangeMetadataRef
+}
+
+// todo: remove this type once we have real metadata on changes in automerge
+// as an interim solution we use the message attribute to store the metadata as a JSON string
+export interface DocHandleChangeOptions<T> {
+  metadata?: ChangeMetadata
+  time?: number
+  patchCallback?: A.PatchCallback<T>
+}
+
+export type ChangeMetadata = Record<string, number | string | boolean>
+export interface ChangeMetadataRef {
+  current: ChangeMetadata
 }
 
 export interface DocHandleMessagePayload {

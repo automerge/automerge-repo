@@ -6,7 +6,12 @@ import {
   interpretAsDocumentId,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
-import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
+import {
+  DocHandle,
+  DocHandleEncodedChangePayload,
+  ChangeMetadata,
+  ChangeMetadataRef,
+} from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
@@ -54,6 +59,8 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
+
+  #globalMetadataRef: ChangeMetadataRef = { current: {} }
 
   constructor({
     storage,
@@ -331,7 +338,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // If not, create a new handle, cache it, and return it
     if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
-    const handle = new DocHandle<T>(documentId, { isNew })
+    const handle = new DocHandle<T>(documentId, {
+      isNew,
+      globalMetadataRef: this.#globalMetadataRef,
+    })
     this.#handleCache[documentId] = handle
     return handle
   }
@@ -344,6 +354,11 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
     return this.#synchronizer.peers
+  }
+
+  /** Set meta data that will be attached to each change that is created through a handle from this repo */
+  setGlobalMetadata(metadata: ChangeMetadata) {
+    this.#globalMetadataRef.current = metadata
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {

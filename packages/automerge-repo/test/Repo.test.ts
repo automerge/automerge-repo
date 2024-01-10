@@ -5,6 +5,7 @@ import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"
 import { READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
+
 import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
@@ -450,6 +451,26 @@ describe("Repo", () => {
       expect(() => {
         repo.import<TestDoc>(A.init<TestDoc> as unknown as Uint8Array)
       }).toThrow()
+    })
+
+    it("can set global change metadata", () => {
+      const { repo } = setup()
+
+      const handle = repo.create<TestDoc>()
+
+      const doc1 = handle.docSync()
+
+      repo.setGlobalMetadata({ author: "bob" })
+      handle.change(doc => {
+        doc.foo = "bar"
+      })
+
+      const doc2 = handle.docSync()
+
+      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
+
+      expect(changes.length).toEqual(1)
+      expect(changes[0].message).toEqual(JSON.stringify({ author: "bob" }))
     })
   })
 

@@ -303,6 +303,106 @@ describe("DocHandle", () => {
     assert(wasBar, "foo should have been bar as we changed at the old heads")
   })
 
+  describe("metadata on changes", () => {
+    it("should allow to pass in a reference to global metadata", () => {
+      const handle = new DocHandle<TestDoc>(TEST_ID, {
+        isNew: true,
+        globalMetadataRef: { current: { author: "bob" } },
+      })
+
+      const doc1 = handle.docSync()
+
+      // ... with change
+      handle.change(doc => {
+        doc.foo = "bar"
+      })
+
+      // ... with change at
+      handle.changeAt(A.getHeads(doc1), doc => {
+        doc.foo = "baz"
+      })
+
+      const doc2 = handle.docSync()
+
+      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
+      assert.equal(changes.length, 2)
+      assert.equal(changes[0].message, JSON.stringify({ author: "bob" }))
+      assert.equal(changes[1].message, JSON.stringify({ author: "bob" }))
+    })
+
+    it("should allow to add additional local metadata with", () => {
+      const handle = new DocHandle<TestDoc>(TEST_ID, {
+        isNew: true,
+        globalMetadataRef: { current: { author: "bob" } },
+      })
+
+      const doc1 = handle.docSync()
+
+      // ... with change
+      handle.change(
+        doc => {
+          doc.foo = "bar"
+        },
+        { metadata: { message: "with change" } }
+      )
+
+      // ... with change at
+      handle.changeAt(
+        A.getHeads(doc1),
+        doc => {
+          doc.foo = "baz"
+        },
+        { metadata: { message: "with changeAt" } }
+      )
+
+      const doc2 = handle.docSync()
+
+      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
+      assert.equal(changes.length, 2)
+      assert.equal(
+        changes[0].message,
+        JSON.stringify({ author: "bob", message: "with change" })
+      )
+      assert.equal(
+        changes[1].message,
+        JSON.stringify({ author: "bob", message: "with changeAt" })
+      )
+    })
+
+    it("should allow to override global data with change", () => {
+      const handle = new DocHandle<TestDoc>(TEST_ID, {
+        isNew: true,
+        globalMetadataRef: { current: { author: "bob" } },
+      })
+
+      const doc1 = handle.docSync()
+
+      // ... with change
+      handle.change(
+        doc => {
+          doc.foo = "bar"
+        },
+        { metadata: { author: "sandra" } }
+      )
+
+      // ... with change at
+      handle.changeAt(
+        A.getHeads(doc1),
+        doc => {
+          doc.foo = "baz"
+        },
+        { metadata: { author: "frank" } }
+      )
+
+      const doc2 = handle.docSync()
+
+      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
+      assert.equal(changes.length, 2)
+      assert.equal(changes[0].message, JSON.stringify({ author: "sandra" }))
+      assert.equal(changes[1].message, JSON.stringify({ author: "frank" }))
+    })
+  })
+
   describe("ephemeral messaging", () => {
     it("can broadcast a message for the network to send out", async () => {
       const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
