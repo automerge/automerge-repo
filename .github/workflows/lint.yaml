@@ -23,6 +23,6 @@ jobs:
           ref: ${{ github.ref }}
       - name: Install
         run: |
-          yarn install --no-lockfile
+          pnpm install --no-lockfile
       - name: Lint
-        run: yarn lint
+        run: pnpm lint
