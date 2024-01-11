@@ -53,8 +53,6 @@ export interface UseBootstrapOptions<T> {
   key?: string
   /** Function returning a document handle called if lookup fails. Defaults to repo.create() */
   onNoDocument?: (repo: Repo) => DocHandle<T>
-  /** Function to call if automerge URL is invalid */
-  onInvalidAutomergeUrl?(repo: Repo, error: Error): DocHandle<T>
 }
 
 /**
@@ -71,13 +69,11 @@ export interface UseBootstrapOptions<T> {
  *
  * @param {string?} props.key Key to use for the URL hash and localStorage
  * @param {function?} props.fallback Function returning a document handle called if lookup fails. Defaults to repo.create()
- * @param {function?} props.onInvalidAutomergeUrl Function to call if URL is invalid; signature (error) => (repo, onCreate)
  * @returns {DocHandle} The document handle
  */
 export const useBootstrap = <T>({
   key = "automergeUrl",
   onNoDocument = repo => repo.create(),
-  onInvalidAutomergeUrl,
 }: UseBootstrapOptions<T> = {}): DocHandle<T> => {
   const repo = useRepo()
   const hash = useHash()
@@ -85,16 +81,8 @@ export const useBootstrap = <T>({
   // Try to get existing document; else create a new one
   const handle = useMemo((): DocHandle<T> => {
     const url = getAutomergeUrl(key, hash) as AutomergeUrl | undefined
-    try {
-      return url ? repo.find(url) : onNoDocument(repo)
-    } catch (error) {
-      // Presumably the URL was invalid
-      if (url && onInvalidAutomergeUrl)
-        return onInvalidAutomergeUrl(repo, error)
-      // Forward other errors
-      throw error
-    }
-  }, [hash, repo, onNoDocument, onInvalidAutomergeUrl])
+    return url ? repo.find(url) : onNoDocument(repo)
+  }, [hash, repo, onNoDocument])
 
   // Update hashroute & localStorage on changes
   useEffect(() => {
