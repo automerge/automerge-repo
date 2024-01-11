@@ -73,7 +73,10 @@ export class DocHandle<T> //
 
     // Make an empty change so that we have something to save to disk
     if (isNew) {
-      doc = A.emptyChange(doc, {})
+      doc = A.emptyChange(
+        doc,
+        optionsWithGlobalMetadata({}, globalMetadataRef?.current ?? {})
+      )
     }
 
     /**
