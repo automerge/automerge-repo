@@ -510,6 +510,11 @@ function mergeMetadata(target: MergedMetadata, metadata: ChangeMetadata) {
       continue
     }
 
+    if (value === undefined) {
+      delete target.metadata[key]
+      continue
+    }
+
     if (type !== "number" && type !== "string" && type !== "boolean") {
       throw new Error(
         `Only primive values "number", "string" and "boolean" are allowed in metadata`

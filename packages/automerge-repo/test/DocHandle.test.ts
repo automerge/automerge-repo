@@ -407,13 +407,14 @@ describe("DocHandle", () => {
 
       const handle = new DocHandle<TestDoc>(TEST_ID, {
         init: {
-          metadata: { author: "alex", time: 1 },
+          metadata: { author: "alex", time: 1, location: undefined },
         },
         changeMetadata: documentId => {
           documentIds.push(documentId)
 
           return {
             author: "bob",
+            location: "home",
           }
         },
       })
@@ -425,7 +426,7 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "bar"
         },
-        { metadata: { author: "sandra", time: 2 } }
+        { metadata: { author: "sandra", time: 2, location: undefined } }
       )
 
       // ... with change at
@@ -434,14 +435,14 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "baz"
         },
-        { metadata: { author: "frank", time: 3 } }
+        { metadata: { author: "frank", time: 3, location: undefined } }
       )
 
       // changeMetadata was called with the right documentId
       assert.equal(documentIds.length, 3)
       assert(documentIds.every(documentId => documentId === handle.documentId))
 
-      // changes have the locally overriden author and the timestamp
+      // changes have the locally overriden author and the timestamp, location is removed
       const changes = A.getAllChanges(handle.docSync()).map(A.decodeChange)
       assert.equal(changes.length, 3)
       assert.equal(changes[0].message, JSON.stringify({ author: "alex" }))
