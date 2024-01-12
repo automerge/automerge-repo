@@ -307,12 +307,15 @@ describe("DocHandle", () => {
     it("should allow to pass in metadata function", () => {
       const documentIds = []
 
+      let time = 1
+
       const handle = new DocHandle<TestDoc>(TEST_ID, {
         init: true,
         changeMetadata: documentId => {
           documentIds.push(documentId)
 
           return {
+            time: time++,
             author: "bob",
           }
         },
@@ -338,14 +341,18 @@ describe("DocHandle", () => {
       const changes = A.getAllChanges(handle.docSync()).map(A.decodeChange)
       assert.equal(changes.length, 3)
       assert.equal(changes[0].message, JSON.stringify({ author: "bob" }))
+      assert.equal(changes[0].time, 1)
       assert.equal(changes[1].message, JSON.stringify({ author: "bob" }))
+      assert.equal(changes[1].time, 2)
+      assert.equal(changes[2].message, JSON.stringify({ author: "bob" }))
+      assert.equal(changes[2].time, 3)
     })
 
     it("should allow to provide additional metadata when applying change", () => {
       const documentIds = []
 
       const handle = new DocHandle<TestDoc>(TEST_ID, {
-        init: { time: 0 },
+        init: { metadata: { time: 0 } },
         changeMetadata: documentId => {
           documentIds.push(documentId)
 
@@ -362,7 +369,7 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "bar"
         },
-        { metadata: { message: "with change" }, time: 1 }
+        { metadata: { message: "with change", time: 1 } }
       )
 
       // ... with change at
@@ -371,7 +378,7 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "baz"
         },
-        { metadata: { message: "with changeAt" }, time: 2 }
+        { metadata: { message: "with changeAt", time: 2 } }
       )
 
       // changeMetadata was called with the right documentId
@@ -400,8 +407,7 @@ describe("DocHandle", () => {
 
       const handle = new DocHandle<TestDoc>(TEST_ID, {
         init: {
-          metadata: { author: "alex" },
-          time: 1,
+          metadata: { author: "alex", time: 1 },
         },
         changeMetadata: documentId => {
           documentIds.push(documentId)
@@ -419,7 +425,7 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "bar"
         },
-        { metadata: { author: "sandra" }, time: 2 }
+        { metadata: { author: "sandra", time: 2 } }
       )
 
       // ... with change at
@@ -428,7 +434,7 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "baz"
         },
-        { metadata: { author: "frank" }, time: 3 }
+        { metadata: { author: "frank", time: 3 } }
       )
 
       // changeMetadata was called with the right documentId
@@ -449,7 +455,7 @@ describe("DocHandle", () => {
 
   describe("ephemeral messaging", () => {
     it("can broadcast a message for the network to send out", async () => {
-      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
       const message = { foo: "bar" }
 
       const promise = eventPromise(handle, "ephemeral-message-outbound")

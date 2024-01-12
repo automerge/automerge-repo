@@ -481,22 +481,48 @@ function optionsWithGlobalMetadata<T>(
   options: DocHandleChangeOptions<T>,
   globalMetadata: ChangeMetadata
 ): A.ChangeOptions<T> {
-  let metadata = { ...globalMetadata }
+  const mergedMetadata: MergedMetadata = { metadata: {} }
+
+  mergeMetadata(mergedMetadata, globalMetadata)
 
   if (options.metadata) {
-    if (!metadata) {
-      metadata = {}
-    }
-
-    Object.assign(metadata, options.metadata)
+    mergeMetadata(mergedMetadata, options.metadata)
   }
 
+  const { metadata, time } = mergedMetadata
+
   return {
-    time: options.time,
+    time,
     message:
       Object.values(metadata).length > 0 ? JSON.stringify(metadata) : undefined,
     patchCallback: options.patchCallback,
   }
+}
+
+function mergeMetadata(target: MergedMetadata, metadata: ChangeMetadata) {
+  for (const [key, value] of Object.entries(metadata)) {
+    const type = typeof value
+
+    // remove time from metadata, because it can be stored more effiently as a time delta
+    // this will be no longer necessary once we have proper metadata support
+    if (key === "time" && type === "number") {
+      target.time = value as number
+      continue
+    }
+
+    if (type !== "number" && type !== "string" && type !== "boolean") {
+      throw new Error(
+        `Only primive values "number", "string" and "boolean" are allowed in metadata`
+      )
+    }
+
+    target.metadata[key] = value
+  }
+}
+
+interface MergedMetadata {
+  metadata: ChangeMetadata
+  time?: number
 }
 
 // WRAPPER CLASS TYPES
@@ -513,7 +539,6 @@ export interface DocHandleOptions<T> {
 // as an interim solution we use the message attribute to store the metadata as a JSON string
 export interface DocHandleChangeOptions<T> {
   metadata?: ChangeMetadata
-  time?: number
   patchCallback?: A.PatchCallback<T>
 }
 

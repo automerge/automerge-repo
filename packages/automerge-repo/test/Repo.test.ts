@@ -78,7 +78,7 @@ describe("Repo", () => {
 
     it("can create a document with metadata", () => {
       const { repo } = setup()
-      const handle = repo.create({ metadata: { author: "bob" }, time: 1 })
+      const handle = repo.create({ metadata: { author: "bob", time: 1 } })
       assert.notEqual(handle.documentId, null)
       assert.equal(handle.isReady(), true)
 
