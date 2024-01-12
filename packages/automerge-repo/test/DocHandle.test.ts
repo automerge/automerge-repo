@@ -307,7 +307,13 @@ describe("DocHandle", () => {
     it("should allow to pass in a reference to global metadata", () => {
       const handle = new DocHandle<TestDoc>(TEST_ID, {
         isNew: true,
-        globalMetadataRef: { current: { author: "bob" } },
+        changeMetadata: documentId => {
+          assert.equal(documentId, handle.documentId)
+
+          return {
+            author: "bob",
+          }
+        },
       })
 
       const doc1 = handle.docSync()
@@ -333,7 +339,13 @@ describe("DocHandle", () => {
     it("should allow to add additional local metadata with", () => {
       const handle = new DocHandle<TestDoc>(TEST_ID, {
         isNew: true,
-        globalMetadataRef: { current: { author: "bob" } },
+        changeMetadata: documentId => {
+          assert.equal(documentId, handle.documentId)
+
+          return {
+            author: "bob",
+          }
+        },
       })
 
       const doc1 = handle.docSync()
@@ -372,7 +384,13 @@ describe("DocHandle", () => {
     it("should allow to override global data with change", () => {
       const handle = new DocHandle<TestDoc>(TEST_ID, {
         isNew: true,
-        globalMetadataRef: { current: { author: "bob" } },
+        changeMetadata: documentId => {
+          assert.equal(documentId, handle.documentId)
+
+          return {
+            author: "bob",
+          }
+        },
       })
 
       const doc1 = handle.docSync()

@@ -10,7 +10,7 @@ import {
   DocHandle,
   DocHandleEncodedChangePayload,
   ChangeMetadata,
-  ChangeMetadataRef,
+  ChangeMetadataFunction,
 } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
@@ -60,7 +60,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
 
-  #globalMetadataRef: ChangeMetadataRef = { current: {} }
+  #changeMetadata: ChangeMetadataFunction
 
   constructor({
     storage,
@@ -69,11 +69,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     sharePolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
+    changeMetadata = () => undefined,
   }: RepoConfig) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
+    this.#changeMetadata = changeMetadata
 
     // DOC COLLECTION
 
@@ -340,7 +342,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
     const handle = new DocHandle<T>(documentId, {
       isNew,
-      globalMetadataRef: this.#globalMetadataRef,
+      changeMetadata: this.#changeMetadata,
     })
     this.#handleCache[documentId] = handle
     return handle
@@ -354,11 +356,6 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
     return this.#synchronizer.peers
-  }
-
-  /** Set meta data that will be attached to each change that is created through a handle from this repo */
-  setGlobalMetadata(metadata: ChangeMetadata) {
-    this.#globalMetadataRef.current = metadata
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
@@ -546,6 +543,12 @@ export interface RepoConfig {
    * all peers). A server only syncs documents that a peer explicitly requests by ID.
    */
   sharePolicy?: SharePolicy
+
+  /**
+   * Define default meta data that is added to each change made through the repo.
+   * This function is called inside of {@link DocHandle} on each change.
+   */
+  changeMetadata?: ChangeMetadataFunction
 
   /**
    * Whether to enable the experimental remote heads gossiping feature

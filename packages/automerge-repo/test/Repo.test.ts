@@ -31,6 +31,7 @@ import {
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId } from "../src/storage/types.js"
+import { ChangeMetadataFunction } from "../src/DocHandle.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -43,13 +44,20 @@ describe("Repo", () => {
   })
 
   describe("local only", () => {
-    const setup = ({ startReady = true } = {}) => {
+    const setup = ({
+      startReady = true,
+      changeMetadata,
+    }: {
+      startReady?: boolean
+      changeMetadata?: ChangeMetadataFunction
+    } = {}) => {
       const storageAdapter = new DummyStorageAdapter()
       const networkAdapter = new DummyNetworkAdapter({ startReady })
 
       const repo = new Repo({
         storage: storageAdapter,
         network: [networkAdapter],
+        changeMetadata,
       })
       return { repo, storageAdapter, networkAdapter }
     }
@@ -453,14 +461,19 @@ describe("Repo", () => {
       }).toThrow()
     })
 
-    it("can set global change metadata", () => {
-      const { repo } = setup()
+    it("can set change metadata function", () => {
+      const { repo } = setup({
+        changeMetadata: documentId => {
+          assert.equal(documentId, handle.documentId)
+
+          return { author: "bob" }
+        },
+      })
 
       const handle = repo.create<TestDoc>()
 
       const doc1 = handle.docSync()
 
-      repo.setGlobalMetadata({ author: "bob" })
       handle.change(doc => {
         doc.foo = "bar"
       })

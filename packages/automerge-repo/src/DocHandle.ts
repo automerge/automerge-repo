@@ -41,9 +41,7 @@ export class DocHandle<T> //
   #machine: DocHandleXstateMachine<T>
   #timeoutDelay: number
   #remoteHeads: Record<StorageId, A.Heads> = {}
-
-  // Reference to global meta data that is set on the repo to be attached to each change
-  #globalMetadataRef?: ChangeMetadataRef
+  #changeMetadata: ChangeMetadataFunction
 
   /** The URL of this document
    *
@@ -60,12 +58,12 @@ export class DocHandle<T> //
     {
       isNew = false,
       timeoutDelay = 60_000,
-      globalMetadataRef,
+      changeMetadata = () => undefined,
     }: DocHandleOptions = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
-    this.#globalMetadataRef = globalMetadataRef
+    this.#changeMetadata = changeMetadata
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
     // initial doc
@@ -364,7 +362,7 @@ export class DocHandle<T> //
             doc,
             optionsWithGlobalMetadata(
               options,
-              this.#globalMetadataRef?.current ?? {}
+              this.#changeMetadata(this.documentId) ?? {}
             ),
             callback
           )
@@ -396,7 +394,7 @@ export class DocHandle<T> //
             heads,
             optionsWithGlobalMetadata(
               options,
-              this.#globalMetadataRef?.current ?? {}
+              this.#changeMetadata(this.documentId) ?? {}
             ),
             callback
           )
@@ -502,7 +500,7 @@ function optionsWithGlobalMetadata<T>(
 export interface DocHandleOptions {
   isNew?: boolean
   timeoutDelay?: number
-  globalMetadataRef?: ChangeMetadataRef
+  changeMetadata?: ChangeMetadataFunction
 }
 
 // todo: remove this type once we have real metadata on changes in automerge
@@ -514,9 +512,16 @@ export interface DocHandleChangeOptions<T> {
 }
 
 export type ChangeMetadata = Record<string, number | string | boolean>
-export interface ChangeMetadataRef {
-  current: ChangeMetadata
-}
+
+/** A function that defines default meta data for each change on the handle
+ *
+ * @remarks
+ * This function can be defined globally on the {@link Repo} and is passed down to all {@link DocHandle}.
+ * The metadata can be override by explicitly passing metadata in {@link DocHandle.change} or {@link DocHandle.changeAt}.
+ * */
+export type ChangeMetadataFunction = (
+  documentId: DocumentId
+) => ChangeMetadata | undefined
 
 export interface DocHandleMessagePayload {
   destinationId: PeerId
