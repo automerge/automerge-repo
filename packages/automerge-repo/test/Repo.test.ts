@@ -76,6 +76,18 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), true)
     })
 
+    it("can create a document with metadata", () => {
+      const { repo } = setup()
+      const handle = repo.create({ metadata: { author: "bob" }, time: 1 })
+      assert.notEqual(handle.documentId, null)
+      assert.equal(handle.isReady(), true)
+
+      const changes = A.getAllChanges(handle.docSync()).map(A.decodeChange)
+      assert.equal(changes.length, 1)
+      assert.equal(changes[0].message, JSON.stringify({ author: "bob" }))
+      assert.equal(changes[0].time, 1)
+    })
+
     it("can find a document by url", () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
@@ -462,28 +474,30 @@ describe("Repo", () => {
     })
 
     it("can set change metadata function", () => {
+      let documentIds = []
       const { repo } = setup({
         changeMetadata: documentId => {
-          assert.equal(documentId, handle.documentId)
-
+          documentIds.push(documentId)
           return { author: "bob" }
         },
       })
 
       const handle = repo.create<TestDoc>()
 
-      const doc1 = handle.docSync()
-
       handle.change(doc => {
         doc.foo = "bar"
       })
 
-      const doc2 = handle.docSync()
+      const changes = A.getAllChanges(handle.docSync()).map(A.decodeChange)
 
-      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
+      // changeMetadata was called with the right documentId
+      expect(documentIds.length).toEqual(2)
+      expect(documentIds.every(documentId => documentId === handle.documentId))
 
-      expect(changes.length).toEqual(1)
+      // changes all have bob as author metadata
+      expect(changes.length).toEqual(2)
       expect(changes[0].message).toEqual(JSON.stringify({ author: "bob" }))
+      expect(changes[1].message).toEqual(JSON.stringify({ author: "bob" }))
     })
   })
 

@@ -56,24 +56,29 @@ export class DocHandle<T> //
   constructor(
     public documentId: DocumentId,
     {
-      isNew = false,
       timeoutDelay = 60_000,
-      changeMetadata = () => undefined,
-    }: DocHandleOptions = {}
+      changeMetadata: changeMetadataFunction = () => undefined,
+      init = false,
+    }: DocHandleOptions<T> = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
-    this.#changeMetadata = changeMetadata
+    this.#changeMetadata = changeMetadataFunction
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
     // initial doc
     let doc = A.init<T>()
 
     // Make an empty change so that we have something to save to disk
-    if (isNew) {
+    if (init) {
+      const options = init === true ? {} : init
+
       doc = A.emptyChange(
         doc,
-        optionsWithGlobalMetadata({}, globalMetadataRef?.current ?? {})
+        optionsWithGlobalMetadata(
+          options,
+          this.#changeMetadata(this.documentId) ?? {}
+        )
       )
     }
 
@@ -226,7 +231,7 @@ export class DocHandle<T> //
       })
       .start()
 
-    this.#machine.send(isNew ? CREATE : FIND)
+    this.#machine.send(init ? CREATE : FIND)
   }
 
   // PRIVATE
@@ -497,10 +502,11 @@ function optionsWithGlobalMetadata<T>(
 // WRAPPER CLASS TYPES
 
 /** @hidden */
-export interface DocHandleOptions {
-  isNew?: boolean
+export interface DocHandleOptions<T> {
   timeoutDelay?: number
   changeMetadata?: ChangeMetadataFunction
+  // set init to true or pass in initialization options to create a new empty document
+  init?: boolean | DocHandleChangeOptions<T>
 }
 
 // todo: remove this type once we have real metadata on changes in automerge

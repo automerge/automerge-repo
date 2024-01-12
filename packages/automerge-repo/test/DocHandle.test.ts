@@ -109,7 +109,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a change message when changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
 
     const p = new Promise<DocHandleChangePayload<TestDoc>>(resolve =>
       handle.once("change", d => resolve(d))
@@ -129,7 +129,7 @@ describe("DocHandle", () => {
 
   it("should not emit a change message if no change happens via update", () =>
     new Promise<void>((done, reject) => {
-      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
       handle.once("change", () => {
         reject(new Error("shouldn't have changed"))
       })
@@ -140,7 +140,7 @@ describe("DocHandle", () => {
     }))
 
   it("should update the internal doc prior to emitting the change message", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
 
     const p = new Promise<void>(resolve =>
       handle.once("change", ({ handle, doc }) => {
@@ -158,7 +158,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit distinct change messages when consecutive changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
 
     let calls = 0
     const p = new Promise(resolve =>
@@ -188,7 +188,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a change message when changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
     const p = new Promise(resolve => handle.once("change", d => resolve(d)))
 
     handle.change(doc => {
@@ -202,7 +202,7 @@ describe("DocHandle", () => {
 
   it("should not emit a patch message if no change happens", () =>
     new Promise<void>((done, reject) => {
-      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
       handle.on("change", () => {
         reject(new Error("shouldn't have changed"))
       })
@@ -269,7 +269,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a delete event when deleted", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
 
     const p = new Promise<void>(resolve =>
       handle.once("delete", () => resolve())
@@ -281,7 +281,7 @@ describe("DocHandle", () => {
   })
 
   it("should allow changing at old heads", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = new DocHandle<TestDoc>(TEST_ID, { init: true })
 
     handle.change(doc => {
       doc.foo = "bar"
@@ -304,11 +304,13 @@ describe("DocHandle", () => {
   })
 
   describe("metadata on changes", () => {
-    it("should allow to pass in a reference to global metadata", () => {
+    it("should allow to pass in metadata function", () => {
+      const documentIds = []
+
       const handle = new DocHandle<TestDoc>(TEST_ID, {
-        isNew: true,
+        init: true,
         changeMetadata: documentId => {
-          assert.equal(documentId, handle.documentId)
+          documentIds.push(documentId)
 
           return {
             author: "bob",
@@ -328,19 +330,24 @@ describe("DocHandle", () => {
         doc.foo = "baz"
       })
 
-      const doc2 = handle.docSync()
+      // changeMetadata was called with the right documentId
+      assert.equal(documentIds.length, 3)
+      assert(documentIds.every(documentId => documentId === handle.documentId))
 
-      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
-      assert.equal(changes.length, 2)
+      // changes all have bob as author metadata
+      const changes = A.getAllChanges(handle.docSync()).map(A.decodeChange)
+      assert.equal(changes.length, 3)
       assert.equal(changes[0].message, JSON.stringify({ author: "bob" }))
       assert.equal(changes[1].message, JSON.stringify({ author: "bob" }))
     })
 
-    it("should allow to add additional local metadata with", () => {
+    it("should allow to provide additional metadata when applying change", () => {
+      const documentIds = []
+
       const handle = new DocHandle<TestDoc>(TEST_ID, {
-        isNew: true,
+        init: { time: 0 },
         changeMetadata: documentId => {
-          assert.equal(documentId, handle.documentId)
+          documentIds.push(documentId)
 
           return {
             author: "bob",
@@ -355,7 +362,7 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "bar"
         },
-        { metadata: { message: "with change" } }
+        { metadata: { message: "with change" }, time: 1 }
       )
 
       // ... with change at
@@ -364,28 +371,40 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "baz"
         },
-        { metadata: { message: "with changeAt" } }
+        { metadata: { message: "with changeAt" }, time: 2 }
       )
 
-      const doc2 = handle.docSync()
+      // changeMetadata was called with the right documentId
+      assert.equal(documentIds.length, 3)
+      assert(documentIds.every(documentId => documentId === handle.documentId))
 
-      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
-      assert.equal(changes.length, 2)
-      assert.equal(
-        changes[0].message,
-        JSON.stringify({ author: "bob", message: "with change" })
-      )
+      // changes have bob as author and the locally set message and time
+      const changes = A.getAllChanges(handle.docSync()).map(A.decodeChange)
+      assert.equal(changes.length, 3)
+      assert.equal(changes[0].message, JSON.stringify({ author: "bob" }))
+      assert.equal(changes[0].time, 0)
       assert.equal(
         changes[1].message,
+        JSON.stringify({ author: "bob", message: "with change" })
+      )
+      assert.equal(changes[1].time, 1)
+      assert.equal(
+        changes[2].message,
         JSON.stringify({ author: "bob", message: "with changeAt" })
       )
+      assert.equal(changes[2].time, 2)
     })
 
-    it("should allow to override global data with change", () => {
+    it("should allow to override global meta data when applying change", () => {
+      const documentIds = []
+
       const handle = new DocHandle<TestDoc>(TEST_ID, {
-        isNew: true,
+        init: {
+          metadata: { author: "alex" },
+          time: 1,
+        },
         changeMetadata: documentId => {
-          assert.equal(documentId, handle.documentId)
+          documentIds.push(documentId)
 
           return {
             author: "bob",
@@ -400,7 +419,7 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "bar"
         },
-        { metadata: { author: "sandra" } }
+        { metadata: { author: "sandra" }, time: 2 }
       )
 
       // ... with change at
@@ -409,15 +428,22 @@ describe("DocHandle", () => {
         doc => {
           doc.foo = "baz"
         },
-        { metadata: { author: "frank" } }
+        { metadata: { author: "frank" }, time: 3 }
       )
 
-      const doc2 = handle.docSync()
+      // changeMetadata was called with the right documentId
+      assert.equal(documentIds.length, 3)
+      assert(documentIds.every(documentId => documentId === handle.documentId))
 
-      const changes = A.getChanges(doc1, doc2).map(A.decodeChange)
-      assert.equal(changes.length, 2)
-      assert.equal(changes[0].message, JSON.stringify({ author: "sandra" }))
-      assert.equal(changes[1].message, JSON.stringify({ author: "frank" }))
+      // changes have the locally overriden author and the timestamp
+      const changes = A.getAllChanges(handle.docSync()).map(A.decodeChange)
+      assert.equal(changes.length, 3)
+      assert.equal(changes[0].message, JSON.stringify({ author: "alex" }))
+      assert.equal(changes[0].time, 1)
+      assert.equal(changes[1].message, JSON.stringify({ author: "sandra" }))
+      assert.equal(changes[1].time, 2)
+      assert.equal(changes[2].message, JSON.stringify({ author: "frank" }))
+      assert.equal(changes[2].time, 3)
     })
   })
 
