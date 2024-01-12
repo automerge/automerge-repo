@@ -22,7 +22,7 @@ describe("DocSynchronizer", () => {
 
   const setup = () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
-    handle = new DocHandle<TestDoc>(docId, { isNew: true })
+    handle = new DocHandle<TestDoc>(docId, { init: true })
     docSynchronizer = new DocSynchronizer({
       handle: handle as DocHandle<unknown>,
     })
@@ -104,7 +104,7 @@ describe("DocSynchronizer", () => {
   it("emits a requestMessage if the local handle is being requested", async () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-    const handle = new DocHandle<TestDoc>(docId, { isNew: false })
+    const handle = new DocHandle<TestDoc>(docId, { init: false })
     docSynchronizer = new DocSynchronizer({
       handle: handle as DocHandle<unknown>,
     })
@@ -118,7 +118,7 @@ describe("DocSynchronizer", () => {
   it("emits the correct sequence of messages when a document is not found then not available", async () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-    const bobHandle = new DocHandle<TestDoc>(docId, { isNew: false })
+    const bobHandle = new DocHandle<TestDoc>(docId, { init: false })
     const bobDocSynchronizer = new DocSynchronizer({
       handle: bobHandle as DocHandle<unknown>,
     })
@@ -126,7 +126,7 @@ describe("DocSynchronizer", () => {
     bobHandle.request()
     const message = await eventPromise(bobDocSynchronizer, "message")
 
-    const aliceHandle = new DocHandle<TestDoc>(docId, { isNew: false })
+    const aliceHandle = new DocHandle<TestDoc>(docId, { init: false })
     const aliceDocSynchronizer = new DocSynchronizer({
       handle: aliceHandle as DocHandle<unknown>,
     })
