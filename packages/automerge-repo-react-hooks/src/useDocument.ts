@@ -1,5 +1,8 @@
+import {
+  AnyDocumentId,
+  DocHandleChangePayload,
+} from "@automerge/automerge-repo"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/next"
-import { AutomergeUrl, DocHandleChangePayload } from "@automerge/automerge-repo"
 import { useEffect, useRef, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
@@ -12,12 +15,12 @@ import { useRepo } from "./useRepo.js"
  * This requires a {@link RepoContext} to be provided by a parent component.
  * */
 export function useDocument<T>(
-  documentUrl?: AutomergeUrl
+  id?: AnyDocumentId
 ): [Doc<T> | undefined, (changeFn: ChangeFn<T>) => void] {
   const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()
 
-  const handle = documentUrl ? repo.find<T>(documentUrl) : null
+  const handle = id ? repo.find<T>(id) : null
   const handleRef = useRef(null)
 
   useEffect(() => {
