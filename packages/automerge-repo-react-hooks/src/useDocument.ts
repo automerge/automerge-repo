@@ -14,9 +14,7 @@ import { useRepo } from "./useRepo.js"
  * @remarks
  * This requires a {@link RepoContext} to be provided by a parent component.
  * */
-export function useDocument<T>(
-  id?: AnyDocumentId
-): [Doc<T> | undefined, (changeFn: ChangeFn<T>) => void] {
+export function useDocument<T>(id?: AnyDocumentId) {
   const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()
 
@@ -61,5 +59,5 @@ export function useDocument<T>(
     handle.change(changeFn, options)
   }
 
-  return [doc, changeDoc]
+  return [doc, changeDoc] as const
 }
