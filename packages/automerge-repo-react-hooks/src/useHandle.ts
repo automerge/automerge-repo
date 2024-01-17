@@ -7,7 +7,7 @@ import { useRepo } from "./useRepo.js"
  * @remarks
  * This requires a {@link RepoContext} to be provided by a parent component.
  */
-export function useHandle<T>(id?: AnyDocumentId): DocHandle<T> | undefined {
+export function useHandle<T>(id?: AnyDocumentId) {
   const repo = useRepo()
   const [handle, setHandle] = useState<DocHandle<T> | undefined>(
     id ? repo.find(id) : undefined
