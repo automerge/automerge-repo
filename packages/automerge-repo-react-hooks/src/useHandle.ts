@@ -9,7 +9,7 @@ import { useRepo } from "./useRepo.js"
  */
 export function useHandle<T>(id?: AnyDocumentId): DocHandle<T> | undefined {
   const repo = useRepo()
-  const [handle, setHandle] = useState<DocHandle<T>>(
+  const [handle, setHandle] = useState<DocHandle<T> | undefined>(
     id ? repo.find(id) : undefined
   )
 

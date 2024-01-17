@@ -1,4 +1,7 @@
-import { DocHandle } from "@automerge/automerge-repo"
+import {
+  DocHandle,
+  DocHandleEphemeralMessagePayload,
+} from "@automerge/automerge-repo"
 import { useEffect } from "react"
 import useStateRef from "react-usestateref"
 import { EventEmitter } from "eventemitter3"
@@ -6,9 +9,9 @@ import { EventEmitter } from "eventemitter3"
 // Emits new_peer event when a new peer is seen
 export const peerEvents = new EventEmitter()
 
-export interface UseRemoteAwarenessProps {
+export interface UseRemoteAwarenessProps<T> {
   /** The handle to receive ephemeral state on */
-  handle: DocHandle<unknown>
+  handle: DocHandle<T>
   /** Our user ID */
   localUserId?: string
   /** How long to wait (in ms) before marking a peer as offline */
@@ -34,20 +37,22 @@ export type Heartbeats = Record<string, number>
  * @param {function?} props.getTime Function to provide current epoch time (used for testing)
  * @returns [ peerStates: { [userId]: state, ... }, { [userId]: heartbeatEpochTime, ...} ]
  */
-export const useRemoteAwareness = ({
+export const useRemoteAwareness = <T>({
   handle,
   localUserId,
   offlineTimeout = 30000,
   getTime = () => new Date().getTime(),
-}: UseRemoteAwarenessProps): [PeerStates, Heartbeats] => {
+}: UseRemoteAwarenessProps<T>): [PeerStates, Heartbeats] => {
   // TODO: You should be able to use multiple instances of this hook on the same handle (write test)
   // TODO: This should support some kind of caching or memoization when switching between channelIDs
-  const [peerStates, setPeerStates, peerStatesRef] = useStateRef({})
-  const [heartbeats, setHeartbeats, heartbeatsRef] = useStateRef({})
+  const [peerStates, setPeerStates, peerStatesRef] = useStateRef<PeerStates>({})
+  const [heartbeats, setHeartbeats, heartbeatsRef] = useStateRef<Heartbeats>({})
   useEffect(() => {
     // Receive incoming message
-    const handleIncomingUpdate = event => {
-      const [userId, state] = event.message as [string, any]
+    const handleIncomingUpdate = (
+      event: DocHandleEphemeralMessagePayload<T>
+    ) => {
+      const [userId, state] = event.message as [string, unknown]
       if (userId === localUserId) return
       if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event) // Let useLocalAwareness know we've seen a new peer
       setPeerStates({

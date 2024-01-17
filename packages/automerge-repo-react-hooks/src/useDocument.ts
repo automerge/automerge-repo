@@ -1,5 +1,6 @@
 import {
   AnyDocumentId,
+  DocHandle,
   DocHandleChangePayload,
 } from "@automerge/automerge-repo"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/next"
@@ -19,7 +20,7 @@ export function useDocument<T>(id?: AnyDocumentId) {
   const repo = useRepo()
 
   const handle = id ? repo.find<T>(id) : null
-  const handleRef = useRef(null)
+  const handleRef = useRef<DocHandle<T> | null>(null)
 
   useEffect(() => {
     // When the handle has changed, reset the doc to an empty state.
