@@ -12,7 +12,7 @@
     "watch": "npm-watch build",
     "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text pnpm test",
     "test": "vitest",
-    "test:waµtch": "npm-watch test",
+    "test:watch": "npm-watch test",
     "fuzz": "ts-node --esm --experimentalSpecifierResolution=node fuzz/fuzz.ts"
   },
   "browser": {
