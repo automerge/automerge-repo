@@ -36,7 +36,7 @@ export const useLocalAwareness = ({
 }: UseLocalAwarenessProps) => {
   const [localState, setLocalState, localStateRef] = useStateRef(initialState)
 
-  const setState = stateOrUpdater => {
+  const setState = (stateOrUpdater: any) => {
     const state =
       typeof stateOrUpdater === "function"
         ? stateOrUpdater(localStateRef.current)
@@ -58,7 +58,7 @@ export const useLocalAwareness = ({
 
   useEffect(() => {
     // Send entire state to new peers
-    let broadcastTimeoutId
+    let broadcastTimeoutId: ReturnType<typeof setTimeout>
     const newPeerEvents = peerEvents.on("new_peer", e => {
       broadcastTimeoutId = setTimeout(
         () => handle.broadcast([userId, localStateRef.current]),

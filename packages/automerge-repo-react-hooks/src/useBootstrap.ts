@@ -28,10 +28,14 @@ export const useHash = () => {
 
 // Get a key from a query-param-style URL hash
 const getQueryParamValue = (key: string, hash: string) =>
-  new URLSearchParams(hash.substr(1)).get(key)
+  new URLSearchParams(hash.slice(1)).get(key)
 
-const setQueryParamValue = (key: string, value, hash): string => {
-  const u = new URLSearchParams(hash.substr(1))
+const setQueryParamValue = (
+  key: string,
+  value: string,
+  hash: string
+): string => {
+  const u = new URLSearchParams(hash.slice(1))
   u.set(key, value)
   return u.toString()
 }
@@ -90,7 +94,7 @@ export const useBootstrap = <T>({
     } catch (error) {
       // Presumably the URL was invalid
       if (url && onInvalidAutomergeUrl)
-        return onInvalidAutomergeUrl(repo, error)
+        return onInvalidAutomergeUrl(repo, error as Error)
       // Forward other errors
       throw error
     }
