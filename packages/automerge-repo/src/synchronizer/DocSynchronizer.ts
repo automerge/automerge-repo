@@ -137,11 +137,13 @@ export class DocSynchronizer extends Synchronizer {
 
     let pendingCallbacks = this.#pendingSyncStateCallbacks[peerId]
     if (!pendingCallbacks) {
-      this.#onLoadSyncState(peerId).then(syncState => {
-        this.#initSyncState(peerId, syncState ?? A.initSyncState())
-      }).catch(err => {
-        this.#log(`Error loading sync state for ${peerId}: ${err}`)
-      })
+      this.#onLoadSyncState(peerId)
+        .then(syncState => {
+          this.#initSyncState(peerId, syncState ?? A.initSyncState())
+        })
+        .catch(err => {
+          this.#log(`Error loading sync state for ${peerId}: ${err}`)
+        })
       pendingCallbacks = this.#pendingSyncStateCallbacks[peerId] = []
     }
 
@@ -262,13 +264,15 @@ export class DocSynchronizer extends Synchronizer {
         )
         this.#setSyncState(peerId, reparsedSyncState)
 
-        docPromise.then(doc => {
-          if (doc) {
-            this.#sendSyncMessage(peerId, doc)
-          }
-        }).catch(err => {
-          this.#log(`Error loading doc for ${peerId}: ${err}`)
-        })
+        docPromise
+          .then(doc => {
+            if (doc) {
+              this.#sendSyncMessage(peerId, doc)
+            }
+          })
+          .catch(err => {
+            this.#log(`Error loading doc for ${peerId}: ${err}`)
+          })
       })
     })
   }
@@ -330,10 +334,10 @@ export class DocSynchronizer extends Synchronizer {
     }
 
     this.#processAllPendingSyncMessages()
-    this.#processSyncMessage(message, new Date())
+    this.#processSyncMessage(message)
   }
 
-  #processSyncMessage(message: SyncMessage | RequestMessage, received: Date) {
+  #processSyncMessage(message: SyncMessage | RequestMessage) {
     if (isRequestMessage(message)) {
       this.#peerDocumentStatuses[message.senderId] = "wants"
     }
@@ -392,7 +396,7 @@ export class DocSynchronizer extends Synchronizer {
 
   #processAllPendingSyncMessages() {
     for (const message of this.#pendingSyncMessages) {
-      this.#processSyncMessage(message.message, message.received)
+      this.#processSyncMessage(message.message)
     }
 
     this.#pendingSyncMessages = []

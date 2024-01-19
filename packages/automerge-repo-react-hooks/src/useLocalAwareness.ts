@@ -59,7 +59,7 @@ export const useLocalAwareness = ({
   useEffect(() => {
     // Send entire state to new peers
     let broadcastTimeoutId: ReturnType<typeof setTimeout>
-    const newPeerEvents = peerEvents.on("new_peer", e => {
+    const newPeerEvents = peerEvents.on("new_peer", () => {
       broadcastTimeoutId = setTimeout(
         () => handle.broadcast([userId, localStateRef.current]),
         500 // Wait for the peer to be ready

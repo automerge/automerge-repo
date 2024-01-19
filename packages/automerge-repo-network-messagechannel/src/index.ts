@@ -10,7 +10,6 @@ import {
   NetworkAdapter,
   type PeerId,
   type Message,
-  type StorageId,
   PeerMetadata,
 } from "@automerge/automerge-repo"
 import { MessagePortRef } from "./MessagePortRef.js"

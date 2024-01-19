@@ -117,6 +117,7 @@ export class CollectionSynchronizer extends Synchronizer {
   }
 
   // TODO: implement this
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   removeDocument(documentId: DocumentId) {
     throw new Error("not implemented")
   }

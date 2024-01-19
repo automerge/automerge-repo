@@ -13,7 +13,7 @@ export const urlPrefix = "automerge:"
 /** Given an Automerge URL, returns the DocumentId in both base58check-encoded form and binary form */
 export const parseAutomergeUrl = (url: AutomergeUrl) => {
   const regex = new RegExp(`^${urlPrefix}(\\w+)$`)
-  const [_, docMatch] = url.match(regex) || []
+  const [, docMatch] = url.match(regex) || []
   const documentId = docMatch as DocumentId
   const binaryDocumentId = documentIdToBinary(documentId)
 
