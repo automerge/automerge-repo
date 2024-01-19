@@ -13,7 +13,7 @@
     "dev:demo": "pnpm -F @automerge/automerge-repo-demo-todo dev",
     "dev:svelte-demo": "pnpm -F @automerge/automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
-    "pub": "lerna publish --yes",
+    "pub": "pnpm publish -r",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' pnpm -F @automerge/example-sync-server start",
     "preinstall": "npx only-allow pnpm",
     "repocheck": "manypkg check",
