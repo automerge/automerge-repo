@@ -96,7 +96,7 @@ jobs:
           EXTRA_ARGS=""
           if [[ $VERSION == *"alpha."* ]] || [[ $VERSION == *"beta."* ]] || [[ $VERSION == *"rc."* ]]; then
             echo "Is pre-release version"
-            EXTRA_ARGS="$EXTRA_ARGS --tag next"
+            EXTRA_ARGS="$EXTRA_ARGS --dist-tag next"
           fi
           npx lerna publish ${VERSION} --yes --force-publish $EXTRA_ARGS
         env:
