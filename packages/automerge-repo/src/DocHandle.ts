@@ -472,6 +472,8 @@ export type DocHandleOptions<T> =
     }
   // EXISTING DOCUMENTS
   | {
+      isNew?: false
+
       /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
       timeoutDelay?: number
     }
