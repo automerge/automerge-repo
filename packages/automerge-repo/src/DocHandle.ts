@@ -39,7 +39,7 @@ export class DocHandle<T> //
   #log: debug.Debugger
 
   #machine: DocHandleXstateMachine<T>
-  #timeoutDelay: number
+  #timeoutDelay: number = 60_000
   #remoteHeads: Record<StorageId, A.Heads> = {}
 
   /** The URL of this document
@@ -54,27 +54,29 @@ export class DocHandle<T> //
   /** @hidden */
   constructor(
     public documentId: DocumentId,
-    {
-      isNew = false,
-      timeoutDelay = 60_000,
-      initialValue = {} as T,
-    }: DocHandleOptions<T> = {}
+    options: DocHandleOptions<T> = {}
   ) {
     super()
-    this.#timeoutDelay = timeoutDelay
-    this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
+
+    this.documentId = documentId
+
+    if ("timeoutDelay" in options && options.timeoutDelay) {
+      this.#timeoutDelay = options.timeoutDelay
+    }
 
     let doc: T
-
+    const isNew = "isNew" in options && options.isNew
     if (isNew) {
       // T should really be constrained to extend `Record<string, unknown>` (an automerge doc can't be
       // e.g. a primitive, an array, etc. - it must be an object). But adding that constraint creates
       // a bunch of other problems elsewhere so for now we'll just cast it here to make Automerge happy.
-      doc = A.from(initialValue as Record<string, unknown>) as T
+      doc = A.from(options.initialValue as Record<string, unknown>) as T
       doc = A.emptyChange<T>(doc)
     } else {
       doc = A.init<T>()
     }
+
+    this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
     /**
      * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
@@ -459,16 +461,20 @@ export class DocHandle<T> //
 // WRAPPER CLASS TYPES
 
 /** @hidden */
-export interface DocHandleOptions<T> {
-  /** If we know this is a new document (because we're creating it) this should be set to true. */
-  isNew?: boolean
+export type DocHandleOptions<T> =
+  // NEW DOCUMENTS
+  | {
+      /** If we know this is a new document (because we're creating it) this should be set to true. */
+      isNew: true
 
-  /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
-  timeoutDelay?: number
-
-  /** The initial value of the document. */
-  initialValue?: T
-}
+      /** The initial value of the document. */
+      initialValue?: T
+    }
+  // EXISTING DOCUMENTS
+  | {
+      /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
+      timeoutDelay?: number
+    }
 
 export interface DocHandleMessagePayload {
   destinationId: PeerId
