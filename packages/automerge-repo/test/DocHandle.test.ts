@@ -5,7 +5,7 @@ import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
-import { DocHandle, DocHandleChangePayload, PeerId } from "../src/index.js"
+import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
@@ -18,6 +18,15 @@ describe("DocHandle", () => {
   it("should take the UUID passed into it", () => {
     const handle = new DocHandle(TEST_ID)
     assert.equal(handle.documentId, TEST_ID)
+  })
+
+  it("should take an initial value", async () => {
+    const handle = new DocHandle(TEST_ID, {
+      isNew: true,
+      initialValue: { foo: "bar" },
+    })
+    const doc = await handle.doc()
+    assert.equal(doc.foo, "bar")
   })
 
   it("should become ready when a document is loaded", async () => {
@@ -44,7 +53,7 @@ describe("DocHandle", () => {
     assert.deepEqual(doc, handle.docSync())
   })
 
-  it("should return undefined if we accessing the doc before ready", async () => {
+  it("should return undefined if we access the doc before ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
 
     assert.equal(handle.docSync(), undefined)
