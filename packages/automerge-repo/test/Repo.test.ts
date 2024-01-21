@@ -67,6 +67,13 @@ describe("Repo", () => {
       assert.equal(handle.isReady(), true)
     })
 
+    it("can create a document with an initial value", async () => {
+      const { repo } = setup()
+      const handle = repo.create({ foo: "bar" })
+      await handle.doc()
+      assert.equal(handle.docSync().foo, "bar")
+    })
+
     it("can find a document by url", () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
