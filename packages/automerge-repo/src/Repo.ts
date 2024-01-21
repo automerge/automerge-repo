@@ -323,13 +323,14 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
-  #getHandle<T>(
+  #getHandle<T>({
+    documentId,
+    isNew,
+  }: {
     /** The documentId of the handle to look up or create */
-    documentId: DocumentId,
-
-    /** If we know we're creating a new document, specify this so we can have access to it immediately */
+    documentId: DocumentId /** If we know we're creating a new document, specify this so we can have access to it immediately */
     isNew: boolean
-  ) {
+  }) {
     // If we have the handle cached, return it
     if (this.#handleCache[documentId]) return this.#handleCache[documentId]
 
@@ -360,27 +361,12 @@ export class Repo extends EventEmitter<RepoEvents> {
    * to advertise interest in the document.
    */
   create<T>(): DocHandle<T> {
-    // TODO:
-    // either
-    // - pass an initial value and do something like this to ensure that you get a valid initial value
-
-    // const myInitialValue = {
-    //   tasks: [],
-    //   filter: "all",
-    //
-    // const guaranteeInitialValue = (doc: any) => {
-    // if (!doc.tasks) doc.tasks = []
-    // if (!doc.filter) doc.filter = "all"
-
-    //   return { ...myInitialValue, ...doc }
-    // }
-
-    // or
-    // - pass a "reify" function that takes a `<any>` and returns `<T>`
-
     // Generate a new UUID and store it in the buffer
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const handle = this.#getHandle<T>(documentId, true) as DocHandle<T>
+    const handle = this.#getHandle<T>({
+      documentId,
+      isNew: true,
+    }) as DocHandle<T>
     this.emit("document", { handle, isNew: true })
     return handle
   }
@@ -446,7 +432,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       return this.#handleCache[documentId]
     }
 
-    const handle = this.#getHandle<T>(documentId, false) as DocHandle<T>
+    const handle = this.#getHandle<T>({
+      documentId,
+      isNew: false,
+    }) as DocHandle<T>
     this.emit("document", { handle, isNew: false })
     return handle
   }
@@ -457,7 +446,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   ) {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle(documentId, false)
+    const handle = this.#getHandle({ documentId, isNew: false })
     handle.delete()
 
     delete this.#handleCache[documentId]
@@ -474,7 +463,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle(documentId, false)
+    const handle = this.#getHandle({ documentId, isNew: false })
     const doc = await handle.doc()
     if (!doc) return undefined
     return Automerge.save(doc)
