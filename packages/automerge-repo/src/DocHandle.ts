@@ -54,18 +54,26 @@ export class DocHandle<T> //
   /** @hidden */
   constructor(
     public documentId: DocumentId,
-    { isNew = false, timeoutDelay = 60_000 }: DocHandleOptions = {}
+    {
+      isNew = false,
+      timeoutDelay = 60_000,
+      initialValue = {} as T,
+    }: DocHandleOptions<T> = {}
   ) {
     super()
     this.#timeoutDelay = timeoutDelay
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
-    // initial doc
-    let doc = A.init<T>()
+    let doc: T
 
-    // Make an empty change so that we have something to save to disk
     if (isNew) {
-      doc = A.emptyChange(doc, {})
+      // T should really be constrained to extend `Record<string, unknown>` (an automerge doc can't be
+      // e.g. a primitive, an array, etc. - it must be an object). But adding that constraint creates
+      // a bunch of other problems elsewhere so for now we'll just cast it here to make Automerge happy.
+      doc = A.from(initialValue as Record<string, unknown>) as T
+      doc = A.emptyChange<T>(doc)
+    } else {
+      doc = A.init<T>()
     }
 
     /**
@@ -451,9 +459,15 @@ export class DocHandle<T> //
 // WRAPPER CLASS TYPES
 
 /** @hidden */
-export interface DocHandleOptions {
+export interface DocHandleOptions<T> {
+  /** If we know this is a new document (because we're creating it) this should be set to true. */
   isNew?: boolean
+
+  /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
   timeoutDelay?: number
+
+  /** The initial value of the document. */
+  initialValue?: T
 }
 
 export interface DocHandleMessagePayload {
