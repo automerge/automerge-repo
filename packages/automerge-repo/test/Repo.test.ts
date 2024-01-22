@@ -4,7 +4,7 @@ import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"
 import { READY } from "../src/DocHandle.js"
-import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import { binaryToDocumentId, interpretAsDocumentId, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
@@ -14,7 +14,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
   AnyDocumentId,
-  AutomergeUrl,
+  AutomergeUrl, BinaryDocumentId,
   DocHandle,
   DocumentId,
   LegacyDocumentId,
@@ -66,6 +66,21 @@ describe("Repo", () => {
       assert.notEqual(handle.documentId, null)
       assert.equal(handle.isReady(), true)
     })
+
+    it("can create a document with a custom documentId", () => {
+      const predictableId = interpretAsDocumentId(Uuid.v5(
+        "MyIdentifier1234",
+        "2bbbfa6a-a640-11ee-8228-62cbdfde7c1d",
+        new Uint8Array(16)
+      ) as BinaryDocumentId);
+
+      const { repo } = setup()
+      const handle = repo.create({
+        documentId: predictableId,
+      });
+
+      assert.equal(handle.documentId, predictableId)
+    });
 
     it("can find a document by url", () => {
       const { repo } = setup()
