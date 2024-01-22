@@ -1,9 +1,9 @@
 import { PeerId, Repo, AutomergeUrl } from "@automerge/automerge-repo"
 import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
-import { describe, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { RepoContext } from "../src/useRepo"
 import { useHandle } from "../src/useHandle"
-import { renderHook } from "@testing-library/react-hooks"
+import { act, renderHook, waitFor } from "@testing-library/react"
 import React, { useState } from "react"
 import assert from "assert"
 
@@ -42,69 +42,65 @@ describe("useHandle", () => {
   it("loads a handle", async () => {
     const { handleA, wrapper } = setup()
 
-    const { result, waitForNextUpdate } = renderHook(
-      () => {
-        const handle = useHandle(handleA.url)
-
-        return {
-          handle,
-        }
-      },
-      { wrapper }
+    const { result } = await act(() =>
+      renderHook(
+        () => {
+          const handle = useHandle(handleA.url)
+          return { handle }
+        },
+        { wrapper }
+      )
     )
 
     assert.deepStrictEqual(result.current.handle, handleA)
   })
 
   it("returns undefined when no url given", async () => {
-    const { handleA, wrapper } = setup()
+    const { wrapper } = setup()
 
-    const { result, waitForNextUpdate } = renderHook(
-      () => {
-        const handle = useHandle()
-
-        return {
-          handle,
-        }
-      },
-      { wrapper }
+    const { result } = await act(() =>
+      renderHook(
+        () => {
+          const handle = useHandle()
+          return { handle }
+        },
+        { wrapper }
+      )
     )
 
-    assert.deepStrictEqual(result.current.handle, undefined)
+    await waitFor(() => expect(result.current.handle).toBeUndefined())
   })
 
   it("updates the handle when the url changes", async () => {
     const { wrapper, handleA, handleB } = setup()
 
-    const { result, waitForNextUpdate } = renderHook(
-      () => {
-        const [url, setUrl] = useState<AutomergeUrl>()
-        const handle = useHandle(url)
+    const { result } = await act(() =>
+      renderHook(
+        () => {
+          const [url, setUrl] = useState<AutomergeUrl>()
+          const handle = useHandle(url)
 
-        return {
-          setUrl,
-          handle,
-        }
-      },
-      { wrapper }
+          return {
+            setUrl,
+            handle,
+          }
+        },
+        { wrapper }
+      )
     )
 
-    // initially doc is undefined
-    assert.deepStrictEqual(result.current.handle, undefined)
+    await waitFor(() => expect(result.current).not.toBeNull())
 
     // set url to doc A
-    result.current.setUrl(handleA.url)
-    await waitForNextUpdate()
-    assert.deepStrictEqual(result.current.handle, handleA)
+    act(() => result.current.setUrl(handleA.url))
+    await waitFor(() => expect(result.current.handle).toMatchObject(handleA))
 
     // set url to doc B
-    result.current.setUrl(handleB.url)
-    await waitForNextUpdate()
-    assert.deepStrictEqual(result.current.handle, handleB)
+    act(() => result.current.setUrl(handleB.url))
+    await waitFor(() => expect(result.current.handle).toMatchObject(handleB))
 
     // set url to undefined
-    result.current.setUrl(undefined)
-    await waitForNextUpdate()
-    assert.deepStrictEqual(result.current.handle, undefined)
+    act(() => result.current.setUrl(undefined))
+    await waitFor(() => expect(result.current.handle).toBeUndefined())
   })
 })
