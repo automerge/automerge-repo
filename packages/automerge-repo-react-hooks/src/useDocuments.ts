@@ -6,11 +6,10 @@ export interface DocUrlMap<T> {
   [url: AutomergeUrl]: T
 }
 
-/** useDocuments(docUrls)
- * maintains a map of document states from { [docUrl]: Doc<T> }
- * useful for lists and other places you might have a set of documents
- * does not include change capability at the moment
- * if you want that, consider adapting this to useHandles and send a PR
+/**
+ * Maintains a map of document states, keyed by URL or DocumentId. Useful for lists and other places
+ * you might have a set of documents. Does not include change capability at the moment; if you want
+ * that, consider adapting this to useHandles and send a PR.
  */
 export function useDocuments<T>(docUrls?: AutomergeUrl[]): DocUrlMap<T> {
   const handlersRef = useRef<DocUrlMap<DocHandle<T>>>({})
