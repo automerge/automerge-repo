@@ -1,22 +1,11 @@
-import { PeerId, Repo, AutomergeUrl } from "@automerge/automerge-repo"
+import { AutomergeUrl, PeerId, Repo } from "@automerge/automerge-repo"
 import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
-import { describe, expect, it } from "vitest"
-import { RepoContext } from "../src/useRepo"
-import { useDocument } from "../src/useDocument"
 import { renderHook, waitFor } from "@testing-library/react"
 import React, { useState } from "react"
-import assert from "assert"
 import { act } from "react-dom/test-utils"
-
-interface ExampleDoc {
-  foo: string
-}
-
-function getRepoWrapper(repo: Repo) {
-  return ({ children }) => (
-    <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
-  )
-}
+import { describe, expect, it } from "vitest"
+import { useDocument } from "../src/useDocument"
+import { RepoContext } from "../src/useRepo"
 
 const SLOW_DOC_LOAD_TIME_MS = 10
 
@@ -63,7 +52,7 @@ describe("useDocument", () => {
 
     await waitFor(() => {
       const [doc] = result.current
-      expect(doc).toMatchObject({ foo: "A" })
+      expect(doc).toEqual({ foo: "A" })
     })
   })
 
@@ -85,11 +74,11 @@ describe("useDocument", () => {
 
     // set url to doc A
     act(() => result.current.setUrl(handleA.url))
-    await waitFor(() => expect(result.current.doc).toMatchObject({ foo: "A" }))
+    await waitFor(() => expect(result.current.doc).toEqual({ foo: "A" }))
 
     // set url to doc B
     act(() => result.current.setUrl(handleB.url))
-    await waitFor(() => expect(result.current.doc).toMatchObject({ foo: "B" }))
+    await waitFor(() => expect(result.current.doc).toEqual({ foo: "B" }))
 
     // set url to undefined
     act(() => result.current.setUrl(undefined))
@@ -114,15 +103,13 @@ describe("useDocument", () => {
 
     // start by setting url to doc A
     act(() => result.current.setUrl(handleA.url))
-    await waitFor(() => expect(result.current.doc).toMatchObject({ foo: "A" }))
+    await waitFor(() => expect(result.current.doc).toEqual({ foo: "A" }))
 
     // Now we set the URL to a handle that's slow to load.
     // The doc should be undefined while the load is happening.
     act(() => result.current.setUrl(handleSlow.url))
     await waitFor(() => expect(result.current.doc).toBeUndefined())
-    await waitFor(() =>
-      expect(result.current.doc).toMatchObject({ foo: "slow" })
-    )
+    await waitFor(() => expect(result.current.doc).toEqual({ foo: "slow" }))
   })
 
   it("avoids showing stale data", async () => {
@@ -147,14 +134,23 @@ describe("useDocument", () => {
       result.current.setUrl(handleSlow.url)
       result.current.setUrl(handleA.url)
     })
-    await waitFor(() => expect(result.current.doc).toMatchObject({ foo: "A" }))
+    await waitFor(() => expect(result.current.doc).toEqual({ foo: "A" }))
 
     // wait for the slow doc to finish loading...
     await pause(SLOW_DOC_LOAD_TIME_MS * 2)
 
     // we didn't update the doc to the slow doc, so it should still be A
-    await waitFor(() => expect(result.current.doc).toMatchObject({ foo: "A" }))
+    await waitFor(() => expect(result.current.doc).toEqual({ foo: "A" }))
   })
 })
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+const getRepoWrapper =
+  (repo: Repo) =>
+  ({ children }) =>
+    <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+
+interface ExampleDoc {
+  foo: string
+}
