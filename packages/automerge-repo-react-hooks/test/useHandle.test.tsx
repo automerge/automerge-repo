@@ -79,11 +79,7 @@ describe("useHandle", () => {
         () => {
           const [url, setUrl] = useState<AutomergeUrl>()
           const handle = useHandle(url)
-
-          return {
-            setUrl,
-            handle,
-          }
+          return { setUrl, handle }
         },
         { wrapper }
       )
