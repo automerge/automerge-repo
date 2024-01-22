@@ -16,17 +16,13 @@ export function useDocuments<T>(docUrls?: AutomergeUrl[]): DocUrlMap<T> {
   const [documents, setDocuments] = useState<DocUrlMap<T>>({})
   const repo = useRepo()
 
-  if (!docUrls) {
-    return documents
-  }
+  if (!docUrls) return documents
 
   const handlers = handlersRef.current
   const prevHandlerIds = Object.keys(handlers) as AutomergeUrl[]
 
   docUrls.forEach(url => {
-    if (handlers[url]) {
-      return
-    }
+    if (handlers[url]) return
 
     const handler = (handlers[url] = repo.find<T>(url))
     handler.doc().then(doc => {
@@ -46,9 +42,7 @@ export function useDocuments<T>(docUrls?: AutomergeUrl[]): DocUrlMap<T> {
 
   /* Unregister the handles for any documents removed from the set */
   prevHandlerIds.forEach(id => {
-    if (handlers[id]) {
-      return
-    }
+    if (handlers[id]) return
 
     const handler = handlers[id]
     handler.off("change")
