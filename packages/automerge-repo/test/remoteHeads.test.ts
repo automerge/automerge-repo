@@ -1,8 +1,7 @@
-import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/dist/index.js"
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
-import { setTimeout } from "timers/promises"
 import { describe, it } from "vitest"
+import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/dist/index.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import {
@@ -87,13 +86,13 @@ describe("DocHandle.remoteHeads", () => {
       })
 
       // connect them all up
-      connectRepos(leftTab1, leftServiceWorker)
-      connectRepos(leftTab2, leftServiceWorker)
-      connectRepos(leftServiceWorker, syncServer)
-      connectRepos(syncServer, rightServiceWorker)
-      connectRepos(rightServiceWorker, rightTab)
-
-      await setTimeout(100)
+      await Promise.all([
+        connectRepos(leftTab1, leftServiceWorker),
+        connectRepos(leftTab2, leftServiceWorker),
+        connectRepos(leftServiceWorker, syncServer),
+        connectRepos(syncServer, rightServiceWorker),
+        connectRepos(rightServiceWorker, rightTab),
+      ])
 
       return {
         leftTab1,
@@ -111,8 +110,6 @@ describe("DocHandle.remoteHeads", () => {
 
       // subscribe to the left service worker storage ID on the right tab
       rightTab.subscribeToRemotes([await leftServiceWorker.storageId()!])
-
-      await setTimeout(100)
 
       // create a doc in the left tab
       const leftTabDoc = leftTab1.create<TestDoc>()
@@ -155,8 +152,6 @@ describe("DocHandle.remoteHeads", () => {
       // subscribe leftTab to storageId of rightServiceWorker
       leftTab1.subscribeToRemotes([await rightServiceWorker.storageId()!])
 
-      await setTimeout(100)
-
       // create 2 docs in right tab
       const rightTabDocA = rightTab.create<TestDoc>()
       rightTabDocA.change(d => (d.foo = "A"))
@@ -194,8 +189,6 @@ describe("DocHandle.remoteHeads", () => {
       // subscribe leftTab 1 to storageId of rightServiceWorker
       leftTab1.subscribeToRemotes([await rightServiceWorker.storageId()!])
 
-      await setTimeout(200)
-
       // now the left service worker has the remote heads of the right service worker for both doc A and doc B
       // if we subscribe from left tab 1 the left service workers should send it's stored remote heads immediately
 
@@ -225,8 +218,6 @@ describe("DocHandle.remoteHeads", () => {
       const rightTabDocB = rightTab.create<TestDoc>()
       rightTabDocB.change(d => (d.foo = "B"))
 
-      await setTimeout(200)
-
       // subscribe leftTab 1 to storageId of rightServiceWorker
       leftTab1.subscribeToRemotes([await rightServiceWorker.storageId()!])
 
@@ -237,8 +228,6 @@ describe("DocHandle.remoteHeads", () => {
         await waitForMessages(leftTab1.networkSubsystem, "message")
       ).filter(({ type }) => type === "remote-heads-changed")
 
-      // console.log(JSON.stringify(remoteHeadsChangedMessages, null, 2))
-
       assert.strictEqual(remoteHeadsChangedMessages.length, 1)
       assert.strictEqual(
         remoteHeadsChangedMessages[0].documentId,
@@ -248,13 +237,17 @@ describe("DocHandle.remoteHeads", () => {
   })
 })
 
-function connectRepos(repo1: Repo, repo2: Repo) {
+async function connectRepos(repo1: Repo, repo2: Repo) {
   const { port1: leftToRight, port2: rightToLeft } = new MessageChannel()
 
-  repo1.networkSubsystem.addNetworkAdapter(
-    new MessageChannelNetworkAdapter(leftToRight)
-  )
-  repo2.networkSubsystem.addNetworkAdapter(
-    new MessageChannelNetworkAdapter(rightToLeft)
-  )
+  await Promise.all([
+    repo1.networkSubsystem.addNetworkAdapter(
+      new MessageChannelNetworkAdapter(leftToRight)
+    ),
+    repo2.networkSubsystem.addNetworkAdapter(
+      new MessageChannelNetworkAdapter(rightToLeft)
+    ),
+    eventPromise(repo1.networkSubsystem, "ready"),
+    eventPromise(repo2.networkSubsystem, "ready"),
+  ])
 }
