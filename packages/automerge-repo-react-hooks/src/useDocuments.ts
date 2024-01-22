@@ -1,60 +1,84 @@
-import { AutomergeUrl, DocHandle, DocumentId } from "@automerge/automerge-repo"
-import { useEffect, useRef, useState } from "react"
+import {
+  AutomergeUrl,
+  DocHandle,
+  DocHandleChangePayload,
+  DocumentId,
+} from "@automerge/automerge-repo"
+import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
 /**
- * Maintains a map of document states, keyed by URL or DocumentId. Useful for lists and other places
- * you might have a set of documents. Does not include change capability at the moment; if you want
- * that, consider adapting this to useHandles and send a PR.
+ * Maintains a map of document states, keyed by URL or DocumentId. Useful for collections of related
+ * documents.
  */
-export function useDocuments<T>(ids?: AutomergeId[]): Record<AutomergeId, T> {
-  const prevIds = usePrevious(ids) || []
-  const [documents, setDocuments] = useState<Record<AutomergeId, T>>({})
-  const [handles, setHandles] = useState<Record<AutomergeId, DocHandle<T>>>({})
-
+export const useDocuments = <T>(ids?: DocId[]) => {
+  const [documents, setDocuments] = useState({} as Record<DocId, T>)
+  const [listeners, setListeners] = useState({} as Record<DocId, Listener<T>>)
   const repo = useRepo()
 
-  if (ids) {
-    const newIds = ids.filter(id => !prevIds.includes(id))
-    newIds.forEach(id => {
-      const handle = repo.find<T>(id)
-      setHandles(handles => ({ ...handles, [id]: handle }))
-      handle.doc().then(doc => {
-        setDocuments(docs => ({ ...docs, [id]: doc }))
-      })
-      handle.on("change", ({ doc }) => {
-        setDocuments(docs => ({ ...docs, [id]: doc }))
-      })
-    })
+  useEffect(
+    () => {
+      const updateDocument = (id: DocId, doc?: T) => {
+        if (doc) setDocuments(docs => ({ ...docs, [id]: doc }))
+      }
 
-    const removedIds = prevIds.filter(id => !ids.includes(id))
+      const addListener = (handle: DocHandle<T>) => {
+        const id = handle.documentId
 
-    /* Unregister the handles for any documents removed from the set */
-    removedIds.forEach(id => handles[id].off("change"))
+        // whenever a document changes, update our map
+        const listener: Listener<T> = ({ doc }) => updateDocument(id, doc)
+        handle.on("change", listener)
 
-    /* Remove the documents from state */
-    setDocuments(documents => {
-      const newDocuments = { ...documents }
-      removedIds.forEach(id => delete newDocuments[id])
-      return newDocuments
-    })
-  }
+        // store the listener so we can remove it later
+        setListeners(listeners => ({ ...listeners, [id]: listener }))
+      }
+
+      const removeDocument = (id: DocId) => {
+        // remove the listener
+        const handle = repo.find<T>(id)
+        handle.off("change", listeners[id])
+
+        // remove the document from the document map
+        setDocuments(docs => {
+          const { [id]: _removedDoc, ...remainingDocs } = docs
+          return remainingDocs
+        })
+      }
+
+      if (ids) {
+        // add any new documents
+        const newIds = ids.filter(id => !documents[id])
+        newIds.forEach(id => {
+          const handle = repo.find<T>(id)
+          // As each document loads, update our map
+          handle.doc().then(doc => {
+            updateDocument(id, doc)
+            addListener(handle)
+          })
+        })
+
+        // remove any documents that are no longer in the list
+        const removedIds = Object.keys(documents)
+          .map(id => id as DocId)
+          .filter(id => !ids.includes(id))
+        removedIds.forEach(removeDocument)
+      }
+
+      // on unmount, remove all listeners
+      const teardown = () => {
+        Object.entries(listeners).forEach(([id, listener]) => {
+          const handle = repo.find<T>(id as DocId)
+          handle.off("change", listener)
+        })
+      }
+
+      return teardown
+    },
+    [ids] // only run this effect when the list of ids changes
+  )
 
   return documents
 }
 
-// https://robinvdvleuten.nl/post/use-previous-value-through-a-react-hook/
-export const usePrevious = <T>(value: T): T | undefined => {
-  // Create a reference to hold the previous version of the value, as it is basically a generic
-  // object whose `current` property can hold any value.
-  const ref = useRef<T>()
-  // Use the `useEffect` hook to run a callback...
-  useEffect(() => {
-    // ...to store the passed value on the ref's current property...
-    ref.current = value
-  }, [value]) // ...whenever the value changes.
-  // And return the currently stored value, as this will run before the `useEffect` callback runs.
-  return ref.current
-}
-
-type AutomergeId = DocumentId | AutomergeUrl
+type DocId = DocumentId | AutomergeUrl
+type Listener<T> = (p: DocHandleChangePayload<T>) => void
