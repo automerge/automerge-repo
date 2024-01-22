@@ -41,7 +41,7 @@ describe("DocHandle.remoteHeads", () => {
 
   describe("multi hop sync", () => {
     async function setup() {
-      // setup topology: tab -> service worker -> sync server <- service worker <- tab
+      // setup topology: alice -> service worker -> sync server <- service worker <- bob
       const alice = new Repo({
         peerId: "alice-tab-1" as PeerId,
         network: [],
@@ -94,12 +94,12 @@ describe("DocHandle.remoteHeads", () => {
         connectRepos(bobServiceWorker, bob),
       ])
 
-      const aliceTab1StorageId = await aliceServiceWorker.storageId()
-      const aliceTab2StorageId = await aliceServiceWorker.storageId()
+      const alice1StorageId = await aliceServiceWorker.storageId()
+      const alice2StorageId = await aliceServiceWorker.storageId()
       const aliceServiceWorkerStorageId = await aliceServiceWorker.storageId()
       const syncServerStorageId = await syncServer.storageId()
       const bobServiceWorkerStorageId = await bobServiceWorker.storageId()
-      const bobTabStorageId = await bobServiceWorker.storageId()
+      const bobStorageId = await bobServiceWorker.storageId()
 
       return {
         alice,
@@ -108,12 +108,12 @@ describe("DocHandle.remoteHeads", () => {
         syncServer,
         bobServiceWorker,
         bob,
-        aliceTab1StorageId,
-        aliceTab2StorageId,
+        alice1StorageId,
+        alice2StorageId,
         aliceServiceWorkerStorageId,
         syncServerStorageId,
         bobServiceWorkerStorageId,
-        bobTabStorageId,
+        bobStorageId,
       }
     }
 
@@ -209,14 +209,14 @@ describe("DocHandle.remoteHeads", () => {
       // stored remote heads immediately.
 
       // open doc and subscribe alice's second tab to bob's service worker
-      const aliceTab2DocA = alice2.find<TestDoc>(bobDocA.url)
+      const alice2DocA = alice2.find<TestDoc>(bobDocA.url)
       alice2.subscribeToRemotes([bobServiceWorkerStorageId])
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
           emitter: alice2.networkSubsystem,
           event: "message",
-          until: aliceTab2DocA.whenReady(),
+          until: alice2DocA.whenReady(),
         })
       ).filter(({ type }) => type === "remote-heads-changed")
 
@@ -224,7 +224,7 @@ describe("DocHandle.remoteHeads", () => {
       assert.strictEqual(remoteHeadsChangedMessages.length, 2)
       assert(
         remoteHeadsChangedMessages.every(
-          d => d.documentId === aliceTab2DocA.documentId
+          d => d.documentId === alice2DocA.documentId
         )
       )
     })
@@ -243,20 +243,20 @@ describe("DocHandle.remoteHeads", () => {
       alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
       // alice opens doc A
-      const aliceTab1DocA = alice.find<TestDoc>(bobDocA.url)
+      const alice1DocA = alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
           emitter: alice.networkSubsystem,
           event: "message",
-          until: aliceTab1DocA.whenReady(),
+          until: alice1DocA.whenReady(),
         })
       ).filter(({ type }) => type === "remote-heads-changed")
 
       assert.strictEqual(remoteHeadsChangedMessages.length, 2)
       assert(
         remoteHeadsChangedMessages.every(
-          d => d.documentId === aliceTab1DocA.documentId
+          d => d.documentId === alice1DocA.documentId
         )
       )
     })
