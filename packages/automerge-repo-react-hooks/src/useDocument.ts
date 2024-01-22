@@ -28,9 +28,7 @@ export function useDocument<T>(id?: AnyDocumentId) {
     // shows a loading state during that time rather than a stale doc.
     setDoc(undefined)
 
-    if (!handle) {
-      return
-    }
+    if (!handle) return
 
     handleRef.current = handle
     handle
@@ -39,9 +37,7 @@ export function useDocument<T>(id?: AnyDocumentId) {
         // Bail out on updating the doc if the handle has changed since we started loading.
         // This avoids problem with out-of-order loads when the handle is changing faster
         // than documents are loading.
-        if (handleRef.current !== handle) {
-          return
-        }
+        if (handleRef.current !== handle) return
         setDoc(v)
       })
       .catch(e => console.error(e))
