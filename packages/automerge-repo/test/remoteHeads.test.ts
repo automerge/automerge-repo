@@ -42,13 +42,13 @@ describe("DocHandle.remoteHeads", () => {
   describe("multi hop sync", () => {
     async function setup() {
       // setup topology: tab -> service worker -> sync server <- service worker <- tab
-      const aliceTab1 = new Repo({
+      const alice = new Repo({
         peerId: "alice-tab-1" as PeerId,
         network: [],
         sharePolicy: async () => true,
         enableRemoteHeadsGossiping: true,
       })
-      const aliceTab2 = new Repo({
+      const alice2 = new Repo({
         peerId: "alice-tab-2" as PeerId,
         network: [],
         sharePolicy: async () => true,
@@ -78,7 +78,7 @@ describe("DocHandle.remoteHeads", () => {
         storage: new DummyStorageAdapter(),
         enableRemoteHeadsGossiping: true,
       })
-      const bobTab = new Repo({
+      const bob = new Repo({
         peerId: "bob-tab" as PeerId,
         network: [],
         sharePolicy: async () => true,
@@ -87,11 +87,11 @@ describe("DocHandle.remoteHeads", () => {
 
       // connect them all up
       await Promise.all([
-        connectRepos(aliceTab1, aliceServiceWorker),
-        connectRepos(aliceTab2, aliceServiceWorker),
+        connectRepos(alice, aliceServiceWorker),
+        connectRepos(alice2, aliceServiceWorker),
         connectRepos(aliceServiceWorker, syncServer),
         connectRepos(syncServer, bobServiceWorker),
-        connectRepos(bobServiceWorker, bobTab),
+        connectRepos(bobServiceWorker, bob),
       ])
 
       const aliceTab1StorageId = await aliceServiceWorker.storageId()
@@ -102,12 +102,12 @@ describe("DocHandle.remoteHeads", () => {
       const bobTabStorageId = await bobServiceWorker.storageId()
 
       return {
-        aliceTab1,
-        aliceTab2,
+        alice,
+        alice2,
         aliceServiceWorker,
         syncServer,
         bobServiceWorker,
-        bobTab,
+        bob,
         aliceTab1StorageId,
         aliceTab2StorageId,
         aliceServiceWorkerStorageId,
@@ -118,33 +118,27 @@ describe("DocHandle.remoteHeads", () => {
     }
 
     it("should report remoteHeads for peers", async () => {
-      const {
-        bobTab,
-        aliceServiceWorkerStorageId,
-        aliceServiceWorker,
-        aliceTab1,
-      } = await setup()
+      const { bob, aliceServiceWorkerStorageId, aliceServiceWorker, alice } =
+        await setup()
 
-      // subscribe to the left service worker storage ID on the right tab
-      bobTab.subscribeToRemotes([aliceServiceWorkerStorageId])
+      // bob subscribes to alice's service worker's storageId
+      bob.subscribeToRemotes([aliceServiceWorkerStorageId])
 
-      // create a doc in the left tab
-      const leftTabDoc = aliceTab1.create<TestDoc>()
-      leftTabDoc.change(d => (d.foo = "bar"))
+      // alice creates a doc
+      const aliceDoc = alice.create<TestDoc>()
+      aliceDoc.change(d => (d.foo = "bar"))
 
-      // wait for the document to arrive on the right tab
-      const bobTabDoc = bobTab.find<TestDoc>(leftTabDoc.url)
-      await bobTabDoc.whenReady()
+      // bob waits for the document to arrive
+      const bobDoc = bob.find<TestDoc>(aliceDoc.url)
+      await bobDoc.whenReady()
 
-      // wait for the document to arrive in the left service worker
-      const aliceServiceWorkerDoc = aliceServiceWorker.find(
-        leftTabDoc.documentId
-      )
+      // alice's service worker waits for the document to arrive
+      const aliceServiceWorkerDoc = aliceServiceWorker.find(aliceDoc.documentId)
       await aliceServiceWorkerDoc.whenReady()
 
-      let leftSeenByRightPromise = new Promise<DocHandleRemoteHeadsPayload>(
+      let aliceSeenByBobPromise = new Promise<DocHandleRemoteHeadsPayload>(
         resolve => {
-          bobTabDoc.on("remote-heads", message => {
+          bobDoc.on("remote-heads", message => {
             if (message.storageId === aliceServiceWorkerStorageId) {
               resolve(message)
             }
@@ -152,78 +146,75 @@ describe("DocHandle.remoteHeads", () => {
         }
       )
 
-      // make a change on the right
-      bobTabDoc.change(d => (d.foo = "baz"))
+      // bob makes a change
+      bobDoc.change(d => (d.foo = "baz"))
 
-      // wait for the change to be acknolwedged by the left
-      const leftSeenByRight = await leftSeenByRightPromise
+      // wait for alice's service worker to acknowledge the change
+      const { heads } = await aliceSeenByBobPromise
 
-      assert.deepStrictEqual(
-        leftSeenByRight.heads,
-        A.getHeads(aliceServiceWorkerDoc.docSync())
-      )
+      assert.deepStrictEqual(heads, A.getHeads(aliceServiceWorkerDoc.docSync()))
     })
 
     it("should report remoteHeads only for documents the subscriber has open", async () => {
-      const { aliceTab1, bobTab, bobServiceWorkerStorageId } = await setup()
+      const { alice, bob, bobServiceWorkerStorageId } = await setup()
 
-      // subscribe leftTab to storageId of bobServiceWorker
-      aliceTab1.subscribeToRemotes([bobServiceWorkerStorageId])
+      // alice subscribes to bob's service worker
+      alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
-      // create 2 docs in right tab
-      const bobTabDocA = bobTab.create<TestDoc>()
-      bobTabDocA.change(d => (d.foo = "A"))
+      // bob creates two docs
+      const bobDocA = bob.create<TestDoc>()
+      bobDocA.change(d => (d.foo = "A"))
 
-      const bobTabDocB = bobTab.create<TestDoc>()
-      bobTabDocB.change(d => (d.foo = "B"))
+      const bobDocB = bob.create<TestDoc>()
+      bobDocB.change(d => (d.foo = "B"))
 
-      // open doc b in left tab 1
-      const aliceTabDocA = aliceTab1.find<TestDoc>(bobTabDocA.url)
+      // alice opens doc A
+      const aliceDocA = alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
-          emitter: aliceTab1.networkSubsystem,
+          emitter: alice.networkSubsystem,
           event: "message",
-          until: aliceTabDocA.whenReady(),
+          until: aliceDocA.whenReady(),
         })
       ).filter(({ type }) => type === "remote-heads-changed")
 
       // we should only be notified of the head changes of doc A
       assert(
         remoteHeadsChangedMessages.every(
-          d => d.documentId === aliceTabDocA.documentId
+          d => d.documentId === aliceDocA.documentId
         )
       )
     })
 
     it("should report remote heads for doc on subscribe if peer already knows them", async () => {
-      const { aliceTab1, aliceTab2, bobTab, bobServiceWorkerStorageId } =
-        await setup()
+      const { alice, alice2, bob, bobServiceWorkerStorageId } = await setup()
 
-      // create 2 docs in right tab
-      const bobTabDocA = bobTab.create<TestDoc>()
-      bobTabDocA.change(d => (d.foo = "A"))
+      // bob creates 2 docs
+      const bobDocA = bob.create<TestDoc>()
+      bobDocA.change(d => (d.foo = "A"))
 
-      const bobTabDocB = bobTab.create<TestDoc>()
-      bobTabDocB.change(d => (d.foo = "B"))
+      const bobDocB = bob.create<TestDoc>()
+      bobDocB.change(d => (d.foo = "B"))
 
-      // open docs in left tab 1
-      const aliceTab1DocA = aliceTab1.find<TestDoc>(bobTabDocA.url)
-      const leftTab1DocB = aliceTab1.find<TestDoc>(bobTabDocB.url)
+      // alice opens the docs
+      const _aliceDocA = alice.find<TestDoc>(bobDocA.url)
+      const _aliceDocB = alice.find<TestDoc>(bobDocB.url)
 
-      // subscribe leftTab 1 to storageId of bobServiceWorker
-      aliceTab1.subscribeToRemotes([bobServiceWorkerStorageId])
+      // alice subscribes to bob's service worker
+      alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
-      // now the left service worker has the remote heads of the right service worker for both doc A and doc B
-      // if we subscribe from left tab 1 the left service workers should send it's stored remote heads immediately
+      // Now alice's service worker has the remote heads of bob's service worker for both doc A and
+      // doc B. If alice subscribes to bob's service worker, bob's service worker should send its
+      // stored remote heads immediately.
 
-      // open doc and subscribe leftTab 2 to storageId of bobServiceWorker
-      const aliceTab2DocA = aliceTab2.find<TestDoc>(bobTabDocA.url)
-      aliceTab2.subscribeToRemotes([bobServiceWorkerStorageId])
+      // open doc and subscribe alice's second tab to bob's service worker
+      const aliceTab2DocA = alice2.find<TestDoc>(bobDocA.url)
+      alice2.subscribeToRemotes([bobServiceWorkerStorageId])
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
-          emitter: aliceTab2.networkSubsystem,
+          emitter: alice2.networkSubsystem,
           event: "message",
           until: aliceTab2DocA.whenReady(),
         })
@@ -239,24 +230,24 @@ describe("DocHandle.remoteHeads", () => {
     })
 
     it("should report remote heads for subscribed storage id once we open a new doc", async () => {
-      const { aliceTab1, bobTab, bobServiceWorkerStorageId } = await setup()
+      const { alice, bob, bobServiceWorkerStorageId } = await setup()
 
-      // create 2 docs in right tab
-      const bobTabDocA = bobTab.create<TestDoc>()
-      bobTabDocA.change(d => (d.foo = "A"))
+      // bob creates 2 docs
+      const bobDocA = bob.create<TestDoc>()
+      bobDocA.change(d => (d.foo = "A"))
 
-      const bobTabDocB = bobTab.create<TestDoc>()
-      bobTabDocB.change(d => (d.foo = "B"))
+      const bobDocB = bob.create<TestDoc>()
+      bobDocB.change(d => (d.foo = "B"))
 
-      // subscribe leftTab 1 to storageId of bobServiceWorker
-      aliceTab1.subscribeToRemotes([bobServiceWorkerStorageId])
+      // alice subscribes to bob's service worker
+      alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
-      // in leftTab 1 open doc A
-      const aliceTab1DocA = aliceTab1.find<TestDoc>(bobTabDocA.url)
+      // alice opens doc A
+      const aliceTab1DocA = alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
-          emitter: aliceTab1.networkSubsystem,
+          emitter: alice.networkSubsystem,
           event: "message",
           until: aliceTab1DocA.whenReady(),
         })
