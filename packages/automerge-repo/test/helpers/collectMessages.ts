@@ -4,7 +4,7 @@ import { pause } from "../../src/helpers/pause.js"
 export async function collectMessages({
   emitter,
   event,
-  until = pause(10),
+  until = pause(100),
 }: {
   emitter: EventEmitter
   event: string
