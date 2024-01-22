@@ -178,29 +178,27 @@ describe("DocHandle.remoteHeads", () => {
       bobTabDocB.change(d => (d.foo = "B"))
 
       // open doc b in left tab 1
-      const leftTabDocA = aliceTab1.find<TestDoc>(bobTabDocA.url)
+      const aliceTabDocA = aliceTab1.find<TestDoc>(bobTabDocA.url)
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
           emitter: aliceTab1.networkSubsystem,
           event: "message",
+          until: aliceTabDocA.whenReady(),
         })
       ).filter(({ type }) => type === "remote-heads-changed")
 
       // we should only be notified of the head changes of doc A
-      const docIds = remoteHeadsChangedMessages.map(d => d.documentId)
-      const uniqueDocIds = [...new Set(docIds)]
-      assert.deepStrictEqual(uniqueDocIds, [leftTabDocA.documentId])
+      assert(
+        remoteHeadsChangedMessages.every(
+          d => d.documentId === aliceTabDocA.documentId
+        )
+      )
     })
 
     it("should report remote heads for doc on subscribe if peer already knows them", async () => {
-      const {
-        aliceTab1,
-        aliceTab2,
-        bobTab,
-        bobServiceWorker,
-        bobServiceWorkerStorageId,
-      } = await setup()
+      const { aliceTab1, aliceTab2, bobTab, bobServiceWorkerStorageId } =
+        await setup()
 
       // create 2 docs in right tab
       const bobTabDocA = bobTab.create<TestDoc>()
