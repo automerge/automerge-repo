@@ -1,6 +1,6 @@
 import assert from "assert"
 import { beforeEach, describe, it } from "vitest"
-import { PeerId, Repo } from "../src/index.js"
+import { PeerId, Repo, SyncMessage } from "../src/index.js"
 import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
 
 describe("CollectionSynchronizer", () => {
@@ -24,8 +24,9 @@ describe("CollectionSynchronizer", () => {
       synchronizer.addPeer("peer1" as PeerId)
 
       synchronizer.once("message", event => {
-        assert(event.targetId === "peer1")
-        assert(event.documentId === handle.documentId)
+        const { targetId, documentId } = event as SyncMessage
+        assert(targetId === "peer1")
+        assert(documentId === handle.documentId)
         done()
       })
 
@@ -37,8 +38,9 @@ describe("CollectionSynchronizer", () => {
       const handle = repo.create()
       synchronizer.addDocument(handle.documentId)
       synchronizer.once("message", event => {
-        assert(event.targetId === "peer1")
-        assert(event.documentId === handle.documentId)
+        const { targetId, documentId } = event as SyncMessage
+        assert(targetId === "peer1")
+        assert(documentId === handle.documentId)
         done()
       })
       synchronizer.addPeer("peer1" as PeerId)
