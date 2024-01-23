@@ -134,7 +134,15 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
   }
 
   // none of the above
-  throw new Error(`Invalid AutomergeUrl: '${id}'`)
+  throw new InvalidAutomergeUrlError(`Invalid AutomergeUrl: '${id}'`)
+}
+
+export class InvalidAutomergeUrlError extends Error {
+  constructor(message: string) {
+    super(message)
+    // https://github.com/microsoft/TypeScript/wiki/FAQ#why-doesnt-extending-built-ins-like-error-array-and-map-work
+    Object.setPrototypeOf(this, InvalidAutomergeUrlError.prototype)
+  }
 }
 
 // TYPES
