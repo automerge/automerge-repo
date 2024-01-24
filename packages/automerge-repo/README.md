@@ -38,8 +38,8 @@ This library provides two main components: the `Repo` itself, and the `DocHandle
 
 A `Repo` exposes these methods:
 
-- `create<T>()`  
-  Creates a new, empty `Automerge.Doc` and returns a `DocHandle` for it.
+- `create<T>(initialValue: T?)`
+  Creates a new `Automerge.Doc` and returns a `DocHandle` for it. Accepts an optional initial value for the document. Produces an empty document (potentially violating the type!) otherwise.
 - `find<T>(docId: DocumentId)`  
   Looks up a given document either on the local machine or (if necessary) over any configured
   networks.
