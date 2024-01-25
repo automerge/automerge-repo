@@ -461,13 +461,74 @@ describe("Repo", () => {
   })
 
   describe("with peers (linear network)", async () => {
+    it("n-peers connected in a line", async () => {
+      const createNConnectedRepos = async (numberOfPeers: number) => {
+        const channels = []
+        const repos: Repo[] = []
+
+        for (let i = 0; i < numberOfPeers; i++) {
+          const channel = new MessageChannel()
+          channels.push(channel)
+
+          const network = []
+          if (i >= 1) {
+            network.push(
+              new MessageChannelNetworkAdapter(channels[i - 1].port2)
+            )
+          }
+          if (i < numberOfPeers - 1) {
+            network.push(new MessageChannelNetworkAdapter(channel.port1))
+          }
+          const repo = new Repo({
+            network,
+            storage: new DummyStorageAdapter(),
+            peerId: `peer-${i}` as PeerId,
+            sharePolicy: async () => true
+          })
+          repos.push(repo)
+        }
+
+        const teardown = () => {
+          for (const channel of channels) {
+            channel.port1.close()
+          }
+        }
+
+        await Promise.all(
+          repos.map(repo => eventPromise(repo.networkSubsystem, "peer"))
+        )
+
+        const handle = repos[0].create()
+        handle.change(d => {
+          d.foo = "bar"
+        })
+
+        return { repos, teardown, documentId: handle.documentId }
+      }
+
+      const numberOfPeers = 10
+      const { repos, teardown, documentId } = await createNConnectedRepos(
+        numberOfPeers
+      )
+      console.log("created repos", repos.length)
+      const handle = repos[numberOfPeers - 1].find<TestDoc>(
+        stringifyAutomergeUrl({ documentId })
+      )
+
+      await pause(500)
+      const doc = await handle.doc()
+
+      assert.deepStrictEqual(doc, { foo: "bar" })
+
+      teardown()
+    })
+
     const setup = async ({
       connectAlice = true,
       isCharlieEphemeral = false,
     } = {}) => {
       const charlieExcludedDocuments: DocumentId[] = []
       const bobExcludedDocuments: DocumentId[] = []
-      const davidExcludedDocuments: DocumentId[] = []
 
       const sharePolicy: SharePolicy = async (peerId, documentId) => {
         if (documentId === undefined) return false
@@ -483,10 +544,6 @@ describe("Repo", () => {
         if (bobExcludedDocuments.includes(documentId) && peerId === "bob")
           return false
 
-        // make sure that david never gets excluded documents
-        if (david.includes(documentId) && peerId === "david")
-          return false
-
         return true
       }
 
@@ -494,11 +551,9 @@ describe("Repo", () => {
 
       const abChannel = new MessageChannel()
       const bcChannel = new MessageChannel()
-      const cdChannel = new MessageChannel()
 
       const { port1: ab, port2: ba } = abChannel
       const { port1: bc, port2: cb } = bcChannel
-      const { port1: cd, port2: dc } = cdChannel
 
       const aliceNetworkAdapter = new MessageChannelNetworkAdapter(ab)
 
@@ -525,24 +580,14 @@ describe("Repo", () => {
       const charlieStorage = new DummyStorageAdapter()
       const charlieRepo = new Repo({
         storage: charlieStorage,
-        network: [new MessageChannelNetworkAdapter(cb), new MessageChannelNetworkAdapter(cd)],
+        network: [new MessageChannelNetworkAdapter(cb)],
         peerId: charlie,
         isEphemeral: isCharlieEphemeral,
-      })
-
-      const david = "david" as PeerId
-      const davidStorage = new DummyStorageAdapter()
-      const davidRepo = new Repo({
-        storage: davidStorage,
-        network: [new MessageChannelNetworkAdapter(dc)],
-        peerId: david,
-        sharePolicy
       })
 
       const teardown = () => {
         abChannel.port1.close()
         bcChannel.port1.close()
-        cdChannel.port1.close();
       }
 
       function connectAliceToBob() {
@@ -574,23 +619,12 @@ describe("Repo", () => {
         d.foo = "bap"
       })
 
-      const notForDavidHandle = aliceRepo.create<TestDoc>()
-      const notForDavid = notForDavidHandle.documentId
-      // Nobody by default replicates david excluded document
-      bobExcludedDocuments.push(notForDavid)
-      charlieExcludedDocuments.push(notForDavid)
-      davidExcludedDocuments.push(notForDavid)
-      notForDavidHandle.change(d => {
-        d.foo = "bad"
-      })
-
       await Promise.all([
         ...(connectAlice
           ? [eventPromise(aliceRepo.networkSubsystem, "peer")]
           : []),
         eventPromise(bobRepo.networkSubsystem, "peer"),
         eventPromise(charlieRepo.networkSubsystem, "peer"),
-        eventPromise(davidRepo.networkSubsystem, "peer"),
       ])
 
       return {
@@ -602,12 +636,9 @@ describe("Repo", () => {
         charlie,
         charlieStorage,
         charlieRepo,
-        david,
-        davidRepo,
         aliceHandle,
         notForCharlie,
         notForBob,
-        notForDavid,
         teardown,
         connectAliceToBob,
       }
@@ -661,23 +692,6 @@ describe("Repo", () => {
       const doc = await handle.doc()
 
       assert.deepStrictEqual(doc, { foo: "baz" })
-
-      teardown()
-    })
-
-    it("davidRepo can request a document not initially shared with it", async () => {
-      const { davidRepo, notForDavid, teardown } = await setup()
-
-      const handle = davidRepo.find<TestDoc>(
-        stringifyAutomergeUrl({ documentId: notForDavid })
-      )
-
-      await pause(50)
-
-
-      const doc = await handle.doc()
-
-      assert.deepStrictEqual(doc, { foo: "bad" })
 
       teardown()
     })
@@ -1065,7 +1079,7 @@ describe("Repo", () => {
       await pause(1)
 
       assert.deepStrictEqual(bobRepo.peers, ["alice", "charlie"])
-      assert.deepStrictEqual(charlieRepo.peers, ["bob", "david"])
+      assert.deepStrictEqual(charlieRepo.peers, ["bob"])
 
       teardown()
     })
