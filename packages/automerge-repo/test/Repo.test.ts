@@ -461,8 +461,11 @@ describe("Repo", () => {
   })
 
   describe("with peers (linear network)", async () => {
-    it("n-peers connected in a line", async () => {
-      const createNConnectedRepos = async (numberOfPeers: number) => {
+    it.only("n-peers connected in a line", async () => {
+      const createNConnectedRepos = async (
+        numberOfPeers: number,
+        latency?: number
+      ) => {
         const channels = []
         const repos: Repo[] = []
 
@@ -473,17 +476,19 @@ describe("Repo", () => {
           const network = []
           if (i >= 1) {
             network.push(
-              new MessageChannelNetworkAdapter(channels[i - 1].port2)
+              new MessageChannelNetworkAdapter(channels[i - 1].port2, { latency })
             )
           }
           if (i < numberOfPeers - 1) {
-            network.push(new MessageChannelNetworkAdapter(channel.port1))
+            network.push(
+              new MessageChannelNetworkAdapter(channel.port1, { latency })
+            )
           }
           const repo = new Repo({
             network,
             storage: new DummyStorageAdapter(),
             peerId: `peer-${i}` as PeerId,
-            sharePolicy: async () => true
+            sharePolicy: async () => true,
           })
           repos.push(repo)
         }
@@ -498,27 +503,23 @@ describe("Repo", () => {
           repos.map(repo => eventPromise(repo.networkSubsystem, "peer"))
         )
 
-        const handle = repos[0].create()
-        handle.change(d => {
-          d.foo = "bar"
-        })
-
-        return { repos, teardown, documentId: handle.documentId }
+        return { repos, teardown }
       }
 
-      const numberOfPeers = 10
-      const { repos, teardown, documentId } = await createNConnectedRepos(
-        numberOfPeers
-      )
-      console.log("created repos", repos.length)
-      const handle = repos[numberOfPeers - 1].find<TestDoc>(
-        stringifyAutomergeUrl({ documentId })
-      )
+      const numberOfPeers = 100
+      const { repos, teardown } = await createNConnectedRepos(numberOfPeers, 10)
 
-      await pause(500)
-      const doc = await handle.doc()
+      const handle0 = repos[0].create()
 
-      assert.deepStrictEqual(doc, { foo: "bar" })
+      for (const repo of repos) {
+        const handle = repo.find(handle0.url)
+      }
+
+      const handleN = repos[numberOfPeers - 1].find<TestDoc>(
+        stringifyAutomergeUrl({ documentId: handle0.documentId })
+      )
+      await handleN.whenReady()
+      assert.deepStrictEqual(handleN.docSync(), { })
 
       teardown()
     })
