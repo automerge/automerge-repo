@@ -24,7 +24,7 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  #isReady: boolean = false
+  #isReady = false
   #retryIntervalId?: TimeoutId
   #log = debug("automerge-repo:websocket:browser")
 

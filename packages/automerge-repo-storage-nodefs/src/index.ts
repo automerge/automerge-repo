@@ -19,7 +19,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
   /**
    * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
    */
-  constructor(baseDirectory: string = "automerge-repo-data") {
+  constructor(baseDirectory = "automerge-repo-data") {
     super()
     this.baseDirectory = baseDirectory
   }

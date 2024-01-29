@@ -54,6 +54,8 @@ export const useDocuments = <T>(ids?: DocId[]) => {
           handle.doc().then(doc => {
             updateDocument(id, doc)
             addListener(handle)
+          }).catch(err => {
+            console.error(`Error loading document ${id} in useDocuments: `, err)
           })
         })
 
