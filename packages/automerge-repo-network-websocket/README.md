@@ -17,9 +17,7 @@ is the server.
 
 ### Overview
 
-The websocket wire protocol consists of a handshake where each peer tells the
-other what their peer ID is followed by the sync loop where each peer can send
-the other sync messages and ephemeral messages.
+The websocket wire protocol consists of a handshake where each peer tells the other what their peer ID - and some other metadata - is followed by the sync loop where each peer can send the other sync messages and ephemeral messages.
 
 ### Handshake
 
@@ -54,6 +52,10 @@ Handshake is the following steps:
     peer sends an [error](#error) message and terminates the connection
   * it begins the sync phase
 
+#### Peer IDs and storage IDs
+
+The peer ID is an ephemeral ID which is assumed to only live for the lifetime of the process which advertises the given ID (e.g. a browser tab). Peers may optionally advertise a storage ID in the `join` and `peer` messages, this is an ID which is assumed to be tied to a persistent storage of some kind (e.g. an IndexedDB in a browser). Many peer IDs can advertise the same storage ID (as in the case of many browser tabs). The use of a storage ID allows other peers to know whether to save and reload sync states for a given peer (if the peer advertises a storage ID, then save and reload the sync state attached to that storage ID).
+
 
 ### Sync Phase
 
@@ -64,6 +66,22 @@ corresponds to implementing
 and receiving is emitting the [corresponding
 event](https://automerge.org/automerge-repo/interfaces/_automerge_automerge_repo.NetworkAdapterEvents.html)
 from the `NetworkAdapter` on receipt.
+
+#### Remote heads gossiping
+
+In some cases peers wish to know about the state of peers who are separated from them by several intermediate peers. For example, a tab running a text editor may wish to show whether the contents of the editor are up to date with respect to a tab running in a browser on another users device. This is achieved by gossiping remote heads across intermediate nodes. The logic for this is the following:
+
+* For a given connection each peer maintains a list of the storage IDs the remote peer is interested in (note this is storage IDs, not peer IDs)
+* Any peer can send a [`remote-subscription-changed`](#remote-subscription-changed) message to change the set of storage IDs they want the recipient to watch on the sender's behalf
+* Any time a peer receives a sync message it checks:
+  * Is the sync message from a peer with a storage ID which some other remote peer has registered interest in
+  * Is the remote peer permitted access to the document which the message pertains to (i.e. either the `sharePolicy` return `true` or the local peer is already syncing the document with the remote)
+* The local peer sends a [`remote-heads-changed`](#remote-heads-changed) message to each remote peer who passes these checks
+* Additionally, whenever the local peer receives a `remote-heads-changed` message it performs the same checks and additionally checks if the timestamp on the `remote-heads-changed` message is greater than the last timestamp for the same storage ID/document combination and if so it forwards it.
+
+In the `browser <-> sync server <-> browser` text editor example above each browser tab would send a `remote-subscription-changed` message to the sync server adding the other browsers storage ID (presumably communicated out of band) to their subscriptions with the sync server. The sync server will then send `remote-heads-changed` messages to each tab when their heads change.
+
+In a more elaborate example such as `browser <-> sync server <-> sync server <-> browser` the intermediate sync servers could be configured to have their `sharePolicy` return `true` for every document when syncing with each other so that `remote-heads-changed` messages are forwarded between them unconditionally, allowing the browser tabs to still learn of each others heads.
 
 ### Message Types
 
@@ -77,12 +95,21 @@ These type definitions are used in every message type
 ```cddl
 ; The base64 encoded bytes of a Peer ID
 peer_id = str
+; The base64 encoded bytes of a Storage ID
+storage_id = str
 ; The possible protocol versions (currently always the string "1")
 protocol_version = "1"
 ; The bytes of an automerge sync message
 sync_message = bstr
 ; The base58check encoded bytes of a document ID
 document_id = str
+; Metadata sent in either the join or peer message types
+peer_metadata = {
+    ; The storage ID of this peer
+    ? storageId: storage_id, 
+    ; Whether the sender expects to connect again with this storage ID
+    isEphemeral: bool
+}
 ```
 
 #### Join
@@ -94,6 +121,7 @@ Sent by the initiating peer in the [handshake](#handshake) phase.
     type: "join",
     senderId: peer_id,
     supportedProtocolVersions: protocol_version
+    ? metadata: peer_metadata,
 }
 ```
 
@@ -108,6 +136,7 @@ Sent by the receiving peer in response to the join message in the
     senderId: peer_id,
     selectedProtocolVersion: protocol_version,
     targetId: peer_id,
+    ? metadata: peer_metadata,
 }
 ```
 
@@ -193,5 +222,50 @@ connection will close
 {
     type: "error",
     message: str,
+}
+```
+
+#### Remote subscription changed
+
+Sent when the sender wishes to change the set of storage IDs they wish to be notified of when the given remotes heads change.
+
+```cddl
+{
+  type: "remote-subscription-change"
+  senderId: peer_id
+  targetId: peer_id
+
+  ; The storage IDs to add to the subscription
+  ? add: [* storage_id]
+
+  ; The storage IDs to remove from the subscription
+  remove: [* storage_id]
+}
+```
+
+#### Remote heads changed
+
+Sent when the sender wishes to inform the receiver that a peer with a storage ID in the receivers remote heads subscription has changed heads. This is either sent when the local peer receives a new sync message directly from the listened-to peer, or when the local peer receives a `remote-heads-changed` message relating to the listened-to peer from another peer.
+
+```cddl
+{
+  type: "remote-heads-changed"
+  senderId: peer_id
+  targetId: peer_id
+
+  ; The document ID of the document that has changed
+  documentId: document_id
+
+  ; A map from storage ID to the heads advertised for a given storage ID
+  newHeads: { 
+    * storage_id => {
+      ; The heads of the new document for the given storage ID as 
+      ; a list of base64 encoded SHA2 hashes
+      heads: [* string]
+      ; The local time on the node which initially sent the remote-heads-changed
+      ; message as milliseconds since the unix epoch
+      timestamp: uint
+    }
+  }
 }
 ```
