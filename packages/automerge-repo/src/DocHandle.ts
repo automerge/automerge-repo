@@ -39,7 +39,7 @@ export class DocHandle<T> //
   #log: debug.Debugger
 
   #machine: DocHandleXstateMachine<T>
-  #timeoutDelay: number = 60_000
+  #timeoutDelay = 60_000
   #remoteHeads: Record<StorageId, A.Heads> = {}
 
   /** The URL of this document
