@@ -35,7 +35,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.#options = { channelName: "broadcast", ...(options ?? {}) }
   }
 
-  connect(peerId: PeerId, peerMetadata: PeerMetadata) {
+  connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
     this.#broadcastChannel = new BroadcastChannel(this.#options.channelName)

@@ -38,7 +38,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
       : new StrongMessagePortRef(messagePort)
   }
 
-  connect(peerId: PeerId, peerMetadata: PeerMetadata) {
+  connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
     log("messageport connecting")
     this.peerId = peerId
     this.peerMetadata = peerMetadata
