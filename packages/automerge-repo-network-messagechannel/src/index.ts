@@ -38,7 +38,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
       : new StrongMessagePortRef(messagePort)
   }
 
-  connect(peerId: PeerId, peerMetadata: PeerMetadata) {
+  connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
     log("messageport connecting")
     this.peerId = peerId
     this.peerMetadata = peerMetadata
@@ -60,18 +60,20 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
         switch (type) {
           case "arrive":
             {
+              const { peerMetadata } = message as ArriveMessage
               this.messagePortRef.postMessage({
                 type: "welcome",
                 senderId: this.peerId,
                 peerMetadata: this.peerMetadata,
                 targetId: senderId,
               })
-              this.announceConnection(senderId, message.peerMetadata)
+              this.announceConnection(senderId, peerMetadata)
             }
             break
           case "welcome":
             {
-              this.announceConnection(senderId, message.peerMetadata)
+              const { peerMetadata } = message as WelcomeMessage
+              this.announceConnection(senderId, peerMetadata)
             }
             break
           default:
@@ -80,7 +82,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
             } else {
               this.emit("message", {
                 ...message,
-                data: new Uint8Array(message.data),
+                data: message.data ? new Uint8Array(message.data) : undefined,
               })
             }
             break

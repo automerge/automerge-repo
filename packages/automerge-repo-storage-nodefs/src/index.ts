@@ -33,7 +33,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     try {
       const fileContent = await fs.promises.readFile(filePath)
       return new Uint8Array(fileContent)
-    } catch (error) {
+    } catch (error: any) {
       // don't throw if file not found
       if (error.code === "ENOENT") return undefined
       throw error
@@ -57,7 +57,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     const filePath = this.getFilePath(keyArray)
     try {
       await fs.promises.unlink(filePath)
-    } catch (error) {
+    } catch (error: any) {
       // don't throw if file not found
       if (error.code !== "ENOENT") throw error
     }
@@ -139,7 +139,7 @@ const walkdir = async (dirPath: string): Promise<string[]> => {
       })
     )
     return files.flat()
-  } catch (error) {
+  } catch (error: any) {
     // don't throw if directory not found
     if (error.code === "ENOENT") return []
     throw error
