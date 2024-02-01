@@ -32,7 +32,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     super()
   }
 
-  connect(peerId: PeerId, peerMetadata: PeerMetadata) {
+  connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
 
