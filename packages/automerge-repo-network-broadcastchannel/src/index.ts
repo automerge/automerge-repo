@@ -56,11 +56,12 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
               senderId: this.peerId,
               targetId: senderId,
               type: "welcome",
+              peerMetadata,
             })
-            this.#announceConnection(senderId, peerMetadata)
+            this.#announceConnection(senderId, message.peerMetadata)
             break
           case "welcome":
-            this.#announceConnection(senderId, peerMetadata)
+            this.#announceConnection(senderId, message.peerMetadata)
             break
           default:
             if (!("data" in message)) {

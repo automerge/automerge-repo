@@ -60,20 +60,18 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
         switch (type) {
           case "arrive":
             {
-              const { peerMetadata } = message as ArriveMessage
               this.messagePortRef.postMessage({
                 type: "welcome",
                 senderId: this.peerId,
                 peerMetadata: this.peerMetadata,
                 targetId: senderId,
               })
-              this.announceConnection(senderId, peerMetadata)
+              this.announceConnection(senderId, message.peerMetadata)
             }
             break
           case "welcome":
             {
-              const { peerMetadata } = message as WelcomeMessage
-              this.announceConnection(senderId, peerMetadata)
+              this.announceConnection(senderId, message.peerMetadata)
             }
             break
           default:
@@ -97,6 +95,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.messagePortRef.postMessage({
       senderId: this.peerId,
       type: "arrive",
+      peerMetadata,
     })
 
     // Mark this messagechannel as ready after 50 ms, at this point there
