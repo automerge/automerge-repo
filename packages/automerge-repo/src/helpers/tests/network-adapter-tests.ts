@@ -148,7 +148,7 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
       teardown()
     })
 
-    it.only("emits a peer-candidate event with proper peer metadata when a peer connects", async () => {
+    it("emits a peer-candidate event with proper peer metadata when a peer connects", async () => {
       const { adapters, teardown } = await setup()
       const a = adapters[0][0]
       const b = adapters[1][0]

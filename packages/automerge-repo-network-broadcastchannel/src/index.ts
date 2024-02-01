@@ -56,7 +56,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
               senderId: this.peerId,
               targetId: senderId,
               type: "welcome",
-              peerMetadata,
+              peerMetadata: this.peerMetadata,
             })
             this.#announceConnection(senderId, message.peerMetadata)
             break
@@ -81,6 +81,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.#broadcastChannel.postMessage({
       senderId: this.peerId,
       type: "arrive",
+      peerMetadata,
     })
 
     this.emit("ready", { network: this })
