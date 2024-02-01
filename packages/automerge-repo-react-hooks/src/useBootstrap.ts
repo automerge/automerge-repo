@@ -41,7 +41,7 @@ const setQueryParamValue = (
 }
 
 const getAutomergeUrl = (key: string, hash: string) =>
-  key && (getQueryParamValue(key, hash) || localStorage.getItem(key))
+  key && getQueryParamValue(key, hash)
 
 const setAutomergeUrl = (key: string, automergeUrl: AutomergeUrl) => {
   if (key) {
@@ -49,11 +49,10 @@ const setAutomergeUrl = (key: string, automergeUrl: AutomergeUrl) => {
     if (automergeUrl !== getQueryParamValue(key, window.location.hash))
       setHash(setQueryParamValue(key, automergeUrl, window.location.hash))
   }
-  if (key) localStorage.setItem(key, automergeUrl)
 }
 
 export interface UseBootstrapOptions<T> {
-  /** Key to use for the URL hash and localStorage */
+  /** Key to use for the URL hash */
   key?: string
   /** Function returning a document handle called if lookup fails. Defaults to repo.create() */
   onNoDocument?: (repo: Repo) => DocHandle<T>
@@ -65,15 +64,14 @@ export interface UseBootstrapOptions<T> {
  * This hook is used to set up a single document as the base of an app session.
  * This is a common pattern for simple multiplayer apps with shareable URLs.
  *
- * It will first check for the automergeUrl in the URL hash:
+ * It will check for the automergeUrl in the URL hash:
  *   //myapp/#automergeUrl=[document URL]
- * Failing that, it will check for a `automergeUrl` key in localStorage.
  * Failing that, it will call onNoDocument, expecting a handle to be returned.
  *
- * The URL and localStorage will then be updated.
+ * The URL will then be updated.
  * Finally, it will return the Automerge document's URL.
  *
- * @param {string?} props.key Key to use for the URL hash and localStorage
+ * @param {string?} props.key Key to use for the URL hash
  * @param {function?} props.fallback Function returning a document handle called if lookup fails. Defaults to repo.create()
  * @param {function?} props.onInvalidAutomergeUrl Function to call if URL is invalid; signature (error) => (repo, onCreate)
  * @returns {DocHandle} The document handle
@@ -100,7 +98,7 @@ export const useBootstrap = <T>({
     }
   }, [hash, repo, onNoDocument, onInvalidAutomergeUrl])
 
-  // Update hashroute & localStorage on changes
+  // Update hashroute on changes
   useEffect(() => {
     if (handle) {
       setAutomergeUrl(key, handle.url)
