@@ -155,14 +155,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
 
-    const myPeerMetadata: Promise<PeerMetadata> = new Promise(
-      // eslint-disable-next-line no-async-promise-executor -- TODO: fix
-      async resolve =>
-        resolve({
-          storageId: await storageSubsystem?.id(),
-          isEphemeral,
-        } as PeerMetadata)
-    )
+    const myPeerMetadata: Promise<PeerMetadata> = (async () => ({
+      storageId: await storageSubsystem?.id(),
+      isEphemeral,
+    }))()
 
     const networkSubsystem = new NetworkSubsystem(
       network,
