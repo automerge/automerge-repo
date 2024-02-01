@@ -36,9 +36,9 @@ describe("BroadcastChannel", () => {
       }, 100)
     })
 
-    a.connect("a" as PeerId)
-    b.connect("b" as PeerId)
-    c.connect("c" as PeerId)
+    a.connect("a" as PeerId, {})
+    b.connect("b" as PeerId, {})
+    c.connect("c" as PeerId, {})
 
     return Promise.all([aConnect, cShouldNotConnect])
   })
