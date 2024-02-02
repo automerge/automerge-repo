@@ -1,6 +1,12 @@
 import assert from "assert"
-import { describe, it } from "vitest"
-import { PeerId, Repo, type NetworkAdapter } from "../../index.js"
+import { describe, expect, it } from "vitest"
+import {
+  PeerId,
+  Repo,
+  type NetworkAdapter,
+  StorageId,
+  PeerMetadata,
+} from "../../index.js"
 import { eventPromise, eventPromises } from "../eventPromise.js"
 import { pause } from "../pause.js"
 
@@ -139,6 +145,28 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
       const { message } = await eventPromise(charlieHandle, "ephemeral-message")
 
       assert.deepStrictEqual(message, alicePresenceData)
+      teardown()
+    })
+
+    it("emits a peer-candidate event with proper peer metadata when a peer connects", async () => {
+      const { adapters, teardown } = await setup()
+      const a = adapters[0][0]
+      const b = adapters[1][0]
+
+      const bPromise = eventPromise(b, "peer-candidate")
+
+      const aPeerMetadata: PeerMetadata = { storageId: "a" as StorageId }
+
+      b.connect("b" as PeerId, { storageId: "b" as StorageId })
+      a.connect("a" as PeerId, aPeerMetadata)
+
+      const peerCandidate = await bPromise
+
+      expect(peerCandidate).toMatchObject({
+        peerId: "a",
+        peerMetadata: aPeerMetadata,
+      })
+
       teardown()
     })
   })

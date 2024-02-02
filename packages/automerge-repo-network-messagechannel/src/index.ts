@@ -82,7 +82,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
             } else {
               this.emit("message", {
                 ...message,
-                data: new Uint8Array(message.data),
+                data: message.data ? new Uint8Array(message.data) : undefined,
               })
             }
             break
@@ -97,6 +97,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.messagePortRef.postMessage({
       senderId: this.peerId,
       type: "arrive",
+      peerMetadata,
     })
 
     // Mark this messagechannel as ready after 50 ms, at this point there
