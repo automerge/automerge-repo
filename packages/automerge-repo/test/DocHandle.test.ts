@@ -72,19 +72,27 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
   })
 
+  /**
+   * Once there's a Repo#stop API this case should be covered in accompanying
+   * tests and the following test removed.
+   */
   it("no pending timers after a document is loaded", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers()
+    const timerCount = vi.getTimerCount()
+
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
+
+    handle.doc()
+
+    assert(vi.getTimerCount() > timerCount)
 
     // simulate loading from storage
     handle.update(doc => docFromMockStorage(doc))
 
-    const doc = await handle.doc()
-
     assert.equal(handle.isReady(), true)
-    assert.equal(vi.getTimerCount(), 0);
-    vi.useRealTimers();
+    assert.equal(vi.getTimerCount(), timerCount)
+    vi.useRealTimers()
   })
 
   it("should block changes until ready()", async () => {
