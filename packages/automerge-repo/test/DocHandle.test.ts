@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import { decode } from "cbor-x"
-import { describe, it } from "vitest"
+import { describe, it, vi } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
@@ -70,6 +70,21 @@ describe("DocHandle", () => {
 
     assert.equal(handle.isReady(), true)
     assert.equal(doc?.foo, "bar")
+  })
+
+  it("no pending timers after a document is loaded", async () => {
+    vi.useFakeTimers();
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+    assert.equal(handle.isReady(), false)
+
+    // simulate loading from storage
+    handle.update(doc => docFromMockStorage(doc))
+
+    const doc = await handle.doc()
+
+    assert.equal(handle.isReady(), true)
+    assert.equal(vi.getTimerCount(), 0);
+    vi.useRealTimers();
   })
 
   it("should block changes until ready()", async () => {
