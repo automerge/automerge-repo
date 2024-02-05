@@ -1,21 +1,53 @@
-import { NetworkAdapter } from "../../src/index.js"
+import { pause } from "../../src/helpers/pause.js";
+import { Message, NetworkAdapter, PeerId } from "../../src/index.js"
 
 export class DummyNetworkAdapter extends NetworkAdapter {
   #startReady: boolean
+  #sendMessage?: SendMessageFn;
 
-  constructor({ startReady = true }: Options = {}) {
+  constructor(opts: Options = {startReady: true}) {
     super()
-    this.#startReady = startReady
+    this.#startReady = opts.startReady;
+    this.#sendMessage = opts.sendMessage;
   }
-  send() {}
+
   connect(_: string) {
     if (this.#startReady) {
       this.emit("ready", { network: this })
     }
   }
+
   disconnect() {}
+
+  peerCandidate(peerId: PeerId) {
+    this.emit('peer-candidate', { peerId, peerMetadata: {} });
+  }
+
+  override send(message: Message) {
+    this.#sendMessage?.(message);
+  }
+
+  receive(message: Message) {
+    this.emit('message', message);
+  }
+
+  static createConnectedPair() {
+    const adapter1: DummyNetworkAdapter = new DummyNetworkAdapter({
+      startReady: true,
+      sendMessage: (message: Message) => pause(10).then(() => adapter2.receive(message)),
+    });
+    const adapter2: DummyNetworkAdapter = new DummyNetworkAdapter({
+      startReady: true,
+      sendMessage: (message: Message) => pause(10).then(() => adapter1.receive(message)),
+    });
+
+    return [adapter1, adapter2];
+  }
 }
 
+type SendMessageFn = (message: Message) => void;
+
 type Options = {
-  startReady?: boolean
+  startReady?: boolean;
+  sendMessage?: SendMessageFn;
 }
