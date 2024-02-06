@@ -3,7 +3,7 @@ import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messa
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"
-import { READY } from "../src/DocHandle.js"
+import { HandleState, READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
   generateAutomergeUrl,
@@ -1022,6 +1022,37 @@ describe("Repo", () => {
       teardown()
     })
   })
+
+
+  it('peer receives a document when connection is recovered', async () => {
+    const alice = "alice" as PeerId;
+    const bob = "bob" as PeerId;
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair();
+    const aliceRepo = new Repo({
+      network: [aliceAdapter],
+      peerId: alice
+    })
+    const bobRepo = new Repo({
+      network: [bobAdapter],
+      peerId: bob
+    })
+
+    const aliceDoc = aliceRepo.create();
+    aliceDoc.change((doc: any) => doc.text = 'Hello world');
+
+    const bobDoc = bobRepo.find(aliceDoc.url);
+    bobDoc.unavailable()
+    await bobDoc.whenReady([HandleState.UNAVAILABLE]);
+
+    aliceAdapter.peerCandidate(bob);
+    // Bob isn't yet connected to Alice and can't respond to her sync message
+    await pause(100);
+    bobAdapter.peerCandidate(alice);
+
+    await bobDoc.whenReady([HandleState.READY]);
+
+    assert.equal(bobDoc.isReady(), true);
+  });
 
   describe("with peers (mesh network)", () => {
     const setup = async () => {
