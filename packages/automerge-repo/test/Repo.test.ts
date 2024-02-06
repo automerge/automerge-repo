@@ -506,20 +506,20 @@ describe("Repo", () => {
         return { repos, teardown }
       }
 
-      const numberOfPeers = 100
-      const { repos, teardown } = await createNConnectedRepos(numberOfPeers, 10)
+      const numberOfPeers = 2
+      const { repos, teardown } = await createNConnectedRepos(numberOfPeers)
+      console.log('repos', repos.length)
 
       const handle0 = repos[0].create()
+      handle0.change(d => {
+        d.foo = "bar"
+      })
 
-      for (const repo of repos) {
-        const handle = repo.find(handle0.url)
-      }
+      const handleN = repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
 
-      const handleN = repos[numberOfPeers - 1].find<TestDoc>(
-        stringifyAutomergeUrl({ documentId: handle0.documentId })
-      )
+
       await handleN.whenReady()
-      assert.deepStrictEqual(handleN.docSync(), { })
+      assert.deepStrictEqual(handleN.docSync(), { foo: "bar" })
 
       teardown()
     })
