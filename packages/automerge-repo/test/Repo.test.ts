@@ -692,7 +692,7 @@ describe("Repo", () => {
       teardown()
     })
 
-    it.only("charlieRepo can request a document not initially shared with it", async () => {
+    it("charlieRepo can request a document not initially shared with it", async () => {
       const { charlieRepo, notForCharlie, teardown } = await setup()
 
       const handle = charlieRepo.find<TestDoc>(
