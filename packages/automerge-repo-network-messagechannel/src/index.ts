@@ -24,7 +24,6 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   /** @hidden */
   messagePortRef: MessagePortRef
   #startupComplete = false
-  #latency: number
 
   constructor(
     messagePort: MessagePort,
@@ -33,7 +32,6 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     super()
 
     const useWeakRef = config.useWeakRef ?? false
-    this.#latency = config.latency
 
     this.messagePortRef = useWeakRef
       ? new WeakMessagePortRef(messagePort)
@@ -47,8 +45,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.messagePortRef.start()
     this.messagePortRef.addListener(
       "message",
-      async (e: { data: MessageChannelMessage }) => {
-        this.#latency && await new Promise((resolve) => setTimeout(resolve, this.#latency))
+      (e: { data: MessageChannelMessage }) => {
         log("message port received %o", e.data)
 
         const message = e.data
@@ -157,8 +154,6 @@ export interface MessageChannelNetworkAdapterConfig {
    * time in between when the page is closed and when the port is garbage collected
    */
   useWeakRef?: boolean
-
-  latency?: number
 }
 
 /** Notify the network that we have arrived so everyone knows our peer ID */
