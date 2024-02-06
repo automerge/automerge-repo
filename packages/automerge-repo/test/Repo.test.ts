@@ -461,7 +461,7 @@ describe("Repo", () => {
   })
 
   describe("with peers (linear network)", async () => {
-    it.only("n-peers connected in a line", async () => {
+    it("n-peers connected in a line", async () => {
       const createNConnectedRepos = async (
         numberOfPeers: number,
         latency?: number
@@ -493,7 +493,7 @@ describe("Repo", () => {
             network,
             storage: new DummyStorageAdapter(),
             peerId: `peer-${idx}` as PeerId,
-            sharePolicy: async () => false,
+            sharePolicy: idx === 0 ? async () => false : async () => true,
           })
           repos.push(repo)
         }
@@ -521,7 +521,7 @@ describe("Repo", () => {
         return { repos }
       }
 
-      const numberOfPeers = 2
+      const numberOfPeers = 10
       const { repos } = await createNConnectedRepos(numberOfPeers, 10)
 
       const handle0 = repos[0].create()
