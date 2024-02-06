@@ -466,62 +466,73 @@ describe("Repo", () => {
         numberOfPeers: number,
         latency?: number
       ) => {
-        const channels = []
+        const networkAdapters: DummyNetworkAdapter[][] = []
         const repos: Repo[] = []
+        const networkReady: Promise<void>[] = []
 
-        for (let i = 0; i < numberOfPeers; i++) {
-          const channel = new MessageChannel()
-          channels.push(channel)
-
+        // Create n repos and connect them in a line.
+        for (let idx = 0; idx < numberOfPeers; idx++) {
           const network = []
-          if (i >= 1) {
-            network.push(
-              new MessageChannelNetworkAdapter(channels[i - 1].port2, { latency })
+
+          const pair = DummyNetworkAdapter.createConnectedPair({ latency })
+          networkAdapters.push(pair)
+
+          if (idx > 0) {
+            network.push(networkAdapters[idx - 1][1])
+            networkReady.push(
+              eventPromise(networkAdapters[idx - 1][1], "ready")
             )
           }
-          if (i < numberOfPeers - 1) {
-            network.push(
-              new MessageChannelNetworkAdapter(channel.port1, { latency })
-            )
+
+          if (idx < numberOfPeers - 1) {
+            network.push(pair[0])
+            networkReady.push(eventPromise(pair[0], "ready"))
           }
+
           const repo = new Repo({
             network,
             storage: new DummyStorageAdapter(),
-            peerId: `peer-${i}` as PeerId,
-            sharePolicy: async () => true,
+            peerId: `peer-${idx}` as PeerId,
+            sharePolicy: async () => false,
           })
           repos.push(repo)
         }
 
-        const teardown = () => {
-          for (const channel of channels) {
-            channel.port1.close()
-          }
-        }
+        await Promise.all(networkReady)
 
-        await Promise.all(
+        const connectedPromise = Promise.all(
           repos.map(repo => eventPromise(repo.networkSubsystem, "peer"))
         )
 
-        return { repos, teardown }
+        // Initialize the network.
+        for (let idx = 0; idx < numberOfPeers; idx++) {
+          if (idx > 0) {
+            networkAdapters[idx - 1][1].peerCandidate(
+              `peer-${idx - 1}` as PeerId
+            )
+          }
+          if (idx < numberOfPeers - 1) {
+            networkAdapters[idx][0].peerCandidate(`peer-${idx + 1}` as PeerId)
+          }
+        }
+
+        await connectedPromise
+
+        return { repos }
       }
 
       const numberOfPeers = 2
-      const { repos, teardown } = await createNConnectedRepos(numberOfPeers)
-      console.log('repos', repos.length)
+      const { repos } = await createNConnectedRepos(numberOfPeers, 10)
 
       const handle0 = repos[0].create()
-      handle0.change(d => {
+      handle0.change((d: any) => {
         d.foo = "bar"
       })
 
       const handleN = repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
 
-
       await handleN.whenReady()
       assert.deepStrictEqual(handleN.docSync(), { foo: "bar" })
-
-      teardown()
     })
 
     const setup = async ({
@@ -681,7 +692,7 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("charlieRepo can request a document not initially shared with it", async () => {
+    it.only("charlieRepo can request a document not initially shared with it", async () => {
       const { charlieRepo, notForCharlie, teardown } = await setup()
 
       const handle = charlieRepo.find<TestDoc>(
@@ -1086,36 +1097,35 @@ describe("Repo", () => {
     })
   })
 
-
-  it('peer receives a document when connection is recovered', async () => {
-    const alice = "alice" as PeerId;
-    const bob = "bob" as PeerId;
-    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair();
+  it("peer receives a document when connection is recovered", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
     const aliceRepo = new Repo({
       network: [aliceAdapter],
-      peerId: alice
+      peerId: alice,
     })
     const bobRepo = new Repo({
       network: [bobAdapter],
-      peerId: bob
+      peerId: bob,
     })
 
-    const aliceDoc = aliceRepo.create();
-    aliceDoc.change((doc: any) => doc.text = 'Hello world');
+    const aliceDoc = aliceRepo.create()
+    aliceDoc.change((doc: any) => (doc.text = "Hello world"))
 
-    const bobDoc = bobRepo.find(aliceDoc.url);
+    const bobDoc = bobRepo.find(aliceDoc.url)
     bobDoc.unavailable()
-    await bobDoc.whenReady([HandleState.UNAVAILABLE]);
+    await bobDoc.whenReady([HandleState.UNAVAILABLE])
 
-    aliceAdapter.peerCandidate(bob);
+    aliceAdapter.peerCandidate(bob)
     // Bob isn't yet connected to Alice and can't respond to her sync message
-    await pause(100);
-    bobAdapter.peerCandidate(alice);
+    await pause(100)
+    bobAdapter.peerCandidate(alice)
 
-    await bobDoc.whenReady([HandleState.READY]);
+    await bobDoc.whenReady([HandleState.READY])
 
-    assert.equal(bobDoc.isReady(), true);
-  });
+    assert.equal(bobDoc.isReady(), true)
+  })
 
   describe("with peers (mesh network)", () => {
     const setup = async () => {

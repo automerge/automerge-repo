@@ -11,7 +11,8 @@ export class DummyNetworkAdapter extends NetworkAdapter {
     this.#sendMessage = opts.sendMessage;
   }
 
-  connect(_: string) {
+  connect(peerId: PeerId) {
+    this.peerId = peerId;
     if (this.#startReady) {
       this.emit("ready", { network: this })
     }
@@ -31,14 +32,14 @@ export class DummyNetworkAdapter extends NetworkAdapter {
     this.emit('message', message);
   }
 
-  static createConnectedPair() {
+  static createConnectedPair({ latency = 10 }: { latency?: number} = {}) {
     const adapter1: DummyNetworkAdapter = new DummyNetworkAdapter({
       startReady: true,
-      sendMessage: (message: Message) => pause(10).then(() => adapter2.receive(message)),
+      sendMessage: (message: Message) => pause(latency).then(() => adapter2.receive(message)),
     });
     const adapter2: DummyNetworkAdapter = new DummyNetworkAdapter({
       startReady: true,
-      sendMessage: (message: Message) => pause(10).then(() => adapter1.receive(message)),
+      sendMessage: (message: Message) => pause(latency).then(() => adapter1.receive(message)),
     });
 
     return [adapter1, adapter2];
