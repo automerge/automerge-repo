@@ -493,7 +493,7 @@ describe("Repo", () => {
             network,
             storage: new DummyStorageAdapter(),
             peerId: `peer-${idx}` as PeerId,
-            sharePolicy: idx === 0 ? async () => false : async () => true,
+            sharePolicy: async () => true,
           })
           repos.push(repo)
         }
