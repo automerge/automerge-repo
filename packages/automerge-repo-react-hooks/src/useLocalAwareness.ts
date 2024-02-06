@@ -47,6 +47,12 @@ export const useLocalAwareness = ({
   }
 
   useEffect(() => {
+    // Don't broadcast if userId isn't set: this avoids bogus broadcasts
+    // during the loading of a userId document.
+    if (!userId) {
+      return
+    }
+
     // Send periodic heartbeats
     const heartbeat = () =>
       void handle.broadcast([userId, localStateRef.current])
