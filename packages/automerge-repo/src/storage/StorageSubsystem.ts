@@ -3,7 +3,7 @@ import debug from "debug"
 import { headsAreSame } from "../helpers/headsAreSame.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 import { type DocumentId } from "../types.js"
-import { StorageAdapter } from "./StorageAdapter.js"
+import { StorageAdapterInterface } from "./StorageAdapterInterface.js"
 import { ChunkInfo, StorageKey, StorageId } from "./types.js"
 import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
@@ -15,7 +15,7 @@ import * as Uuid from "uuid"
  */
 export class StorageSubsystem {
   /** The storage adapter to use for saving and loading documents */
-  #storageAdapter: StorageAdapter
+  #storageAdapter: StorageAdapterInterface
 
   /** Record of the latest heads we've loaded or saved for each document  */
   #storedHeads: Map<DocumentId, A.Heads> = new Map()
@@ -28,7 +28,7 @@ export class StorageSubsystem {
 
   #log = debug(`automerge-repo:storage-subsystem`)
 
-  constructor(storageAdapter: StorageAdapter) {
+  constructor(storageAdapter: StorageAdapterInterface) {
     this.#storageAdapter = storageAdapter
   }
 

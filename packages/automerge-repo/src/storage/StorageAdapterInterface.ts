@@ -1,4 +1,3 @@
-import { StorageAdapterInterface } from "./StorageAdapterInterface.js"
 import { StorageKey, Chunk } from "./types.js"
 
 /** A storage adapter represents some way of storing binary data for a {@link Repo}
@@ -7,15 +6,15 @@ import { StorageKey, Chunk } from "./types.js"
  * `StorageAdapter`s provide a key/value storage interface. The keys are arrays of strings
  * ({@link StorageKey}) and the values are binary blobs.
  */
-export abstract class StorageAdapter implements StorageAdapterInterface {
+export interface StorageAdapterInterface {
   /** Load the single value corresponding to `key` */
-  abstract load(key: StorageKey): Promise<Uint8Array | undefined>
+  load(key: StorageKey): Promise<Uint8Array | undefined>
 
   /** Save the value `data` to the key `key` */
-  abstract save(key: StorageKey, data: Uint8Array): Promise<void>
+  save(key: StorageKey, data: Uint8Array): Promise<void>
 
   /** Remove the value corresponding to `key` */
-  abstract remove(key: StorageKey): Promise<void>
+  remove(key: StorageKey): Promise<void>
 
   /**
    * Load all values with keys that start with `keyPrefix`.
@@ -28,8 +27,8 @@ export abstract class StorageAdapter implements StorageAdapterInterface {
    * Be careful! `[documentId]` would also match something like `[documentId, "syncState"]`! We
    * aren't using this yet but keep it in mind.)
    */
-  abstract loadRange(keyPrefix: StorageKey): Promise<Chunk[]>
+  loadRange(keyPrefix: StorageKey): Promise<Chunk[]>
 
   /** Remove all values with keys that start with `keyPrefix` */
-  abstract removeRange(keyPrefix: StorageKey): Promise<void>
+  removeRange(keyPrefix: StorageKey): Promise<void>
 }

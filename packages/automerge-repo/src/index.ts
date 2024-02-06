@@ -36,6 +36,7 @@ export { Repo } from "./Repo.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export { isRepoMessage } from "./network/messages.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
+export { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
@@ -68,7 +69,7 @@ export type {
   PeerCandidatePayload,
   PeerDisconnectedPayload,
   PeerMetadata,
-} from "./network/NetworkAdapter.js"
+} from "./network/NetworkAdapterInterface.js"
 
 export type {
   DocumentUnavailableMessage,
