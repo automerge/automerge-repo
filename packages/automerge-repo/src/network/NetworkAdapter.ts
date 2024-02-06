@@ -7,8 +7,7 @@ import { Message } from "./messages.js"
 import { NetworkAdapterInterface } from "./NetworkAdapterInterface.js"
 
 /** An interface representing some way to connect to other peers
- * @deprecated
- * @see {@link NetworkAdapterInterface}
+ * @deprecated use {@link NetworkAdapterInterface}
  *
  * @remarks
  * The {@link Repo} uses one or more `NetworkAdapter`s to connect to other peers.

@@ -2,8 +2,7 @@ import { StorageAdapterInterface } from "./StorageAdapterInterface.js"
 import { StorageKey, Chunk } from "./types.js"
 
 /** A storage adapter represents some way of storing binary data for a {@link Repo}
- * @deprecated
- * @see {@link StorageAdapterInterface}
+ * @deprecated use {@link StorageAdapterInterface}
  *
  * @remarks
  * `StorageAdapter`s provide a key/value storage interface. The keys are arrays of strings

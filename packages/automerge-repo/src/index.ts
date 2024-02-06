@@ -34,9 +34,10 @@ export {
 } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
+export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.js"
 export { isRepoMessage } from "./network/messages.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
-export { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
+export type { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
