@@ -2,18 +2,18 @@ import { next as Automerge } from "@automerge/automerge"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
-  generateAutomergeUrl,
-  interpretAsDocumentId,
-  parseAutomergeUrl,
+    generateAutomergeUrl,
+    interpretAsDocumentId,
+    parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
-import { NetworkAdapter, type PeerMetadata } from "./network/NetworkAdapter.js"
+import { NetworkAdapterInterface, type PeerMetadata } from "./network/NetworkAdapterInterface.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { RepoMessage } from "./network/messages.js"
-import { StorageAdapter } from "./storage/StorageAdapter.js"
+import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
@@ -513,10 +513,10 @@ export interface RepoConfig {
   isEphemeral?: boolean
 
   /** A storage adapter can be provided, or not */
-  storage?: StorageAdapter
+  storage?: StorageAdapterInterface
 
   /** One or more network adapters must be provided */
-  network: NetworkAdapter[]
+  network: NetworkAdapterInterface[]
 
   /**
    * Normal peers typically share generously with everyone (meaning we sync all our documents with

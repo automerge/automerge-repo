@@ -2,10 +2,10 @@ import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import { PeerId, SessionId } from "../types.js"
 import type {
-  NetworkAdapter,
+  NetworkAdapterInterface,
   PeerDisconnectedPayload,
   PeerMetadata,
-} from "./NetworkAdapter.js"
+} from "./NetworkAdapterInterface.js"
 import {
   EphemeralMessage,
   MessageContents,
@@ -21,16 +21,16 @@ const getEphemeralMessageSource = (message: EphemeralMessage) =>
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #log: debug.Debugger
-  #adaptersByPeer: Record<PeerId, NetworkAdapter> = {}
+  #adaptersByPeer: Record<PeerId, NetworkAdapterInterface> = {}
 
   #count = 0
   #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
   #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
   #readyAdapterCount = 0
-  #adapters: NetworkAdapter[] = []
+  #adapters: NetworkAdapterInterface[] = []
 
   constructor(
-    adapters: NetworkAdapter[],
+    adapters: NetworkAdapterInterface[],
     public peerId = randomPeerId(),
     private peerMetadata: Promise<PeerMetadata>
   ) {
@@ -39,7 +39,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
-  addNetworkAdapter(networkAdapter: NetworkAdapter) {
+  addNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
     this.#adapters.push(networkAdapter)
     networkAdapter.once("ready", () => {
       this.#readyAdapterCount++
@@ -105,11 +105,13 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       })
     })
 
-    this.peerMetadata.then(peerMetadata => {
-      networkAdapter.connect(this.peerId, peerMetadata)
-    }).catch(err => {
-      this.#log("error connecting to network", err)
-    })
+    this.peerMetadata
+      .then(peerMetadata => {
+        networkAdapter.connect(this.peerId, peerMetadata)
+      })
+      .catch(err => {
+        this.#log("error connecting to network", err)
+      })
   }
 
   send(message: MessageContents) {
