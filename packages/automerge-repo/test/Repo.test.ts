@@ -1127,6 +1127,35 @@ describe("Repo", () => {
     assert.equal(bobDoc.isReady(), true)
   })
 
+  it("share policy `false`", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
+
+    const aliceRepo = new Repo({
+      network: [aliceAdapter],
+      peerId: alice,
+      sharePolicy: async () => false
+    })
+    const bobRepo = new Repo({
+      network: [bobAdapter],
+      peerId: bob,
+      sharePolicy: async () => false
+    })
+
+    aliceAdapter.peerCandidate(bob)
+    bobAdapter.peerCandidate(alice)
+
+    const aliceDoc = aliceRepo.create()
+    aliceDoc.change((doc: any) => doc.text = 'Hello world')
+
+    const bobDoc = bobRepo.find(aliceDoc.url)
+    
+    await bobDoc.whenReady()
+
+    assert.equal(bobDoc.isReady(), true)
+  })
+
   describe("with peers (mesh network)", () => {
     const setup = async () => {
       // Set up three repos; connect Alice to Bob, Bob to Charlie, and Alice to Charlie
