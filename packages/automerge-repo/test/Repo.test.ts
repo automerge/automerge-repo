@@ -1156,7 +1156,7 @@ describe("Repo", () => {
     assert.equal(bobDoc.isReady(), true)
   })
 
-  it.only("share policy `false` with `MessageChannelNetworkAdapter`", async () => {
+  it("share policy `false` with `MessageChannelNetworkAdapter`", async () => {
     const alice = "alice" as PeerId
     const bob = "bob" as PeerId
     const { port1: ab, port2: ba } = new MessageChannel()
