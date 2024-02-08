@@ -1135,25 +1135,62 @@ describe("Repo", () => {
     const aliceRepo = new Repo({
       network: [aliceAdapter],
       peerId: alice,
-      sharePolicy: async () => false
+      sharePolicy: async () => false,
     })
     const bobRepo = new Repo({
       network: [bobAdapter],
       peerId: bob,
-      sharePolicy: async () => false
+      sharePolicy: async () => false,
     })
 
     aliceAdapter.peerCandidate(bob)
     bobAdapter.peerCandidate(alice)
 
     const aliceDoc = aliceRepo.create()
-    aliceDoc.change((doc: any) => doc.text = 'Hello world')
+    aliceDoc.change((doc: any) => (doc.text = "Hello world"))
 
     const bobDoc = bobRepo.find(aliceDoc.url)
-    
+
     await bobDoc.whenReady()
 
     assert.equal(bobDoc.isReady(), true)
+  })
+
+  it.only("share policy `false` with `MessageChannelNetworkAdapter`", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const { port1: ab, port2: ba } = new MessageChannel()
+
+    const aliceNetworkAdapter = new MessageChannelNetworkAdapter(ab)
+    const bobNetworkAdapter = new MessageChannelNetworkAdapter(ba)
+
+    const aliceRepo = new Repo({
+      network: [aliceNetworkAdapter],
+      peerId: alice,
+      sharePolicy: async () => false,
+    })
+    const bobRepo = new Repo({
+      network: [bobNetworkAdapter],
+      peerId: bob,
+      sharePolicy: async () => false,
+    })
+
+    await Promise.all([
+      eventPromise(aliceRepo.networkSubsystem, "peer"),
+      eventPromise(bobRepo.networkSubsystem, "peer"),
+    ])
+
+    const aliceDoc = aliceRepo.create()
+    aliceDoc.change((doc: any) => (doc.text = "Hello world"))
+
+    const bobDoc = bobRepo.find(aliceDoc.url)
+
+    await bobDoc.whenReady()
+
+    assert.equal(bobDoc.isReady(), true)
+
+    ab.close()
+    ba.close()
   })
 
   describe("with peers (mesh network)", () => {
