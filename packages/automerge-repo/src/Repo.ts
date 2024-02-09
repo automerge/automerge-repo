@@ -73,6 +73,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // The `document` event is fired by the DocCollection any time we create a new document or look
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle, isNew }) => {
+      let isLocal = isNew
       if (storageSubsystem) {
         // Save when the document changes, but no more often than saveDebounceRate.
         const saveFn = ({
@@ -90,6 +91,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           // Try to load from disk
           const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
           if (loadedDoc) {
+            isLocal = true
             handle.update(() => loadedDoc)
           }
         }
@@ -117,7 +119,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
 
       // Register the document with the synchronizer. This advertises our interest in the document.
-      this.#synchronizer.addDocument({ handle, isNew })
+      this.#synchronizer.addDocument({ documentId: handle.documentId, isLocal  })
     })
 
     this.on("delete-document", ({ documentId }) => {

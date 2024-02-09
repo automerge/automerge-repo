@@ -1,7 +1,7 @@
 import debug from "debug"
 import { DocHandle } from "../DocHandle.js"
 import { stringifyAutomergeUrl } from "../AutomergeUrl.js"
-import { DocumentPayload, Repo } from "../Repo.js"
+import { Repo } from "../Repo.js"
 import { DocMessage } from "../network/messages.js"
 import { DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
@@ -105,14 +105,20 @@ export class CollectionSynchronizer extends Synchronizer {
   /**
    * Starts synchronizing the given document with all peers that we share it generously with.
    */
-  addDocument({ handle, isNew }: DocumentPayload) {
+  addDocument({
+    documentId,
+    isLocal,
+  }: {
+    documentId: DocumentId
+    isLocal: boolean
+  }) {
     // HACK: this is a hack to prevent us from adding the same document twice
-    if (this.#docSetUp[handle.documentId]) {
+    if (this.#docSetUp[documentId]) {
       return
     }
-    const docSynchronizer = this.#fetchDocSynchronizer(handle.documentId)
-    if (isNew) {
-      void this.#documentGenerousPeers(handle.documentId).then(peers =>
+    const docSynchronizer = this.#fetchDocSynchronizer(documentId)
+    if (isLocal) {
+      void this.#documentGenerousPeers(documentId).then(peers =>
         docSynchronizer.beginSync(peers)
       )
     } else {
