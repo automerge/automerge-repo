@@ -117,7 +117,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
 
       // Register the document with the synchronizer. This advertises our interest in the document.
-      this.#synchronizer.addDocument(handle.documentId)
+      this.#synchronizer.addDocument({ handle, isNew })
     })
 
     this.on("delete-document", ({ documentId }) => {
