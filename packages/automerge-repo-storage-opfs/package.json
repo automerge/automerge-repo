@@ -1,0 +1,29 @@
+{
+  "name": "@automerge/automerge-repo-storage-opfs",
+  "version": "1.1.0-alpha.7",
+  "description": "OPFS storage adapter for Automerge Repo",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-storage-opfs",
+  "author": "Robin Bühler <hi+npm@openscript.ch>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "npm-watch"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
