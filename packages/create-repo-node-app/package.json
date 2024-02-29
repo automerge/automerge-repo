@@ -9,8 +9,7 @@
   "bin": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "postbuild": "node postbuild.js",
-    "watch": "npm-watch build"
+    "postbuild": "node postbuild.js"
   },
   "publishConfig": {
     "access": "public"
