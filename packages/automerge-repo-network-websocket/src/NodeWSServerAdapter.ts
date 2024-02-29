@@ -17,7 +17,7 @@ import {
   isLeaveMessage,
 } from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
-import assert from "assert"
+import { assert } from "./assert.js"
 import { toArrayBuffer } from "./toArrayBuffer.js"
 
 const { encode, decode } = cborHelpers
