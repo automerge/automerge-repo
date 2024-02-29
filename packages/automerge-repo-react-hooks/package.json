@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "watch": "npm-watch",
+    "watch": "npm-watch build",
     "visualize": "VISUALIZE=true vite build"
   },
   "dependencies": {

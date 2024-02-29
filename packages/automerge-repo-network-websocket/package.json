@@ -9,7 +9,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch",
+    "watch": "npm-watch build",
     "test": "vitest"
   },
   "dependencies": {
