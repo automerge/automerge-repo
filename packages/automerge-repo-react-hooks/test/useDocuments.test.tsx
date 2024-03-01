@@ -56,10 +56,12 @@ describe("useDocuments", () => {
       documentIds.forEach((id, i) => expect(documents[id]).toEqual({ foo: i }))
     })
 
-    // multiply the value of foo in each document by 10
-    documentIds.forEach(id => {
-      const handle = repo.find(id)
-      handle.change(s => (s.foo *= 10))
+    act(() => {
+      // multiply the value of foo in each document by 10
+      documentIds.forEach(id => {
+        const handle = repo.find(id)
+        handle.change(s => (s.foo *= 10))
+      })
     })
 
     await waitFor(() => {
