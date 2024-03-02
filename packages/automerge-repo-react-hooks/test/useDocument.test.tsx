@@ -2,6 +2,7 @@ import { AutomergeUrl, PeerId, Repo } from "@automerge/automerge-repo"
 import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
 import { render, waitFor } from "@testing-library/react"
 import React from "react"
+import { act } from "react-dom/test-utils"
 import { describe, expect, it, vi } from "vitest"
 import { useDocument } from "../src/useDocument"
 import { RepoContext } from "../src/useRepo"
@@ -64,6 +65,28 @@ describe("useDocument", () => {
     render(<Component url={handleA.url} onDoc={onDoc} />, {wrapper})
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "A" }))
   })
+
+  it("should update if the doc changes", async () => {
+    const { wrapper, handleA } = setup()
+    const onDoc = vi.fn()
+
+    render(<Component url={handleA.url} onDoc={onDoc} />, {wrapper})
+    await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "A" }))
+
+    act(() => handleA.change(doc => (doc.foo = "new value")))
+    await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "new value" }))
+  });
+
+  it("should update if the doc is deleted", async () => {
+    const { wrapper, handleA } = setup()
+    const onDoc = vi.fn()
+
+    render(<Component url={handleA.url} onDoc={onDoc} />, {wrapper})
+    await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "A" }))
+
+    act(() => handleA.delete())
+    await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
+  });
 
   it("should update if the url changes", async () => {
     const { handleA, handleB, wrapper } = setup()

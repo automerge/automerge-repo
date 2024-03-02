@@ -2,6 +2,7 @@ import {
   AutomergeUrl,
   DocHandle,
   DocHandleChangePayload,
+  DocHandleDeletePayload,
   DocumentId,
 } from "@automerge/automerge-repo"
 import { useEffect, useState } from "react"
@@ -13,7 +14,7 @@ import { useRepo } from "./useRepo.js"
  */
 export const useDocuments = <T>(ids?: DocId[]) => {
   const [documents, setDocuments] = useState({} as Record<DocId, T>)
-  const [listeners, setListeners] = useState({} as Record<DocId, Listener<T>>)
+  const [listeners, setListeners] = useState({} as Record<DocId, Listeners<T>>)
   const repo = useRepo()
 
   useEffect(
@@ -21,22 +22,35 @@ export const useDocuments = <T>(ids?: DocId[]) => {
       const updateDocument = (id: DocId, doc?: T) => {
         if (doc) setDocuments(docs => ({ ...docs, [id]: doc }))
       }
+      const updateDocumentDeleted = (id: DocId) => {
+        // (don't remove listeners)
+        // remove the document from the document map
+        setDocuments(docs => {
+          const { [id]: _removedDoc, ...remainingDocs } = docs
+          return remainingDocs
+        })
+      }
 
       const addListener = (handle: DocHandle<T>) => {
         const id = handle.documentId
 
         // whenever a document changes, update our map
-        const listener: Listener<T> = ({ doc }) => updateDocument(id, doc)
-        handle.on("change", listener)
+        const listeners: Listeners<T> = {
+          change: ({ doc }) => updateDocument(id, doc),
+          delete: () => updateDocumentDeleted(id),
+        }
+        handle.on("change", listeners.change)
+        handle.on("delete", listeners.delete)
 
         // store the listener so we can remove it later
-        setListeners(listeners => ({ ...listeners, [id]: listener }))
+        setListeners(listeners => ({ ...listeners, [id]: listeners }))
       }
 
       const removeDocument = (id: DocId) => {
         // remove the listener
         const handle = repo.find<T>(id)
-        handle.off("change", listeners[id])
+        handle.off("change", listeners[id].change)
+        handle.off("delete", listeners[id].delete)
 
         // remove the document from the document map
         setDocuments(docs => {
@@ -68,9 +82,10 @@ export const useDocuments = <T>(ids?: DocId[]) => {
 
       // on unmount, remove all listeners
       const teardown = () => {
-        Object.entries(listeners).forEach(([id, listener]) => {
+        Object.entries(listeners).forEach(([id, listeners]) => {
           const handle = repo.find<T>(id as DocId)
-          handle.off("change", listener)
+          handle.off("change", listeners.change)
+          handle.off("delete", listeners.delete)
         })
       }
 
@@ -83,4 +98,6 @@ export const useDocuments = <T>(ids?: DocId[]) => {
 }
 
 type DocId = DocumentId | AutomergeUrl
-type Listener<T> = (p: DocHandleChangePayload<T>) => void
+type ChangeListener<T> = (p: DocHandleChangePayload<T>) => void
+type DeleteListener<T> = (p: DocHandleDeletePayload<T>) => void
+type Listeners<T> = { change: ChangeListener<T>, delete: DeleteListener<T> }

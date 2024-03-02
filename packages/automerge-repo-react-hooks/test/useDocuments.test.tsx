@@ -18,12 +18,16 @@ describe("useDocuments", () => {
       return <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
     }
 
+    let documentValues: Record<string, any> = {}
+
     const documentIds = range(10).map(i => {
-      const handle = repo.create({ foo: i })
+      const value = { foo: i }
+      const handle = repo.create(value)
+      documentValues[handle.documentId] = value
       return handle.documentId
     })
 
-    return { repo, wrapper, documentIds }
+    return { repo, wrapper, documentIds, documentValues }
   }
 
   const Component = ({ ids, onDocs }: {
@@ -36,23 +40,19 @@ describe("useDocuments", () => {
   }
 
   it("returns a collection of documents, given a list of ids", async () => {
-    const { documentIds, wrapper } = setup()
+    const { documentIds, documentValues, wrapper } = setup()
     const onDocs = vi.fn()
 
     render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-    ))
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(documentValues))
   })
 
   it("updates documents when they change", async () => {
-    const { repo, documentIds, wrapper } = setup()
+    const { repo, documentIds, documentValues, wrapper } = setup()
     const onDocs = vi.fn()
 
     render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-    ))
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(documentValues))
 
     act(() => {
       // multiply the value of foo in each document by 10
@@ -62,18 +62,35 @@ describe("useDocuments", () => {
       })
     })
     await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
+      Object.fromEntries(Object.entries(documentValues).map(
+        ([k, { foo }]) => [k, { foo: foo * 10 }]
+      ))
+    ))
+  })
+
+  it("updates documents when one is deleted", async () => {
+    const { repo, documentIds, documentValues, wrapper } = setup()
+    const onDocs = vi.fn()
+
+    render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
+
+    // delete the first document
+    act(() => {
+      const handle = repo.find(documentIds[0])
+      handle.delete()
+    })
+
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
+      { ...documentValues, [documentIds[0]]: undefined }
     ))
   })
 
   it(`removes documents when they're removed from the list of ids`, async () => {
-    const { documentIds, wrapper } = setup()
+    const { documentIds, documentValues, wrapper } = setup()
     const onDocs = vi.fn()
 
     const { rerender } = render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-    ))
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(documentValues))
 
     // remove the first document
     rerender(<Component ids={documentIds.slice(1)} onDocs={onDocs} />)
@@ -81,7 +98,7 @@ describe("useDocuments", () => {
     // object from documentIds. If we modified documentIds directly, the hook
     // wouldn't re-run.
     await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]).slice(1))
+      { ...documentValues, [documentIds[0]]: undefined }
     ))
   })
 })
