@@ -6,11 +6,11 @@
 
 import {
   Chunk,
-  StorageAdapter,
+  StorageAdapterInterface,
   type StorageKey,
 } from "@automerge/automerge-repo"
 
-export class IndexedDBStorageAdapter extends StorageAdapter {
+export class IndexedDBStorageAdapter implements StorageAdapterInterface {
   private dbPromise: Promise<IDBDatabase>
 
   /** Create a new {@link IndexedDBStorageAdapter}.
@@ -21,7 +21,6 @@ export class IndexedDBStorageAdapter extends StorageAdapter {
     private database: string = "automerge",
     private store: string = "documents"
   ) {
-    super()
     this.dbPromise = this.createDatabasePromise()
   }
 
