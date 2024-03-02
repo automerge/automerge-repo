@@ -1,8 +1,8 @@
 import { DocumentId, PeerId, Repo } from "@automerge/automerge-repo"
 import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
-import { act, renderHook, waitFor } from "@testing-library/react"
+import { act, render, waitFor } from "@testing-library/react"
 import React from "react"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { useDocuments } from "../src/useDocuments"
 import { RepoContext } from "../src/useRepo"
 
@@ -14,7 +14,9 @@ describe("useDocuments", () => {
       storage: new DummyStorageAdapter(),
     })
 
-    const wrapper = getRepoWrapper(repo)
+    const wrapper = ({ children }) => {
+      return <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+    }
 
     const documentIds = range(10).map(i => {
       const handle = repo.create({ foo: i })
@@ -24,37 +26,33 @@ describe("useDocuments", () => {
     return { repo, wrapper, documentIds }
   }
 
+  const Component = ({ ids, onRender }: {
+    ids: DocumentId[],
+    onRender: (documents: Record<DocumentId, unknown>) => void,
+  }) => {
+    const documents = useDocuments(ids)
+    onRender(documents)
+    return null
+  }
+
   it("returns a collection of documents, given a list of ids", async () => {
     const { documentIds, wrapper } = setup()
-    const { result } = renderHook(
-      () => {
-        const documents = useDocuments(documentIds)
-        return { documents }
-      },
-      { wrapper }
-    )
+    const onRender = vi.fn()
 
-    await waitFor(() => {
-      const { documents } = result.current
-      documentIds.forEach((id, i) => expect(documents[id]).toEqual({ foo: i }))
-    })
+    render(<Component ids={documentIds} onRender={onRender} />, { wrapper })
+    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+    ))
   })
 
   it("updates documents when they change", async () => {
     const { repo, documentIds, wrapper } = setup()
+    const onRender = vi.fn()
 
-    const { result } = renderHook(
-      () => {
-        const documents = useDocuments(documentIds)
-        return { documents }
-      },
-      { wrapper }
-    )
-
-    await waitFor(() => {
-      const { documents } = result.current
-      documentIds.forEach((id, i) => expect(documents[id]).toEqual({ foo: i }))
-    })
+    render(<Component ids={documentIds} onRender={onRender} />, { wrapper })
+    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+    ))
 
     act(() => {
       // multiply the value of foo in each document by 10
@@ -63,50 +61,32 @@ describe("useDocuments", () => {
         handle.change(s => (s.foo *= 10))
       })
     })
-
-    await waitFor(() => {
-      const { documents } = result.current
-      documentIds.forEach((id, i) =>
-        expect(documents[id]).toEqual({ foo: i * 10 })
-      )
-    })
+    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
+    ))
   })
 
   it(`removes documents when they're removed from the list of ids`, async () => {
-    const { repo, documentIds, wrapper } = setup()
-    const { result } = renderHook(
-      () => {
-        const [ids, setIds] = React.useState(documentIds)
-        const documents = useDocuments(ids)
-        return { documents, setIds }
-      },
-      { wrapper }
-    )
-    const [firstId, ...restIds] = documentIds
+    const { documentIds, wrapper } = setup()
+    const onRender = vi.fn()
 
-    await waitFor(() => {
-      const { documents } = result.current
-      expect(documents[firstId]).toEqual({ foo: 0 })
-    })
+    render(<Component ids={documentIds} onRender={onRender} />, { wrapper })
+    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+    ))
 
     // remove the first document
-    act(() => result.current.setIds(restIds))
-    // 👆 Note that this only works because restIds is a different object from documentIds.
-    // If we modified documentIds directly, the hook wouldn't re-run.
-
-    await waitFor(() => {
-      const { documents } = result.current
-      expect(documents[firstId]).toBeUndefined()
-    })
+    render(<Component ids={documentIds.slice(1)} onRender={onRender} />, { wrapper })
+    // 👆 Note that this only works because documentIds.slice(1) is a different
+    // object from documentIds. If we modified documentIds directly, the hook
+    // wouldn't re-run.
+    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]).slice(1))
+    ))
   })
 })
 
 const range = (n: number) => [...Array(n).keys()]
-
-const getRepoWrapper =
-  (repo: Repo) =>
-  ({ children }) =>
-    <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
 
 interface ExampleDoc {
   foo: number
