@@ -5,14 +5,14 @@
 
 import {
   Chunk,
-  StorageAdapter,
+  StorageAdapterInterface,
   type StorageKey,
 } from "@automerge/automerge-repo"
 import fs from "fs"
 import path from "path"
 import { rimraf } from "rimraf"
 
-export class NodeFSStorageAdapter extends StorageAdapter {
+export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
   private cache: { [key: string]: Uint8Array } = {}
 
@@ -20,7 +20,6 @@ export class NodeFSStorageAdapter extends StorageAdapter {
    * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
    */
   constructor(baseDirectory = "automerge-repo-data") {
-    super()
     this.baseDirectory = baseDirectory
   }
 
