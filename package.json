@@ -22,7 +22,7 @@
     "test:log": "cross-env DEBUG='automerge-repo:*' vitest",
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
-    "watch": "pnpm -r watch --parallel --stream"
+    "watch": "pnpm run --parallel --stream -r watch "
   },
   "engines": {
     "node": ">= 18.x"

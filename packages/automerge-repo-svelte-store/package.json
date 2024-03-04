@@ -8,7 +8,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch"
+    "watch": "npm-watch build"
   },
   "peerDependencies": {
     "@automerge/automerge": "^2.1.9",
