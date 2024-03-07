@@ -140,6 +140,17 @@ Sent by the receiving peer in response to the join message in the
 }
 ```
 
+#### Leave
+
+Sent by the initiating peer when they are planning to disconnect.
+
+```cddl
+{
+    type: "leave",
+    senderId: peer_id,
+}
+```
+
 #### Request
 
 Sent when the `senderId` is asking to begin sync for the given `documentid`. 
