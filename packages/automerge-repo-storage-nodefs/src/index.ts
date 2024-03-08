@@ -81,7 +81,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     )
 
     // Combine and deduplicate the lists of keys
-    const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
+    const allKeys = [...new Set([...cachedKeys, ...diskKeysToCachedKeys(diskKeys)])]
 
     // Load all files
     const chunks = await Promise.all(
@@ -112,15 +112,19 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
   }
 
   private getFilePath(keyArray: string[]): string {
-    return path.join(this.baseDirectory, getKey(keyArray))
+    const [firstKey, ...remainingKeys] = keyArray
+    return path.join(this.baseDirectory, firstKey.slice(0, 2), firstKey.slice(2), ...remainingKeys)
   }
 }
 
 // HELPERS
 
 const getKey = (keyArray: StorageKey): string => {
-  const [firstKey, ...remainingKeys] = keyArray
-  return path.join(firstKey.slice(0, 2), firstKey.slice(2), ...remainingKeys)
+  return keyArray.join(path.posix.sep)
+}
+
+const diskKeysToCachedKeys = (diskKeys: string[]): string[] => {
+  return diskKeys.map(k => k.slice(0, 2) + k.slice(3))
 }
 
 /** returns all files in a directory, recursively  */

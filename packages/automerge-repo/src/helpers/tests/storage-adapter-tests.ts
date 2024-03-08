@@ -43,16 +43,16 @@ export function runStorageAdapterTests(sut: {adapter: StorageAdapterInterface}) 
       expect(
         await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
       ).toStrictEqual([
-        {"data":new Uint8Array([0, 1, 127, 99, 154, 235 ]),"key":["3x","uJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
-        {"data":new Uint8Array([1, 76, 160, 53, 57, 10, 230]),"key":["3x","uJ5sVKdBaYS6uGgGJH1cGhBLiC","snapshot","7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870"]},
-        {"data":new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),"key":["3x","uJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"]}
+        {"data":new Uint8Array([0, 1, 127, 99, 154, 235 ]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
+        {"data":new Uint8Array([1, 76, 160, 53, 57, 10, 230]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","snapshot","7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870"]},
+        {"data":new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"]}
       ])
 
       expect(
         await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state"])
       ).toStrictEqual([
-        {"data":new Uint8Array([0, 1, 127, 99, 154, 235 ]),"key":["3x","uJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
-        {"data":new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),"key":["3x","uJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"]}
+        {"data":new Uint8Array([0, 1, 127, 99, 154, 235 ]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
+        {"data":new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"]}
       ])
     })
   })
@@ -79,7 +79,7 @@ export function runStorageAdapterTests(sut: {adapter: StorageAdapterInterface}) 
       expect(
         await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state"])
       ).toStrictEqual([
-        {"data":new Uint8Array([1, 76, 160, 53, 57, 10, 230]),"key":["3x","uJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
+        {"data":new Uint8Array([1, 76, 160, 53, 57, 10, 230]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
       ])
     })
   })
