@@ -106,7 +106,7 @@ document_id = str
 ; Metadata sent in either the join or peer message types
 peer_metadata = {
     ; The storage ID of this peer
-    ? storageId: storage_id, 
+    ? storageId: storage_id,
     ; Whether the sender expects to connect again with this storage ID
     isEphemeral: bool
 }
@@ -140,11 +140,22 @@ Sent by the receiving peer in response to the join message in the
 }
 ```
 
+#### Leave
+
+An advisory message sent by a peer when they are planning to disconnect.
+
+```cddl
+{
+    type: "leave",
+    senderId: peer_id,
+}
+```
+
 #### Request
 
-Sent when the `senderId` is asking to begin sync for the given `documentid`. 
+Sent when the `senderId` is asking to begin sync for the given `documentid`.
 Identical to [sync](#sync) but indicates that the `senderId` would like an
-[unavailable](#unavailable) message if the `targetId` does not have the 
+[unavailable](#unavailable) message if the `targetId` does not have the
 document.
 
 ```cddl
@@ -200,7 +211,7 @@ Sent when a peer wants to send an ephemeral message to another peer
   type: "ephemeral",
   ; The peer who sent this message
   senderId: peer_id,
-  ; The target of this message 
+  ; The target of this message
   targetId: peer_id,
   ; The sequence number of this message within its session
   count: uint,
@@ -257,9 +268,9 @@ Sent when the sender wishes to inform the receiver that a peer with a storage ID
   documentId: document_id
 
   ; A map from storage ID to the heads advertised for a given storage ID
-  newHeads: { 
+  newHeads: {
     * storage_id => {
-      ; The heads of the new document for the given storage ID as 
+      ; The heads of the new document for the given storage ID as
       ; a list of base64 encoded SHA2 hashes
       heads: [* string]
       ; The local time on the node which initially sent the remote-heads-changed
