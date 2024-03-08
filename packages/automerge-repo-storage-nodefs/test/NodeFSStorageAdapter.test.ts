@@ -65,7 +65,7 @@ describe('NodeFSStorageAdapter', () => {
   })
 
   describe('save and loadRange', () => {
-    it.fails('should return all the data that is present', async () => {
+    it('should return all the data that is present', async () => {
       await adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"], new Uint8Array([0, 1, 127, 99, 154, 235 ]));
       await adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","snapshot","7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870"], new Uint8Array([1, 76, 160, 53, 57, 10, 230]));
       await adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"], new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]));
@@ -102,7 +102,7 @@ describe('NodeFSStorageAdapter', () => {
   })
 
   describe('save and save', () => {
-    it.fails('should override the data', async () => {
+    it('should override the data', async () => {
       await adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"], new Uint8Array([0, 1, 127, 99, 154, 235 ]));
       await adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"], new Uint8Array([1, 76, 160, 53, 57, 10, 230]));
 
