@@ -121,9 +121,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
 // HELPERS
 
-const getKey = (keyArray: StorageKey): string => {
-  return keyArray.join(path.posix.sep)
-}
+const getKey = (key: StorageKey): string => path.join(...key)
 
 /** returns all files in a directory, recursively  */
 const walkdir = async (dirPath: string): Promise<string[]> => {
