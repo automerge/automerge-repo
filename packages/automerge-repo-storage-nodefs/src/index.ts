@@ -76,12 +76,14 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
     // The "keys" in the cache don't include the baseDirectory.
     // We want to de-dupe with the cached keys so we'll use getKey to normalize them.
-    const diskKeys: string[] = diskFiles.map((fileName: string) =>
-      getKey([path.relative(this.baseDirectory, fileName)])
-    )
+    const diskKeys: string[] = diskFiles
+      .map((fileName: string) => {
+        const k = getKey([path.relative(this.baseDirectory, fileName)])
+        return k.slice(0, 2) + k.slice(3)
+      })
 
     // Combine and deduplicate the lists of keys
-    const allKeys = [...new Set([...cachedKeys, ...diskKeysToCachedKeys(diskKeys)])]
+    const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
 
     // Load all files
     const chunks = await Promise.all(
@@ -121,10 +123,6 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
 const getKey = (keyArray: StorageKey): string => {
   return keyArray.join(path.posix.sep)
-}
-
-const diskKeysToCachedKeys = (diskKeys: string[]): string[] => {
-  return diskKeys.map(k => k.slice(0, 2) + k.slice(3))
 }
 
 /** returns all files in a directory, recursively  */
