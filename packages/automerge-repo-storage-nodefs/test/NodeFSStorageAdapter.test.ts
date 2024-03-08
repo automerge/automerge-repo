@@ -22,7 +22,7 @@ describe('NodeFSStorageAdapter', () => {
   })
 
   afterAll(async() => {
-    cleanDir(baseDirectory);
+    cleanDir(baseDirectory)
   })
 
   describe('getFilePath', () => {
@@ -33,5 +33,5 @@ describe('NodeFSStorageAdapter', () => {
     })
   })
 
-  runStorageAdapterTests(sut);
+  runStorageAdapterTests(sut)
 })
