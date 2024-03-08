@@ -12,12 +12,14 @@ function cleanDir(dir: string) {
   } catch (e) {}
 }
 
+const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
+
 describe('NodeFSStorageAdapter', () => {
-  let baseDirectory: string = path.join(os.tmpdir(), crypto.randomUUID());
+  let baseDirectory: string = tempDir()
   let sut: {adapter: NodeFSStorageAdapter} = {adapter: new NodeFSStorageAdapter(baseDirectory)}
 
   beforeEach(async () => {
-    baseDirectory = path.join(os.tmpdir(), crypto.randomUUID())
+    baseDirectory = tempDir()
     sut.adapter = new NodeFSStorageAdapter(baseDirectory)
   })
 
