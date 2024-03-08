@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe } from "vitest"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { runStorageAdapterTests } from "../src/helpers/tests/storage-adapter-tests.js"
 
