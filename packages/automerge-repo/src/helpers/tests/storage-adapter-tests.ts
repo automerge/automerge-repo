@@ -13,10 +13,22 @@ export function runStorageAdapterTests(sut: {adapter: StorageAdapterInterface}) 
   })
 
   describe('save and load', () => {
-    it('should be possible to save and load', async () => {
-      await sut.adapter.save(["storage-adapter-id"], new TextEncoder().encode('8a35c9b4-109e-4a7f-a35e-a5464121b6dd'))
+    it('should return data that was saved', async () => {
+      await sut.adapter.save(["storage-adapter-id"], new Uint8Array([
+        56, 97, 51,  53,  99, 57, 98,  52,  45,
+        49, 48, 57, 101,  45, 52, 97,  55, 102,
+        45, 97, 51,  53, 101, 45, 97,  53,  52,
+        54, 52, 49,  50,  49, 98, 54, 100, 100
+      ]))
+
       const actual = await sut.adapter.load(["storage-adapter-id"])
-      expect(actual).toStrictEqual(new TextEncoder().encode('8a35c9b4-109e-4a7f-a35e-a5464121b6dd'))
+
+      expect(actual).toStrictEqual(new Uint8Array([
+        56, 97, 51,  53,  99, 57, 98,  52,  45,
+        49, 48, 57, 101,  45, 52, 97,  55, 102,
+        45, 97, 51,  53, 101, 45, 97,  53,  52,
+        54, 52, 49,  50,  49, 98, 54, 100, 100
+      ]))
     })
 
     it('should work with composed keys', async () => {
