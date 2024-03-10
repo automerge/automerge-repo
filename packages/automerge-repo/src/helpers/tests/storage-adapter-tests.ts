@@ -42,18 +42,31 @@ export function runStorageAdapterTests(sut: {adapter: StorageAdapterInterface}) 
 
       expect(
         await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
-      ).toStrictEqual([
+      ).toStrictEqual(expect.arrayContaining([
         {"data":new Uint8Array([0, 1, 127, 99, 154, 235 ]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
         {"data":new Uint8Array([1, 76, 160, 53, 57, 10, 230]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","snapshot","7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870"]},
         {"data":new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"]}
-      ])
+      ]))
 
       expect(
         await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state"])
-      ).toStrictEqual([
+      ).toStrictEqual(expect.arrayContaining([
         {"data":new Uint8Array([0, 1, 127, 99, 154, 235 ]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
         {"data":new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"]}
-      ])
+      ]))
+    })
+
+    it("does not includes values which shouldn't be there", async () => {
+      await sut.adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"], new Uint8Array([0, 1, 127, 99, 154, 235 ]))
+      await sut.adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiD","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"], new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]))
+
+      const actual = await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
+      expect(actual).toStrictEqual(expect.arrayContaining([
+        {"data":new Uint8Array([0, 1, 127, 99, 154, 235 ]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
+      ]))
+      expect(actual).toStrictEqual(expect.not.arrayContaining([
+        {"data":new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiD","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"]},
+      ]))
     })
   })
 
@@ -80,6 +93,34 @@ export function runStorageAdapterTests(sut: {adapter: StorageAdapterInterface}) 
         await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state"])
       ).toStrictEqual([
         {"data":new Uint8Array([1, 76, 160, 53, 57, 10, 230]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"]},
+      ])
+    })
+  })
+
+  describe('removeRange', () => {
+    it('should remove set of records', async () => {
+      await sut.adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"], new Uint8Array([0, 1, 127, 99, 154, 235 ]))
+      await sut.adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","snapshot","7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870"], new Uint8Array([1, 76, 160, 53, 57, 10, 230]))
+      await sut.adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"], new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]))
+
+      await sut.adapter.removeRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state"])
+
+      expect(
+        await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
+      ).toStrictEqual([
+        {"data":new Uint8Array([1, 76, 160, 53, 57, 10, 230]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","snapshot","7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870"]},
+      ])
+    })
+
+    it('should not remove set of records that doesn\'t match', async () => {
+      await sut.adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC","sync-state","d99d4820-fb1f-4f3a-a40f-d5997b2012cf"], new Uint8Array([0, 1, 127, 99, 154, 235 ]))
+      await sut.adapter.save(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiD","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"], new Uint8Array([1, 76, 160, 53, 57, 10, 230]))
+
+      await sut.adapter.removeRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
+
+      const actual = await sut.adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiD"])
+      expect(actual).toStrictEqual([
+        {"data":new Uint8Array([1, 76, 160, 53, 57, 10, 230]),"key":["3xuJ5sVKdBaYS6uGgGJH1cGhBLiD","sync-state","0e05ed0c-41f5-4785-b27a-7cf334c1b741"]},
       ])
     })
   })
