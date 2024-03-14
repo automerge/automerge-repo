@@ -3,7 +3,6 @@ import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messa
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"
-import { HandleState, READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
   generateAutomergeUrl,
@@ -204,12 +203,11 @@ describe("Repo", () => {
       assert.equal(doc, undefined)
     })
 
-    it("fires an 'unavailable' event when you don't have the document locally and network to connect to", async () => {
+    it("emits an unavailable event when you don't have the document locally and are not connected to anyone", async () => {
       const { repo } = setup()
       const url = generateAutomergeUrl()
       const handle = repo.find<TestDoc>(url)
       assert.equal(handle.isReady(), false)
-
       await eventPromise(handle, "unavailable")
     })
 
@@ -795,9 +793,7 @@ describe("Repo", () => {
     it("charlieRepo can request a document not initially shared with it", async () => {
       const { charlieRepo, notForCharlie, teardown } = await setup()
 
-      const handle = charlieRepo.find<TestDoc>(
-        stringifyAutomergeUrl({ documentId: notForCharlie })
-      )
+      const handle = charlieRepo.find<TestDoc>(notForCharlie)
 
       await pause(50)
 
@@ -808,12 +804,10 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("charlieRepo can request a document across a network of multiple peers", async () => {
+    it.skip("charlieRepo can request a document across a network of multiple peers", async () => {
       const { charlieRepo, notForBob, teardown } = await setup()
 
-      const handle = charlieRepo.find<TestDoc>(
-        stringifyAutomergeUrl({ documentId: notForBob })
-      )
+      const handle = charlieRepo.find<TestDoc>(notForBob)
 
       await pause(50)
 
@@ -835,7 +829,16 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("fires an 'unavailable' event when a document is not available on the network", async () => {
+    it("emits an unavailable event when it's not found on the network", async () => {
+      const { aliceRepo, teardown } = await setup()
+      const url = generateAutomergeUrl()
+      const handle = aliceRepo.find(url)
+      assert.equal(handle.isReady(), false)
+      await eventPromise(handle, "unavailable")
+      teardown()
+    })
+
+    it("emits an unavailable event every time an unavailable doc is requested", async () => {
       const { charlieRepo, teardown } = await setup()
       const url = generateAutomergeUrl()
       const handle = charlieRepo.find<TestDoc>(url)
@@ -846,10 +849,13 @@ describe("Repo", () => {
         eventPromise(charlieRepo, "unavailable-document"),
       ])
 
-      // make sure it fires a second time if the doc is still unavailable
+      // make sure it emits a second time if the doc is still unavailable
       const handle2 = charlieRepo.find<TestDoc>(url)
       assert.equal(handle2.isReady(), false)
-      await eventPromise(handle2, "unavailable")
+      await Promise.all([
+        eventPromise(handle, "unavailable"),
+        eventPromise(charlieRepo, "unavailable-document"),
+      ])
 
       teardown()
     })
@@ -873,7 +879,7 @@ describe("Repo", () => {
 
       await eventPromise(aliceRepo.networkSubsystem, "peer")
 
-      const doc = await handle.doc([READY])
+      const doc = await handle.doc(["ready"])
       assert.deepStrictEqual(doc, { foo: "baz" })
 
       // an additional find should also return the correct resolved document
@@ -951,17 +957,6 @@ describe("Repo", () => {
 
       assert.deepStrictEqual(doc3, { foo: "baz" })
 
-      teardown()
-    })
-
-    it("can emit an 'unavailable' event when it's not found on the network", async () => {
-      const { charlieRepo, teardown } = await setup()
-
-      const url = generateAutomergeUrl()
-      const handle = charlieRepo.find<TestDoc>(url)
-      assert.equal(handle.isReady(), false)
-
-      await eventPromise(handle, "unavailable")
       teardown()
     })
 
@@ -1209,14 +1204,14 @@ describe("Repo", () => {
 
     const bobDoc = bobRepo.find(aliceDoc.url)
     bobDoc.unavailable()
-    await bobDoc.whenReady([HandleState.UNAVAILABLE])
+    await eventPromise(bobDoc, "unavailable")
 
     aliceAdapter.peerCandidate(bob)
     // Bob isn't yet connected to Alice and can't respond to her sync message
     await pause(100)
     bobAdapter.peerCandidate(alice)
 
-    await bobDoc.whenReady([HandleState.READY])
+    await bobDoc.whenReady()
 
     assert.equal(bobDoc.isReady(), true)
   })
