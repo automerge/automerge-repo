@@ -143,7 +143,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.#machine.subscribe(state => {
       const oldDoc = this.#prevDocState
       const newDoc = state.context.doc
-      this.#log(`→ ${state.value}`, newDoc)
+      this.#log(`→ ${state.value} %o`, newDoc)
       // if the document has changed, emit a change event
       this.#checkForChanges(oldDoc, newDoc)
     })
