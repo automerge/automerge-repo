@@ -228,13 +228,13 @@ export class Repo extends EventEmitter<RepoEvents> {
         (!heads || !headsAreSame(heads, message.syncState.theirHeads))
 
       if (haveHeadsChanged) {
-        handle.setRemoteHeads(storageId, message.syncState.theirHeads)
+        handle.setRemoteHeads(storageId, message.syncState.theirHeads as string[])
 
         if (storageId && this.#remoteHeadsGossipingEnabled) {
           this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
             message.documentId,
             storageId,
-            message.syncState.theirHeads
+            message.syncState.theirHeads as string[]
           )
         }
       }

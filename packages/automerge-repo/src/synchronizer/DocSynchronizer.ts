@@ -30,7 +30,7 @@ type PendingMessage = {
 
 interface DocSynchronizerConfig {
   handle: DocHandle<unknown>
-  onLoadSyncState?: (peerId: PeerId) => A.SyncState | undefined
+  onLoadSyncState?: (peerId: PeerId) => Promise<A.SyncState | undefined>
 }
 
 /**
@@ -137,11 +137,13 @@ export class DocSynchronizer extends Synchronizer {
 
     let pendingCallbacks = this.#pendingSyncStateCallbacks[peerId]
     if (!pendingCallbacks) {
-      this.#onLoadSyncState(peerId).then(syncState => {
-        this.#initSyncState(peerId, syncState ?? A.initSyncState())
-      }).catch(err => {
-        this.#log(`Error loading sync state for ${peerId}: ${err}`)
-      })
+      this.#onLoadSyncState(peerId)
+        .then(syncState => {
+          this.#initSyncState(peerId, syncState ?? A.initSyncState())
+        })
+        .catch(err => {
+          this.#log(`Error loading sync state for ${peerId}: ${err}`)
+        })
       pendingCallbacks = this.#pendingSyncStateCallbacks[peerId] = []
     }
 
@@ -262,13 +264,15 @@ export class DocSynchronizer extends Synchronizer {
         )
         this.#setSyncState(peerId, reparsedSyncState)
 
-        docPromise.then(doc => {
-          if (doc) {
-            this.#sendSyncMessage(peerId, doc)
-          }
-        }).catch(err => {
-          this.#log(`Error loading doc for ${peerId}: ${err}`)
-        })
+        docPromise
+          .then(doc => {
+            if (doc) {
+              this.#sendSyncMessage(peerId, doc)
+            }
+          })
+          .catch(err => {
+            this.#log(`Error loading doc for ${peerId}: ${err}`)
+          })
       })
     })
   }

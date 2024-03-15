@@ -403,7 +403,7 @@ export class DocHandle<T> //
             ),
             callback
           )
-          resultHeads = result.newHeads
+          resultHeads = result.newHeads as string[]
           return result.newDoc
         },
       },
