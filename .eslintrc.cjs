@@ -24,6 +24,7 @@ module.exports = {
     "**/dist/*",
     "**/node_modules/*",
     ".eslintrc.cjs",
+    "packages/create-vite-app/**/*",
   ],
   overrides: [
     {
