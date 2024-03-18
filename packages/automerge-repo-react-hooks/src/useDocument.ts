@@ -44,8 +44,11 @@ export function useDocument<T>(id?: AnyDocumentId) {
 
     const onChange = (h: DocHandleChangePayload<T>) => setDoc(h.doc)
     handle.on("change", onChange)
+    const onDelete = () => setDoc(undefined)
+    handle.on("delete", onDelete)
     const cleanup = () => {
       handle.removeListener("change", onChange)
+      handle.removeListener("delete", onDelete)
     }
 
     return cleanup
