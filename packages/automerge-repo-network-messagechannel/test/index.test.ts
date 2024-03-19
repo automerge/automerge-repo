@@ -1,10 +1,10 @@
 import { describe } from "vitest"
-import { runAdapterTests } from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
+import { runNetworkAdapterTests } from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
 import { MessageChannelNetworkAdapter as Adapter } from "../src/index.js"
 
 // bob is the hub, alice and charlie are spokes
 describe("MessageChannelNetworkAdapter", () => {
-  runAdapterTests(async () => {
+  runNetworkAdapterTests(async () => {
     const aliceBobChannel = new MessageChannel()
     const bobCharlieChannel = new MessageChannel()
 
@@ -24,7 +24,7 @@ describe("MessageChannelNetworkAdapter", () => {
   }, "hub and spoke")
 
   // all 3 peers connected directly to each other
-  runAdapterTests(async () => {
+  runNetworkAdapterTests(async () => {
     const aliceBobChannel = new MessageChannel()
     const bobCharlieChannel = new MessageChannel()
     const aliceCharlieChannel = new MessageChannel()
