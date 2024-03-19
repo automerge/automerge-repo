@@ -2,12 +2,10 @@ import {
   useDocument,
   useLocalAwareness,
   useRemoteAwareness,
-  useBootstrap,
 } from "@automerge/automerge-repo-react-hooks";
 
-export function App({ userId }) {
-  const handle = useBootstrap();
-  const [doc, changeDoc] = useDocument(handle.url);
+export function App({ userId, url }) {
+  const [doc, changeDoc] = useDocument(url);
 
   const [localState, updateLocalState] = useLocalAwareness({
     handle,

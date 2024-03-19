@@ -1,6 +1,5 @@
 import { AutomergeUrl } from "@automerge/automerge-repo"
 import {
-  useBootstrap,
   useDocument,
   useRepo,
 } from "@automerge/automerge-repo-react-hooks"
@@ -10,14 +9,7 @@ import { useRef, useState } from "react"
 import { Todo } from "./Todo.js"
 import { ExtendedArray, Filter, State, TodoData } from "./types.js"
 
-export function App() {
-  const { url } = useBootstrap({
-    onNoDocument: repo => {
-      const handle = repo.create<State>()
-      handle.change(d => (d.todos = []))
-      return handle
-    },
-  })
+export function App({url}: {url: AutomergeUrl}) {
   const [state, changeState] = useDocument<State>(url)
 
   const newTodoInput = useRef<HTMLInputElement>(null)
