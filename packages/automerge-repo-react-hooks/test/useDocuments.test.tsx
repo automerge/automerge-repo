@@ -26,31 +26,31 @@ describe("useDocuments", () => {
     return { repo, wrapper, documentIds }
   }
 
-  const Component = ({ ids, onRender }: {
+  const Component = ({ ids, onDocs }: {
     ids: DocumentId[],
-    onRender: (documents: Record<DocumentId, unknown>) => void,
+    onDocs: (documents: Record<DocumentId, unknown>) => void,
   }) => {
     const documents = useDocuments(ids)
-    onRender(documents)
+    onDocs(documents)
     return null
   }
 
   it("returns a collection of documents, given a list of ids", async () => {
     const { documentIds, wrapper } = setup()
-    const onRender = vi.fn()
+    const onDocs = vi.fn()
 
-    render(<Component ids={documentIds} onRender={onRender} />, { wrapper })
-    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+    render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
       Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
     ))
   })
 
   it("updates documents when they change", async () => {
     const { repo, documentIds, wrapper } = setup()
-    const onRender = vi.fn()
+    const onDocs = vi.fn()
 
-    render(<Component ids={documentIds} onRender={onRender} />, { wrapper })
-    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+    render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
       Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
     ))
 
@@ -61,26 +61,26 @@ describe("useDocuments", () => {
         handle.change(s => (s.foo *= 10))
       })
     })
-    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
       Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
     ))
   })
 
   it(`removes documents when they're removed from the list of ids`, async () => {
     const { documentIds, wrapper } = setup()
-    const onRender = vi.fn()
+    const onDocs = vi.fn()
 
-    render(<Component ids={documentIds} onRender={onRender} />, { wrapper })
-    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+    const { rerender } = render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
       Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
     ))
 
     // remove the first document
-    render(<Component ids={documentIds.slice(1)} onRender={onRender} />, { wrapper })
+    rerender(<Component ids={documentIds.slice(1)} onDocs={onDocs} />)
     // 👆 Note that this only works because documentIds.slice(1) is a different
     // object from documentIds. If we modified documentIds directly, the hook
     // wouldn't re-run.
-    await waitFor(() => expect(onRender).toHaveBeenCalledWith(
+    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
       Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]).slice(1))
     ))
   })
