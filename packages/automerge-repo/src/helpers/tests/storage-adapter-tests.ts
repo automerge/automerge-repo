@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest"
 
 import type { StorageAdapterInterface } from "../../storage/StorageAdapterInterface.js"
 
+const PAYLOAD_A = new Uint8Array([
+  56, 97, 51, 53, 99, 57, 98, 52, 45, 49, 48, 57, 101, 45, 52, 97, 55, 102, 45,
+  97, 51, 53, 101, 45, 97, 53, 52, 54, 52, 49, 50, 49, 98, 54, 100, 100,
+])
+const PAYLOAD_B = new Uint8Array([0, 1, 127, 99, 154, 235])
+const PAYLOAD_C = new Uint8Array([1, 76, 160, 53, 57, 10, 230])
+const PAYLOAD_D = new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193])
+
 export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
   const setup = async () => {
     const { adapter, teardown = NO_OP } = await _setup()
@@ -15,11 +23,7 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
       it("should return undefined if there is no data", async () => {
         const { adapter, teardown } = await setup()
         expect(
-          await adapter.load([
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-          ])
+          await adapter.load(["3xuJ5", "sync-state", "d99d4"])
         ).toStrictEqual(undefined)
         teardown()
       })
@@ -28,53 +32,27 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("save and load", () => {
       it("should return data that was saved", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(
-          ["storage-adapter-id"],
-          new Uint8Array([
-            56, 97, 51, 53, 99, 57, 98, 52, 45, 49, 48, 57, 101, 45, 52, 97, 55,
-            102, 45, 97, 51, 53, 101, 45, 97, 53, 52, 54, 52, 49, 50, 49, 98,
-            54, 100, 100,
-          ])
-        )
+        await adapter.save(["storage-adapter-id"], PAYLOAD_A)
 
         const actual = await adapter.load(["storage-adapter-id"])
 
-        expect(actual).toStrictEqual(
-          new Uint8Array([
-            56, 97, 51, 53, 99, 57, 98, 52, 45, 49, 48, 57, 101, 45, 52, 97, 55,
-            102, 45, 97, 51, 53, 101, 45, 97, 53, 52, 54, 52, 49, 50, 49, 98,
-            54, 100, 100,
-          ])
-        )
+        expect(actual).toStrictEqual(PAYLOAD_A)
         teardown()
       })
 
-      it("should work with composed keys", async () => {
+      it("should work with composite keys", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(
-          [
-            "pSq9fP9ekr1zembLzBJkgHTo7Wn",
-            "sync-state",
-            "3761c9f0-bb1d-44b6-88ac-f85072fc3273",
-          ],
-          new Uint8Array([0, 1, 127, 99, 154, 235])
-        )
-        const actual = await adapter.load([
-          "pSq9fP9ekr1zembLzBJkgHTo7Wn",
-          "sync-state",
-          "3761c9f0-bb1d-44b6-88ac-f85072fc3273",
-        ])
-        expect(actual).toStrictEqual(new Uint8Array([0, 1, 127, 99, 154, 235]))
+        await adapter.save(["pSq9f", "sync-state", "3761c"], PAYLOAD_B)
+        const actual = await adapter.load(["pSq9f", "sync-state", "3761c"])
+        expect(actual).toStrictEqual(PAYLOAD_B)
         teardown()
       })
     })
 
     describe("loadRange", () => {
-      it("should return empty array if there is no data", async () => {
+      it("should return an empty array if there is no data", async () => {
         const { adapter, teardown } = await setup()
-        expect(
-          await adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
-        ).toStrictEqual([])
+        expect(await adapter.loadRange(["3xuJ5"])).toStrictEqual([])
         teardown()
       })
     })
@@ -82,131 +60,40 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("save and loadRange", () => {
       it("should return all the data that is present", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-          ],
-          new Uint8Array([0, 1, 127, 99, 154, 235])
-        )
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "snapshot",
-            "7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870",
-          ],
-          new Uint8Array([1, 76, 160, 53, 57, 10, 230])
-        )
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "0e05ed0c-41f5-4785-b27a-7cf334c1b741",
-          ],
-          new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193])
-        )
+        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
+        await adapter.save(["3xuJ5", "snapshot", "7848c"], PAYLOAD_C)
+        await adapter.save(["3xuJ5", "sync-state", "0e05e"], PAYLOAD_D)
 
-        expect(
-          await adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
-        ).toStrictEqual(
+        expect(await adapter.loadRange(["3xuJ5"])).toStrictEqual(
           expect.arrayContaining([
-            {
-              data: new Uint8Array([0, 1, 127, 99, 154, 235]),
-              key: [
-                "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-                "sync-state",
-                "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-              ],
-            },
-            {
-              data: new Uint8Array([1, 76, 160, 53, 57, 10, 230]),
-              key: [
-                "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-                "snapshot",
-                "7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870",
-              ],
-            },
-            {
-              data: new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),
-              key: [
-                "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-                "sync-state",
-                "0e05ed0c-41f5-4785-b27a-7cf334c1b741",
-              ],
-            },
+            { key: ["3xuJ5", "sync-state", "d99d4"], data: PAYLOAD_B },
+            { key: ["3xuJ5", "snapshot", "7848c"], data: PAYLOAD_C },
+            { key: ["3xuJ5", "sync-state", "0e05e"], data: PAYLOAD_D },
           ])
         )
 
-        expect(
-          await adapter.loadRange([
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-          ])
-        ).toStrictEqual(
+        expect(await adapter.loadRange(["3xuJ5", "sync-state"])).toStrictEqual(
           expect.arrayContaining([
-            {
-              data: new Uint8Array([0, 1, 127, 99, 154, 235]),
-              key: [
-                "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-                "sync-state",
-                "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-              ],
-            },
-            {
-              data: new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),
-              key: [
-                "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-                "sync-state",
-                "0e05ed0c-41f5-4785-b27a-7cf334c1b741",
-              ],
-            },
+            { key: ["3xuJ5", "sync-state", "d99d4"], data: PAYLOAD_B },
+            { key: ["3xuJ5", "sync-state", "0e05e"], data: PAYLOAD_D },
           ])
         )
       })
 
       it("does not includes values which shouldn't be there", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-          ],
-          new Uint8Array([0, 1, 127, 99, 154, 235])
-        )
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiD",
-            "sync-state",
-            "0e05ed0c-41f5-4785-b27a-7cf334c1b741",
-          ],
-          new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193])
-        )
+        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
+        await adapter.save(["3xuJ6", "sync-state", "0e05e"], PAYLOAD_D)
 
-        const actual = await adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
+        const actual = await adapter.loadRange(["3xuJ5"])
         expect(actual).toStrictEqual(
           expect.arrayContaining([
-            {
-              data: new Uint8Array([0, 1, 127, 99, 154, 235]),
-              key: [
-                "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-                "sync-state",
-                "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-              ],
-            },
+            { key: ["3xuJ5", "sync-state", "d99d4"], data: PAYLOAD_B },
           ])
         )
         expect(actual).toStrictEqual(
           expect.not.arrayContaining([
-            {
-              data: new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193]),
-              key: [
-                "3xuJ5sVKdBaYS6uGgGJH1cGhBLiD",
-                "sync-state",
-                "0e05ed0c-41f5-4785-b27a-7cf334c1b741",
-              ],
-            },
+            { key: ["3xuJ6", "sync-state", "0e05e"], data: PAYLOAD_D },
           ])
         )
         teardown()
@@ -216,68 +103,25 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("save and remove", () => {
       it("should be no data", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "snapshot",
-            "090144be3cabe2848d4af81ebf6c3f0c93dfcf814fd34a43cdc93d8564fda056",
-          ],
-          new Uint8Array([0, 1, 127, 99, 154, 235])
-        )
-        await adapter.remove([
-          "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-          "snapshot",
-          "090144be3cabe2848d4af81ebf6c3f0c93dfcf814fd34a43cdc93d8564fda056",
-        ])
+        await adapter.save(["3xuJ5", "snapshot", "09014"], PAYLOAD_B)
+        await adapter.remove(["3xuJ5", "snapshot", "09014"])
 
+        expect(await adapter.loadRange(["3xuJ5"])).toStrictEqual([])
         expect(
-          await adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
-        ).toStrictEqual([])
-        expect(
-          await adapter.load([
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "snapshot",
-            "090144be3cabe2848d4af81ebf6c3f0c93dfcf814fd34a43cdc93d8564fda056",
-          ])
+          await adapter.load(["3xuJ5", "snapshot", "09014"])
         ).toStrictEqual(undefined)
         teardown()
       })
     })
 
     describe("save and save", () => {
-      it("should override the data", async () => {
+      it("should overwrite data saved with the same key", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-          ],
-          new Uint8Array([0, 1, 127, 99, 154, 235])
-        )
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-          ],
-          new Uint8Array([1, 76, 160, 53, 57, 10, 230])
-        )
+        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
+        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_C)
 
-        expect(
-          await adapter.loadRange([
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-          ])
-        ).toStrictEqual([
-          {
-            data: new Uint8Array([1, 76, 160, 53, 57, 10, 230]),
-            key: [
-              "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-              "sync-state",
-              "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-            ],
-          },
+        expect(await adapter.loadRange(["3xuJ5", "sync-state"])).toStrictEqual([
+          { key: ["3xuJ5", "sync-state", "d99d4"], data: PAYLOAD_C },
         ])
         teardown()
       })
@@ -286,82 +130,28 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("removeRange", () => {
       it("should remove set of records", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-          ],
-          new Uint8Array([0, 1, 127, 99, 154, 235])
-        )
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "snapshot",
-            "7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870",
-          ],
-          new Uint8Array([1, 76, 160, 53, 57, 10, 230])
-        )
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "0e05ed0c-41f5-4785-b27a-7cf334c1b741",
-          ],
-          new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193])
-        )
+        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
+        await adapter.save(["3xuJ5", "snapshot", "7848c"], PAYLOAD_C)
+        await adapter.save(["3xuJ5", "sync-state", "0e05e"], PAYLOAD_D)
 
-        await adapter.removeRange([
-          "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-          "sync-state",
-        ])
+        await adapter.removeRange(["3xuJ5", "sync-state"])
 
-        expect(
-          await adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
-        ).toStrictEqual([
-          {
-            data: new Uint8Array([1, 76, 160, 53, 57, 10, 230]),
-            key: [
-              "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-              "snapshot",
-              "7848c74d260d060ee02e12d69d43a21348fedf4f4a4783ac6aaaa2e338bca870",
-            ],
-          },
+        expect(await adapter.loadRange(["3xuJ5"])).toStrictEqual([
+          { key: ["3xuJ5", "snapshot", "7848c"], data: PAYLOAD_C },
         ])
         teardown()
       })
 
       it("should not remove set of records that doesn't match", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiC",
-            "sync-state",
-            "d99d4820-fb1f-4f3a-a40f-d5997b2012cf",
-          ],
-          new Uint8Array([0, 1, 127, 99, 154, 235])
-        )
-        await adapter.save(
-          [
-            "3xuJ5sVKdBaYS6uGgGJH1cGhBLiD",
-            "sync-state",
-            "0e05ed0c-41f5-4785-b27a-7cf334c1b741",
-          ],
-          new Uint8Array([1, 76, 160, 53, 57, 10, 230])
-        )
+        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
+        await adapter.save(["3xuJ6", "sync-state", "0e05e"], PAYLOAD_C)
 
-        await adapter.removeRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiC"])
+        await adapter.removeRange(["3xuJ5"])
 
-        const actual = await adapter.loadRange(["3xuJ5sVKdBaYS6uGgGJH1cGhBLiD"])
+        const actual = await adapter.loadRange(["3xuJ6"])
         expect(actual).toStrictEqual([
-          {
-            data: new Uint8Array([1, 76, 160, 53, 57, 10, 230]),
-            key: [
-              "3xuJ5sVKdBaYS6uGgGJH1cGhBLiD",
-              "sync-state",
-              "0e05ed0c-41f5-4785-b27a-7cf334c1b741",
-            ],
-          },
+          { key: ["3xuJ6", "sync-state", "0e05e"], data: PAYLOAD_C },
         ])
         teardown()
       })
