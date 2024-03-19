@@ -30,7 +30,7 @@ type PendingMessage = {
 
 interface DocSynchronizerConfig {
   handle: DocHandle<unknown>
-  onLoadSyncState?: (peerId: PeerId) => A.SyncState | undefined
+  onLoadSyncState?: (peerId: PeerId) => Promise<A.SyncState | undefined>
 }
 
 /**

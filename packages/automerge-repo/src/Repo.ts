@@ -214,7 +214,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         message.syncState.theirHeads &&
         (!heads || !headsAreSame(heads, message.syncState.theirHeads))
 
-      if (haveHeadsChanged) {
+      if (haveHeadsChanged && message.syncState.theirHeads) {
         handle.setRemoteHeads(storageId, message.syncState.theirHeads)
 
         if (storageId && this.#remoteHeadsGossipingEnabled) {

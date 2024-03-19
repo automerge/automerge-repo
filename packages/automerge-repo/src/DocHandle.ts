@@ -383,7 +383,7 @@ export class DocHandle<T> //
       payload: {
         callback: (doc: A.Doc<T>) => {
           const result = A.changeAt(doc, heads, options, callback)
-          resultHeads = result.newHeads
+          resultHeads = result.newHeads || undefined
           return result.newDoc
         },
       },
