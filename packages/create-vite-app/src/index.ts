@@ -41,6 +41,33 @@ function main() {
   pkg.name = projectName
   write("package.json", JSON.stringify(pkg, null, 2))
 
+  write(".gitignore", `
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+  `)
+
   execSync(`cd ${projectName} && npm install`, { stdio: "inherit" })
 }
 
