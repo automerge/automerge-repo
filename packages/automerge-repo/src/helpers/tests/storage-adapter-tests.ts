@@ -8,6 +8,15 @@ const PAYLOAD_C = new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193])
 
 const LARGE_PAYLOAD = new Uint8Array(100000).map((_, i) => Math.random() * 256)
 
+/**
+ * Runs a series of tests against a storage adapter.
+ *
+ * The `setup` function should return an object containing:
+ *
+ * - `adapter`: The adapter to be tested
+ * - `teardown`: An optional function to be called after the tests have been run.
+ *   This can be used to clean up any resources that were created during the test.
+ */
 export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
   const setup = async () => {
     const { adapter, teardown = NO_OP } = await _setup()
