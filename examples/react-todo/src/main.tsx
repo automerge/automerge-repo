@@ -1,4 +1,4 @@
-import { Repo } from "@automerge/automerge-repo"
+import { DocHandle, Repo, isValidAutomergeUrl } from "@automerge/automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"
@@ -6,6 +6,7 @@ import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-index
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
+import { State } from "./types.js"
 import "./index.css"
 
 const repo = new Repo({
@@ -16,10 +17,28 @@ const repo = new Repo({
   storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),
 })
 
+declare global {
+  interface Window {
+    handle: DocHandle<unknown>
+    repo: Repo
+  }
+}
+
+const rootDocUrl = `${document.location.hash.substring(1)}`
+let handle
+if (isValidAutomergeUrl(rootDocUrl)) {
+  handle = repo.find(rootDocUrl)
+} else {
+  handle = repo.create<State>({ todos: [] })
+}
+const docUrl = (document.location.hash = handle.url)
+window.handle = handle // we'll use this later for experimentation
+window.repo = repo
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App />
+      <App url={docUrl}/>
     </React.StrictMode>
   </RepoContext.Provider>
 )

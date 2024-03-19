@@ -1,5 +1,5 @@
+import { AutomergeUrl } from "@automerge/automerge-repo"
 import {
-  useBootstrap,
   useDocument,
 } from "@automerge/automerge-repo-react-hooks"
 
@@ -7,16 +7,7 @@ interface Doc {
   count: number
 }
 
-export function App() {
-  const { url } = useBootstrap({
-    onNoDocument: repo => {
-      const handle = repo.create<Doc>()
-      handle.change(d => {
-        d.count = 0
-      })
-      return handle
-    },
-  })
+export function App({ url }: { url: AutomergeUrl }) {
   const [doc, changeDoc] = useDocument<Doc>(url)
 
   if (!doc) {
