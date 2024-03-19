@@ -29,14 +29,21 @@ describe("useDocument", () => {
     const handleSlow = repo.create<ExampleDoc>()
     handleSlow.change(doc => (doc.foo = "slow"))
     const oldDoc = handleSlow.doc.bind(handleSlow)
+    const syncDoc = undefined
     handleSlow.doc = async () => {
       await new Promise(resolve => setTimeout(resolve, SLOW_DOC_LOAD_TIME_MS))
       const result = await oldDoc()
+      const syncDoc = result
       return result
+    }
+    handleSlow.docSync = () => {
+      return syncDoc
     }
 
     const wrapper = ({ children }) => {
-      return <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+      return (
+        <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+      )
     }
 
     return {
@@ -48,9 +55,12 @@ describe("useDocument", () => {
     }
   }
 
-  const Component = ({ url, onDoc }: {
-    url: AutomergeUrl,
-    onDoc: (doc: ExampleDoc) => void,
+  const Component = ({
+    url,
+    onDoc,
+  }: {
+    url: AutomergeUrl
+    onDoc: (doc: ExampleDoc) => void
   }) => {
     const [doc] = useDocument(url)
     onDoc(doc)
@@ -61,15 +71,25 @@ describe("useDocument", () => {
     const { handleA, wrapper } = setup()
     const onDoc = vi.fn()
 
-    render(<Component url={handleA.url} onDoc={onDoc} />, {wrapper})
+    render(<Component url={handleA.url} onDoc={onDoc} />, { wrapper })
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "A" }))
+  })
+
+  it.only("should immediately return a document if it has already been loaded", async () => {
+    const { handleA, wrapper } = setup()
+    const onDoc = vi.fn()
+
+    render(<Component url={handleA.url} onDoc={onDoc} />, { wrapper })
+    await waitFor(() => expect(onDoc).not.toHaveBeenCalledWith(undefined))
   })
 
   it("should update if the url changes", async () => {
     const { handleA, handleB, wrapper } = setup()
     const onDoc = vi.fn()
 
-    const { rerender } = render(<Component url={undefined} onDoc={onDoc} />, {wrapper})
+    const { rerender } = render(<Component url={undefined} onDoc={onDoc} />, {
+      wrapper,
+    })
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
 
     // set url to doc A
@@ -89,7 +109,9 @@ describe("useDocument", () => {
     const { handleA, handleSlow, wrapper } = setup()
     const onDoc = vi.fn()
 
-    const { rerender } = render(<Component url={undefined} onDoc={onDoc} />, {wrapper})
+    const { rerender } = render(<Component url={undefined} onDoc={onDoc} />, {
+      wrapper,
+    })
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
 
     // start by setting url to doc A
@@ -107,7 +129,9 @@ describe("useDocument", () => {
     const { handleA, handleSlow, wrapper } = setup()
     const onDoc = vi.fn()
 
-    const { rerender } = render(<Component url={undefined} onDoc={onDoc} />, {wrapper})
+    const { rerender } = render(<Component url={undefined} onDoc={onDoc} />, {
+      wrapper,
+    })
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
 
     // Set the URL to a slow doc and then a fast doc.
