@@ -12,6 +12,7 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "@automerge/automerge": "^2.1.11",
     "@automerge/automerge-repo": "^1.0",
     "@automerge/automerge-repo-react-hooks": "^1.0",
     "@automerge/automerge-repo-network-broadcastchannel": "^1.0",
