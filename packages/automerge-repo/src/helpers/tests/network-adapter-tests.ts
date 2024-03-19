@@ -17,7 +17,7 @@ import { pause } from "../pause.js"
  * - `teardown`: An optional function that will be called after the tests have run. This can be used
  *   to clean up any resources that were created during the test.
  */
-export function runAdapterTests(_setup: SetupFn, title?: string): void {
+export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
   // Wrap the provided setup function
   const setup = async () => {
     const { adapters, teardown = NO_OP } = await _setup()
@@ -28,7 +28,9 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
     return { adapters: [a, b, c], teardown }
   }
 
-  describe(`Adapter acceptance tests ${title ? `(${title})` : ""}`, () => {
+  describe(`Network adapter acceptance tests ${
+    title ? `(${title})` : ""
+  }`, () => {
     it("can sync 2 repos", async () => {
       const doTest = async (
         a: NetworkAdapterInterface[],
