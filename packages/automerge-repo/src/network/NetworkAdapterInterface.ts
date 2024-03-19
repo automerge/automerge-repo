@@ -22,8 +22,13 @@ export interface PeerMetadata {
  * The {@link Repo} uses one or more `NetworkAdapter`s to connect to other peers.
  * Because the network may take some time to be ready the {@link Repo} will wait
  * until the adapter emits a `ready` event before it starts trying to use it
+ *
+ * The {@link NetworkAdapter} is an abstract class that can be used as a base to build a
+ * custom network adapter. It is most useful as a simple way to add the necessary event
+ * emitter functionality
  */
-export interface NetworkAdapterInterface extends EventEmitter<NetworkAdapterEvents> {
+export interface NetworkAdapterInterface
+  extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId
   peerMetadata?: PeerMetadata
 
