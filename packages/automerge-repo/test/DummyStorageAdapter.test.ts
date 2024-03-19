@@ -2,12 +2,10 @@ import { beforeEach, describe } from "vitest"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { runStorageAdapterTests } from "../src/helpers/tests/storage-adapter-tests.js"
 
-describe('DummyStorageAdapter', () => {
-  let sut: {adapter: DummyStorageAdapter} = { adapter: new DummyStorageAdapter() }
-
-  beforeEach(async () => {
-    sut.adapter = new DummyStorageAdapter()
+describe("DummyStorageAdapter", () => {
+  const setup = async () => ({
+    adapter: new DummyStorageAdapter(),
   })
 
-  runStorageAdapterTests(sut);
+  runStorageAdapterTests(setup, "DummyStorageAdapter")
 })
