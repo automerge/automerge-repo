@@ -22,9 +22,10 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("load", () => {
       it("should return undefined if there is no data", async () => {
         const { adapter, teardown } = await setup()
-        expect(
-          await adapter.load(["3xuJ5", "sync-state", "d99d4"])
-        ).toStrictEqual(undefined)
+
+        const actual = await adapter.load(["AAAAA", "sync-state", "xxxxx"])
+        expect(actual).toBeUndefined()
+
         teardown()
       })
     })
@@ -32,19 +33,21 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("save and load", () => {
       it("should return data that was saved", async () => {
         const { adapter, teardown } = await setup()
+
         await adapter.save(["storage-adapter-id"], PAYLOAD_A)
-
         const actual = await adapter.load(["storage-adapter-id"])
-
         expect(actual).toStrictEqual(PAYLOAD_A)
+
         teardown()
       })
 
       it("should work with composite keys", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(["pSq9f", "sync-state", "3761c"], PAYLOAD_B)
-        const actual = await adapter.load(["pSq9f", "sync-state", "3761c"])
+
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B)
+        const actual = await adapter.load(["AAAAA", "sync-state", "xxxxx"])
         expect(actual).toStrictEqual(PAYLOAD_B)
+
         teardown()
       })
     })
@@ -52,7 +55,9 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("loadRange", () => {
       it("should return an empty array if there is no data", async () => {
         const { adapter, teardown } = await setup()
-        expect(await adapter.loadRange(["3xuJ5"])).toStrictEqual([])
+
+        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual([])
+
         teardown()
       })
     })
@@ -60,42 +65,45 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("save and loadRange", () => {
       it("should return all the data that is present", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
-        await adapter.save(["3xuJ5", "snapshot", "7848c"], PAYLOAD_C)
-        await adapter.save(["3xuJ5", "sync-state", "0e05e"], PAYLOAD_D)
 
-        expect(await adapter.loadRange(["3xuJ5"])).toStrictEqual(
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B)
+        await adapter.save(["AAAAA", "snapshot", "yyyyy"], PAYLOAD_C)
+        await adapter.save(["AAAAA", "sync-state", "zzzzz"], PAYLOAD_D)
+
+        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual(
           expect.arrayContaining([
-            { key: ["3xuJ5", "sync-state", "d99d4"], data: PAYLOAD_B },
-            { key: ["3xuJ5", "snapshot", "7848c"], data: PAYLOAD_C },
-            { key: ["3xuJ5", "sync-state", "0e05e"], data: PAYLOAD_D },
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_B },
+            { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_C },
+            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_D },
           ])
         )
 
-        expect(await adapter.loadRange(["3xuJ5", "sync-state"])).toStrictEqual(
+        expect(await adapter.loadRange(["AAAAA", "sync-state"])).toStrictEqual(
           expect.arrayContaining([
-            { key: ["3xuJ5", "sync-state", "d99d4"], data: PAYLOAD_B },
-            { key: ["3xuJ5", "sync-state", "0e05e"], data: PAYLOAD_D },
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_B },
+            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_D },
           ])
         )
       })
 
       it("does not includes values which shouldn't be there", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
-        await adapter.save(["3xuJ6", "sync-state", "0e05e"], PAYLOAD_D)
 
-        const actual = await adapter.loadRange(["3xuJ5"])
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B)
+        await adapter.save(["BBBBB", "sync-state", "zzzzz"], PAYLOAD_D)
+
+        const actual = await adapter.loadRange(["AAAAA"])
         expect(actual).toStrictEqual(
           expect.arrayContaining([
-            { key: ["3xuJ5", "sync-state", "d99d4"], data: PAYLOAD_B },
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_B },
           ])
         )
         expect(actual).toStrictEqual(
           expect.not.arrayContaining([
-            { key: ["3xuJ6", "sync-state", "0e05e"], data: PAYLOAD_D },
+            { key: ["BBBBB", "sync-state", "zzzzz"], data: PAYLOAD_D },
           ])
         )
+
         teardown()
       })
     })
@@ -103,13 +111,15 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("save and remove", () => {
       it("should be no data", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(["3xuJ5", "snapshot", "09014"], PAYLOAD_B)
-        await adapter.remove(["3xuJ5", "snapshot", "09014"])
 
-        expect(await adapter.loadRange(["3xuJ5"])).toStrictEqual([])
+        await adapter.save(["AAAAA", "snapshot", "xxxxx"], PAYLOAD_B)
+        await adapter.remove(["AAAAA", "snapshot", "xxxxx"])
+
+        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual([])
         expect(
-          await adapter.load(["3xuJ5", "snapshot", "09014"])
-        ).toStrictEqual(undefined)
+          await adapter.load(["AAAAA", "snapshot", "xxxxx"])
+        ).toBeUndefined()
+
         teardown()
       })
     })
@@ -117,42 +127,48 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     describe("save and save", () => {
       it("should overwrite data saved with the same key", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
-        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_C)
 
-        expect(await adapter.loadRange(["3xuJ5", "sync-state"])).toStrictEqual([
-          { key: ["3xuJ5", "sync-state", "d99d4"], data: PAYLOAD_C },
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B)
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_C)
+
+        expect(await adapter.loadRange(["AAAAA", "sync-state"])).toStrictEqual([
+          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_C },
         ])
+
         teardown()
       })
     })
 
     describe("removeRange", () => {
-      it("should remove set of records", async () => {
+      it("should remove a range of records", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
-        await adapter.save(["3xuJ5", "snapshot", "7848c"], PAYLOAD_C)
-        await adapter.save(["3xuJ5", "sync-state", "0e05e"], PAYLOAD_D)
 
-        await adapter.removeRange(["3xuJ5", "sync-state"])
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B)
+        await adapter.save(["AAAAA", "snapshot", "yyyyy"], PAYLOAD_C)
+        await adapter.save(["AAAAA", "sync-state", "zzzzz"], PAYLOAD_D)
 
-        expect(await adapter.loadRange(["3xuJ5"])).toStrictEqual([
-          { key: ["3xuJ5", "snapshot", "7848c"], data: PAYLOAD_C },
+        await adapter.removeRange(["AAAAA", "sync-state"])
+
+        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual([
+          { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_C },
         ])
+
         teardown()
       })
 
-      it("should not remove set of records that doesn't match", async () => {
+      it("should not remove records that doesn't match", async () => {
         const { adapter, teardown } = await setup()
-        await adapter.save(["3xuJ5", "sync-state", "d99d4"], PAYLOAD_B)
-        await adapter.save(["3xuJ6", "sync-state", "0e05e"], PAYLOAD_C)
 
-        await adapter.removeRange(["3xuJ5"])
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B)
+        await adapter.save(["BBBBB", "sync-state", "zzzzz"], PAYLOAD_C)
 
-        const actual = await adapter.loadRange(["3xuJ6"])
+        await adapter.removeRange(["AAAAA"])
+
+        const actual = await adapter.loadRange(["BBBBB"])
         expect(actual).toStrictEqual([
-          { key: ["3xuJ6", "sync-state", "0e05e"], data: PAYLOAD_C },
+          { key: ["BBBBB", "sync-state", "zzzzz"], data: PAYLOAD_C },
         ])
+
         teardown()
       })
     })
