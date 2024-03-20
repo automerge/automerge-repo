@@ -2,7 +2,7 @@
 
 ![Automerge Svelte Counter Demo Screenshot](./img/screenshot.png)
 
-This example is an implementation of the [vite demo app](https://vite.new/svelte-ts) using Automerge Repo as a base.
+This example is an implementation of the [vite demo app](https://vite.new/svelte-ts) using Automerge Repo as a base, with the first party [svelte store](../../packages/automerge-repo-svelte-store).
 
 ## Quickstart
 
@@ -37,12 +37,12 @@ You can now visit the site on your favourite browser at `http://localhost:5173/`
 With the demo app running in your browser, copy the URL (which will now include a #hash) and open another window/tab. 
 You will see that updating the counter in one tab updates any other tabs. 
 
-Refreshing the page will reload the document from local storage, using IndexedDB. Syncing between tabs/windows is being performed over BroadcastChannel by Automerge repo.
+Refreshing the page will reload the document from local storage, using [IndexedDB](../../packages/automerge-repo-storage-indexeddb). Syncing between tabs/windows is being performed over [BroadcastChannel](../../packages/automerge-repo-network-broadcastchannel) by Automerge repo.
 
 **NB. If you open a new window without the #hash in the url, this will create a new Automerge document, with a new counter.**
 
 ## Sync Server
-Keeping your demo vite server running, start a local automerge repo sync server with:
+Keeping your demo vite server running, start a local automerge repo [sync server](../sync-server) with:
 ```bash
 pnpm start:syncserver
 ```
