@@ -1,7 +1,5 @@
 import { AutomergeUrl } from "@automerge/automerge-repo"
-import {
-  useDocument,
-} from "@automerge/automerge-repo-react-hooks"
+import { useDocument } from "@automerge/automerge-repo-react-hooks"
 
 interface Doc {
   count: number

@@ -41,7 +41,9 @@ function main() {
   pkg.name = projectName
   write("package.json", JSON.stringify(pkg, null, 2))
 
-  write(".gitignore", `
+  write(
+    ".gitignore",
+    `
 # Logs
 logs
 *.log
@@ -66,7 +68,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-  `)
+  `
+  )
 
   execSync(`cd ${projectName} && npm install`, { stdio: "inherit" })
 }

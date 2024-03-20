@@ -15,7 +15,9 @@ describe("useDocuments", () => {
     })
 
     const wrapper = ({ children }) => {
-      return <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+      return (
+        <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+      )
     }
 
     const documentIds = range(10).map(i => {
@@ -26,9 +28,12 @@ describe("useDocuments", () => {
     return { repo, wrapper, documentIds }
   }
 
-  const Component = ({ ids, onDocs }: {
-    ids: DocumentId[],
-    onDocs: (documents: Record<DocumentId, unknown>) => void,
+  const Component = ({
+    ids,
+    onDocs,
+  }: {
+    ids: DocumentId[]
+    onDocs: (documents: Record<DocumentId, unknown>) => void
   }) => {
     const documents = useDocuments(ids)
     onDocs(documents)
@@ -40,9 +45,11 @@ describe("useDocuments", () => {
     const onDocs = vi.fn()
 
     render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-    ))
+    await waitFor(() =>
+      expect(onDocs).toHaveBeenCalledWith(
+        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+      )
+    )
   })
 
   it("updates documents when they change", async () => {
@@ -50,9 +57,11 @@ describe("useDocuments", () => {
     const onDocs = vi.fn()
 
     render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-    ))
+    await waitFor(() =>
+      expect(onDocs).toHaveBeenCalledWith(
+        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+      )
+    )
 
     act(() => {
       // multiply the value of foo in each document by 10
@@ -61,28 +70,39 @@ describe("useDocuments", () => {
         handle.change(s => (s.foo *= 10))
       })
     })
-    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
-    ))
+    await waitFor(() =>
+      expect(onDocs).toHaveBeenCalledWith(
+        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
+      )
+    )
   })
 
   it(`removes documents when they're removed from the list of ids`, async () => {
     const { documentIds, wrapper } = setup()
     const onDocs = vi.fn()
 
-    const { rerender } = render(<Component ids={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-    ))
+    const { rerender } = render(
+      <Component ids={documentIds} onDocs={onDocs} />,
+      { wrapper }
+    )
+    await waitFor(() =>
+      expect(onDocs).toHaveBeenCalledWith(
+        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+      )
+    )
 
     // remove the first document
     rerender(<Component ids={documentIds.slice(1)} onDocs={onDocs} />)
     // 👆 Note that this only works because documentIds.slice(1) is a different
     // object from documentIds. If we modified documentIds directly, the hook
     // wouldn't re-run.
-    await waitFor(() => expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]).slice(1))
-    ))
+    await waitFor(() =>
+      expect(onDocs).toHaveBeenCalledWith(
+        Object.fromEntries(
+          documentIds.map((id, i) => [id, { foo: i }]).slice(1)
+        )
+      )
+    )
   })
 })
 

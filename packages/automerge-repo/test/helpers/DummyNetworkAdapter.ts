@@ -1,18 +1,18 @@
-import { pause } from "../../src/helpers/pause.js";
+import { pause } from "../../src/helpers/pause.js"
 import { Message, NetworkAdapter, PeerId } from "../../src/index.js"
 
 export class DummyNetworkAdapter extends NetworkAdapter {
   #startReady: boolean
-  #sendMessage?: SendMessageFn;
+  #sendMessage?: SendMessageFn
 
-  constructor(opts: Options = {startReady: true}) {
+  constructor(opts: Options = { startReady: true }) {
     super()
-    this.#startReady = opts.startReady;
-    this.#sendMessage = opts.sendMessage;
+    this.#startReady = opts.startReady
+    this.#sendMessage = opts.sendMessage
   }
 
   connect(peerId: PeerId) {
-    this.peerId = peerId;
+    this.peerId = peerId
     if (this.#startReady) {
       this.emit("ready", { network: this })
     }
@@ -21,34 +21,36 @@ export class DummyNetworkAdapter extends NetworkAdapter {
   disconnect() {}
 
   peerCandidate(peerId: PeerId) {
-    this.emit('peer-candidate', { peerId, peerMetadata: {} });
+    this.emit("peer-candidate", { peerId, peerMetadata: {} })
   }
 
   override send(message: Message) {
-    this.#sendMessage?.(message);
+    this.#sendMessage?.(message)
   }
 
   receive(message: Message) {
-    this.emit('message', message);
+    this.emit("message", message)
   }
 
-  static createConnectedPair({ latency = 10 }: { latency?: number} = {}) {
+  static createConnectedPair({ latency = 10 }: { latency?: number } = {}) {
     const adapter1: DummyNetworkAdapter = new DummyNetworkAdapter({
       startReady: true,
-      sendMessage: (message: Message) => pause(latency).then(() => adapter2.receive(message)),
-    });
+      sendMessage: (message: Message) =>
+        pause(latency).then(() => adapter2.receive(message)),
+    })
     const adapter2: DummyNetworkAdapter = new DummyNetworkAdapter({
       startReady: true,
-      sendMessage: (message: Message) => pause(latency).then(() => adapter1.receive(message)),
-    });
+      sendMessage: (message: Message) =>
+        pause(latency).then(() => adapter1.receive(message)),
+    })
 
-    return [adapter1, adapter2];
+    return [adapter1, adapter2]
   }
 }
 
-type SendMessageFn = (message: Message) => void;
+type SendMessageFn = (message: Message) => void
 
 type Options = {
-  startReady?: boolean;
-  sendMessage?: SendMessageFn;
+  startReady?: boolean
+  sendMessage?: SendMessageFn
 }

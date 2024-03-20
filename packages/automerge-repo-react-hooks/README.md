@@ -3,24 +3,29 @@
 These hooks are provided as helpers for using Automerge in your React project.
 
 #### [useBootstrap](./src/useBootstrap.ts)
+
 This hook is used to load a document based on the URL hash, for example `//myapp/#documentId=[document ID]`.
 It can also load the document ID from localStorage, or create a new document if none is specified.
 
 #### [useLocalAwareness](./src/useLocalAwareness.ts) & [useRemoteAwareness](./src/useRemoteAwareness.ts)
+
 These hooks implement ephemeral awareness/presence, similar to [Yjs Awareness](https://docs.yjs.dev/getting-started/adding-awareness).
-They allow temporary state to be shared, such as cursor positions or peer online/offline status. 
+They allow temporary state to be shared, such as cursor positions or peer online/offline status.
 
 Ephemeral messages are replicated between peers, but not saved to the Automerge doc, and are used for temporary updates that will be discarded.
 
 #### [useRepo/RepoContext](./src/useRepo.ts)
+
 Use RepoContext to set up react context for an Automerge repo.
 Use useRepo to lookup the repo from context.
 Most hooks depend on RepoContext being available.
 
 #### [useDocument](./src/useDocument.ts)
+
 Return a document & updater fn, by ID.
 
 #### [useHandle](./src/useHandle.ts)
+
 Return a handle, by ID.
 
 ## Example usage
@@ -46,9 +51,7 @@ const sharedWorker = new SharedWorker(
 
 async function getRepo(): Promise<DocCollection> {
   return await Repo({
-    network: [
-      new BroadcastChannelNetworkAdapter(),
-    ],
+    network: [new BroadcastChannelNetworkAdapter()],
     sharePolicy: peerId => peerId.includes("shared-worker"),
   })
 }
