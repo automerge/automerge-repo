@@ -9,12 +9,20 @@ This example is an implementation of the [vite demo app](https://vite.new/svelte
 Start by cloning Automerge Repo to your local device:
 ```bash
 git clone git@github.com:automerge/automerge-repo.git
+```
+```bash
 cd automerge-repo
 ```
+
+> [!IMPORTANT]
+> All the commands listed here need to be run **in the root directory of the monorepo** and **using pnpm** as the package manager.
+> The automerge-repo monorepo uses features which are specific to [pnpm](https://pnpm.io/installation).
 
 From the **root directory**, install dependencies and build the monorepo using `pnpm`:
 ```bash
 pnpm install
+```
+```bash
 pnpm build
 ```
 
