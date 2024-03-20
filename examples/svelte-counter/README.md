@@ -1,6 +1,8 @@
 # Automerge Svelte Counter Demo
 
-This example is an implementation of the vite demo app which uses Automerge Repo as a base.
+![Automerge Svelte Counter Demo Screenshot](./img/screenshot.png)
+
+This example is an implementation of the [vite demo app](https://vite.new/svelte-ts) using Automerge Repo as a base.
 
 ## Quickstart
 
