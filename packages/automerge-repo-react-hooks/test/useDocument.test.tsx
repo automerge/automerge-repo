@@ -28,14 +28,14 @@ describe("useDocument", () => {
     // renders, but 10ms seems safe empirically.
     const handleSlow = repo.create<ExampleDoc>()
     handleSlow.change(doc => (doc.foo = "slow"))
-    const oldDoc = handleSlow.docSync.bind(handleSlow)
-    const result = oldDoc()
+    const oldDoc = handleSlow.doc.bind(handleSlow)
     handleSlow.doc = async () => {
       await new Promise(resolve => setTimeout(resolve, SLOW_DOC_LOAD_TIME_MS))
+      const result = await oldDoc()
       return result
     }
     handleSlow.docSync = () => {
-      return result
+      return undefined
     }
 
     const wrapper = ({ children }) => {
