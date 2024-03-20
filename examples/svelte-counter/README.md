@@ -1,0 +1,42 @@
+# Automerge Svelte Counter Demo
+
+This example is an implementation of the vite demo app which uses Automerge Repo as a base.
+
+## Quickstart
+
+Start by cloning Automerge Repo to your local device:
+```bash
+git clone git@github.com:automerge/automerge-repo.git
+cd automerge-repo
+```
+
+From the **root directory**, install dependencies and build the monorepo using `pnpm`:
+```bash
+pnpm install
+pnpm build
+```
+
+Finally, again from the root directory, run the vite dev server to get the demo app running:
+```bash
+pnpm dev:svelte-demo
+```
+
+You can now visit the site on your favourite browser at `http://localhost:5173/`.
+
+## Next Steps
+With the demo app running in your browser, copy the URL (which will now include a #hash) and open another window/tab. 
+You will see that updating the counter in one tab updates any other tabs. 
+
+Refreshing the page will reload the document from local storage, using IndexedDB. Syncing between tabs/windows is being performed over BroadcastChannel by Automerge repo.
+
+**NB. If you open a new window without the #hash in the url, this will create a new Automerge document, with a new counter.**
+
+## Sync Server
+Keeping your demo vite server running, start a local automerge repo sync server with:
+```bash
+pnpm start:syncserver
+```
+
+If you now load the demo app in either a different browser, or an incognito mode window in your current browser, *with the same URL and hash*, you will see that the automerge document holding the counter will now be synced via the server between different browsers. If you observe the server process running in your terminal, you will see that each time you click the counter button, messages are being exchanged between the browser and the server, keeping the document in sync in all places.
+
+
