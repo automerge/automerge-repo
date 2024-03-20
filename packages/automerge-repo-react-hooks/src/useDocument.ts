@@ -21,7 +21,7 @@ export function useDocument<T>(id?: AnyDocumentId) {
   const handle = id ? repo.find<T>(id) : null
   const handleRef = useRef<DocHandle<T> | null>(null)
 
-  const [doc, setDoc] = useState<Doc<T> | undefined>(handle?.docSync())
+  const [doc, setDoc] = useState<Doc<T> | undefined>(() => handle?.docSync())
 
   useEffect(() => {
     // When the handle has changed, reset the doc to the current value of docSync().
