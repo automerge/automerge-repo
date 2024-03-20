@@ -16,17 +16,20 @@ import { useRepo } from "./useRepo.js"
  * This requires a {@link RepoContext} to be provided by a parent component.
  * */
 export function useDocument<T>(id?: AnyDocumentId) {
-  const [doc, setDoc] = useState<Doc<T>>()
   const repo = useRepo()
 
   const handle = id ? repo.find<T>(id) : null
   const handleRef = useRef<DocHandle<T> | null>(null)
 
+  const [doc, setDoc] = useState<Doc<T> | undefined>(() => handle?.docSync())
+
   useEffect(() => {
-    // When the handle has changed, reset the doc to an empty state.
+    // When the handle has changed, reset the doc to the current value of docSync().
+    // For already-loaded documents this will be the last known value, for unloaded documents
+    // this will be undefined.
     // This ensures that if loading the doc takes a long time, the UI
     // shows a loading state during that time rather than a stale doc.
-    setDoc(undefined)
+    setDoc(handle?.docSync())
 
     if (!handle) return
 
