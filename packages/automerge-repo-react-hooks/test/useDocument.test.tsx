@@ -73,7 +73,7 @@ describe("useDocument", () => {
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "A" }))
   })
 
-  it.only("should immediately return a document if it has already been loaded", async () => {
+  it("should immediately return a document if it has already been loaded", async () => {
     const { handleA, wrapper } = setup()
     const onDoc = vi.fn()
 
