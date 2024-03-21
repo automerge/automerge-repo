@@ -804,7 +804,7 @@ describe("Repo", () => {
       teardown()
     })
 
-    it.skip("charlieRepo can request a document across a network of multiple peers", async () => {
+    it("charlieRepo can request a document across a network of multiple peers", async () => {
       const { charlieRepo, notForBob, teardown } = await setup()
 
       const handle = charlieRepo.find<TestDoc>(notForBob)
