@@ -5,10 +5,6 @@
  *
  * These hooks are provided as helpers for using Automerge in your React project.
  *
- * #### {@link useBootstrap}
- * This hook is used to load a document based on the URL hash, for example `//myapp/#documentId=[document ID]`.
- * It can also load the document ID from localStorage, or create a new document if none is specified.
- *
  * #### {@link useLocalAwareness} & {@link useRemoteAwareness}
  * These hooks implement ephemeral awareness/presence, similar to [Yjs Awareness](https://docs.yjs.dev/getting-started/adding-awareness).
  * They allow temporary state to be shared, such as cursor positions or peer online/offline status.
@@ -86,7 +82,6 @@
  */
 export { useDocument } from "./useDocument.js"
 export { useDocuments } from "./useDocuments.js"
-export { useBootstrap, type UseBootstrapOptions } from "./useBootstrap.js"
 export { useHandle } from "./useHandle.js"
 export { RepoContext, useRepo } from "./useRepo.js"
 export {

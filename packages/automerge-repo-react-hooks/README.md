@@ -2,11 +2,6 @@
 
 These hooks are provided as helpers for using Automerge in your React project.
 
-#### [useBootstrap](./src/useBootstrap.ts)
-
-This hook is used to load a document based on the URL hash, for example `//myapp/#documentId=[document ID]`.
-It can also create a new document if none is specified.
-
 #### [useLocalAwareness](./src/useLocalAwareness.ts) & [useRemoteAwareness](./src/useRemoteAwareness.ts)
 
 These hooks implement ephemeral awareness/presence, similar to [Yjs Awareness](https://docs.yjs.dev/getting-started/adding-awareness).
