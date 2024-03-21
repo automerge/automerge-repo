@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-react-hooks",
-  "version": "1.1.0",
+  "version": "1.1.4",
   "description": "Hooks to access an Automerge Repo from your react app.",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-react-hooks",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "watch": "npm-watch",
+    "watch": "npm-watch build",
     "visualize": "VISUALIZE=true vite build"
   },
   "dependencies": {

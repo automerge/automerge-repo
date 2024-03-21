@@ -5,14 +5,14 @@
 
 import {
   Chunk,
-  StorageAdapter,
+  StorageAdapterInterface,
   type StorageKey,
 } from "@automerge/automerge-repo"
 import fs from "fs"
 import path from "path"
 import { rimraf } from "rimraf"
 
-export class NodeFSStorageAdapter extends StorageAdapter {
+export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
   private cache: { [key: string]: Uint8Array } = {}
 
@@ -20,7 +20,6 @@ export class NodeFSStorageAdapter extends StorageAdapter {
    * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
    */
   constructor(baseDirectory = "automerge-repo-data") {
-    super()
     this.baseDirectory = baseDirectory
   }
 
@@ -33,7 +32,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     try {
       const fileContent = await fs.promises.readFile(filePath)
       return new Uint8Array(fileContent)
-    } catch (error) {
+    } catch (error: any) {
       // don't throw if file not found
       if (error.code === "ENOENT") return undefined
       throw error
@@ -57,7 +56,7 @@ export class NodeFSStorageAdapter extends StorageAdapter {
     const filePath = this.getFilePath(keyArray)
     try {
       await fs.promises.unlink(filePath)
-    } catch (error) {
+    } catch (error: any) {
       // don't throw if file not found
       if (error.code !== "ENOENT") throw error
     }
@@ -139,7 +138,7 @@ const walkdir = async (dirPath: string): Promise<string[]> => {
       })
     )
     return files.flat()
-  } catch (error) {
+  } catch (error: any) {
     // don't throw if directory not found
     if (error.code === "ENOENT") return []
     throw error

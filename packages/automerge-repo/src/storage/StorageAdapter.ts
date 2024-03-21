@@ -1,12 +1,14 @@
+import { StorageAdapterInterface } from "./StorageAdapterInterface.js"
 import { StorageKey, Chunk } from "./types.js"
 
 /** A storage adapter represents some way of storing binary data for a {@link Repo}
+ * @deprecated use {@link StorageAdapterInterface}
  *
  * @remarks
  * `StorageAdapter`s provide a key/value storage interface. The keys are arrays of strings
  * ({@link StorageKey}) and the values are binary blobs.
  */
-export abstract class StorageAdapter {
+export abstract class StorageAdapter implements StorageAdapterInterface {
   /** Load the single value corresponding to `key` */
   abstract load(key: StorageKey): Promise<Uint8Array | undefined>
 

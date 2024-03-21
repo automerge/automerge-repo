@@ -2,7 +2,7 @@
   "name": "@automerge/example-sync-server",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/sync-server",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.4",
   "main": "index.js",
   "license": "MIT",
   "type": "module",

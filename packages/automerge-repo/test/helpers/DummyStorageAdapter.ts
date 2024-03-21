@@ -1,6 +1,10 @@
-import { Chunk, StorageAdapter, type StorageKey } from "../../src/index.js"
+import {
+  Chunk,
+  StorageAdapterInterface,
+  type StorageKey,
+} from "../../src/index.js"
 
-export class DummyStorageAdapter implements StorageAdapter {
+export class DummyStorageAdapter implements StorageAdapterInterface {
   #data: Record<string, Uint8Array> = {}
 
   #keyToString(key: string[]): string {

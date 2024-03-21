@@ -33,12 +33,12 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   constructor(options?: BroadcastChannelNetworkAdapterOptions) {
     super()
     this.#options = { channelName: "broadcast", ...(options ?? {}) }
+    this.#broadcastChannel = new BroadcastChannel(this.#options.channelName)
   }
 
-  connect(peerId: PeerId, peerMetadata: PeerMetadata) {
+  connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
-    this.#broadcastChannel = new BroadcastChannel(this.#options.channelName)
 
     this.#broadcastChannel.addEventListener(
       "message",
@@ -52,15 +52,22 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
 
         switch (type) {
           case "arrive":
-            this.#broadcastChannel.postMessage({
-              senderId: this.peerId,
-              targetId: senderId,
-              type: "welcome",
-            })
-            this.#announceConnection(senderId, peerMetadata)
+            {
+              const { peerMetadata } = message as ArriveMessage
+              this.#broadcastChannel.postMessage({
+                senderId: this.peerId,
+                targetId: senderId,
+                type: "welcome",
+                peerMetadata: this.peerMetadata,
+              })
+              this.#announceConnection(senderId, peerMetadata)
+            }
             break
           case "welcome":
-            this.#announceConnection(senderId, peerMetadata)
+            {
+              const { peerMetadata } = message as WelcomeMessage
+              this.#announceConnection(senderId, peerMetadata)
+            }
             break
           default:
             if (!("data" in message)) {
@@ -80,6 +87,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.#broadcastChannel.postMessage({
       senderId: this.peerId,
       type: "arrive",
+      peerMetadata,
     })
 
     this.emit("ready", { network: this })
@@ -93,10 +101,12 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     if ("data" in message) {
       this.#broadcastChannel.postMessage({
         ...message,
-        data: message.data.buffer.slice(
-          message.data.byteOffset,
-          message.data.byteOffset + message.data.byteLength
-        ),
+        data: message.data
+          ? message.data.buffer.slice(
+              message.data.byteOffset,
+              message.data.byteOffset + message.data.byteLength
+            )
+          : undefined,
       })
     } else {
       this.#broadcastChannel.postMessage(message)

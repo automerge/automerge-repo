@@ -24,6 +24,7 @@ module.exports = {
     "**/dist/*",
     "**/node_modules/*",
     ".eslintrc.cjs",
+    "packages/create-vite-app/**/*",
   ],
   overrides: [
     {
@@ -49,7 +50,7 @@ module.exports = {
     "no-use-before-define": OFF,
     "@typescript-eslint/no-non-null-assertion": OFF,
     "@typescript-eslint/no-explicit-any": OFF,
-    "@typescript-eslint/no-unused-vars": [ERROR, {"varsIgnorePattern": "^_"}],
+    "@typescript-eslint/no-unused-vars": [ERROR, { varsIgnorePattern: "^_" }],
   },
   root: true,
 }

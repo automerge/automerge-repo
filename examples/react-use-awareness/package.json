@@ -1,8 +1,8 @@
 {
   "name": "automerge-use-awareness-example-project",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-use-awareness",
+  "version": "1.1.4",
   "private": true,
-  "version": "1.1.0",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-use-awareness",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,7 @@
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
     "@automerge/automerge-repo-react-hooks": "workspace:*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "eventemitter3": "^5.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

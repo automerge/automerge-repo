@@ -30,7 +30,7 @@ type PendingMessage = {
 
 interface DocSynchronizerConfig {
   handle: DocHandle<unknown>
-  onLoadSyncState?: (peerId: PeerId) => A.SyncState | undefined
+  onLoadSyncState?: (peerId: PeerId) => Promise<A.SyncState | undefined>
 }
 
 /**
@@ -227,8 +227,8 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   beginSync(peerIds: PeerId[]) {
-    const newPeers = new Set(
-      peerIds.filter(peerId => !this.#peers.includes(peerId))
+    const noPeersWithDocument = peerIds.every(
+      peerId => this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
     )
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
@@ -242,7 +242,7 @@ export class DocSynchronizer extends Synchronizer {
         this.#checkDocUnavailable()
 
         const wasUnavailable = doc === undefined
-        if (wasUnavailable && newPeers.size == 0) {
+        if (wasUnavailable && noPeersWithDocument) {
           return
         }
 

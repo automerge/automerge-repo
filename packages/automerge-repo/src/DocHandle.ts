@@ -244,13 +244,14 @@ export class DocHandle<T> //
 
   /** Returns a promise that resolves when the docHandle is in one of the given states */
   #statePromise(awaitStates: HandleState | HandleState[]) {
-    if (!Array.isArray(awaitStates)) awaitStates = [awaitStates]
-    return Promise.any(
-      awaitStates.map(state =>
-        waitFor(this.#machine, s => s.matches(state), {
-          timeout: this.#timeoutDelay * 2, // use a longer delay here so as not to race with other delays
-        })
-      )
+    const awaitStatesArray = Array.isArray(awaitStates)
+      ? awaitStates
+      : [awaitStates]
+    return waitFor(
+      this.#machine,
+      s => awaitStatesArray.some(state => s.matches(state)),
+      // use a longer delay here so as not to race with other delays
+      { timeout: this.#timeoutDelay * 2 }
     )
   }
 
@@ -384,7 +385,7 @@ export class DocHandle<T> //
       payload: {
         callback: (doc: A.Doc<T>) => {
           const result = A.changeAt(doc, heads, options, callback)
-          resultHeads = result.newHeads
+          resultHeads = result.newHeads || undefined
           return result.newDoc
         },
       },

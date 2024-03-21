@@ -17,7 +17,7 @@ import {
   isLeaveMessage,
 } from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
-import assert from "assert"
+import { assert } from "./assert.js"
 import { toArrayBuffer } from "./toArrayBuffer.js"
 
 const { encode, decode } = cborHelpers
@@ -32,7 +32,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
     super()
   }
 
-  connect(peerId: PeerId, peerMetadata: PeerMetadata) {
+  connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
 

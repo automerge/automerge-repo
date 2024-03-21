@@ -52,7 +52,7 @@ A `Repo` exposes these methods:
 - `.on("document", ({handle: DocHandle}) => void)`  
   Registers a callback to be fired each time a new document is loaded or created.
 - `.on("delete-document", ({handle: DocHandle}) => void)`  
-  Registers a callback to be fired each time a new document is loaded or created.
+  Registers a callback to be fired each time a new document is deleted.
 
 A `DocHandle` is a wrapper around an `Automerge.Doc`. Its primary function is to dispatch changes to
 the document.

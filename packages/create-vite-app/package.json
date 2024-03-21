@@ -1,0 +1,22 @@
+{
+  "name": "@automerge/create-vite-app",
+  "version": "1.1.4",
+  "description": "Create an automerge-repo app which uses Vite",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/create-vite-app",
+  "author": "Alex Good <alex@memoryandthought.me>",
+  "license": "MIT",
+  "type": "module",
+  "bin": "dist/index.js",
+  "files": [
+    "dist/index.js",
+    "template"
+  ],
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "postbuild": "node postbuild.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

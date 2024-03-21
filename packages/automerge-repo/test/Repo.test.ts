@@ -3,7 +3,7 @@ import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messa
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"
-import { READY } from "../src/DocHandle.js"
+import { HandleState, READY } from "../src/DocHandle.js"
 import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
   generateAutomergeUrl,
@@ -461,6 +461,80 @@ describe("Repo", () => {
   })
 
   describe("with peers (linear network)", async () => {
+    it("n-peers connected in a line", async () => {
+      const createNConnectedRepos = async (
+        numberOfPeers: number,
+        latency?: number
+      ) => {
+        const networkAdapters: DummyNetworkAdapter[][] = []
+        const repos: Repo[] = []
+        const networkReady: Promise<void>[] = []
+
+        // Create n repos and connect them in a line.
+        for (let idx = 0; idx < numberOfPeers; idx++) {
+          const network = []
+
+          const pair = DummyNetworkAdapter.createConnectedPair({ latency })
+          networkAdapters.push(pair)
+
+          if (idx > 0) {
+            network.push(networkAdapters[idx - 1][1])
+            networkReady.push(
+              eventPromise(networkAdapters[idx - 1][1], "ready")
+            )
+          }
+
+          if (idx < numberOfPeers - 1) {
+            network.push(pair[0])
+            networkReady.push(eventPromise(pair[0], "ready"))
+          }
+
+          const repo = new Repo({
+            network,
+            storage: new DummyStorageAdapter(),
+            peerId: `peer-${idx}` as PeerId,
+            sharePolicy: async () => true,
+          })
+          repos.push(repo)
+        }
+
+        await Promise.all(networkReady)
+
+        const connectedPromise = Promise.all(
+          repos.map(repo => eventPromise(repo.networkSubsystem, "peer"))
+        )
+
+        // Initialize the network.
+        for (let idx = 0; idx < numberOfPeers; idx++) {
+          if (idx > 0) {
+            networkAdapters[idx - 1][1].peerCandidate(
+              `peer-${idx - 1}` as PeerId
+            )
+          }
+          if (idx < numberOfPeers - 1) {
+            networkAdapters[idx][0].peerCandidate(`peer-${idx + 1}` as PeerId)
+          }
+        }
+
+        await connectedPromise
+
+        return { repos }
+      }
+
+      const numberOfPeers = 10
+      const { repos } = await createNConnectedRepos(numberOfPeers, 10)
+
+      const handle0 = repos[0].create()
+      handle0.change((d: any) => {
+        d.foo = "bar"
+      })
+
+      const handleN = repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
+
+      await handleN.whenReady()
+      assert.deepStrictEqual(handleN.docSync(), { foo: "bar" })
+    })
+
     const setup = async ({
       connectAlice = true,
       isCharlieEphemeral = false,
@@ -1021,6 +1095,36 @@ describe("Repo", () => {
 
       teardown()
     })
+  })
+
+  it("peer receives a document when connection is recovered", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
+    const aliceRepo = new Repo({
+      network: [aliceAdapter],
+      peerId: alice,
+    })
+    const bobRepo = new Repo({
+      network: [bobAdapter],
+      peerId: bob,
+    })
+
+    const aliceDoc = aliceRepo.create()
+    aliceDoc.change((doc: any) => (doc.text = "Hello world"))
+
+    const bobDoc = bobRepo.find(aliceDoc.url)
+    bobDoc.unavailable()
+    await bobDoc.whenReady([HandleState.UNAVAILABLE])
+
+    aliceAdapter.peerCandidate(bob)
+    // Bob isn't yet connected to Alice and can't respond to her sync message
+    await pause(100)
+    bobAdapter.peerCandidate(alice)
+
+    await bobDoc.whenReady([HandleState.READY])
+
+    assert.equal(bobDoc.isReady(), true)
   })
 
   describe("with peers (mesh network)", () => {

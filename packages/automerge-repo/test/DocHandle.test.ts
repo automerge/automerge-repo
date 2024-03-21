@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import { decode } from "cbor-x"
-import { describe, it } from "vitest"
+import { describe, it, vi } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
@@ -70,6 +70,29 @@ describe("DocHandle", () => {
 
     assert.equal(handle.isReady(), true)
     assert.equal(doc?.foo, "bar")
+  })
+
+  /**
+   * Once there's a Repo#stop API this case should be covered in accompanying
+   * tests and the following test removed.
+   */
+  it("no pending timers after a document is loaded", async () => {
+    vi.useFakeTimers()
+    const timerCount = vi.getTimerCount()
+
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+    assert.equal(handle.isReady(), false)
+
+    handle.doc()
+
+    assert(vi.getTimerCount() > timerCount)
+
+    // simulate loading from storage
+    handle.update(doc => docFromMockStorage(doc))
+
+    assert.equal(handle.isReady(), true)
+    assert.equal(vi.getTimerCount(), timerCount)
+    vi.useRealTimers()
   })
 
   it("should block changes until ready()", async () => {

@@ -10,10 +10,13 @@ import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
-import { NetworkAdapter, type PeerMetadata } from "./network/NetworkAdapter.js"
+import {
+  NetworkAdapterInterface,
+  type PeerMetadata,
+} from "./network/NetworkAdapterInterface.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { RepoMessage } from "./network/messages.js"
-import { StorageAdapter } from "./storage/StorageAdapter.js"
+import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
@@ -155,14 +158,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
 
-    const myPeerMetadata: Promise<PeerMetadata> = new Promise(
-      // eslint-disable-next-line no-async-promise-executor -- TODO: fix
-      async resolve =>
-        resolve({
-          storageId: await storageSubsystem?.id(),
-          isEphemeral,
-        } as PeerMetadata)
-    )
+    const myPeerMetadata: Promise<PeerMetadata> = (async () => ({
+      storageId: await storageSubsystem?.id(),
+      isEphemeral,
+    }))()
 
     const networkSubsystem = new NetworkSubsystem(
       network,
@@ -218,7 +217,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         message.syncState.theirHeads &&
         (!heads || !headsAreSame(heads, message.syncState.theirHeads))
 
-      if (haveHeadsChanged) {
+      if (haveHeadsChanged && message.syncState.theirHeads) {
         handle.setRemoteHeads(storageId, message.syncState.theirHeads)
 
         if (storageId && this.#remoteHeadsGossipingEnabled) {
@@ -517,10 +516,10 @@ export interface RepoConfig {
   isEphemeral?: boolean
 
   /** A storage adapter can be provided, or not */
-  storage?: StorageAdapter
+  storage?: StorageAdapterInterface
 
   /** One or more network adapters must be provided */
-  network: NetworkAdapter[]
+  network: NetworkAdapterInterface[]
 
   /**
    * Normal peers typically share generously with everyone (meaning we sync all our documents with

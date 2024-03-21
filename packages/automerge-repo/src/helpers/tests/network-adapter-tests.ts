@@ -1,6 +1,7 @@
 import assert from "assert"
-import { describe, it } from "vitest"
-import { PeerId, Repo, type NetworkAdapter } from "../../index.js"
+import { describe, expect, it } from "vitest"
+import { PeerId, PeerMetadata, Repo, StorageId } from "../../index.js"
+import type { NetworkAdapterInterface } from "../../network/NetworkAdapterInterface.js"
 import { eventPromise, eventPromises } from "../eventPromise.js"
 import { pause } from "../pause.js"
 
@@ -29,7 +30,10 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
 
   describe(`Adapter acceptance tests ${title ? `(${title})` : ""}`, () => {
     it("can sync 2 repos", async () => {
-      const doTest = async (a: NetworkAdapter[], b: NetworkAdapter[]) => {
+      const doTest = async (
+        a: NetworkAdapterInterface[],
+        b: NetworkAdapterInterface[]
+      ) => {
         const aliceRepo = new Repo({ network: a, peerId: alice })
         const bobRepo = new Repo({ network: b, peerId: bob })
 
@@ -141,12 +145,34 @@ export function runAdapterTests(_setup: SetupFn, title?: string): void {
       assert.deepStrictEqual(message, alicePresenceData)
       teardown()
     })
+
+    it("emits a peer-candidate event with proper peer metadata when a peer connects", async () => {
+      const { adapters, teardown } = await setup()
+      const a = adapters[0][0]
+      const b = adapters[1][0]
+
+      const bPromise = eventPromise(b, "peer-candidate")
+
+      const aPeerMetadata: PeerMetadata = { storageId: "a" as StorageId }
+
+      b.connect("b" as PeerId, { storageId: "b" as StorageId })
+      a.connect("a" as PeerId, aPeerMetadata)
+
+      const peerCandidate = await bPromise
+
+      expect(peerCandidate).toMatchObject({
+        peerId: "a",
+        peerMetadata: aPeerMetadata,
+      })
+
+      teardown()
+    })
   })
 }
 
 const NO_OP = () => {}
 
-type Network = NetworkAdapter | NetworkAdapter[]
+type Network = NetworkAdapterInterface | NetworkAdapterInterface[]
 
 export type SetupFn = () => Promise<{
   adapters: [Network, Network, Network]

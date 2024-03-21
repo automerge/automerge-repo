@@ -18,22 +18,22 @@ export default defineConfig({
   ],
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
-      formats: ['es'],
-      fileName: 'index',
+      entry: resolve(__dirname, "src/index.ts"),
+      formats: ["es"],
+      fileName: "index",
     },
     rollupOptions: {
-      external: ['react', 'react/jsx-runtime', 'react-dom', 'tailwindcss'],
+      external: ["react", "react/jsx-runtime", "react-dom", "tailwindcss"],
       output: {
         globals: {
-          react: 'React',
-          'react/jsx-runtime': 'react/jsx-runtime',
-          'react-dom': 'ReactDOM',
-        }
-      }
+          react: "React",
+          "react/jsx-runtime": "react/jsx-runtime",
+          "react-dom": "ReactDOM",
+        },
+      },
     },
   },
   worker: {
     plugins: [wasm(), topLevelAwait()],
-  }
+  },
 })
