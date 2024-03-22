@@ -72,21 +72,21 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       actions: {
         /** Update the doc using the given callback and put the modified doc in context */
         onUpdate: assign(({ context, event }) => {
+          const oldDoc = context.doc
+
           assertEvent(event, UPDATE)
-          const { doc: oldDoc } = context
           const { callback } = event.payload
           const newDoc = callback(oldDoc)
+
           return { doc: newDoc }
         }),
         onDelete: assign(() => {
           this.emit("delete", { handle: this })
           return { doc: undefined }
         }),
-        onUnavailable: assign(({ context }) => {
-          const { doc } = context
+        onUnavailable: () => {
           this.emit("unavailable", { handle: this })
-          return { doc }
-        }),
+        },
       },
     }).createMachine({
       initial: "idle",
