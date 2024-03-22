@@ -108,7 +108,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
             REQUEST: { target: "requesting" },
             AWAIT_NETWORK: { target: "awaitingNetwork" },
           },
-          after: [{ delay, target: "unavailable" }],
+          after: { [delay]: { target: "unavailable" } },
         },
         awaitingNetwork: {
           on: {
@@ -120,7 +120,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
             MARK_UNAVAILABLE: { target: "unavailable" },
             REQUEST_COMPLETE: { target: "ready" },
           },
-          after: [{ delay, target: "unavailable" }],
+          after: { [delay]: { target: "unavailable" } },
         },
         unavailable: {
           entry: "onUnavailable",
