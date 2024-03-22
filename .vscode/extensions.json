@@ -1,0 +1,7 @@
+{
+	"recommendations": [
+		"esbenp.prettier-vscode",
+		"statelyai.stately-vscode",
+		"vitest.explorer"
+	],
+}
