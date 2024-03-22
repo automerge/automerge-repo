@@ -1,16 +1,16 @@
-import { NodeFSStorageAdapter } from "../../automerge-repo-storage-nodefs/src/index.js"
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import fs from "fs"
 import os from "os"
 import path from "path"
+import * as Uuid from "uuid"
 import { describe, it } from "vitest"
+import { NodeFSStorageAdapter } from "../../automerge-repo-storage-nodefs/src/index.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
-import { PeerId, cbor } from "../src/index.js"
+import { cbor } from "../src/index.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { StorageId } from "../src/storage/types.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
-import * as Uuid from "uuid"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -20,7 +20,7 @@ describe("StorageSubsystem", () => {
     nodeFSStorageAdapter: new NodeFSStorageAdapter(tempDir),
   }
 
-  Object.entries(adaptersToTest).forEach(([adapterName, adapter]) => {
+  for (const [adapterName, adapter] of Object.entries(adaptersToTest)) {
     describe(adapterName, () => {
       describe("Automerge document storage", () => {
         it("stores and retrieves an Automerge document", async () => {
@@ -227,5 +227,5 @@ describe("StorageSubsystem", () => {
         })
       })
     })
-  })
+  }
 })
