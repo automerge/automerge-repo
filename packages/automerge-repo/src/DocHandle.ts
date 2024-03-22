@@ -275,7 +275,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       // wait for the document to enter one of the desired states
       await this.#statePromise(awaitStates)
     } catch (error) {
-      // if we timed out (or have determined the document is currently unavailable), return undefined
+      // if we timed out, return undefined
       return undefined
     }
     // Return the document
