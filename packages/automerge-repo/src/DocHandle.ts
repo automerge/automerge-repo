@@ -148,6 +148,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       this.#checkForChanges(oldDoc, newDoc)
     })
 
+    // Start the machine, and send a create or find event to get things going
     this.#machine.start()
     this.#machine.send(isNew ? { type: CREATE } : { type: FIND })
   }
