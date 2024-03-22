@@ -89,6 +89,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         },
       },
     }).createMachine({
+      /** @xstate-layout N4IgpgJg5mDOIC5QAoC2BDAxgCwJYDswBKAYgFUAFAEQEEAVAUQG0AGAXUVAAcB7WXAC64e+TiAAeiAOwAOAKwA6ACxSAzKqks1ATjlTdAGhABPRAFolAJksKN2y1KtKAbFLla5AX09G0WPISkVAwAMgyMrBxIILz8QiJikggAjCzOijKqLEqqybJyLizaRqYIFpbJtro5Uo7J2o5S3r4YOATECrgQADZgJADCAEoM9MzsYrGCwqLRSeoyCtra8pa5adquySXmDjY5ac7JljLJeepKzSB+bYGdPX0AYgCSAHJUkRN8UwmziM7HCgqyVcUnqcmScmcMm2ZV2yiyzkOx1OalUFx8V1aAQ63R46AgBCg5Goow+0Um8RmoCSVj2uRcS2c2XkLhhwNsMhktSUWhOqhkGy8GOu2KIClx+MJJGGAEUyAwAMp0MncL6UxJ-VIKOSWJT1FS63VpGGqbQKU5yXINeTaer6IUtfztMUSgn4Ik0ADqNCedAA+i9wp6APKDADSKpiaumGoQbik5uSpqkUOBywKJrNFqt+VtDV0lxFzoU6AA7ugpu6XmABKWeAAnADWJEDdBD4b9wxoVAAmpGKTHfnG5Bkilk8im8s5iiZEJYWIpUhV5Avl4cmsKscX62AAI4AVzgQndJAAsjQO2QXjQAGo+kI0ABCYX70Z+1OkcjNesyzhUWkcRFM2cZRwScXR9AhTJCy3W4dwPI8pVleUlT9fpg1PCgwgicZyTfKkJD+FhVAUFgZCKfZahkVZLBhJRllsM5dn1KF0UdG4On3fB0AANwrbp0AAI16aUGDlRV-XQzDsLGKJVTiQcPxSFh51sVRnFUOQ+X0NElBhdwE2yFR0ltWojgKbwMXwHgIDgMQi0CT4FPfQiEEsbQWEWdNVlSadNhhMx3AWAUCiyBo8nsZwYKdW4ul6JzvgIml5FIsj1I2awKktOQAqsSpTVC7k7RcKLNxinE8TdKAEvVId-k8zlNPIqRLHScitlnMojhsJNVnBU5ERYI5VGijixTLCtjygatawbRsasU1yUxsbQ8oG-kHEONlVPUw4v20dTMnUjd2NFBR4MPWApoWlykkGhQZCUEdkisSFagaE12XotxOU5VbdlGs6uN4-ihPivDnKSxBUk080R3+ZYaltVQTX0B6Uw8gUXCUTIuUB7cwHxUp5MS2NERIioWpcS0NPSKQYSZSo9CsFqWQqY58duWzegESAbqh5TVBsBw9FkWRiK0FHOrMIWzR1R7ntOBxbUszwgA */
+
+      // You can use the XState extension for VS Code to visualize this machine.
+      // Or, you can see this static visualization (last updated March 2024): https://stately.ai/registry/editor/d7af9b58-c518-44f1-9c36-92a238b04a7a?machineId=91c387e7-0f01-42c9-a21d-293e9bf95bb7
+
       initial: "idle",
       context: { documentId, doc },
       on: {
