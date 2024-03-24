@@ -14,9 +14,13 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "postbuild": "node postbuild.js"
+    "postbuild": "node postbuild.js",
+    "test": "node test.js"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "execa": "^8.0.1"
   }
 }

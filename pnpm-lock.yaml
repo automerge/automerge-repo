@@ -414,7 +414,11 @@ importers:
 
   packages/create-repo-node-app: {}
 
-  packages/create-vite-app: {}
+  packages/create-vite-app:
+    devDependencies:
+      execa:
+        specifier: ^8.0.1
+        version: 8.0.1
 
 packages:
 
