@@ -6,7 +6,7 @@ const PAYLOAD_A = new Uint8Array([0, 1, 127, 99, 154, 235])
 const PAYLOAD_B = new Uint8Array([1, 76, 160, 53, 57, 10, 230])
 const PAYLOAD_C = new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193])
 
-const LARGE_PAYLOAD = new Uint8Array(100000).map((_, i) => Math.random() * 256)
+const LARGE_PAYLOAD = new Uint8Array(100000).map(() => Math.random() * 256)
 
 export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
   const setup = async () => {
@@ -72,7 +72,7 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
 
     describe("save and loadRange", () => {
       it("should return all the data that matches the key", async () => {
-        const { adapter, teardown } = await setup()
+        const { adapter } = await setup()
 
         await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_A)
         await adapter.save(["AAAAA", "snapshot", "yyyyy"], PAYLOAD_B)
