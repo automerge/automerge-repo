@@ -71,7 +71,7 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     })
 
     describe("save and loadRange", () => {
-      it("should return all the data that is present", async () => {
+      it("should return all the data that matches the key", async () => {
         const { adapter, teardown } = await setup()
 
         await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_A)
@@ -94,7 +94,7 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
         )
       })
 
-      it("does not includes values which shouldn't be there", async () => {
+      it("should only load values that match they key", async () => {
         const { adapter, teardown } = await setup()
 
         await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_A)
@@ -117,7 +117,7 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     })
 
     describe("save and remove", () => {
-      it("should be no data", async () => {
+      it("after removing, should be empty", async () => {
         const { adapter, teardown } = await setup()
 
         await adapter.save(["AAAAA", "snapshot", "xxxxx"], PAYLOAD_A)
@@ -164,7 +164,7 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
         teardown()
       })
 
-      it("should not remove records that doesn't match", async () => {
+      it("should not remove records that don't match", async () => {
         const { adapter, teardown } = await setup()
 
         await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_A)
