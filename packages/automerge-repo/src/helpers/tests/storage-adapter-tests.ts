@@ -72,7 +72,7 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
 
     describe("save and loadRange", () => {
       it("should return all the data that matches the key", async () => {
-        const { adapter } = await setup()
+        const { adapter, teardown } = await setup()
 
         await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_A)
         await adapter.save(["AAAAA", "snapshot", "yyyyy"], PAYLOAD_B)
@@ -92,6 +92,8 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
             { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C },
           ])
         )
+
+        teardown()
       })
 
       it("should only load values that match they key", async () => {
