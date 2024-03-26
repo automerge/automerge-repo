@@ -489,16 +489,17 @@ describe("Repo", () => {
           network: [],
         })
 
+        // Could not find the document that is not yet saved because of slow storage.
         const reloadedHandle = repo.find<{ foo: string }>(handle.url)
         expect(await reloadedHandle.doc()).toEqual(undefined)
       }
 
-      // check that the data is not yet saved
+      // Check that the data is not yet saved.
       expect(slowStorage.keys()).to.deep.equal([])
 
       await repo.flush()
 
-      // check that the data is now saved
+      // Check that the data is now saved.
       expect(slowStorage.keys().length).toBeGreaterThan(0)
 
       {
