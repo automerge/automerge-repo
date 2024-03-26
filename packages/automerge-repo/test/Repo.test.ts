@@ -376,8 +376,7 @@ describe("Repo", () => {
         d.count = 1
       })
 
-      // wait because storage id is not initialized immediately
-      await pause()
+      await repo.flush()
 
       const initialKeys = storage.keys()
 
@@ -457,6 +456,61 @@ describe("Repo", () => {
       expect(() => {
         repo.import<TestDoc>(A.init<TestDoc> as unknown as Uint8Array)
       }).toThrow()
+    })
+
+    it("`.flush` wait for all changes to be written to disk", async () => {
+      const slowStorage = new DummyStorageAdapter()
+      {
+        const originalSave = slowStorage.save.bind(slowStorage)
+        slowStorage.save = async (...args) => {
+          await pause(50)
+          return originalSave(...args)
+        }
+      }
+
+      const repo = new Repo({
+        storage: slowStorage,
+        network: [],
+      })
+
+      const handle = repo.create<{ foo: string }>()
+
+      handle.change(d => {
+        d.foo = "bar"
+      })
+
+      expect((await handle.doc()).foo).toEqual("bar")
+
+
+      {
+        // Reload repo
+        const repo = new Repo({
+          storage: slowStorage,
+          network: [],
+        })
+
+        const reloadedHandle = repo.find<{ foo: string }>(handle.url)
+        expect(await reloadedHandle.doc()).toEqual(undefined)
+      }
+
+      // check that the data is not yet saved
+      expect(slowStorage.keys()).to.deep.equal([])
+
+      await repo.flush()
+
+      // check that the data is now saved
+      expect(slowStorage.keys().length).toBeGreaterThan(0)
+
+      {
+        // Reload repo
+        const repo = new Repo({
+          storage: slowStorage,
+          network: [],
+        })
+
+        const reloadedHandle = repo.find<{ foo: string }>(handle.documentId)
+        expect((await reloadedHandle.doc()).foo).toEqual("bar")
+      }
     })
   })
 
