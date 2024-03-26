@@ -481,7 +481,6 @@ describe("Repo", () => {
 
       expect((await handle.doc()).foo).toEqual("bar")
 
-
       {
         // Reload repo
         const repo = new Repo({
