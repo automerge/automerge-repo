@@ -1,19 +1,7 @@
 import * as A from "@automerge/automerge/next"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import {
-  assign,
-  BaseActionObject,
-  createMachine,
-  interpret,
-  Interpreter,
-  ResolveTypegenMeta,
-  ServiceMap,
-  StateSchema,
-  StateValue,
-  TypegenDisabled,
-} from "xstate"
-import { waitFor } from "xstate/lib/waitFor.js"
+import { assertEvent, assign, createActor, setup, waitFor } from "xstate"
 import { stringifyAutomergeUrl } from "./AutomergeUrl.js"
 import { encode } from "./helpers/cbor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
@@ -21,35 +9,34 @@ import { withTimeout } from "./helpers/withTimeout.js"
 import type { AutomergeUrl, DocumentId, PeerId } from "./types.js"
 import { StorageId } from "./storage/types.js"
 
-/** DocHandle is a wrapper around a single Automerge document that lets us
- * listen for changes and notify the network and storage of new changes.
+/**
+ * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
+ * notify the network and storage of new changes.
  *
  * @remarks
- * A `DocHandle` represents a document which is being managed by a {@link Repo}.
- * To obtain `DocHandle` use {@link Repo.find} or {@link Repo.create}.
+ * A `DocHandle` represents a document which is being managed by a {@link Repo}. You shouldn't ever
+ * instantiate this yourself. To obtain `DocHandle` use {@link Repo.find} or {@link Repo.create}.
  *
  * To modify the underlying document use either {@link DocHandle.change} or
- * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some
- * change has occured and the `Repo` will save any new changes to the
- * attached {@link StorageAdapter} and send sync messages to connected peers.
- * */
-export class DocHandle<T> //
-  extends EventEmitter<DocHandleEvents<T>>
-{
+ * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some change has occured and
+ * the `Repo` will save any new changes to the attached {@link StorageAdapter} and send sync
+ * messages to connected peers.
+ */
+export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #log: debug.Debugger
 
-  #machine: DocHandleXstateMachine<T>
-  #timeoutDelay = 60_000
-  #remoteHeads: Record<StorageId, A.Heads> = {}
+  /** The XState actor running our state machine.  */
+  #machine
 
-  /** The URL of this document
-   *
-   * @remarks
-   * This can be used to request the document from an instance of {@link Repo}
-   */
-  get url(): AutomergeUrl {
-    return stringifyAutomergeUrl({ documentId: this.documentId })
-  }
+  /** The last known state of our document. */
+  #prevDocState: T | undefined
+
+  /** How long to wait before giving up on a document. (Note that a document will be marked
+   * unavailable much sooner if all known peers respond that they don't have it.) */
+  #timeoutDelay = 60_000
+
+  /** A dictionary mapping each peer to the last heads we know they have. */
+  #remoteHeads: Record<StorageId, A.Heads> = {}
 
   /** @hidden */
   constructor(
@@ -57,8 +44,6 @@ export class DocHandle<T> //
     options: DocHandleOptions<T> = {}
   ) {
     super()
-
-    this.documentId = documentId
 
     if ("timeoutDelay" in options && options.timeoutDelay) {
       this.#timeoutDelay = options.timeoutDelay
@@ -78,156 +63,92 @@ export class DocHandle<T> //
 
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
-    /**
-     * Internally we use a state machine to orchestrate document loading and/or syncing, in order to
-     * avoid requesting data we already have, or surfacing intermediate values to the consumer.
-     *
-     *                          ┌─────────────────────┬─────────TIMEOUT────►┌─────────────┐
-     *                      ┌───┴─────┐           ┌───┴────────┐            │ unavailable │
-     *  ┌───────┐  ┌──FIND──┤ loading ├─REQUEST──►│ requesting ├─UPDATE──┐  └─────────────┘
-     *  │ idle  ├──┤        └───┬─────┘           └────────────┘         │
-     *  └───────┘  │            │                                        └─►┌────────┐
-     *             │            └───────LOAD───────────────────────────────►│ ready  │
-     *             └──CREATE───────────────────────────────────────────────►└────────┘
-     */
-    this.#machine = interpret(
-      createMachine<DocHandleContext<T>, DocHandleEvent<T>>(
-        {
-          predictableActionArguments: true,
+    const delay = this.#timeoutDelay
+    const machine = setup({
+      types: {
+        context: {} as DocHandleContext<T>,
+        events: {} as DocHandleEvent<T>,
+      },
+      actions: {
+        /** Update the doc using the given callback and put the modified doc in context */
+        onUpdate: assign(({ context, event }) => {
+          const oldDoc = context.doc
 
-          id: "docHandle",
-          initial: IDLE,
-          context: { documentId: this.documentId, doc },
-          states: {
-            idle: {
-              on: {
-                // If we're creating a new document, we don't need to load anything
-                CREATE: { target: READY },
-                // If we're accessing an existing document, we need to request it from storage
-                // and/or the network
-                FIND: { target: LOADING },
-                DELETE: { actions: "onDelete", target: DELETED },
-              },
-            },
-            loading: {
-              on: {
-                // UPDATE is called by the Repo if the document is found in storage
-                UPDATE: { actions: "onUpdate", target: READY },
-                // REQUEST is called by the Repo if the document is not found in storage
-                REQUEST: { target: REQUESTING },
-                // AWAIT_NETWORK is called by the repo if the document is not found in storage but the network is not yet ready
-                AWAIT_NETWORK: { target: AWAITING_NETWORK },
-                DELETE: { actions: "onDelete", target: DELETED },
-              },
-              after: [
-                {
-                  delay: this.#timeoutDelay,
-                  target: UNAVAILABLE,
-                },
-              ],
-            },
-            awaitingNetwork: {
-              on: {
-                NETWORK_READY: { target: REQUESTING },
-              },
-            },
-            requesting: {
-              on: {
-                MARK_UNAVAILABLE: {
-                  target: UNAVAILABLE,
-                  actions: "onUnavailable",
-                },
-                // UPDATE is called by the Repo when we receive changes from the network
-                UPDATE: { actions: "onUpdate" },
-                // REQUEST_COMPLETE is called from `onUpdate` when the doc has been fully loaded from the network
-                REQUEST_COMPLETE: { target: READY },
-                DELETE: { actions: "onDelete", target: DELETED },
-              },
-              after: [
-                {
-                  delay: this.#timeoutDelay,
-                  target: UNAVAILABLE,
-                },
-              ],
-            },
-            ready: {
-              on: {
-                // UPDATE is called by the Repo when we receive changes from the network
-                UPDATE: { actions: "onUpdate", target: READY },
-                DELETE: { actions: "onDelete", target: DELETED },
-              },
-            },
-            deleted: {
-              type: "final",
-            },
-            unavailable: {
-              on: {
-                UPDATE: { actions: "onUpdate" },
-                // REQUEST_COMPLETE is called from `onUpdate` when the doc has been fully loaded from the network
-                REQUEST_COMPLETE: { target: READY },
-                DELETE: { actions: "onDelete", target: DELETED },
-              },
-            },
+          assertEvent(event, UPDATE)
+          const { callback } = event.payload
+          const newDoc = callback(oldDoc)
+
+          return { doc: newDoc }
+        }),
+        onDelete: assign(() => {
+          this.emit("delete", { handle: this })
+          return { doc: undefined }
+        }),
+        onUnavailable: () => {
+          this.emit("unavailable", { handle: this })
+        },
+      },
+    }).createMachine({
+      /** @xstate-layout N4IgpgJg5mDOIC5QAoC2BDAxgCwJYDswBKAYgFUAFAEQEEAVAUQG0AGAXUVAAcB7WXAC64e+TiAAeiAOwAOAKwA6ACxSAzKqks1ATjlTdAGhABPRAFolAJksKN2y1KtKAbFLla5AX09G0WPISkVAwAMgyMrBxIILz8QiJikggAjCzOijKqLEqqybJyLizaRqYIFpbJtro5Uo7J2o5S3r4YOATECrgQADZgJADCAEoM9MzsYrGCwqLRSeoyCtra8pa5adquySXmDjY5ac7JljLJeepKzSB+bYGdPX0AYgCSAHJUkRN8UwmziM7HCgqyVcUnqcmScmcMm2ZV2yiyzkOx1OalUFx8V1aAQ63R46AgBCgJGGAEUyAwAMp0D7RSbxGagJKHFgKOSWJTJGRSCosCpKaEmRCqbQKU5yXINeTaer6LwY67YogKXH4wkkKgAeX6AH1hjQqABNGncL70xKIJQ5RY5BHOJag6wwpRyEWImQVeT1aWrVSXBXtJUqgn4Ik0ADqNCedG1L3CYY1gwA0saYqbpuaEG4pKLksKpFDgcsCjDhTnxTKpTLdH6sQGFOgAO7oKYhl5gAQNngAJwA1iRY3R40ndSNDSm6enfpm5BkWAVkvy7bpuTCKq7ndZnfVeSwuTX-HWu2AAI4AVzgQhD6q12rILxoADVIyEaAAhMLjtM-RmIE4LVSQi4nLLDIGzOCWwLKA0cgyLBoFWNy+43B0R5nheaqajqepjuMtJfgyEh-FoixqMCoKqOyhzgYKCDOq6UIeuCSxHOoSGKgop74OgABuzbdOgABGvTXlho5GrhJpxJOP4pLulT6KoMhpJY2hzsWNF0QobqMV6LG+pc+A8BAcBiP6gSfFJ36EQgKksksKxrHamwwmY7gLKB85QjBzoAWxdZdL0FnfARST8ooLC7qoTnWBU4pyC5ViVMKBQaHUDQuM4fm3EGhJBWaU7-CysEAUp3LpEpWw0WYRw2LmqzgqciIsCxWUdI2zaXlAbYdt2PZ5dJ1n5jY2iJY1ikOIcMJHCyUWHC62hRZkUVNPKta3Kh56wJ1-VWUyzhFc64JWJCtQNBBzhQW4cHwbsrVKpxPF8YJgV4ZZIWIKkiKiiNSkqZYWjzCWaQ5hFh0AcCuR3QoR74qUknBRmzholpv3OkpRQNNRpTzaKTWKbIWR5FDxm9AIkA7e9skUYCWayLILBZGoLkUSKbIyIdpxHPoyTeN4QA */
+
+      // You can use the XState extension for VS Code to visualize this machine.
+      // Or, you can see this static visualization (last updated March 2024): https://stately.ai/registry/editor/d7af9b58-c518-44f1-9c36-92a238b04a7a?machineId=91c387e7-0f01-42c9-a21d-293e9bf95bb7
+
+      initial: "idle",
+      context: { documentId, doc },
+      on: {
+        UPDATE: { actions: "onUpdate" },
+        DELETE: ".deleted",
+      },
+      states: {
+        idle: {
+          on: {
+            CREATE: "ready",
+            FIND: "loading",
           },
         },
-
-        {
-          actions: {
-            /** Put the updated doc on context */
-            onUpdate: assign((context, { payload }: UpdateEvent<T>) => {
-              const { doc: oldDoc } = context
-
-              const { callback } = payload
-              const newDoc = callback(oldDoc)
-
-              return { doc: newDoc }
-            }),
-            onDelete: assign(() => {
-              this.emit("delete", { handle: this })
-              return { doc: undefined }
-            }),
-            onUnavailable: assign(context => {
-              const { doc } = context
-
-              this.emit("unavailable", { handle: this })
-              return { doc }
-            }),
+        loading: {
+          on: {
+            REQUEST: "requesting",
+            DOC_READY: "ready",
+            AWAIT_NETWORK: "awaitingNetwork",
           },
-        }
-      )
-    )
-      .onTransition(({ value: state, history, context }, event) => {
-        const oldDoc = history?.context?.doc
-        const newDoc = context.doc
+          after: { [delay]: "unavailable" },
+        },
+        awaitingNetwork: {
+          on: { NETWORK_READY: "requesting" },
+        },
+        requesting: {
+          on: {
+            DOC_UNAVAILABLE: "unavailable",
+            DOC_READY: "ready",
+          },
+          after: { [delay]: "unavailable" },
+        },
+        unavailable: {
+          entry: "onUnavailable",
+          on: { DOC_READY: "ready" },
+        },
+        ready: {},
+        deleted: { entry: "onDelete", type: "final" },
+      },
+    })
 
-        this.#log(`${history?.value}: ${event.type} → ${state}`, newDoc)
+    // Instantiate the state machine
+    this.#machine = createActor(machine)
 
-        const docChanged =
-          newDoc &&
-          oldDoc &&
-          !headsAreSame(A.getHeads(newDoc), A.getHeads(oldDoc))
-        if (docChanged) {
-          this.emit("heads-changed", { handle: this, doc: newDoc })
+    // Listen for state transitions
+    this.#machine.subscribe(state => {
+      const oldDoc = this.#prevDocState
+      const newDoc = state.context.doc
+      this.#log(`→ ${state.value} %o`, newDoc)
+      // if the document has changed, emit a change event
+      this.#checkForChanges(oldDoc, newDoc)
+    })
 
-          const patches = A.diff(newDoc, A.getHeads(oldDoc), A.getHeads(newDoc))
-          if (patches.length > 0) {
-            const source = "change" // TODO: pass along the source (load/change/network)
-            this.emit("change", {
-              handle: this,
-              doc: newDoc,
-              patches,
-              patchInfo: { before: oldDoc, after: newDoc, source },
-            })
-          }
-
-          if (!this.isReady()) {
-            this.#machine.send(REQUEST_COMPLETE)
-          }
-        }
-      })
-      .start()
-
-    this.#machine.send(isNew ? CREATE : FIND)
+    // Start the machine, and send a create or find event to get things going
+    this.#machine.start()
+    this.#machine.send(isNew ? { type: CREATE } : { type: FIND })
   }
 
   // PRIVATE
@@ -255,55 +176,104 @@ export class DocHandle<T> //
     )
   }
 
+  /**
+   * Called after state transitions. If the document has changed, emits a change event. If we just
+   * received the document for the first time, signal that our request has been completed.
+   */
+  #checkForChanges(oldDoc: T | undefined, newDoc: T) {
+    const docChanged =
+      newDoc && oldDoc && !headsAreSame(A.getHeads(newDoc), A.getHeads(oldDoc))
+    if (docChanged) {
+      this.emit("heads-changed", { handle: this, doc: newDoc })
+
+      const patches = A.diff(newDoc, A.getHeads(oldDoc), A.getHeads(newDoc))
+      if (patches.length > 0) {
+        this.emit("change", {
+          handle: this,
+          doc: newDoc,
+          patches,
+          patchInfo: {
+            before: oldDoc,
+            after: newDoc,
+            source: "change", // TODO: pass along the source (load/change/network)
+          },
+        })
+      }
+
+      // If we didn't have the document yet, signal that we now do
+      if (!this.isReady()) this.#machine.send({ type: DOC_READY })
+    }
+    this.#prevDocState = newDoc
+  }
+
   // PUBLIC
 
-  /**
-   * Checks if the document is ready for accessing or changes.
-   * Note that for documents already stored locally this occurs before synchronization
-   * with any peers. We do not currently have an equivalent `whenSynced()`.
+  /** Our documentId in Automerge URL form.
    */
-  isReady = () => this.inState([HandleState.READY])
-  /**
-   * Checks if this document has been marked as deleted.
-   * Deleted documents are removed from local storage and the sync process.
-   * It's not currently possible at runtime to undelete a document.
-   * @returns true if the document has been marked as deleted
-   */
-  isDeleted = () => this.inState([HandleState.DELETED])
-  isUnavailable = () => this.inState([HandleState.UNAVAILABLE])
-  inState = (states: HandleState[]) =>
-    states.some(this.#machine?.getSnapshot().matches)
-
-  /** @hidden */
-  get state() {
-    return this.#machine?.getSnapshot().value
+  get url(): AutomergeUrl {
+    return stringifyAutomergeUrl({ documentId: this.documentId })
   }
 
   /**
-   * Use this to block until the document handle has finished loading.
-   * The async equivalent to checking `inState()`.
-   * @param awaitStates = [READY]
-   * @returns
+   * @returns true if the document is ready for accessing or changes.
+   *
+   * Note that for documents already stored locally this occurs before synchronization with any
+   * peers. We do not currently have an equivalent `whenSynced()`.
    */
-  async whenReady(awaitStates: HandleState[] = [READY]): Promise<void> {
+  isReady = () => this.inState(["ready"])
+
+  /**
+   * @returns true if the document has been marked as deleted.
+   *
+   * Deleted documents are removed from local storage and the sync process. It's not currently
+   * possible at runtime to undelete a document.
+   */
+  isDeleted = () => this.inState(["deleted"])
+
+  /**
+   * @returns true if the document is currently unavailable.
+   *
+   * This will be the case if the document is not found in storage and no peers have shared it with us.
+   */
+  isUnavailable = () => this.inState(["unavailable"])
+
+  /**
+   * @returns true if the handle is in one of the given states.
+   */
+  inState = (states: HandleState[]) =>
+    states.some(s => this.#machine.getSnapshot().matches(s))
+
+  /** @hidden */
+  get state() {
+    return this.#machine.getSnapshot().value
+  }
+
+  /**
+   * @returns a promise that resolves when the document is in one of the given states (if no states
+   * are passed, when the document is ready)
+   *
+   * Use this to block until the document handle has finished loading. The async equivalent to
+   * checking `inState()`.
+   */
+  async whenReady(awaitStates: HandleState[] = ["ready"]): Promise<void> {
     await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
   }
 
   /**
-   * Returns the current state of the Automerge document this handle manages.
-   * Note that this waits for the handle to be ready if necessary, and currently, if
-   * loading (or synchronization) fails, will never resolve.
+   * @returns the current state of this handle's Automerge document.
    *
-   * @param {awaitStates=[READY]} optional states to wait for, such as "LOADING". mostly for internal use.
+   * This is the recommended way to access a handle's document. Note that this waits for the handle
+   * to be ready if necessary. If loading (or synchronization) fails, this will never resolve.
    */
   async doc(
-    awaitStates: HandleState[] = [READY, UNAVAILABLE]
+    /** states to wait for, such as "LOADING". mostly for internal use. */
+    awaitStates: HandleState[] = ["ready", "unavailable"]
   ): Promise<A.Doc<T> | undefined> {
     try {
       // wait for the document to enter one of the desired states
       await this.#statePromise(awaitStates)
     } catch (error) {
-      // if we timed out (or have determined the document is currently unavailable), return undefined
+      // if we timed out, return undefined
       return undefined
     }
     // Return the document
@@ -311,33 +281,33 @@ export class DocHandle<T> //
   }
 
   /**
-   * Returns the current state of the Automerge document this handle manages, or undefined.
-   * Useful in a synchronous context. Consider using `await handle.doc()` instead, check `isReady()`,
-   * or use `whenReady()` if you want to make sure loading is complete first.
+   * Synchronously returns the current state of the Automerge document this handle manages, or
+   * undefined. Consider using `await handle.doc()` instead. Check `isReady()`, or use `whenReady()`
+   * if you want to make sure loading is complete first.
    *
-   * Do not confuse this with the SyncState of the document, which describes the state of the synchronization process.
+   * Not to be confused with the SyncState of the document, which describes the state of the
+   * synchronization process.
    *
-   * Note that `undefined` is not a valid Automerge document so the return from this function is unambigous.
-   * @returns the current document, or undefined if the document is not ready
+   * Note that `undefined` is not a valid Automerge document, so the return from this function is
+   * unambigous.
+   *
+   * @returns the current document, or undefined if the document is not ready.
    */
   docSync(): A.Doc<T> | undefined {
-    if (!this.isReady()) {
-      return undefined
-    }
-
-    return this.#doc
+    if (!this.isReady()) return undefined
+    else return this.#doc
   }
 
-  /** `update` is called by the repo when we receive changes from the network
+  /**
+   * Called by the repo when we receive changes from the network.
    * @hidden
-   * */
+   */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    this.#machine.send(UPDATE, {
-      payload: { callback },
-    })
+    this.#machine.send({ type: UPDATE, payload: { callback } })
   }
 
-  /** `setRemoteHeads` is called by the repo either when a doc handle changes or we receive new remote heads
+  /**
+   * Called by the repo either when a doc handle changes or we receive new remote heads.
    * @hidden
    */
   setRemoteHeads(storageId: StorageId, heads: A.Heads) {
@@ -345,28 +315,26 @@ export class DocHandle<T> //
     this.emit("remote-heads", { storageId, heads })
   }
 
-  /** Returns the heads of the storageId */
+  /** Returns the heads of the storageId. */
   getRemoteHeads(storageId: StorageId): A.Heads | undefined {
     return this.#remoteHeads[storageId]
   }
 
-  /** `change` is called by the repo when the document is changed locally  */
+  /** Called by the repo when the document is changed locally.  */
   change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
-    this.#machine.send(UPDATE, {
-      payload: {
-        callback: (doc: A.Doc<T>) => {
-          return A.change(doc, options, callback)
-        },
-      },
+    this.#machine.send({
+      type: UPDATE,
+      payload: { callback: doc => A.change(doc, options, callback) },
     })
   }
 
-  /** Make a change as if the document were at `heads`
+  /**
+   * Makes a change as if the document were at `heads`.
    *
    * @returns A set of heads representing the concurrent change that was made.
    */
@@ -381,9 +349,10 @@ export class DocHandle<T> //
       )
     }
     let resultHeads: string[] | undefined = undefined
-    this.#machine.send(UPDATE, {
+    this.#machine.send({
+      type: UPDATE,
       payload: {
-        callback: (doc: A.Doc<T>) => {
+        callback: doc => {
           const result = A.changeAt(doc, heads, options, callback)
           resultHeads = result.newHeads || undefined
           return result.newDoc
@@ -393,19 +362,18 @@ export class DocHandle<T> //
     return resultHeads
   }
 
-  /** Merge another document into this document
+  /**
+   * Merges another document into this document. Any peers we are sharing changes with will be
+   * notified of the changes resulting from the merge.
    *
-   * @param otherHandle - the handle of the document to merge into this one
+   * @returns the merged document.
    *
-   * @remarks
-   * This is a convenience method for
-   * `handle.change(doc => A.merge(doc, otherHandle.docSync()))`. Any peers
-   * whom we are sharing changes with will be notified of the changes resulting
-   * from the merge.
-   *
-   * @throws if either document is not ready or if `otherHandle` is unavailable (`otherHandle.docSync() === undefined`)
+   * @throws if either document is not ready or if `otherHandle` is unavailable.
    */
-  merge(otherHandle: DocHandle<T>) {
+  merge(
+    /** the handle of the document to merge into this one */
+    otherHandle: DocHandle<T>
+  ) {
     if (!this.isReady() || !otherHandle.isReady()) {
       throw new Error("Both handles must be ready to merge")
     }
@@ -419,37 +387,40 @@ export class DocHandle<T> //
     })
   }
 
+  /** Marks this document as unavailable. */
   unavailable() {
-    this.#machine.send(MARK_UNAVAILABLE)
+    this.#machine.send({ type: DOC_UNAVAILABLE })
   }
 
-  /** `request` is called by the repo when the document is not found in storage
+  /** Called by the repo when the document is not found in storage.
    * @hidden
    * */
   request() {
-    if (this.#state === LOADING) this.#machine.send(REQUEST)
+    if (this.#state === "loading") this.#machine.send({ type: REQUEST })
   }
 
   /** @hidden */
   awaitNetwork() {
-    if (this.#state === LOADING) this.#machine.send(AWAIT_NETWORK)
+    if (this.#state === "loading") this.#machine.send({ type: AWAIT_NETWORK })
   }
 
   /** @hidden */
   networkReady() {
-    if (this.#state === AWAITING_NETWORK) this.#machine.send(NETWORK_READY)
+    if (this.#state === "awaitingNetwork")
+      this.#machine.send({ type: NETWORK_READY })
   }
 
-  /** `delete` is called by the repo when the document is deleted */
+  /** Called by the repo when the document is deleted. */
   delete() {
-    this.#machine.send(DELETE)
+    this.#machine.send({ type: DELETE })
   }
 
-  /** `broadcast` sends an arbitrary ephemeral message out to all reachable peers who would receive sync messages from you
-   * it has no guarantee of delivery, and is not persisted to the underlying automerge doc in any way.
-   * messages will have a sending PeerId but this is *not* a useful user identifier.
-   * a user could have multiple tabs open and would appear as multiple PeerIds.
-   * every message source must have a unique PeerId.
+  /**
+   * Sends an arbitrary ephemeral message out to all reachable peers who would receive sync messages
+   * from you. It has no guarantee of delivery, and is not persisted to the underlying automerge doc
+   * in any way. Messages will have a sending PeerId but this is *not* a useful user identifier (a
+   * user could have multiple tabs open and would appear as multiple PeerIds). Every message source
+   * must have a unique PeerId.
    */
   broadcast(message: unknown) {
     this.emit("ephemeral-message-outbound", {
@@ -459,7 +430,7 @@ export class DocHandle<T> //
   }
 }
 
-// WRAPPER CLASS TYPES
+//  TYPES
 
 /** @hidden */
 export type DocHandleOptions<T> =
@@ -479,19 +450,24 @@ export type DocHandleOptions<T> =
       timeoutDelay?: number
     }
 
-export interface DocHandleMessagePayload {
-  destinationId: PeerId
-  documentId: DocumentId
-  data: Uint8Array
+// EXTERNAL EVENTS
+
+/** These are the events that this DocHandle emits to external listeners */
+export interface DocHandleEvents<T> {
+  "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
+  change: (payload: DocHandleChangePayload<T>) => void
+  delete: (payload: DocHandleDeletePayload<T>) => void
+  unavailable: (payload: DocHandleUnavailablePayload<T>) => void
+  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
+  "ephemeral-message-outbound": (
+    payload: DocHandleOutboundEphemeralMessagePayload<T>
+  ) => void
+  "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
 }
 
 export interface DocHandleEncodedChangePayload<T> {
   handle: DocHandle<T>
   doc: A.Doc<T>
-}
-
-export interface DocHandleDeletePayload<T> {
-  handle: DocHandle<T>
 }
 
 /** Emitted when a document has changed */
@@ -504,6 +480,14 @@ export interface DocHandleChangePayload<T> {
   patches: A.Patch[]
   /** Information about the change */
   patchInfo: A.PatchInfo<T>
+}
+
+export interface DocHandleDeletePayload<T> {
+  handle: DocHandle<T>
+}
+
+export interface DocHandleUnavailablePayload<T> {
+  handle: DocHandle<T>
 }
 
 export interface DocHandleEphemeralMessagePayload<T> {
@@ -522,31 +506,12 @@ export interface DocHandleRemoteHeadsPayload {
   heads: A.Heads
 }
 
-export interface DocHandleSyncStatePayload {
-  peerId: PeerId
-  syncState: A.SyncState
-}
-
-export interface DocHandleEvents<T> {
-  "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
-  change: (payload: DocHandleChangePayload<T>) => void
-  delete: (payload: DocHandleDeletePayload<T>) => void
-  unavailable: (payload: DocHandleDeletePayload<T>) => void
-  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
-  "ephemeral-message-outbound": (
-    payload: DocHandleOutboundEphemeralMessagePayload<T>
-  ) => void
-  "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
-}
-
-// STATE MACHINE TYPES
+// STATE MACHINE TYPES & CONSTANTS
 
 // state
 
 /**
- * The state of a document handle
- * @enum
- *
+ * Possible internal states of a handle
  */
 export const HandleState = {
   /** The handle has been created but not yet loaded or requested */
@@ -566,12 +531,15 @@ export const HandleState = {
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
-type DocHandleMachineState = {
-  states: Record<
-    (typeof HandleState)[keyof typeof HandleState],
-    StateSchema<HandleState>
-  >
-}
+export const {
+  IDLE,
+  LOADING,
+  AWAITING_NETWORK,
+  REQUESTING,
+  READY,
+  DELETED,
+  UNAVAILABLE,
+} = HandleState
 
 // context
 
@@ -582,34 +550,7 @@ interface DocHandleContext<T> {
 
 // events
 
-export const Event = {
-  CREATE: "CREATE",
-  FIND: "FIND",
-  REQUEST: "REQUEST",
-  REQUEST_COMPLETE: "REQUEST_COMPLETE",
-  AWAIT_NETWORK: "AWAIT_NETWORK",
-  NETWORK_READY: "NETWORK_READY",
-  UPDATE: "UPDATE",
-  TIMEOUT: "TIMEOUT",
-  DELETE: "DELETE",
-  MARK_UNAVAILABLE: "MARK_UNAVAILABLE",
-} as const
-type Event = (typeof Event)[keyof typeof Event]
-
-type CreateEvent = { type: typeof CREATE; payload: { documentId: string } }
-type FindEvent = { type: typeof FIND; payload: { documentId: string } }
-type RequestEvent = { type: typeof REQUEST }
-type RequestCompleteEvent = { type: typeof REQUEST_COMPLETE }
-type DeleteEvent = { type: typeof DELETE }
-type UpdateEvent<T> = {
-  type: typeof UPDATE
-  payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
-}
-type TimeoutEvent = { type: typeof TIMEOUT }
-type MarkUnavailableEvent = { type: typeof MARK_UNAVAILABLE }
-type AwaitNetworkEvent = { type: typeof AWAIT_NETWORK }
-type NetworkReadyEvent = { type: typeof NETWORK_READY }
-
+/** These are the events that the state machine handles internally */
 type DocHandleEvent<T> =
   | CreateEvent
   | FindEvent
@@ -622,41 +563,25 @@ type DocHandleEvent<T> =
   | AwaitNetworkEvent
   | NetworkReadyEvent
 
-type DocHandleXstateMachine<T> = Interpreter<
-  DocHandleContext<T>,
-  DocHandleMachineState,
-  DocHandleEvent<T>,
-  {
-    value: StateValue // Should this be unknown or T?
-    context: DocHandleContext<T>
-  },
-  ResolveTypegenMeta<
-    TypegenDisabled,
-    DocHandleEvent<T>,
-    BaseActionObject,
-    ServiceMap
-  >
->
+type CreateEvent = { type: "CREATE" }
+type FindEvent = { type: "FIND" }
+type RequestEvent = { type: "REQUEST" }
+type RequestCompleteEvent = { type: "DOC_READY" }
+type DeleteEvent = { type: "DELETE" }
+type UpdateEvent<T> = { type: "UPDATE"; payload: { callback: Callback<T> } }
+type TimeoutEvent = { type: "TIMEOUT" }
+type MarkUnavailableEvent = { type: "DOC_UNAVAILABLE" }
+type AwaitNetworkEvent = { type: "AWAIT_NETWORK" }
+type NetworkReadyEvent = { type: "NETWORK_READY" }
 
-// CONSTANTS
-export const {
-  IDLE,
-  LOADING,
-  AWAITING_NETWORK,
-  REQUESTING,
-  READY,
-  DELETED,
-  UNAVAILABLE,
-} = HandleState
-const {
-  CREATE,
-  FIND,
-  REQUEST,
-  UPDATE,
-  TIMEOUT,
-  DELETE,
-  REQUEST_COMPLETE,
-  MARK_UNAVAILABLE,
-  AWAIT_NETWORK,
-  NETWORK_READY,
-} = Event
+type Callback<T> = (doc: A.Doc<T>) => A.Doc<T>
+
+const CREATE = "CREATE"
+const FIND = "FIND"
+const REQUEST = "REQUEST"
+const DOC_READY = "DOC_READY"
+const AWAIT_NETWORK = "AWAIT_NETWORK"
+const NETWORK_READY = "NETWORK_READY"
+const UPDATE = "UPDATE"
+const DELETE = "DELETE"
+const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"
