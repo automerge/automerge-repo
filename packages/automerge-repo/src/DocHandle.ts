@@ -89,7 +89,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         },
       },
     }).createMachine({
-      /** @xstate-layout N4IgpgJg5mDOIC5QAoC2BDAxgCwJYDswBKAYgFUAFAEQEEAVAUQG0AGAXUVAAcB7WXAC64e+TiAAeiAOwAOAKwA6ACxSAzKqks1ATjlTdAGhABPRAFolAJksKN2y1KtKAbFLla5AX09G0WPISkVAwAMgyMrBxIILz8QiJikggAjCzOijKqLEqqybJyLizaRqYIFpbJtro5Uo7J2o5S3r4YOATECrgQADZgJADCAEoM9MzsYrGCwqLRSeoyCtra8pa5adquySXmDjY5ac7JljLJeepKzSB+bYGdPX0AYgCSAHJUkRN8UwmziM7HCgqyVcUnqcmScmcMm2ZV2yiyzkOx1OalUFx8V1aAQ63R46AgBCg5Goow+0Um8RmoCSVj2uRcS2c2XkLhhwNsMhktSUWhOqhkGy8GOu2KIClx+MJJGGAEUyAwAMp0MncL6UxJ-VIKOSWJT1FS63VpGGqbQKU5yXINeTaer6IUtfztMUSgn4Ik0ADqNCedAA+i9wp6APKDADSKpiaumGoQbik5uSpqkUOBywKJrNFqt+VtDV0lxFzoU6AA7ugpu6XmABKWeAAnADWJEDdBD4b9wxoVAAmpGKTHfnG5Bkilk8im8s5iiZEJYWIpUhV5Avl4cmsKscX62AAI4AVzgQndJAAsjQO2QXjQAGo+kI0ABCYX70Z+1OkcjNesyzhUWkcRFM2cZRwScXR9AhTJCy3W4dwPI8pVleUlT9fpg1PCgwgicZyTfKkJD+FhVAUFgZCKfZahkVZLBhJRllsM5dn1KF0UdG4On3fB0AANwrbp0AAI16aUGDlRV-XQzDsLGKJVTiQcPxSFh51sVRnFUOQ+X0NElBhdwE2yFR0ltWojgKbwMXwHgIDgMQi0CT4FPfQiEEsbQWEWdNVlSadNhhMx3AWAUCiyBo8nsZwYKdW4ul6JzvgIml5FIsj1I2awKktOQAqsSpTVC7k7RcKLNxinE8TdKAEvVId-k8zlNPIqRLHScitlnMojhsJNVnBU5ERYI5VGijixTLCtjygatawbRsasU1yUxsbQ8oG-kHEONlVPUw4v20dTMnUjd2NFBR4MPWApoWlykkGhQZCUEdkisSFagaE12XotxOU5VbdlGs6uN4-ihPivDnKSxBUk080R3+ZYaltVQTX0B6Uw8gUXCUTIuUB7cwHxUp5MS2NERIioWpcS0NPSKQYSZSo9CsFqWQqY58duWzegESAbqh5TVBsBw9FkWRiK0FHOrMIWzR1R7ntOBxbUszwgA */
+      /** @xstate-layout N4IgpgJg5mDOIC5QAoC2BDAxgCwJYDswBKAYgFUAFAEQEEAVAUQG0AGAXUVAAcB7WXAC64e+TiAAeiAOwAOAKwA6ACxSAzKqks1ATjlTdAGhABPRAFolAJksKN2y1KtKAbFLla5AX09G0WPISkVAwAMgyMrBxIILz8QiJikggAjCzOijKqLEqqybJyLizaRqYIFpbJtro5Uo7J2o5S3r4YOATECrgQADZgJADCAEoM9MzsYrGCwqLRSeoyCtra8pa5adquySXmDjY5ac7JljLJeepKzSB+bYGdPX0AYgCSAHJUkRN8UwmziM7HCgqyVcUnqcmScmcMm2ZV2yiyzkOx1OalUFx8V1aAQ63R46AgBCgJGGAEUyAwAMp0D7RSbxGagJKHFgKOSWJTJGRSCosCpKaEmRCqbQKU5yXINeTaer6LwY67YogKXH4wkkKgAeX6AH1hjQqABNGncL70xKIJQ5RY5BHOJag6wwpRyEWImQVeT1aWrVSXBXtJUqgn4Ik0ADqNCedG1L3CYY1gwA0saYqbpuaEG4pKLksKpFDgcsCjDhTnxTKpTLdH6sQGFOgAO7oKYhl5gAQNngAJwA1iRY3R40ndSNDSm6enfpm5BkWAVkvy7bpuTCKq7ndZnfVeSwuTX-HWu2AAI4AVzgQhD6q12rILxoADVIyEaAAhMLjtM-RmIE4LVSQi4nLLDIGzOCWwLKA0cgyLBoFWNy+43B0R5nheaqajqepjuMtJfgyEh-FoixqMCoKqOyhzgYKCDOq6UIeuCSxHOoSGKgop74OgABuzbdOgABGvTXlho5GrhJpxJOP4pLulT6KoMhpJY2hzsWNF0QobqMV6LG+pc+A8BAcBiP6gSfFJ36EQgKksksKxrHamwwmY7gLKB85QjBzoAWxdZdL0FnfARST8ooLC7qoTnWBU4pyC5ViVMKBQaHUDQuM4fm3EGhJBWaU7-CysEAUp3LpEpWw0WYRw2LmqzgqciIsCxWUdI2zaXlAbYdt2PZ5dJ1n5jY2iJY1ikOIcMJHCyUWHC62hRZkUVNPKta3Kh56wJ1-VWUyzhFc64JWJCtQNBBzhQW4cHwbsrVKpxPF8YJgV4ZZIWIKkiKiiNSkqZYWjzCWaQ5hFh0AcCuR3QoR74qUknBRmzholpv3OkpRQNNRpTzaKTWKbIWR5FDxm9AIkA7e9skUYCWayLILBZGoLkUSKbIyIdpxHPoyTeN4QA */
 
       // You can use the XState extension for VS Code to visualize this machine.
       // Or, you can see this static visualization (last updated March 2024): https://stately.ai/registry/editor/d7af9b58-c518-44f1-9c36-92a238b04a7a?machineId=91c387e7-0f01-42c9-a21d-293e9bf95bb7
@@ -98,46 +98,39 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       context: { documentId, doc },
       on: {
         UPDATE: { actions: "onUpdate" },
-        DELETE: { target: ".deleted" },
+        DELETE: ".deleted",
       },
       states: {
         idle: {
           on: {
-            CREATE: { target: "ready" },
-            FIND: { target: "loading" },
+            CREATE: "ready",
+            FIND: "loading",
           },
         },
         loading: {
           on: {
-            UPDATE: { actions: "onUpdate", target: "ready" },
-            REQUEST: { target: "requesting" },
-            AWAIT_NETWORK: { target: "awaitingNetwork" },
+            REQUEST: "requesting",
+            DOC_READY: "ready",
+            AWAIT_NETWORK: "awaitingNetwork",
           },
-          after: { [delay]: { target: "unavailable" } },
+          after: { [delay]: "unavailable" },
         },
         awaitingNetwork: {
-          on: {
-            NETWORK_READY: { target: "requesting" },
-          },
+          on: { NETWORK_READY: "requesting" },
         },
         requesting: {
           on: {
-            MARK_UNAVAILABLE: { target: "unavailable" },
-            REQUEST_COMPLETE: { target: "ready" },
+            DOC_UNAVAILABLE: "unavailable",
+            DOC_READY: "ready",
           },
-          after: { [delay]: { target: "unavailable" } },
+          after: { [delay]: "unavailable" },
         },
         unavailable: {
           entry: "onUnavailable",
-          on: {
-            REQUEST_COMPLETE: { target: "ready" },
-          },
+          on: { DOC_READY: "ready" },
         },
         ready: {},
-        deleted: {
-          entry: "onDelete",
-          type: "final",
-        },
+        deleted: { entry: "onDelete", type: "final" },
       },
     })
 
@@ -208,7 +201,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       }
 
       // If we didn't have the document yet, signal that we now do
-      if (!this.isReady()) this.#machine.send({ type: REQUEST_COMPLETE })
+      if (!this.isReady()) this.#machine.send({ type: DOC_READY })
     }
     this.#prevDocState = newDoc
   }
@@ -409,7 +402,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Marks this document as unavailable. */
   unavailable() {
-    this.#machine.send({ type: MARK_UNAVAILABLE })
+    this.#machine.send({ type: DOC_UNAVAILABLE })
   }
 
   /** Called by the repo when the document is not found in storage.
@@ -586,11 +579,11 @@ type DocHandleEvent<T> =
 type CreateEvent = { type: "CREATE" }
 type FindEvent = { type: "FIND" }
 type RequestEvent = { type: "REQUEST" }
-type RequestCompleteEvent = { type: "REQUEST_COMPLETE" }
+type RequestCompleteEvent = { type: "DOC_READY" }
 type DeleteEvent = { type: "DELETE" }
 type UpdateEvent<T> = { type: "UPDATE"; payload: { callback: Callback<T> } }
 type TimeoutEvent = { type: "TIMEOUT" }
-type MarkUnavailableEvent = { type: "MARK_UNAVAILABLE" }
+type MarkUnavailableEvent = { type: "DOC_UNAVAILABLE" }
 type AwaitNetworkEvent = { type: "AWAIT_NETWORK" }
 type NetworkReadyEvent = { type: "NETWORK_READY" }
 
@@ -599,9 +592,9 @@ type Callback<T> = (doc: A.Doc<T>) => A.Doc<T>
 const CREATE = "CREATE"
 const FIND = "FIND"
 const REQUEST = "REQUEST"
-const REQUEST_COMPLETE = "REQUEST_COMPLETE"
+const DOC_READY = "DOC_READY"
 const AWAIT_NETWORK = "AWAIT_NETWORK"
 const NETWORK_READY = "NETWORK_READY"
 const UPDATE = "UPDATE"
 const DELETE = "DELETE"
-const MARK_UNAVAILABLE = "MARK_UNAVAILABLE"
+const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"
