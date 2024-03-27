@@ -528,7 +528,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
         return this.storageSubsystem!.flush(handle.documentId, doc, timeout)
       })
-    ).then(() => { /* No-op. To return `voi`d and not `void[]` */ })
+    ).then(() => {
+      /* No-op. To return `voi`d and not `void[]` */
+    })
   }
 }
 
