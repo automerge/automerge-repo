@@ -508,14 +508,14 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /**
    * Waits for Repo to finish write changes to disk.
-   * @deprecated
+   * @deprecated because it will be changed soon.
    * @param documents - if provided, only waits for the specified documents
    * @param timeout - if provided, the maximum time to wait in milliseconds
    * @returns Promise<void>
    */
   async flush(documents?: DocumentId[], timeout?: number): Promise<void> {
     if (!this.storageSubsystem) {
-      throw new Error("flush called without storage subsystem")
+      return Promise.resolve()
     }
     const handles = documents
       ? documents.map(id => this.#handleCache[id])
@@ -528,7 +528,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
         return this.storageSubsystem!.flush(handle.documentId, doc, timeout)
       })
-    ).then(() => {})
+    ).then(() => { /* No-op. To return `voi`d and not `void[]` */ })
   }
 }
 

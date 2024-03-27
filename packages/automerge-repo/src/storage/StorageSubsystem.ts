@@ -251,7 +251,7 @@ export class StorageSubsystem {
 
   /**
    * Waiting for document state to be written to disk.
-   * @deprecated
+   * @deprecated because it will be changed soon.
    */
   async flush(documentId: DocumentId, doc: A.Doc<unknown>, timeout?: number) {
     return new Promise<void>((resolve, reject) => {
