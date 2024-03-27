@@ -5,9 +5,7 @@ import { describe, expect, test, vi } from "vitest"
 import { RepoContext, useRepo } from "../src/useRepo.js"
 
 describe("useRepo", () => {
-  const Component = ({ onRepo }: {
-    onRepo: (repo: Repo) => void,
-  }) => {
+  const Component = ({ onRepo }: { onRepo: (repo: Repo) => void }) => {
     const repo = useRepo()
     onRepo(repo)
     return null
@@ -18,7 +16,7 @@ describe("useRepo", () => {
     // Prevent console spam by swallowing console.error "uncaught error" message
     const spy = vi.spyOn(console, "error")
     spy.mockImplementation(() => {})
-    expect(() => render(<Component onRepo={() => {}}/>)).toThrow(
+    expect(() => render(<Component onRepo={() => {}} />)).toThrow(
       /Repo was not found on RepoContext/
     )
     spy.mockRestore()

@@ -1,30 +1,30 @@
 #!/usr/bin/env node
 
-import fs from 'fs'
-import path from 'path'
-import child_process from 'child_process'
+import fs from "fs"
+import path from "path"
+import child_process from "child_process"
 
 const execSync = child_process.execSync
 
 function createPackageJson(projectName: string) {
   const packageJson = {
     name: projectName,
-    version: '1.0.0',
-    description: '',
-    main: 'index.js',
-    type: 'module',
+    version: "1.0.0",
+    description: "",
+    main: "index.js",
+    type: "module",
     scripts: {
-      start: 'node index.js',
+      start: "node index.js",
     },
     dependencies: {
-      '@automerge/automerge-repo': '^1.0',
-      '@automerge/automerge-repo-network-websocket': '^1.0',
-      '@automerge/automerge-repo-storage-nodefs': '^1.0',
+      "@automerge/automerge-repo": "^1.0",
+      "@automerge/automerge-repo-network-websocket": "^1.0",
+      "@automerge/automerge-repo-storage-nodefs": "^1.0",
     },
   }
   fs.writeFileSync(
-    path.join(projectName, 'package.json'),
-    JSON.stringify(packageJson, null, 2) + '\n'
+    path.join(projectName, "package.json"),
+    JSON.stringify(packageJson, null, 2) + "\n"
   )
 }
 
@@ -39,21 +39,20 @@ const repo = new Repo({
   network: [new BrowserWebSocketClientAdapter("wss://sync.automerge.org")]
 })
 `
-  fs.writeFileSync(path.join(projectName, 'index.js'), indexJsContent)
+  fs.writeFileSync(path.join(projectName, "index.js"), indexJsContent)
 }
 
 function main() {
   const projectName = process.argv[2]
   if (!projectName) {
-    console.error('Please provide a project name')
+    console.error("Please provide a project name")
     process.exit(1)
   }
 
   fs.mkdirSync(projectName)
   createPackageJson(projectName)
   createIndexJs(projectName)
-  execSync(`cd ${projectName} && npm install`, { stdio: 'inherit' })
+  execSync(`cd ${projectName} && npm install`, { stdio: "inherit" })
 }
 
 main()
-

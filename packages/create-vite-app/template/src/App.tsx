@@ -20,12 +20,10 @@ function App({ docUrl }: { docUrl: AutomergeUrl }) {
       </div>
       <h1>Meet Automerge</h1>
       <div className="card">
-        <button onClick={() => changeDoc((d) => d.counter.increment(1))}>
+        <button onClick={() => changeDoc(d => d.counter.increment(1))}>
           count is {doc && doc.counter.value}
         </button>
-        <p>
-          Open this page in another tab to watch the updates synchronize
-        </p>
+        <p>Open this page in another tab to watch the updates synchronize</p>
       </div>
       <p className="read-the-docs">
         Built with Automerge, Vite, React, and TypeScript

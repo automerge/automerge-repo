@@ -1,4 +1,9 @@
-import { AutomergeUrl, DocHandle, PeerId, Repo } from "@automerge/automerge-repo"
+import {
+  AutomergeUrl,
+  DocHandle,
+  PeerId,
+  Repo,
+} from "@automerge/automerge-repo"
 import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
 import { render, waitFor } from "@testing-library/react"
 import React from "react"
@@ -38,9 +43,12 @@ describe("useHandle", () => {
     }
   }
 
-  const Component = ({ url, onHandle }: {
-    url: AutomergeUrl,
-    onHandle: (handle: DocHandle<unknown> | undefined) => void,
+  const Component = ({
+    url,
+    onHandle,
+  }: {
+    url: AutomergeUrl
+    onHandle: (handle: DocHandle<unknown> | undefined) => void
   }) => {
     const handle = useHandle(url)
     onHandle(handle)
@@ -51,7 +59,7 @@ describe("useHandle", () => {
     const { handleA, wrapper } = setup()
     const onHandle = vi.fn()
 
-    render(<Component url={handleA.url} onHandle={onHandle} />, {wrapper})
+    render(<Component url={handleA.url} onHandle={onHandle} />, { wrapper })
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
   })
 
@@ -59,7 +67,7 @@ describe("useHandle", () => {
     const { wrapper } = setup()
     const onHandle = vi.fn()
 
-    render(<Component url={undefined} onHandle={onHandle} />, {wrapper})
+    render(<Component url={undefined} onHandle={onHandle} />, { wrapper })
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
   })
 
@@ -67,7 +75,10 @@ describe("useHandle", () => {
     const { wrapper, handleA, handleB } = setup()
     const onHandle = vi.fn()
 
-    const { rerender } = render(<Component url={undefined} onHandle={onHandle} />, {wrapper})
+    const { rerender } = render(
+      <Component url={undefined} onHandle={onHandle} />,
+      { wrapper }
+    )
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
 
     // set url to doc A

@@ -25,37 +25,36 @@ Before sync can continue each peer needs to exchange peer IDs and agree on the
 protocol version they are using (although currently there is only one version).
 Handshake is the following steps:
 
-* Once a connection is established the initiating peer sends a
+- Once a connection is established the initiating peer sends a
   [join](#join) message with the `senderId` set to the initiating peers ID and
   the `protocolVersion` set to "1"
-* The receiving peer waits until it receives a message from the initiating
+- The receiving peer waits until it receives a message from the initiating
   peer, if the initiating peer receives a message before sending the join message
   the initiating peer SHOULD terminate the connection.
-* When the receiving peer receives the join message
-    * if the `protocolVersion` is not "1" the receiving peer sends an
-      [error](#error) message and terminates the connection
-    * otherwise
-        * store the `senderId` as the peer ID of the initiating peer
-        * emit a "peer-candidate" event with the sender ID as the peer
-        * respond with a [peer](#peer) message with the `targetId` set to the
-          initiating peers peer ID, the `senderId` set to the receiving peers
-          peer ID and the `selectedProtocolVersion` set to "1"
-        * begin the sync phase
-* Once the initiating peer has sent the join message it waits for a peer message
+- When the receiving peer receives the join message
+  - if the `protocolVersion` is not "1" the receiving peer sends an
+    [error](#error) message and terminates the connection
+  - otherwise
+    - store the `senderId` as the peer ID of the initiating peer
+    - emit a "peer-candidate" event with the sender ID as the peer
+    - respond with a [peer](#peer) message with the `targetId` set to the
+      initiating peers peer ID, the `senderId` set to the receiving peers
+      peer ID and the `selectedProtocolVersion` set to "1"
+    - begin the sync phase
+- Once the initiating peer has sent the join message it waits for a peer message
   in response. If it receives any other message type before the join message
   the receiving peer should send an [error](#error) message and terminates the
   connection
-* When the initiating peer receives the peer message
-  * it stores the `senderId` as the peer ID of the receiving peer.
-  * it emits a "peer-candidate" event with the sender ID as the peer
-  * if the `selectedProtocolVersion` is anything other than "1" the initiating
+- When the initiating peer receives the peer message
+  - it stores the `senderId` as the peer ID of the receiving peer.
+  - it emits a "peer-candidate" event with the sender ID as the peer
+  - if the `selectedProtocolVersion` is anything other than "1" the initiating
     peer sends an [error](#error) message and terminates the connection
-  * it begins the sync phase
+  - it begins the sync phase
 
 #### Peer IDs and storage IDs
 
 The peer ID is an ephemeral ID which is assumed to only live for the lifetime of the process which advertises the given ID (e.g. a browser tab). Peers may optionally advertise a storage ID in the `join` and `peer` messages, this is an ID which is assumed to be tied to a persistent storage of some kind (e.g. an IndexedDB in a browser). Many peer IDs can advertise the same storage ID (as in the case of many browser tabs). The use of a storage ID allows other peers to know whether to save and reload sync states for a given peer (if the peer advertises a storage ID, then save and reload the sync state attached to that storage ID).
-
 
 ### Sync Phase
 
@@ -71,13 +70,13 @@ from the `NetworkAdapter` on receipt.
 
 In some cases peers wish to know about the state of peers who are separated from them by several intermediate peers. For example, a tab running a text editor may wish to show whether the contents of the editor are up to date with respect to a tab running in a browser on another users device. This is achieved by gossiping remote heads across intermediate nodes. The logic for this is the following:
 
-* For a given connection each peer maintains a list of the storage IDs the remote peer is interested in (note this is storage IDs, not peer IDs)
-* Any peer can send a [`remote-subscription-changed`](#remote-subscription-changed) message to change the set of storage IDs they want the recipient to watch on the sender's behalf
-* Any time a peer receives a sync message it checks:
-  * Is the sync message from a peer with a storage ID which some other remote peer has registered interest in
-  * Is the remote peer permitted access to the document which the message pertains to (i.e. either the `sharePolicy` return `true` or the local peer is already syncing the document with the remote)
-* The local peer sends a [`remote-heads-changed`](#remote-heads-changed) message to each remote peer who passes these checks
-* Additionally, whenever the local peer receives a `remote-heads-changed` message it performs the same checks and additionally checks if the timestamp on the `remote-heads-changed` message is greater than the last timestamp for the same storage ID/document combination and if so it forwards it.
+- For a given connection each peer maintains a list of the storage IDs the remote peer is interested in (note this is storage IDs, not peer IDs)
+- Any peer can send a [`remote-subscription-changed`](#remote-subscription-changed) message to change the set of storage IDs they want the recipient to watch on the sender's behalf
+- Any time a peer receives a sync message it checks:
+  - Is the sync message from a peer with a storage ID which some other remote peer has registered interest in
+  - Is the remote peer permitted access to the document which the message pertains to (i.e. either the `sharePolicy` return `true` or the local peer is already syncing the document with the remote)
+- The local peer sends a [`remote-heads-changed`](#remote-heads-changed) message to each remote peer who passes these checks
+- Additionally, whenever the local peer receives a `remote-heads-changed` message it performs the same checks and additionally checks if the timestamp on the `remote-heads-changed` message is greater than the last timestamp for the same storage ID/document combination and if so it forwards it.
 
 In the `browser <-> sync server <-> browser` text editor example above each browser tab would send a `remote-subscription-changed` message to the sync server adding the other browsers storage ID (presumably communicated out of band) to their subscriptions with the sync server. The sync server will then send `remote-heads-changed` messages to each tab when their heads change.
 
@@ -204,7 +203,6 @@ it
 #### Ephemeral
 
 Sent when a peer wants to send an ephemeral message to another peer
-
 
 ```cddl
 {

@@ -38,7 +38,7 @@ window.repo = repo
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App url={docUrl}/>
+      <App url={docUrl} />
     </React.StrictMode>
   </RepoContext.Provider>
 )

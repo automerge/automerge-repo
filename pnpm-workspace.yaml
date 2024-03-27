@@ -1,4 +1,4 @@
 packages:
   - packages/**
   - examples/**
-  - '!packages/create-vite-app/template/**'
+  - "!packages/create-vite-app/template/**"

@@ -228,7 +228,7 @@ export class DocSynchronizer extends Synchronizer {
 
   beginSync(peerIds: PeerId[]) {
     const noPeersWithDocument = peerIds.every(
-      (peerId) => this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
+      peerId => this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
     )
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync

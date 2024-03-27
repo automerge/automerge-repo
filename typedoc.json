@@ -1,8 +1,8 @@
 {
-    "name": "Automerge Repo",
-    "entryPoints": ["./packages/*"],
-    "entryPointStrategy": "packages",
-    "includeVersion": true,
-    "exclude": ["examples/*"],
-    "readme": "./typedoc-readme.md"
+  "name": "Automerge Repo",
+  "entryPoints": ["./packages/*"],
+  "entryPointStrategy": "packages",
+  "includeVersion": true,
+  "exclude": ["examples/*"],
+  "readme": "./typedoc-readme.md"
 }

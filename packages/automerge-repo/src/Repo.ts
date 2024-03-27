@@ -2,15 +2,18 @@ import { next as Automerge } from "@automerge/automerge"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
-    generateAutomergeUrl,
-    interpretAsDocumentId,
-    parseAutomergeUrl,
+  generateAutomergeUrl,
+  interpretAsDocumentId,
+  parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
-import { NetworkAdapterInterface, type PeerMetadata } from "./network/NetworkAdapterInterface.js"
+import {
+  NetworkAdapterInterface,
+  type PeerMetadata,
+} from "./network/NetworkAdapterInterface.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { RepoMessage } from "./network/messages.js"
 import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
