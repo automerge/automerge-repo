@@ -14,7 +14,7 @@ export function runStorageAdapterTests(_setup: SetupFn, title?: string): void {
     return { adapter, teardown }
   }
 
-  describe(`Network adapter acceptance tests ${
+  describe(`Storage adapter acceptance tests ${
     title ? `(${title})` : ""
   }`, () => {
     describe("load", () => {
