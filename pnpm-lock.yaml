@@ -114,8 +114,8 @@ importers:
   examples/react-counter:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.1.9
-        version: 2.1.9
+        specifier: ^2.1.13
+        version: 2.1.13
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../../packages/automerge-repo
@@ -141,8 +141,8 @@ importers:
   examples/react-todo:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.1.9
-        version: 2.1.9
+        specifier: ^2.1.13
+        version: 2.1.13
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../../packages/automerge-repo
@@ -277,8 +277,8 @@ importers:
   packages/automerge-repo:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.1.9
-        version: 2.1.9
+        specifier: ^2.1.13
+        version: 2.1.13
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -356,8 +356,8 @@ importers:
   packages/automerge-repo-react-hooks:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.1.9
-        version: 2.1.9
+        specifier: ^2.1.13
+        version: 2.1.13
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -405,8 +405,8 @@ importers:
   packages/automerge-repo-svelte-store:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.1.9
-        version: 2.1.9
+        specifier: ^2.1.13
+        version: 2.1.13
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -444,8 +444,8 @@ packages:
   /@automerge/automerge-wasm@0.12.0:
     resolution: {integrity: sha512-MJVmw/83Uy7WuqA9Dac3VcLXpXENZSDu7hqxttdFyAYZXQYQugiU7R+RUO2sP7081J9gRUb2+73sYpNnSTwzYQ==}
 
-  /@automerge/automerge-wasm@0.7.0:
-    resolution: {integrity: sha512-nql3kAO0xAYslEfrr2uTQe595fasKsOKxXEkNpilP97F3T0PD7n0YP9MirLiAytNRBXYccMayhN+hP5Af4xprA==}
+  /@automerge/automerge-wasm@0.12.0:
+    resolution: {integrity: sha512-MJVmw/83Uy7WuqA9Dac3VcLXpXENZSDu7hqxttdFyAYZXQYQugiU7R+RUO2sP7081J9gRUb2+73sYpNnSTwzYQ==}
     dev: false
 
   /@automerge/automerge@2.1.13:
@@ -454,10 +454,10 @@ packages:
       '@automerge/automerge-wasm': 0.12.0
       uuid: 9.0.1
 
-  /@automerge/automerge@2.1.9:
-    resolution: {integrity: sha512-KcSJaCGDaWU7wuqBoM8pmrnFhsp0g7Bs6Smf0HtaBLS7BjtRK9l/PQNXtSEwAdsfoWhA8XjYDkIpOpKMY1pmpA==}
+  /@automerge/automerge@2.1.13:
+    resolution: {integrity: sha512-9t185MgkFvwvqccmA45yKq61If2KCpKxZg19gukwO9G15bvxuh5ulWv2PWvMZ+iTvhDYCH+pZwXmFkD4nufScw==}
     dependencies:
-      '@automerge/automerge-wasm': 0.7.0
+      '@automerge/automerge-wasm': 0.12.0
       uuid: 9.0.1
     dev: false
 

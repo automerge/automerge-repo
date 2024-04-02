@@ -9,7 +9,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.1.11",
+    "@automerge/automerge": "^2.1.13",
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",

@@ -14,7 +14,7 @@
     "visualize": "VISUALIZE=true vite build"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.1.9",
+    "@automerge/automerge": "^2.1.13",
     "@automerge/automerge-repo": "workspace:*",
     "eventemitter3": "^5.0.1",
     "react": "^18.2.0",
