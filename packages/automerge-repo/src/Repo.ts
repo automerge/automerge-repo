@@ -505,6 +505,33 @@ export class Repo extends EventEmitter<RepoEvents> {
       return this.storageSubsystem.id()
     }
   }
+
+  /**
+   * Waits for Repo to finish write changes to disk.
+   * @deprecated because it will be changed soon.
+   * @param documents - if provided, only waits for the specified documents
+   * @param timeout - if provided, the maximum time to wait in milliseconds
+   * @returns Promise<void>
+   */
+  async flush(documents?: DocumentId[], timeout?: number): Promise<void> {
+    if (!this.storageSubsystem) {
+      return Promise.resolve()
+    }
+    const handles = documents
+      ? documents.map(id => this.#handleCache[id])
+      : Object.values(this.#handleCache)
+    return Promise.all(
+      handles.map(async handle => {
+        const doc = handle.docSync()
+        if (!doc) {
+          return
+        }
+        return this.storageSubsystem!.flush(handle.documentId, doc, timeout)
+      })
+    ).then(() => {
+      /* No-op. To return `voi`d and not `void[]` */
+    })
+  }
 }
 
 export interface RepoConfig {

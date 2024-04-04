@@ -376,8 +376,7 @@ describe("Repo", () => {
         d.count = 1
       })
 
-      // wait because storage id is not initialized immediately
-      await pause()
+      await repo.flush()
 
       const initialKeys = storage.keys()
 
@@ -457,6 +456,122 @@ describe("Repo", () => {
       expect(() => {
         repo.import<TestDoc>(A.init<TestDoc> as unknown as Uint8Array)
       }).toThrow()
+    })
+  })
+
+  describe("flush behaviour", () => {
+    const setup = () => {
+      let blockedSaves = []
+      let resume = () => {
+        blockedSaves.forEach(resolve => resolve())
+        blockedSaves = []
+      }
+      const pausedStorage = new DummyStorageAdapter()
+      {
+        const originalSave = pausedStorage.save.bind(pausedStorage)
+        pausedStorage.save = async (...args) => {
+          await new Promise(resolve => {
+            console.log("made a promise", ...args[0])
+            blockedSaves.push(resolve)
+          })
+          await pause(0)
+          // otherwise all the save promises resolve together
+          // which prevents testing flushing a single docID
+          console.log("resuming save", ...args[0])
+          return originalSave(...args)
+        }
+      }
+
+      const repo = new Repo({
+        storage: pausedStorage,
+        network: [],
+      })
+
+      // Create a pair of handles
+      const handle = repo.create<{ foo: string }>({ foo: "first" })
+      const handle2 = repo.create<{ foo: string }>({ foo: "second" })
+      return { resume, pausedStorage, repo, handle, handle2 }
+    }
+
+    it("should not be in a new repo yet because the storage is slow", async () => {
+      const { pausedStorage, repo, handle, handle2 } = setup()
+      expect((await handle.doc()).foo).toEqual("first")
+      expect((await handle2.doc()).foo).toEqual("second")
+
+      // Reload repo
+      const repo2 = new Repo({
+        storage: pausedStorage,
+        network: [],
+      })
+
+      // Could not find the document that is not yet saved because of slow storage.
+      const reloadedHandle = repo2.find<{ foo: string }>(handle.url)
+      expect(pausedStorage.keys()).to.deep.equal([])
+      expect(await reloadedHandle.doc()).toEqual(undefined)
+    })
+
+    it("should be visible to a new repo after flush()", async () => {
+      const { resume, pausedStorage, repo, handle, handle2 } = setup()
+
+      const flushPromise = repo.flush()
+      resume()
+      await flushPromise
+
+      // Check that the data is now saved.
+      expect(pausedStorage.keys().length).toBeGreaterThan(0)
+
+      {
+        // Reload repo
+        const repo = new Repo({
+          storage: pausedStorage,
+          network: [],
+        })
+
+        expect(
+          (await repo.find<{ foo: string }>(handle.documentId).doc()).foo
+        ).toEqual("first")
+        expect(
+          (await repo.find<{ foo: string }>(handle2.documentId).doc()).foo
+        ).toEqual("second")
+      }
+    })
+
+    it("should only block on flushing requested documents", async () => {
+      const { resume, pausedStorage, repo, handle, handle2 } = setup()
+
+      const flushPromise = repo.flush([handle.documentId])
+      resume()
+      await flushPromise
+
+      // Check that the data is now saved.
+      expect(pausedStorage.keys().length).toBeGreaterThan(0)
+
+      {
+        // Reload repo
+        const repo = new Repo({
+          storage: pausedStorage,
+          network: [],
+        })
+
+        expect(
+          (await repo.find<{ foo: string }>(handle.documentId).doc()).foo
+        ).toEqual("first")
+        // Really, it's okay if the second one is also flushed but I'm forcing the issue
+        // in the test storage engine above to make sure the behaviour is as documented
+        expect(
+          await repo.find<{ foo: string }>(handle2.documentId).doc()
+        ).toEqual(undefined)
+      }
+    })
+
+    it("should time out with failure after a specified delay", async () => {
+      const { resume, pausedStorage, repo, handle, handle2 } = setup()
+
+      const flushPromise = repo.flush([handle.documentId], 10)
+      expect(flushPromise).rejects.toThrowError("Timed out waiting for save")
+
+      // Check that the data is now saved.
+      expect(pausedStorage.keys().length).toBe(0)
     })
   })
 
