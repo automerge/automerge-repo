@@ -65,12 +65,18 @@ export const useDocuments = <T>(ids?: DocId[]) => {
         newIds.forEach(id => {
           const handle = repo.find<T>(id)
           // As each document loads, update our map
-          handle.doc().then(doc => {
-            updateDocument(id, doc)
-            addListener(handle)
-          }).catch(err => {
-            console.error(`Error loading document ${id} in useDocuments: `, err)
-          })
+          handle
+            .doc()
+            .then(doc => {
+              updateDocument(id, doc)
+              addListener(handle)
+            })
+            .catch(err => {
+              console.error(
+                `Error loading document ${id} in useDocuments: `,
+                err
+              )
+            })
         })
 
         // remove any documents that are no longer in the list

@@ -17,5 +17,3 @@ yarn create @automerge/repo-node-app <your project name>
 ```
 
 Now change into the directory and start editing `index.js`
-
-

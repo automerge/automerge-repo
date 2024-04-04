@@ -2,32 +2,32 @@ import {
   useDocument,
   useLocalAwareness,
   useRemoteAwareness,
-  useBootstrap,
-} from "@automerge/automerge-repo-react-hooks";
+} from "@automerge/automerge-repo-react-hooks"
 
-export function App({ userId }) {
-  const handle = useBootstrap();
-  const [doc, changeDoc] = useDocument(handle.url);
+export function App({ userId, url }) {
+  const [doc, changeDoc] = useDocument(url)
 
   const [localState, updateLocalState] = useLocalAwareness({
     handle,
     userId,
-    initialState: {}
-  });
-  
-  const [peerStates, heartbeats] = useRemoteAwareness({
-    handle, 
-    localUserId: userId,
-  });
+    initialState: {},
+  })
 
-  const newCount = localState?.count;
-  const count = doc?.count ?? 0;
+  const [peerStates, heartbeats] = useRemoteAwareness({
+    handle,
+    localUserId: userId,
+  })
+
+  const newCount = localState?.count
+  const count = doc?.count ?? 0
 
   return (
     <div>
       <p>
-        This is an example of useAwareness, which is used to share ephemeral state that won't be saved to the document.
-        It's most commonly used for showing which peers are online and their cursor positions, but you can use any serializable data you'd like. 
+        This is an example of useAwareness, which is used to share ephemeral
+        state that won't be saved to the document. It's most commonly used for
+        showing which peers are online and their cursor positions, but you can
+        use any serializable data you'd like.
       </p>
       <hr />
       <div>
@@ -37,8 +37,8 @@ export function App({ userId }) {
           value={newCount ?? count}
           placeholder={count}
           style={{ color: newCount ? "red" : "black" }}
-          onChange={(e) =>
-            updateLocalState((state) => ({
+          onChange={e =>
+            updateLocalState(state => ({
               ...state,
               count: e.target.value,
             }))
@@ -66,10 +66,10 @@ export function App({ userId }) {
       <br />
       <button
         onClick={() =>
-          changeDoc((doc) => {
-            if (newCount === undefined) return;
+          changeDoc(doc => {
+            if (newCount === undefined) return
             doc.count = newCount
-            updateLocalState((state) => ({ ...state, count: undefined }));
+            updateLocalState(state => ({ ...state, count: undefined }))
           })
         }
         disabled={newCount === undefined}
@@ -77,7 +77,7 @@ export function App({ userId }) {
       />
       <button
         onClick={() =>
-          updateLocalState((state) => ({ ...state, count: undefined }))
+          updateLocalState(state => ({ ...state, count: undefined }))
         }
         disabled={newCount === undefined}
         children="reset"
@@ -86,5 +86,5 @@ export function App({ userId }) {
         {JSON.stringify({ doc, localState, peerStates, heartbeats }, null, 2)}
       </pre>
     </div>
-  );
+  )
 }

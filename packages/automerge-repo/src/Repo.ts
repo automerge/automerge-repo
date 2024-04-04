@@ -2,15 +2,18 @@ import { next as Automerge } from "@automerge/automerge"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
-    generateAutomergeUrl,
-    interpretAsDocumentId,
-    parseAutomergeUrl,
+  generateAutomergeUrl,
+  interpretAsDocumentId,
+  parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
-import { NetworkAdapterInterface, type PeerMetadata } from "./network/NetworkAdapterInterface.js"
+import {
+  NetworkAdapterInterface,
+  type PeerMetadata,
+} from "./network/NetworkAdapterInterface.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { RepoMessage } from "./network/messages.js"
 import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
@@ -214,7 +217,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         message.syncState.theirHeads &&
         (!heads || !headsAreSame(heads, message.syncState.theirHeads))
 
-      if (haveHeadsChanged) {
+      if (haveHeadsChanged && message.syncState.theirHeads) {
         handle.setRemoteHeads(storageId, message.syncState.theirHeads)
 
         if (storageId && this.#remoteHeadsGossipingEnabled) {
@@ -501,6 +504,33 @@ export class Repo extends EventEmitter<RepoEvents> {
     } else {
       return this.storageSubsystem.id()
     }
+  }
+
+  /**
+   * Waits for Repo to finish write changes to disk.
+   * @hidden this API is experimental and may change
+   * @param documents - if provided, only waits for the specified documents
+   * @param timeout - if provided, the maximum time to wait in milliseconds (rejects on timeout)
+   * @returns Promise<void>
+   */
+  async flush(documents?: DocumentId[], timeout?: number): Promise<void> {
+    if (!this.storageSubsystem) {
+      return Promise.resolve()
+    }
+    const handles = documents
+      ? documents.map(id => this.#handleCache[id])
+      : Object.values(this.#handleCache)
+    return Promise.all(
+      handles.map(async handle => {
+        const doc = handle.docSync()
+        if (!doc) {
+          return
+        }
+        return this.storageSubsystem!.flush(handle.documentId, doc, timeout)
+      })
+    ).then(() => {
+      /* No-op. To return `voi`d and not `void[]` */
+    })
   }
 }
 
