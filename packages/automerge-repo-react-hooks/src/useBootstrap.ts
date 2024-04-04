@@ -67,7 +67,7 @@ export interface UseBootstrapOptions<T> {
 }
 
 /**
- * @deprecated Use the simpler example code in the README instead. 
+ * @deprecated Use the simpler example code in the README instead.
  * This hook is used to set up a single document as the base of an app session.
  * This is a common pattern for simple multiplayer apps with shareable URLs.
  *

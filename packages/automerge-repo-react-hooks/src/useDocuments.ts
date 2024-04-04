@@ -106,4 +106,4 @@ export const useDocuments = <T>(ids?: DocId[]) => {
 type DocId = DocumentId | AutomergeUrl
 type ChangeListener<T> = (p: DocHandleChangePayload<T>) => void
 type DeleteListener<T> = (p: DocHandleDeletePayload<T>) => void
-type Listeners<T> = { change: ChangeListener<T>, delete: DeleteListener<T> }
+type Listeners<T> = { change: ChangeListener<T>; delete: DeleteListener<T> }

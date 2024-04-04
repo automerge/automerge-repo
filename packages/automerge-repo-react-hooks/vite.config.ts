@@ -23,14 +23,8 @@ export default defineConfig({
     },
     rollupOptions: {
       external: ["react", "react/jsx-runtime", "react-dom", "tailwindcss"],
-      external: ["react", "react/jsx-runtime", "react-dom", "tailwindcss"],
       output: {
         globals: {
-          react: "React",
-          "react/jsx-runtime": "react/jsx-runtime",
-          "react-dom": "ReactDOM",
-        },
-      },
           react: "React",
           "react/jsx-runtime": "react/jsx-runtime",
           "react-dom": "ReactDOM",

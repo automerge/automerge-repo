@@ -86,23 +86,25 @@ describe("useDocument", () => {
     const { wrapper, handleA } = setup()
     const onDoc = vi.fn()
 
-    render(<Component url={handleA.url} onDoc={onDoc} />, {wrapper})
+    render(<Component url={handleA.url} onDoc={onDoc} />, { wrapper })
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "A" }))
 
     act(() => handleA.change(doc => (doc.foo = "new value")))
-    await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "new value" }))
-  });
+    await waitFor(() =>
+      expect(onDoc).toHaveBeenLastCalledWith({ foo: "new value" })
+    )
+  })
 
   it("should update if the doc is deleted", async () => {
     const { wrapper, handleA } = setup()
     const onDoc = vi.fn()
 
-    render(<Component url={handleA.url} onDoc={onDoc} />, {wrapper})
+    render(<Component url={handleA.url} onDoc={onDoc} />, { wrapper })
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "A" }))
 
     act(() => handleA.delete())
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
-  });
+  })
 
   it("should update if the url changes", async () => {
     const { handleA, handleB, wrapper } = setup()
