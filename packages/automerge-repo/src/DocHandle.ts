@@ -73,12 +73,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         /** Update the doc using the given callback and put the modified doc in context */
         onUpdate: assign(({ context, event }) => {
           const oldDoc = context.doc
-
           assertEvent(event, UPDATE)
           const { callback } = event.payload
-          const newDoc = callback(oldDoc)
-
-          return { doc: newDoc }
+          const doc = callback(oldDoc)
+          return { doc }
         }),
         onDelete: assign(() => {
           this.emit("delete", { handle: this })
@@ -92,7 +90,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       /** @xstate-layout N4IgpgJg5mDOIC5QAoC2BDAxgCwJYDswBKAYgFUAFAEQEEAVAUQG0AGAXUVAAcB7WXAC64e+TiAAeiAOwAOAKwA6ACxSAzKqks1ATjlTdAGhABPRAFolAJksKN2y1KtKAbFLla5AX09G0WPISkVAwAMgyMrBxIILz8QiJikggAjCzOijKqLEqqybJyLizaRqYIFpbJtro5Uo7J2o5S3r4YOATECrgQADZgJADCAEoM9MzsYrGCwqLRSeoyCtra8pa5adquySXmDjY5ac7JljLJeepKzSB+bYGdPX0AYgCSAHJUkRN8UwmziM7HCgqyVcUnqcmScmcMm2ZV2yiyzkOx1OalUFx8V1aAQ63R46AgBCgJGGAEUyAwAMp0D7RSbxGagJKHFgKOSWJTJGRSCosCpKaEmRCqbQKU5yXINeTaer6LwY67YogKXH4wkkKgAeX6AH1hjQqABNGncL70xKIJQ5RY5BHOJag6wwpRyEWImQVeT1aWrVSXBXtJUqgn4Ik0ADqNCedG1L3CYY1gwA0saYqbpuaEG4pKLksKpFDgcsCjDhTnxTKpTLdH6sQGFOgAO7oKYhl5gAQNngAJwA1iRY3R40ndSNDSm6enfpm5BkWAVkvy7bpuTCKq7ndZnfVeSwuTX-HWu2AAI4AVzgQhD6q12rILxoADVIyEaAAhMLjtM-RmIE4LVSQi4nLLDIGzOCWwLKA0cgyLBoFWNy+43B0R5nheaqajqepjuMtJfgyEh-FoixqMCoKqOyhzgYKCDOq6UIeuCSxHOoSGKgop74OgABuzbdOgABGvTXlho5GrhJpxJOP4pLulT6KoMhpJY2hzsWNF0QobqMV6LG+pc+A8BAcBiP6gSfFJ36EQgKksksKxrHamwwmY7gLKB85QjBzoAWxdZdL0FnfARST8ooLC7qoTnWBU4pyC5ViVMKBQaHUDQuM4fm3EGhJBWaU7-CysEAUp3LpEpWw0WYRw2LmqzgqciIsCxWUdI2zaXlAbYdt2PZ5dJ1n5jY2iJY1ikOIcMJHCyUWHC62hRZkUVNPKta3Kh56wJ1-VWUyzhFc64JWJCtQNBBzhQW4cHwbsrVKpxPF8YJgV4ZZIWIKkiKiiNSkqZYWjzCWaQ5hFh0AcCuR3QoR74qUknBRmzholpv3OkpRQNNRpTzaKTWKbIWR5FDxm9AIkA7e9skUYCWayLILBZGoLkUSKbIyIdpxHPoyTeN4QA */
 
       // You can use the XState extension for VS Code to visualize this machine.
-      // Or, you can see this static visualization (last updated March 2024): https://stately.ai/registry/editor/d7af9b58-c518-44f1-9c36-92a238b04a7a?machineId=91c387e7-0f01-42c9-a21d-293e9bf95bb7
+      // Or, you can see this static visualization (last updated April 2024): https://stately.ai/registry/editor/d7af9b58-c518-44f1-9c36-92a238b04a7a?machineId=91c387e7-0f01-42c9-a21d-293e9bf95bb7
 
       initial: "idle",
       context: { documentId, doc },
@@ -139,11 +137,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     // Listen for state transitions
     this.#machine.subscribe(state => {
-      const oldDoc = this.#prevDocState
-      const newDoc = state.context.doc
-      this.#log(`→ ${state.value} %o`, newDoc)
+      const before = this.#prevDocState
+      const after = state.context.doc
+      this.#log(`→ ${state.value} %o`, after)
       // if the document has changed, emit a change event
-      this.#checkForChanges(oldDoc, newDoc)
+      this.#checkForChanges(before, after)
     })
 
     // Start the machine, and send a create or find event to get things going
@@ -180,30 +178,27 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Called after state transitions. If the document has changed, emits a change event. If we just
    * received the document for the first time, signal that our request has been completed.
    */
-  #checkForChanges(oldDoc: T | undefined, newDoc: T) {
+  #checkForChanges(before: T | undefined, after: T) {
     const docChanged =
-      newDoc && oldDoc && !headsAreSame(A.getHeads(newDoc), A.getHeads(oldDoc))
+      after && before && !headsAreSame(A.getHeads(after), A.getHeads(before))
     if (docChanged) {
-      this.emit("heads-changed", { handle: this, doc: newDoc })
+      this.emit("heads-changed", { handle: this, doc: after })
 
-      const patches = A.diff(newDoc, A.getHeads(oldDoc), A.getHeads(newDoc))
+      const patches = A.diff(after, A.getHeads(before), A.getHeads(after))
       if (patches.length > 0) {
         this.emit("change", {
           handle: this,
-          doc: newDoc,
+          doc: after,
           patches,
-          patchInfo: {
-            before: oldDoc,
-            after: newDoc,
-            source: "change", // TODO: pass along the source (load/change/network)
-          },
+          // TODO: pass along the source (load/change/network)
+          patchInfo: { before, after, source: "change" },
         })
       }
 
       // If we didn't have the document yet, signal that we now do
       if (!this.isReady()) this.#machine.send({ type: DOC_READY })
     }
-    this.#prevDocState = newDoc
+    this.#prevDocState = after
   }
 
   // PUBLIC
@@ -478,14 +473,15 @@ export interface DocHandleEvents<T> {
   "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
 }
 
+/** Emitted when this document's heads have changed */
 export interface DocHandleEncodedChangePayload<T> {
   handle: DocHandle<T>
   doc: A.Doc<T>
 }
 
-/** Emitted when a document has changed */
+/** Emitted when this document has changed */
 export interface DocHandleChangePayload<T> {
-  /** The hande which changed */
+  /** The handle that changed */
   handle: DocHandle<T>
   /** The value of the document after the change */
   doc: A.Doc<T>
@@ -495,25 +491,30 @@ export interface DocHandleChangePayload<T> {
   patchInfo: A.PatchInfo<T>
 }
 
+/** Emitted when this document is deleted */
 export interface DocHandleDeletePayload<T> {
   handle: DocHandle<T>
 }
 
+/** Emitted when this document has been marked unavailable */
 export interface DocHandleUnavailablePayload<T> {
   handle: DocHandle<T>
 }
 
+/** Emitted when an ephemeral message is received for the document */
 export interface DocHandleEphemeralMessagePayload<T> {
   handle: DocHandle<T>
   senderId: PeerId
   message: unknown
 }
 
+/** Emitted when an ephemeral message is sent for this document */
 export interface DocHandleOutboundEphemeralMessagePayload<T> {
   handle: DocHandle<T>
   data: Uint8Array
 }
 
+/** Emitted when we have new remote heads for this document */
 export interface DocHandleRemoteHeadsPayload {
   storageId: StorageId
   heads: A.Heads
@@ -524,7 +525,7 @@ export interface DocHandleRemoteHeadsPayload {
 // state
 
 /**
- * Possible internal states of a handle
+ * Possible internal states for a DocHandle
  */
 export const HandleState = {
   /** The handle has been created but not yet loaded or requested */
@@ -563,31 +564,21 @@ interface DocHandleContext<T> {
 
 // events
 
-/** These are the events that the state machine handles internally */
+/** These are the (internal) events that can be sent to the state machine */
 type DocHandleEvent<T> =
-  | CreateEvent
-  | FindEvent
-  | RequestEvent
-  | RequestCompleteEvent
-  | UpdateEvent<T>
-  | TimeoutEvent
-  | DeleteEvent
-  | MarkUnavailableEvent
-  | AwaitNetworkEvent
-  | NetworkReadyEvent
-
-type CreateEvent = { type: "CREATE" }
-type FindEvent = { type: "FIND" }
-type RequestEvent = { type: "REQUEST" }
-type RequestCompleteEvent = { type: "DOC_READY" }
-type DeleteEvent = { type: "DELETE" }
-type UpdateEvent<T> = { type: "UPDATE"; payload: { callback: Callback<T> } }
-type TimeoutEvent = { type: "TIMEOUT" }
-type MarkUnavailableEvent = { type: "DOC_UNAVAILABLE" }
-type AwaitNetworkEvent = { type: "AWAIT_NETWORK" }
-type NetworkReadyEvent = { type: "NETWORK_READY" }
-
-type Callback<T> = (doc: A.Doc<T>) => A.Doc<T>
+  | { type: typeof CREATE }
+  | { type: typeof FIND }
+  | { type: typeof REQUEST }
+  | { type: typeof DOC_READY }
+  | {
+      type: typeof UPDATE
+      payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
+    }
+  | { type: typeof TIMEOUT }
+  | { type: typeof DELETE }
+  | { type: typeof DOC_UNAVAILABLE }
+  | { type: typeof AWAIT_NETWORK }
+  | { type: typeof NETWORK_READY }
 
 const CREATE = "CREATE"
 const FIND = "FIND"
@@ -597,4 +588,5 @@ const AWAIT_NETWORK = "AWAIT_NETWORK"
 const NETWORK_READY = "NETWORK_READY"
 const UPDATE = "UPDATE"
 const DELETE = "DELETE"
+const TIMEOUT = "TIMEOUT"
 const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"
