@@ -340,17 +340,16 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       payload: { callback: doc => A.change(doc, options, callback) },
     })
   }
-
   /**
    * Makes a change as if the document were at `heads`.
    *
-   * @returns ~~A set of heads representing the concurrent change that was made.~~ undefined
+   * @returns A set of heads representing the concurrent change that was made.
    */
   changeAt(
     heads: A.Heads,
     callback: A.ChangeFn<T>,
     options: A.ChangeOptions<T> = {}
-  ) {
+  ): string[] | undefined {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
@@ -367,7 +366,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         },
       },
     })
-    // TODO: this always returns undefined, is there any point in having a return value?
+
+    // the callback above will always run before we get here, so this should always contain the new heads
     return resultHeads
   }
 
