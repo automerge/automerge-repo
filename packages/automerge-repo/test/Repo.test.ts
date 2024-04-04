@@ -471,13 +471,11 @@ describe("Repo", () => {
         const originalSave = pausedStorage.save.bind(pausedStorage)
         pausedStorage.save = async (...args) => {
           await new Promise(resolve => {
-            console.log("made a promise", ...args[0])
             blockedSaves.push(resolve)
           })
           await pause(0)
           // otherwise all the save promises resolve together
           // which prevents testing flushing a single docID
-          console.log("resuming save", ...args[0])
           return originalSave(...args)
         }
       }
