@@ -250,7 +250,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Use this to block until the document handle has finished loading. The async equivalent to
    * checking `inState()`.
    */
-  async whenReady(awaitStates: HandleState[] = ["ready"]): Promise<void> {
+  async whenReady(awaitStates: HandleState[] = ["ready"]) {
     await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
   }
 
@@ -263,7 +263,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   async doc(
     /** states to wait for, such as "LOADING". mostly for internal use. */
     awaitStates: HandleState[] = ["ready", "unavailable"]
-  ): Promise<A.Doc<T> | undefined> {
+  ) {
     try {
       // wait for the document to enter one of the desired states
       await this.#statePromise(awaitStates)
@@ -288,7 +288,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    *
    * @returns the current document, or undefined if the document is not ready.
    */
-  docSync(): A.Doc<T> | undefined {
+  docSync() {
     if (!this.isReady()) return undefined
     else return this.#doc
   }
@@ -344,13 +344,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /**
    * Makes a change as if the document were at `heads`.
    *
-   * @returns A set of heads representing the concurrent change that was made.
+   * @returns ~~A set of heads representing the concurrent change that was made.~~ undefined
    */
   changeAt(
     heads: A.Heads,
     callback: A.ChangeFn<T>,
     options: A.ChangeOptions<T> = {}
-  ): string[] | undefined {
+  ) {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
@@ -367,6 +367,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         },
       },
     })
+    // TODO: this always returns undefined, is there any point in having a return value?
     return resultHeads
   }
 
