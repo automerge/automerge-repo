@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@automerge/automerge':
-        specifier: ^2.1.11
-        version: 2.1.11
+        specifier: ^2.1.13
+        version: 2.1.13
       '@manypkg/cli':
         specifier: ^0.21.2
         version: 0.21.2
@@ -439,18 +439,18 @@ packages:
       '@jridgewell/trace-mapping': 0.3.22
     dev: true
 
-  /@automerge/automerge-wasm@0.10.0:
-    resolution: {integrity: sha512-xfv/bLO74S8Me88+DSyn864mzUBgw8mlu18yqtL8O0XrG/OZyrliqa0LT9r9dL3qyjICVz4VAttZDWBT7FuAKg==}
+  /@automerge/automerge-wasm@0.12.0:
+    resolution: {integrity: sha512-MJVmw/83Uy7WuqA9Dac3VcLXpXENZSDu7hqxttdFyAYZXQYQugiU7R+RUO2sP7081J9gRUb2+73sYpNnSTwzYQ==}
     dev: true
 
   /@automerge/automerge-wasm@0.7.0:
     resolution: {integrity: sha512-nql3kAO0xAYslEfrr2uTQe595fasKsOKxXEkNpilP97F3T0PD7n0YP9MirLiAytNRBXYccMayhN+hP5Af4xprA==}
     dev: false
 
-  /@automerge/automerge@2.1.11:
-    resolution: {integrity: sha512-PLaW/fOg5zVaHPyuxKm5U9H1lRK45elENyE6SM0+WxO/pugrA8JlmsbHMTGWA2TTK3x7cKlR1MgNBEE+/dwcSQ==}
+  /@automerge/automerge@2.1.13:
+    resolution: {integrity: sha512-9t185MgkFvwvqccmA45yKq61If2KCpKxZg19gukwO9G15bvxuh5ulWv2PWvMZ+iTvhDYCH+pZwXmFkD4nufScw==}
     dependencies:
-      '@automerge/automerge-wasm': 0.10.0
+      '@automerge/automerge-wasm': 0.12.0
       uuid: 9.0.1
     dev: true
 
