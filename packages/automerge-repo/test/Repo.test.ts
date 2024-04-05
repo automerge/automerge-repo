@@ -454,7 +454,7 @@ describe("Repo", () => {
     it("throws an error if we try to import an invalid document", async () => {
       const { repo } = setup()
       expect(() => {
-        repo.import<TestDoc>(A.init<TestDoc> as unknown as Uint8Array)
+        repo.import<TestDoc>(new Uint8Array([1, 2, 3]))
       }).toThrow()
     })
   })
