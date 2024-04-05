@@ -451,11 +451,29 @@ describe("Repo", () => {
       expect(A.getHistory(v)).toEqual(A.getHistory(updatedDoc))
     })
 
-    it("throws an error if we try to import an invalid document", async () => {
+    it("throws an error if we try to import a nonsensical byte array", async () => {
       const { repo } = setup()
       expect(() => {
         repo.import<TestDoc>(new Uint8Array([1, 2, 3]))
       }).toThrow()
+    })
+
+    // TODO: not sure if this is the desired behavior from `import`.
+
+    it("makes an empty document if we try to import an automerge doc", async () => {
+      const { repo } = setup()
+      const handle = repo.import<TestDoc>(
+        A.from({ foo: 123 }) as unknown as Uint8Array
+      )
+      const doc = await handle.doc()
+      expect(doc).toEqual({})
+    })
+
+    it("makes an empty document if we try to import a plain object", async () => {
+      const { repo } = setup()
+      const handle = repo.import<TestDoc>({ foo: 123 } as unknown as Uint8Array)
+      const doc = await handle.doc()
+      expect(doc).toEqual({})
     })
   })
 
