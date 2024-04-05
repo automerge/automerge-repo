@@ -462,16 +462,16 @@ describe("Repo", () => {
 
     it("makes an empty document if we try to import an automerge doc", async () => {
       const { repo } = setup()
-      const handle = repo.import<TestDoc>(
-        A.from({ foo: 123 }) as unknown as Uint8Array
-      )
+      // @ts-ignore - passing something other than UInt8Array
+      const handle = repo.import<TestDoc>(A.from({ foo: 123 }))
       const doc = await handle.doc()
       expect(doc).toEqual({})
     })
 
     it("makes an empty document if we try to import a plain object", async () => {
       const { repo } = setup()
-      const handle = repo.import<TestDoc>({ foo: 123 } as unknown as Uint8Array)
+      // @ts-ignore - passing something other than UInt8Array
+      const handle = repo.import<TestDoc>({ foo: 123 })
       const doc = await handle.doc()
       expect(doc).toEqual({})
     })
