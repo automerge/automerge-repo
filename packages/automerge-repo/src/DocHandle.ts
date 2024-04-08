@@ -328,6 +328,19 @@ export class DocHandle<T> //
     return this.#doc
   }
 
+  /**
+   * Returns the current "heads" of the document, akin to a git commit.
+   * This precisely defines the state of a document. In the event of multiple heads,
+   * there are unmerged concurrent changes to the document.
+   * @returns the current document's heads, or undefined if the document is not ready
+   */
+  heads(): A.Heads | undefined {
+    if (!this.isReady()) {
+      return undefined
+    }
+    return A.getHeads(this.#doc)
+  }
+
   /** `update` is called by the repo when we receive changes from the network
    * @hidden
    * */

@@ -587,7 +587,7 @@ describe("Websocket adapters", () => {
       }
 
       let localHeads = A.getHeads(clientDoc)
-      let remoteHeads = A.getHeads(handle.docSync())
+      let remoteHeads = handle.heads()
       if (!headsAreSame(localHeads, remoteHeads)) {
         throw new Error("heads not equal")
       }

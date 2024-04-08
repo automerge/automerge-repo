@@ -1062,8 +1062,7 @@ describe("Repo", () => {
         bobHandle.documentId,
         await charlieRepo!.storageSubsystem.id()
       )
-      const docHeads = A.getHeads(bobHandle.docSync())
-      assert.deepStrictEqual(storedSyncState.sharedHeads, docHeads)
+      assert.deepStrictEqual(storedSyncState.sharedHeads, bobHandle.heads())
 
       teardown()
     })
@@ -1180,18 +1179,15 @@ describe("Repo", () => {
       // pause to let the sync happen
       await pause(100)
 
-      const charlieHeads = A.getHeads(charlieHandle.docSync())
-      const bobHeads = A.getHeads(handle.docSync())
-
-      assert.deepStrictEqual(charlieHeads, bobHeads)
+      assert.deepStrictEqual(charlieHandle.heads(), handle.heads())
 
       const nextRemoteHeads = await nextRemoteHeadsPromise
       assert.deepStrictEqual(nextRemoteHeads.storageId, charliedStorageId)
-      assert.deepStrictEqual(nextRemoteHeads.heads, charlieHeads)
+      assert.deepStrictEqual(nextRemoteHeads.heads, charlieHandle.heads())
 
       assert.deepStrictEqual(
         handle.getRemoteHeads(charliedStorageId),
-        A.getHeads(charlieHandle.docSync())
+        charlieHandle.heads()
       )
 
       teardown()
