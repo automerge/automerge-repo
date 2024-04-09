@@ -422,7 +422,7 @@ describe("Websocket adapters", () => {
         documentId: DocumentId
       }> {
         const storage = new DummyStorageAdapter()
-        const silentRepo = new Repo({ storage, network: [] })
+        const silentRepo = new Repo({ storage })
         const doc = A.from<T>(contents)
         const handle = silentRepo.create()
         handle.update(() => A.clone(doc))

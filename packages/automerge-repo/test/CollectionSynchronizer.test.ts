@@ -8,9 +8,7 @@ describe("CollectionSynchronizer", () => {
   let synchronizer: CollectionSynchronizer
 
   beforeEach(() => {
-    repo = new Repo({
-      network: [],
-    })
+    repo = new Repo()
     synchronizer = new CollectionSynchronizer(repo)
   })
 

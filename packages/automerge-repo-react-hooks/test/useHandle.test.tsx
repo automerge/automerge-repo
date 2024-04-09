@@ -24,8 +24,6 @@ function getRepoWrapper(repo: Repo) {
 describe("useHandle", () => {
   const repo = new Repo({
     peerId: "bob" as PeerId,
-    network: [],
-    storage: new DummyStorageAdapter(),
   })
 
   function setup() {

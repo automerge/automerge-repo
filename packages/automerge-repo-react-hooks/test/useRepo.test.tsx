@@ -12,7 +12,7 @@ describe("useRepo", () => {
   }
 
   test("should error when context unavailable", () => {
-    const repo = new Repo({ network: [] })
+    const repo = new Repo()
     // Prevent console spam by swallowing console.error "uncaught error" message
     const spy = vi.spyOn(console, "error")
     spy.mockImplementation(() => {})
@@ -23,7 +23,7 @@ describe("useRepo", () => {
   })
 
   test("should return repo from context", () => {
-    const repo = new Repo({ network: [] })
+    const repo = new Repo()
     const wrapper = ({ children }) => (
       <RepoContext.Provider value={repo} children={children} />
     )

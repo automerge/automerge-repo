@@ -60,12 +60,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   constructor({
     storage,
-    network,
+    network = [],
     peerId,
     sharePolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
-  }: RepoConfig) {
+  }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
@@ -545,8 +545,8 @@ export interface RepoConfig {
   /** A storage adapter can be provided, or not */
   storage?: StorageAdapterInterface
 
-  /** One or more network adapters must be provided */
-  network: NetworkAdapterInterface[]
+  /** A list of network adapters (more can be added at runtime). */
+  network?: NetworkAdapterInterface[]
 
   /**
    * Normal peers typically share generously with everyone (meaning we sync all our documents with

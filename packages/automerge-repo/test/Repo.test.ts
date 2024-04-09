@@ -33,10 +33,8 @@ import { StorageId } from "../src/storage/types.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
-    it("can be instantiated without network adapters", () => {
-      const repo = new Repo({
-        network: [],
-      })
+    it("can be instantiated without any configuration", () => {
+      const repo = new Repo()
       expect(repo).toBeInstanceOf(Repo)
     })
   })
@@ -126,8 +124,7 @@ describe("Repo", () => {
       })
       const v = await handle.doc()
       assert.equal(handle.isReady(), true)
-
-      assert.equal(v?.foo, "bar")
+      assert.equal(v.foo, "bar")
     })
 
     it("can clone a document", () => {
@@ -255,7 +252,6 @@ describe("Repo", () => {
 
       const repo2 = new Repo({
         storage: storageAdapter,
-        network: [],
       })
 
       const bobHandle = repo2.find<TestDoc>(handle.url)
@@ -277,7 +273,6 @@ describe("Repo", () => {
 
       const repo2 = new Repo({
         storage: storageAdapter,
-        network: [],
       })
 
       const bobHandle = repo2.find<TestDoc>(handle.url)
@@ -364,7 +359,6 @@ describe("Repo", () => {
 
       const repo = new Repo({
         storage,
-        network: [],
       })
 
       const handle = repo.create<{ count: number }>()
@@ -382,7 +376,6 @@ describe("Repo", () => {
 
       const repo2 = new Repo({
         storage,
-        network: [],
       })
       const handle2 = repo2.find(handle.url)
       await handle2.doc()
@@ -395,7 +388,6 @@ describe("Repo", () => {
 
       const repo = new Repo({
         storage,
-        network: [],
       })
 
       const handle = repo.create<{ count: number }>()
@@ -410,7 +402,6 @@ describe("Repo", () => {
       for (let i = 0; i < 3; i++) {
         const repo2 = new Repo({
           storage,
-          network: [],
         })
         const handle2 = repo2.find(handle.url)
         await handle2.doc()
@@ -482,7 +473,6 @@ describe("Repo", () => {
 
       const repo = new Repo({
         storage: pausedStorage,
-        network: [],
       })
 
       // Create a pair of handles
@@ -499,7 +489,6 @@ describe("Repo", () => {
       // Reload repo
       const repo2 = new Repo({
         storage: pausedStorage,
-        network: [],
       })
 
       // Could not find the document that is not yet saved because of slow storage.
@@ -522,7 +511,6 @@ describe("Repo", () => {
         // Reload repo
         const repo = new Repo({
           storage: pausedStorage,
-          network: [],
         })
 
         expect(
@@ -548,7 +536,6 @@ describe("Repo", () => {
         // Reload repo
         const repo = new Repo({
           storage: pausedStorage,
-          network: [],
         })
 
         expect(
@@ -910,7 +897,6 @@ describe("Repo", () => {
       // we have a storage containing the document to pass to a new repo later
       const storage = new DummyStorageAdapter()
       const isolatedRepo = new Repo({
-        network: [],
         storage,
       })
       const unsyncedHandle = isolatedRepo.create<TestDoc>()
@@ -1115,7 +1101,6 @@ describe("Repo", () => {
       // setup new repo which uses bob's storage
       const bob2Repo = new Repo({
         storage: bobStorage,
-        network: [],
         peerId: "bob-2" as PeerId,
       })
 

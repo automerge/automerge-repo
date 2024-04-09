@@ -1,5 +1,4 @@
 import { AutomergeUrl, PeerId, Repo } from "@automerge/automerge-repo"
-import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
 import { render, waitFor } from "@testing-library/react"
 import React from "react"
 import { act } from "react-dom/test-utils"
@@ -13,8 +12,6 @@ describe("useDocument", () => {
   function setup() {
     const repo = new Repo({
       peerId: "bob" as PeerId,
-      network: [],
-      storage: new DummyStorageAdapter(),
     })
 
     const handleA = repo.create<ExampleDoc>()
