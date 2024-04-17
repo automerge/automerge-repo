@@ -94,7 +94,15 @@ export * from "./types.js"
 // Reexport lower-level Automerge namespace under a different name to avoid requiring an additional import.
 // Use the `next` export since that's what we use internally.
 export {next as AutomergeCore} from "@automerge/automerge"
-export type { Counter, RawString, Cursor } from "@automerge/automerge/next" 
-export type { Doc, Heads, Patch, Prop, ActorId, Change, ChangeFn } from "@automerge/automerge/next" 
 
-export { getChanges, getAllChanges, applyChanges, getCursor, getCursorPosition, view } from "@automerge/automerge/next"
+// export commonly used data types
+export type { Counter, RawString, Cursor } from "@automerge/automerge/next" 
+
+// export some automerge API types
+export type { Doc, Heads, Patch, Prop, ActorId, Change, ChangeFn } from "@automerge/automerge" 
+
+// export a few utility functions that aren't in automerge-repo
+export { getChanges, getAllChanges, applyChanges, view } from "@automerge/automerge"
+
+import { next } from "@automerge/automerge"
+export const { getCursor, getCursorPosition, splice, updateText } = next
