@@ -330,8 +330,7 @@ export class DocHandle<T> //
 
   /**
    * Returns the current "heads" of the document, akin to a git commit.
-   * This precisely defines the state of a document. In the event of multiple heads,
-   * there are unmerged concurrent changes to the document.
+   * This precisely defines the state of a document.
    * @returns the current document's heads, or undefined if the document is not ready
    */
   heads(): A.Heads | undefined {
