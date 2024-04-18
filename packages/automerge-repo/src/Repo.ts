@@ -84,7 +84,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         }: DocHandleEncodedChangePayload<any>) => {
           void storageSubsystem.saveDoc(handle.documentId, doc)
         }
-        handle.on("heads-changed", saveFn)
+        handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
 
         if (isNew) {
           // this is a new document, immediately save it
