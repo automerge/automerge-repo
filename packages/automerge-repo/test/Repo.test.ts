@@ -559,6 +559,24 @@ describe("Repo", () => {
         ).toEqual(undefined)
       }
     })
+
+    it("flush right before change should resolve correctly", async () => {
+      const repo = new Repo({
+        network: [],
+        storage: new DummyStorageAdapter(),
+      })
+      const handle = repo.create<{ field?: string }>()
+
+      for (let i = 0; i < 10; i++) {
+        const flushPromise = repo.flush([handle.documentId])
+        handle.change((doc: any) => {
+          doc.field += Array(1024)
+            .fill(Math.random() * 10)
+            .join("")
+        })
+        await flushPromise
+      }
+    })
   })
 
   describe("with peers (linear network)", async () => {

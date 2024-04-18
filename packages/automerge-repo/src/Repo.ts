@@ -1,5 +1,4 @@
 import { next as Automerge } from "@automerge/automerge"
-import { Mutex } from "@dxos/async"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
@@ -33,7 +32,6 @@ import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
  * obtain {@link DocHandle}s.
  */
 export class Repo extends EventEmitter<RepoEvents> {
-  #mutex = new Mutex()
   #log: debug.Debugger
 
   /** @hidden */
