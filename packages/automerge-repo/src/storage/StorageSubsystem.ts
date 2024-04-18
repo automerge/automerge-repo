@@ -29,8 +29,6 @@ export class StorageSubsystem {
 
   #log = debug(`automerge-repo:storage-subsystem`)
 
-  #saved = new EventEmitter<{ saved: () => void }>()
-
   constructor(storageAdapter: StorageAdapterInterface) {
     this.#storageAdapter = storageAdapter
   }
@@ -159,7 +157,6 @@ export class StorageSubsystem {
       await this.#saveIncremental(documentId, doc)
     }
     this.#storedHeads.set(documentId, A.getHeads(doc))
-    this.#saved.emit("saved")
   }
 
   /**
@@ -247,34 +244,6 @@ export class StorageSubsystem {
   ): Promise<void> {
     const key = [documentId, "sync-state", storageId]
     await this.#storageAdapter.save(key, A.encodeSyncState(syncState))
-  }
-
-  /**
-   * Waiting for document state to be written to disk.
-   * @deprecated because it will be changed soon.
-   */
-  async flush(documentId: DocumentId, doc: A.Doc<unknown>, timeout?: number) {
-    return new Promise<void>((resolve, reject) => {
-      let timeoutId: NodeJS.Timeout
-      if (timeout) {
-        timeoutId = setTimeout(() => {
-          this.#saved.off("saved", checkIfSaved)
-          reject(new Error("Timed out waiting for save"))
-        }, timeout)
-      }
-
-      const checkIfSaved = () => {
-        if (!this.#shouldSave(documentId, doc)) {
-          this.#saved.off("saved", checkIfSaved)
-          clearTimeout(timeoutId)
-          resolve()
-        }
-      }
-
-      this.#saved.on("saved", checkIfSaved)
-
-      checkIfSaved()
-    })
   }
 
   /**

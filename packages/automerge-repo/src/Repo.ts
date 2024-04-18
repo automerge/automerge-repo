@@ -1,4 +1,5 @@
 import { next as Automerge } from "@automerge/automerge"
+import { Mutex } from "@dxos/async"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
@@ -32,6 +33,7 @@ import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
  * obtain {@link DocHandle}s.
  */
 export class Repo extends EventEmitter<RepoEvents> {
+  #mutex = new Mutex()
   #log: debug.Debugger
 
   /** @hidden */
@@ -84,7 +86,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         }: DocHandleEncodedChangePayload<any>) => {
           void storageSubsystem.saveDoc(handle.documentId, doc)
         }
-        handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
+        handle.on("heads-changed", saveFn)
 
         if (isNew) {
           // this is a new document, immediately save it
@@ -513,24 +515,22 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @param timeout - if provided, the maximum time to wait in milliseconds (rejects on timeout)
    * @returns Promise<void>
    */
-  async flush(documents?: DocumentId[], timeout?: number): Promise<void> {
+  async flush(documents?: DocumentId[]): Promise<void> {
     if (!this.storageSubsystem) {
       return Promise.resolve()
     }
     const handles = documents
       ? documents.map(id => this.#handleCache[id])
       : Object.values(this.#handleCache)
-    return Promise.all(
+    await Promise.all(
       handles.map(async handle => {
         const doc = handle.docSync()
         if (!doc) {
           return
         }
-        return this.storageSubsystem!.flush(handle.documentId, doc, timeout)
+        return this.storageSubsystem!.saveDoc(handle.documentId, doc)
       })
-    ).then(() => {
-      /* No-op. To return `voi`d and not `void[]` */
-    })
+    )
   }
 }
 
