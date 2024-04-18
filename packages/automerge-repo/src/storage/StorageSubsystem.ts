@@ -8,7 +8,6 @@ import { ChunkInfo, StorageKey, StorageId } from "./types.js"
 import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
 import * as Uuid from "uuid"
-import { EventEmitter } from "eventemitter3"
 
 /**
  * The storage subsystem is responsible for saving and loading Automerge documents to and from
