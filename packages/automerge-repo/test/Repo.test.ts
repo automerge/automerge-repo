@@ -454,12 +454,12 @@ describe("Repo", () => {
     const setup = () => {
       let blockedSaves = new Set<{ path: StorageKey; resolve: () => void }>()
       let resume = (documentIds?: DocumentId[]) => {
-        ;(documentIds
+        const savesToUnblock = documentIds
           ? Array.from(blockedSaves).filter(({ path }) =>
               documentIds.some(documentId => path.includes(documentId))
             )
           : Array.from(blockedSaves)
-        ).forEach(({ resolve }) => resolve())
+        savesToUnblock.forEach(({ resolve }) => resolve())
       }
       const pausedStorage = new DummyStorageAdapter()
       {
