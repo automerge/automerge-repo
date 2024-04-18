@@ -515,7 +515,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   async flush(documents?: DocumentId[]): Promise<void> {
     if (!this.storageSubsystem) {
-      return Promise.resolve()
+      return
     }
     const handles = documents
       ? documents.map(id => this.#handleCache[id])
