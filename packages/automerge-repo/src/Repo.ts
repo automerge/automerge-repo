@@ -507,10 +507,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Waits for Repo to finish write changes to disk.
-   * @hidden this API is experimental and may change
-   * @param documents - if provided, only waits for the specified documents
-   * @param timeout - if provided, the maximum time to wait in milliseconds (rejects on timeout)
+   * Writes Documents to a disk.
+   * @hidden this API is experimental and may change.
+   * @param documents - if provided, only writes the specified documents.
    * @returns Promise<void>
    */
   async flush(documents?: DocumentId[]): Promise<void> {
