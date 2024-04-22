@@ -9,34 +9,34 @@ import { withTimeout } from "./helpers/withTimeout.js"
 import type { AutomergeUrl, DocumentId, PeerId } from "./types.js"
 import { StorageId } from "./storage/types.js"
 
-/** DocHandle is a wrapper around a single Automerge document that lets us
- * listen for changes and notify the network and storage of new changes.
+/**
+ * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
+ * notify the network and storage of new changes.
  *
  * @remarks
- * A `DocHandle` represents a document which is being managed by a {@link Repo}.
- * To obtain `DocHandle` use {@link Repo.find} or {@link Repo.create}.
+ * A `DocHandle` represents a document which is being managed by a {@link Repo}. You shouldn't ever
+ * instantiate this yourself. To obtain `DocHandle` use {@link Repo.find} or {@link Repo.create}.
  *
  * To modify the underlying document use either {@link DocHandle.change} or
- * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some
- * change has occured and the `Repo` will save any new changes to the
- * attached {@link StorageAdapter} and send sync messages to connected peers.
- * */
+ * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some change has occured and
+ * the `Repo` will save any new changes to the attached {@link StorageAdapter} and send sync
+ * messages to connected peers.
+ */
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #log: debug.Debugger
 
+  /** The XState actor running our state machine.  */
   #machine
-  #prevDocState: T | undefined
-  #timeoutDelay = 60_000
-  #remoteHeads: Record<StorageId, A.Heads> = {}
 
-  /** The URL of this document
-   *
-   * @remarks
-   * This can be used to request the document from an instance of {@link Repo}
-   */
-  get url(): AutomergeUrl {
-    return stringifyAutomergeUrl({ documentId: this.documentId })
-  }
+  /** The last known state of our document. */
+  #prevDocState: T | undefined
+
+  /** How long to wait before giving up on a document. (Note that a document will be marked
+   * unavailable much sooner if all known peers respond that they don't have it.) */
+  #timeoutDelay = 60_000
+
+  /** A dictionary mapping each peer to the last heads we know they have. */
+  #remoteHeads: Record<StorageId, A.Heads> = {}
 
   /** @hidden */
   constructor(
@@ -209,23 +209,38 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   // PUBLIC
 
+  /** Our documentId in Automerge URL form.
+   */
+  get url(): AutomergeUrl {
+    return stringifyAutomergeUrl({ documentId: this.documentId })
+  }
+
   /**
-   * Checks if the document is ready for accessing or changes.
-   * Note that for documents already stored locally this occurs before synchronization
-   * with any peers. We do not currently have an equivalent `whenSynced()`.
+   * @returns true if the document is ready for accessing or changes.
+   *
+   * Note that for documents already stored locally this occurs before synchronization with any
+   * peers. We do not currently have an equivalent `whenSynced()`.
    */
   isReady = () => this.inState(["ready"])
 
   /**
-   * Checks if this document has been marked as deleted.
-   * Deleted documents are removed from local storage and the sync process.
-   * It's not currently possible at runtime to undelete a document.
-   * @returns true if the document has been marked as deleted
+   * @returns true if the document has been marked as deleted.
+   *
+   * Deleted documents are removed from local storage and the sync process. It's not currently
+   * possible at runtime to undelete a document.
    */
   isDeleted = () => this.inState(["deleted"])
 
+  /**
+   * @returns true if the document is currently unavailable.
+   *
+   * This will be the case if the document is not found in storage and no peers have shared it with us.
+   */
   isUnavailable = () => this.inState(["unavailable"])
 
+  /**
+   * @returns true if the handle is in one of the given states.
+   */
   inState = (states: HandleState[]) =>
     states.some(s => this.#machine.getSnapshot().matches(s))
 
@@ -235,23 +250,24 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Use this to block until the document handle has finished loading.
-   * The async equivalent to checking `inState()`.
-   * @param awaitStates = [READY]
-   * @returns
+   * @returns a promise that resolves when the document is in one of the given states (if no states
+   * are passed, when the document is ready)
+   *
+   * Use this to block until the document handle has finished loading. The async equivalent to
+   * checking `inState()`.
    */
   async whenReady(awaitStates: HandleState[] = ["ready"]): Promise<void> {
     await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
   }
 
   /**
-   * Returns the current state of the Automerge document this handle manages.
-   * Note that this waits for the handle to be ready if necessary, and currently, if
-   * loading (or synchronization) fails, will never resolve.
+   * @returns the current state of this handle's Automerge document.
    *
-   * @param {awaitStates=[READY]} optional states to wait for, such as "LOADING". mostly for internal use.
+   * This is the recommended way to access a handle's document. Note that this waits for the handle
+   * to be ready if necessary. If loading (or synchronization) fails, this will never resolve.
    */
   async doc(
+    /** states to wait for, such as "LOADING". mostly for internal use. */
     awaitStates: HandleState[] = ["ready", "unavailable"]
   ): Promise<A.Doc<T> | undefined> {
     try {
@@ -266,14 +282,17 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Returns the current state of the Automerge document this handle manages, or undefined.
-   * Useful in a synchronous context. Consider using `await handle.doc()` instead, check `isReady()`,
-   * or use `whenReady()` if you want to make sure loading is complete first.
+   * Synchronously returns the current state of the Automerge document this handle manages, or
+   * undefined. Consider using `await handle.doc()` instead. Check `isReady()`, or use `whenReady()`
+   * if you want to make sure loading is complete first.
    *
-   * Do not confuse this with the SyncState of the document, which describes the state of the synchronization process.
+   * Not to be confused with the SyncState of the document, which describes the state of the
+   * synchronization process.
    *
-   * Note that `undefined` is not a valid Automerge document so the return from this function is unambigous.
-   * @returns the current document, or undefined if the document is not ready
+   * Note that `undefined` is not a valid Automerge document, so the return from this function is
+   * unambigous.
+   *
+   * @returns the current document, or undefined if the document is not ready.
    */
   docSync(): A.Doc<T> | undefined {
     if (!this.isReady()) return undefined
@@ -292,14 +311,17 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return A.getHeads(this.#doc)
   }
 
-  /** `update` is called by the repo when we receive changes from the network
+  /** 
+   * `update` is called by the repo when we receive changes from the network
+   * Called by the repo when we receive changes from the network.
    * @hidden
-   * */
+   */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
     this.#machine.send({ type: UPDATE, payload: { callback } })
   }
 
-  /** `setRemoteHeads` is called by the repo either when a doc handle changes or we receive new remote heads
+  /**
+   * Called by the repo either when a doc handle changes or we receive new remote heads.
    * @hidden
    */
   setRemoteHeads(storageId: StorageId, heads: A.Heads) {
@@ -307,12 +329,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.emit("remote-heads", { storageId, heads })
   }
 
-  /** Returns the heads of the storageId */
+  /** Returns the heads of the storageId. */
   getRemoteHeads(storageId: StorageId): A.Heads | undefined {
     return this.#remoteHeads[storageId]
   }
 
-  /** `change` is called by the repo when the document is changed locally  */
+  /** Called by the repo when the document is changed locally.  */
   change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (!this.isReady()) {
       throw new Error(
@@ -326,7 +348,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Makes a change as if the document were at `heads`
+   * Makes a change as if the document were at `heads`.
    *
    * @returns A set of heads representing the concurrent change that was made.
    */
@@ -355,19 +377,17 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Merges another document into this document.
+   * Merges another document into this document. Any peers we are sharing changes with will be
+   * notified of the changes resulting from the merge.
    *
-   * @param otherHandle - the handle of the document to merge into this one
+   * @returns the merged document.
    *
-   * @remarks
-   * This is a convenience method for
-   * `handle.change(doc => A.merge(doc, otherHandle.docSync()))`. Any peers
-   * whom we are sharing changes with will be notified of the changes resulting
-   * from the merge.
-   *
-   * @throws if either document is not ready or if `otherHandle` is unavailable (`otherHandle.docSync() === undefined`)
+   * @throws if either document is not ready or if `otherHandle` is unavailable.
    */
-  merge(otherHandle: DocHandle<T>) {
+  merge(
+    /** the handle of the document to merge into this one */
+    otherHandle: DocHandle<T>
+  ) {
     if (!this.isReady() || !otherHandle.isReady()) {
       throw new Error("Both handles must be ready to merge")
     }
@@ -381,11 +401,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
+  /** Marks this document as unavailable. */
   unavailable() {
     this.#machine.send({ type: MARK_UNAVAILABLE })
   }
 
-  /** `request` is called by the repo when the document is not found in storage
+  /** Called by the repo when the document is not found in storage.
    * @hidden
    * */
   request() {
@@ -450,7 +471,7 @@ export interface DocHandleEvents<T> {
   "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
-  unavailable: (payload: DocHandleDeletePayload<T>) => void
+  unavailable: (payload: DocHandleUnavailablePayload<T>) => void
   "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
   "ephemeral-message-outbound": (
     payload: DocHandleOutboundEphemeralMessagePayload<T>
@@ -479,6 +500,10 @@ export interface DocHandleDeletePayload<T> {
   handle: DocHandle<T>
 }
 
+export interface DocHandleUnavailablePayload<T> {
+  handle: DocHandle<T>
+}
+
 export interface DocHandleEphemeralMessagePayload<T> {
   handle: DocHandle<T>
   senderId: PeerId
@@ -495,12 +520,7 @@ export interface DocHandleRemoteHeadsPayload {
   heads: A.Heads
 }
 
-export interface DocHandleSyncStatePayload {
-  peerId: PeerId
-  syncState: A.SyncState
-}
-
-// STATE MACHINE TYPES
+// STATE MACHINE TYPES & CONSTANTS
 
 // state
 
