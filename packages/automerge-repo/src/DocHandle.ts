@@ -305,7 +305,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return A.getHeads(this.#doc)
   }
 
-  /** 
+  /**
    * `update` is called by the repo when we receive changes from the network
    * Called by the repo when we receive changes from the network.
    * @hidden
@@ -328,7 +328,21 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.#remoteHeads[storageId]
   }
 
-  /** Called by the repo when the document is changed locally.  */
+  /**
+   * All changes to an Automerge document should be made through this method.
+   * Inside the callback, the document should be treated as mutable: all edits will be recorded
+   * using a Proxy and translated into operations as part of a single recorded "change".
+   *
+   * Note that assignment via ES6 spread operators will result in *replacing* the object
+   * instead of mutating it which will prevent clean merges. This may be what you want, but
+   * `doc.foo = { ...doc.foo, bar: "baz" }` is not equivalent to `doc.foo.bar = "baz"`.
+   *
+   * Local changes will be stored (by the StorageSubsystem) and synchronized (by the
+   * DocSynchronizer) to any peers you are sharing it with.
+   *
+   * @param callback - A function that takes the current document and mutates it.
+   *
+   */
   change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (!this.isReady()) {
       throw new Error(
@@ -388,7 +402,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     }
     const mergingDoc = otherHandle.docSync()
     if (!mergingDoc) {
-      throw new Error("The document to be merged in is null, aborting.")
+      throw new Error("The document to be merged in is falsy, aborting.")
     }
 
     this.update(doc => {
@@ -396,7 +410,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
-  /** Marks this document as unavailable. */
+  /**
+   * Used in testing to mark this document as unavailable.
+   * @hidden
+   */
   unavailable() {
     this.#machine.send({ type: DOC_UNAVAILABLE })
   }
