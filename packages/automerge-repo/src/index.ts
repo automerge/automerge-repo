@@ -107,11 +107,29 @@ export type {
   Mark,
   MarkSet,
   MarkRange,
-  MarkValue
+  MarkValue,
 } from "@automerge/automerge/next"
 
 // export a few utility functions that aren't in automerge-repo
-export { getChanges, getAllChanges, applyChanges, view, getConflicts } from "@automerge/automerge/next"
+// NB that these should probably all just be available via the dochandle
+export {
+  getChanges,
+  getAllChanges,
+  applyChanges,
+  view,
+  getConflicts,
+} from "@automerge/automerge/next"
 
 // export type-specific utility functions
-export { getCursor, getCursorPosition, splice, updateText, insertAt, deleteAt } from "@automerge/automerge/next"
+// these mostly can't be on the data-type in question because
+// JS strings can't have methods added to them
+export {
+  getCursor,
+  getCursorPosition,
+  splice,
+  updateText,
+  insertAt,
+  deleteAt,
+  mark,
+  unmark,
+} from "@automerge/automerge/next"
