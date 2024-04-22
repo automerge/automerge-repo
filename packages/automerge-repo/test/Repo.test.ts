@@ -28,7 +28,7 @@ import {
 } from "./helpers/generate-large-object.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
-import { StorageId } from "../src/storage/types.js"
+import { StorageId, StorageKey } from "../src/storage/types.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -450,17 +450,28 @@ describe("Repo", () => {
 
   describe("flush behaviour", () => {
     const setup = () => {
-      let blockedSaves = []
-      let resume = () => {
-        blockedSaves.forEach(resolve => resolve())
-        blockedSaves = []
+      let blockedSaves = new Set<{ path: StorageKey; resolve: () => void }>()
+      let resume = (documentIds?: DocumentId[]) => {
+        const savesToUnblock = documentIds
+          ? Array.from(blockedSaves).filter(({ path }) =>
+              documentIds.some(documentId => path.includes(documentId))
+            )
+          : Array.from(blockedSaves)
+        savesToUnblock.forEach(({ resolve }) => resolve())
       }
       const pausedStorage = new DummyStorageAdapter()
       {
         const originalSave = pausedStorage.save.bind(pausedStorage)
         pausedStorage.save = async (...args) => {
-          await new Promise(resolve => {
-            blockedSaves.push(resolve)
+          await new Promise<void>(resolve => {
+            const blockedSave = {
+              path: args[0],
+              resolve: () => {
+                resolve()
+                blockedSaves.delete(blockedSave)
+              },
+            }
+            blockedSaves.add(blockedSave)
           })
           await pause(0)
           // otherwise all the save promises resolve together
@@ -524,7 +535,7 @@ describe("Repo", () => {
       const { resume, pausedStorage, repo, handle, handle2 } = setup()
 
       const flushPromise = repo.flush([handle.documentId])
-      resume()
+      resume([handle.documentId])
       await flushPromise
 
       // Check that the data is now saved.
@@ -547,14 +558,22 @@ describe("Repo", () => {
       }
     })
 
-    it("should time out with failure after a specified delay", async () => {
-      const { resume, pausedStorage, repo, handle, handle2 } = setup()
+    it("flush right before change should resolve correctly", async () => {
+      const repo = new Repo({
+        network: [],
+        storage: new DummyStorageAdapter(),
+      })
+      const handle = repo.create<{ field?: string }>()
 
-      const flushPromise = repo.flush([handle.documentId], 10)
-      expect(flushPromise).rejects.toThrowError("Timed out waiting for save")
-
-      // Check that the data is now saved.
-      expect(pausedStorage.keys().length).toBe(0)
+      for (let i = 0; i < 10; i++) {
+        const flushPromise = repo.flush([handle.documentId])
+        handle.change((doc: any) => {
+          doc.field += Array(1024)
+            .fill(Math.random() * 10)
+            .join("")
+        })
+        await flushPromise
+      }
     })
   })
 
