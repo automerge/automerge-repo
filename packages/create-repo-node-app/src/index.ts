@@ -32,7 +32,6 @@ function createIndexJs(projectName: string) {
   const indexJsContent = `import { Repo } from "@automerge/automerge-repo"
 import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
-import { next as Automerge } from "@automerge/automerge"
 
 const repo = new Repo({
   storage: new NodeFSStorageAdapter("./db"),

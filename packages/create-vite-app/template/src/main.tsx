@@ -1,9 +1,8 @@
-import { isValidAutomergeUrl, Repo } from "@automerge/automerge-repo"
+import { isValidAutomergeUrl, Repo, Counter } from "@automerge/automerge-repo"
 import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"
-import { next as A } from "@automerge/automerge" //why `next`? See the the "next" section of the conceptual overview
 import React from "react"
 import ReactDOM from "react-dom/client"
 import App from "./App.tsx"
@@ -22,8 +21,8 @@ let handle
 if (isValidAutomergeUrl(rootDocUrl)) {
   handle = repo.find(rootDocUrl)
 } else {
-  handle = repo.create<{ counter?: A.Counter }>()
-  handle.change(d => (d.counter = new A.Counter()))
+  handle = repo.create<{ counter?: Counter }>()
+  handle.change(d => (d.counter = new Counter()))
 }
 const docUrl = (document.location.hash = handle.url)
 // @ts-expect-error -- we put the handle and the repo on window so you can experiment with them from the dev tools

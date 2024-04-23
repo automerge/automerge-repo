@@ -1,11 +1,11 @@
 <script lang="ts">
-  import {document} from "@automerge/automerge-repo-svelte-store"
-  import {type AutomergeUrl} from "@automerge/automerge-repo"
-  import type {DocType} from "./doc-type"
+  import { document } from "@automerge/automerge-repo-svelte-store"
+  import { type AutomergeUrl } from "@automerge/automerge-repo"
+  import type { DocType } from "./doc-type"
 
   export let documentUrl: AutomergeUrl
 
-  const doc = document <DocType> (documentUrl)
+  const doc = document<DocType>(documentUrl)
   const increment = () => {
     doc.change(d => {
       d.count.increment(1)

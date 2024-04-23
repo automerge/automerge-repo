@@ -1,11 +1,14 @@
 <script lang="ts">
   import svelteLogo from "./assets/svelte.svg"
   import automergeLogo from "/automerge-logo.svg"
-  import { next as automerge } from "@automerge/automerge"
   import Counter from "./lib/Counter.svelte"
   import type { DocType } from "./lib/doc-type"
 
-  import { Repo, isValidAutomergeUrl } from "@automerge/automerge-repo"
+  import {
+    Counter as AutomergeCounter,
+    Repo,
+    isValidAutomergeUrl,
+  } from "@automerge/automerge-repo"
   import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
   import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
   import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
@@ -21,15 +24,15 @@
 
   setContextRepo(repo)
 
-const rootDocUrl = `${document.location.hash.substring(1)}`
-let handle
-if (isValidAutomergeUrl(rootDocUrl)) {
-  handle = repo.find(rootDocUrl)
-} else {
-  handle = repo.create<DocType>({ count: new automerge.Counter() })
-}
+  const rootDocUrl = `${document.location.hash.substring(1)}`
+  let handle
+  if (isValidAutomergeUrl(rootDocUrl)) {
+    handle = repo.find(rootDocUrl)
+  } else {
+    handle = repo.create<DocType>({ count: new AutomergeCounter() })
+  }
 
-const docUrl = (document.location.hash = handle.url)
+  const docUrl = (document.location.hash = handle.url)
 </script>
 
 <main>

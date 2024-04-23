@@ -92,7 +92,7 @@ export type {
 export * from "./types.js"
 
 // export commonly used data types
-export type { Counter, RawString, Cursor } from "@automerge/automerge/next"
+export { Counter, RawString, Cursor } from "@automerge/automerge/next"
 
 // export some automerge API types
 export type {
