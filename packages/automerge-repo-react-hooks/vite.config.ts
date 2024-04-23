@@ -17,10 +17,8 @@ export default defineConfig({
       entry: resolve(__dirname, "src/index.ts"),
       formats: ["es"],
       fileName: "index",
-      entry: resolve(__dirname, "src/index.ts"),
-      formats: ["es"],
-      fileName: "index",
     },
+    target: "esnext",
     rollupOptions: {
       external: ["react", "react/jsx-runtime", "react-dom", "tailwindcss"],
       output: {
