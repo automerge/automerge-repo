@@ -92,7 +92,7 @@ export type {
 export * from "./types.js"
 
 // export commonly used data types
-export { Counter, RawString, Cursor } from "@automerge/automerge/next"
+export { Counter, RawString } from "@automerge/automerge/next"
 
 // export some automerge API types
 export type {
@@ -108,6 +108,7 @@ export type {
   MarkSet,
   MarkRange,
   MarkValue,
+  Cursor,
 } from "@automerge/automerge/next"
 
 // export a few utility functions that aren't in automerge-repo
