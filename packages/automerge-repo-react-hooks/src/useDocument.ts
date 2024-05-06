@@ -50,12 +50,11 @@ export function useDocument<T>(
         // This avoids problem with out-of-order loads when the handle is changing faster
         // than documents are loading.
         if (handleRef.current !== handle) return
-          setDoc(v)
+        setDoc(v)
       })
       .catch(e => console.error(e))
 
-    const onChange = (h: DocHandleChangePayload<T>) =>
-      setDoc(h.doc)
+    const onChange = (h: DocHandleChangePayload<T>) => setDoc(h.doc)
     handle.on("change", onChange)
     const onDelete = () => setDoc(undefined)
     handle.on("delete", onDelete)
@@ -67,13 +66,13 @@ export function useDocument<T>(
     return cleanup
   }, [id, handle])
 
-  const changeDoc = useCallback((
-    changeFn: ChangeFn<T>,
-    options?: ChangeOptions<T> | undefined
-  ) => {
-    if (!handle) return
-    handle.change(changeFn, options)
-  }, [handle])
+  const changeDoc = useCallback(
+    (changeFn: ChangeFn<T>, options?: ChangeOptions<T> | undefined) => {
+      if (!handle) return
+      handle.change(changeFn, options)
+    },
+    [handle]
+  )
 
   return [handle?.docSync(), changeDoc] as const
 }

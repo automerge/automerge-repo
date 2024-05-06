@@ -28,7 +28,12 @@ describe("useDocument", () => {
     handleSlow.change(doc => (doc.foo = "slow"))
     const oldDoc = handleSlow.doc.bind(handleSlow)
     let loaded = false
-    const delay = new Promise(resolve => setTimeout(() => { loaded = true; resolve(true) }, SLOW_DOC_LOAD_TIME_MS))
+    const delay = new Promise(resolve =>
+      setTimeout(() => {
+        loaded = true
+        resolve(true)
+      }, SLOW_DOC_LOAD_TIME_MS)
+    )
     handleSlow.doc = async () => {
       await delay
       const result = await oldDoc()
