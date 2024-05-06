@@ -11,24 +11,6 @@ import { useRepo } from "./useRepo.js"
  * @remarks
  * This requires a {@link RepoContext} to be provided by a parent component.
  */
-export function useHandle<T>(id?: AnyDocumentId) {
-  const repo = useRepo()
-  const [handle, setHandle] = useState<DocHandle<T> | undefined>(
-    id ? repo.find(id) : undefined
-  )
-
-  useEffect(() => {
-    setHandle(id ? repo.find(id) : undefined)
-  }, [id])
-
-  if (
-    !id ||
-    !handle ||
-    // Don't return a handle if it doesn't match the currently passed-in ID
-    interpretAsDocumentId(handle.url) !== interpretAsDocumentId(id)
-  ) {
-    return undefined
-  }
-
-  return handle
+export function useHandle<T>(id?: AnyDocumentId): DocHandle<T> | undefined {
+  return (id ? useRepo().find(id) : undefined)
 }

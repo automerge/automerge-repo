@@ -27,13 +27,17 @@ describe("useDocument", () => {
     const handleSlow = repo.create<ExampleDoc>()
     handleSlow.change(doc => (doc.foo = "slow"))
     const oldDoc = handleSlow.doc.bind(handleSlow)
+    let loaded = false
+    const delay = new Promise(resolve => setTimeout(() => { loaded = true; resolve(true) }, SLOW_DOC_LOAD_TIME_MS))
     handleSlow.doc = async () => {
-      await new Promise(resolve => setTimeout(resolve, SLOW_DOC_LOAD_TIME_MS))
+      await delay
       const result = await oldDoc()
       return result
     }
+
+    const oldDocSync = handleSlow.docSync.bind(handleSlow)
     handleSlow.docSync = () => {
-      return undefined
+      return loaded ? oldDocSync() : undefined
     }
 
     const wrapper = ({ children }) => {
@@ -161,7 +165,7 @@ describe("useDocument", () => {
     // Now we set the URL to a handle that's slow to load.
     // The doc should be undefined while the load is happening.
     rerender(<Component url={handleSlow.url} onDoc={onDoc} />)
-    await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
+    await waitFor(() => expect(onDoc).toHaveBeenCalledWith(undefined))
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "slow" }))
   })
 

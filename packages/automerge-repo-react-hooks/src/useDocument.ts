@@ -4,7 +4,7 @@ import {
   DocHandleChangePayload,
 } from "@automerge/automerge-repo"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/next"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
 /** A hook which returns a document identified by a URL and a function to change the document.
@@ -22,22 +22,17 @@ export function useDocument<T>(
   (changeFn: ChangeFn<T>, options?: ChangeOptions<T> | undefined) => void
 ] {
   const repo = useRepo()
-
   const handle = id ? repo.find<T>(id) : null
-  const handleRef = useRef<DocHandle<T> | null>(null)
+  const handleRef = useRef<DocHandle<T> | null>(handle)
+  if (handle !== handleRef.current) {
+    handleRef.current = handle
+  }
 
-  const [docWithId, setDocWithId] = useState<
-    { id: AnyDocumentId; doc: Doc<T> | undefined } | undefined
-  >(
-    (() => {
-      const doc = handle?.docSync()
-      return id && doc ? { id, doc } : undefined
-    })()
-  )
+  // we don't actually use the doc value, we just use it to trigger a re-render
+  const [, setDoc] = useState(() => handle?.docSync())
 
   useEffect(() => {
     if (!id || !handle) {
-      setDocWithId(undefined)
       return
     }
 
@@ -46,7 +41,6 @@ export function useDocument<T>(
     // this will be undefined.
     // This ensures that if loading the doc takes a long time, the UI
     // shows a loading state during that time rather than a stale doc.
-    setDocWithId({ id, doc: handle?.docSync() })
 
     handleRef.current = handle
     handle
@@ -56,14 +50,14 @@ export function useDocument<T>(
         // This avoids problem with out-of-order loads when the handle is changing faster
         // than documents are loading.
         if (handleRef.current !== handle) return
-        setDocWithId({ id, doc: v })
+          setDoc(v)
       })
       .catch(e => console.error(e))
 
     const onChange = (h: DocHandleChangePayload<T>) =>
-      setDocWithId({ id, doc: h.doc })
+      setDoc(h.doc)
     handle.on("change", onChange)
-    const onDelete = () => setDocWithId(undefined)
+    const onDelete = () => setDoc(undefined)
     handle.on("delete", onDelete)
     const cleanup = () => {
       handle.removeListener("change", onChange)
@@ -73,17 +67,13 @@ export function useDocument<T>(
     return cleanup
   }, [id, handle])
 
-  const changeDoc = (
+  const changeDoc = useCallback((
     changeFn: ChangeFn<T>,
     options?: ChangeOptions<T> | undefined
   ) => {
     if (!handle) return
     handle.change(changeFn, options)
-  }
+  }, [handle])
 
-  if (!docWithId || docWithId.id !== id) {
-    return [undefined, () => {}]
-  }
-
-  return [docWithId.doc, changeDoc] as const
+  return [handle?.docSync(), changeDoc] as const
 }
