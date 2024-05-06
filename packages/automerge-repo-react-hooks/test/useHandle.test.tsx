@@ -45,7 +45,7 @@ describe("useHandle", () => {
     url,
     onHandle,
   }: {
-    url: AutomergeUrl
+    url: AutomergeUrl | undefined
     onHandle: (handle: DocHandle<unknown> | undefined) => void
   }) => {
     const handle = useHandle(url)

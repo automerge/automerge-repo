@@ -59,7 +59,7 @@ describe("useDocument", () => {
     url,
     onDoc,
   }: {
-    url: AutomergeUrl
+    url: AutomergeUrl | undefined
     onDoc: (doc: ExampleDoc) => void
   }) => {
     const [doc] = useDocument(url)
