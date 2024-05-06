@@ -15,7 +15,12 @@ import { useRepo } from "./useRepo.js"
  * @remarks
  * This requires a {@link RepoContext} to be provided by a parent component.
  * */
-export function useDocument<T>(id?: AnyDocumentId) {
+export function useDocument<T>(
+  id?: AnyDocumentId
+): [
+  Doc<T> | undefined,
+  (changeFn: ChangeFn<T>, options?: ChangeOptions<T> | undefined) => void
+] {
   const repo = useRepo()
 
   const handle = id ? repo.find<T>(id) : null
@@ -77,7 +82,7 @@ export function useDocument<T>(id?: AnyDocumentId) {
   }
 
   if (!docWithId || docWithId.id !== id) {
-    return [undefined, changeDoc]
+    return [undefined, () => {}]
   }
 
   return [docWithId.doc, changeDoc] as const
