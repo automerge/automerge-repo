@@ -91,4 +91,21 @@ describe("useHandle", () => {
     rerender(<Component url={undefined} onHandle={onHandle} />)
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
   })
+
+  it("does not return a handle for a different url after the url is updated", async () => {
+    const { wrapper, handleA, handleB } = setup()
+    const onHandle = vi.fn()
+
+    const { rerender } = render(
+      <Component url={handleA.url} onHandle={onHandle} />,
+      { wrapper }
+    )
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
+
+    const onHandle2 = vi.fn()
+
+    // set url to doc B
+    rerender(<Component url={handleB.url} onHandle={onHandle2} />)
+    await waitFor(() => expect(onHandle2).not.toHaveBeenCalledWith(handleA))
+  })
 })

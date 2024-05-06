@@ -21,17 +21,27 @@ export function useDocument<T>(id?: AnyDocumentId) {
   const handle = id ? repo.find<T>(id) : null
   const handleRef = useRef<DocHandle<T> | null>(null)
 
-  const [doc, setDoc] = useState<Doc<T> | undefined>(() => handle?.docSync())
+  const [docWithId, setDocWithId] = useState<
+    { id: AnyDocumentId; doc: Doc<T> | undefined } | undefined
+  >(
+    (() => {
+      const doc = handle?.docSync()
+      return id && doc ? { id, doc } : undefined
+    })()
+  )
 
   useEffect(() => {
+    if (!id || !handle) {
+      setDocWithId(undefined)
+      return
+    }
+
     // When the handle has changed, reset the doc to the current value of docSync().
     // For already-loaded documents this will be the last known value, for unloaded documents
     // this will be undefined.
     // This ensures that if loading the doc takes a long time, the UI
     // shows a loading state during that time rather than a stale doc.
-    setDoc(handle?.docSync())
-
-    if (!handle) return
+    setDocWithId({ id, doc: handle?.docSync() })
 
     handleRef.current = handle
     handle
@@ -41,13 +51,14 @@ export function useDocument<T>(id?: AnyDocumentId) {
         // This avoids problem with out-of-order loads when the handle is changing faster
         // than documents are loading.
         if (handleRef.current !== handle) return
-        setDoc(v)
+        setDocWithId({ id, doc: v })
       })
       .catch(e => console.error(e))
 
-    const onChange = (h: DocHandleChangePayload<T>) => setDoc(h.doc)
+    const onChange = (h: DocHandleChangePayload<T>) =>
+      setDocWithId({ id, doc: h.doc })
     handle.on("change", onChange)
-    const onDelete = () => setDoc(undefined)
+    const onDelete = () => setDocWithId(undefined)
     handle.on("delete", onDelete)
     const cleanup = () => {
       handle.removeListener("change", onChange)
@@ -55,7 +66,7 @@ export function useDocument<T>(id?: AnyDocumentId) {
     }
 
     return cleanup
-  }, [handle])
+  }, [id, handle])
 
   const changeDoc = (
     changeFn: ChangeFn<T>,
@@ -65,5 +76,9 @@ export function useDocument<T>(id?: AnyDocumentId) {
     handle.change(changeFn, options)
   }
 
-  return [doc, changeDoc] as const
+  if (!docWithId || docWithId.id !== id) {
+    return [undefined, changeDoc]
+  }
+
+  return [docWithId.doc, changeDoc] as const
 }

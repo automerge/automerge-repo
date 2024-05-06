@@ -125,6 +125,26 @@ describe("useDocument", () => {
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
   })
 
+  it("does not return a document for a previous url after the url is updated", async () => {
+    const { handleA, handleB, wrapper } = setup()
+    const onDoc = vi.fn()
+
+    const { rerender } = render(<Component url={undefined} onDoc={onDoc} />, {
+      wrapper,
+    })
+    await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
+
+    // set url to doc A
+    rerender(<Component url={handleA.url} onDoc={onDoc} />)
+    await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith({ foo: "A" }))
+
+    const onDoc2 = vi.fn()
+
+    // set url to doc B
+    rerender(<Component url={handleB.url} onDoc={onDoc2} />)
+    await waitFor(() => expect(onDoc2).not.toHaveBeenCalledWith({ foo: "A" }))
+  })
+
   it("sets the doc to undefined while the initial load is happening", async () => {
     const { handleA, handleSlow, wrapper } = setup()
     const onDoc = vi.fn()
