@@ -1,7 +1,10 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo"
+import {
+  AnyDocumentId,
+  DocHandle,
+  interpretAsDocumentId,
+} from "@automerge/automerge-repo"
 import { useEffect, useState } from "react"
 import { useRepo } from "./useRepo.js"
-import { interpretAsDocumentId } from "@automerge/automerge-repo/dist/AutomergeUrl.js"
 
 /** A hook which returns a {@link DocHandle} identified by a URL.
  *
