@@ -51,6 +51,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   sharePolicy: SharePolicy = async () => true
 
+  /** By default, we sync with all peers. */
+  /** @hidden */
+  syncPolicy: SyncPolicy = async () => true
+
   /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
   /** @hidden */
   peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
@@ -63,6 +67,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     network = [],
     peerId,
     sharePolicy,
+    syncPolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
   }: RepoConfig = {}) {
@@ -70,6 +75,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
+    this.syncPolicy = syncPolicy ?? this.syncPolicy
 
     // DOC COLLECTION
 
@@ -551,6 +557,8 @@ export interface RepoConfig {
    */
   sharePolicy?: SharePolicy
 
+  syncPolicy?: SyncPolicy
+
   /**
    * Whether to enable the experimental remote heads gossiping feature
    */
@@ -566,6 +574,12 @@ export interface RepoConfig {
  * document with the peer given by `peerId`.
  * */
 export type SharePolicy = (
+  peerId: PeerId,
+  documentId?: DocumentId
+) => Promise<boolean>
+
+// TODO document
+export type SyncPolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
