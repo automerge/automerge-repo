@@ -33,12 +33,6 @@ export function useDocument<T>(
       return
     }
 
-    // When the handle has changed, reset the doc to the current value of docSync().
-    // For already-loaded documents this will be the last known value, for unloaded documents
-    // this will be undefined.
-    // This ensures that if loading the doc takes a long time, the UI
-    // shows a loading state during that time rather than a stale doc.
-
     handleRef.current = handle
     handle
       .doc()
