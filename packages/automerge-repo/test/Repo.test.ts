@@ -1210,6 +1210,50 @@ describe("Repo", () => {
       teardown()
     })
 
+    it("should report the remote heads on initial sync", async () => {
+      const { bobRepo, charlieRepo, teardown } = await setup({
+        connectAlice: false,
+      })
+      const bobStorageId = await bobRepo.storageSubsystem.id()
+
+      const handle = bobRepo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+
+      // pause to let the sync happen
+      await pause(50)
+
+      const charlieHandle = charlieRepo.find<TestDoc>(handle.url)
+
+      const nextRemoteHeadsPromise = new Promise<{
+        storageId: StorageId
+        heads: A.Heads
+      }>(resolve => {
+        charlieHandle.on("remote-heads", ({ storageId, heads }) => {
+          resolve({ storageId, heads })
+        })
+      })
+
+      await charlieHandle.whenReady()
+
+      // pause to let the sync happen
+      await pause(100)
+
+      assert.deepStrictEqual(charlieHandle.heads(), handle.heads())
+
+      const nextRemoteHeads = await nextRemoteHeadsPromise
+      assert.deepStrictEqual(nextRemoteHeads.storageId, bobStorageId)
+      assert.deepStrictEqual(nextRemoteHeads.heads, handle.heads())
+
+      assert.deepStrictEqual(
+        charlieHandle.getRemoteHeads(bobStorageId),
+        handle.heads()
+      )
+
+      teardown()
+    })
+
     it("can report the connected peers", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup()
 
