@@ -20,7 +20,7 @@ describe("StorageSubsystem", () => {
     nodeFSStorageAdapter: new NodeFSStorageAdapter(tempDir),
   }
 
-  Object.entries(adaptersToTest).forEach(([adapterName, adapter]) => {
+  for (const [adapterName, adapter] of Object.entries(adaptersToTest)) {
     describe(adapterName, () => {
       describe("Automerge document storage", () => {
         it("stores and retrieves an Automerge document", async () => {
@@ -227,5 +227,5 @@ describe("StorageSubsystem", () => {
         })
       })
     })
-  })
+  }
 })
