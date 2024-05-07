@@ -134,7 +134,7 @@ describe("useDocument", () => {
     await waitFor(() => expect(onDoc).toHaveBeenLastCalledWith(undefined))
   })
 
-  it("does not return a document for a previous url after the url is updated", async () => {
+  it("returns new doc on first render after url changes", async () => {
     const { handleA, handleB, wrapper } = setup()
     const onDoc = vi.fn()
 
@@ -151,7 +151,15 @@ describe("useDocument", () => {
 
     // set url to doc B
     rerender(<Component url={handleB.url} onDoc={onDoc2} />)
-    await waitFor(() => expect(onDoc2).not.toHaveBeenCalledWith({ foo: "A" }))
+    await waitFor(() => {
+      // no stale data
+      expect(onDoc2).not.toHaveBeenCalledWith({ foo: "A" })
+      // no render with undefined data
+      expect(onDoc2).not.toHaveBeenCalledWith(undefined)
+
+      // render with new data
+      expect(onDoc2).toHaveBeenCalledWith({ foo: "B" })
+    })
   })
 
   it("sets the doc to undefined while the initial load is happening", async () => {
