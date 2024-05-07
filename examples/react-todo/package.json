@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-demo-todo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-todo",
   "private": true,
-  "version": "1.1.9",
+  "version": "1.1.11",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
