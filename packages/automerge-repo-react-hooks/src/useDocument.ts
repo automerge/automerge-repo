@@ -1,8 +1,4 @@
-import {
-  AnyDocumentId,
-  DocHandle,
-  DocHandleChangePayload,
-} from "@automerge/automerge-repo"
+import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/next"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRepo } from "./useRepo.js"
@@ -28,8 +24,9 @@ export function useDocument<T>(
     handleRef.current = handle
   }
 
-  // we don't actually use the doc value, we just use it to trigger a re-render
-  const [, setDoc] = useState(() => handle?.docSync())
+  // a state value we use to trigger a re-render
+  const [, setGeneration] = useState(0)
+  const rerender = () => setGeneration(v => v + 1)
 
   useEffect(() => {
     if (!id || !handle) {
@@ -45,22 +42,16 @@ export function useDocument<T>(
     handleRef.current = handle
     handle
       .doc()
-      .then(v => {
-        // Bail out on updating the doc if the handle has changed since we started loading.
-        // This avoids problem with out-of-order loads when the handle is changing faster
-        // than documents are loading.
-        if (handleRef.current !== handle) return
-        setDoc(v)
+      .then(() => {
+        rerender()
       })
       .catch(e => console.error(e))
 
-    const onChange = (h: DocHandleChangePayload<T>) => setDoc(h.doc)
-    handle.on("change", onChange)
-    const onDelete = () => setDoc(undefined)
-    handle.on("delete", onDelete)
+    handle.on("change", rerender)
+    handle.on("delete", rerender)
     const cleanup = () => {
-      handle.removeListener("change", onChange)
-      handle.removeListener("delete", onDelete)
+      handle.removeListener("change", rerender)
+      handle.removeListener("delete", rerender)
     }
 
     return cleanup
