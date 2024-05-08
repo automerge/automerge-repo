@@ -8,7 +8,7 @@ import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
-import { Repo } from "../src/Repo.js"
+import { Repo, SyncPolicy } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
@@ -673,6 +673,7 @@ describe("Repo", () => {
     const setup = async ({
       connectAlice = true,
       isCharlieEphemeral = false,
+      charlieForbiddenDoc = false
     } = {}) => {
       const charlieExcludedDocuments: DocumentId[] = []
       const bobExcludedDocuments: DocumentId[] = []
@@ -694,6 +695,18 @@ describe("Repo", () => {
         return true
       }
 
+      const syncPolicy: SyncPolicy = async (peerId, documentId) => {
+        if (
+          charlieForbiddenDoc &&
+          charlieExcludedDocuments.includes(documentId) &&
+          peerId === "charlie"
+        ) {
+          return false
+        }
+
+        return true
+      }
+
       // Set up three repos; connect Alice to Bob, and Bob to Charlie
 
       const abChannel = new MessageChannel()
@@ -709,6 +722,7 @@ describe("Repo", () => {
         network: connectAlice ? [aliceNetworkAdapter] : [],
         peerId: alice,
         sharePolicy,
+        syncPolicy
       })
 
       const bob = "bob" as PeerId
@@ -721,6 +735,7 @@ describe("Repo", () => {
         ],
         peerId: bob,
         sharePolicy,
+        syncPolicy
       })
 
       const charlie = "charlie" as PeerId
@@ -837,6 +852,18 @@ describe("Repo", () => {
       const doc = await handle.doc()
 
       assert.deepStrictEqual(doc, { foo: "baz" })
+
+      teardown()
+    })
+
+    it("charlieRepo can't sync with a document when forbidden by syncPolicy", async () => {
+      const { charlieRepo, notForCharlie, teardown } = await setup({charlieForbiddenDoc: true})
+
+      const handle = charlieRepo.find<TestDoc>(notForCharlie)
+
+      await pause(50)
+
+      assert(handle.isUnavailable())
 
       teardown()
     })
