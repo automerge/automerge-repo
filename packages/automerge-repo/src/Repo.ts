@@ -557,6 +557,9 @@ export interface RepoConfig {
    */
   sharePolicy?: SharePolicy
 
+  /**
+   * A callback can be provided to implement authorization based on document ID and peer ID.
+   */
   syncPolicy?: SyncPolicy
 
   /**
@@ -578,7 +581,13 @@ export type SharePolicy = (
   documentId?: DocumentId
 ) => Promise<boolean>
 
-// TODO document
+/** A function that determines whether we should sync a document with a peer
+ *
+ * @remarks
+ * This function is called by the {@link Repo} every time a peer requests to
+ * sync a document. If this function returns `true` the document syncs normally;
+ * if `false`, it reports the document as unavailable.
+ * */
 export type SyncPolicy = (
   peerId: PeerId,
   documentId?: DocumentId
