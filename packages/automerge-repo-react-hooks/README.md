@@ -15,7 +15,7 @@ Use RepoContext to set up react context for an Automerge repo.
 Use useRepo to lookup the repo from context.
 Most hooks depend on RepoContext being available.
 
-#### [useDocument](useDocument.ts)
+#### [useDocument](./src/useDocument.ts)
 
 Return a document & updater fn, by ID.
 
