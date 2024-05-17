@@ -29,6 +29,7 @@
 export { DocHandle } from "./DocHandle.js"
 export {
   isValidAutomergeUrl,
+  isValidDocumentId,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
   interpretAsDocumentId,
