@@ -2,8 +2,13 @@
   import svelteLogo from "./assets/svelte.svg"
   import automergeLogo from "/automerge-logo.svg"
   import Counter from "./lib/Counter.svelte"
+  import type { DocType } from "./lib/doc-type"
 
-  import { Repo } from "@automerge/automerge-repo"
+  import {
+    Counter as AutomergeCounter,
+    Repo,
+    isValidAutomergeUrl,
+  } from "@automerge/automerge-repo"
   import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
   import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
   import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
@@ -19,14 +24,15 @@
 
   setContextRepo(repo)
 
-  let rootDocUrl = localStorage.rootDocUrl
-  if (!rootDocUrl) {
-    const handle = repo.create()
-    handle.change((doc: any) => {
-      doc.count = 0
-    })
-    localStorage.rootDocUrl = rootDocUrl = handle.url
+  const rootDocUrl = `${document.location.hash.substring(1)}`
+  let handle
+  if (isValidAutomergeUrl(rootDocUrl)) {
+    handle = repo.find(rootDocUrl)
+  } else {
+    handle = repo.create<DocType>({ count: new AutomergeCounter() })
   }
+
+  const docUrl = (document.location.hash = handle.url)
 </script>
 
 <main>
@@ -41,7 +47,7 @@
   <h1>Automerge + Svelte</h1>
 
   <div class="card">
-    <Counter documentUrl={rootDocUrl} />
+    <Counter documentUrl={docUrl} />
   </div>
 
   <p class="read-the-docs">

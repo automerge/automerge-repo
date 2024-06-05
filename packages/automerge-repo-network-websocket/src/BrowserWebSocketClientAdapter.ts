@@ -100,14 +100,25 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.receiveMessage(event.data as Uint8Array)
   }
 
-  onError = (event: WebSocket.ErrorEvent) => {
-    const { code } = event.error
-    if (code === "ECONNREFUSED") {
-      this.#log("Connection refused, retrying...")
+  /** The websocket error handler signature is different on node and the browser.  */
+  onError = (
+    event:
+      | Event // browser
+      | WebSocket.ErrorEvent // node
+  ) => {
+    if ("error" in event) {
+      // (node)
+      if (event.error.code !== "ECONNREFUSED") {
+        /* c8 ignore next */
+        throw event.error
+      }
     } else {
-      /* c8 ignore next */
-      throw event.error
+      // (browser) We get no information about errors. https://stackoverflow.com/a/31003057/239663
+      // There will be an error logged in the console (`WebSocket connection to 'wss://foo.com/'
+      // failed`), but by design the error is unavailable to scripts. We'll just assume this is a
+      // failed connection.
     }
+    this.#log("Connection failed, retrying...")
   }
 
   #ready() {

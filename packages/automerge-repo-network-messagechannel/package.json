@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-network-messagechannel",
-  "version": "1.1.1",
+  "version": "1.1.12",
   "description": "MessageChannel network adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-network-messagechannel",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -9,7 +9,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch",
+    "watch": "npm-watch build",
     "test": "vitest"
   },
   "dependencies": {

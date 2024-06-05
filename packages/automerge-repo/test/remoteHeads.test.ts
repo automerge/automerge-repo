@@ -152,7 +152,7 @@ describe("DocHandle.remoteHeads", () => {
       // wait for alice's service worker to acknowledge the change
       const { heads } = await aliceSeenByBobPromise
 
-      assert.deepStrictEqual(heads, A.getHeads(aliceServiceWorkerDoc.docSync()))
+      assert.deepStrictEqual(heads, aliceServiceWorkerDoc.heads())
     })
 
     it("should report remoteHeads only for documents the subscriber has open", async () => {

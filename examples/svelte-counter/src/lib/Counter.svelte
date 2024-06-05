@@ -1,16 +1,15 @@
 <script lang="ts">
   import { document } from "@automerge/automerge-repo-svelte-store"
   import { type AutomergeUrl } from "@automerge/automerge-repo"
+  import type { DocType } from "./doc-type"
 
   export let documentUrl: AutomergeUrl
 
-  interface HasCount {
-    count?: number
-  }
-
-  const doc = document<HasCount>(documentUrl)
+  const doc = document<DocType>(documentUrl)
   const increment = () => {
-    doc.change((d: HasCount) => (d.count = (d.count || 0) + 1))
+    doc.change(d => {
+      d.count.increment(1)
+    })
   }
 </script>
 

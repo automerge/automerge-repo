@@ -72,6 +72,24 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
   })
 
+  it("should return the heads when requested", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, {
+      isNew: true,
+      initialValue: { foo: "bar" },
+    })
+    assert.equal(handle.isReady(), true)
+
+    const heads = A.getHeads(handle.docSync())
+    assert.notDeepEqual(handle.heads(), [])
+    assert.deepEqual(heads, handle.heads())
+  })
+
+  it("should return undefined if the heads aren't loaded", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+    assert.equal(handle.isReady(), false)
+    assert.deepEqual(handle.heads(), undefined)
+  })
+
   /**
    * Once there's a Repo#stop API this case should be covered in accompanying
    * tests and the following test removed.
@@ -319,7 +337,7 @@ describe("DocHandle", () => {
       doc.foo = "bar"
     })
 
-    const headsBefore = A.getHeads(handle.docSync()!)
+    const headsBefore = handle.heads()!
 
     handle.change(doc => {
       doc.foo = "rab"

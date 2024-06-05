@@ -1,7 +1,7 @@
 import { PeerId } from "@automerge/automerge-repo"
 import { describe, it } from "vitest"
 import {
-  runAdapterTests,
+  runNetworkAdapterTests,
   type SetupFn,
 } from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
 import { BroadcastChannelNetworkAdapter } from "../src/index.js"
@@ -15,7 +15,7 @@ describe("BroadcastChannel", () => {
     return { adapters: [a, b, c] }
   }
 
-  runAdapterTests(setup)
+  runNetworkAdapterTests(setup)
 
   it("allows a channel name to be specified in the options and limits messages to that channel", async () => {
     const a = new BroadcastChannelNetworkAdapter()

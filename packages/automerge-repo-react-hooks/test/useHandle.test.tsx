@@ -1,11 +1,15 @@
-import { PeerId, Repo, AutomergeUrl } from "@automerge/automerge-repo"
+import {
+  AutomergeUrl,
+  DocHandle,
+  PeerId,
+  Repo,
+} from "@automerge/automerge-repo"
 import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
-import { describe, expect, it } from "vitest"
-import { RepoContext } from "../src/useRepo"
+import { render, waitFor } from "@testing-library/react"
+import React from "react"
+import { describe, expect, it, vi } from "vitest"
 import { useHandle } from "../src/useHandle"
-import { act, renderHook, waitFor } from "@testing-library/react"
-import React, { useState } from "react"
-import assert from "assert"
+import { RepoContext } from "../src/useRepo"
 
 interface ExampleDoc {
   foo: string
@@ -20,8 +24,6 @@ function getRepoWrapper(repo: Repo) {
 describe("useHandle", () => {
   const repo = new Repo({
     peerId: "bob" as PeerId,
-    network: [],
-    storage: new DummyStorageAdapter(),
   })
 
   function setup() {
@@ -39,64 +41,88 @@ describe("useHandle", () => {
     }
   }
 
+  const Component = ({
+    url,
+    onHandle,
+  }: {
+    url: AutomergeUrl | undefined
+    onHandle: (handle: DocHandle<unknown> | undefined) => void
+  }) => {
+    const handle = useHandle(url)
+    onHandle(handle)
+    return null
+  }
+
   it("loads a handle", async () => {
     const { handleA, wrapper } = setup()
+    const onHandle = vi.fn()
 
-    const { result } = await act(() =>
-      renderHook(
-        () => {
-          const handle = useHandle(handleA.url)
-          return { handle }
-        },
-        { wrapper }
-      )
-    )
-
-    assert.deepStrictEqual(result.current.handle, handleA)
+    render(<Component url={handleA.url} onHandle={onHandle} />, { wrapper })
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
   })
 
   it("returns undefined when no url given", async () => {
     const { wrapper } = setup()
+    const onHandle = vi.fn()
 
-    const { result } = await act(() =>
-      renderHook(
-        () => {
-          const handle = useHandle()
-          return { handle }
-        },
-        { wrapper }
-      )
-    )
-
-    await waitFor(() => expect(result.current.handle).toBeUndefined())
+    render(<Component url={undefined} onHandle={onHandle} />, { wrapper })
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
   })
 
   it("updates the handle when the url changes", async () => {
     const { wrapper, handleA, handleB } = setup()
+    const onHandle = vi.fn()
 
-    const { result } = await act(() =>
-      renderHook(
-        () => {
-          const [url, setUrl] = useState<AutomergeUrl>()
-          const handle = useHandle(url)
-          return { setUrl, handle }
-        },
-        { wrapper }
-      )
+    const { rerender } = render(
+      <Component url={undefined} onHandle={onHandle} />,
+      { wrapper }
     )
-
-    await waitFor(() => expect(result.current).not.toBeNull())
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
 
     // set url to doc A
-    act(() => result.current.setUrl(handleA.url))
-    await waitFor(() => expect(result.current.handle).toMatchObject(handleA))
+    rerender(<Component url={handleA.url} onHandle={onHandle} />)
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
 
     // set url to doc B
-    act(() => result.current.setUrl(handleB.url))
-    await waitFor(() => expect(result.current.handle).toMatchObject(handleB))
+    rerender(<Component url={handleB.url} onHandle={onHandle} />)
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleB))
 
     // set url to undefined
-    act(() => result.current.setUrl(undefined))
-    await waitFor(() => expect(result.current.handle).toBeUndefined())
+    rerender(<Component url={undefined} onHandle={onHandle} />)
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
+  })
+
+  it("does not return undefined after the url is updated", async () => {
+    const { wrapper, handleA, handleB } = setup()
+    const onHandle = vi.fn()
+
+    const { rerender } = render(
+      <Component url={handleA.url} onHandle={onHandle} />,
+      { wrapper }
+    )
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
+
+    const onHandle2 = vi.fn()
+
+    // set url to doc B
+    rerender(<Component url={handleB.url} onHandle={onHandle2} />)
+    await waitFor(() => expect(onHandle2).not.toHaveBeenCalledWith(undefined))
+  })
+
+  it("does not return a handle for a different url after the url is updated", async () => {
+    const { wrapper, handleA, handleB } = setup()
+    const onHandle = vi.fn()
+
+    const { rerender } = render(
+      <Component url={handleA.url} onHandle={onHandle} />,
+      { wrapper }
+    )
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
+
+    const onHandle2 = vi.fn()
+
+    // set url to doc B
+    rerender(<Component url={handleB.url} onHandle={onHandle2} />)
+    await waitFor(() => expect(onHandle2).not.toHaveBeenCalledWith(handleA))
   })
 })

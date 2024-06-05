@@ -5,14 +5,14 @@
 
 import {
   Chunk,
-  StorageAdapter,
+  StorageAdapterInterface,
   type StorageKey,
 } from "@automerge/automerge-repo"
 import fs from "fs"
 import path from "path"
 import { rimraf } from "rimraf"
 
-export class NodeFSStorageAdapter extends StorageAdapter {
+export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
   private cache: { [key: string]: Uint8Array } = {}
 
@@ -20,7 +20,6 @@ export class NodeFSStorageAdapter extends StorageAdapter {
    * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
    */
   constructor(baseDirectory = "automerge-repo-data") {
-    super()
     this.baseDirectory = baseDirectory
   }
 
@@ -77,9 +76,10 @@ export class NodeFSStorageAdapter extends StorageAdapter {
 
     // The "keys" in the cache don't include the baseDirectory.
     // We want to de-dupe with the cached keys so we'll use getKey to normalize them.
-    const diskKeys: string[] = diskFiles.map((fileName: string) =>
-      getKey([path.relative(this.baseDirectory, fileName)])
-    )
+    const diskKeys: string[] = diskFiles.map((fileName: string) => {
+      const k = getKey([path.relative(this.baseDirectory, fileName)])
+      return k.slice(0, 2) + k.slice(3)
+    })
 
     // Combine and deduplicate the lists of keys
     const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
@@ -114,13 +114,12 @@ export class NodeFSStorageAdapter extends StorageAdapter {
 
   private getFilePath(keyArray: string[]): string {
     const [firstKey, ...remainingKeys] = keyArray
-    const firstKeyDir = path.join(
+    return path.join(
       this.baseDirectory,
       firstKey.slice(0, 2),
-      firstKey.slice(2)
+      firstKey.slice(2),
+      ...remainingKeys
     )
-
-    return path.join(firstKeyDir, ...remainingKeys)
   }
 }
 

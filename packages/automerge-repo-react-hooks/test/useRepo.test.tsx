@@ -1,27 +1,34 @@
-import { renderHook } from "@testing-library/react"
+import { Repo } from "@automerge/automerge-repo"
+import { render } from "@testing-library/react"
+import React from "react"
 import { describe, expect, test, vi } from "vitest"
 import { RepoContext, useRepo } from "../src/useRepo.js"
-import { Repo } from "@automerge/automerge-repo"
-import React from "react"
 
 describe("useRepo", () => {
+  const Component = ({ onRepo }: { onRepo: (repo: Repo) => void }) => {
+    const repo = useRepo()
+    onRepo(repo)
+    return null
+  }
+
   test("should error when context unavailable", () => {
-    const repo = new Repo({ network: [] })
+    const repo = new Repo()
     // Prevent console spam by swallowing console.error "uncaught error" message
     const spy = vi.spyOn(console, "error")
     spy.mockImplementation(() => {})
-    expect(() => renderHook(() => useRepo())).toThrow(
+    expect(() => render(<Component onRepo={() => {}} />)).toThrow(
       /Repo was not found on RepoContext/
     )
     spy.mockRestore()
   })
 
   test("should return repo from context", () => {
-    const repo = new Repo({ network: [] })
+    const repo = new Repo()
     const wrapper = ({ children }) => (
       <RepoContext.Provider value={repo} children={children} />
     )
-    const { result } = renderHook(() => useRepo(), { wrapper })
-    expect(result.current).toBe(repo)
+    const onRepo = vi.fn()
+    render(<Component onRepo={onRepo} />, { wrapper })
+    expect(onRepo).toHaveBeenLastCalledWith(repo)
   })
 })

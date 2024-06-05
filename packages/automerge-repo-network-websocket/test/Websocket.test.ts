@@ -10,7 +10,7 @@ import {
 import { generateAutomergeUrl } from "@automerge/automerge-repo/dist/AutomergeUrl"
 import { eventPromise } from "@automerge/automerge-repo/src/helpers/eventPromise"
 import { headsAreSame } from "@automerge/automerge-repo/src/helpers/headsAreSame.js"
-import { runAdapterTests } from "@automerge/automerge-repo/src/helpers/tests/network-adapter-tests.js"
+import { runNetworkAdapterTests } from "@automerge/automerge-repo/src/helpers/tests/network-adapter-tests.js"
 import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter.js"
 import assert from "assert"
 import * as CBOR from "cbor-x"
@@ -27,7 +27,7 @@ describe("Websocket adapters", () => {
   const serverPeerId = "server" as PeerId
   const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-  runAdapterTests(async () => {
+  runNetworkAdapterTests(async () => {
     const {
       clients: [aliceAdapter, bobAdapter],
       server,
@@ -422,7 +422,7 @@ describe("Websocket adapters", () => {
         documentId: DocumentId
       }> {
         const storage = new DummyStorageAdapter()
-        const silentRepo = new Repo({ storage, network: [] })
+        const silentRepo = new Repo({ storage })
         const doc = A.from<T>(contents)
         const handle = silentRepo.create()
         handle.update(() => A.clone(doc))
@@ -587,7 +587,7 @@ describe("Websocket adapters", () => {
       }
 
       let localHeads = A.getHeads(clientDoc)
-      let remoteHeads = A.getHeads(handle.docSync())
+      let remoteHeads = handle.heads()
       if (!headsAreSame(localHeads, remoteHeads)) {
         throw new Error("heads not equal")
       }

@@ -1,3 +1,8 @@
+/** Deprecated as of 1.1.6
+ * scheduled removal in 2.0 (if it's 2.0 or great, get it out of here)
+ * but you probably aren't using it anyway
+ */
+
 import { DocHandle, Repo, type AutomergeUrl } from "@automerge/automerge-repo"
 import { useEffect, useState, useMemo } from "react"
 import { useRepo } from "./useRepo.js"
@@ -62,6 +67,7 @@ export interface UseBootstrapOptions<T> {
 }
 
 /**
+ * @deprecated Use the simpler example code in the README instead.
  * This hook is used to set up a single document as the base of an app session.
  * This is a common pattern for simple multiplayer apps with shareable URLs.
  *

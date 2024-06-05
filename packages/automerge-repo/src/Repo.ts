@@ -2,15 +2,18 @@ import { next as Automerge } from "@automerge/automerge"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
-    generateAutomergeUrl,
-    interpretAsDocumentId,
-    parseAutomergeUrl,
+  generateAutomergeUrl,
+  interpretAsDocumentId,
+  parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
-import { NetworkAdapterInterface, type PeerMetadata } from "./network/NetworkAdapterInterface.js"
+import {
+  NetworkAdapterInterface,
+  type PeerMetadata,
+} from "./network/NetworkAdapterInterface.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { RepoMessage } from "./network/messages.js"
 import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
@@ -57,12 +60,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   constructor({
     storage,
-    network,
+    network = [],
     peerId,
     sharePolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
-  }: RepoConfig) {
+  }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
@@ -216,7 +219,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         message.syncState.theirHeads &&
         (!heads || !headsAreSame(heads, message.syncState.theirHeads))
 
-      if (haveHeadsChanged) {
+      if (haveHeadsChanged && message.syncState.theirHeads) {
         handle.setRemoteHeads(storageId, message.syncState.theirHeads)
 
         if (storageId && this.#remoteHeadsGossipingEnabled) {
@@ -504,6 +507,30 @@ export class Repo extends EventEmitter<RepoEvents> {
       return this.storageSubsystem.id()
     }
   }
+
+  /**
+   * Writes Documents to a disk.
+   * @hidden this API is experimental and may change.
+   * @param documents - if provided, only writes the specified documents.
+   * @returns Promise<void>
+   */
+  async flush(documents?: DocumentId[]): Promise<void> {
+    if (!this.storageSubsystem) {
+      return
+    }
+    const handles = documents
+      ? documents.map(id => this.#handleCache[id])
+      : Object.values(this.#handleCache)
+    await Promise.all(
+      handles.map(async handle => {
+        const doc = handle.docSync()
+        if (!doc) {
+          return
+        }
+        return this.storageSubsystem!.saveDoc(handle.documentId, doc)
+      })
+    )
+  }
 }
 
 export interface RepoConfig {
@@ -517,8 +544,8 @@ export interface RepoConfig {
   /** A storage adapter can be provided, or not */
   storage?: StorageAdapterInterface
 
-  /** One or more network adapters must be provided */
-  network: NetworkAdapterInterface[]
+  /** A list of network adapters (more can be added at runtime). */
+  network?: NetworkAdapterInterface[]
 
   /**
    * Normal peers typically share generously with everyone (meaning we sync all our documents with

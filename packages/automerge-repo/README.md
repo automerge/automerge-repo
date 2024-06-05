@@ -52,7 +52,7 @@ A `Repo` exposes these methods:
 - `.on("document", ({handle: DocHandle}) => void)`  
   Registers a callback to be fired each time a new document is loaded or created.
 - `.on("delete-document", ({handle: DocHandle}) => void)`  
-  Registers a callback to be fired each time a new document is loaded or created.
+  Registers a callback to be fired each time a new document is deleted.
 
 A `DocHandle` is a wrapper around an `Automerge.Doc`. Its primary function is to dispatch changes to
 the document.
@@ -123,7 +123,7 @@ yarn create vite
 
 cd hello-automerge-repo
 yarn
-yarn add @automerge/automerge @automerge/automerge-repo-react-hooks @automerge/automerge-repo-network-broadcastchannel @automerge/automerge-repo-storage-indexeddb vite-plugin-wasm vite-plugin-top-level-await
+yarn add @automerge/automerge @automerge/automerge-repo-react-hooks @automerge/automerge-repo-network-broadcastchannel @automerge/automerge-repo-storage-indexeddb vite-plugin-wasm
 ```
 
 Edit the `vite.config.ts`. (This is all need to work around packaging hiccups due to WASM. We look
@@ -134,32 +134,13 @@ forward to the day that we can delete this step entirely.)
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 import wasm from "vite-plugin-wasm"
-import topLevelAwait from "vite-plugin-top-level-await"
 
 export default defineConfig({
-  plugins: [wasm(), topLevelAwait(), react()],
+  plugins: [wasm(), react()],
 
   worker: {
     format: "es",
-    plugins: [wasm(), topLevelAwait()],
-  },
-
-  optimizeDeps: {
-    // This is necessary because otherwise `vite dev` includes two separate
-    // versions of the JS wrapper. This causes problems because the JS
-    // wrapper has a module level variable to track JS side heap
-    // allocations, and initializing this twice causes horrible breakage
-    exclude: [
-      "@automerge/automerge-wasm",
-      "@automerge/automerge-wasm/bundler/bindgen_bg.wasm",
-      "@syntect/wasm",
-    ],
-  },
-
-  server: {
-    fs: {
-      strict: false,
-    },
+    plugins: () => [wasm()],
   },
 })
 ```

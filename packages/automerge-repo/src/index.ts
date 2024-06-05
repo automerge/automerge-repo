@@ -29,8 +29,10 @@
 export { DocHandle } from "./DocHandle.js"
 export {
   isValidAutomergeUrl,
+  isValidDocumentId,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
+  interpretAsDocumentId,
 } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
@@ -90,3 +92,47 @@ export type {
 } from "./storage/types.js"
 
 export * from "./types.js"
+
+// export commonly used data types
+export { Counter, RawString } from "@automerge/automerge/next"
+
+// export some automerge API types
+export type {
+  Doc,
+  Heads,
+  Patch,
+  PatchCallback,
+  Prop,
+  ActorId,
+  Change,
+  ChangeFn,
+  Mark,
+  MarkSet,
+  MarkRange,
+  MarkValue,
+  Cursor,
+} from "@automerge/automerge/next"
+
+// export a few utility functions that aren't in automerge-repo
+// NB that these should probably all just be available via the dochandle
+export {
+  getChanges,
+  getAllChanges,
+  applyChanges,
+  view,
+  getConflicts,
+} from "@automerge/automerge/next"
+
+// export type-specific utility functions
+// these mostly can't be on the data-type in question because
+// JS strings can't have methods added to them
+export {
+  getCursor,
+  getCursorPosition,
+  splice,
+  updateText,
+  insertAt,
+  deleteAt,
+  mark,
+  unmark,
+} from "@automerge/automerge/next"

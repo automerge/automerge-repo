@@ -68,10 +68,7 @@ describe("DocSynchronizer", () => {
 
     assert.equal(message2.peerId, "alice")
     assert.equal(message2.documentId, handle.documentId)
-    assert.deepEqual(
-      message2.syncState.lastSentHeads,
-      A.getHeads(handle.docSync())
-    )
+    assert.deepEqual(message2.syncState.lastSentHeads, handle.heads())
   })
 
   it("still syncs with a peer after it disconnects and reconnects", async () => {

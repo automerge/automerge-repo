@@ -7,12 +7,14 @@ import { Message } from "./messages.js"
 import { NetworkAdapterInterface } from "./NetworkAdapterInterface.js"
 
 /** An interface representing some way to connect to other peers
- * @deprecated use {@link NetworkAdapterInterface}
  *
  * @remarks
  * The {@link Repo} uses one or more `NetworkAdapter`s to connect to other peers.
  * Because the network may take some time to be ready the {@link Repo} will wait
  * until the adapter emits a `ready` event before it starts trying to use it
+ *
+ * This utility class can be used as a base to build a custom network adapter. It
+ * is most useful as a simple way to add the necessary event emitter functionality
  */
 export abstract class NetworkAdapter
   extends EventEmitter<NetworkAdapterEvents>
