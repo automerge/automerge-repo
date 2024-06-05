@@ -1389,6 +1389,71 @@ describe("Repo", () => {
     await eventPromise(charlieHandle, "unavailable")
   })
 
+  it("peers continue replicating existing documents after reload with `sharePolicy` false", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const aliceStorage = new DummyStorageAdapter()
+    const bobStorage = new DummyStorageAdapter()
+
+    let documentUrl: AutomergeUrl
+    {
+      const [aliceAdapter, bobAdapter] =
+        DummyNetworkAdapter.createConnectedPair()
+      const aliceRepo = new Repo({
+        peerId: alice,
+        storage: aliceStorage,
+        network: [aliceAdapter],
+        sharePolicy: async () => false,
+      })
+      const bobRepo = new Repo({
+        peerId: bob,
+        storage: bobStorage,
+        network: [bobAdapter],
+        sharePolicy: async () => false,
+      })
+      aliceAdapter.peerCandidate(bob)
+      bobAdapter.peerCandidate(alice)
+
+      const aliceHandle = aliceRepo.create()
+      documentUrl = aliceHandle.url
+      aliceHandle.change((doc: any) => (doc.text = "Hello world"))
+
+      const bobHandle = bobRepo.find(documentUrl)
+      await bobHandle.whenReady()
+      expect(bobHandle.docSync()).toEqual({ text: "Hello world" })
+    }
+
+    {
+      const [aliceAdapter, bobAdapter] =
+        DummyNetworkAdapter.createConnectedPair()
+      const aliceRepo = new Repo({
+        peerId: alice,
+        storage: aliceStorage,
+        network: [aliceAdapter],
+        sharePolicy: async () => false,
+      })
+      const bobRepo = new Repo({
+        peerId: bob,
+        storage: bobStorage,
+        network: [bobAdapter],
+        sharePolicy: async () => false,
+      })
+      aliceAdapter.peerCandidate(bob)
+      bobAdapter.peerCandidate(alice)
+
+      const aliceHandle = aliceRepo.find(documentUrl)
+      await aliceHandle.whenReady()
+
+      const bobHandle = bobRepo.find(documentUrl)
+      await bobHandle.whenReady()
+
+      aliceHandle.change((doc: any) => (doc.text = "Hello world 2"))
+
+      await eventPromise(bobHandle, "change")
+      expect(bobHandle.docSync()).toEqual({ text: "Hello world 2" })
+    }
+  })
+
   describe("with peers (mesh network)", () => {
     const setup = async () => {
       // Set up three repos; connect Alice to Bob, Bob to Charlie, and Alice to Charlie
