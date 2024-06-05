@@ -1421,6 +1421,9 @@ describe("Repo", () => {
       const bobHandle = bobRepo.find(documentUrl)
       await bobHandle.whenReady()
       expect(bobHandle.docSync()).toEqual({ text: "Hello world" })
+
+      await aliceRepo.flush()
+      await bobRepo.flush()
     }
 
     {
@@ -1447,9 +1450,10 @@ describe("Repo", () => {
       const bobHandle = bobRepo.find(documentUrl)
       await bobHandle.whenReady()
 
+      const bobGotChange = eventPromise(bobHandle, "change")
       aliceHandle.change((doc: any) => (doc.text = "Hello world 2"))
 
-      await eventPromise(bobHandle, "change")
+      await bobGotChange
       expect(bobHandle.docSync()).toEqual({ text: "Hello world 2" })
     }
   })
