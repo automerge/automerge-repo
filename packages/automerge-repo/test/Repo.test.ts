@@ -1319,6 +1319,76 @@ describe("Repo", () => {
     ba.close()
   })
 
+  it("share policy `false` and the live changes get replicated", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
+
+    const aliceRepo = new Repo({
+      network: [aliceAdapter],
+      peerId: alice,
+      sharePolicy: async () => false,
+    })
+    const bobRepo = new Repo({
+      network: [bobAdapter],
+      peerId: bob,
+      sharePolicy: async () => false,
+    })
+
+    aliceAdapter.peerCandidate(bob)
+    bobAdapter.peerCandidate(alice)
+
+    const aliceHandle = aliceRepo.create()
+    aliceHandle.change((doc: any) => (doc.text = "Hello world"))
+
+    const bobHandle = bobRepo.find(aliceHandle.url)
+
+    await bobHandle.whenReady()
+
+    assert.equal(bobHandle.isReady(), true)
+
+    aliceHandle.change((doc: any) => (doc.text = "Hello world 2"))
+
+    await eventPromise(bobHandle, "change")
+    expect(bobHandle.docSync()).toEqual({ text: "Hello world 2" })
+  })
+
+  it("share policy `false` does not replicate changes through a chain of 3 peers", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const charlie = "charlie" as PeerId
+    const [abAdapter, baAdapter] = DummyNetworkAdapter.createConnectedPair()
+    const [bcAdapter, cbAdapter] = DummyNetworkAdapter.createConnectedPair()
+
+    const aliceRepo = new Repo({
+      network: [abAdapter],
+      peerId: alice,
+      sharePolicy: async () => false,
+    })
+    const bobRepo = new Repo({
+      network: [baAdapter, bcAdapter],
+      peerId: bob,
+      sharePolicy: async () => false,
+    })
+    const charlieRepo = new Repo({
+      network: [cbAdapter],
+      peerId: charlie,
+      sharePolicy: async () => false,
+    })
+
+    abAdapter.peerCandidate(bob)
+    baAdapter.peerCandidate(alice)
+    bcAdapter.peerCandidate(charlie)
+    cbAdapter.peerCandidate(bob)
+
+    const aliceHandle = aliceRepo.create()
+    aliceHandle.change((doc: any) => (doc.text = "Hello world"))
+
+    const charlieHandle = charlieRepo.find(aliceHandle.url)
+
+    await eventPromise(charlieHandle, "unavailable")
+  })
+
   describe("with peers (mesh network)", () => {
     const setup = async () => {
       // Set up three repos; connect Alice to Bob, Bob to Charlie, and Alice to Charlie
