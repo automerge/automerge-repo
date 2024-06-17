@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import useStateRef from "react-usestateref"
 import { peerEvents } from "./useRemoteAwareness.js"
-import { DocHandle } from "@automerge/automerge-repo"
+import { DocHandle } from "@automerge/automerge-repo/slim"
 
 export interface UseLocalAwarenessProps {
   /** The document handle to send ephemeral state on */

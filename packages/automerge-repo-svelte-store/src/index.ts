@@ -56,12 +56,12 @@
  *  * @packageDocumentation
  **/
 
-import type { ChangeFn, Doc } from "@automerge/automerge/next"
+import type { ChangeFn, Doc } from "@automerge/automerge/slim/next"
 import {
   AutomergeUrl,
   DocHandleChangePayload,
   Repo,
-} from "@automerge/automerge-repo"
+} from "@automerge/automerge-repo/slim"
 import { getContext, setContext } from "svelte"
 import { writable } from "svelte/store"
 

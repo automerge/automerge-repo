@@ -6,7 +6,7 @@ import {
   DocumentId,
   isValidAutomergeUrl,
   parseAutomergeUrl,
-} from "@automerge/automerge-repo"
+} from "@automerge/automerge-repo/slim"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRepo } from "./useRepo.js"
 

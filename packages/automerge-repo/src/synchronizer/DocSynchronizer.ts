@@ -1,4 +1,4 @@
-import * as A from "@automerge/automerge/next"
+import * as A from "@automerge/automerge/slim/next"
 import { decode } from "cbor-x"
 import debug from "debug"
 import {

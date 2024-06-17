@@ -9,7 +9,7 @@ import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { PeerId, cbor } from "../src/index.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { StorageId } from "../src/storage/types.js"
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import * as Uuid from "uuid"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))

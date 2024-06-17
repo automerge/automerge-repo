@@ -19,7 +19,7 @@ import {
   type Message,
   type PeerId,
   type PeerMetadata,
-} from "@automerge/automerge-repo"
+} from "@automerge/automerge-repo/slim"
 
 export type BroadcastChannelNetworkAdapterOptions = {
   channelName: string

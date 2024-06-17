@@ -1,7 +1,7 @@
 import {
   DocHandle,
   DocHandleEphemeralMessagePayload,
-} from "@automerge/automerge-repo"
+} from "@automerge/automerge-repo/slim"
 import { useEffect } from "react"
 import useStateRef from "react-usestateref"
 import { EventEmitter } from "eventemitter3"

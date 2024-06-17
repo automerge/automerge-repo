@@ -1,5 +1,4 @@
 import assert from "assert"
-import * as A from "@automerge/automerge"
 import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { DocHandle } from "../src/DocHandle.js"
