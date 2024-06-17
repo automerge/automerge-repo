@@ -20,8 +20,8 @@ import {
   PeerId,
   SharePolicy,
 } from "../src/index.js"
-import { DummyNetworkAdapter } from "./helpers/DummyNetworkAdapter.js"
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
+import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import {
   LargeObject,
   generateLargeObject,

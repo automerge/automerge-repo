@@ -7,7 +7,7 @@ import { visualizer } from "rollup-plugin-visualizer"
 
 export default defineConfig({
   plugins: [
-    react(),
+    react({ jsxRuntime: "automatic" }),
     wasm(),
     dts({ insertTypesEntry: true }),
     process.env.VISUALIZE && visualizer(),

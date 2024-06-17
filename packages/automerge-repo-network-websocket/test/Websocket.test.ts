@@ -7,11 +7,11 @@ import {
   SyncMessage,
   parseAutomergeUrl,
 } from "@automerge/automerge-repo"
-import { generateAutomergeUrl } from "@automerge/automerge-repo/dist/AutomergeUrl"
-import { eventPromise } from "@automerge/automerge-repo/src/helpers/eventPromise"
-import { headsAreSame } from "@automerge/automerge-repo/src/helpers/headsAreSame.js"
-import { runNetworkAdapterTests } from "@automerge/automerge-repo/src/helpers/tests/network-adapter-tests.js"
-import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter.js"
+import { generateAutomergeUrl } from "@automerge/automerge-repo"
+import { eventPromise } from "@automerge/automerge-repo/helpers/eventPromise.js"
+import { headsAreSame } from "@automerge/automerge-repo/helpers/headsAreSame.js"
+import { runNetworkAdapterTests } from "@automerge/automerge-repo/helpers/tests/network-adapter-tests.js"
+import { DummyStorageAdapter } from "@automerge/automerge-repo/helpers/DummyStorageAdapter.js"
 import assert from "assert"
 import * as CBOR from "cbor-x"
 import { once } from "events"

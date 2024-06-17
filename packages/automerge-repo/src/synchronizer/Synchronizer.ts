@@ -4,7 +4,7 @@ import {
   OpenDocMessage,
   RepoMessage,
 } from "../network/messages.js"
-import { SyncState } from "@automerge/automerge"
+import { SyncState } from "@automerge/automerge/slim"
 import { PeerId, DocumentId } from "../types.js"
 
 export abstract class Synchronizer extends EventEmitter<SynchronizerEvents> {

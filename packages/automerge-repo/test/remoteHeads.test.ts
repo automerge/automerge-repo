@@ -10,7 +10,7 @@ import {
   PeerId,
   Repo,
 } from "../src/index.js"
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import { collectMessages } from "./helpers/collectMessages.js"
 import { TestDoc } from "./types.js"
 

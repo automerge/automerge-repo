@@ -5,7 +5,7 @@ import {
   Repo,
   stringifyAutomergeUrl,
 } from "@automerge/automerge-repo"
-import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
+import { DummyStorageAdapter } from "@automerge/automerge-repo/helpers/DummyStorageAdapter.js"
 import { act, render, waitFor } from "@testing-library/react"
 import React from "react"
 import { describe, expect, it, vi } from "vitest"

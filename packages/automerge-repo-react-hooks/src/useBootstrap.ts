@@ -3,7 +3,11 @@
  * but you probably aren't using it anyway
  */
 
-import { DocHandle, Repo, type AutomergeUrl } from "@automerge/automerge-repo"
+import {
+  DocHandle,
+  Repo,
+  type AutomergeUrl,
+} from "@automerge/automerge-repo/slim"
 import { useEffect, useState, useMemo } from "react"
 import { useRepo } from "./useRepo.js"
 

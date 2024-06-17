@@ -3,7 +3,7 @@
     "target": "ESNext",
     "jsx": "react",
     "module": "NodeNext",
-    "moduleResolution": "Node16",
+    "moduleResolution": "nodenext",
     "declaration": true,
     "declarationMap": true,
     "outDir": "./dist",

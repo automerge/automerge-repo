@@ -1,4 +1,4 @@
-import { next as A } from "@automerge/automerge"
+import { next as A } from "@automerge/automerge/slim"
 import { EventEmitter } from "eventemitter3"
 import { DocumentId, PeerId } from "./types.js"
 import {

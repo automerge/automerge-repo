@@ -11,7 +11,7 @@ import {
   type PeerId,
   type Message,
   PeerMetadata,
-} from "@automerge/automerge-repo"
+} from "@automerge/automerge-repo/slim"
 import { MessagePortRef } from "./MessagePortRef.js"
 import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
 import { WeakMessagePortRef } from "./WeakMessagePortRef.js"

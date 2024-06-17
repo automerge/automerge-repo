@@ -1,4 +1,4 @@
-import * as A from "@automerge/automerge/next"
+import * as A from "@automerge/automerge/slim/next"
 import debug from "debug"
 import { headsAreSame } from "../helpers/headsAreSame.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"

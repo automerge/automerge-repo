@@ -7,7 +7,7 @@ export class DummyNetworkAdapter extends NetworkAdapter {
 
   constructor(opts: Options = { startReady: true }) {
     super()
-    this.#startReady = opts.startReady
+    this.#startReady = opts.startReady || false
     this.#sendMessage = opts.sendMessage
   }
 

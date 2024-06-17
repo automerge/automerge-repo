@@ -1,4 +1,4 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo"
+import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
 import { useRepo } from "./useRepo.js"
 
 /** A hook which returns a {@link DocHandle} identified by a URL.

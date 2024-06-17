@@ -1,4 +1,4 @@
-import { Repo } from "@automerge/automerge-repo"
+import { Repo } from "@automerge/automerge-repo/slim"
 import { createContext, useContext } from "react"
 
 /** A [React context](https://react.dev/learn/passing-data-deeply-with-context) which provides access to an Automerge repo. */

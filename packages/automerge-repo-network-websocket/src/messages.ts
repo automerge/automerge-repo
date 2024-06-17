@@ -1,4 +1,8 @@
-import type { Message, PeerId, PeerMetadata } from "@automerge/automerge-repo"
+import type {
+  Message,
+  PeerId,
+  PeerMetadata,
+} from "@automerge/automerge-repo/slim"
 import type { ProtocolVersion } from "./protocolVersion.js"
 
 /** The sender is disconnecting */

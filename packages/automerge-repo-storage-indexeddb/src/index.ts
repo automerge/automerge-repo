@@ -8,7 +8,7 @@ import {
   Chunk,
   StorageAdapterInterface,
   type StorageKey,
-} from "@automerge/automerge-repo"
+} from "@automerge/automerge-repo/slim"
 
 export class IndexedDBStorageAdapter implements StorageAdapterInterface {
   private dbPromise: Promise<IDBDatabase>
