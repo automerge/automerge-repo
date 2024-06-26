@@ -75,4 +75,54 @@ describe("CollectionSynchronizer", () => {
 
       setTimeout(done)
     }))
+
+  it("should not synchronize to a peer which is excluded from the sync policy", () =>
+    new Promise<void>((done, reject) => {
+      const handle = repo.create()
+      repo.sharePolicy = async () => false
+      repo.syncPolicy = async (peerId) => peerId !== "peer1"
+      
+      synchronizer.addPeer("peer1" as PeerId)
+
+      synchronizer.on("message", (message) => {
+        if (message.type !== "doc-unavailable") {
+          reject(new Error("Should not have sent a sync message"))
+        }
+      })
+
+      synchronizer.receiveMessage({
+        type: "request",
+        senderId: "peer1" as PeerId,
+        targetId: "repo" as PeerId,
+        documentId: handle.documentId,
+        data: new Uint8Array()
+      })
+
+      setTimeout(done)
+    }))
+
+    it("should not synchronize a document which is excluded from the sync policy", () =>
+      new Promise<void>((done, reject) => {
+        const handle = repo.create()
+        repo.sharePolicy = async () => false
+        repo.syncPolicy = async (_, documentId) => documentId !== handle.documentId
+        
+        synchronizer.addPeer("peer1" as PeerId)
+  
+        synchronizer.on("message", (message) => {
+          if (message.type !== "doc-unavailable") {
+            reject(new Error("Should not have sent a sync message"))
+          }
+        })
+  
+        synchronizer.receiveMessage({
+          type: "request",
+          senderId: "peer1" as PeerId,
+          targetId: "repo" as PeerId,
+          documentId: handle.documentId,
+          data: new Uint8Array()
+        })
+  
+        setTimeout(done)
+      }))
 })
