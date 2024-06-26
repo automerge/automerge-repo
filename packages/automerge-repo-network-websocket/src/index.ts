@@ -22,4 +22,5 @@ export type {
   ErrorMessage,
   PeerMessage,
 } from "./messages.js"
-export type { ProtocolVersion, ProtocolV1 } from "./protocolVersion.js"
+export type { ProtocolVersion } from "./protocolVersion.js"
+export { ProtocolV1 } from "./protocolVersion.js"
