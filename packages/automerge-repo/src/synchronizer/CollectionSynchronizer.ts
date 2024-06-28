@@ -105,15 +105,25 @@ export class CollectionSynchronizer extends Synchronizer {
   /**
    * Starts synchronizing the given document with all peers that we share it generously with.
    */
-  addDocument(documentId: DocumentId) {
+  addDocument({
+    documentId,
+    isLocal,
+  }: {
+    documentId: DocumentId
+    isLocal: boolean
+  }) {
     // HACK: this is a hack to prevent us from adding the same document twice
     if (this.#docSetUp[documentId]) {
       return
     }
     const docSynchronizer = this.#fetchDocSynchronizer(documentId)
-    void this.#documentGenerousPeers(documentId).then(peers => {
-      docSynchronizer.beginSync(peers)
-    })
+    if (isLocal) {
+      void this.#documentGenerousPeers(documentId).then(peers =>
+        docSynchronizer.beginSync(peers)
+      )
+    } else {
+      docSynchronizer.beginSync(Array.from(this.#peers.values()))
+    }
   }
 
   // TODO: implement this

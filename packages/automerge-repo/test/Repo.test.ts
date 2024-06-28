@@ -1253,6 +1253,211 @@ describe("Repo", () => {
     assert.equal(bobDoc.isReady(), true)
   })
 
+  it("share policy `false`", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
+
+    const aliceRepo = new Repo({
+      network: [aliceAdapter],
+      peerId: alice,
+      sharePolicy: async () => false,
+    })
+    const bobRepo = new Repo({
+      network: [bobAdapter],
+      peerId: bob,
+      sharePolicy: async () => false,
+    })
+
+    aliceAdapter.peerCandidate(bob)
+    bobAdapter.peerCandidate(alice)
+
+    const aliceDoc = aliceRepo.create()
+    aliceDoc.change((doc: any) => (doc.text = "Hello world"))
+
+    const bobDoc = bobRepo.find(aliceDoc.url)
+
+    await bobDoc.whenReady()
+
+    assert.equal(bobDoc.isReady(), true)
+  })
+
+  it("share policy `false` with `MessageChannelNetworkAdapter`", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const { port1: ab, port2: ba } = new MessageChannel()
+
+    const aliceNetworkAdapter = new MessageChannelNetworkAdapter(ab)
+    const bobNetworkAdapter = new MessageChannelNetworkAdapter(ba)
+
+    const aliceRepo = new Repo({
+      network: [aliceNetworkAdapter],
+      peerId: alice,
+      sharePolicy: async () => false,
+    })
+    const bobRepo = new Repo({
+      network: [bobNetworkAdapter],
+      peerId: bob,
+      sharePolicy: async () => false,
+    })
+
+    await Promise.all([
+      eventPromise(aliceRepo.networkSubsystem, "peer"),
+      eventPromise(bobRepo.networkSubsystem, "peer"),
+    ])
+
+    const aliceDoc = aliceRepo.create()
+    aliceDoc.change((doc: any) => (doc.text = "Hello world"))
+
+    const bobDoc = bobRepo.find(aliceDoc.url)
+
+    await bobDoc.whenReady()
+
+    assert.equal(bobDoc.isReady(), true)
+
+    ab.close()
+    ba.close()
+  })
+
+  it("share policy `false` and the live changes get replicated", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
+
+    const aliceRepo = new Repo({
+      network: [aliceAdapter],
+      peerId: alice,
+      sharePolicy: async () => false,
+    })
+    const bobRepo = new Repo({
+      network: [bobAdapter],
+      peerId: bob,
+      sharePolicy: async () => false,
+    })
+
+    aliceAdapter.peerCandidate(bob)
+    bobAdapter.peerCandidate(alice)
+
+    const aliceHandle = aliceRepo.create()
+    aliceHandle.change((doc: any) => (doc.text = "Hello world"))
+
+    const bobHandle = bobRepo.find(aliceHandle.url)
+
+    await bobHandle.whenReady()
+
+    assert.equal(bobHandle.isReady(), true)
+
+    aliceHandle.change((doc: any) => (doc.text = "Hello world 2"))
+
+    await eventPromise(bobHandle, "change")
+    expect(bobHandle.docSync()).toEqual({ text: "Hello world 2" })
+  })
+
+  it("share policy `false` does not replicate changes through a chain of 3 peers", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const charlie = "charlie" as PeerId
+    const [abAdapter, baAdapter] = DummyNetworkAdapter.createConnectedPair()
+    const [bcAdapter, cbAdapter] = DummyNetworkAdapter.createConnectedPair()
+
+    const aliceRepo = new Repo({
+      network: [abAdapter],
+      peerId: alice,
+      sharePolicy: async () => false,
+    })
+    const bobRepo = new Repo({
+      network: [baAdapter, bcAdapter],
+      peerId: bob,
+      sharePolicy: async () => false,
+    })
+    const charlieRepo = new Repo({
+      network: [cbAdapter],
+      peerId: charlie,
+      sharePolicy: async () => false,
+    })
+
+    abAdapter.peerCandidate(bob)
+    baAdapter.peerCandidate(alice)
+    bcAdapter.peerCandidate(charlie)
+    cbAdapter.peerCandidate(bob)
+
+    const aliceHandle = aliceRepo.create()
+    aliceHandle.change((doc: any) => (doc.text = "Hello world"))
+
+    const charlieHandle = charlieRepo.find(aliceHandle.url)
+
+    await eventPromise(charlieHandle, "unavailable")
+  })
+
+  it("peers continue replicating existing documents after reload with `sharePolicy` false", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const aliceStorage = new DummyStorageAdapter()
+    const bobStorage = new DummyStorageAdapter()
+
+    let documentUrl: AutomergeUrl
+    {
+      const [aliceAdapter, bobAdapter] =
+        DummyNetworkAdapter.createConnectedPair()
+      const aliceRepo = new Repo({
+        peerId: alice,
+        storage: aliceStorage,
+        network: [aliceAdapter],
+        sharePolicy: async () => false,
+      })
+      const bobRepo = new Repo({
+        peerId: bob,
+        storage: bobStorage,
+        network: [bobAdapter],
+        sharePolicy: async () => false,
+      })
+      aliceAdapter.peerCandidate(bob)
+      bobAdapter.peerCandidate(alice)
+
+      const aliceHandle = aliceRepo.create()
+      documentUrl = aliceHandle.url
+      aliceHandle.change((doc: any) => (doc.text = "Hello world"))
+
+      const bobHandle = bobRepo.find(documentUrl)
+      await bobHandle.whenReady()
+      expect(bobHandle.docSync()).toEqual({ text: "Hello world" })
+
+      await aliceRepo.flush()
+      await bobRepo.flush()
+    }
+
+    {
+      const [aliceAdapter, bobAdapter] =
+        DummyNetworkAdapter.createConnectedPair()
+      const aliceRepo = new Repo({
+        peerId: alice,
+        storage: aliceStorage,
+        network: [aliceAdapter],
+        sharePolicy: async () => false,
+      })
+      const bobRepo = new Repo({
+        peerId: bob,
+        storage: bobStorage,
+        network: [bobAdapter],
+        sharePolicy: async () => false,
+      })
+      aliceAdapter.peerCandidate(bob)
+      bobAdapter.peerCandidate(alice)
+
+      const aliceHandle = aliceRepo.find(documentUrl)
+      await aliceHandle.whenReady()
+
+      const bobHandle = bobRepo.find(documentUrl)
+      await bobHandle.whenReady()
+
+      const bobGotChange = eventPromise(bobHandle, "change")
+      aliceHandle.change((doc: any) => (doc.text = "Hello world 2"))
+
+      await bobGotChange
+      expect(bobHandle.docSync()).toEqual({ text: "Hello world 2" })
+    }
+  })
+
   describe("with peers (mesh network)", () => {
     const setup = async () => {
       // Set up three repos; connect Alice to Bob, Bob to Charlie, and Alice to Charlie
