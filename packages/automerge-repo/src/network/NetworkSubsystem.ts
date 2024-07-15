@@ -27,11 +27,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
   #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
   #readyAdapterCount = 0
-  #adapters: NetworkAdapterInterface[] = []
+  adapters: NetworkAdapterInterface[] = []
 
   constructor(
     adapters: NetworkAdapterInterface[],
-    public peerId = randomPeerId(),
+    public peerId: PeerId,
     private peerMetadata: Promise<PeerMetadata>
   ) {
     super()
@@ -40,16 +40,16 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
-    this.#adapters.push(networkAdapter)
+    this.adapters.push(networkAdapter)
     networkAdapter.once("ready", () => {
       this.#readyAdapterCount++
       this.#log(
         "Adapters ready: ",
         this.#readyAdapterCount,
         "/",
-        this.#adapters.length
+        this.adapters.length
       )
-      if (this.#readyAdapterCount === this.#adapters.length) {
+      if (this.#readyAdapterCount === this.adapters.length) {
         this.emit("ready")
       }
     })
@@ -118,6 +118,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       })
   }
 
+  // TODO: this probably introduces a race condition for the ready event
+  // but I plan to refactor that as part of this branch in another patch
+  removeNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
+    this.adapters = this.adapters.filter(a => a !== networkAdapter)
+    this.#readyAdapterCount-- // this is wrong but... it's closer than not doing it
+    networkAdapter.disconnect()
+  }
+
   send(message: MessageContents) {
     const peer = this.#adaptersByPeer[message.targetId]
     if (!peer) {
@@ -157,10 +165,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   isReady = () => {
-    return (
-      this.#adapters.length === 0 ||
-      this.#readyAdapterCount === this.#adapters.length
-    )
+    return this.#readyAdapterCount === this.adapters.length
   }
 
   whenReady = async () => {
@@ -174,10 +179,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       })
     }
   }
-}
-
-function randomPeerId() {
-  return `user-${Math.round(Math.random() * 100000)}` as PeerId
 }
 
 // events & payloads
