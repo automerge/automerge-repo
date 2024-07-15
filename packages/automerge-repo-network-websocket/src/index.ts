@@ -18,7 +18,6 @@ export type {
   FromClientMessage,
   FromServerMessage,
   JoinMessage,
-  LeaveMessage,
   ErrorMessage,
   PeerMessage,
 } from "./messages.js"

@@ -140,14 +140,23 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   disconnect() {
     assert(this.peerId)
     assert(this.socket)
-    this.send({ type: "leave", senderId: this.peerId })
+    this.socket?.removeEventListener("open", this.onOpen)
+    this.socket?.removeEventListener("close", this.onClose)
+    this.socket?.removeEventListener("message", this.onMessage)
+    this.socket?.removeEventListener("error", this.onError)
+    this.socket?.close()
+    if (this.remotePeerId)
+      this.emit("peer-disconnected", { peerId: this.remotePeerId })
+    this.socket = undefined
   }
 
   send(message: FromClientMessage) {
     if ("data" in message && message.data?.byteLength === 0)
       throw new Error("Tried to send a zero-length message")
     assert(this.peerId)
-    assert(this.socket)
+    if (!this.socket) {
+      throw new Error("No socket -- has the network been disconnected()?")
+    }
     if (this.socket.readyState !== WebSocket.OPEN)
       throw new Error(`Websocket not ready (${this.socket.readyState})`)
 

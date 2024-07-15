@@ -13,8 +13,7 @@ import {
 import {
   FromClientMessage,
   FromServerMessage,
-  isJoinMessage,
-  isLeaveMessage,
+  isJoinMessage
 } from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 import { assert } from "./assert.js"
@@ -147,12 +146,6 @@ export class NodeWSServerAdapter extends NetworkAdapter {
           targetId: senderId,
         })
       }
-    } else if (isLeaveMessage(message)) {
-      const { senderId } = message
-      const socket = this.sockets[senderId]
-      /* c8 ignore next */
-      if (!socket) return
-      this.#terminate(socket as WebSocketWithIsAlive)
     } else {
       this.emit("message", message)
     }

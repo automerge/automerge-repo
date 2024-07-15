@@ -66,7 +66,7 @@ describe("Websocket adapters", () => {
       })
     })
 
-    it("should announce disconnections", async () => {
+    it("should emit disconnect events on disconnect", async () => {
       const {
         serverAdapter,
         clients: [browserAdapter],
@@ -90,6 +90,75 @@ describe("Websocket adapters", () => {
         eventPromise(browserAdapter, "peer-disconnected"),
         eventPromise(serverAdapter, "peer-disconnected"),
       ])
+    })
+
+    it.only("should not send messages after disconnect", async () => {
+      const {
+        serverAdapter,
+        clients: [browserAdapter],
+      } = await setup()
+
+      const browserRepo = new Repo({
+        network: [browserAdapter],
+        peerId: browserPeerId,
+      })
+
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      await eventPromise(serverRepo.networkSubsystem, "peer")
+
+      browserAdapter.disconnect()
+
+      const sendMessage = () => {
+        browserAdapter.send({
+          // @ts-ignore
+          type: "foo",
+          data: new Uint8Array([1, 2, 3]),
+          documentId,
+          senderId: browserPeerId,
+          targetId: serverPeerId,
+        })
+      }
+      assert.throws(sendMessage, /disconnected/)
+    })
+    
+    it("should support reconnecting after disconnect", async () => {
+      const {
+        serverAdapter,
+        clients: [browserAdapter],
+      } = await setup()
+
+      const browserRepo = new Repo({
+        network: [browserAdapter],
+        peerId: browserPeerId,
+      })
+
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      await eventPromise(serverRepo.networkSubsystem, "peer")
+
+      browserAdapter.disconnect()
+
+      const sendMessage = () => {
+        browserAdapter.send({
+          // @ts-ignore
+          type: "foo",
+          data: new Uint8Array([1, 2, 3]),
+          documentId,
+          senderId: browserPeerId,
+          targetId: serverPeerId,
+        })
+      }
+      assert.throws(sendMessage, /disconnected/)
+
+      browserAdapter.connect(browserPeerId)
+      await eventPromise(browserAdapter, "peer-candidate")
     })
 
     it("should connect even when server is not initially available", async () => {
