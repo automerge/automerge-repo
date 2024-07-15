@@ -24,7 +24,7 @@ import { SyncStatePayload } from "./synchronizer/Synchronizer.js"
 import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
 
 function randomPeerId() {
-  return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
+  return "peer-" + Math.random().toString(36).slice(4) as PeerId
 }
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
@@ -538,6 +538,13 @@ export class Repo extends EventEmitter<RepoEvents> {
       })
     )
     return
+  }
+
+  shutdown() {
+    this.networkSubsystem.adapters.forEach(adapter => {
+      adapter.disconnect()
+    })
+    this.flush()
   }
 }
 

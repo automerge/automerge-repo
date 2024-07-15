@@ -30,6 +30,27 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
 
   #options: BroadcastChannelNetworkAdapterOptions
 
+  #ready = false
+  #readyResolver?: () => void  
+  #readyPromise: Promise<void> = new Promise<void>((resolve) => {
+    this.#readyResolver = resolve
+  })
+  
+  isReady() {
+    return this.#ready
+  }
+
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
+
   constructor(options?: BroadcastChannelNetworkAdapterOptions) {
     super()
     this.#options = { channelName: "broadcast", ...(options ?? {}) }
@@ -89,11 +110,10 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
       type: "arrive",
       peerMetadata,
     })
-
-    this.emit("ready", { network: this })
   }
 
   #announceConnection(peerId: PeerId, peerMetadata: PeerMetadata) {
+    this.#forceReady()
     this.emit("peer-candidate", { peerId, peerMetadata })
   }
 

@@ -24,6 +24,27 @@ const { encode, decode } = cborHelpers
 export class NodeWSServerAdapter extends NetworkAdapter {
   sockets: { [peerId: PeerId]: WebSocket } = {}
 
+  #ready = false
+  #readyResolver?: () => void  
+  #readyPromise: Promise<void> = new Promise<void>((resolve) => {
+    this.#readyResolver = resolve
+  })
+  
+  isReady() {
+    return this.#ready
+  }
+ 
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
+
   constructor(
     private server: WebSocketServer,
     private keepAliveInterval = 5000
@@ -54,7 +75,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       socket.isAlive = true
       socket.on("pong", () => (socket.isAlive = true))
 
-      this.emit("ready", { network: this })
+      this.#forceReady()
     })
 
     const keepAliveId = setInterval(() => {

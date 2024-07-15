@@ -24,7 +24,27 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  #isReady = false
+  #ready = false
+  #readyResolver?: () => void  
+  #readyPromise: Promise<void> = new Promise<void>((resolve) => {
+    this.#readyResolver = resolve
+  })
+  
+  isReady() {
+    return this.#ready
+  }
+ 
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
+
   #retryIntervalId?: TimeoutId
   #log = debug("automerge-repo:websocket:browser")
 
@@ -71,7 +91,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     // Mark this adapter as ready if we haven't received an ack in 1 second.
     // We might hear back from the other end at some point but we shouldn't
     // hold up marking things as unavailable for any longer
-    setTimeout(() => this.#ready(), 1000)
+    setTimeout(() => this.#forceReady(), 1000)
     this.join()
   }
 
@@ -121,12 +141,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.#log("Connection failed, retrying...")
   }
 
-  #ready() {
-    if (this.#isReady) return
-    this.#isReady = true
-    this.emit("ready", { network: this })
-  }
-
   join() {
     assert(this.peerId)
     assert(this.socket)
@@ -166,7 +180,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
 
   peerCandidate(remotePeerId: PeerId, peerMetadata: PeerMetadata) {
     assert(this.socket)
-    this.#ready()
+    this.#forceReady()
     this.remotePeerId = remotePeerId
     this.emit("peer-candidate", {
       peerId: remotePeerId,

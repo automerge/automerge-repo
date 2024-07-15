@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import { describe, it } from "vitest"
-import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/dist/index.js"
+import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import {

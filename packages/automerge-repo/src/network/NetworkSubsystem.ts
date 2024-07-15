@@ -39,9 +39,17 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
+  disconnect() {
+    this.adapters.forEach(a => a.disconnect())
+  }
+
+  reconnect() {
+    this.adapters.forEach(a => a.connect(this.peerId))
+  }
+
   addNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
     this.adapters.push(networkAdapter)
-    networkAdapter.once("ready", () => {
+    networkAdapter.whenReady().then(() => {
       this.#readyAdapterCount++
       this.#log(
         "Adapters ready: ",
@@ -165,19 +173,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   isReady = () => {
-    return this.#readyAdapterCount === this.adapters.length
+    return this.adapters.length > 0 && this.adapters.every(a => a.isReady())
   }
 
   whenReady = async () => {
-    if (this.isReady()) {
-      return
-    } else {
-      return new Promise<void>(resolve => {
-        this.once("ready", () => {
-          resolve()
-        })
-      })
-    }
+    return Promise.all(this.adapters.map(a => a.whenReady()))
   }
 }
 
