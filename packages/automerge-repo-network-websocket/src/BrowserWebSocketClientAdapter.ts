@@ -154,11 +154,14 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   disconnect() {
     assert(this.peerId)
     assert(this.socket)
-    this.socket?.removeEventListener("open", this.onOpen)
-    this.socket?.removeEventListener("close", this.onClose)
-    this.socket?.removeEventListener("message", this.onMessage)
-    this.socket?.removeEventListener("error", this.onError)
-    this.socket?.close()
+    const socket = this.socket
+    if (socket) {
+      socket.removeEventListener("open", this.onOpen)
+      socket.removeEventListener("close", this.onClose)
+      socket.removeEventListener("message", this.onMessage)
+      socket.removeEventListener("error", this.onError)
+      socket.close()
+    }
     if (this.remotePeerId)
       this.emit("peer-disconnected", { peerId: this.remotePeerId })
     this.socket = undefined
