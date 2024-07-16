@@ -162,6 +162,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       socket.removeEventListener("error", this.onError)
       socket.close()
     }
+    clearInterval(this.#retryIntervalId);
     if (this.remotePeerId)
       this.emit("peer-disconnected", { peerId: this.remotePeerId })
     this.socket = undefined
