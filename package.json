@@ -1,6 +1,5 @@
 {
   "name": "@automerge/automerge-repo-monorepo",
-  "version": "1.2.0-alpha.0",
   "version": "1.2.0",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
@@ -37,7 +36,7 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "2.2.3",
+    "@automerge/automerge": "^2.2.5",
     "@manypkg/cli": "^0.21.3",
     "@types/debug": "^4.1.12",
     "@types/node": "^20.11.30",
