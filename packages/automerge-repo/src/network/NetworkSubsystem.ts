@@ -58,6 +58,10 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.#log(`peer candidate: ${peerId} `)
       // TODO: This is where authentication would happen
 
+      // TODO: on reconnection, this would create problems!
+      // the server would see a reconnection as a late-arriving channel
+      // for an existing peer and decide to ignore it until the connection
+      // times out: turns out my ICE/SIP emulation laziness did not pay off here
       if (!this.#adaptersByPeer[peerId]) {
         // TODO: handle losing a server here
         this.#adaptersByPeer[peerId] = networkAdapter

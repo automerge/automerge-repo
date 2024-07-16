@@ -49,17 +49,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       this.#timeoutDelay = options.timeoutDelay
     }
 
-    let doc: T
-    const isNew = "isNew" in options && options.isNew
-    if (isNew) {
-      // T should really be constrained to extend `Record<string, unknown>` (an automerge doc can't be
-      // e.g. a primitive, an array, etc. - it must be an object). But adding that constraint creates
-      // a bunch of other problems elsewhere so for now we'll just cast it here to make Automerge happy.
-      doc = A.from(options.initialValue as Record<string, unknown>) as T
-      doc = A.emptyChange<T>(doc)
-    } else {
-      doc = A.init<T>()
-    }
+    const doc = A.init<T>()
 
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
@@ -146,7 +136,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     // Start the machine, and send a create or find event to get things going
     this.#machine.start()
-    this.#machine.send(isNew ? { type: CREATE } : { type: FIND })
+    this.#machine.send({ type: FIND })
   }
 
   // PRIVATE
@@ -584,7 +574,6 @@ interface DocHandleContext<T> {
 
 /** These are the (internal) events that can be sent to the state machine */
 type DocHandleEvent<T> =
-  | { type: typeof CREATE }
   | { type: typeof FIND }
   | { type: typeof REQUEST }
   | { type: typeof DOC_READY }
@@ -598,7 +587,6 @@ type DocHandleEvent<T> =
   | { type: typeof AWAIT_NETWORK }
   | { type: typeof NETWORK_READY }
 
-const CREATE = "CREATE"
 const FIND = "FIND"
 const REQUEST = "REQUEST"
 const DOC_READY = "DOC_READY"
