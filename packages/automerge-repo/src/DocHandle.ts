@@ -104,7 +104,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           after: { [delay]: "unavailable" },
         },
         awaitingNetwork: {
-          on: { NETWORK_READY: "requesting" },
+          on: {
+            DOC_READY: "ready",
+            NETWORK_READY: "requesting"
+          },
         },
         requesting: {
           on: {
@@ -172,13 +175,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     const beforeHeads = A.getHeads(before)
     const afterHeads = A.getHeads(after)
     const docChanged = !headsAreSame(afterHeads, beforeHeads)
-    console.log("beforeHeads", beforeHeads, "afterHeads", afterHeads, "docChanged", docChanged)
     if (docChanged) {
-      console.log('emitting heads-changed')
       this.emit("heads-changed", { handle: this, doc: after })
 
       const patches = A.diff(after, beforeHeads, afterHeads)
-      console.log('diffed', patches)
       if (patches.length > 0) {
         this.emit("change", {
           handle: this,

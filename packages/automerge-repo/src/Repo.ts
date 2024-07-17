@@ -80,15 +80,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     // The `document` event is fired by the DocCollection any time we create a new document or look
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle }) => {
-      console.log("on document", storageSubsystem)
-
       if (storageSubsystem) {
         // Save when the document changes, but no more often than saveDebounceRate.
         const saveFn = ({
           handle,
           doc,
         }: DocHandleEncodedChangePayload<any>) => {
-          console.log("saveFn")
           void storageSubsystem.saveDoc(handle.documentId, doc)
         }
         handle.on("heads-changed", 
@@ -370,14 +367,11 @@ export class Repo extends EventEmitter<RepoEvents> {
         nextDoc = Automerge.from(initialValue)
       } else {
         nextDoc = Automerge.emptyChange(Automerge.init())
-      }
-      console.log("update during create", Automerge.getHeads(nextDoc))
-      
+      }      
       return nextDoc
     })
     
     handle.doneLoading()
-
     return handle
   }
 
