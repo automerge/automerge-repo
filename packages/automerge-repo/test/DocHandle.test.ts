@@ -76,7 +76,7 @@ describe("DocHandle", () => {
    * Once there's a Repo#stop API this case should be covered in accompanying
    * tests and the following test removed.
    */
-  // TODO before merging: move this to Repo
+  // TODO as part of future cleanup: move this to Repo
   it("no pending timers after a document is loaded", async () => {
     vi.useFakeTimers()
     const timerCount = vi.getTimerCount()
