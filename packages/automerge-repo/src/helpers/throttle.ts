@@ -20,7 +20,7 @@
  *
  *
  * Example usage:
- * const callback = debounce((ev) => { doSomethingExpensiveOrOccasional() }, 100)
+ * const callback = throttle((ev) => { doSomethingExpensiveOrOccasional() }, 100)
  * target.addEventListener('frequent-event', callback);
  *
  */
@@ -29,6 +29,7 @@ export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
   fn: F,
   delay: number
 ) => {
+  console.log("in throttle")
   let lastCall = Date.now()
   let wait
   let timeout: ReturnType<typeof setTimeout>
@@ -36,6 +37,7 @@ export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
     wait = lastCall + delay - Date.now()
     clearTimeout(timeout)
     timeout = setTimeout(() => {
+      console.log("calling fn")
       fn(...args)
       lastCall = Date.now()
     }, wait)

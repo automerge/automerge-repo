@@ -168,13 +168,17 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Called after state transitions. If the document has changed, emits a change event. If we just
    * received the document for the first time, signal that our request has been completed.
    */
-  #checkForChanges(before: T | undefined, after: T) {
-    const docChanged =
-      after && before && !headsAreSame(A.getHeads(after), A.getHeads(before))
+  #checkForChanges(before: A.Doc<T> | undefined = A.init(), after: A.Doc<T> | undefined = A.init()) {
+    const beforeHeads = A.getHeads(before)
+    const afterHeads = A.getHeads(after)
+    const docChanged = !headsAreSame(afterHeads, beforeHeads)
+    console.log("beforeHeads", beforeHeads, "afterHeads", afterHeads, "docChanged", docChanged)
     if (docChanged) {
+      console.log('emitting heads-changed')
       this.emit("heads-changed", { handle: this, doc: after })
 
-      const patches = A.diff(after, A.getHeads(before), A.getHeads(after))
+      const patches = A.diff(after, beforeHeads, afterHeads)
+      console.log('diffed', patches)
       if (patches.length > 0) {
         this.emit("change", {
           handle: this,
@@ -298,10 +302,20 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /**
    * `update` is called by the repo when we receive changes from the network
    * Called by the repo when we receive changes from the network.
+   * Does not cause state changes.
    * @hidden
    */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
     this.#machine.send({ type: UPDATE, payload: { callback } })
+  }
+
+  /**
+   * `doneLoading` is called by the repo after it decides it has all the changes
+   * it's going to get during setup. This might mean it was created locally,
+   * or that it was loaded from storage, or that it was received from a peer.
+   */
+  doneLoading() {
+    this.#machine.send({ type: DOC_READY })
   }
 
   /**
@@ -336,7 +350,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (!this.isReady()) {
       throw new Error(
-        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+        `DocHandle#${this.documentId} is in ${this.state} and not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
     this.#machine.send({

@@ -80,15 +80,20 @@ export class Repo extends EventEmitter<RepoEvents> {
     // The `document` event is fired by the DocCollection any time we create a new document or look
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle }) => {
+      console.log("on document", storageSubsystem)
+
       if (storageSubsystem) {
         // Save when the document changes, but no more often than saveDebounceRate.
         const saveFn = ({
           handle,
           doc,
         }: DocHandleEncodedChangePayload<any>) => {
+          console.log("saveFn")
           void storageSubsystem.saveDoc(handle.documentId, doc)
         }
-        handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
+        handle.on("heads-changed", 
+          throttle(saveFn, this.saveDebounceRate)
+        )
       }
 
       handle.on("unavailable", () => {
@@ -356,12 +361,23 @@ export class Repo extends EventEmitter<RepoEvents> {
     const handle = this.#getHandle<T>({
       documentId
     }) as DocHandle<T>
-    
-    handle.update(doc => 
-      initialValue ? Automerge.from(initialValue) : Automerge.init()
-    )
 
     this.emit("document", { handle })
+
+    handle.update(() => {
+      let nextDoc: Automerge.Doc<T>
+      if (initialValue) {
+        nextDoc = Automerge.from(initialValue)
+      } else {
+        nextDoc = Automerge.emptyChange(Automerge.init())
+      }
+      console.log("update during create", Automerge.getHeads(nextDoc))
+      
+      return nextDoc
+    })
+    
+    handle.doneLoading()
+
     return handle
   }
 
@@ -433,12 +449,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     
     // Try to load from disk
     if (this.storageSubsystem) {
-      this.storageSubsystem.loadDoc(handle.documentId).then(loadedDoc => {
+      void this.storageSubsystem.loadDoc(handle.documentId).then(loadedDoc => {
         if (loadedDoc) {
           // uhhhh, sorry if you're reading this because we were lying to the type system
           handle.update(() => loadedDoc as Automerge.Doc<T>)
+        } else {
+          handle.request()
         }
       })
+      
+      handle.doneLoading()
+    } else {
+      handle.request()
     }
 
     this.emit("document", { handle })

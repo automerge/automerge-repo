@@ -47,6 +47,7 @@ describe("Repo", () => {
         storage: storageAdapter,
         network: [networkAdapter],
       })
+      repo.saveDebounceRate = 1
       return { repo, storageAdapter, networkAdapter }
     }
 
@@ -244,7 +245,7 @@ describe("Repo", () => {
       assert.equal(v?.foo, "bar")
     })
 
-    it("saves the document when creating it", async () => {
+    it.only("saves the document when creating it", async () => {
       const { repo, storageAdapter } = setup()
       const handle = repo.create<TestDoc>()
 
@@ -420,7 +421,8 @@ describe("Repo", () => {
       }
 
       const storageKeyTypes = storageAdapter.keys().map(k => k.split(".")[1])
-      assert(storageKeyTypes.filter(k => k === "snapshot").length === 1)
+      const storedSnapshotCount = storageKeyTypes.filter(k => k === "snapshot").length
+      assert.equal(storedSnapshotCount, 1, `found ${storedSnapshotCount} snapshots in storage instead of 1`)
     })
 
     it("can import an existing document", async () => {
