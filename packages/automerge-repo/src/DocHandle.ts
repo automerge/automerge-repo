@@ -29,7 +29,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #machine
 
   /** The last known state of our document. */
-  #prevDocState: T | undefined
+  #prevDocState: T = A.init<T>()
 
   /** How long to wait before giving up on a document. (Note that a document will be marked
    * unavailable much sooner if all known peers respond that they don't have it.) */
@@ -70,7 +70,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         }),
         onDelete: assign(() => {
           this.emit("delete", { handle: this })
-          return { doc: undefined }
+          return { doc: A.init() }
         }),
         onUnavailable: () => {
           this.emit("unavailable", { handle: this })
@@ -171,7 +171,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Called after state transitions. If the document has changed, emits a change event. If we just
    * received the document for the first time, signal that our request has been completed.
    */
-  #checkForChanges(before: A.Doc<T> | undefined = A.init(), after: A.Doc<T> | undefined = A.init()) {
+  #checkForChanges(before: A.Doc<T>, after: A.Doc<T>) {
     const beforeHeads = A.getHeads(before)
     const afterHeads = A.getHeads(after)
     const docChanged = !headsAreSame(afterHeads, beforeHeads)
