@@ -1,5 +1,6 @@
 import assert from "assert"
 import { describe, it } from "vitest"
+import { next as Automerge } from "@automerge/automerge"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { DocHandle } from "../src/DocHandle.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
@@ -21,10 +22,13 @@ describe("DocSynchronizer", () => {
 
   const setup = () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
-    handle = new DocHandle<TestDoc>(docId, { isNew: true })
+    handle = new DocHandle<TestDoc>(docId)
+    handle.doneLoading()
+    
     docSynchronizer = new DocSynchronizer({
       handle: handle as DocHandle<unknown>,
     })
+    
     return { handle, docSynchronizer }
   }
 

@@ -20,7 +20,7 @@
  *
  *
  * Example usage:
- * const callback = debounce((ev) => { doSomethingExpensiveOrOccasional() }, 100)
+ * const callback = throttle((ev) => { doSomethingExpensiveOrOccasional() }, 100)
  * target.addEventListener('frequent-event', callback);
  *
  */

@@ -10,6 +10,12 @@ import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
+  const setup = (options?) => {
+    const handle = new DocHandle<TestDoc>(TEST_ID, options)
+    handle.update( () => A.init() )
+    handle.doneLoading()
+    return handle
+  }
 
   const docFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
     return A.change<{ foo: string }>(doc, d => (d.foo = "bar"))
@@ -18,27 +24,6 @@ describe("DocHandle", () => {
   it("should take the UUID passed into it", () => {
     const handle = new DocHandle(TEST_ID)
     assert.equal(handle.documentId, TEST_ID)
-  })
-
-  it("should take an initial value", async () => {
-    const handle = new DocHandle(TEST_ID, {
-      isNew: true,
-      initialValue: { foo: "bar" },
-    })
-    const doc = await handle.doc()
-    assert.equal(doc.foo, "bar")
-  })
-
-  it("should become ready when a document is loaded", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
-    assert.equal(handle.isReady(), false)
-
-    // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
-
-    assert.equal(handle.isReady(), true)
-    const doc = await handle.doc()
-    assert.equal(doc?.foo, "bar")
   })
 
   it("should allow sync access to the doc", async () => {
@@ -55,7 +40,6 @@ describe("DocHandle", () => {
 
   it("should return undefined if we access the doc before ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
-
     assert.equal(handle.docSync(), undefined)
   })
 
@@ -73,10 +57,8 @@ describe("DocHandle", () => {
   })
 
   it("should return the heads when requested", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, {
-      isNew: true,
-      initialValue: { foo: "bar" },
-    })
+    const handle = setup()
+    handle.change( d => d.foo = "bar")
     assert.equal(handle.isReady(), true)
 
     const heads = A.getHeads(handle.docSync())
@@ -94,6 +76,7 @@ describe("DocHandle", () => {
    * Once there's a Repo#stop API this case should be covered in accompanying
    * tests and the following test removed.
    */
+  // TODO as part of future cleanup: move this to Repo
   it("no pending timers after a document is loaded", async () => {
     vi.useFakeTimers()
     const timerCount = vi.getTimerCount()
@@ -159,8 +142,8 @@ describe("DocHandle", () => {
   })
 
   it("should emit a change message when changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-
+    const handle = setup()
+    
     const p = new Promise<DocHandleChangePayload<TestDoc>>(resolve =>
       handle.once("change", d => resolve(d))
     )
@@ -179,7 +162,7 @@ describe("DocHandle", () => {
 
   it("should not emit a change message if no change happens via update", () =>
     new Promise<void>((done, reject) => {
-      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      const handle = setup()
       handle.once("change", () => {
         reject(new Error("shouldn't have changed"))
       })
@@ -190,8 +173,8 @@ describe("DocHandle", () => {
     }))
 
   it("should update the internal doc prior to emitting the change message", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-
+    const handle = setup()
+    
     const p = new Promise<void>(resolve =>
       handle.once("change", ({ handle, doc }) => {
         assert.equal(handle.docSync()?.foo, doc.foo)
@@ -208,8 +191,8 @@ describe("DocHandle", () => {
   })
 
   it("should emit distinct change messages when consecutive changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
-
+    const handle = setup()
+    
     let calls = 0
     const p = new Promise(resolve =>
       handle.on("change", async ({ doc: d }) => {
@@ -238,7 +221,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a change message when changes happen", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = setup()
     const p = new Promise(resolve => handle.once("change", d => resolve(d)))
 
     handle.change(doc => {
@@ -252,7 +235,7 @@ describe("DocHandle", () => {
 
   it("should not emit a patch message if no change happens", () =>
     new Promise<void>((done, reject) => {
-      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      const handle = setup()
       handle.on("change", () => {
         reject(new Error("shouldn't have changed"))
       })
@@ -301,7 +284,7 @@ describe("DocHandle", () => {
 
   it("should not time out if the document is updated in time", async () => {
     // set docHandle time out after 5 ms
-    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 1 })
+    const handle = setup({timeoutDelay:1})
 
     // simulate requesting from the network
     handle.request()
@@ -319,7 +302,7 @@ describe("DocHandle", () => {
   })
 
   it("should emit a delete event when deleted", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = setup()
 
     const p = new Promise<void>(resolve =>
       handle.once("delete", () => resolve())
@@ -331,7 +314,7 @@ describe("DocHandle", () => {
   })
 
   it("should allow changing at old heads", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+    const handle = setup()
 
     handle.change(doc => {
       doc.foo = "bar"
@@ -355,7 +338,8 @@ describe("DocHandle", () => {
 
   describe("ephemeral messaging", () => {
     it("can broadcast a message for the network to send out", async () => {
-      const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
+      const handle = setup()
+
       const message = { foo: "bar" }
 
       const promise = eventPromise(handle, "ephemeral-message-outbound")

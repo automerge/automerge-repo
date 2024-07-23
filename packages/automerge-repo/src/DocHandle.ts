@@ -29,7 +29,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #machine
 
   /** The last known state of our document. */
-  #prevDocState: T | undefined
+  #prevDocState: T = A.init<T>()
 
   /** How long to wait before giving up on a document. (Note that a document will be marked
    * unavailable much sooner if all known peers respond that they don't have it.) */
@@ -49,17 +49,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       this.#timeoutDelay = options.timeoutDelay
     }
 
-    let doc: T
-    const isNew = "isNew" in options && options.isNew
-    if (isNew) {
-      // T should really be constrained to extend `Record<string, unknown>` (an automerge doc can't be
-      // e.g. a primitive, an array, etc. - it must be an object). But adding that constraint creates
-      // a bunch of other problems elsewhere so for now we'll just cast it here to make Automerge happy.
-      doc = A.from(options.initialValue as Record<string, unknown>) as T
-      doc = A.emptyChange<T>(doc)
-    } else {
-      doc = A.init<T>()
-    }
+    const doc = A.init<T>()
 
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
@@ -80,7 +70,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         }),
         onDelete: assign(() => {
           this.emit("delete", { handle: this })
-          return { doc: undefined }
+          return { doc: A.init() }
         }),
         onUnavailable: () => {
           this.emit("unavailable", { handle: this })
@@ -114,7 +104,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           after: { [delay]: "unavailable" },
         },
         awaitingNetwork: {
-          on: { NETWORK_READY: "requesting" },
+          on: {
+            DOC_READY: "ready",
+            NETWORK_READY: "requesting"
+          },
         },
         requesting: {
           on: {
@@ -146,7 +139,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     // Start the machine, and send a create or find event to get things going
     this.#machine.start()
-    this.#machine.send(isNew ? { type: CREATE } : { type: FIND })
+    this.#machine.send({ type: FIND })
   }
 
   // PRIVATE
@@ -178,13 +171,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Called after state transitions. If the document has changed, emits a change event. If we just
    * received the document for the first time, signal that our request has been completed.
    */
-  #checkForChanges(before: T | undefined, after: T) {
-    const docChanged =
-      after && before && !headsAreSame(A.getHeads(after), A.getHeads(before))
+  #checkForChanges(before: A.Doc<T>, after: A.Doc<T>) {
+    const beforeHeads = A.getHeads(before)
+    const afterHeads = A.getHeads(after)
+    const docChanged = !headsAreSame(afterHeads, beforeHeads)
     if (docChanged) {
       this.emit("heads-changed", { handle: this, doc: after })
 
-      const patches = A.diff(after, A.getHeads(before), A.getHeads(after))
+      const patches = A.diff(after, beforeHeads, afterHeads)
       if (patches.length > 0) {
         this.emit("change", {
           handle: this,
@@ -308,10 +302,20 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /**
    * `update` is called by the repo when we receive changes from the network
    * Called by the repo when we receive changes from the network.
+   * Does not cause state changes.
    * @hidden
    */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
     this.#machine.send({ type: UPDATE, payload: { callback } })
+  }
+
+  /**
+   * `doneLoading` is called by the repo after it decides it has all the changes
+   * it's going to get during setup. This might mean it was created locally,
+   * or that it was loaded from storage, or that it was received from a peer.
+   */
+  doneLoading() {
+    this.#machine.send({ type: DOC_READY })
   }
 
   /**
@@ -346,7 +350,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
     if (!this.isReady()) {
       throw new Error(
-        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+        `DocHandle#${this.documentId} is in ${this.state} and not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
     this.#machine.send({
@@ -584,7 +588,6 @@ interface DocHandleContext<T> {
 
 /** These are the (internal) events that can be sent to the state machine */
 type DocHandleEvent<T> =
-  | { type: typeof CREATE }
   | { type: typeof FIND }
   | { type: typeof REQUEST }
   | { type: typeof DOC_READY }
@@ -598,7 +601,6 @@ type DocHandleEvent<T> =
   | { type: typeof AWAIT_NETWORK }
   | { type: typeof NETWORK_READY }
 
-const CREATE = "CREATE"
 const FIND = "FIND"
 const REQUEST = "REQUEST"
 const DOC_READY = "DOC_READY"

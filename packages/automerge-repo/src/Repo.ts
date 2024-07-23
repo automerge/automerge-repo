@@ -23,6 +23,10 @@ import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js
 import { SyncStatePayload } from "./synchronizer/Synchronizer.js"
 import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
 
+function randomPeerId() {
+  return "peer-" + Math.random().toString(36).slice(4) as PeerId
+}
+
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
  *
@@ -61,7 +65,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   constructor({
     storage,
     network = [],
-    peerId,
+    peerId = randomPeerId(),
     sharePolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
@@ -75,7 +79,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // The `document` event is fired by the DocCollection any time we create a new document or look
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-    this.on("document", async ({ handle, isNew }) => {
+    this.on("document", async ({ handle }) => {
       if (storageSubsystem) {
         // Save when the document changes, but no more often than saveDebounceRate.
         const saveFn = ({
@@ -84,18 +88,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         }: DocHandleEncodedChangePayload<any>) => {
           void storageSubsystem.saveDoc(handle.documentId, doc)
         }
-        handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
-
-        if (isNew) {
-          // this is a new document, immediately save it
-          await storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
-        } else {
-          // Try to load from disk
-          const loadedDoc = await storageSubsystem.loadDoc(handle.documentId)
-          if (loadedDoc) {
-            handle.update(() => loadedDoc)
-          }
-        }
+        handle.on("heads-changed", 
+          throttle(saveFn, this.saveDebounceRate)
+        )
       }
 
       handle.on("unavailable", () => {
@@ -105,9 +100,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
       })
 
-      if (this.networkSubsystem.isReady()) {
-        handle.request()
-      } else {
+      if (!this.networkSubsystem.isReady()) {
         handle.awaitNetwork()
         this.networkSubsystem
           .whenReady()
@@ -323,21 +316,17 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** Returns an existing handle if we have it; creates one otherwise. */
   #getHandle<T>({
-    documentId,
-    isNew,
-    initialValue,
+    documentId
   }: {
     /** The documentId of the handle to look up or create */
     documentId: DocumentId /** If we know we're creating a new document, specify this so we can have access to it immediately */
-    isNew: boolean
-    initialValue?: T
   }) {
     // If we have the handle cached, return it
     if (this.#handleCache[documentId]) return this.#handleCache[documentId]
 
     // If not, create a new handle, cache it, and return it
     if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
-    const handle = new DocHandle<T>(documentId, { isNew, initialValue })
+    const handle = new DocHandle<T>(documentId)
     this.#handleCache[documentId] = handle
     return handle
   }
@@ -365,11 +354,22 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Generate a new UUID and store it in the buffer
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
     const handle = this.#getHandle<T>({
-      documentId,
-      isNew: true,
-      initialValue,
+      documentId
     }) as DocHandle<T>
-    this.emit("document", { handle, isNew: true })
+
+    this.emit("document", { handle })
+
+    handle.update(() => {
+      let nextDoc: Automerge.Doc<T>
+      if (initialValue) {
+        nextDoc = Automerge.from(initialValue)
+      } else {
+        nextDoc = Automerge.emptyChange(Automerge.init())
+      }      
+      return nextDoc
+    })
+    
+    handle.doneLoading()
     return handle
   }
 
@@ -434,11 +434,28 @@ export class Repo extends EventEmitter<RepoEvents> {
       return this.#handleCache[documentId]
     }
 
+    // If we don't already have the handle, make an empty one and try loading it
     const handle = this.#getHandle<T>({
       documentId,
-      isNew: false,
     }) as DocHandle<T>
-    this.emit("document", { handle, isNew: false })
+    
+    // Try to load from disk
+    if (this.storageSubsystem) {
+      void this.storageSubsystem.loadDoc(handle.documentId).then(loadedDoc => {
+        if (loadedDoc) {
+          // uhhhh, sorry if you're reading this because we were lying to the type system
+          handle.update(() => loadedDoc as Automerge.Doc<T>)
+          handle.doneLoading()
+        } else {
+          handle.request()
+        }
+      })
+      
+    } else {
+      handle.request()
+    }
+
+    this.emit("document", { handle })
     return handle
   }
 
@@ -448,7 +465,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   ) {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle({ documentId, isNew: false })
+    const handle = this.#getHandle({ documentId })
     handle.delete()
 
     delete this.#handleCache[documentId]
@@ -465,7 +482,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle({ documentId, isNew: false })
+    const handle = this.#getHandle({ documentId })
     const doc = await handle.doc()
     if (!doc) return undefined
     return Automerge.save(doc)
@@ -528,6 +545,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         return this.storageSubsystem!.saveDoc(handle.documentId, doc)
       })
     )
+    return
   }
 }
 
@@ -582,7 +600,6 @@ export interface RepoEvents {
 
 export interface DocumentPayload {
   handle: DocHandle<any>
-  isNew: boolean
 }
 
 export interface DeleteDocumentPayload {

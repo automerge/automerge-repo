@@ -47,6 +47,7 @@ describe("Repo", () => {
         storage: storageAdapter,
         network: [networkAdapter],
       })
+      repo.saveDebounceRate = 1
       return { repo, storageAdapter, networkAdapter }
     }
 
@@ -252,6 +253,8 @@ describe("Repo", () => {
         storage: storageAdapter,
       })
 
+      await repo.flush()
+
       const bobHandle = repo2.find<TestDoc>(handle.url)
       await bobHandle.whenReady()
       assert.equal(bobHandle.isReady(), true)
@@ -267,7 +270,7 @@ describe("Repo", () => {
 
       assert.equal(handle.isReady(), true)
 
-      await pause(150)
+      await repo.flush()
 
       const repo2 = new Repo({
         storage: storageAdapter,
@@ -419,8 +422,17 @@ describe("Repo", () => {
         })
       }
 
+      await repo.flush()
+
       const storageKeyTypes = storageAdapter.keys().map(k => k.split(".")[1])
-      assert(storageKeyTypes.filter(k => k === "snapshot").length === 1)
+      const storedSnapshotCount = storageKeyTypes.filter(
+        k => k === "snapshot"
+      ).length
+      assert.equal(
+        storedSnapshotCount,
+        1,
+        `found ${storedSnapshotCount} snapshots in storage instead of 1`
+      )
     })
 
     it("can import an existing document", async () => {
@@ -472,8 +484,8 @@ describe("Repo", () => {
       let resume = (documentIds?: DocumentId[]) => {
         const savesToUnblock = documentIds
           ? Array.from(blockedSaves).filter(({ path }) =>
-              documentIds.some(documentId => path.includes(documentId))
-            )
+            documentIds.some(documentId => path.includes(documentId))
+          )
           : Array.from(blockedSaves)
         savesToUnblock.forEach(({ resolve }) => resolve())
       }
@@ -944,6 +956,7 @@ describe("Repo", () => {
       })
       const unsyncedHandle = isolatedRepo.create<TestDoc>()
       const url = unsyncedHandle.url
+      await isolatedRepo.flush()
 
       // Now create a message channel to connect two repos
       const abChannel = new MessageChannel()
@@ -1010,9 +1023,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-              repo.create<TestDoc>()
+            repo.create<TestDoc>()
             : // tails, pick a random doc
-              (getRandomItem(docs) as DocHandle<TestDoc>)
+            (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
@@ -1127,8 +1140,10 @@ describe("Repo", () => {
       })
       await pause(500)
 
-      // repo has no stored sync state for charlie so we should see 3 sync messages
+      // repo has no stored sync state for charlie so we should see 2 sync messages
       assert.strictEqual(bobSyncMessages, 3)
+
+      await bobRepo.flush()
 
       // setup new repo which uses bob's storage
       const bob2Repo = new Repo({
@@ -1240,7 +1255,6 @@ describe("Repo", () => {
     aliceDoc.change((doc: any) => (doc.text = "Hello world"))
 
     const bobDoc = bobRepo.find(aliceDoc.url)
-    bobDoc.unavailable()
     await eventPromise(bobDoc, "unavailable")
 
     aliceAdapter.peerCandidate(bob)
@@ -1394,7 +1408,7 @@ describe("Repo", () => {
 })
 
 const warn = console.warn
-const NO_OP = () => {}
+const NO_OP = () => { }
 
 const disableConsoleWarn = () => {
   console.warn = NO_OP
