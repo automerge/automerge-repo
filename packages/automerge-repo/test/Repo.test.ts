@@ -245,7 +245,7 @@ describe("Repo", () => {
       assert.equal(v?.foo, "bar")
     })
 
-    it.only("saves the document when creating it", async () => {
+    it("saves the document when creating it", async () => {
       const { repo, storageAdapter } = setup()
       const handle = repo.create<TestDoc>()
 

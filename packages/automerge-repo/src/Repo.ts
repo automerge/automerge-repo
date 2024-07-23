@@ -447,12 +447,12 @@ export class Repo extends EventEmitter<RepoEvents> {
         if (loadedDoc) {
           // uhhhh, sorry if you're reading this because we were lying to the type system
           handle.update(() => loadedDoc as Automerge.Doc<T>)
+          handle.doneLoading()
         } else {
           handle.request()
         }
       })
       
-      handle.doneLoading()
     } else {
       handle.request()
     }

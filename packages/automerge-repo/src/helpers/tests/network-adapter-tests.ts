@@ -31,7 +31,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
   describe(`Network adapter acceptance tests ${
     title ? `(${title})` : ""
   }`, () => {
-    it.only("can sync 2 repos", async () => {
+    it("can sync 2 repos", async () => {
       const doTest = async (
         a: NetworkAdapterInterface[],
         b: NetworkAdapterInterface[]
