@@ -57,9 +57,8 @@ export const stringifyAutomergeUrl = (
  * Given a string, returns true if it is a valid Automerge URL. This function also acts as a type
  * discriminator in Typescript.
  */
-export const isValidAutomergeUrl = (
-  str: string | undefined | null
-): str is AutomergeUrl => {
+export const isValidAutomergeUrl = (str: unknown): str is AutomergeUrl => {
+  if (typeof str !== "string") return false
   if (!str || !str.startsWith(urlPrefix)) return false
   const automergeUrl = str as AutomergeUrl
   try {
@@ -70,7 +69,8 @@ export const isValidAutomergeUrl = (
   }
 }
 
-export const isValidDocumentId = (str: string): str is DocumentId => {
+export const isValidDocumentId = (str: unknown): str is DocumentId => {
+  if (typeof str !== "string") return false
   // try to decode from base58
   const binaryDocumentID = documentIdToBinary(str as DocumentId)
   if (binaryDocumentID === undefined) return false // invalid base58check encoding
@@ -80,8 +80,8 @@ export const isValidDocumentId = (str: string): str is DocumentId => {
   return Uuid.validate(documentId)
 }
 
-export const isValidUuid = (str: string): str is LegacyDocumentId =>
-  Uuid.validate(str)
+export const isValidUuid = (str: unknown): str is LegacyDocumentId =>
+  typeof str === "string" && Uuid.validate(str)
 
 /**
  * Returns a new Automerge URL with a random UUID documentId. Called by Repo.create(), and also used by tests.
