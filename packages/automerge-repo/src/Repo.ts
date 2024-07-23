@@ -100,9 +100,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
       })
 
-      if (this.networkSubsystem.isReady()) {
-        handle.request()
-      } else {
+      if (!this.networkSubsystem.isReady()) {
         handle.awaitNetwork()
         this.networkSubsystem
           .whenReady()
@@ -547,6 +545,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         return this.storageSubsystem!.saveDoc(handle.documentId, doc)
       })
     )
+    return
   }
 }
 
