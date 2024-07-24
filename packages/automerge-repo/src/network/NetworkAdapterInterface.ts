@@ -41,6 +41,7 @@ export interface NetworkAdapterInterface
    * @argument peerMetadata - how this adapter should present itself to other peers
    */
   connect(peerId: PeerId, peerMetadata?: PeerMetadata): void
+  // TODO: should this just return a ready promise?
 
   /** Called by the {@link Repo} to send a message to a peer
    *

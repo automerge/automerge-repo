@@ -23,10 +23,6 @@ import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js
 import { SyncStatePayload } from "./synchronizer/Synchronizer.js"
 import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
 
-function randomPeerId() {
-  return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
-}
-
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
  *
@@ -65,7 +61,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   constructor({
     storage,
     network = [],
-    peerId = randomPeerId(),
+    peerId,
     sharePolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
@@ -537,7 +533,13 @@ export class Repo extends EventEmitter<RepoEvents> {
         return this.storageSubsystem!.saveDoc(handle.documentId, doc)
       })
     )
-    return
+  }
+
+  shutdown(): Promise<void> {
+    this.networkSubsystem.adapters.forEach(adapter => {
+      adapter.disconnect()
+    })
+    return this.flush()
   }
 }
 

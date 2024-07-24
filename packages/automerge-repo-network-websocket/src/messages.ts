@@ -5,12 +5,6 @@ import type {
 } from "@automerge/automerge-repo/slim"
 import type { ProtocolVersion } from "./protocolVersion.js"
 
-/** The sender is disconnecting */
-export type LeaveMessage = {
-  type: "leave"
-  senderId: PeerId
-}
-
 /** Sent by the client to the server to tell the server the clients PeerID */
 export type JoinMessage = {
   type: "join"
@@ -51,7 +45,7 @@ export type ErrorMessage = {
 }
 
 /** A message from the client to the server */
-export type FromClientMessage = JoinMessage | LeaveMessage | Message
+export type FromClientMessage = JoinMessage | Message
 
 /** A message from the server to the client */
 export type FromServerMessage = PeerMessage | ErrorMessage | Message
@@ -61,10 +55,6 @@ export type FromServerMessage = PeerMessage | ErrorMessage | Message
 export const isJoinMessage = (
   message: FromClientMessage
 ): message is JoinMessage => message.type === "join"
-
-export const isLeaveMessage = (
-  message: FromClientMessage
-): message is LeaveMessage => message.type === "leave"
 
 export const isPeerMessage = (
   message: FromServerMessage

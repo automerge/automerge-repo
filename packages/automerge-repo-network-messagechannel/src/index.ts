@@ -23,7 +23,27 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   channels = {}
   /** @hidden */
   messagePortRef: MessagePortRef
-  #startupComplete = false
+
+  #ready = false
+  #readyResolver?: () => void
+  #readyPromise: Promise<void> = new Promise<void>(resolve => {
+    this.#readyResolver = resolve
+  })
+
+  isReady() {
+    return this.#ready
+  }
+
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
 
   constructor(
     messagePort: MessagePort,
@@ -104,10 +124,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     // must be something weird going on on the other end to cause us to receive
     // no response
     setTimeout(() => {
-      if (!this.#startupComplete) {
-        this.#startupComplete = true
-        this.emit("ready", { network: this })
-      }
+      this.#forceReady()
     }, 100)
   }
 
@@ -131,10 +148,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   }
 
   announceConnection(peerId: PeerId, peerMetadata: PeerMetadata) {
-    if (!this.#startupComplete) {
-      this.#startupComplete = true
-      this.emit("ready", { network: this })
-    }
+    this.#forceReady()
     this.emit("peer-candidate", { peerId, peerMetadata })
   }
 

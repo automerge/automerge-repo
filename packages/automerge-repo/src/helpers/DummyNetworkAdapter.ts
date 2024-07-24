@@ -2,20 +2,44 @@ import { pause } from "../../src/helpers/pause.js"
 import { Message, NetworkAdapter, PeerId } from "../../src/index.js"
 
 export class DummyNetworkAdapter extends NetworkAdapter {
-  #startReady: boolean
   #sendMessage?: SendMessageFn
+
+  #ready = false
+  #readyResolver?: () => void
+  #readyPromise: Promise<void> = new Promise<void>(resolve => {
+    this.#readyResolver = resolve
+  })
+
+  isReady() {
+    return this.#ready
+  }
+
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
+
+  // A public wrapper for use in tests!
+  forceReady() {
+    this.#forceReady()
+  }
 
   constructor(opts: Options = { startReady: true }) {
     super()
-    this.#startReady = opts.startReady || false
+    if (opts.startReady) {
+      this.#forceReady()
+    }
     this.#sendMessage = opts.sendMessage
   }
 
   connect(peerId: PeerId) {
     this.peerId = peerId
-    if (this.#startReady) {
-      this.emit("ready", { network: this })
-    }
   }
 
   disconnect() {}

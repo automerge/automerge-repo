@@ -30,12 +30,20 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
   constructor(
     adapters: NetworkAdapterInterface[],
-    public peerId = randomPeerId(),
+    public peerId: PeerId,
     private peerMetadata: Promise<PeerMetadata>
   ) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
     adapters.forEach(a => this.addNetworkAdapter(a))
+  }
+
+  disconnect() {
+    this.adapters.forEach(a => a.disconnect())
+  }
+
+  reconnect() {
+    this.adapters.forEach(a => a.connect(this.peerId))
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
@@ -110,6 +118,13 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       })
   }
 
+  // TODO: this probably introduces a race condition for the ready event
+  // but I plan to refactor that as part of this branch in another patch
+  removeNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
+    this.adapters = this.adapters.filter(a => a !== networkAdapter)
+    networkAdapter.disconnect()
+  }
+
   send(message: MessageContents) {
     const peer = this.#adaptersByPeer[message.targetId]
     if (!peer) {
@@ -158,10 +173,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     }
     return Promise.all(this.adapters.map(a => a.whenReady()))
   }
-}
-
-function randomPeerId() {
-  return `user-${Math.round(Math.random() * 100000)}` as PeerId
 }
 
 // events & payloads
