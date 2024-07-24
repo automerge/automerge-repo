@@ -66,6 +66,28 @@ describe("Websocket adapters", () => {
       })
     })
 
+    it("should connect and emit peers", async () => {
+      const {
+        serverAdapter,
+        clients: [browserAdapter],
+      } = await setup()
+
+      const browserRepo = new Repo({
+        network: [browserAdapter],
+        peerId: browserPeerId,
+      })
+
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      await Promise.all([
+        eventPromise(browserRepo.networkSubsystem, "peer"),
+        eventPromise(serverRepo.networkSubsystem, "peer"),
+      ])
+    })
+
     it("should emit disconnect events on disconnect", async () => {
       const {
         serverAdapter,
@@ -82,17 +104,21 @@ describe("Websocket adapters", () => {
         peerId: serverPeerId,
       })
 
-      await eventPromise(serverRepo.networkSubsystem, "peer")
-
-      browserAdapter.disconnect()
-
       await Promise.all([
+        eventPromise(browserRepo.networkSubsystem, "peer"),
+        eventPromise(serverRepo.networkSubsystem, "peer"),
+      ])
+
+      const disconnectionPromises = Promise.all([
         eventPromise(browserAdapter, "peer-disconnected"),
         eventPromise(serverAdapter, "peer-disconnected"),
       ])
+      browserAdapter.disconnect()
+
+      await disconnectionPromises
     })
 
-    it.only("should not send messages after disconnect", async () => {
+    it("should not send messages after disconnect", async () => {
       const {
         serverAdapter,
         clients: [browserAdapter],
