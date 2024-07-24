@@ -425,7 +425,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
     }) as DocHandle<T>
 
-    // Try to load from disk
+    // Try to load from disk before telling anyone else about it
     if (this.storageSubsystem) {
       void this.storageSubsystem.loadDoc(handle.documentId).then(loadedDoc => {
         if (loadedDoc) {

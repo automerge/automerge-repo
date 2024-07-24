@@ -32,6 +32,9 @@ export interface NetworkAdapterInterface
   peerId?: PeerId
   peerMetadata?: PeerMetadata
 
+  isReady(): boolean
+  whenReady(): Promise<void>
+
   /** Called by the {@link Repo} to start the connection process
    *
    * @argument peerId - the peerId of this repo
@@ -52,9 +55,6 @@ export interface NetworkAdapterInterface
 // events & payloads
 
 export interface NetworkAdapterEvents {
-  /** Emitted when the network is ready to be used */
-  ready: (payload: OpenPayload) => void
-
   /** Emitted when the network is closed */
   close: () => void
 

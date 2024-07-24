@@ -26,8 +26,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #count = 0
   #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
   #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
-  #readyAdapterCount = 0
-  #adapters: NetworkAdapterInterface[] = []
+  adapters: NetworkAdapterInterface[] = []
 
   constructor(
     adapters: NetworkAdapterInterface[],
@@ -40,16 +39,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   addNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
-    this.#adapters.push(networkAdapter)
-    networkAdapter.once("ready", () => {
-      this.#readyAdapterCount++
-      this.#log(
-        "Adapters ready: ",
-        this.#readyAdapterCount,
-        "/",
-        this.#adapters.length
-      )
-      if (this.#readyAdapterCount === this.#adapters.length) {
+    this.adapters.push(networkAdapter)
+    void networkAdapter.whenReady().then(() => {
+      if (this.adapters.every(a => a.isReady())) {
         this.emit("ready")
       }
     })
@@ -157,22 +149,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   isReady = () => {
-    return (
-      this.#adapters.length === 0 ||
-      this.#readyAdapterCount === this.#adapters.length
-    )
+    return this.adapters.length === 0 || this.adapters.every(a => a.isReady())
   }
 
   whenReady = async () => {
-    if (this.isReady()) {
-      return
-    } else {
-      return new Promise<void>(resolve => {
-        this.once("ready", () => {
-          resolve()
-        })
-      })
+    if (this.adapters.length == 0) {
+      return Promise.resolve()
     }
+    return Promise.all(this.adapters.map(a => a.whenReady()))
   }
 }
 

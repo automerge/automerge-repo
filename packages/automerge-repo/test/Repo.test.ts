@@ -62,7 +62,7 @@ describe("Repo", () => {
       const { repo } = setup()
       const handle = repo.create()
       assert.notEqual(handle.documentId, null)
-      assert.equal(handle.isReady(), true)
+      assert.equal(handle.isReady(), true, `handle is in ${handle.state}, not ready`)
     })
 
     it("can create a document with an initial value", async () => {
