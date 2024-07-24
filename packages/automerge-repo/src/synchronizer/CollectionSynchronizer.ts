@@ -79,7 +79,8 @@ export class CollectionSynchronizer extends Synchronizer {
    */
   async receiveMessage(message: DocMessage) {
     log(
-      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${"data" in message ? message.data.byteLength + "bytes" : ""
+      `onSyncMessage: ${message.senderId}, ${message.documentId}, ${
+        "data" in message ? message.data.byteLength + "bytes" : ""
       }`
     )
 

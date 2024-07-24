@@ -12,7 +12,7 @@ describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
   const setup = (options?) => {
     const handle = new DocHandle<TestDoc>(TEST_ID, options)
-    handle.update( () => A.init() )
+    handle.update(() => A.init())
     handle.doneLoading()
     return handle
   }
@@ -58,7 +58,7 @@ describe("DocHandle", () => {
 
   it("should return the heads when requested", async () => {
     const handle = setup()
-    handle.change( d => d.foo = "bar")
+    handle.change(d => (d.foo = "bar"))
     assert.equal(handle.isReady(), true)
 
     const heads = A.getHeads(handle.docSync())
@@ -143,7 +143,7 @@ describe("DocHandle", () => {
 
   it("should emit a change message when changes happen", async () => {
     const handle = setup()
-    
+
     const p = new Promise<DocHandleChangePayload<TestDoc>>(resolve =>
       handle.once("change", d => resolve(d))
     )
@@ -174,7 +174,7 @@ describe("DocHandle", () => {
 
   it("should update the internal doc prior to emitting the change message", async () => {
     const handle = setup()
-    
+
     const p = new Promise<void>(resolve =>
       handle.once("change", ({ handle, doc }) => {
         assert.equal(handle.docSync()?.foo, doc.foo)
@@ -192,7 +192,7 @@ describe("DocHandle", () => {
 
   it("should emit distinct change messages when consecutive changes happen", async () => {
     const handle = setup()
-    
+
     let calls = 0
     const p = new Promise(resolve =>
       handle.on("change", async ({ doc: d }) => {
@@ -284,7 +284,7 @@ describe("DocHandle", () => {
 
   it("should not time out if the document is updated in time", async () => {
     // set docHandle time out after 5 ms
-    const handle = setup({timeoutDelay:1})
+    const handle = setup({ timeoutDelay: 1 })
 
     // simulate requesting from the network
     handle.request()

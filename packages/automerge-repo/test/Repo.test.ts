@@ -490,8 +490,8 @@ describe("Repo", () => {
       let resume = (documentIds?: DocumentId[]) => {
         const savesToUnblock = documentIds
           ? Array.from(blockedSaves).filter(({ path }) =>
-            documentIds.some(documentId => path.includes(documentId))
-          )
+              documentIds.some(documentId => path.includes(documentId))
+            )
           : Array.from(blockedSaves)
         savesToUnblock.forEach(({ resolve }) => resolve())
       }
@@ -1029,9 +1029,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-            repo.create<TestDoc>()
+              repo.create<TestDoc>()
             : // tails, pick a random doc
-            (getRandomItem(docs) as DocHandle<TestDoc>)
+              (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make sure the doc is ready
         if (!doc.isReady()) {
@@ -1414,7 +1414,7 @@ describe("Repo", () => {
 })
 
 const warn = console.warn
-const NO_OP = () => { }
+const NO_OP = () => {}
 
 const disableConsoleWarn = () => {
   console.warn = NO_OP

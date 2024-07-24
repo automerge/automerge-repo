@@ -24,11 +24,11 @@ describe("DocSynchronizer", () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
     handle = new DocHandle<TestDoc>(docId)
     handle.doneLoading()
-    
+
     docSynchronizer = new DocSynchronizer({
       handle: handle as DocHandle<unknown>,
     })
-    
+
     return { handle, docSynchronizer }
   }
 
