@@ -96,5 +96,9 @@ describe("AutomergeUrl", () => {
       const url = stringifyAutomergeUrl({ documentId: badUuidDocumentId })
       assert(isValidAutomergeUrl(url) === false)
     })
+
+    it("should return false for a documentId that is just some random type", () => {
+      assert(isValidAutomergeUrl({ foo: "bar" } as unknown) === false)
+    })
   })
 })
