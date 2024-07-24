@@ -270,7 +270,7 @@ async function connectRepos(a: Repo, b: Repo) {
   a.networkSubsystem.addNetworkAdapter(aAdapter)
   b.networkSubsystem.addNetworkAdapter(bAdapter)
   await Promise.all([
-    eventPromise(a.networkSubsystem, "ready"),
-    eventPromise(b.networkSubsystem, "ready"),
+    a.networkSubsystem.whenReady(),
+    a.networkSubsystem.whenReady(),
   ])
 }

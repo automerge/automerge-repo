@@ -48,11 +48,6 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
   addNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
     this.adapters.push(networkAdapter)
-    void networkAdapter.whenReady().then(() => {
-      if (this.adapters.every(a => a.isReady())) {
-        this.emit("ready")
-      }
-    })
 
     networkAdapter.on("peer-candidate", ({ peerId, peerMetadata }) => {
       this.#log(`peer candidate: ${peerId} `)
@@ -181,7 +176,6 @@ export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
   message: (payload: RepoMessage) => void
-  ready: () => void
 }
 
 export interface PeerPayload {
