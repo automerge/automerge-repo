@@ -91,8 +91,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       states: {
         idle: {
           on: {
-            CREATE: "ready",
-            FIND: "loading",
+            BEGIN: "loading",
           },
         },
         loading: {
@@ -132,7 +131,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     // Start the machine, and send a create or find event to get things going
     this.#machine.start()
-    this.#machine.send({ type: FIND })
+    this.#machine.send({ type: BEGIN })
   }
 
   // PRIVATE
@@ -448,19 +447,19 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 export type DocHandleOptions<T> =
   // NEW DOCUMENTS
   | {
-      /** If we know this is a new document (because we're creating it) this should be set to true. */
-      isNew: true
+    /** If we know this is a new document (because we're creating it) this should be set to true. */
+    isNew: true
 
-      /** The initial value of the document. */
-      initialValue?: T
-    }
+    /** The initial value of the document. */
+    initialValue?: T
+  }
   // EXISTING DOCUMENTS
   | {
-      isNew?: false
+    isNew?: false
 
-      /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
-      timeoutDelay?: number
-    }
+    /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
+    timeoutDelay?: number
+  }
 
 // EXTERNAL EVENTS
 
@@ -561,18 +560,18 @@ interface DocHandleContext<T> {
 
 /** These are the (internal) events that can be sent to the state machine */
 type DocHandleEvent<T> =
-  | { type: typeof FIND }
+  | { type: typeof BEGIN }
   | { type: typeof REQUEST }
   | { type: typeof DOC_READY }
   | {
-      type: typeof UPDATE
-      payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
-    }
+    type: typeof UPDATE
+    payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
+  }
   | { type: typeof TIMEOUT }
   | { type: typeof DELETE }
   | { type: typeof DOC_UNAVAILABLE }
 
-const FIND = "FIND"
+const BEGIN = "BEGIN"
 const REQUEST = "REQUEST"
 const DOC_READY = "DOC_READY"
 const UPDATE = "UPDATE"
