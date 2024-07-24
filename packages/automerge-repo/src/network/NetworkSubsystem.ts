@@ -157,7 +157,10 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   isReady = () => {
-    return this.#readyAdapterCount === this.#adapters.length
+    return (
+      this.#adapters.length === 0 ||
+      this.#readyAdapterCount === this.#adapters.length
+    )
   }
 
   whenReady = async () => {

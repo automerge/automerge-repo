@@ -198,8 +198,11 @@ describe("Repo", () => {
     it("doesn't find a document that doesn't exist", async () => {
       const { repo } = setup()
       const handle = repo.find<TestDoc>(generateAutomergeUrl())
-      assert.equal(handle.isReady(), false)
 
+      await handle.whenReady(["ready", "unavailable"])
+
+      assert.equal(handle.isReady(), false)
+      assert.equal(handle.state, "unavailable")
       const doc = await handle.doc()
       assert.equal(doc, undefined)
     })
@@ -221,6 +224,7 @@ describe("Repo", () => {
       handle.on("unavailable", () => {
         wasUnavailable = true
       })
+
       await pause(50)
       assert.equal(wasUnavailable, false)
 
@@ -399,6 +403,8 @@ describe("Repo", () => {
       handle.change(d => {
         d.count = 1
       })
+
+      await repo.flush()
 
       for (let i = 0; i < 3; i++) {
         const repo2 = new Repo({
