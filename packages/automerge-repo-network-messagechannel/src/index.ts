@@ -62,6 +62,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     log("messageport connecting")
     this.peerId = peerId
     this.peerMetadata = peerMetadata
+
     this.messagePortRef.start()
     this.messagePortRef.addListener(
       "message",
@@ -153,8 +154,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   }
 
   disconnect() {
-    // TODO
-    throw new Error("Unimplemented: leave on MessagePortNetworkAdapter")
+    this.messagePortRef.stop()
   }
 }
 
