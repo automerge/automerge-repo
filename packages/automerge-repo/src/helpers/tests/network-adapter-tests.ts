@@ -203,7 +203,49 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       teardown()
     })
 
-    it.only("should not send messages after disconnect", async () => {
+    it("should not send messages after disconnect", async () => {
+      const { adapters, teardown } = await setup()
+      const left = adapters[0][0]
+      const right = adapters[1][0]
+
+      const leftPeerId = "left" as PeerId
+      const rightPeerId = "right" as PeerId
+
+      const leftRepo = new Repo({
+        network: [left],
+        peerId: leftPeerId,
+      })
+
+      const rightRepo = new Repo({
+        network: [right],
+        peerId: rightPeerId,
+      })
+
+      await eventPromise(rightRepo.networkSubsystem, "peer")
+
+      left.disconnect()
+      await pause(100)
+
+      const rightReceived = Promise.race([
+        eventPromise(right, "message"),
+        pause(10)
+      ])
+
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      left.send({
+        // @ts-ignore
+        type: "foo",
+        data: new Uint8Array([1, 2, 3]),
+        documentId,
+        senderId: leftPeerId,
+        targetId: rightPeerId,
+      })
+
+      assert.equal(await rightReceived, null)
+      teardown()
+    })
+
+    it("should support reconnecting after disconnect", async () => {
       const { adapters, teardown } = await setup()
       const left = adapters[0][0]
       const right = adapters[1][0]
@@ -225,59 +267,12 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       left.disconnect()
 
-      const rightReceived = Promise.race([
-        eventPromise(rightRepo.networkSubsystem, "message"),
-        pause(10)
-      ])
+      await pause(10)
 
-      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
-      left.send({
-        // @ts-ignore
-        type: "foo",
-        data: new Uint8Array([1, 2, 3]),
-        documentId,
-        senderId: leftPeerId,
-        targetId: rightPeerId,
-      })
-
-      assert.equal(await rightReceived, null)
+      left.connect(leftPeerId)
+      await eventPromise(left, "peer-candidate")
+      teardown()
     })
-
-    //it("should support reconnecting after disconnect", async () => {
-      //const {
-        //serverAdapter,
-        //clients: [browserAdapter],
-      //} = await setup()
-
-      //const browserRepo = new Repo({
-        //network: [browserAdapter],
-        //peerId: browserPeerId,
-      //})
-
-      //const serverRepo = new Repo({
-        //network: [serverAdapter],
-        //peerId: serverPeerId,
-      //})
-
-      //await eventPromise(serverRepo.networkSubsystem, "peer")
-
-      //browserAdapter.disconnect()
-
-      //const sendMessage = () => {
-        //browserAdapter.send({
-          //// @ts-ignore
-          //type: "foo",
-          //data: new Uint8Array([1, 2, 3]),
-          //documentId,
-          //senderId: browserPeerId,
-          //targetId: serverPeerId,
-        //})
-      //}
-      //assert.throws(sendMessage, /disconnected/)
-
-      //browserAdapter.connect(browserPeerId)
-      //await eventPromise(browserAdapter, "peer-candidate")
-    //})
   })
 }
 
