@@ -173,7 +173,8 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
       throw new Error("Tried to send a zero-length message")
     assert(this.peerId)
     if (!this.socket) {
-      throw new Error("No socket -- has the network been disconnected()?")
+      this.#log("Tried to send on a disconnected socket.")
+      return
     }
     if (this.socket.readyState !== WebSocket.OPEN)
       throw new Error(`Websocket not ready (${this.socket.readyState})`)

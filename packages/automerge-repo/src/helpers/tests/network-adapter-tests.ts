@@ -1,9 +1,16 @@
 import assert from "assert"
 import { describe, expect, it } from "vitest"
-import { generateAutomergeUrl, parseAutomergeUrl, PeerId, PeerMetadata, Repo, StorageId } from "../../index.js"
+import {
+  generateAutomergeUrl,
+  parseAutomergeUrl,
+  PeerId,
+  PeerMetadata,
+  Repo,
+  StorageId,
+} from "../../index.js"
 import type { NetworkAdapterInterface } from "../../network/NetworkAdapterInterface.js"
 import { eventPromise, eventPromises } from "../eventPromise.js"
-import { pause }from "../pause.js"
+import { pause } from "../pause.js"
 
 /**
  * Runs a series of tests against a set of three peers, each represented by one or more instantiated
@@ -228,7 +235,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       const rightReceived = Promise.race([
         eventPromise(right, "message"),
-        pause(10)
+        pause(10),
       ])
 
       const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -294,5 +301,3 @@ const toArray = <T>(x: T | T[]) => (Array.isArray(x) ? x : [x])
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId
 const charlie = "charlie" as PeerId
-
-const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
