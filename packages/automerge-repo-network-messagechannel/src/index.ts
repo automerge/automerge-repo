@@ -29,6 +29,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   #readyPromise: Promise<void> = new Promise<void>(resolve => {
     this.#readyResolver = resolve
   })
+  #remotePeerId?: PeerId
 
   isReady() {
     return this.#ready
@@ -97,6 +98,10 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
               this.announceConnection(senderId, peerMetadata)
             }
             break
+          case "leave":
+            if (this.#remotePeerId === senderId) {
+              this.emit("peer-disconnected", { peerId: senderId })
+            }
           default:
             if (!("data" in message)) {
               this.emit("message", message)
@@ -149,12 +154,19 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   }
 
   announceConnection(peerId: PeerId, peerMetadata: PeerMetadata) {
+    this.#remotePeerId = peerId
     this.#forceReady()
     this.emit("peer-candidate", { peerId, peerMetadata })
   }
 
   disconnect() {
+    if (this.#remotePeerId)
+      this.send({
+        type: "leave",
+        senderId: this.peerId,
+      })
     this.messagePortRef.stop()
+    this.emit("peer-disconnected", { peerId: this.#remotePeerId })
   }
 }
 
