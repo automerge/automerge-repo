@@ -1263,7 +1263,6 @@ describe("Repo", () => {
     aliceDoc.change((doc: any) => (doc.text = "Hello world"))
 
     const bobDoc = bobRepo.find(aliceDoc.url)
-    bobDoc.unavailable()
     await eventPromise(bobDoc, "unavailable")
 
     aliceAdapter.peerCandidate(bob)
