@@ -27,8 +27,31 @@ export type BroadcastChannelNetworkAdapterOptions = {
 
 export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel
+  #disconnected = false
 
   #options: BroadcastChannelNetworkAdapterOptions
+
+  #ready = false
+  #readyResolver?: () => void
+  #readyPromise: Promise<void> = new Promise<void>(resolve => {
+    this.#readyResolver = resolve
+  })
+  #connectedPeers: PeerId[] = []
+
+  isReady() {
+    return this.#ready
+  }
+
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
 
   constructor(options?: BroadcastChannelNetworkAdapterOptions) {
     super()
@@ -39,12 +62,17 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
+    this.#disconnected = false
 
     this.#broadcastChannel.addEventListener(
       "message",
       (e: { data: BroadcastChannelMessage }) => {
         const message = e.data
         if ("targetId" in message && message.targetId !== this.peerId) {
+          return
+        }
+
+        if (this.#disconnected) {
           return
         }
 
@@ -69,6 +97,12 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
               this.#announceConnection(senderId, peerMetadata)
             }
             break
+          case "leave":
+            this.#connectedPeers = this.#connectedPeers.filter(
+              p => p !== senderId
+            )
+            this.emit("peer-disconnected", { peerId: senderId })
+            break
           default:
             if (!("data" in message)) {
               this.emit("message", message)
@@ -89,15 +123,18 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
       type: "arrive",
       peerMetadata,
     })
-
-    this.emit("ready", { network: this })
   }
 
   #announceConnection(peerId: PeerId, peerMetadata: PeerMetadata) {
+    this.#forceReady()
+    this.#connectedPeers.push(peerId)
     this.emit("peer-candidate", { peerId, peerMetadata })
   }
 
   send(message: Message) {
+    if (this.#disconnected) {
+      return false
+    }
     if ("data" in message) {
       this.#broadcastChannel.postMessage({
         ...message,
@@ -114,8 +151,14 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   disconnect() {
-    // TODO:
-    throw new Error("Unimplemented: leave on BroadcastChannelNetworkAdapter")
+    this.#broadcastChannel.postMessage({
+      senderId: this.peerId,
+      type: "leave",
+    })
+    for (const peerId of this.#connectedPeers) {
+      this.emit("peer-disconnected", { peerId })
+    }
+    this.#disconnected = true
   }
 }
 

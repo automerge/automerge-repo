@@ -23,6 +23,9 @@ export abstract class NetworkAdapter
   peerId?: PeerId
   peerMetadata?: PeerMetadata
 
+  abstract isReady(): boolean
+  abstract whenReady(): Promise<void>
+
   /** Called by the {@link Repo} to start the connection process
    *
    * @argument peerId - the peerId of this repo

@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import { describe, it } from "vitest"
-import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/dist/index.js"
+import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import {
@@ -270,7 +270,7 @@ async function connectRepos(a: Repo, b: Repo) {
   a.networkSubsystem.addNetworkAdapter(aAdapter)
   b.networkSubsystem.addNetworkAdapter(bAdapter)
   await Promise.all([
-    eventPromise(a.networkSubsystem, "ready"),
-    eventPromise(b.networkSubsystem, "ready"),
+    a.networkSubsystem.whenReady(),
+    a.networkSubsystem.whenReady(),
   ])
 }

@@ -24,7 +24,27 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
 }
 
 export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
-  #isReady = false
+  #ready = false
+  #readyResolver?: () => void
+  #readyPromise: Promise<void> = new Promise<void>(resolve => {
+    this.#readyResolver = resolve
+  })
+
+  isReady() {
+    return this.#ready
+  }
+
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
+
   #retryIntervalId?: TimeoutId
   #log = debug("automerge-repo:websocket:browser")
 
@@ -71,7 +91,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     // Mark this adapter as ready if we haven't received an ack in 1 second.
     // We might hear back from the other end at some point but we shouldn't
     // hold up marking things as unavailable for any longer
-    setTimeout(() => this.#ready(), 1000)
+    setTimeout(() => this.#forceReady(), 1000)
     this.join()
   }
 
@@ -121,12 +141,6 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.#log("Connection failed, retrying...")
   }
 
-  #ready() {
-    if (this.#isReady) return
-    this.#isReady = true
-    this.emit("ready", { network: this })
-  }
-
   join() {
     assert(this.peerId)
     assert(this.socket)
@@ -140,14 +154,28 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
   disconnect() {
     assert(this.peerId)
     assert(this.socket)
-    this.send({ type: "leave", senderId: this.peerId })
+    const socket = this.socket
+    if (socket) {
+      socket.removeEventListener("open", this.onOpen)
+      socket.removeEventListener("close", this.onClose)
+      socket.removeEventListener("message", this.onMessage)
+      socket.removeEventListener("error", this.onError)
+      socket.close()
+    }
+    clearInterval(this.#retryIntervalId)
+    if (this.remotePeerId)
+      this.emit("peer-disconnected", { peerId: this.remotePeerId })
+    this.socket = undefined
   }
 
   send(message: FromClientMessage) {
     if ("data" in message && message.data?.byteLength === 0)
       throw new Error("Tried to send a zero-length message")
     assert(this.peerId)
-    assert(this.socket)
+    if (!this.socket) {
+      this.#log("Tried to send on a disconnected socket.")
+      return
+    }
     if (this.socket.readyState !== WebSocket.OPEN)
       throw new Error(`Websocket not ready (${this.socket.readyState})`)
 
@@ -157,7 +185,7 @@ export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
 
   peerCandidate(remotePeerId: PeerId, peerMetadata: PeerMetadata) {
     assert(this.socket)
-    this.#ready()
+    this.#forceReady()
     this.remotePeerId = remotePeerId
     this.emit("peer-candidate", {
       peerId: remotePeerId,

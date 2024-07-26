@@ -14,7 +14,6 @@ import {
   FromClientMessage,
   FromServerMessage,
   isJoinMessage,
-  isLeaveMessage,
 } from "./messages.js"
 import { ProtocolV1, ProtocolVersion } from "./protocolVersion.js"
 import { assert } from "./assert.js"
@@ -24,6 +23,27 @@ const { encode, decode } = cborHelpers
 
 export class NodeWSServerAdapter extends NetworkAdapter {
   sockets: { [peerId: PeerId]: WebSocket } = {}
+
+  #ready = false
+  #readyResolver?: () => void
+  #readyPromise: Promise<void> = new Promise<void>(resolve => {
+    this.#readyResolver = resolve
+  })
+
+  isReady() {
+    return this.#ready
+  }
+
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
 
   constructor(
     private server: WebSocketServer,
@@ -55,7 +75,7 @@ export class NodeWSServerAdapter extends NetworkAdapter {
       socket.isAlive = true
       socket.on("pong", () => (socket.isAlive = true))
 
-      this.emit("ready", { network: this })
+      this.#forceReady()
     })
 
     const keepAliveId = setInterval(() => {
@@ -147,12 +167,6 @@ export class NodeWSServerAdapter extends NetworkAdapter {
           targetId: senderId,
         })
       }
-    } else if (isLeaveMessage(message)) {
-      const { senderId } = message
-      const socket = this.sockets[senderId]
-      /* c8 ignore next */
-      if (!socket) return
-      this.#terminate(socket as WebSocketWithIsAlive)
     } else {
       this.emit("message", message)
     }

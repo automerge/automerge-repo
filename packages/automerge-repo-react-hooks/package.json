@@ -25,7 +25,7 @@
     "@testing-library/react": "^14.0.0",
     "jsdom": "^22.1.0",
     "rollup-plugin-visualizer": "^5.9.3",
-    "vite-plugin-dts": "^3.6.4"
+    "vite-plugin-dts": "^3.9.1"
   },
   "peerDependencies": {
     "react": ">16.8.0",

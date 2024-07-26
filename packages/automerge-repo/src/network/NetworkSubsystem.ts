@@ -26,12 +26,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #count = 0
   #sessionId: SessionId = Math.random().toString(36).slice(2) as SessionId
   #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
-  #readyAdapterCount = 0
-  #adapters: NetworkAdapterInterface[] = []
+  adapters: NetworkAdapterInterface[] = []
 
   constructor(
     adapters: NetworkAdapterInterface[],
-    public peerId = randomPeerId(),
+    public peerId: PeerId,
     private peerMetadata: Promise<PeerMetadata>
   ) {
     super()
@@ -39,20 +38,16 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
+  disconnect() {
+    this.adapters.forEach(a => a.disconnect())
+  }
+
+  reconnect() {
+    this.adapters.forEach(a => a.connect(this.peerId))
+  }
+
   addNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
-    this.#adapters.push(networkAdapter)
-    networkAdapter.once("ready", () => {
-      this.#readyAdapterCount++
-      this.#log(
-        "Adapters ready: ",
-        this.#readyAdapterCount,
-        "/",
-        this.#adapters.length
-      )
-      if (this.#readyAdapterCount === this.#adapters.length) {
-        this.emit("ready")
-      }
-    })
+    this.adapters.push(networkAdapter)
 
     networkAdapter.on("peer-candidate", ({ peerId, peerMetadata }) => {
       this.#log(`peer candidate: ${peerId} `)
@@ -118,6 +113,13 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       })
   }
 
+  // TODO: this probably introduces a race condition for the ready event
+  // but I plan to refactor that as part of this branch in another patch
+  removeNetworkAdapter(networkAdapter: NetworkAdapterInterface) {
+    this.adapters = this.adapters.filter(a => a !== networkAdapter)
+    networkAdapter.disconnect()
+  }
+
   send(message: MessageContents) {
     const peer = this.#adaptersByPeer[message.targetId]
     if (!peer) {
@@ -157,27 +159,12 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   }
 
   isReady = () => {
-    return (
-      this.#adapters.length === 0 ||
-      this.#readyAdapterCount === this.#adapters.length
-    )
+    return this.adapters.every(a => a.isReady())
   }
 
   whenReady = async () => {
-    if (this.isReady()) {
-      return
-    } else {
-      return new Promise<void>(resolve => {
-        this.once("ready", () => {
-          resolve()
-        })
-      })
-    }
+    return Promise.all(this.adapters.map(a => a.whenReady()))
   }
-}
-
-function randomPeerId() {
-  return `user-${Math.round(Math.random() * 100000)}` as PeerId
 }
 
 // events & payloads
@@ -186,7 +173,6 @@ export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
   message: (payload: RepoMessage) => void
-  ready: () => void
 }
 
 export interface PeerPayload {
