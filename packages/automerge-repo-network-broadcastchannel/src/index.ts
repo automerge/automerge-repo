@@ -98,8 +98,11 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
             }
             break
           case "leave":
-            this.#connectedPeers = this.#connectedPeers.filter(p => p !== senderId)
+            this.#connectedPeers = this.#connectedPeers.filter(
+              p => p !== senderId
+            )
             this.emit("peer-disconnected", { peerId: senderId })
+            break
           default:
             if (!("data" in message)) {
               this.emit("message", message)
@@ -121,7 +124,6 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
       peerMetadata,
     })
   }
-
 
   #announceConnection(peerId: PeerId, peerMetadata: PeerMetadata) {
     this.#forceReady()

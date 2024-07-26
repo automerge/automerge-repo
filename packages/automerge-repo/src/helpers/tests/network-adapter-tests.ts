@@ -218,7 +218,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       const leftPeerId = "left" as PeerId
       const rightPeerId = "right" as PeerId
 
-      const leftRepo = new Repo({
+      const _leftRepo = new Repo({
         network: [left],
         peerId: leftPeerId,
       })
@@ -230,17 +230,23 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       await eventPromise(rightRepo.networkSubsystem, "peer")
 
-      left.disconnect()
-      await pause(100)
+      const disconnected = eventPromise(right, "peer-disconnected")
 
-      const rightReceived = Promise.race([
-        eventPromise(right, "message"),
-        pause(10),
-      ])
+      left.disconnect()
+      await disconnected
+
+      const rightReceivedFromLeft = new Promise(resolve => {
+        right.on("message", msg => {
+          if (msg.senderId === leftPeerId) {
+            resolve(null)
+          }
+        })
+      })
+
+      const rightReceived = Promise.race([rightReceivedFromLeft, pause(10)])
 
       const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
       left.send({
-        // @ts-ignore
         type: "foo",
         data: new Uint8Array([1, 2, 3]),
         documentId,
@@ -260,7 +266,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       const leftPeerId = "left" as PeerId
       const rightPeerId = "right" as PeerId
 
-      const leftRepo = new Repo({
+      const _leftRepo = new Repo({
         network: [left],
         peerId: leftPeerId,
       })
