@@ -218,7 +218,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       const leftPeerId = "left" as PeerId
       const rightPeerId = "right" as PeerId
 
-      const _leftRepo = new Repo({
+      const leftRepo = new Repo({
         network: [left],
         peerId: leftPeerId,
       })
@@ -228,7 +228,10 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         peerId: rightPeerId,
       })
 
-      await eventPromise(rightRepo.networkSubsystem, "peer")
+      await Promise.all([
+        eventPromise(rightRepo.networkSubsystem, "peer"),
+        eventPromise(leftRepo.networkSubsystem, "peer"),
+      ])
 
       const disconnected = eventPromise(right, "peer-disconnected")
 
