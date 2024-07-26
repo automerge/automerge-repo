@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@automerge/automerge':
-        specifier: ^2.2.5
-        version: 2.2.5
+        specifier: ^2.2.7
+        version: 2.2.7
       '@manypkg/cli':
         specifier: ^0.21.3
         version: 0.21.4
@@ -117,8 +117,8 @@ importers:
   examples/react-counter:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.2.5
-        version: 2.2.5
+        specifier: ^2.2.7
+        version: 2.2.7
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../../packages/automerge-repo
@@ -144,8 +144,8 @@ importers:
   examples/react-todo:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.2.5
-        version: 2.2.5
+        specifier: ^2.2.7
+        version: 2.2.7
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../../packages/automerge-repo
@@ -221,8 +221,8 @@ importers:
   examples/svelte-counter:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.2.5
-        version: 2.2.5
+        specifier: ^2.2.7
+        version: 2.2.7
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../../packages/automerge-repo
@@ -280,8 +280,8 @@ importers:
   packages/automerge-repo:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.2.5
-        version: 2.2.5
+        specifier: ^2.2.7
+        version: 2.2.7
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -359,8 +359,8 @@ importers:
   packages/automerge-repo-react-hooks:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.2.5
-        version: 2.2.5
+        specifier: ^2.2.7
+        version: 2.2.7
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -437,6 +437,9 @@ packages:
 
   '@automerge/automerge@2.2.5':
     resolution: {integrity: sha512-ckew+wwjSJwjRwMnf8vqzhThykp0gyUNqKv2b7dLoLb0mfQyPEFaemrsUiHh9WdX73jrH5eXsqqPJK4/yqpviQ==}
+
+  '@automerge/automerge@2.2.7':
+    resolution: {integrity: sha512-U2/840jDIpTH8WxI1CQE88xR1RjMZBthpn/PHbkm0yFHcXMKX+1LkQC8HsTKYpxcMWBqmCXLunoB+KGzr76bxw==}
 
   '@babel/code-frame@7.24.7':
     resolution: {integrity: sha512-BcYH1CVJBO9tvyIZ2jVeXgSIMvGZ2FDRvDdOIVQyuklNKSsx+eppDEBq/g47Ayw+RqNFE+URvOShmf+f/qwAlA==}
@@ -5572,6 +5575,10 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.25
 
   '@automerge/automerge@2.2.5':
+    dependencies:
+      uuid: 9.0.1
+
+  '@automerge/automerge@2.2.7':
     dependencies:
       uuid: 9.0.1
 
