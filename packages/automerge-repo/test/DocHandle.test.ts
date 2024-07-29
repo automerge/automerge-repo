@@ -7,6 +7,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
+import { CLEARED } from "../src/DocHandle.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -311,6 +312,34 @@ describe("DocHandle", () => {
     await p
 
     assert.equal(handle.isDeleted(), true)
+  })
+
+  it("should clear document reference when cleared", async () => {
+    const handle = setup()
+
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+    const doc = await handle.doc()
+    assert.equal(doc?.foo, "bar")
+
+    handle.clear()
+    const clearedDoc = await handle.doc([CLEARED])
+
+    assert.equal(handle.isCleared(), true)
+    assert.equal(handle.isReady(), false)
+    assert.equal(handle.docSync(), undefined)
+    assert.equal(clearedDoc?.foo, undefined)
+  })
+
+  it("should prevent transitioning out of cleared state because it is final", async () => {
+    const handle = setup()
+
+    handle.clear()
+    await handle.doc([CLEARED])
+
+    assert.throws(() => handle.change(d => (d.foo = "bar")))
+    assert.equal(handle.isCleared(), true)
   })
 
   it("should allow changing at old heads", async () => {
