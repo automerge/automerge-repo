@@ -55,6 +55,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   sharePolicy: SharePolicy = async () => true
 
+  /** By default, we sync with all peers. */
+  /** @hidden */
+  syncPolicy: SyncPolicy = async () => true
+
   /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
   /** @hidden */
   peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
@@ -67,6 +71,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     network = [],
     peerId = randomPeerId(),
     sharePolicy,
+    syncPolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
   }: RepoConfig = {}) {
@@ -74,6 +79,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
+    this.syncPolicy = syncPolicy ?? this.syncPolicy
 
     // DOC COLLECTION
 
@@ -568,6 +574,11 @@ export interface RepoConfig {
   sharePolicy?: SharePolicy
 
   /**
+   * A callback can be provided to implement authorization based on document ID and peer ID.
+   */
+  syncPolicy?: SyncPolicy
+
+  /**
    * Whether to enable the experimental remote heads gossiping feature
    */
   enableRemoteHeadsGossiping?: boolean
@@ -582,6 +593,18 @@ export interface RepoConfig {
  * document with the peer given by `peerId`.
  * */
 export type SharePolicy = (
+  peerId: PeerId,
+  documentId?: DocumentId
+) => Promise<boolean>
+
+/** A function that determines whether we should sync a document with a peer
+ *
+ * @remarks
+ * This function is called by the {@link Repo} every time a peer requests to
+ * sync a document. If this function returns `true` the document syncs normally;
+ * if `false`, it reports the document as unavailable.
+ * */
+export type SyncPolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
