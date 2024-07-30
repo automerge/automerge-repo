@@ -72,6 +72,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           this.emit("delete", { handle: this })
           return { doc: A.init() }
         }),
+        onClear: assign(() => {
+          return { doc: A.init() }
+        }),
         onUnavailable: () => {
           this.emit("unavailable", { handle: this })
         },
@@ -87,6 +90,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       on: {
         UPDATE: { actions: "onUpdate" },
         DELETE: ".deleted",
+        CLEAR: ".cleared",
       },
       states: {
         idle: {
@@ -114,6 +118,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         },
         ready: {},
         deleted: { entry: "onDelete", type: "final" },
+        cleared: { entry: "onClear", type: "final" },
       },
     })
 
@@ -210,6 +215,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * possible at runtime to undelete a document.
    */
   isDeleted = () => this.inState(["deleted"])
+
+  /**
+   * @returns true if the document has been marked as cleared.
+   *
+   * Cleared documents are removed from the sync process but not storage.
+   */
+  isCleared = () => this.inState(["cleared"])
 
   /**
    * @returns true if the document is currently unavailable.
@@ -426,6 +438,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.#machine.send({ type: DELETE })
   }
 
+  /** Called by the repo when the document is cleared from handleCache. */
+  clear() {
+    this.#machine.send({ type: CLEAR })
+  }
+
   /**
    * Sends an arbitrary ephemeral message out to all reachable peers who would receive sync messages
    * from you. It has no guarantee of delivery, and is not persisted to the underlying automerge doc
@@ -541,12 +558,14 @@ export const HandleState = {
   READY: "ready",
   /** The document has been deleted from the repo */
   DELETED: "deleted",
+  /** The document has been removed from the repo and handleCache but not deleted from storage */
+  CLEARED: "cleared",
   /** The document was not available in storage or from any connected peers */
   UNAVAILABLE: "unavailable",
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
-export const { IDLE, LOADING, REQUESTING, READY, DELETED, UNAVAILABLE } =
+export const { IDLE, LOADING, REQUESTING, READY, DELETED, CLEARED, UNAVAILABLE } =
   HandleState
 
 // context
@@ -567,8 +586,9 @@ type DocHandleEvent<T> =
       type: typeof UPDATE
       payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
     }
-  | { type: typeof TIMEOUT }
   | { type: typeof DELETE }
+  | { type: typeof CLEAR }
+  | { type: typeof TIMEOUT }
   | { type: typeof DOC_UNAVAILABLE }
 
 const BEGIN = "BEGIN"
@@ -576,5 +596,6 @@ const REQUEST = "REQUEST"
 const DOC_READY = "DOC_READY"
 const UPDATE = "UPDATE"
 const DELETE = "DELETE"
+const CLEAR = "CLEAR"
 const TIMEOUT = "TIMEOUT"
 const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"
