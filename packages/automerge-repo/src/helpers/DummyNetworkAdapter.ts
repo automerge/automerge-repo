@@ -5,20 +5,20 @@ export class DummyNetworkAdapter extends NetworkAdapter {
   #sendMessage?: SendMessageFn
 
   #ready = false
-  #isDroppingMessages = false;
+  #isDroppingMessages = false
   #readyResolver?: () => void
   #readyPromise: Promise<void> = new Promise<void>(resolve => {
     this.#readyResolver = resolve
   })
 
-  #droppedMessages: Message[] = [];
+  #droppedMessages: Message[] = []
 
   dropMessages(drop: boolean) {
-    this.#isDroppingMessages = drop;
+    this.#isDroppingMessages = drop
   }
 
   getDroppedMessages() {
-    return [...this.#droppedMessages];
+    return [...this.#droppedMessages]
   }
 
   isReady() {
@@ -61,7 +61,7 @@ export class DummyNetworkAdapter extends NetworkAdapter {
 
   override send(message: Message) {
     if (this.#isDroppingMessages) {
-      this.#droppedMessages.push(message);
+      this.#droppedMessages.push(message)
     } else {
       this.#sendMessage?.(message)
     }
@@ -69,7 +69,7 @@ export class DummyNetworkAdapter extends NetworkAdapter {
 
   receive(message: Message) {
     if (this.#isDroppingMessages) {
-      this.#droppedMessages.push(message);
+      this.#droppedMessages.push(message)
     } else {
       this.emit("message", message)
     }

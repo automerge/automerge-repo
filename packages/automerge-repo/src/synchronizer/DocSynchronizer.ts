@@ -353,7 +353,7 @@ export class DocSynchronizer extends Synchronizer {
       this.#handle.update(doc => {
         // Retry if message sending failed.
         for (const need of A.decodeSyncMessage(message.data).need) {
-          delete syncState.sentHashes[need];
+          delete (syncState.sentHashes as any)[need]
         }
 
         const [newDoc, newSyncState] = A.receiveSyncMessage(

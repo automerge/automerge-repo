@@ -1287,8 +1287,8 @@ describe("Repo", () => {
       network: [bobAdapter],
       peerId: bob,
     })
-    aliceAdapter.peerCandidate(bob);
-    bobAdapter.peerCandidate(alice);
+    aliceAdapter.peerCandidate(bob)
+    bobAdapter.peerCandidate(alice)
 
     const bobHandle = bobRepo.create<TestDoc>()
     bobHandle.change(d => {
@@ -1298,14 +1298,14 @@ describe("Repo", () => {
     await eventPromise(aliceHandle, "heads-changed")
     assert.deepEqual(aliceHandle.docSync(), bobHandle.docSync())
 
-    bobAdapter.dropMessages(true);
+    bobAdapter.dropMessages(true)
     bobHandle.change(d => {
       d.bar = "foo"
     })
-    await pause(10);
-    assert.equal(bobAdapter.getDroppedMessages()[0].type, "sync");
+    await pause(10)
+    assert.equal(bobAdapter.getDroppedMessages()[0].type, "sync")
 
-    bobAdapter.dropMessages(false);
+    bobAdapter.dropMessages(false)
     bobHandle.change(d => {
       d.baz = "42"
     })
@@ -1324,8 +1324,8 @@ describe("Repo", () => {
       network: [bobAdapter],
       peerId: bob,
     })
-    aliceAdapter.peerCandidate(bob);
-    bobAdapter.peerCandidate(alice);
+    aliceAdapter.peerCandidate(bob)
+    bobAdapter.peerCandidate(alice)
 
     const bobHandle = bobRepo.create<TestDoc>()
     bobHandle.change(d => {
@@ -1335,19 +1335,19 @@ describe("Repo", () => {
     await eventPromise(aliceHandle, "heads-changed")
     assert.deepEqual(aliceHandle.docSync(), bobHandle.docSync())
 
-    bobAdapter.dropMessages(true);
+    bobAdapter.dropMessages(true)
     bobHandle.change(d => {
       d.bar = "foo"
     })
-    await pause(10);
-    assert.equal(bobAdapter.getDroppedMessages()[0].type, "sync");
+    await pause(10)
+    assert.equal(bobAdapter.getDroppedMessages()[0].type, "sync")
 
-    bobAdapter.dropMessages(false);
+    bobAdapter.dropMessages(false)
     aliceHandle.change(d => {
       d.baz = "42"
     })
     await eventPromise(bobHandle, "heads-changed")
-    await pause(200);
+    await pause(200)
     assert.deepEqual(aliceHandle.docSync(), bobHandle.docSync())
   })
 
