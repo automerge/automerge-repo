@@ -153,6 +153,22 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
   })
 
+  it("should become ready if the network returns an empty document", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+
+    // we don't have it in storage, so we request it from the network
+    handle.request()
+
+    // simulate updating from the network with an empty document
+    handle.update(doc => {
+      return A.init()
+    })
+
+    const doc = await handle.doc()
+    assert.equal(handle.isReady(), true)
+    assert.deepEqual(doc, {})
+  })
+
   it("should emit a change message when changes happen", async () => {
     const handle = setup()
 
