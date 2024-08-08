@@ -49,6 +49,10 @@ export class Server {
       res.send(`👍 @automerge/example-sync-server is running`)
     })
 
+    app.get("/metrics", (req, res) => {
+      res.json(serverRepo.metrics())
+    })
+
     this.#server = app.listen(PORT, () => {
       console.log(`Listening on port ${PORT}`)
       this.#isReady = true

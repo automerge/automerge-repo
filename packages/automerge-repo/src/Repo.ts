@@ -545,6 +545,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
     return this.flush()
   }
+
+  metrics(): { documents: { [key: string]: any } } {
+    return { documents: this.#synchronizer.metrics() }
+  }
 }
 
 export interface RepoConfig {

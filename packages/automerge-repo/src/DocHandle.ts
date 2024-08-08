@@ -439,6 +439,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       data: encode(message),
     })
   }
+
+  metrics(): { numOps: number; numChanges: number } {
+    return A.stats(this.#doc)
+  }
 }
 
 //  TYPES
