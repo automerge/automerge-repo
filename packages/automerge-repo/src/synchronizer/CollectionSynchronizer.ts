@@ -153,4 +153,19 @@ export class CollectionSynchronizer extends Synchronizer {
   get peers(): PeerId[] {
     return Array.from(this.#peers)
   }
+
+  metrics(): {
+    [key: string]: {
+      peers: PeerId[]
+      size: { numOps: number; numChanges: number }
+    }
+  } {
+    return Object.fromEntries(
+      Object.entries(this.#docSynchronizers).map(
+        ([documentId, synchronizer]) => {
+          return [documentId, synchronizer.metrics()]
+        }
+      )
+    )
+  }
 }
