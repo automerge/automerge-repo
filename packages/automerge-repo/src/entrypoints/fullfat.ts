@@ -7,5 +7,4 @@ export * from "../index.js"
 // disable
 //
 // eslint-disable-next-line automerge-slimport/enforce-automerge-slim-import
-import { next as Am } from "@automerge/automerge"
-Am.init()
+import "@automerge/automerge"
