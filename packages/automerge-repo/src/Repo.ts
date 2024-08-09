@@ -441,8 +441,8 @@ export class Repo extends EventEmitter<RepoEvents> {
             .catch(err => {
               this.#log("error waiting for network", { err })
             })
-          this.emit("document", { handle })
         }
+        this.emit("document", { handle })
       })
     } else {
       handle.request()

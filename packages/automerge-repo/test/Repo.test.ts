@@ -142,6 +142,34 @@ describe("Repo", () => {
       assert.notEqual(handle.documentId, handle2.documentId)
       assert.deepStrictEqual(handle.docSync(), handle2.docSync())
       assert.deepStrictEqual(handle2.docSync(), { foo: "bar" })
+
+    it("adds an available document from storage to the synchronizer", async () => {
+      const { repo, storageAdapter } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      repo.flush()
+      // create a second repo, connected to the same storage
+      // simulating e.g. a reboot
+      const anotherRepo = new Repo({
+        storage: storageAdapter,
+      })
+
+      // This is a hack - we don't have direct access to the synchronizer,
+      // so we listen for the document event as it's added from that listener
+      var didSendDocumentEvent = false
+      anotherRepo.on("document", doc => {
+        didSendDocumentEvent = true
+      })
+      // this should kick-off a document event, even in case
+      // the document is found in storage, so it gets added
+      // to the synchronizer
+      const anotherHandle = anotherRepo.find(handle.documentId)
+      // wait for it to load
+      const content = await anotherHandle.doc()
+      assert.deepEqual(content, { foo: "bar" })
+      assert.equal(didSendDocumentEvent, true)
     })
 
     it("the cloned documents are distinct", () => {
