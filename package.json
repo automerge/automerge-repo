@@ -28,7 +28,7 @@
   "engines": {
     "node": ">= 18.x"
   },
-  "packageManager": "pnpm@8.11.0",
+  "packageManager": "pnpm@9.7.0",
   "prettier": {
     "semi": false,
     "singleQuote": false,
