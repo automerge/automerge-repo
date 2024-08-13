@@ -227,6 +227,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   beginSync(peerIds: PeerId[]) {
+    console.log("BEGIN SYNC", this.#handle.documentId, peerIds)
     const noPeersWithDocument = peerIds.every(
       peerId => this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
     )

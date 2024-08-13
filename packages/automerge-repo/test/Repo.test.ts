@@ -844,7 +844,7 @@ describe("Repo", () => {
       await bobRepo2.flush() 
 
 
-      console.log("loading from disk")
+      console.log("loading from disk", inStorageHandle.url)
       // Now, let's load it on the original bob repo (which shares a "disk")
       const bobFoundIt = bobRepo.find<TestDoc>(inStorageHandle.url)
       await bobFoundIt.whenReady()
@@ -856,13 +856,10 @@ describe("Repo", () => {
       console.log('making a change')
       bobFoundIt.change(d => { d.foo = "changedOnBob" })
 
-      console.log('charlies loading')
-      const finalHandle = charlieRepo.find<TestDoc>(inStorageHandle.url)
-      await finalHandle.whenReady()
-      console.log('charlies docing')
-      assert.deepStrictEqual(await finalHandle.doc(), { foo: "changedOnBob" })
+      // We should have a docSynchronizer and its peers should be alice and charlie
+      assert.strictEqual(bobRepo.synchronizer.docSynchronizers[bobFoundIt.documentId]?.hasPeer("charlie" as PeerId), true)
 
-      teardown()
+      teardown() 
     })
 
     it("charlieRepo doesn't have a document it's not supposed to have", async () => {

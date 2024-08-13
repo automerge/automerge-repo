@@ -49,7 +49,8 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
-  #synchronizer: CollectionSynchronizer
+  /** @hidden */
+  synchronizer: CollectionSynchronizer
 
   /** By default, we share generously with all peers. */
   /** @hidden */
@@ -100,7 +101,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       })
 
       // Register the document with the synchronizer. This advertises our interest in the document.
-      this.#synchronizer.addDocument(handle.documentId)
+      this.synchronizer.addDocument(handle.documentId)
     })
 
     this.on("delete-document", ({ documentId }) => {
@@ -116,16 +117,16 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    this.#synchronizer = new CollectionSynchronizer(this)
+    this.synchronizer = new CollectionSynchronizer(this)
 
     // When the synchronizer emits messages, send them to peers
-    this.#synchronizer.on("message", message => {
+    this.synchronizer.on("message", message => {
       this.#log(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
     })
 
     if (this.#remoteHeadsGossipingEnabled) {
-      this.#synchronizer.on("open-doc", ({ peerId, documentId }) => {
+      this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
         this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
       })
     }
@@ -168,12 +169,12 @@ export class Repo extends EventEmitter<RepoEvents> {
           console.log("error in share policy", { err })
         })
 
-      this.#synchronizer.addPeer(peerId)
+      this.synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      this.#synchronizer.removePeer(peerId)
+      this.synchronizer.removePeer(peerId)
       this.#remoteHeadsSubscriptions.removePeer(peerId)
     })
 
@@ -182,7 +183,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#receiveMessage(msg)
     })
 
-    this.#synchronizer.on("sync-state", message => {
+    this.synchronizer.on("sync-state", message => {
       this.#saveSyncState(message)
 
       const handle = this.#handleCache[message.documentId]
@@ -260,7 +261,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "request":
       case "ephemeral":
       case "doc-unavailable":
-        this.#synchronizer.receiveMessage(message).catch(err => {
+        this.synchronizer.receiveMessage(message).catch(err => {
           console.log("error receiving message", { err })
         })
     }
@@ -325,7 +326,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
-    return this.#synchronizer.peers
+    return this.synchronizer.peers
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
@@ -551,7 +552,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   metrics(): { documents: { [key: string]: any } } {
-    return { documents: this.#synchronizer.metrics() }
+    return { documents: this.synchronizer.metrics() }
   }
 }
 
