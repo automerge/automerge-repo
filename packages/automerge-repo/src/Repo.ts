@@ -80,6 +80,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // The `document` event is fired by the DocCollection any time we create a new document or look
     // up a document by ID. We listen for it in order to wire up storage and network synchronization.
     this.on("document", async ({ handle }) => {
+      console.log("ON DOCUMENT", this.networkSubsystem.peerId, handle.documentId, handle.docSync())
       if (storageSubsystem) {
         // Save when the document changes, but no more often than saveDebounceRate.
         const saveFn = ({
@@ -432,6 +433,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           // uhhhh, sorry if you're reading this because we were lying to the type system
           handle.update(() => loadedDoc as Automerge.Doc<T>)
           handle.doneLoading()
+          console.log("DONE LOADING")
         } else {
           this.networkSubsystem
             .whenReady()
@@ -441,11 +443,13 @@ export class Repo extends EventEmitter<RepoEvents> {
             .catch(err => {
               this.#log("error waiting for network", { err })
             })
+          console.log("EMITTING FROM HERE")
           this.emit("document", { handle })
         }
       })
     } else {
       handle.request()
+      console.log("REQUESTING EMIT")
       this.emit("document", { handle })
     }
     return handle
