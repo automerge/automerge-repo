@@ -75,33 +75,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
-    // DOC COLLECTION
-
-    // The `document` event is fired by the DocCollection any time we create a new document or look
-    // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-    this.on("document", async ({ handle }) => {
-      if (storageSubsystem) {
-        // Save when the document changes, but no more often than saveDebounceRate.
-        const saveFn = ({
-          handle,
-          doc,
-        }: DocHandleEncodedChangePayload<any>) => {
-          void storageSubsystem.saveDoc(handle.documentId, doc)
-        }
-        handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
-      }
-
-      handle.on("unavailable", () => {
-        this.#log("document unavailable", { documentId: handle.documentId })
-        this.emit("unavailable-document", {
-          documentId: handle.documentId,
-        })
-      })
-
-      // Register the document with the synchronizer. This advertises our interest in the document.
-      this.#synchronizer.addDocument(handle.documentId)
-    })
-
     this.on("delete-document", ({ documentId }) => {
       // TODO Pass the delete on to the network
       // synchronizer.removeDocument(documentId)
@@ -243,6 +216,32 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
+  // The `document` event is fired by the DocCollection any time we create a new document or look
+  // up a document by ID. We listen for it in order to wire up storage and network synchronization.
+  #registerHandleWithSubsystems(handle: DocHandle<any>) {
+    const { storageSubsystem } = this
+    if (storageSubsystem) {
+      // Save when the document changes, but no more often than saveDebounceRate.
+      const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
+        void storageSubsystem.saveDoc(handle.documentId, doc)
+      }
+      handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
+    }
+
+    handle.on("unavailable", () => {
+      this.#log("document unavailable", { documentId: handle.documentId })
+      this.emit("unavailable-document", {
+        documentId: handle.documentId,
+      })
+    })
+
+    // Register the document with the synchronizer. This advertises our interest in the document.
+    this.#synchronizer.addDocument(handle.documentId)
+
+    // Preserve the old event in case anyone was using it.
+    this.emit("document", { handle })
+  }
+
   #receiveMessage(message: RepoMessage) {
     switch (message.type) {
       case "remote-subscription-change":
@@ -343,7 +342,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
     }) as DocHandle<T>
 
-    this.emit("document", { handle })
+    this.#registerHandleWithSubsystems(handle)
 
     handle.update(() => {
       let nextDoc: Automerge.Doc<T>
@@ -425,29 +424,26 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
     }) as DocHandle<T>
 
-    // Try to load from disk before telling anyone else about it
-    if (this.storageSubsystem) {
-      void this.storageSubsystem.loadDoc(handle.documentId).then(loadedDoc => {
-        if (loadedDoc) {
-          // uhhhh, sorry if you're reading this because we were lying to the type system
-          handle.update(() => loadedDoc as Automerge.Doc<T>)
-          handle.doneLoading()
-        } else {
-          this.networkSubsystem
-            .whenReady()
-            .then(() => {
-              handle.request()
-            })
-            .catch(err => {
-              this.#log("error waiting for network", { err })
-            })
-          this.emit("document", { handle })
-        }
-      })
-    } else {
-      handle.request()
-      this.emit("document", { handle })
-    }
+    // Loading & network is going to be asynchronous no matter what, 
+    // but we want to return the handle immediately.
+    const attemptLoad = this.storageSubsystem
+      ? this.storageSubsystem.loadDoc(handle.documentId)
+      : Promise.resolve(null)
+
+    attemptLoad.then(async loadedDoc => {
+      if (loadedDoc) {
+        // uhhhh, sorry if you're reading this because we were lying to the type system
+        handle.update(() => loadedDoc as Automerge.Doc<T>)
+        handle.doneLoading()
+      } else {
+        // we want to wait for the network subsystem to be ready before
+        // we request the document. this prevents entering unavailable during initialization.
+        await this.networkSubsystem.whenReady()
+        handle.request()
+      }
+      this.#registerHandleWithSubsystems(handle)
+    })
+
     return handle
   }
 
