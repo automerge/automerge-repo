@@ -341,8 +341,9 @@ describe("DocHandle", () => {
     assert.notEqual(clearedDoc?.foo, "bar")
   })
 
-  it("should allow reloading after reset", async () => {
-    const handle = setup()
+  it("should allow reloading after reset and being idle", async () => {
+    // set docHandle time out after 5 ms
+    const handle = setup({ timeoutDelay: 5 })
 
     handle.change(doc => {
       doc.foo = "bar"
@@ -351,6 +352,9 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
 
     handle.reset()
+
+    // remain idle beyond timeoutDelay
+    await pause(10)
 
     // transition from idle to loading
     handle.begin()
