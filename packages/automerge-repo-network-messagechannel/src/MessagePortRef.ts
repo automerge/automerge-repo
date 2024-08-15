@@ -7,6 +7,7 @@ export interface PortRefEvents {
 
 export interface MessagePortRef extends EventEmitter<PortRefEvents> {
   start(): void
+  stop(): void
   postMessage(message: any, transferable?: Transferable[]): void
   isAlive(): boolean
 }

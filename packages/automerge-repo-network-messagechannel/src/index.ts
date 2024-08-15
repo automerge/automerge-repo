@@ -23,7 +23,28 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   channels = {}
   /** @hidden */
   messagePortRef: MessagePortRef
-  #startupComplete = false
+
+  #ready = false
+  #readyResolver?: () => void
+  #readyPromise: Promise<void> = new Promise<void>(resolve => {
+    this.#readyResolver = resolve
+  })
+  #remotePeerId?: PeerId
+
+  isReady() {
+    return this.#ready
+  }
+
+  whenReady() {
+    return this.#readyPromise
+  }
+
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
 
   constructor(
     messagePort: MessagePort,
@@ -42,6 +63,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     log("messageport connecting")
     this.peerId = peerId
     this.peerMetadata = peerMetadata
+
     this.messagePortRef.start()
     this.messagePortRef.addListener(
       "message",
@@ -76,6 +98,11 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
               this.announceConnection(senderId, peerMetadata)
             }
             break
+          case "leave":
+            if (this.#remotePeerId === senderId) {
+              this.emit("peer-disconnected", { peerId: senderId })
+            }
+            break
           default:
             if (!("data" in message)) {
               this.emit("message", message)
@@ -104,10 +131,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     // must be something weird going on on the other end to cause us to receive
     // no response
     setTimeout(() => {
-      if (!this.#startupComplete) {
-        this.#startupComplete = true
-        this.emit("ready", { network: this })
-      }
+      this.#forceReady()
     }, 100)
   }
 
@@ -131,16 +155,20 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   }
 
   announceConnection(peerId: PeerId, peerMetadata: PeerMetadata) {
-    if (!this.#startupComplete) {
-      this.#startupComplete = true
-      this.emit("ready", { network: this })
-    }
+    this.#remotePeerId = peerId
+    this.#forceReady()
     this.emit("peer-candidate", { peerId, peerMetadata })
   }
 
   disconnect() {
-    // TODO
-    throw new Error("Unimplemented: leave on MessagePortNetworkAdapter")
+    if (this.#remotePeerId && this.peerId) {
+      this.messagePortRef.postMessage({
+        type: "leave",
+        senderId: this.peerId,
+      })
+      this.emit("peer-disconnected", { peerId: this.#remotePeerId })
+    }
+    this.messagePortRef.stop()
   }
 }
 

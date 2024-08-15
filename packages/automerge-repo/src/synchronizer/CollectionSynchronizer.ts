@@ -15,7 +15,8 @@ export class CollectionSynchronizer extends Synchronizer {
   #peers: Set<PeerId> = new Set()
 
   /** A map of documentIds to their synchronizers */
-  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
+  /** @hidden */
+  docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
 
   /** Used to determine if the document is know to the Collection and a synchronizer exists or is being set up */
   #docSetUp: Record<DocumentId, boolean> = {}
@@ -26,11 +27,11 @@ export class CollectionSynchronizer extends Synchronizer {
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
   #fetchDocSynchronizer(documentId: DocumentId) {
-    if (!this.#docSynchronizers[documentId]) {
+    if (!this.docSynchronizers[documentId]) {
       const handle = this.repo.find(stringifyAutomergeUrl({ documentId }))
-      this.#docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
+      this.docSynchronizers[documentId] = this.#initDocSynchronizer(handle)
     }
-    return this.#docSynchronizers[documentId]
+    return this.docSynchronizers[documentId]
   }
 
   /** Creates a new docSynchronizer and sets it up to propagate messages */
@@ -131,7 +132,7 @@ export class CollectionSynchronizer extends Synchronizer {
     }
 
     this.#peers.add(peerId)
-    for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
+    for (const docSynchronizer of Object.values(this.docSynchronizers)) {
       const { documentId } = docSynchronizer
       void this.repo.sharePolicy(peerId, documentId).then(okToShare => {
         if (okToShare) docSynchronizer.beginSync([peerId])
@@ -144,7 +145,7 @@ export class CollectionSynchronizer extends Synchronizer {
     log(`removing peer ${peerId}`)
     this.#peers.delete(peerId)
 
-    for (const docSynchronizer of Object.values(this.#docSynchronizers)) {
+    for (const docSynchronizer of Object.values(this.docSynchronizers)) {
       docSynchronizer.endSync(peerId)
     }
   }
@@ -152,5 +153,20 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
     return Array.from(this.#peers)
+  }
+
+  metrics(): {
+    [key: string]: {
+      peers: PeerId[]
+      size: { numOps: number; numChanges: number }
+    }
+  } {
+    return Object.fromEntries(
+      Object.entries(this.docSynchronizers).map(
+        ([documentId, synchronizer]) => {
+          return [documentId, synchronizer.metrics()]
+        }
+      )
+    )
   }
 }

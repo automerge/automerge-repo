@@ -25,7 +25,6 @@
  */
 export { useDocument } from "./useDocument.js"
 export { useDocuments } from "./useDocuments.js"
-export { useBootstrap, type UseBootstrapOptions } from "./useBootstrap.js"
 export { useHandle } from "./useHandle.js"
 export { RepoContext, useRepo } from "./useRepo.js"
 export {

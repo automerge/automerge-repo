@@ -1,6 +1,13 @@
 import assert from "assert"
 import { describe, expect, it } from "vitest"
-import { PeerId, PeerMetadata, Repo, StorageId } from "../../index.js"
+import {
+  generateAutomergeUrl,
+  parseAutomergeUrl,
+  PeerId,
+  PeerMetadata,
+  Repo,
+  StorageId,
+} from "../../index.js"
 import type { NetworkAdapterInterface } from "../../network/NetworkAdapterInterface.js"
 import { eventPromise, eventPromises } from "../eventPromise.js"
 import { pause } from "../pause.js"
@@ -167,6 +174,119 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         peerMetadata: aPeerMetadata,
       })
 
+      teardown()
+    })
+
+    it("should emit disconnect events on disconnect", async () => {
+      const { adapters, teardown } = await setup()
+      const left = adapters[0][0]
+      const right = adapters[1][0]
+
+      const leftPeerId = "left" as PeerId
+      const rightPeerId = "right" as PeerId
+
+      const leftRepo = new Repo({
+        network: [left],
+        peerId: leftPeerId,
+      })
+
+      const rightRepo = new Repo({
+        network: [right],
+        peerId: rightPeerId,
+      })
+
+      await Promise.all([
+        eventPromise(leftRepo.networkSubsystem, "peer"),
+        eventPromise(rightRepo.networkSubsystem, "peer"),
+      ])
+
+      const disconnectionPromises = Promise.all([
+        eventPromise(leftRepo.networkSubsystem, "peer-disconnected"),
+        eventPromise(rightRepo.networkSubsystem, "peer-disconnected"),
+      ])
+      left.disconnect()
+
+      await disconnectionPromises
+      teardown()
+    })
+
+    it("should not send messages after disconnect", async () => {
+      const { adapters, teardown } = await setup()
+      const left = adapters[0][0]
+      const right = adapters[1][0]
+
+      const leftPeerId = "left" as PeerId
+      const rightPeerId = "right" as PeerId
+
+      const leftRepo = new Repo({
+        network: [left],
+        peerId: leftPeerId,
+      })
+
+      const rightRepo = new Repo({
+        network: [right],
+        peerId: rightPeerId,
+      })
+
+      await Promise.all([
+        eventPromise(rightRepo.networkSubsystem, "peer"),
+        eventPromise(leftRepo.networkSubsystem, "peer"),
+      ])
+
+      const disconnected = eventPromise(right, "peer-disconnected")
+
+      left.disconnect()
+      await disconnected
+
+      const rightReceivedFromLeft = new Promise(resolve => {
+        right.on("message", msg => {
+          if (msg.senderId === leftPeerId) {
+            resolve(null)
+          }
+        })
+      })
+
+      const rightReceived = Promise.race([rightReceivedFromLeft, pause(10)])
+
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      left.send({
+        type: "foo",
+        data: new Uint8Array([1, 2, 3]),
+        documentId,
+        senderId: leftPeerId,
+        targetId: rightPeerId,
+      })
+
+      assert.equal(await rightReceived, null)
+      teardown()
+    })
+
+    it("should support reconnecting after disconnect", async () => {
+      const { adapters, teardown } = await setup()
+      const left = adapters[0][0]
+      const right = adapters[1][0]
+
+      const leftPeerId = "left" as PeerId
+      const rightPeerId = "right" as PeerId
+
+      const _leftRepo = new Repo({
+        network: [left],
+        peerId: leftPeerId,
+      })
+
+      const rightRepo = new Repo({
+        network: [right],
+        peerId: rightPeerId,
+      })
+
+      await eventPromise(rightRepo.networkSubsystem, "peer")
+
+      left.disconnect()
+
+      await pause(10)
+
+      left.connect(leftPeerId)
+      await eventPromise(left, "peer-candidate")
       teardown()
     })
   })

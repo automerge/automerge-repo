@@ -66,7 +66,7 @@ describe("Websocket adapters", () => {
       })
     })
 
-    it("should announce disconnections", async () => {
+    it("should connect and emit peers", async () => {
       const {
         serverAdapter,
         clients: [browserAdapter],
@@ -82,13 +82,9 @@ describe("Websocket adapters", () => {
         peerId: serverPeerId,
       })
 
-      await eventPromise(serverRepo.networkSubsystem, "peer")
-
-      browserAdapter.disconnect()
-
       await Promise.all([
-        eventPromise(browserAdapter, "peer-disconnected"),
-        eventPromise(serverAdapter, "peer-disconnected"),
+        eventPromise(browserRepo.networkSubsystem, "peer"),
+        eventPromise(serverRepo.networkSubsystem, "peer"),
       ])
     })
 

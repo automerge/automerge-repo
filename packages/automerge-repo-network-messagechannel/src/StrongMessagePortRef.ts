@@ -5,20 +5,31 @@ export class StrongMessagePortRef
   extends EventEmitter<PortRefEvents>
   implements MessagePortRef
 {
+  isDisconnected: boolean = false
+
   constructor(private port: MessagePort) {
     port.addEventListener("message", event => {
-      this.emit("message", event)
+      if (!this.isDisconnected) {
+        this.emit("message", event)
+      }
     })
 
     super()
   }
 
   postMessage(message: any, transfer: Transferable[]): void {
-    this.port.postMessage(message, transfer)
+    if (!this.isDisconnected) {
+      this.port.postMessage(message, transfer)
+    }
   }
 
   start(): void {
+    this.isDisconnected = false
     this.port.start()
+  }
+
+  stop() {
+    this.isDisconnected = true
   }
 
   isAlive(): boolean {

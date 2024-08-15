@@ -27,6 +27,18 @@ describe("DocHandle", () => {
     assert.equal(handle.documentId, TEST_ID)
   })
 
+  it("should become ready when a document is loaded", async () => {
+    const handle = new DocHandle<TestDoc>(TEST_ID)
+    assert.equal(handle.isReady(), false)
+
+    // simulate loading from storage
+    handle.update(doc => docFromMockStorage(doc))
+
+    assert.equal(handle.isReady(), true)
+    const doc = await handle.doc()
+    assert.equal(doc?.foo, "bar")
+  })
+
   it("should allow sync access to the doc", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)

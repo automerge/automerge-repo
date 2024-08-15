@@ -401,4 +401,11 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#pendingSyncMessages = []
   }
+
+  metrics(): { peers: PeerId[]; size: { numOps: number; numChanges: number } } {
+    return {
+      peers: this.#peers,
+      size: this.#handle.metrics(),
+    }
+  }
 }

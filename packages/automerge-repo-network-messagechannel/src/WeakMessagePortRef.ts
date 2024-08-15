@@ -15,7 +15,9 @@ export class WeakMessagePortRef
     this.weakRef = new WeakRef<MessagePort>(port)
 
     port.addEventListener("message", event => {
-      this.emit("message", event)
+      if (!this.isDisconnected) {
+        this.emit("message", event)
+      }
     })
   }
 
@@ -24,6 +26,10 @@ export class WeakMessagePortRef
 
     if (!port) {
       this.disconnnect()
+      return
+    }
+
+    if (this.isDisconnected) {
       return
     }
 
@@ -42,11 +48,17 @@ export class WeakMessagePortRef
       return
     }
 
+    this.isDisconnected = false
+
     try {
       port.start()
     } catch (err) {
       this.disconnnect()
     }
+  }
+
+  stop() {
+    this.isDisconnected = true
   }
 
   private disconnnect() {

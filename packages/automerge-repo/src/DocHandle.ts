@@ -304,8 +304,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * `update` is called by the repo when we receive changes from the network
-   * Called by the repo when we receive changes from the network.
+   * `update` is called any time we have a new document state; could be
+   * from a local change, a remote change, or a new document from storage.
    * Does not cause state changes.
    * @hidden
    */
@@ -455,6 +455,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       handle: this,
       data: encode(message),
     })
+  }
+
+  metrics(): { numOps: number; numChanges: number } {
+    return A.stats(this.#doc)
   }
 }
 
