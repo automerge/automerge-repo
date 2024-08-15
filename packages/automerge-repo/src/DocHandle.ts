@@ -72,7 +72,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           this.emit("delete", { handle: this })
           return { doc: A.init() }
         }),
-        onClear: assign(() => {
+        onReset: assign(() => {
           return { doc: A.init() }
         }),
         onUnavailable: () => {
@@ -90,7 +90,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       on: {
         UPDATE: { actions: "onUpdate" },
         DELETE: ".deleted",
-        CLEAR: ".cleared",
+        RESET: { actions: "onReset", target: ".idle" },
       },
       states: {
         idle: {
@@ -118,7 +118,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         },
         ready: {},
         deleted: { entry: "onDelete", type: "final" },
-        cleared: { entry: "onClear", type: "final" },
       },
     })
 
@@ -136,7 +135,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     // Start the machine, and send a create or find event to get things going
     this.#machine.start()
-    this.#machine.send({ type: BEGIN })
+    this.begin()
   }
 
   // PRIVATE
@@ -217,13 +216,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   isDeleted = () => this.inState(["deleted"])
 
   /**
-   * @returns true if the document has been marked as cleared.
-   *
-   * Cleared documents are removed from the sync process but not storage.
-   */
-  isCleared = () => this.inState(["cleared"])
-
-  /**
    * @returns true if the document is currently unavailable.
    *
    * This will be the case if the document is not found in storage and no peers have shared it with us.
@@ -301,6 +293,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return undefined
     }
     return A.getHeads(this.#doc)
+  }
+
+  begin() {
+    this.#machine.send({ type: BEGIN })
   }
 
   /**
@@ -438,9 +434,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.#machine.send({ type: DELETE })
   }
 
-  /** Called by the repo when the document is cleared from handleCache. */
-  clear() {
-    this.#machine.send({ type: CLEAR })
+  /** Called by the repo to free memory used by the document. */
+  reset() {
+    this.#machine.send({ type: RESET })
   }
 
   /**
@@ -562,14 +558,12 @@ export const HandleState = {
   READY: "ready",
   /** The document has been deleted from the repo */
   DELETED: "deleted",
-  /** The document has been removed from the repo and handleCache but not deleted from storage */
-  CLEARED: "cleared",
   /** The document was not available in storage or from any connected peers */
   UNAVAILABLE: "unavailable",
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
-export const { IDLE, LOADING, REQUESTING, READY, DELETED, CLEARED, UNAVAILABLE } =
+export const { IDLE, LOADING, REQUESTING, READY, DELETED, UNAVAILABLE } =
   HandleState
 
 // context
@@ -591,7 +585,7 @@ type DocHandleEvent<T> =
       payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
     }
   | { type: typeof DELETE }
-  | { type: typeof CLEAR }
+  | { type: typeof RESET }
   | { type: typeof TIMEOUT }
   | { type: typeof DOC_UNAVAILABLE }
 
@@ -600,6 +594,6 @@ const REQUEST = "REQUEST"
 const DOC_READY = "DOC_READY"
 const UPDATE = "UPDATE"
 const DELETE = "DELETE"
-const CLEAR = "CLEAR"
+const RESET = "RESET"
 const TIMEOUT = "TIMEOUT"
 const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"

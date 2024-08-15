@@ -7,7 +7,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
-import { CLEARED } from "../src/DocHandle.js"
+import { IDLE } from "../src/DocHandle.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -326,7 +326,7 @@ describe("DocHandle", () => {
     assert.equal(handle.isDeleted(), true)
   })
 
-  it("should clear document reference when cleared", async () => {
+  it("should clear document when reset", async () => {
     const handle = setup()
 
     handle.change(doc => {
@@ -335,23 +335,37 @@ describe("DocHandle", () => {
     const doc = await handle.doc()
     assert.equal(doc?.foo, "bar")
 
-    handle.clear()
-    const clearedDoc = await handle.doc([CLEARED])
-
-    assert.equal(handle.isCleared(), true)
-    assert.equal(handle.isReady(), false)
-    assert.equal(handle.docSync(), undefined)
-    assert.equal(clearedDoc?.foo, undefined)
+    handle.reset()
+    assert(handle.inState([IDLE]))
+    const clearedDoc = await handle.doc([IDLE])
+    assert.notEqual(clearedDoc?.foo, "bar")
   })
 
-  it("should prevent transitioning out of cleared state because it is final", async () => {
+  it("should allow reloading after reset", async () => {
     const handle = setup()
 
-    handle.clear()
-    await handle.doc([CLEARED])
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+    const doc = await handle.doc()
+    assert.equal(doc?.foo, "bar")
 
-    assert.throws(() => handle.change(d => (d.foo = "bar")))
-    assert.equal(handle.isCleared(), true)
+    handle.reset()
+
+    // transition from idle to loading
+    handle.begin()
+
+    // simulate requesting from the network
+    handle.request()
+
+    // simulate updating from the network
+    handle.update(doc => {
+      return A.change(doc, d => (d.foo = "bar"))
+    })
+
+    const reloadedDoc = await handle.doc()
+    assert.equal(handle.isReady(), true)
+    assert.equal(reloadedDoc?.foo, "bar")
   })
 
   it("should allow changing at old heads", async () => {
