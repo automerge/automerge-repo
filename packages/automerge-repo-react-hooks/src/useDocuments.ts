@@ -17,7 +17,6 @@ import { useRepo } from "./useRepo.js"
  * for the output map.
  */
 export const useDocuments = <T>(idsOrUrls?: DocId[]) => {
-  const [documents, setDocuments] = useState({} as Record<DocumentId, T>)
   const repo = useRepo()
   const ids = useMemo(
     () =>
@@ -32,6 +31,16 @@ export const useDocuments = <T>(idsOrUrls?: DocId[]) => {
     [idsOrUrls]
   )
   const prevIds = useRef<DocumentId[]>([])
+  const [documents, setDocuments] = useState(() => {
+    return ids.reduce((docs, id) => {
+      const handle = repo.find<T>(id)
+      const doc = handle.docSync()
+      if (doc) {
+        docs[id] = doc
+      }
+      return docs
+    }, {} as Record<DocumentId, T>)
+  })
 
   useEffect(() => {
     // These listeners will live for the lifetime of this useEffect
