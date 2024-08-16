@@ -62,6 +62,18 @@ describe("useDocuments", () => {
     )
   })
 
+  it("returns a collection of loaded documents immediately, given a list of ids", async () => {
+    const { documentIds, wrapper } = setup()
+    const onDocs = vi.fn()
+
+    render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
+
+    expect(onDocs).not.toHaveBeenCalledWith({})
+    expect(onDocs).toHaveBeenCalledWith(
+      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+    )
+  })
+
   it("cleans up listeners properly", async () => {
     const { documentIds, wrapper, repo } = setup()
     const onDocs = vi.fn()
