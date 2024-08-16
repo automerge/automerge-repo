@@ -232,8 +232,13 @@ export class StorageSubsystem {
     storageId: StorageId
   ): Promise<A.SyncState | undefined> {
     const key = [documentId, "sync-state", storageId]
-    const loaded = await this.#storageAdapter.load(key)
-    return loaded ? A.decodeSyncState(loaded) : undefined
+    try {
+      const loaded = await this.#storageAdapter.load(key)
+      return loaded ? A.decodeSyncState(loaded) : undefined
+    } catch (e) {
+      this.#log(`Error loading sync state for ${documentId} from ${storageId}`)
+      return undefined
+    }
   }
 
   async saveSyncState(

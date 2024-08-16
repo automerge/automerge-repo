@@ -211,6 +211,23 @@ describe("StorageSubsystem", () => {
           )
           assert.strictEqual(loadedSyncState, undefined)
         })
+
+        it("returns a undefined if loading an existing sync state fails", async () => {
+          const storage = new StorageSubsystem(adapter)
+
+          const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+          const bobStorageId = Uuid.v4() as StorageId
+
+          const syncStateKey = [documentId, "sync-state", bobStorageId]
+          // Save garbage data to simulate a corrupted sync state
+          await adapter.save(syncStateKey, Buffer.from("invalid data"))
+
+          const loadedSyncState = await storage.loadSyncState(
+            documentId,
+            bobStorageId
+          )
+          assert.strictEqual(loadedSyncState, undefined)
+        })
       })
 
       describe("storage id", () => {
