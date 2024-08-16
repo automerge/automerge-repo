@@ -292,6 +292,63 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
+   * Creates a fixed "view" of an automerge document at the given point in time represented
+   * by the `heads` passed in. The return value is the same type as docSync() and will return
+   * undefined if the object hasn't finished loading.
+   *
+   * @remarks
+   * A point-in-time in an automerge document is an *array* of heads since there may be
+   * concurrent edits. This API just returns a topologically sorted history of all edits
+   * so every previous entry will be (in some sense) before later ones, but the set of all possible
+   * history views would be quite large under concurrency (every thing in each branch against each other).
+   * There might be a clever way to think about this, but we haven't found it yet, so for now at least
+   * we present a single traversable view which excludes concurrency.
+   * @returns The individual heads for every change in the document.
+   */
+  history(): A.Heads[] | undefined {
+    if (!this.isReady()) {
+      return undefined
+    }
+    // This just returns all the heads as individual strings.
+
+    return A.topoHistoryTraversal(this.#doc).map(h => [h]) as A.Heads[]
+  }
+
+  /**
+   * Creates a fixed "view" of an automerge document at the given point in time represented
+   * by the `heads` passed in. The return value is the same type as docSync() and will return
+   * undefined if the object hasn't finished loading.
+   * @returns
+   */
+  view(heads: A.Heads): A.Doc<T> | undefined {
+    if (!this.isReady()) {
+      return undefined
+    }
+    return A.view(this.#doc, heads)
+  }
+
+  /**
+   * Creates a fixed "view" of an automerge document at the given point in time represented
+   * by the `heads` passed in. The return value is the same type as docSync() and will return
+   * undefined if the object hasn't finished loading.
+   *
+   * @remarks
+   * We allow specifying both a from/to heads or just a single comparison point, in which case
+   * the base will be the current document heads.
+   *
+   * @returns Automerge patches that go from one document state to the other. Use view() to get the full state.
+   */
+  diff(first: A.Heads, second?: A.Heads): A.Patch[] | undefined {
+    if (!this.isReady()) {
+      return undefined
+    }
+    // We allow only one set of heads to be specified, in which case we use the doc's heads
+    const from = second ? first : this.heads() || [] // because we guard above this should always have useful data
+    const to = second ? second : first
+    return A.diff(this.#doc, from, to)
+  }
+
+  /**
    * `update` is called any time we have a new document state; could be
    * from a local change, a remote change, or a new document from storage.
    * Does not cause state changes.

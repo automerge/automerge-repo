@@ -68,6 +68,15 @@ describe("DocHandle", () => {
     assert.equal(doc?.foo, "bar")
   })
 
+  /** HISTORY TRAVERSAL
+   * This API is relatively alpha-ish but we're already
+   * doing things in our own apps that are fairly ambitious
+   * by routing around to a lower-level API.
+   * This is an attempt to wrap up the existing practice
+   * in a slightly more supportable set of APIs but should be
+   * considered provisional: expect further improvements.
+   */
+
   it("should return the heads when requested", async () => {
     const handle = setup()
     handle.change(d => (d.foo = "bar"))
@@ -82,6 +91,79 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
     assert.deepEqual(handle.heads(), undefined)
+  })
+
+  it("should return the history when requested", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "bar"))
+    handle.change(d => (d.foo = "baz"))
+    assert.equal(handle.isReady(), true)
+
+    const history = handle.history()
+    assert.deepEqual(handle.history().length, 2)
+  })
+
+  it("should return a commit from the history", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "zero"))
+    handle.change(d => (d.foo = "one"))
+    handle.change(d => (d.foo = "two"))
+    handle.change(d => (d.foo = "three"))
+    assert.equal(handle.isReady(), true)
+
+    const history = handle.history()
+    const view = handle.view(history[1])
+    assert.deepEqual(view, { foo: "one" })
+  })
+
+  it("should return a commit from the history", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "zero"))
+    handle.change(d => (d.foo = "one"))
+    handle.change(d => (d.foo = "two"))
+    handle.change(d => (d.foo = "three"))
+    assert.equal(handle.isReady(), true)
+
+    const history = handle.history()
+    const view = handle.view(history[1])
+    assert.deepEqual(view, { foo: "one" })
+  })
+
+  it("should return diffs", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "zero"))
+    handle.change(d => (d.foo = "one"))
+    handle.change(d => (d.foo = "two"))
+    handle.change(d => (d.foo = "three"))
+    assert.equal(handle.isReady(), true)
+
+    const history = handle.history()
+    const patches = handle.diff(history[1])
+    assert.deepEqual(patches, [
+      { action: "put", path: ["foo"], value: "" },
+      { action: "splice", path: ["foo", 0], value: "one" },
+    ])
+  })
+
+  it("should support arbitrary diffs too", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "zero"))
+    handle.change(d => (d.foo = "one"))
+    handle.change(d => (d.foo = "two"))
+    handle.change(d => (d.foo = "three"))
+    assert.equal(handle.isReady(), true)
+
+    const history = handle.history()
+    const patches = handle.diff(history[1], history[3])
+    assert.deepEqual(patches, [
+      { action: "put", path: ["foo"], value: "" },
+      { action: "splice", path: ["foo", 0], value: "three" },
+    ])
+    const backPatches = handle.diff(history[3], history[1])
+    assert.deepEqual(backPatches, [
+      { action: "put", path: ["foo"], value: "" },
+      { action: "splice", path: ["foo", 0], value: "one" },
+    ])
   })
 
   /**
