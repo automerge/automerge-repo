@@ -349,6 +349,28 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
+   * `metadata(head?)` allows you to look at the metadata for a change
+   * this can be used to build history graphs to find commit messages and edit times.
+   * this interface.
+   *
+   * @remarks
+   * I'm really not convinced this is the right way to surface this information so
+   * I'm leaving this API "hidden".
+   *
+   * @hidden
+   */
+  metadata(change?: string): A.DecodedChange | undefined {
+    if (!this.isReady()) {
+      return undefined
+    }
+    if (!change) {
+      change = this.heads()![0]
+    }
+    // we return undefined instead of null by convention in this API
+    return A.inspectChange(this.#doc, change) || undefined
+  }
+
+  /**
    * `update` is called any time we have a new document state; could be
    * from a local change, a remote change, or a new document from storage.
    * Does not cause state changes.

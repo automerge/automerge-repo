@@ -153,6 +153,34 @@ describe("DocHandle", () => {
     ])
   })
 
+  it("should allow direct access to decoded changes", async () => {
+    const handle = setup()
+    const time = Date.now()
+    handle.change(d => (d.foo = "foo"), { message: "commitMessage" })
+    assert.equal(handle.isReady(), true)
+
+    const metadata = handle.metadata()
+    assert.deepEqual(metadata.message, "commitMessage")
+    // NOTE: I'm not testing time because of https://github.com/automerge/automerge/issues/965
+    // but it does round-trip successfully!
+  })
+
+  it("should allow direct access to a specific decoded change", async () => {
+    const handle = setup()
+    const time = Date.now()
+    handle.change(d => (d.foo = "foo"), { message: "commitMessage" })
+    handle.change(d => (d.foo = "foo"), { message: "commitMessage2" })
+    handle.change(d => (d.foo = "foo"), { message: "commitMessage3" })
+    handle.change(d => (d.foo = "foo"), { message: "commitMessage4" })
+    assert.equal(handle.isReady(), true)
+
+    const history = handle.history()
+    const metadata = handle.metadata(history[0][0])
+    assert.deepEqual(metadata.message, "commitMessage")
+    // NOTE: I'm not testing time because of https://github.com/automerge/automerge/issues/965
+    // but it does round-trip successfully!
+  })
+
   /**
    * Once there's a Repo#stop API this case should be covered in accompanying
    * tests and the following test removed.
