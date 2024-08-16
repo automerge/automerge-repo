@@ -116,19 +116,6 @@ describe("DocHandle", () => {
     assert.deepEqual(view, { foo: "one" })
   })
 
-  it("should return a commit from the history", async () => {
-    const handle = setup()
-    handle.change(d => (d.foo = "zero"))
-    handle.change(d => (d.foo = "one"))
-    handle.change(d => (d.foo = "two"))
-    handle.change(d => (d.foo = "three"))
-    assert.equal(handle.isReady(), true)
-
-    const history = handle.history()
-    const view = handle.view(history[1])
-    assert.deepEqual(view, { foo: "one" })
-  })
-
   it("should return diffs", async () => {
     const handle = setup()
     handle.change(d => (d.foo = "zero"))
