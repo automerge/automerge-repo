@@ -378,7 +378,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!clonedHandle.isReady()) {
       throw new Error(
         `Cloned handle is not yet in ready state.
-        (Try await handle.waitForReady() first.)`
+        (Try await handle.whenReady() first.)`
       )
     }
 
