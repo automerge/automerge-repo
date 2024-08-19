@@ -435,7 +435,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /** Called by the repo to free memory used by the document. */
-  reset() {
+  idle() {
     this.#machine.send({ type: RESET })
   }
 

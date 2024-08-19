@@ -335,7 +335,7 @@ describe("DocHandle", () => {
     const doc = await handle.doc()
     assert.equal(doc?.foo, "bar")
 
-    handle.reset()
+    handle.idle()
     assert(handle.inState([IDLE]))
     const clearedDoc = await handle.doc([IDLE])
     assert.notEqual(clearedDoc?.foo, "bar")
@@ -351,10 +351,11 @@ describe("DocHandle", () => {
     const doc = await handle.doc()
     assert.equal(doc?.foo, "bar")
 
-    handle.reset()
+    handle.idle()
 
     // remain idle beyond timeoutDelay
     await pause(10)
+    assert(handle.inState([IDLE]))
 
     // transition from idle to loading
     handle.begin()
