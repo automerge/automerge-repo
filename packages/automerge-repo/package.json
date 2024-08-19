@@ -32,7 +32,8 @@
     "tiny-typed-emitter": "^2.1.0",
     "ts-node": "^10.9.1",
     "uuid": "^9.0.0",
-    "xstate": "^5.9.1"
+    "xstate": "^5.9.1",
+    "beelay": "file:../../../beehive/beelay-wasm/"
   },
   "exports": {
     ".": "./dist/entrypoints/fullfat.js",

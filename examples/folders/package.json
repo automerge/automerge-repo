@@ -1,0 +1,46 @@
+{
+  "name": "folders",
+  "private": true,
+  "version": "1.2.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@automerge/automerge": "^2.2.5",
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
+    "@automerge/automerge-repo-network-websocket": "workspace:*",
+    "@automerge/automerge-repo-react-hooks": "workspace:*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "lodash": "^4.17.21",
+    "lucide-react": "^0.428.0",
+    "react": "^18.2.0",
+    "react-arborist": "^3.4.0",
+    "react-dom": "^18.2.0",
+    "use-resize-observer": "^9.1.0"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.7",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@typescript-eslint/eslint-plugin": "^7.3.1",
+    "@typescript-eslint/parser": "^7.3.1",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.13",
+    "clsx": "^2.1.1",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.21",
+    "prettier": "^2.8.8",
+    "tailwind-merge": "^2.5.2",
+    "tailwindcss": "^3.2.4",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.6",
+    "vite-plugin-wasm": "^3"
+  }
+}

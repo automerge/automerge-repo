@@ -38,6 +38,10 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
+  get peers(): PeerId[] {
+    return Array.from(Object.keys(this.#adaptersByPeer)) as PeerId[]
+  }
+
   disconnect() {
     this.adapters.forEach(a => a.disconnect())
   }

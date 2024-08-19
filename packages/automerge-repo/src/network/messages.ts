@@ -167,7 +167,8 @@ export const isRepoMessage = (message: Message): message is RepoMessage =>
   isRequestMessage(message) ||
   isDocumentUnavailableMessage(message) ||
   isRemoteSubscriptionControlMessage(message) ||
-  isRemoteHeadsChanged(message)
+  isRemoteHeadsChanged(message) ||
+    true
 
 // prettier-ignore
 export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage => 

@@ -18,6 +18,7 @@ type StorageSubsystemEvents = {
     numChanges: number
   }) => void
 }
+import { Beelay } from "beelay"
 
 /**
  * The storage subsystem is responsible for saving and loading Automerge documents to and from
@@ -38,9 +39,12 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
   #log = debug(`automerge-repo:storage-subsystem`)
 
-  constructor(storageAdapter: StorageAdapterInterface) {
+  #beelay: Beelay
+
+  constructor(beelay: Beelay, storageAdapter: StorageAdapterInterface) {
     super()
     this.#storageAdapter = storageAdapter
+    this.#beelay = beelay
   }
 
   async id(): Promise<StorageId> {
@@ -115,31 +119,12 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * Loads the Automerge document with the given ID from storage.
    */
   async loadDoc<T>(documentId: DocumentId): Promise<A.Doc<T> | null> {
-    // Load all the chunks for this document
-    const chunks = await this.#storageAdapter.loadRange([documentId])
-    const binaries = []
-    const chunkInfos: ChunkInfo[] = []
 
-    for (const chunk of chunks) {
-      // chunks might have been deleted in the interim
-      if (chunk.data === undefined) continue
-
-      const chunkType = chunkTypeFromKey(chunk.key)
-      if (chunkType == null) continue
-
-      chunkInfos.push({
-        key: chunk.key,
-        type: chunkType,
-        size: chunk.data.length,
-      })
-      binaries.push(chunk.data)
-    }
-    this.#chunkInfos.set(documentId, chunkInfos)
-
-    // Merge the chunks into a single binary
+    const dag = await this.#beelay.loadDag(documentId)
+    const binaries = dag.map(c => c.contents)
     const binary = mergeArrays(binaries)
     if (binary.length === 0) return null
-
+ 
     // Load into an Automerge document
     const start = performance.now()
     const newDoc = A.loadIncremental(A.init(), binary) as A.Doc<T>
@@ -152,8 +137,8 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
     // Record the latest heads for the document
     this.#storedHeads.set(documentId, A.getHeads(newDoc))
-
     return newDoc
+
   }
 
   /**
@@ -167,12 +152,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     // Don't bother saving if the document hasn't changed
     if (!this.#shouldSave(documentId, doc)) return
 
-    const sourceChunks = this.#chunkInfos.get(documentId) ?? []
-    if (this.#shouldCompact(sourceChunks)) {
-      await this.#saveTotal(documentId, doc, sourceChunks)
-    } else {
-      await this.#saveIncremental(documentId, doc)
-    }
+    await this.#saveIncremental(documentId, doc)
     this.#storedHeads.set(documentId, A.getHeads(doc))
   }
 
@@ -192,23 +172,47 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     documentId: DocumentId,
     doc: A.Doc<unknown>
   ): Promise<void> {
-    const binary = A.saveSince(doc, this.#storedHeads.get(documentId) ?? [])
-    if (binary && binary.length > 0) {
-      const key = [documentId, "incremental", keyHash(binary)]
-      this.#log(`Saving incremental ${key} for document ${documentId}`)
-      await this.#storageAdapter.save(key, binary)
-      if (!this.#chunkInfos.has(documentId)) {
-        this.#chunkInfos.set(documentId, [])
+    const changes = A.getChanges(A.view(doc, this.#storedHeads.get(documentId) ?? []), doc)
+
+    console.log("adding commits to belay");
+    const commits = changes.map(c => {
+      const decoded = A.decodeChange(c)
+      return {
+        parents: decoded.deps,
+        hash: decoded.hash,
+        contents: c,
       }
-      this.#chunkInfos.get(documentId)!.push({
-        key,
-        type: "incremental",
-        size: binary.length,
+    })
+    console.log(commits)
+    await this.#beelay.addCommits({
+      dag: documentId,
+      commits: changes.map(c => {
+        const decoded = A.decodeChange(c)
+        return {
+          parents: decoded.deps,
+          hash: decoded.hash,
+          contents: c,
+        }
       })
-      this.#storedHeads.set(documentId, A.getHeads(doc))
-    } else {
-      return Promise.resolve()
-    }
+    })
+
+    //const binary = A.saveSince(doc, this.#storedHeads.get(documentId) ?? [])
+    //if (binary && binary.length > 0) {
+      //const key = [documentId, "incremental", keyHash(binary)]
+      //this.#log(`Saving incremental ${key} for document ${documentId}`)
+      //await this.#storageAdapter.save(key, binary)
+      //if (!this.#chunkInfos.has(documentId)) {
+        //this.#chunkInfos.set(documentId, [])
+      //}
+      //this.#chunkInfos.get(documentId)!.push({
+        //key,
+        //type: "incremental",
+        //size: binary.length,
+      //})
+      //this.#storedHeads.set(documentId, A.getHeads(doc))
+    //} else {
+      //return Promise.resolve()
+    //}
   }
 
   /**

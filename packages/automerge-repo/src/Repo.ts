@@ -22,7 +22,7 @@ import {
   type PeerMetadata,
 } from "./network/NetworkAdapterInterface.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
-import { RepoMessage } from "./network/messages.js"
+import { MessageContents, RepoMessage } from "./network/messages.js"
 import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
@@ -37,6 +37,9 @@ import type {
   DocumentId,
   PeerId,
 } from "./types.js"
+import {  Progress } from "./ferigan.js"
+import { CollectionHandle } from "./CollectionHandle.js"
+import { Beelay } from "beelay"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -78,6 +81,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
 
+  #beelay: Beelay
+
   constructor({
     storage,
     network = [],
@@ -88,6 +93,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
   }: RepoConfig = {}) {
     super()
+    this.#beelay = new Beelay({storage: storage!, peerId})
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
@@ -103,34 +109,42 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     })
 
+    this.#beelay.on("message", ({message}) => {
+      this.#log(`sending ${message} message to ${message.recipient}`)
+      networkSubsystem.send({
+        targetId: message.recipient,
+        ...message
+      } as unknown as MessageContents)
+    })
+
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
     this.synchronizer = new CollectionSynchronizer(this, denylist)
 
     // When the synchronizer emits messages, send them to peers
-    this.synchronizer.on("message", message => {
-      this.#log(`sending ${message.type} message to ${message.targetId}`)
-      networkSubsystem.send(message)
-    })
+    //this.synchronizer.on("message", message => {
+    //this.#log(`sending ${message.type} message to ${message.targetId}`)
+    //networkSubsystem.send(message)
+    //})
 
     // Forward metrics from doc synchronizers
     this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
-
-    if (this.#remoteHeadsGossipingEnabled) {
-      this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
-        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-      })
-    }
+ 
+    //if (this.#remoteHeadsGossipingEnabled) {
+    //this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
+    //this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
+    //})
+    //}
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
-    const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
+    const storageSubsystem = storage ? new StorageSubsystem(this.#beelay, storage) : undefined
     if (storageSubsystem) {
       storageSubsystem.on("document-loaded", event =>
         this.emit("doc-metrics", { type: "doc-loaded", ...event })
       )
     }
-
+ 
     this.storageSubsystem = storageSubsystem
 
     // NETWORK
@@ -148,98 +162,28 @@ export class Repo extends EventEmitter<RepoEvents> {
     )
     this.networkSubsystem = networkSubsystem
 
-    // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
       this.#log("peer connected", { peerId })
-
       if (peerMetadata) {
         this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
       }
-
-      this.sharePolicy(peerId)
-        .then(shouldShare => {
-          if (shouldShare && this.#remoteHeadsGossipingEnabled) {
-            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
-          }
-        })
-        .catch(err => {
-          console.log("error in share policy", { err })
-        })
-
-      this.synchronizer.addPeer(peerId)
+      this.#beelay.peerConnected(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      this.synchronizer.removePeer(peerId)
+      //this.synchronizer.removePeer(peerId)
       this.#remoteHeadsSubscriptions.removePeer(peerId)
+      this.#beelay.peerDisconnected(peerId)
     })
 
     // Handle incoming messages
     networkSubsystem.on("message", async msg => {
-      this.#receiveMessage(msg)
+      this.#log(`received msg: ${JSON.stringify(msg)}`)
+      //@ts-ignore
+      this.#beelay.receiveMessage({message: msg})
     })
 
-    this.synchronizer.on("sync-state", message => {
-      this.#saveSyncState(message)
-
-      const handle = this.#handleCache[message.documentId]
-
-      const { storageId } = this.peerMetadataByPeerId[message.peerId] || {}
-      if (!storageId) {
-        return
-      }
-
-      const heads = handle.getRemoteHeads(storageId)
-      const haveHeadsChanged =
-        message.syncState.theirHeads &&
-        (!heads || !headsAreSame(heads, message.syncState.theirHeads))
-
-      if (haveHeadsChanged && message.syncState.theirHeads) {
-        handle.setRemoteHeads(storageId, message.syncState.theirHeads)
-
-        if (storageId && this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-            message.documentId,
-            storageId,
-            message.syncState.theirHeads
-          )
-        }
-      }
-    })
-
-    if (this.#remoteHeadsGossipingEnabled) {
-      this.#remoteHeadsSubscriptions.on("notify-remote-heads", message => {
-        this.networkSubsystem.send({
-          type: "remote-heads-changed",
-          targetId: message.targetId,
-          documentId: message.documentId,
-          newHeads: {
-            [message.storageId]: {
-              heads: message.heads,
-              timestamp: message.timestamp,
-            },
-          },
-        })
-      })
-
-      this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
-        this.#log("change-remote-subs", message)
-        for (const peer of message.peers) {
-          this.networkSubsystem.send({
-            type: "remote-subscription-change",
-            targetId: peer,
-            add: message.add,
-            remove: message.remove,
-          })
-        }
-      })
-
-      this.#remoteHeadsSubscriptions.on("remote-heads-changed", message => {
-        const handle = this.#handleCache[message.documentId]
-        handle.setRemoteHeads(message.storageId, message.remoteHeads)
-      })
-    }
   }
 
   // The `document` event is fired by the DocCollection any time we create a new document or look
@@ -268,62 +212,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.emit("document", { handle })
   }
 
-  #receiveMessage(message: RepoMessage) {
-    switch (message.type) {
-      case "remote-subscription-change":
-        if (this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleControlMessage(message)
-        }
-        break
-      case "remote-heads-changed":
-        if (this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
-        }
-        break
-      case "sync":
-      case "request":
-      case "ephemeral":
-      case "doc-unavailable":
-        this.synchronizer.receiveMessage(message).catch(err => {
-          console.log("error receiving message", { err })
-        })
-    }
-  }
-
   #throttledSaveSyncStateHandlers: Record<
     StorageId,
     (payload: SyncStatePayload) => void
   > = {}
-
-  /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
-  #saveSyncState(payload: SyncStatePayload) {
-    if (!this.storageSubsystem) {
-      return
-    }
-
-    const { storageId, isEphemeral } =
-      this.peerMetadataByPeerId[payload.peerId] || {}
-
-    if (!storageId || isEphemeral) {
-      return
-    }
-
-    let handler = this.#throttledSaveSyncStateHandlers[storageId]
-    if (!handler) {
-      handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
-        ({ documentId, syncState }: SyncStatePayload) => {
-          void this.storageSubsystem!.saveSyncState(
-            documentId,
-            storageId,
-            syncState
-          )
-        },
-        this.saveDebounceRate
-      )
-    }
-
-    handler(payload)
-  }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
   #getHandle<T>({
@@ -349,7 +241,9 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
-    return this.synchronizer.peers
+    return this.networkSubsystem.peers
+    //return []
+    //return this.synchronizer.peers
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
@@ -474,6 +368,38 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#log("error waiting for network", { err })
       })
     return handle
+  }
+
+  findCollection<T>(
+    /** The url or documentId of the collection to retrieve */
+    id: AnyDocumentId
+  ): AsyncIterableIterator<Progress<CollectionHandle | undefined>> {
+    const documentId = interpretAsDocumentId(id)
+    const loadCollectionHandle = async function*(
+      repo: Repo,
+      documentId: DocumentId
+    ): AsyncIterableIterator<Progress<CollectionHandle | undefined>> {
+      const docUrl = `automerge:${documentId}`
+      const dags = await repo.#beelay.syncCollection(documentId)
+      const dagsAsUrls = dags.map(dag => `automerge:${dag}`)
+      console.log("collection loaded")
+      console.log(dags)
+      yield {
+          type: "done",
+          value: new CollectionHandle(repo.#beelay, docUrl as AutomergeUrl, dagsAsUrls as AutomergeUrl[]),
+      }
+      //for await (const step of repo.#ferigan.loadCollection(docUrl)) {
+        //if (step.type === "done") {
+          //yield {
+            //type: "done",
+            //value: step.value ? new CollectionHandle(step.value, repo.#ferigan) : undefined,
+          //}
+        //} else {
+          //yield step
+        //}
+      //}
+    }
+    return loadCollectionHandle(this, documentId)
   }
 
   delete(
@@ -605,7 +531,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   metrics(): { documents: { [key: string]: any } } {
-    return { documents: this.synchronizer.metrics() }
+    //return { documents: this.synchronizer.metrics() }
+    return { documents: {} }
   }
 }
 

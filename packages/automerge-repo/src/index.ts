@@ -41,6 +41,8 @@ export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.
 export { isRepoMessage } from "./network/messages.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
 export type { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
+export type { Index, Progress } from "./ferigan.js"
+export { CollectionHandle } from "./CollectionHandle.js"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
