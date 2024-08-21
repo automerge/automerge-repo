@@ -117,7 +117,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           on: { DOC_READY: "ready" },
         },
         ready: {},
-        unloaded: { entry: "onUnload", type: "final" },
+        unloaded: {
+          entry: "onUnload",
+          on: {
+            BEGIN: "loading",
+          },
+        },
         deleted: { entry: "onDelete", type: "final" },
       },
     })

@@ -342,14 +342,31 @@ describe("DocHandle", () => {
     assert.notEqual(clearedDoc?.foo, "bar")
   })
 
-  it("should prevent transitioning out of unloaded state because it is final", async () => {
+  it("should allow reloading after unloading", async () => {
     const handle = setup()
 
-    handle.unload()
-    await handle.doc([UNLOADED])
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+    const doc = await handle.doc()
+    assert.equal(doc?.foo, "bar")
 
-    assert.throws(() => handle.change(d => (d.foo = "bar")))
-    assert.equal(handle.isUnloaded(), true)
+    handle.unload()
+
+    // transition from unloaded to loading
+    handle.begin()
+
+    // simulate requesting from the network
+    handle.request()
+
+    // simulate updating from the network
+    handle.update(doc => {
+      return A.change(doc, d => (d.foo = "bar"))
+    })
+
+    const reloadedDoc = await handle.doc()
+    assert.equal(handle.isReady(), true)
+    assert.equal(reloadedDoc?.foo, "bar")
   })
 
   it("should allow changing at old heads", async () => {
