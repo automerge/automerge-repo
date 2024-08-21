@@ -120,7 +120,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         unloaded: {
           entry: "onUnload",
           on: {
-            BEGIN: "loading",
+            RELOAD: "loading",
           },
         },
         deleted: { entry: "onDelete", type: "final" },
@@ -448,6 +448,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.#machine.send({ type: UNLOAD })
   }
 
+  /** Called by the repo to reuse an unloaded handle. */
+  reload() {
+    this.#machine.send({ type: RELOAD })
+  }
+
   /** Called by the repo when the document is deleted. */
   delete() {
     this.#machine.send({ type: DELETE })
@@ -601,6 +606,7 @@ type DocHandleEvent<T> =
       payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
     }
   | { type: typeof UNLOAD }
+  | { type: typeof RELOAD }
   | { type: typeof DELETE }
   | { type: typeof TIMEOUT }
   | { type: typeof DOC_UNAVAILABLE }
@@ -610,6 +616,7 @@ const REQUEST = "REQUEST"
 const DOC_READY = "DOC_READY"
 const UPDATE = "UPDATE"
 const UNLOAD = "UNLOAD"
+const RELOAD = "RELOAD"
 const DELETE = "DELETE"
 const TIMEOUT = "TIMEOUT"
 const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"

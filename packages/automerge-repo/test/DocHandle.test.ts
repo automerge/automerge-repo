@@ -353,8 +353,8 @@ describe("DocHandle", () => {
 
     handle.unload()
 
-    // transition from unloaded to loading
-    handle.begin()
+    // reload to transition from unloaded to loading
+    handle.reload()
 
     // simulate requesting from the network
     handle.request()
