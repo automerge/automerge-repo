@@ -318,7 +318,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Creates a fixed "view" of an automerge document at the given point in time represented
    * by the `heads` passed in. The return value is the same type as docSync() and will return
    * undefined if the object hasn't finished loading.
-   * @returns
+   *
+   * @remarks
+   * Note that our Typescript types do not consider change over time and the current version
+   * of Automerge doesn't check types at runtime, so if you go back to an old set of heads
+   * that doesn't match the heads here, Typescript will not save you.
+   *
+   * @returns An Automerge.Doc<T> at the point in time.
    */
   view(heads: A.Heads): A.Doc<T> | undefined {
     if (!this.isReady()) {

@@ -833,8 +833,7 @@ describe("Repo", () => {
     })
 
     it("synchronizes changes from bobRepo to charlieRepo when loading from storage", async () => {
-      const { bobRepo, bobStorage, charlieRepo, aliceHandle, teardown } =
-        await setup()
+      const { bobRepo, bobStorage, teardown } = await setup()
 
       // We create a repo that uses bobStorage to put a document into its imaginary disk
       // without it knowing about it
@@ -846,7 +845,6 @@ describe("Repo", () => {
       })
       await bobRepo2.flush()
 
-      console.log("loading from disk", inStorageHandle.url)
       // Now, let's load it on the original bob repo (which shares a "disk")
       const bobFoundIt = bobRepo.find<TestDoc>(inStorageHandle.url)
       await bobFoundIt.whenReady()
@@ -854,6 +852,8 @@ describe("Repo", () => {
       // Before checking if it syncs, make sure we have it!
       // (This behaviour is mostly test-validation, we are already testing load/save elsewhere.)
       assert.deepStrictEqual(await bobFoundIt.doc(), { foo: "foundOnFakeDisk" })
+
+      await pause(10)
 
       // We should have a docSynchronizer and its peers should be alice and charlie
       assert.strictEqual(
