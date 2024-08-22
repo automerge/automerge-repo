@@ -328,9 +328,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Creates a fixed "view" of an automerge document at the given point in time represented
-   * by the `heads` passed in. The return value is the same type as docSync() and will return
-   * undefined if the object hasn't finished loading.
+   * Returns a set of Patch operations that will move a materialized document from one state to another
+   * if applied.
    *
    * @remarks
    * We allow specifying both a from/to heads or just a single comparison point, in which case
