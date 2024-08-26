@@ -27,12 +27,12 @@ Handshake is the following steps:
 
 - Once a connection is established the initiating peer sends a
   [join](#join) message with the `senderId` set to the initiating peers ID and
-  the `protocolVersion` set to "1"
+  a `supportedProtocolVersions` array containing "1"
 - The receiving peer waits until it receives a message from the initiating
   peer, if the initiating peer receives a message before sending the join message
   the initiating peer SHOULD terminate the connection.
 - When the receiving peer receives the join message
-  - if the `protocolVersion` is not "1" the receiving peer sends an
+  - if the `supportedProtocolVersions` does not contain "1" the receiving peer sends an
     [error](#error) message and terminates the connection
   - otherwise
     - store the `senderId` as the peer ID of the initiating peer
