@@ -584,8 +584,15 @@ export const HandleState = {
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
-export const { IDLE, LOADING, REQUESTING, READY, UNLOADED, DELETED, UNAVAILABLE } =
-  HandleState
+export const {
+  IDLE,
+  LOADING,
+  REQUESTING,
+  READY,
+  UNLOADED,
+  DELETED,
+  UNAVAILABLE,
+} = HandleState
 
 // context
 
