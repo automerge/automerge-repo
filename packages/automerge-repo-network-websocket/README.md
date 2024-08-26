@@ -119,7 +119,7 @@ Sent by the initiating peer in the [handshake](#handshake) phase.
 {
     type: "join",
     senderId: peer_id,
-    supportedProtocolVersions: protocol_version
+    supportedProtocolVersions: [protocol_version]
     ? metadata: peer_metadata,
 }
 ```
