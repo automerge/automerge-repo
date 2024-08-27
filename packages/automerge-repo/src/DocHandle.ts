@@ -72,6 +72,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           this.emit("delete", { handle: this })
           return { doc: A.init() }
         }),
+        onUnload: assign(() => {
+          return { doc: A.init() }
+        }),
         onUnavailable: () => {
           this.emit("unavailable", { handle: this })
         },
@@ -86,6 +89,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       context: { documentId, doc },
       on: {
         UPDATE: { actions: "onUpdate" },
+        UNLOAD: ".unloaded",
         DELETE: ".deleted",
       },
       states: {
@@ -113,6 +117,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           on: { DOC_READY: "ready" },
         },
         ready: {},
+        unloaded: {
+          entry: "onUnload",
+          on: {
+            RELOAD: "loading",
+          },
+        },
         deleted: { entry: "onDelete", type: "final" },
       },
     })
@@ -131,7 +141,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     // Start the machine, and send a create or find event to get things going
     this.#machine.start()
-    this.#machine.send({ type: BEGIN })
+    this.begin()
   }
 
   // PRIVATE
@@ -202,6 +212,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * peers. We do not currently have an equivalent `whenSynced()`.
    */
   isReady = () => this.inState(["ready"])
+
+  /**
+   * @returns true if the document has been unloaded.
+   *
+   * Unloaded documents are freed from memory but not removed from local storage. It's not currently
+   * possible at runtime to reload an unloaded document.
+   */
+  isUnloaded = () => this.inState(["unloaded"])
 
   /**
    * @returns true if the document has been marked as deleted.
@@ -289,6 +307,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return undefined
     }
     return A.getHeads(this.#doc)
+  }
+
+  begin() {
+    this.#machine.send({ type: BEGIN })
   }
 
   /**
@@ -505,6 +527,16 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if (this.#state === "loading") this.#machine.send({ type: REQUEST })
   }
 
+  /** Called by the repo to free memory used by the document. */
+  unload() {
+    this.#machine.send({ type: UNLOAD })
+  }
+
+  /** Called by the repo to reuse an unloaded handle. */
+  reload() {
+    this.#machine.send({ type: RELOAD })
+  }
+
   /** Called by the repo when the document is deleted. */
   delete() {
     this.#machine.send({ type: DELETE })
@@ -627,6 +659,8 @@ export const HandleState = {
   REQUESTING: "requesting",
   /** The document is available */
   READY: "ready",
+  /** The document has been unloaded from the handle, to free memory usage */
+  UNLOADED: "unloaded",
   /** The document has been deleted from the repo */
   DELETED: "deleted",
   /** The document was not available in storage or from any connected peers */
@@ -634,8 +668,15 @@ export const HandleState = {
 } as const
 export type HandleState = (typeof HandleState)[keyof typeof HandleState]
 
-export const { IDLE, LOADING, REQUESTING, READY, DELETED, UNAVAILABLE } =
-  HandleState
+export const {
+  IDLE,
+  LOADING,
+  REQUESTING,
+  READY,
+  UNLOADED,
+  DELETED,
+  UNAVAILABLE,
+} = HandleState
 
 // context
 
@@ -655,14 +696,18 @@ type DocHandleEvent<T> =
       type: typeof UPDATE
       payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
     }
-  | { type: typeof TIMEOUT }
+  | { type: typeof UNLOAD }
+  | { type: typeof RELOAD }
   | { type: typeof DELETE }
+  | { type: typeof TIMEOUT }
   | { type: typeof DOC_UNAVAILABLE }
 
 const BEGIN = "BEGIN"
 const REQUEST = "REQUEST"
 const DOC_READY = "DOC_READY"
 const UPDATE = "UPDATE"
+const UNLOAD = "UNLOAD"
+const RELOAD = "RELOAD"
 const DELETE = "DELETE"
 const TIMEOUT = "TIMEOUT"
 const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"

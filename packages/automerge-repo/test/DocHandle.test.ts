@@ -7,6 +7,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
+import { UNLOADED } from "../src/DocHandle.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -420,6 +421,49 @@ describe("DocHandle", () => {
     await p
 
     assert.equal(handle.isDeleted(), true)
+  })
+
+  it("should clear document reference when unloaded", async () => {
+    const handle = setup()
+
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+    const doc = await handle.doc()
+    assert.equal(doc?.foo, "bar")
+
+    handle.unload()
+    assert.equal(handle.isUnloaded(), true)
+
+    const clearedDoc = await handle.doc([UNLOADED])
+    assert.notEqual(clearedDoc?.foo, "bar")
+  })
+
+  it("should allow reloading after unloading", async () => {
+    const handle = setup()
+
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+    const doc = await handle.doc()
+    assert.equal(doc?.foo, "bar")
+
+    handle.unload()
+
+    // reload to transition from unloaded to loading
+    handle.reload()
+
+    // simulate requesting from the network
+    handle.request()
+
+    // simulate updating from the network
+    handle.update(doc => {
+      return A.change(doc, d => (d.foo = "bar"))
+    })
+
+    const reloadedDoc = await handle.doc()
+    assert.equal(handle.isReady(), true)
+    assert.equal(reloadedDoc?.foo, "bar")
   })
 
   it("should allow changing at old heads", async () => {
