@@ -49,7 +49,7 @@ export const useDocuments = <T>(idsOrUrls?: DocId[]) => {
       if (doc) setDocuments(docs => ({ ...docs, [url]: doc }))
     }
     const addListener = (handle: DocHandle<T>) => {
-      const url = stringifyAutomergeUrl(handle.documentId);
+      const url = stringifyAutomergeUrl(handle.documentId)
 
       // whenever a document changes, update our map
       const listenersForDoc: Listeners<T> = {
@@ -86,7 +86,10 @@ export const useDocuments = <T>(idsOrUrls?: DocId[]) => {
             addListener(handle)
           })
           .catch(err => {
-            console.error(`Error loading document ${url} in useDocuments: `, err)
+            console.error(
+              `Error loading document ${url} in useDocuments: `,
+              err
+            )
           })
       }
     }

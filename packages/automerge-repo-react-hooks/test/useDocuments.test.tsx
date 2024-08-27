@@ -132,7 +132,9 @@ describe("useDocuments", () => {
   it("updates documents when they change, if ids are passed in", async () => {
     const { repo, documentUrls, wrapper } = setup()
     const onDocs = vi.fn()
-    const documentIds = documentUrls.map(url => parseAutomergeUrl(url).documentId);
+    const documentIds = documentUrls.map(
+      url => parseAutomergeUrl(url).documentId
+    )
 
     render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
     await waitFor(() =>
