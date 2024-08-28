@@ -486,6 +486,31 @@ describe("Repo", () => {
       const doc = await handle.doc()
       expect(doc).toEqual({})
     })
+
+    describe("handle cache", () => {
+      it("contains doc handle", async () => {
+        const { repo } = setup()
+        const handle = repo.create({ foo: "bar" })
+        await handle.doc()
+        assert(repo.handles[handle.documentId])
+      })
+
+      it("delete removes doc handle", async () => {
+        const { repo } = setup()
+        const handle = repo.create({ foo: "bar" })
+        await handle.doc()
+        await repo.delete(handle.documentId)
+        assert(repo.handles[handle.documentId] === undefined)
+      })
+
+      it("removeFromCache removes doc handle", async () => {
+        const { repo } = setup()
+        const handle = repo.create({ foo: "bar" })
+        await handle.doc()
+        await repo.removeFromCache(handle.documentId)
+        assert(repo.handles[handle.documentId] === undefined)
+      })
+    })
   })
 
   describe("flush behaviour", () => {

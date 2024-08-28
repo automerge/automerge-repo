@@ -6,7 +6,14 @@ import {
   interpretAsDocumentId,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
-import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
+import {
+  DELETED,
+  DocHandle,
+  DocHandleEncodedChangePayload,
+  READY,
+  UNAVAILABLE,
+  UNLOADED,
+} from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
@@ -537,6 +544,27 @@ export class Repo extends EventEmitter<RepoEvents> {
         return this.storageSubsystem!.saveDoc(handle.documentId, doc)
       })
     )
+  }
+
+  async removeFromCache(documentId: DocumentId) {
+    const handle = this.#getHandle({ documentId })
+    const doc = await handle.doc([READY, UNLOADED, DELETED, UNAVAILABLE])
+    if (doc) {
+      if (handle.isReady()) {
+        handle.unload()
+      } else {
+        this.#log(
+          `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
+        )
+      }
+      delete this.#handleCache[documentId]
+      // TODO: remove document from synchronizer when removeDocument is implemented
+      // this.synchronizer.removeDocument(documentId)
+    } else {
+      this.#log(
+        `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
+      )
+    }
   }
 
   shutdown(): Promise<void> {
