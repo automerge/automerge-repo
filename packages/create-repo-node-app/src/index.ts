@@ -30,12 +30,12 @@ function createPackageJson(projectName: string) {
 
 function createIndexJs(projectName: string) {
   const indexJsContent = `import { Repo } from "@automerge/automerge-repo"
-import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
+import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 
 const repo = new Repo({
   storage: new NodeFSStorageAdapter("./db"),
-  network: [new BrowserWebSocketClientAdapter("wss://sync.automerge.org")]
+  network: [new WebSocketClientAdapter("wss://sync.automerge.org")]
 })
 `
   fs.writeFileSync(path.join(projectName, "index.js"), indexJsContent)

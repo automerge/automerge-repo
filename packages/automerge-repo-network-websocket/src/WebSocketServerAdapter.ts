@@ -21,7 +21,7 @@ import { toArrayBuffer } from "./toArrayBuffer.js"
 
 const { encode, decode } = cborHelpers
 
-export class NodeWSServerAdapter extends NetworkAdapter {
+export class WebSocketServerAdapter extends NetworkAdapter {
   sockets: { [peerId: PeerId]: WebSocket } = {}
 
   #ready = false

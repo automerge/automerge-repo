@@ -1,5 +1,5 @@
 import { isValidAutomergeUrl, Repo, Counter } from "@automerge/automerge-repo"
-import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
+import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"
@@ -10,7 +10,7 @@ import "./index.css"
 
 const repo = new Repo({
   network: [
-    new BrowserWebSocketClientAdapter("wss://sync.automerge.org"),
+    new WebSocketClientAdapter("wss://sync.automerge.org"),
     new BroadcastChannelNetworkAdapter(),
   ],
   storage: new IndexedDBStorageAdapter("automerge"),

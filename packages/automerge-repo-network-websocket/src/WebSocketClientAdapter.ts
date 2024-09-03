@@ -23,7 +23,7 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
   socket?: WebSocket
 }
 
-export class BrowserWebSocketClientAdapter extends WebSocketNetworkAdapter {
+export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   #ready = false
   #readyResolver?: () => void
   #readyPromise: Promise<void> = new Promise<void>(resolve => {

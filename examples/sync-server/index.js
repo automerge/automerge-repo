@@ -3,7 +3,7 @@ import fs from "fs"
 import express from "express"
 import { WebSocketServer } from "ws"
 import { Repo } from "@automerge/automerge-repo"
-import { NodeWSServerAdapter } from "@automerge/automerge-repo-network-websocket"
+import { WebSocketServerAdapter } from "@automerge/automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import os from "os"
 
@@ -35,7 +35,7 @@ export class Server {
     app.use(express.static("public"))
 
     const config = {
-      network: [new NodeWSServerAdapter(this.#socket)],
+      network: [new WebSocketServerAdapter(this.#socket)],
       storage: new NodeFSStorageAdapter(dir),
       /** @ts-ignore @type {(import("@automerge/automerge-repo").PeerId)}  */
       peerId: `storage-server-${hostname}`,

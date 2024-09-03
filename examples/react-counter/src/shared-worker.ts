@@ -16,12 +16,12 @@ const repoPromise = (async () => {
   const { IndexedDBStorageAdapter } = await import(
     "@automerge/automerge-repo-storage-indexeddb"
   )
-  const { BrowserWebSocketClientAdapter } = await import(
+  const { WebSocketClientAdapter } = await import(
     "@automerge/automerge-repo-network-websocket"
   )
   return new Repo({
     storage: new IndexedDBStorageAdapter(),
-    network: [new BrowserWebSocketClientAdapter("ws://localhost:3030")],
+    network: [new WebSocketClientAdapter("ws://localhost:3030")],
     peerId: ("shared-worker-" + Math.round(Math.random() * 10000)) as any,
     sharePolicy: async peerId => peerId.includes("storage-server"),
   })

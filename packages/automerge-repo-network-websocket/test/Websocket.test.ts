@@ -19,8 +19,8 @@ import http from "http"
 import { getPortPromise as getAvailablePort } from "portfinder"
 import { describe, it } from "vitest"
 import WebSocket from "ws"
-import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter.js"
-import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter.js"
+import { WebSocketClientAdapter } from "../src/WebSocketClientAdapter.js"
+import { WebSocketServerAdapter } from "../src/WebSocketServerAdapter.js"
 
 describe("Websocket adapters", () => {
   const browserPeerId = "browser" as PeerId
@@ -41,7 +41,7 @@ describe("Websocket adapters", () => {
     return { adapters: [aliceAdapter, serverAdapter, bobAdapter], teardown }
   })
 
-  describe("BrowserWebSocketClientAdapter", () => {
+  describe("WebSocketClientAdapter", () => {
     it("should advertise the protocol versions it supports in its join message", async () => {
       const {
         serverSocket: socket,
@@ -178,7 +178,7 @@ describe("Websocket adapters", () => {
       const serverUrl = `ws://localhost:${port}`
 
       const retry = 100
-      const browser = new BrowserWebSocketClientAdapter(serverUrl, retry)
+      const browser = new WebSocketClientAdapter(serverUrl, retry)
 
       const _browserRepo = new Repo({
         network: [browser],
@@ -189,7 +189,7 @@ describe("Websocket adapters", () => {
       const serverSocket = new WebSocket.Server({ server })
 
       await new Promise<void>(resolve => server.listen(port, resolve))
-      const serverAdapter = new NodeWSServerAdapter(serverSocket, retry)
+      const serverAdapter = new WebSocketServerAdapter(serverSocket, retry)
 
       const serverRepo = new Repo({
         network: [serverAdapter],
@@ -214,7 +214,7 @@ describe("Websocket adapters", () => {
     })
 
     it("should correctly clear event handlers on reconnect", async () => {
-      // This reproduces an issue where the BrowserWebSocketClientAdapter.connect
+      // This reproduces an issue where the WebSocketClientAdapter.connect
       // call registered event handlers on the websocket but didn't clear them
       // up again on a second call to connect. This combined with the reconnect
       // timer to produce the following sequence of events:
@@ -245,12 +245,12 @@ describe("Websocket adapters", () => {
     })
   })
 
-  describe("NodeWSServerAdapter", () => {
+  describe("WebSocketServerAdapter", () => {
     const serverResponse = async (clientHello: Object) => {
       const { serverSocket, serverUrl } = await setup({
         clientCount: 0,
       })
-      const server = new NodeWSServerAdapter(serverSocket)
+      const server = new WebSocketServerAdapter(serverSocket)
       const _serverRepo = new Repo({
         network: [server],
         peerId: serverPeerId,
@@ -312,13 +312,13 @@ describe("Websocket adapters", () => {
       const serverUrl = `ws://localhost:${port}`
 
       const retry = 100
-      const browserAdapter = new BrowserWebSocketClientAdapter(serverUrl, retry)
+      const browserAdapter = new WebSocketClientAdapter(serverUrl, retry)
 
       const server = http.createServer()
       const serverSocket = new WebSocket.Server({ server })
 
       await new Promise<void>(resolve => server.listen(port, resolve))
-      const serverAdapter = new NodeWSServerAdapter(serverSocket, retry)
+      const serverAdapter = new WebSocketServerAdapter(serverSocket, retry)
 
       const _browserRepo = new Repo({
         network: [browserAdapter],
@@ -473,7 +473,7 @@ describe("Websocket adapters", () => {
       clientDoc = A.change(clientDoc, d => (d.foo = "qux"))
 
       // Now create a websocket sync server with the original document in it's storage
-      const adapter = new NodeWSServerAdapter(socket)
+      const adapter = new WebSocketServerAdapter(socket)
       const repo = new Repo({
         network: [adapter],
         storage,
@@ -530,7 +530,7 @@ describe("Websocket adapters", () => {
       // Now, assume either the network or the server is going slow, so the
       // server thinks it has sent the response above, but for whatever reason
       // it never gets to the client. In that case the reconnect timer in the
-      // BrowserWebSocketClientAdapter will fire and we'll create a new
+      // WebSocketClientAdapter will fire and we'll create a new
       // websocket and connect it. To simulate this we drop the above response
       // on the floor and start connecting again.
 
@@ -621,7 +621,7 @@ const setupServer = async (options: SetupOptions = {}) => {
   const server = http.createServer()
   const serverSocket = new WebSocket.Server({ server })
   await new Promise<void>(resolve => server.listen(port, resolve))
-  const serverAdapter = new NodeWSServerAdapter(serverSocket, retryInterval)
+  const serverAdapter = new WebSocketServerAdapter(serverSocket, retryInterval)
   return { server, serverAdapter, serverSocket, serverUrl }
 }
 
@@ -632,7 +632,7 @@ const setupClient = async (options: SetupOptions = {}) => {
     port = await getPort(),
   } = options
   const serverUrl = `ws://localhost:${port}`
-  return new BrowserWebSocketClientAdapter(serverUrl, retryInterval)
+  return new WebSocketClientAdapter(serverUrl, retryInterval)
 }
 
 const pause = (t = 0) =>

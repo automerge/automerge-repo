@@ -1,6 +1,6 @@
 import { DocHandle, Repo, isValidAutomergeUrl } from "@automerge/automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
+import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import React from "react"
@@ -12,7 +12,7 @@ import "./index.css"
 const repo = new Repo({
   network: [
     new BroadcastChannelNetworkAdapter(),
-    new BrowserWebSocketClientAdapter("ws://localhost:3030"),
+    new WebSocketClientAdapter("ws://localhost:3030"),
   ],
   storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),
 })

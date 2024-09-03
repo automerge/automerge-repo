@@ -2,9 +2,9 @@
  * A `NetworkAdapter` which connects to a remote host via WebSockets
  *
  * The websocket protocol requires a server to be listening and a client to
- * connect to the server. To that end the {@link NodeWSServerAdapter} does not
+ * connect to the server. To that end the {@link WebSocketServerAdapter} does not
  * make outbound connections and instead listens on the provided socket for
- * new connections whilst the {@link BrowserWebSocketClientAdapter} makes an
+ * new connections whilst the {@link WebSocketClientAdapter} makes an
  * outbound connection to the provided socket.
  *
  * Note that the "browser" and "node" naming is a bit misleading, both
@@ -12,8 +12,15 @@
  *
  * @module
  * */
-export { BrowserWebSocketClientAdapter } from "./BrowserWebSocketClientAdapter.js"
-export { NodeWSServerAdapter } from "./NodeWSServerAdapter.js"
+export { WebSocketClientAdapter } from "./WebSocketClientAdapter.js"
+export { WebSocketServerAdapter } from "./WebSocketServerAdapter.js"
+
+/** @hidden */
+export { WebSocketClientAdapter as BrowserWebSocketClientAdapter } from "./WebSocketClientAdapter.js"
+
+/** @hidden */
+export { WebSocketServerAdapter as NodeWSServerAdapter } from "./WebSocketServerAdapter.js"
+
 export type {
   FromClientMessage,
   FromServerMessage,

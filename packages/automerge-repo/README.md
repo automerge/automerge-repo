@@ -233,14 +233,14 @@ Now import it and add it to your list of network adapters:
 
 ```ts
 // main.tsx
-import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket" // <-- add this line
+import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket" // <-- add this line
 
 // ...
 
 const repo = new Repo({
   network: [
     new BroadcastChannelNetworkAdapter(),
-    new BrowserWebSocketClientAdapter("ws://localhost:3030"), // <-- add this line
+    new WebSocketClientAdapter("ws://localhost:3030"), // <-- add this line
   ],
   storage: new IndexedDBStorageAdapter(),
 })
