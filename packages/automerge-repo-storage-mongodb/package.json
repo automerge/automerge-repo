@@ -1,0 +1,30 @@
+{
+  "name": "@automerge/automerge-repo-storage-mongodb",
+  "version": "2.0.0-alpha.11",
+  "description": "MongoDB storage adapter for Automerge Repo",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-storage-mongodb",
+  "author": "Kræn Hansen <kraen.hansen@mongodb.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "npm-watch build",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "mongodb": "^6.8.0"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
