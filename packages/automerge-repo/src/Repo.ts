@@ -553,8 +553,10 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @returns Promise<void>
    */
   async removeFromCache(documentId: DocumentId) {
-    if (!this.#handleCache[documentId]){
-      this.#log(`WARN: removeFromCache called but handle not found in handleCache for documentId: ${documentId}`)
+    if (!this.#handleCache[documentId]) {
+      this.#log(
+        `WARN: removeFromCache called but handle not found in handleCache for documentId: ${documentId}`
+      )
       return
     }
     const handle = this.#getHandle({ documentId })
