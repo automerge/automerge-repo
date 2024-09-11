@@ -546,7 +546,17 @@ export class Repo extends EventEmitter<RepoEvents> {
     )
   }
 
+  /**
+   * Removes a DocHandle from the handleCache.
+   * @hidden this API is experimental and may change.
+   * @param documentId - documentId of the DocHandle to remove from handleCache, if present in cache.
+   * @returns Promise<void>
+   */
   async removeFromCache(documentId: DocumentId) {
+    if (!this.#handleCache[documentId]){
+      this.#log(`WARN: removeFromCache called but handle not found in handleCache for documentId: ${documentId}`)
+      return
+    }
     const handle = this.#getHandle({ documentId })
     const doc = await handle.doc([READY, UNLOADED, DELETED, UNAVAILABLE])
     if (doc) {
