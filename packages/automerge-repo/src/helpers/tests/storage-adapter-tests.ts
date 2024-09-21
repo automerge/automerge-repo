@@ -1,4 +1,4 @@
-import { describe, expect, beforeEach, test } from "vitest"
+import { describe, expect, beforeEach, it as _it } from "vitest"
 
 import type { StorageAdapterInterface } from "../../storage/StorageAdapterInterface.js"
 
@@ -12,7 +12,7 @@ type AdapterTestContext = {
   adapter: StorageAdapterInterface
 }
 
-const it = test<AdapterTestContext>
+const it = _it<AdapterTestContext>
 
 export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
   beforeEach<AdapterTestContext>(async ctx => {
