@@ -67,20 +67,16 @@ export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
         await adapter.save(["AAAAA", "snapshot", "yyyyy"], PAYLOAD_B())
         await adapter.save(["AAAAA", "sync-state", "zzzzz"], PAYLOAD_C())
 
-        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual(
-          expect.arrayContaining([
-            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-            { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_B() },
-            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-          ])
-        )
+        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual([
+          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+          { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_B() },
+          { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
+        ])
 
-        expect(await adapter.loadRange(["AAAAA", "sync-state"])).toStrictEqual(
-          expect.arrayContaining([
-            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-          ])
-        )
+        expect(await adapter.loadRange(["AAAAA", "sync-state"])).toStrictEqual([
+          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+          { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
+        ])
       })
 
       it("should only load values that match they key", async ({ adapter }) => {
@@ -88,16 +84,9 @@ export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
         await adapter.save(["BBBBB", "sync-state", "zzzzz"], PAYLOAD_C())
 
         const actual = await adapter.loadRange(["AAAAA"])
-        expect(actual).toStrictEqual(
-          expect.arrayContaining([
-            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-          ])
-        )
-        expect(actual).toStrictEqual(
-          expect.not.arrayContaining([
-            { key: ["BBBBB", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-          ])
-        )
+        expect(actual).toStrictEqual([
+          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+        ])
       })
     })
 
