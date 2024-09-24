@@ -344,12 +344,12 @@ export class Repo extends EventEmitter<RepoEvents> {
    * will generate a unique id. We emit a `document` event to advertise interest in the document.
    * 
    * The `id` parameter should be sufficiently random or unique to avoid conflicts with existing documents. 
-   * Alternatively, it can match an existing id, but the initial value must share ancestry with that document.
+   * Use `clone` or `import` to create a handle from an existing document with shared ancestry.
    */
   create<T>(initialValue?: T, id: AnyDocumentId = generateAutomergeUrl()): DocHandle<T> {
     const documentId = interpretAsDocumentId(id)
     if (this.#handleCache[documentId]) {
-      throw new Error(`A handle with id ${id} already exists.`)
+      throw new Error(`A handle with that id already exists: ${id}`)
     }
 
     const handle = this.#getHandle<T>({
@@ -387,7 +387,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @throws if the cloned handle is not yet ready or if
    * `clonedHandle.docSync()` returns `undefined` (i.e. the handle is unavailable).
    */
-  clone<T>(clonedHandle: DocHandle<T>) {
+  clone<T>(clonedHandle: DocHandle<T>, id?: AnyDocumentId) {
     if (!clonedHandle.isReady()) {
       throw new Error(
         `Cloned handle is not yet in ready state.
@@ -400,7 +400,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       throw new Error("Cloned handle doesn't have a document.")
     }
 
-    const handle = this.create<T>()
+    const handle = this.create<T>(undefined, id)
 
     handle.update(() => {
       // we replace the document with the new cloned one
@@ -497,7 +497,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Imports document binary into the repo.
    * @param binary - The binary to import
    */
-  import<T>(binary: Uint8Array, id: AnyDocumentId = generateAutomergeUrl()) {
+  import<T>(binary: Uint8Array, id?: AnyDocumentId) {
     const doc = Automerge.load<T>(binary)
 
     const handle = this.create<T>(undefined, id)
