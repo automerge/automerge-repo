@@ -1348,6 +1348,82 @@ describe("Repo", () => {
     assert.equal(bobDoc.isReady(), true)
   })
 
+  it("changes get replicated after the next change if a sync message was dropped", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
+    const aliceRepo = new Repo({
+      network: [aliceAdapter],
+      peerId: alice,
+    })
+    const bobRepo = new Repo({
+      network: [bobAdapter],
+      peerId: bob,
+    })
+    aliceAdapter.peerCandidate(bob)
+    bobAdapter.peerCandidate(alice)
+
+    const bobHandle = bobRepo.create<TestDoc>()
+    bobHandle.change(d => {
+      d.foo = "bar"
+    })
+    const aliceHandle = await aliceRepo.find(bobHandle.documentId)
+    await eventPromise(aliceHandle, "heads-changed")
+    assert.deepEqual(aliceHandle.docSync(), bobHandle.docSync())
+
+    bobAdapter.dropMessages(true)
+    bobHandle.change(d => {
+      d.bar = "foo"
+    })
+    await pause(10)
+    assert.equal(bobAdapter.getDroppedMessages()[0].type, "sync")
+
+    bobAdapter.dropMessages(false)
+    bobHandle.change(d => {
+      d.baz = "42"
+    })
+    await eventPromise(aliceHandle, "heads-changed")
+  })
+
+  it("changes get replicated the peer's next change if a sync message was dropped", async () => {
+    const alice = "alice" as PeerId
+    const bob = "bob" as PeerId
+    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
+    const aliceRepo = new Repo({
+      network: [aliceAdapter],
+      peerId: alice,
+    })
+    const bobRepo = new Repo({
+      network: [bobAdapter],
+      peerId: bob,
+    })
+    aliceAdapter.peerCandidate(bob)
+    bobAdapter.peerCandidate(alice)
+
+    const bobHandle = bobRepo.create<TestDoc>()
+    bobHandle.change(d => {
+      d.foo = "bar"
+    })
+    const aliceHandle = await aliceRepo.find(bobHandle.documentId)
+    await eventPromise(aliceHandle, "heads-changed")
+    assert.deepEqual(aliceHandle.docSync(), bobHandle.docSync())
+
+    bobAdapter.dropMessages(true)
+    bobHandle.change(d => {
+      d.bar = "foo"
+    })
+    await pause(10)
+    assert.equal(bobAdapter.getDroppedMessages()[0].type, "sync")
+
+    bobAdapter.dropMessages(false)
+    aliceHandle.change(d => {
+      d.baz = "42"
+    })
+    await eventPromise(bobHandle, "heads-changed")
+    await pause(200)
+    assert.deepEqual(aliceHandle.docSync(), bobHandle.docSync())
+  })
+
   describe("with peers (mesh network)", () => {
     const setup = async () => {
       // Set up three repos; connect Alice to Bob, Bob to Charlie, and Alice to Charlie
