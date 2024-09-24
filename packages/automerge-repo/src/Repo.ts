@@ -348,6 +348,10 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   create<T>(initialValue?: T, id: AnyDocumentId = generateAutomergeUrl()): DocHandle<T> {
     const documentId = interpretAsDocumentId(id)
+    if (this.#handleCache[documentId]) {
+      throw new Error(`A handle with id ${id} already exists.`)
+    }
+
     const handle = this.#getHandle<T>({
       documentId,
     }) as DocHandle<T>
