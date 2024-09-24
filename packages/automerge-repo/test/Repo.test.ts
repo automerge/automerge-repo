@@ -96,6 +96,17 @@ describe("Repo", () => {
       }
     })
 
+    it("throws an error if we try to create a handle with an existing id", async () => {
+      const { repo } = setup()
+      const handle = repo.create({ foo: "bar" })
+      const docId = handle.url
+      try {
+        repo.create({ foo: "bar" }, docId);
+      } catch (e: any) {
+        assert.equal(e.message, `A handle with that id already exists: ${docId}`)
+      }
+    })
+
     it("can find a document by url", () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
