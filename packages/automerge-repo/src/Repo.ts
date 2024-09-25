@@ -1,11 +1,7 @@
 import { next as Automerge } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import {
-  generateAutomergeUrl,
-  interpretAsDocumentId,
-  parseAutomergeUrl,
-} from "./AutomergeUrl.js"
+import { generateAutomergeUrl, interpretAsDocumentId } from "./AutomergeUrl.js"
 import {
   DELETED,
   DocHandle,
@@ -34,13 +30,22 @@ function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
 }
 
-/** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
-/** The `Repo` is the main entry point of this library
+/**
+ * A Repo (short for repository) manages a collection of documents.
  *
- * @remarks
- * To construct a `Repo` you will need an {@link StorageAdapter} and one or
- * more {@link NetworkAdapter}s. Once you have a `Repo` you can use it to
- * obtain {@link DocHandle}s.
+ * You can use this object to find, create, and delete documents, and to
+ * as well as to import and export documents to and from binary format.
+ *
+ * A Repo has a {@link StorageSubsystem} and a {@link NetworkSubsystem}.
+ * During initialization you may provide a {@link StorageAdapter} and zero or
+ * more {@link NetworkAdapter}s.
+ *
+ * @param {RepoConfig} config - Configuration options for the Repo
+ *
+ * @emits Repo#document - When a new document is created or discovered
+ * @emits Repo#delete-document - When a document is deleted
+ * @emits Repo#unavailable-document - When a document is marked as unavailable
+ *
  */
 export class Repo extends EventEmitter<RepoEvents> {
   #log: debug.Debugger
@@ -340,13 +345,20 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /**
    * Creates a new document and returns a handle to it. The initial value of the document is an
-   * empty object `{}` unless an initial value is provided. If an id is not provided, the system 
-   * will generate a unique id. We emit a `document` event to advertise interest in the document.
-   * 
-   * The `id` parameter should be sufficiently random or unique to avoid conflicts with existing documents. 
-   * Use `clone` or `import` to create a handle from an existing document with shared ancestry.
+   * empty object `{}` unless an initial value is provided.
+   *
+   * @see Repo#clone to create an independent copy of a handle.
+   * @see Repo#import to load data from a Uint8Array.
+   *
+   * @param [initialValue] - A value to initialize the document with
+   * @param [id] - A universally unique documentId **Caution!** ID reuse will lead to data corruption.
+   * @emits Repo#document
+   * @throws If a handle with the same id already exists
    */
-  create<T>(initialValue?: T, id: AnyDocumentId = generateAutomergeUrl()): DocHandle<T> {
+  create<T>(
+    initialValue?: T,
+    id: AnyDocumentId = generateAutomergeUrl()
+  ): DocHandle<T> {
     const documentId = interpretAsDocumentId(id)
     if (this.#handleCache[documentId]) {
       throw new Error(`A handle with that id already exists: ${id}`)
@@ -372,9 +384,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
-  /** Create a new DocHandle by cloning the history of an existing DocHandle.
-   *
-   * @param clonedHandle - The handle to clone
+  /**
+   * Create a new DocHandle by cloning the history of an existing DocHandle.
    *
    * @remarks This is a wrapper around the `clone` function in the Automerge library.
    * The new `DocHandle` will have a new URL but will share history with the original,
@@ -384,8 +395,11 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
    * be notified of the newly created DocHandle.
    *
-   * @throws if the cloned handle is not yet ready or if
-   * `clonedHandle.docSync()` returns `undefined` (i.e. the handle is unavailable).
+   * @param clonedHandle - The handle to clone
+   * @param [id] - A universally unique documentId **Caution!** ID reuse will lead to data corruption.
+   * @emits Repo#document
+   * @throws if the source handle is not yet ready
+   *
    */
   clone<T>(clonedHandle: DocHandle<T>, id?: AnyDocumentId) {
     if (!clonedHandle.isReady()) {
@@ -413,12 +427,15 @@ export class Repo extends EventEmitter<RepoEvents> {
   /**
    * Retrieves a document by id. It gets data from the local system, but also emits a `document`
    * event to advertise interest in the document.
+   *
+   * @param documentUrl - The url or documentId of the handle to retrieve
+   * @emits Repo#document
    */
   find<T>(
     /** The url or documentId of the handle to retrieve */
-    id: AnyDocumentId
+    documentUrl: AnyDocumentId
   ): DocHandle<T> {
-    const documentId = interpretAsDocumentId(id)
+    const documentId = interpretAsDocumentId(documentUrl)
 
     // If we have the handle cached, return it
     if (this.#handleCache[documentId]) {
@@ -464,6 +481,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
+  /**
+   * Removes a document from the local repo.
+   *
+   * @remarks This does not delete the document from the network or from other peers' local storage.
+   *
+   * @param documentUrl - The url or documentId of the handle to retrieve
+   * @emits Repo#delete-document
+   */
   delete(
     /** The url or documentId of the handle to delete */
     id: AnyDocumentId
@@ -479,7 +504,8 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /**
    * Exports a document to a binary format.
-   * @param id - The url or documentId of the handle to export
+   *
+   * @param documentUrl - The url or documentId of the handle to export
    *
    * @returns Promise<Uint8Array | undefined> - A Promise containing the binary document,
    * or undefined if the document is unavailable.
@@ -499,7 +525,6 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   import<T>(binary: Uint8Array, id?: AnyDocumentId) {
     const doc = Automerge.load<T>(binary)
-
     const handle = this.create<T>(undefined, id)
 
     handle.update(() => {
