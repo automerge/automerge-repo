@@ -351,11 +351,19 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#withSyncState(message.senderId, syncState => {
       this.#handle.update(doc => {
+        const start = performance.now()
         const [newDoc, newSyncState] = A.receiveSyncMessage(
           doc,
           syncState,
           message.data
         )
+        const end = performance.now()
+        this.emit("metrics", {
+          type: "receive-sync-message",
+          documentId: this.#handle.documentId,
+          durationMillis: end - start,
+          ...A.stats(doc),
+        })
 
         this.#setSyncState(message.senderId, newSyncState)
 

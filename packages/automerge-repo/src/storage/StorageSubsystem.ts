@@ -8,12 +8,22 @@ import { ChunkInfo, StorageKey, StorageId } from "./types.js"
 import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
 import * as Uuid from "uuid"
+import { EventEmitter } from "eventemitter3"
+
+type StorageSubsystemEvents = {
+  "document-loaded": (arg: {
+    documentId: DocumentId
+    durationMillis: number
+    numOps: number
+    numChanges: number
+  }) => void
+}
 
 /**
  * The storage subsystem is responsible for saving and loading Automerge documents to and from
  * storage adapter. It also provides a generic key/value storage interface for other uses.
  */
-export class StorageSubsystem {
+export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   /** The storage adapter to use for saving and loading documents */
   #storageAdapter: StorageAdapterInterface
 
@@ -29,6 +39,7 @@ export class StorageSubsystem {
   #log = debug(`automerge-repo:storage-subsystem`)
 
   constructor(storageAdapter: StorageAdapterInterface) {
+    super()
     this.#storageAdapter = storageAdapter
   }
 
@@ -130,7 +141,14 @@ export class StorageSubsystem {
     if (binary.length === 0) return null
 
     // Load into an Automerge document
+    const start = performance.now()
     const newDoc = A.loadIncremental(A.init(), binary) as A.Doc<T>
+    const end = performance.now()
+    this.emit("document-loaded", {
+      documentId,
+      durationMillis: end - start,
+      ...A.stats(newDoc),
+    })
 
     // Record the latest heads for the document
     this.#storedHeads.set(documentId, A.getHeads(newDoc))
