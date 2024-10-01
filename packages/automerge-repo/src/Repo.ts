@@ -27,7 +27,10 @@ import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { SyncStatePayload } from "./synchronizer/Synchronizer.js"
+import {
+  DocSyncMetrics,
+  SyncStatePayload,
+} from "./synchronizer/Synchronizer.js"
 import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
 
 function randomPeerId() {
@@ -104,6 +107,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       networkSubsystem.send(message)
     })
 
+    // Forward metrics from doc synchronizers
+    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
+
     if (this.#remoteHeadsGossipingEnabled) {
       this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
         this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
@@ -113,6 +119,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
+    if (storageSubsystem) {
+      storageSubsystem.on("document-loaded", event =>
+        this.emit("doc-metrics", { type: "doc-loaded", ...event })
+      )
+    }
+
     this.storageSubsystem = storageSubsystem
 
     // NETWORK
@@ -638,6 +650,7 @@ export interface RepoEvents {
   "delete-document": (arg: DeleteDocumentPayload) => void
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (arg: DeleteDocumentPayload) => void
+  "doc-metrics": (arg: DocMetrics) => void
 }
 
 export interface DocumentPayload {
@@ -647,3 +660,13 @@ export interface DocumentPayload {
 export interface DeleteDocumentPayload {
   documentId: DocumentId
 }
+
+export type DocMetrics =
+  | DocSyncMetrics
+  | {
+      type: "doc-loaded"
+      documentId: DocumentId
+      durationMillis: number
+      numOps: number
+      numChanges: number
+    }
