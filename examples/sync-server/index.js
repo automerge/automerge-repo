@@ -5,7 +5,34 @@ import { WebSocketServer } from "ws"
 import { Repo } from "@automerge/automerge-repo"
 import { NodeWSServerAdapter } from "@automerge/automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
+import { default as Prometheus } from "prom-client"
 import os from "os"
+
+const registry = new Prometheus.Registry()
+Prometheus.collectDefaultMetrics({ register: registry })
+
+const buckets = Prometheus.linearBuckets(0, 1000, 60)
+
+const metrics = {
+  docLoaded: new Prometheus.Histogram({
+    name: "automerge_repo_doc_loaded_duration_millis",
+    help: "Duration of loading a document",
+    buckets,
+    registers: [registry],
+  }),
+  receiveSyncMessage: new Prometheus.Histogram({
+    name: "automerge_repo_receive_sync_message_duration_millis",
+    help: "Duration of receiving a sync message",
+    buckets,
+    registers: [registry],
+  }),
+  numOps: new Prometheus.Histogram({
+    name: "automerge_repo_num_ops",
+    help: "Number of operations in a document",
+    buckets: Prometheus.exponentialBuckets(1, 2, 20),
+    registers: [registry],
+  }),
+}
 
 export class Server {
   /** @type WebSocketServer */
@@ -45,12 +72,25 @@ export class Server {
     }
     const serverRepo = new Repo(config)
 
+    // Observe metrics for prometheus and also log the events so log aggregators like loki can pick them up
+    serverRepo.on("doc-metrics", (event) => {
+      console.log(JSON.stringify(event))
+      metrics.numOps.observe(event.numOps)
+      if (event.type === "doc-loaded") {
+        metrics.docLoaded.observe(event.durationMillis)
+      } else if (event.type === "receive-sync-message") {
+        metrics.receiveSyncMessage.observe(event.durationMillis)
+      }
+    })
+
     app.get("/", (req, res) => {
       res.send(`👍 @automerge/example-sync-server is running`)
     })
 
-    app.get("/metrics", (req, res) => {
-      res.json(serverRepo.metrics())
+    // In a real server this endpoint would be authenticated or not event part of the same express app
+    app.get("/prometheus_metrics", async (req, res) => {
+      res.set("Content-Type", registry.contentType)
+      res.end(await registry.metrics())
     })
 
     this.#server = app.listen(PORT, () => {
