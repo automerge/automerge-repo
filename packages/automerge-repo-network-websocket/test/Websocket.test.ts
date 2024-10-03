@@ -338,6 +338,43 @@ describe("Websocket adapters", () => {
       await eventPromise(serverAdapter, "peer-disconnected")
     })
 
+    it("should disconnect from a client that sends an invalid CBOR message", async () => {
+      // Set up a server and wait for it to be ready
+      const port = await getPort()
+      const serverUrl = `ws://localhost:${port}`
+      const server = http.createServer()
+      const serverSocket = new WebSocket.Server({ server })
+      await new Promise<void>(resolve => server.listen(port, resolve))
+
+      // Create a repo listening on the socket
+      const serverAdapter = new NodeWSServerAdapter(serverSocket)
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      // Create a new socket connected to the repo
+      const browserSocket = new WebSocket(serverUrl)
+      await new Promise(resolve => browserSocket.on("open", resolve))
+      const disconnected = new Promise(resolve =>
+        browserSocket.on("close", resolve)
+      )
+
+      // Send an invalid CBOR message, in this case we use a definite length
+      // array with too many elements. This test should actually work for any
+      // invalid message but this reproduces a specific issue we were seeing on
+      // the sycn server
+      //
+      // 0x9 (1001) is major type 4, for an array
+      // 0xB (1011) indicates that the length will be encoded in the next 8 bytes
+      // 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 is 2**32, which is longer than allowed
+      const invalidLargeArray = new Uint8Array([
+        0x9b, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+      ])
+      browserSocket.send(invalidLargeArray)
+      await disconnected
+    })
+
     it("should send the negotiated protocol version in its hello message", async () => {
       const response = await serverResponse({
         type: "join",
