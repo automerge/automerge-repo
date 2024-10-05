@@ -1,6 +1,7 @@
 import {
   AutomergeUrl,
   DocumentId,
+  parseAutomergeUrl,
   PeerId,
   Repo,
   stringifyAutomergeUrl,
@@ -28,14 +29,14 @@ describe("useDocuments", () => {
 
     let documentValues: Record<string, any> = {}
 
-    const documentIds = range(10).map(i => {
+    const documentUrls = range(10).map(i => {
       const value = { foo: i }
       const handle = repo.create(value)
       documentValues[handle.documentId] = value
-      return handle.documentId
+      return stringifyAutomergeUrl(handle.documentId)
     })
 
-    return { repo, wrapper, documentIds, documentValues }
+    return { repo, wrapper, documentUrls, documentValues }
   }
 
   const Component = ({
@@ -50,32 +51,32 @@ describe("useDocuments", () => {
     return null
   }
 
-  it("returns a collection of documents, given a list of ids", async () => {
-    const { documentIds, wrapper } = setup()
+  it("returns a collection of documents, given a list of urls", async () => {
+    const { documentUrls, wrapper } = setup()
     const onDocs = vi.fn()
 
-    render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
+    render(<Component idsOrUrls={documentUrls} onDocs={onDocs} />, { wrapper })
     await waitFor(() =>
       expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+        Object.fromEntries(documentUrls.map((url, i) => [url, { foo: i }]))
       )
     )
   })
 
-  it("returns a collection of loaded documents immediately, given a list of ids", async () => {
-    const { documentIds, wrapper } = setup()
+  it("returns a collection of loaded documents immediately, given a list of urls", async () => {
+    const { documentUrls, wrapper } = setup()
     const onDocs = vi.fn()
 
-    render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
+    render(<Component idsOrUrls={documentUrls} onDocs={onDocs} />, { wrapper })
 
     expect(onDocs).not.toHaveBeenCalledWith({})
     expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+      Object.fromEntries(documentUrls.map((id, i) => [id, { foo: i }]))
     )
   })
 
   it("cleans up listeners properly", async () => {
-    const { documentIds, wrapper, repo } = setup()
+    const { documentUrls, wrapper, repo } = setup()
     const onDocs = vi.fn()
 
     // The goal here is to check that we're not leaking listeners.
@@ -84,14 +85,14 @@ describe("useDocuments", () => {
     const numMounts = 5 // arbitrary number here
     for (let i = 0; i < numMounts; i++) {
       const { unmount } = render(
-        <Component idsOrUrls={documentIds} onDocs={onDocs} />,
+        <Component idsOrUrls={documentUrls} onDocs={onDocs} />,
         { wrapper }
       )
       await waitFor(() => unmount())
     }
 
-    for (const id of documentIds) {
-      const handle = repo.find(id)
+    for (const url of documentUrls) {
+      const handle = repo.find(url)
 
       // You might expect we'd check that it's equal to 0 here.
       // but it turns out that automerge-repo registers an internal
@@ -104,109 +105,111 @@ describe("useDocuments", () => {
   })
 
   it("updates documents when they change", async () => {
-    const { repo, documentIds, wrapper } = setup()
+    const { repo, documentUrls, wrapper } = setup()
     const onDocs = vi.fn()
-
-    render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-      )
-    )
-
-    act(() => {
-      // multiply the value of foo in each document by 10
-      documentIds.forEach(id => {
-        const handle = repo.find(id)
-        handle.change(s => (s.foo *= 10))
-      })
-    })
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
-      )
-    )
-  })
-
-  it("updates documents when they change, if URLs are passed in", async () => {
-    const { repo, documentIds, wrapper } = setup()
-    const onDocs = vi.fn()
-    const documentUrls = documentIds.map(id => stringifyAutomergeUrl(id))
 
     render(<Component idsOrUrls={documentUrls} onDocs={onDocs} />, { wrapper })
     await waitFor(() =>
       expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+        Object.fromEntries(documentUrls.map((id, i) => [id, { foo: i }]))
       )
     )
 
     act(() => {
       // multiply the value of foo in each document by 10
-      documentIds.forEach(id => {
-        const handle = repo.find(id)
+      documentUrls.forEach(url => {
+        const handle = repo.find(url)
         handle.change(s => (s.foo *= 10))
       })
     })
     await waitFor(() =>
       expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
+        Object.fromEntries(documentUrls.map((id, i) => [id, { foo: i * 10 }]))
       )
     )
   })
 
-  it(`removes documents when they're removed from the list of ids`, async () => {
-    const { documentIds, wrapper } = setup()
+  it("updates documents when they change, if ids are passed in", async () => {
+    const { repo, documentUrls, wrapper } = setup()
+    const onDocs = vi.fn()
+    const documentIds = documentUrls.map(
+      url => parseAutomergeUrl(url).documentId
+    )
+
+    render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
+    await waitFor(() =>
+      expect(onDocs).toHaveBeenCalledWith(
+        Object.fromEntries(documentUrls.map((url, i) => [url, { foo: i }]))
+      )
+    )
+
+    act(() => {
+      // multiply the value of foo in each document by 10
+      documentUrls.forEach(url => {
+        const handle = repo.find(url)
+        handle.change(s => (s.foo *= 10))
+      })
+    })
+    await waitFor(() =>
+      expect(onDocs).toHaveBeenCalledWith(
+        Object.fromEntries(documentUrls.map((url, i) => [url, { foo: i * 10 }]))
+      )
+    )
+  })
+
+  it(`removes documents when they're removed from the list of URLs`, async () => {
+    const { documentUrls, wrapper } = setup()
     const onDocs = vi.fn()
 
     const { rerender } = render(
-      <Component idsOrUrls={documentIds} onDocs={onDocs} />,
+      <Component idsOrUrls={documentUrls} onDocs={onDocs} />,
       { wrapper }
     )
     await waitFor(() =>
       expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+        Object.fromEntries(documentUrls.map((id, i) => [id, { foo: i }]))
       )
     )
 
     // remove the first document
-    rerender(<Component idsOrUrls={documentIds.slice(1)} onDocs={onDocs} />)
+    rerender(<Component idsOrUrls={documentUrls.slice(1)} onDocs={onDocs} />)
     // 👆 Note that this only works because documentIds.slice(1) is a different
     // object from documentIds. If we modified documentIds directly, the hook
     // wouldn't re-run.
     await waitFor(() =>
       expect(onDocs).toHaveBeenCalledWith(
         Object.fromEntries(
-          documentIds.map((id, i) => [id, { foo: i }]).slice(1)
+          documentUrls.map((id, i) => [id, { foo: i }]).slice(1)
         )
       )
     )
   })
 
   it(`keeps updating documents after the list has changed`, async () => {
-    const { documentIds, wrapper, repo } = setup()
+    const { documentUrls, wrapper, repo } = setup()
     const onDocs = vi.fn()
 
     const { rerender } = render(
-      <Component idsOrUrls={documentIds} onDocs={onDocs} />,
+      <Component idsOrUrls={documentUrls} onDocs={onDocs} />,
       { wrapper }
     )
     await waitFor(() =>
       expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
+        Object.fromEntries(documentUrls.map((url, i) => [url, { foo: i }]))
       )
     )
 
     // remove the first document
     act(() => {
-      rerender(<Component idsOrUrls={documentIds.slice(1)} onDocs={onDocs} />)
+      rerender(<Component idsOrUrls={documentUrls.slice(1)} onDocs={onDocs} />)
     })
-    // 👆 Note that this only works because documentIds.slice(1) is a different
-    // object from documentIds. If we modified documentIds directly, the hook
+    // 👆 Note that this only works because documentUrls.slice(1) is a different
+    // object from documentUrls. If we modified documentUrls directly, the hook
     // wouldn't re-run.
     await waitFor(() =>
       expect(onDocs).toHaveBeenCalledWith(
         Object.fromEntries(
-          documentIds.map((id, i) => [id, { foo: i }]).slice(1)
+          documentUrls.map((url, i) => [url, { foo: i }]).slice(1)
         )
       )
     )
@@ -215,8 +218,8 @@ describe("useDocuments", () => {
 
     act(() => {
       // multiply the value of foo in each document by 10
-      documentIds.slice(1).forEach(id => {
-        const handle = repo.find(id)
+      documentUrls.slice(1).forEach(url => {
+        const handle = repo.find(url)
         handle.change(s => (s.foo *= 10))
       })
     })
@@ -224,15 +227,15 @@ describe("useDocuments", () => {
     await waitFor(() =>
       expect(onDocs).toHaveBeenCalledWith(
         Object.fromEntries(
-          documentIds.map((id, i) => [id, { foo: i * 10 }]).slice(1)
+          documentUrls.map((url, i) => [url, { foo: i * 10 }]).slice(1)
         )
       )
     )
 
     act(() => {
       // multiply the value of foo in each document by 10
-      documentIds.slice(1).forEach(id => {
-        const handle = repo.find(id)
+      documentUrls.slice(1).forEach(url => {
+        const handle = repo.find(url)
         handle.change(s => (s.foo *= 10))
       })
     })
@@ -240,7 +243,7 @@ describe("useDocuments", () => {
     await waitFor(() => {
       expect(onDocs).toHaveBeenCalledWith(
         Object.fromEntries(
-          documentIds.map((id, i) => [id, { foo: i * 100 }]).slice(1)
+          documentUrls.map((url, i) => [url, { foo: i * 100 }]).slice(1)
         )
       )
     })
