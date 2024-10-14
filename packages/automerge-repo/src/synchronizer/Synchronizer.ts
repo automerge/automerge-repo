@@ -25,10 +25,15 @@ export interface SyncStatePayload {
   syncState: SyncState
 }
 
-export type DocSyncMetrics = {
-  type: "receive-sync-message"
-  documentId: DocumentId
-  durationMillis: number
-  numOps: number
-  numChanges: number
-}
+export type DocSyncMetrics =
+  | {
+      type: "receive-sync-message"
+      documentId: DocumentId
+      durationMillis: number
+      numOps: number
+      numChanges: number
+    }
+  | {
+      type: "doc-denied"
+      documentId: DocumentId
+    }
