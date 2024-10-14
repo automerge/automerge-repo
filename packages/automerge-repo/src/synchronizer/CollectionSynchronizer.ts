@@ -1,9 +1,9 @@
 import debug from "debug"
 import { DocHandle } from "../DocHandle.js"
-import { stringifyAutomergeUrl } from "../AutomergeUrl.js"
+import { parseAutomergeUrl, stringifyAutomergeUrl } from "../AutomergeUrl.js"
 import { Repo } from "../Repo.js"
 import { DocMessage } from "../network/messages.js"
-import { DocumentId, PeerId } from "../types.js"
+import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
 
@@ -21,8 +21,11 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Used to determine if the document is know to the Collection and a synchronizer exists or is being set up */
   #docSetUp: Record<DocumentId, boolean> = {}
 
-  constructor(private repo: Repo) {
+  #denylist: DocumentId[]
+
+  constructor(private repo: Repo, denylist: AutomergeUrl[] = []) {
     super()
+    this.#denylist = denylist.map(url => parseAutomergeUrl(url).documentId)
   }
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
@@ -89,6 +92,19 @@ export class CollectionSynchronizer extends Synchronizer {
     const documentId = message.documentId
     if (!documentId) {
       throw new Error("received a message with an invalid documentId")
+    }
+
+    if (this.#denylist.includes(documentId)) {
+      this.emit("metrics", {
+        type: "doc-denied",
+        documentId,
+      })
+      this.emit("message", {
+        type: "doc-unavailable",
+        documentId,
+        targetId: message.senderId,
+      })
+      return
     }
 
     this.#docSetUp[documentId] = true

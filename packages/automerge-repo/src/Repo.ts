@@ -31,7 +31,12 @@ import {
   DocSyncMetrics,
   SyncStatePayload,
 } from "./synchronizer/Synchronizer.js"
-import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
+import type {
+  AnyDocumentId,
+  AutomergeUrl,
+  DocumentId,
+  PeerId,
+} from "./types.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -80,6 +85,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     sharePolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
+    denylist = [],
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
@@ -99,7 +105,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    this.synchronizer = new CollectionSynchronizer(this)
+    this.synchronizer = new CollectionSynchronizer(this, denylist)
 
     // When the synchronizer emits messages, send them to peers
     this.synchronizer.on("message", message => {
@@ -627,6 +633,13 @@ export interface RepoConfig {
    * Whether to enable the experimental remote heads gossiping feature
    */
   enableRemoteHeadsGossiping?: boolean
+
+  /**
+   * A list of automerge URLs which should never be loaded regardless of what
+   * messages are received or what the share policy is. This is useful to avoid
+   * loading documents that are known to be too resource intensive.
+   */
+  denylist?: AutomergeUrl[]
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -669,4 +682,8 @@ export type DocMetrics =
       durationMillis: number
       numOps: number
       numChanges: number
+    }
+  | {
+      type: "doc-denied"
+      documentId: DocumentId
     }

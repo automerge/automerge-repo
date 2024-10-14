@@ -1486,6 +1486,44 @@ describe("Repo", () => {
       teardown()
     })
   })
+
+  describe("the denylist", () => {
+    it("should immediately return an unavailable message in response to a request for a denylisted document", async () => {
+      const storage = new DummyStorageAdapter()
+
+      // first create the document in storage
+      const dummyRepo = new Repo({ network: [], storage })
+      const doc = dummyRepo.create({ foo: "bar" })
+      await dummyRepo.flush()
+
+      // Check that the document actually is in storage
+      let docId = doc.documentId
+      assert(storage.keys().some((k: string) => k.includes(docId)))
+
+      const channel = new MessageChannel()
+      const { port1: clientToServer, port2: serverToClient } = channel
+      const server = new Repo({
+        network: [new MessageChannelNetworkAdapter(serverToClient)],
+        storage,
+        denylist: [doc.url],
+      })
+      const client = new Repo({
+        network: [new MessageChannelNetworkAdapter(clientToServer)],
+      })
+
+      await Promise.all([
+        eventPromise(server.networkSubsystem, "peer"),
+        eventPromise(client.networkSubsystem, "peer"),
+      ])
+
+      const clientDoc = client.find(doc.url)
+      await pause(100)
+      assert.strictEqual(clientDoc.docSync(), undefined)
+
+      const openDocs = Object.keys(server.metrics().documents).length
+      assert.deepEqual(openDocs, 0)
+    })
+  })
 })
 
 const warn = console.warn
