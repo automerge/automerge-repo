@@ -33,7 +33,7 @@
     "ts-node": "^10.9.1",
     "uuid": "^9.0.0",
     "xstate": "^5.9.1",
-    "beelay": "file:../../../beehive/beelay-wasm/"
+    "beelay": "file:../../../beehive/beelay/beelay-js/"
   },
   "exports": {
     ".": "./dist/entrypoints/fullfat.js",

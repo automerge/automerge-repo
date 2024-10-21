@@ -37,7 +37,7 @@ import type {
   DocumentId,
   PeerId,
 } from "./types.js"
-import {  Progress } from "./ferigan.js"
+import { Progress } from "./ferigan.js"
 import { CollectionHandle } from "./CollectionHandle.js"
 import { Beelay } from "beelay"
 
@@ -93,7 +93,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
   }: RepoConfig = {}) {
     super()
-    this.#beelay = new Beelay({storage: storage!, peerId})
+    this.#beelay = new Beelay({ storage: storage!, peerId })
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
@@ -109,12 +109,20 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     })
 
-    this.#beelay.on("message", ({message}) => {
+    this.#beelay.on("message", ({ message }) => {
       this.#log(`sending ${message} message to ${message.recipient}`)
       networkSubsystem.send({
         targetId: message.recipient,
-        ...message
+        ...message,
       } as unknown as MessageContents)
+    })
+
+    this.#beelay.on("docEvent", event => {
+      this.#log(`received ${event.data.type} event for ${event.docId}`)
+      const handle = this.#handleCache[event.docId as DocumentId]
+      if (handle != null) {
+        handle.update(d => Automerge.loadIncremental(d, event.data.contents))
+      }
     })
 
     // SYNCHRONIZER
@@ -129,7 +137,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Forward metrics from doc synchronizers
     this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
- 
+
     //if (this.#remoteHeadsGossipingEnabled) {
     //this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
     //this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
@@ -138,13 +146,15 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
-    const storageSubsystem = storage ? new StorageSubsystem(this.#beelay, storage) : undefined
+    const storageSubsystem = storage
+      ? new StorageSubsystem(this.#beelay, storage)
+      : undefined
     if (storageSubsystem) {
       storageSubsystem.on("document-loaded", event =>
         this.emit("doc-metrics", { type: "doc-loaded", ...event })
       )
     }
- 
+
     this.storageSubsystem = storageSubsystem
 
     // NETWORK
@@ -181,9 +191,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     networkSubsystem.on("message", async msg => {
       this.#log(`received msg: ${JSON.stringify(msg)}`)
       //@ts-ignore
-      this.#beelay.receiveMessage({message: msg})
+      this.#beelay.receiveMessage({ message: msg })
     })
-
   }
 
   // The `document` event is fired by the DocCollection any time we create a new document or look
@@ -375,29 +384,21 @@ export class Repo extends EventEmitter<RepoEvents> {
     id: AnyDocumentId
   ): AsyncIterableIterator<Progress<CollectionHandle | undefined>> {
     const documentId = interpretAsDocumentId(id)
-    const loadCollectionHandle = async function*(
+    const loadCollectionHandle = async function* (
       repo: Repo,
       documentId: DocumentId
     ): AsyncIterableIterator<Progress<CollectionHandle | undefined>> {
       const docUrl = `automerge:${documentId}`
       const dags = await repo.#beelay.syncCollection(documentId)
       const dagsAsUrls = dags.map(dag => `automerge:${dag}`)
-      console.log("collection loaded")
-      console.log(dags)
       yield {
-          type: "done",
-          value: new CollectionHandle(repo.#beelay, docUrl as AutomergeUrl, dagsAsUrls as AutomergeUrl[]),
+        type: "done",
+        value: new CollectionHandle(
+          repo.#beelay,
+          docUrl as AutomergeUrl,
+          dagsAsUrls as AutomergeUrl[]
+        ),
       }
-      //for await (const step of repo.#ferigan.loadCollection(docUrl)) {
-        //if (step.type === "done") {
-          //yield {
-            //type: "done",
-            //value: step.value ? new CollectionHandle(step.value, repo.#ferigan) : undefined,
-          //}
-        //} else {
-          //yield step
-        //}
-      //}
     }
     return loadCollectionHandle(this, documentId)
   }

@@ -119,12 +119,11 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * Loads the Automerge document with the given ID from storage.
    */
   async loadDoc<T>(documentId: DocumentId): Promise<A.Doc<T> | null> {
-
-    const dag = await this.#beelay.loadDag(documentId)
-    const binaries = dag.map(c => c.contents)
+    const doc = await this.#beelay.loadDocument(documentId)
+    const binaries = doc.map(c => c.contents)
     const binary = mergeArrays(binaries)
     if (binary.length === 0) return null
- 
+
     // Load into an Automerge document
     const start = performance.now()
     const newDoc = A.loadIncremental(A.init(), binary) as A.Doc<T>
@@ -138,7 +137,6 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     // Record the latest heads for the document
     this.#storedHeads.set(documentId, A.getHeads(newDoc))
     return newDoc
-
   }
 
   /**
@@ -172,9 +170,11 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     documentId: DocumentId,
     doc: A.Doc<unknown>
   ): Promise<void> {
-    const changes = A.getChanges(A.view(doc, this.#storedHeads.get(documentId) ?? []), doc)
+    const changes = A.getChanges(
+      A.view(doc, this.#storedHeads.get(documentId) ?? []),
+      doc
+    )
 
-    console.log("adding commits to belay");
     const commits = changes.map(c => {
       const decoded = A.decodeChange(c)
       return {
@@ -185,7 +185,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     })
     console.log(commits)
     await this.#beelay.addCommits({
-      dag: documentId,
+      docId: documentId,
       commits: changes.map(c => {
         const decoded = A.decodeChange(c)
         return {
@@ -193,25 +193,26 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
           hash: decoded.hash,
           contents: c,
         }
-      })
+      }),
     })
+    this.#storedHeads.set(documentId, A.getHeads(doc))
 
     //const binary = A.saveSince(doc, this.#storedHeads.get(documentId) ?? [])
     //if (binary && binary.length > 0) {
-      //const key = [documentId, "incremental", keyHash(binary)]
-      //this.#log(`Saving incremental ${key} for document ${documentId}`)
-      //await this.#storageAdapter.save(key, binary)
-      //if (!this.#chunkInfos.has(documentId)) {
-        //this.#chunkInfos.set(documentId, [])
-      //}
-      //this.#chunkInfos.get(documentId)!.push({
-        //key,
-        //type: "incremental",
-        //size: binary.length,
-      //})
-      //this.#storedHeads.set(documentId, A.getHeads(doc))
+    //const key = [documentId, "incremental", keyHash(binary)]
+    //this.#log(`Saving incremental ${key} for document ${documentId}`)
+    //await this.#storageAdapter.save(key, binary)
+    //if (!this.#chunkInfos.has(documentId)) {
+    //this.#chunkInfos.set(documentId, [])
+    //}
+    //this.#chunkInfos.get(documentId)!.push({
+    //key,
+    //type: "incremental",
+    //size: binary.length,
+    //})
+    //this.#storedHeads.set(documentId, A.getHeads(doc))
     //} else {
-      //return Promise.resolve()
+    //return Promise.resolve()
     //}
   }
 
