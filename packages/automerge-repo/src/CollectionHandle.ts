@@ -1,8 +1,8 @@
 import { EventEmitter } from "eventemitter3"
-import { Ferigan, Index } from "./ferigan.js";
-import { AutomergeUrl, DocumentId } from "./types.js";
-import { Beelay } from "beelay";
-import { parseAutomergeUrl } from "./AutomergeUrl.js";
+import { Ferigan, Index } from "./ferigan.js"
+import { AutomergeUrl, DocumentId } from "./types.js"
+import { next as A } from "@automerge/automerge"
+import { parseAutomergeUrl } from "./AutomergeUrl.js"
 
 export type CollectionHandleEvents = {
   doc_added: (url: AutomergeUrl) => void
@@ -10,7 +10,7 @@ export type CollectionHandleEvents = {
 
 export class CollectionHandle extends EventEmitter<CollectionHandleEvents> {
   //#index: Index
-  #beelay: Beelay
+  #beelay: A.beelay.Beelay
   //#ferigan: Ferigan
   #rootId: DocumentId
   #rootUrl: AutomergeUrl
@@ -19,11 +19,15 @@ export class CollectionHandle extends EventEmitter<CollectionHandleEvents> {
   get index(): Index {
     return {
       rootUrl: this.#rootUrl,
-      entries: this.#entries
+      entries: this.#entries,
     }
   }
 
-  constructor(belay: Beelay, rootUrl: AutomergeUrl, entries: AutomergeUrl[]) {
+  constructor(
+    belay: A.beelay.Beelay,
+    rootUrl: AutomergeUrl,
+    entries: AutomergeUrl[]
+  ) {
     super()
     this.#rootUrl = rootUrl
     this.#rootId = parseAutomergeUrl(rootUrl).documentId
@@ -31,21 +35,20 @@ export class CollectionHandle extends EventEmitter<CollectionHandleEvents> {
     this.#entries = entries
 
     //this.#ferigan.on("indexChanged", ({indexUrl, change}) => {
-      //if (indexUrl != this.#index.rootUrl) {
-        //return
-      //}
+    //if (indexUrl != this.#index.rootUrl) {
+    //return
+    //}
 
-      //if (change.type === "add") {
-        //this.#index.entries.push(change.url)
-        //this.emit("doc_added", change.url as AutomergeUrl) 
-      //}
+    //if (change.type === "add") {
+    //this.#index.entries.push(change.url)
+    //this.emit("doc_added", change.url as AutomergeUrl)
+    //}
     //})
   }
 
   add(url: AutomergeUrl): void {
     this.#entries.push(url)
     let docId = parseAutomergeUrl(url).documentId
-    this.#beelay.addLink({from: this.#rootId, to: docId})
+    this.#beelay.addLink({ from: this.#rootId, to: docId })
   }
 }
-

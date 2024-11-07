@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@automerge/automerge':
-        specifier: ^2.2.8
-        version: 2.2.8
+        specifier: file:../automerge-jj/javascript
+        version: file:../automerge-jj/javascript
       '@manypkg/cli':
         specifier: ^0.21.3
         version: 0.21.4
@@ -374,11 +374,8 @@ importers:
   packages/automerge-repo:
     dependencies:
       '@automerge/automerge':
-        specifier: ^2.2.8
-        version: 2.2.8
-      beelay:
-        specifier: file:../../../beehive/beelay/beelay-js/
-        version: file:../beehive/beelay/beelay-js
+        specifier: file:../../../automerge-beelay/javascript
+        version: file:../automerge-beelay/javascript
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -534,6 +531,12 @@ packages:
 
   '@automerge/automerge@2.2.8':
     resolution: {integrity: sha512-kP6Z9lIkNeIGe/jhF8SUQAgUMwVjtXCBL0eZEgQGCoWvPNTPcg8fnQco28XkYBrfkkuqiEUAbdHhJmSp0y79ug==}
+
+  '@automerge/automerge@file:../automerge-beelay/javascript':
+    resolution: {directory: ../automerge-beelay/javascript, type: directory}
+
+  '@automerge/automerge@file:../automerge-jj/javascript':
+    resolution: {directory: ../automerge-jj/javascript, type: directory}
 
   '@babel/code-frame@7.25.7':
     resolution: {integrity: sha512-0xZJFNE5XMpENsgfHYTw8FbX4kv53mFLn2i3XPoq69LyhYSCBJtitaHx9QnsVTrsogI4Z3+HtEfZ2/GFPOtf5g==}
@@ -1921,9 +1924,6 @@ packages:
   basic-auth@2.0.1:
     resolution: {integrity: sha512-NF+epuEdnUYVlGuhaxbbq+dvJttwLnGY+YixlXlME5KpQ5W3CnXA5cVTneY3SPbPDRkcjMbifrwmFYcClgOZeg==}
     engines: {node: '>= 0.8'}
-
-  beelay@file:../beehive/beelay/beelay-js:
-    resolution: {directory: ../beehive/beelay/beelay-js, type: directory}
 
   before-after-hook@2.2.3:
     resolution: {integrity: sha512-NzUnlZexiaH/46WDhANlyR2bXRopNg4F/zuSA3OpZnllCUgRaOF2znDioDWrmbNVsuZk6l9pMquQB38cfBZwkQ==}
@@ -5796,6 +5796,14 @@ snapshots:
     dependencies:
       uuid: 9.0.1
 
+  '@automerge/automerge@file:../automerge-beelay/javascript':
+    dependencies:
+      uuid: 9.0.1
+
+  '@automerge/automerge@file:../automerge-jj/javascript':
+    dependencies:
+      uuid: 9.0.1
+
   '@babel/code-frame@7.25.7':
     dependencies:
       '@babel/highlight': 7.25.7
@@ -7465,8 +7473,6 @@ snapshots:
   basic-auth@2.0.1:
     dependencies:
       safe-buffer: 5.1.2
-
-  beelay@file:../beehive/beelay/beelay-js: {}
 
   before-after-hook@2.2.3: {}
 

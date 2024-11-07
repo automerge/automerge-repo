@@ -6,6 +6,7 @@ import { DocMessage } from "../network/messages.js"
 import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
+import { next as A } from "@automerge/automerge"
 
 const log = debug("automerge-repo:collectionsync")
 
@@ -23,7 +24,11 @@ export class CollectionSynchronizer extends Synchronizer {
 
   #denylist: DocumentId[]
 
-  constructor(private repo: Repo, denylist: AutomergeUrl[] = []) {
+  constructor(
+    private beelay: A.beelay.Beelay,
+    private repo: Repo,
+    denylist: AutomergeUrl[] = []
+  ) {
     super()
     this.#denylist = denylist.map(url => parseAutomergeUrl(url).documentId)
   }
@@ -40,23 +45,9 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Creates a new docSynchronizer and sets it up to propagate messages */
   #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer({
+      beelay: this.beelay,
+      docId: handle.documentId,
       handle,
-      onLoadSyncState: async peerId => {
-        if (!this.repo.storageSubsystem) {
-          return
-        }
-
-        const { storageId, isEphemeral } =
-          this.repo.peerMetadataByPeerId[peerId] || {}
-        if (!storageId || isEphemeral) {
-          return
-        }
-
-        return this.repo.storageSubsystem.loadSyncState(
-          handle.documentId,
-          storageId
-        )
-      },
     })
     docSynchronizer.on("message", event => this.emit("message", event))
     docSynchronizer.on("open-doc", event => this.emit("open-doc", event))
@@ -178,12 +169,13 @@ export class CollectionSynchronizer extends Synchronizer {
       size: { numOps: number; numChanges: number }
     }
   } {
-    return Object.fromEntries(
-      Object.entries(this.docSynchronizers).map(
-        ([documentId, synchronizer]) => {
-          return [documentId, synchronizer.metrics()]
-        }
-      )
-    )
+    return {}
+    // return Object.fromEntries(
+    //   Object.entries(this.docSynchronizers).map(
+    //     ([documentId, synchronizer]) => {
+    //       return [documentId, synchronizer.metrics()]
+    //     }
+    //   )
+    // )
   }
 }

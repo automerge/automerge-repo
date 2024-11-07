@@ -39,7 +39,7 @@ import type {
 } from "./types.js"
 import { Progress } from "./ferigan.js"
 import { CollectionHandle } from "./CollectionHandle.js"
-import { Beelay } from "beelay"
+import { next as A } from "@automerge/automerge/slim"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -81,7 +81,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
 
-  #beelay: Beelay
+  #beelay: A.beelay.Beelay
 
   constructor({
     storage,
@@ -93,7 +93,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
   }: RepoConfig = {}) {
     super()
-    this.#beelay = new Beelay({ storage: storage!, peerId })
+    this.#beelay = new A.beelay.Beelay({ storage: storage!, peerId })
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
@@ -126,23 +126,24 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     // SYNCHRONIZER
+
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    this.synchronizer = new CollectionSynchronizer(this, denylist)
+    this.synchronizer = new CollectionSynchronizer(this.#beelay, this, denylist)
 
     // When the synchronizer emits messages, send them to peers
-    //this.synchronizer.on("message", message => {
-    //this.#log(`sending ${message.type} message to ${message.targetId}`)
-    //networkSubsystem.send(message)
-    //})
+    this.synchronizer.on("message", message => {
+      this.#log(`sending ${message.type} message to ${message.targetId}`)
+      networkSubsystem.send(message)
+    })
 
     // Forward metrics from doc synchronizers
     this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
 
-    //if (this.#remoteHeadsGossipingEnabled) {
-    //this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
-    //this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-    //})
-    //}
+    if (this.#remoteHeadsGossipingEnabled) {
+      this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
+        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
+      })
+    }
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
@@ -172,19 +173,30 @@ export class Repo extends EventEmitter<RepoEvents> {
     )
     this.networkSubsystem = networkSubsystem
 
+    // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
       this.#log("peer connected", { peerId })
       if (peerMetadata) {
         this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
       }
-      this.#beelay.peerConnected(peerId)
+
+      this.sharePolicy(peerId)
+        .then(shouldShare => {
+          if (shouldShare && this.#remoteHeadsGossipingEnabled) {
+            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
+          }
+        })
+        .catch(err => {
+          console.log("error in share policy", { err })
+        })
+
+      this.synchronizer.addPeer(peerId)
     })
 
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      //this.synchronizer.removePeer(peerId)
+      this.synchronizer.removePeer(peerId)
       this.#remoteHeadsSubscriptions.removePeer(peerId)
-      this.#beelay.peerDisconnected(peerId)
     })
 
     // Handle incoming messages
@@ -221,6 +233,28 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.emit("document", { handle })
   }
 
+  #receiveMessage(message: RepoMessage) {
+    switch (message.type) {
+      case "remote-subscription-change":
+        if (this.#remoteHeadsGossipingEnabled) {
+          this.#remoteHeadsSubscriptions.handleControlMessage(message)
+        }
+        break
+      case "remote-heads-changed":
+        if (this.#remoteHeadsGossipingEnabled) {
+          this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
+        }
+        break
+      case "sync":
+      case "request":
+      case "ephemeral":
+      case "doc-unavailable":
+        this.synchronizer.receiveMessage(message).catch(err => {
+          console.log("error receiving message", { err })
+        })
+    }
+  }
+
   #throttledSaveSyncStateHandlers: Record<
     StorageId,
     (payload: SyncStatePayload) => void
@@ -250,9 +284,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
-    return this.networkSubsystem.peers
-    //return []
-    //return this.synchronizer.peers
+    return this.synchronizer.peers
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
@@ -377,30 +409,6 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#log("error waiting for network", { err })
       })
     return handle
-  }
-
-  findCollection<T>(
-    /** The url or documentId of the collection to retrieve */
-    id: AnyDocumentId
-  ): AsyncIterableIterator<Progress<CollectionHandle | undefined>> {
-    const documentId = interpretAsDocumentId(id)
-    const loadCollectionHandle = async function* (
-      repo: Repo,
-      documentId: DocumentId
-    ): AsyncIterableIterator<Progress<CollectionHandle | undefined>> {
-      const docUrl = `automerge:${documentId}`
-      const dags = await repo.#beelay.syncCollection(documentId)
-      const dagsAsUrls = dags.map(dag => `automerge:${dag}`)
-      yield {
-        type: "done",
-        value: new CollectionHandle(
-          repo.#beelay,
-          docUrl as AutomergeUrl,
-          dagsAsUrls as AutomergeUrl[]
-        ),
-      }
-    }
-    return loadCollectionHandle(this, documentId)
   }
 
   delete(

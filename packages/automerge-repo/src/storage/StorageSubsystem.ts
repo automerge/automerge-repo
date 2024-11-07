@@ -18,7 +18,6 @@ type StorageSubsystemEvents = {
     numChanges: number
   }) => void
 }
-import { Beelay } from "beelay"
 
 /**
  * The storage subsystem is responsible for saving and loading Automerge documents to and from
@@ -39,9 +38,12 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
   #log = debug(`automerge-repo:storage-subsystem`)
 
-  #beelay: Beelay
+  #beelay: A.beelay.Beelay
 
-  constructor(beelay: Beelay, storageAdapter: StorageAdapterInterface) {
+  constructor(
+    beelay: A.beelay.Beelay,
+    storageAdapter: StorageAdapterInterface
+  ) {
     super()
     this.#storageAdapter = storageAdapter
     this.#beelay = beelay
