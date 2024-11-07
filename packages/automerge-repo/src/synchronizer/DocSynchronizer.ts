@@ -29,7 +29,7 @@ type PendingMessage = {
 }
 
 interface DocSynchronizerConfig {
-  handle: DocHandle<unknown> | null
+  handle: DocHandle<unknown>
   docId: DocumentId
   beelay: A.beelay.Beelay
 }
@@ -50,21 +50,14 @@ export class DocSynchronizer extends Synchronizer {
   #syncStarted = false
   #beelay: A.beelay.Beelay
 
-  #handle: DocHandle<unknown> | null
+  #handle: DocHandle<unknown>
+  #docId: DocumentId
 
   constructor({ handle, docId, beelay }: DocSynchronizerConfig) {
     super()
     this.#handle = handle
     this.#beelay = beelay
-
-    this.#beelay.on("docEvent", ({ docId, data }) => {
-      if (docId === this.documentId) {
-        this.#log(`docEvent`, data)
-        if (this.#handle) {
-          this.#handle.update(d => A.loadIncremental(d, data.contents))
-        }
-      }
-    })
+    this.#docId = docId
 
     this.#log = debug(`automerge-repo:docsync:${docId}`)
 
@@ -80,7 +73,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   get documentId(): DocumentId {
-    return this.documentId
+    return this.#docId
   }
 
   /// PRIVATE
@@ -118,22 +111,51 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   beginSync(peerIds: PeerId[]) {
-    const noPeersWithDocument = peerIds.every(
-      peerId => this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
-    )
-
     this.#log(`beginSync: ${peerIds.join(", ")}`)
 
     peerIds.forEach(peerId => {
-      this.#beelay
-        .syncDoc(this.documentId, peerId)
-        .then(({ snapshot, found }) => {
-          if (!found) {
-            this.#peerDocumentStatuses[peerId] = "unavailable"
-          }
-          this.#beelay.listen(peerId, snapshot)
-        })
+      if (!this.#peers.includes(peerId)) {
+        this.#peers.push(peerId)
+      } else {
+        return
+      }
+      this.#peerDocumentStatuses[peerId] = "unknown"
+      this.#handle.whenReady(["requesting", "ready"]).then(() => {
+        this.#syncStarted = true
+        this.#log(`beginning sync with ${peerId} for doc: ${this.documentId}`)
+        this.#beelay
+          .syncDoc(this.documentId, peerId)
+          .then(({ snapshot, found }) => {
+            this.#peerDocumentStatuses[peerId] = found ? "has" : "unavailable"
+            // this.#log("synced snapshot: ", snapshot)
+            console.log("synced snapshot: ", found, snapshot)
+            if (found) {
+              this.#beelay.loadDocument(this.#docId).then(commitOrBundles => {
+                if (commitOrBundles != null) {
+                  this.#handle?.update(d => {
+                    let doc = d
+                    for (const commitOrBundle of commitOrBundles) {
+                      doc = A.loadIncremental(doc, commitOrBundle.contents)
+                    }
+                    return doc
+                  })
+                  this.#checkDocUnavailable()
+                }
+              })
+            } else {
+              this.#checkDocUnavailable()
+            }
+            this.#beelay.listen(peerId, snapshot)
+          })
+      })
     })
+  }
+
+  peerWantsDocument(peerId: PeerId) {
+    this.#peerDocumentStatuses[peerId] = "wants"
+    if (!this.#peers.includes(peerId)) {
+      this.beginSync([peerId as PeerId])
+    }
   }
 
   endSync(peerId: PeerId) {
@@ -189,8 +211,7 @@ export class DocSynchronizer extends Synchronizer {
     // if we know none of the peers have the document, tell all our peers that we don't either
     if (
       this.#syncStarted &&
-      ((this.#handle && this.#handle.inState([REQUESTING])) ||
-        this.#handle == null) &&
+      this.#handle.inState([REQUESTING]) &&
       this.#peers.every(
         peerId =>
           this.#peerDocumentStatuses[peerId] === "unavailable" ||

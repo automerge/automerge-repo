@@ -130,6 +130,14 @@ export type RepoMessage =
   | DocumentUnavailableMessage
   | RemoteSubscriptionControlMessage
   | RemoteHeadsChanged
+  | BeelayMessage
+
+export type BeelayMessage = {
+  type: "beelay"
+  senderId: PeerId
+  targetId: PeerId
+  message: Uint8Array
+}
 
 /** These are message types that are handled by the {@link CollectionSynchronizer}.*/
 export type DocMessage =
@@ -168,10 +176,10 @@ export const isRepoMessage = (message: Message): message is RepoMessage =>
   isDocumentUnavailableMessage(message) ||
   isRemoteSubscriptionControlMessage(message) ||
   isRemoteHeadsChanged(message) ||
-    true
+  true
 
 // prettier-ignore
-export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage => 
+export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage =>
   msg.type === "doc-unavailable"
 
 export const isRequestMessage = (msg: Message): msg is RequestMessage =>

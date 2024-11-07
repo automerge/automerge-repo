@@ -30,12 +30,6 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   /** Record of the latest heads we've loaded or saved for each document  */
   #storedHeads: Map<DocumentId, A.Heads> = new Map()
 
-  /** Metadata on the chunks we've already loaded for each document */
-  #chunkInfos: Map<DocumentId, ChunkInfo[]> = new Map()
-
-  /** Flag to avoid compacting when a compaction is already underway */
-  #compacting = false
-
   #log = debug(`automerge-repo:storage-subsystem`)
 
   #beelay: A.beelay.Beelay
@@ -122,6 +116,9 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    */
   async loadDoc<T>(documentId: DocumentId): Promise<A.Doc<T> | null> {
     const doc = await this.#beelay.loadDocument(documentId)
+    if (doc == null) {
+      return null
+    }
     const binaries = doc.map(c => c.contents)
     const binary = mergeArrays(binaries)
     if (binary.length === 0) return null
@@ -148,30 +145,10 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * Under the hood this makes incremental saves until the incremental size is greater than the
    * snapshot size, at which point the document is compacted into a single snapshot.
    */
-  async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+  saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): void {
     // Don't bother saving if the document hasn't changed
     if (!this.#shouldSave(documentId, doc)) return
 
-    await this.#saveIncremental(documentId, doc)
-    this.#storedHeads.set(documentId, A.getHeads(doc))
-  }
-
-  /**
-   * Removes the Automerge document with the given ID from storage
-   */
-  async removeDoc(documentId: DocumentId) {
-    await this.#storageAdapter.removeRange([documentId, "snapshot"])
-    await this.#storageAdapter.removeRange([documentId, "incremental"])
-    await this.#storageAdapter.removeRange([documentId, "sync-state"])
-  }
-
-  /**
-   * Saves just the incremental changes since the last save.
-   */
-  async #saveIncremental(
-    documentId: DocumentId,
-    doc: A.Doc<unknown>
-  ): Promise<void> {
     const changes = A.getChanges(
       A.view(doc, this.#storedHeads.get(documentId) ?? []),
       doc
@@ -185,71 +162,31 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
         contents: c,
       }
     })
-    console.log(commits)
-    await this.#beelay.addCommits({
-      docId: documentId,
-      commits: changes.map(c => {
-        const decoded = A.decodeChange(c)
-        return {
-          parents: decoded.deps,
-          hash: decoded.hash,
-          contents: c,
-        }
-      }),
-    })
+    this.#beelay
+      .addCommits({
+        docId: documentId,
+        commits: changes.map(c => {
+          const decoded = A.decodeChange(c)
+          return {
+            parents: decoded.deps,
+            hash: decoded.hash,
+            contents: c,
+          }
+        }),
+      })
+      .catch(e => {
+        console.error(`Error saving document ${documentId}: ${e}`)
+      })
     this.#storedHeads.set(documentId, A.getHeads(doc))
-
-    //const binary = A.saveSince(doc, this.#storedHeads.get(documentId) ?? [])
-    //if (binary && binary.length > 0) {
-    //const key = [documentId, "incremental", keyHash(binary)]
-    //this.#log(`Saving incremental ${key} for document ${documentId}`)
-    //await this.#storageAdapter.save(key, binary)
-    //if (!this.#chunkInfos.has(documentId)) {
-    //this.#chunkInfos.set(documentId, [])
-    //}
-    //this.#chunkInfos.get(documentId)!.push({
-    //key,
-    //type: "incremental",
-    //size: binary.length,
-    //})
-    //this.#storedHeads.set(documentId, A.getHeads(doc))
-    //} else {
-    //return Promise.resolve()
-    //}
   }
 
   /**
-   * Compacts the document storage into a single shapshot.
+   * Removes the Automerge document with the given ID from storage
    */
-  async #saveTotal(
-    documentId: DocumentId,
-    doc: A.Doc<unknown>,
-    sourceChunks: ChunkInfo[]
-  ): Promise<void> {
-    this.#compacting = true
-
-    const binary = A.save(doc)
-    const snapshotHash = headsHash(A.getHeads(doc))
-    const key = [documentId, "snapshot", snapshotHash]
-    const oldKeys = new Set(
-      sourceChunks.map(c => c.key).filter(k => k[2] !== snapshotHash)
-    )
-
-    this.#log(`Saving snapshot ${key} for document ${documentId}`)
-    this.#log(`deleting old chunks ${Array.from(oldKeys)}`)
-
-    await this.#storageAdapter.save(key, binary)
-
-    for (const key of oldKeys) {
-      await this.#storageAdapter.remove(key)
-    }
-
-    const newChunkInfos =
-      this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
-    newChunkInfos.push({ key, type: "snapshot", size: binary.length })
-
-    this.#chunkInfos.set(documentId, newChunkInfos)
-    this.#compacting = false
+  async removeDoc(documentId: DocumentId) {
+    await this.#storageAdapter.removeRange([documentId, "snapshot"])
+    await this.#storageAdapter.removeRange([documentId, "incremental"])
+    await this.#storageAdapter.removeRange([documentId, "sync-state"])
   }
 
   async loadSyncState(
@@ -292,28 +229,5 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     }
 
     return true // the document has changed
-  }
-
-  /**
-   * We only compact if the incremental size is greater than the snapshot size.
-   */
-  #shouldCompact(sourceChunks: ChunkInfo[]) {
-    if (this.#compacting) return false
-
-    let snapshotSize = 0
-    let incrementalSize = 0
-    for (const chunk of sourceChunks) {
-      if (chunk.type === "snapshot") {
-        snapshotSize += chunk.size
-      } else {
-        incrementalSize += chunk.size
-      }
-    }
-    // if the file is currently small, don't worry, just compact
-    // this might seem a bit arbitrary (1k is arbitrary) but is designed to ensure compaction
-    // for documents with only a single large change on top of an empty (or nearly empty) document
-    // for example: imported NPM modules, images, etc.
-    // if we have even more incrementals (so far) than the snapshot, compact
-    return snapshotSize < 1024 || incrementalSize >= snapshotSize
   }
 }
