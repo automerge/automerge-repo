@@ -126,6 +126,11 @@ export class Repo extends EventEmitter<RepoEvents> {
     // SYNCHRONIZER
     this.synchronizer = new CollectionSynchronizer(this.#beelay, this, [])
 
+    this.synchronizer.on("message", message => {
+      this.#log(`sending ${message.type} message to ${message.targetId}`)
+      networkSubsystem.send(message)
+    })
+
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
 
@@ -180,8 +185,6 @@ export class Repo extends EventEmitter<RepoEvents> {
   // The `document` event is fired by the DocCollection any time we create a new document or look
   // up a document by ID. We listen for it in order to wire up storage and network synchronization.
   #registerHandleWithSubsystems(handle: DocHandle<any>) {
-    let storedHeads = handle.heads()
-
     handle.on("heads-changed", () => {
       const doc = handle.docSync()
       if (doc != null) {
@@ -260,8 +263,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
     }) as DocHandle<T>
 
-    this.#registerHandleWithSubsystems(handle)
-
     handle.update(() => {
       let nextDoc: Automerge.Doc<T>
       if (initialValue) {
@@ -271,6 +272,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
       return nextDoc
     })
+
+    this.storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
+
+    this.#registerHandleWithSubsystems(handle)
 
     handle.doneLoading()
     return handle
@@ -354,10 +359,10 @@ export class Repo extends EventEmitter<RepoEvents> {
           handle.update(() => loadedDoc as Automerge.Doc<T>)
           handle.doneLoading()
         } else {
-          console.log("we didn't find it so we're requesting")
           // we want to wait for the network subsystem to be ready before
           // we request the document. this prevents entering unavailable during initialization.
           await this.networkSubsystem.whenReady()
+          console.log("we didn't find it so we're requesting")
           handle.request()
         }
         this.#registerHandleWithSubsystems(handle)

@@ -113,6 +113,13 @@ export class DocSynchronizer extends Synchronizer {
   beginSync(peerIds: PeerId[]) {
     this.#log(`beginSync: ${peerIds.join(", ")}`)
 
+    const docPromise = this.#handle
+      .whenReady([READY, REQUESTING, UNAVAILABLE])
+      .then(doc => {
+        this.#syncStarted = true
+        this.#checkDocUnavailable()
+      })
+
     peerIds.forEach(peerId => {
       if (!this.#peers.includes(peerId)) {
         this.#peers.push(peerId)
@@ -120,7 +127,8 @@ export class DocSynchronizer extends Synchronizer {
         return
       }
       this.#peerDocumentStatuses[peerId] = "unknown"
-      this.#handle.whenReady(["requesting", "ready"]).then(() => {
+
+      docPromise.then(() => {
         this.#syncStarted = true
         this.#log(`beginning sync with ${peerId} for doc: ${this.documentId}`)
         this.#beelay
@@ -128,7 +136,6 @@ export class DocSynchronizer extends Synchronizer {
           .then(({ snapshot, found }) => {
             this.#peerDocumentStatuses[peerId] = found ? "has" : "unavailable"
             // this.#log("synced snapshot: ", snapshot)
-            console.log("synced snapshot: ", found, snapshot)
             if (found) {
               this.#beelay.loadDocument(this.#docId).then(commitOrBundles => {
                 if (commitOrBundles != null) {
@@ -189,13 +196,11 @@ export class DocSynchronizer extends Synchronizer {
 
     const contents = decode(new Uint8Array(data))
 
-    if (this.#handle) {
-      this.#handle.emit("ephemeral-message", {
-        handle: this.#handle,
-        senderId,
-        message: contents,
-      })
-    }
+    this.#handle.emit("ephemeral-message", {
+      handle: this.#handle,
+      senderId,
+      message: contents,
+    })
     this.#peers.forEach(peerId => {
       if (peerId === senderId) return
       this.emit("message", {
