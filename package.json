@@ -36,7 +36,7 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "file:../automerge-jj/javascript",
+    "@automerge/automerge": "file:./vendor/automerge/javascript",
     "@manypkg/cli": "^0.21.3",
     "@types/debug": "^4.1.12",
     "@types/node": "^20.11.30",
@@ -70,6 +70,6 @@
     "typescript": "^5.4.2",
     "vite": "^5.2.0",
     "vite-plugin-wasm": "^3.3.0",
-    "vitest": "^1.4.0"
+    "gitest": "^1.4.0"
   }
 }

@@ -23,7 +23,7 @@
     "vite": "^5.0.8"
   },
   "dependencies": {
-    "@automerge/automerge": "file:../../../automerge-beelay/javascript",
+    "@automerge/automerge": "file:../../vendor/automerge/javascript",
     "bs58check": "^3.0.1",
     "cbor-x": "^1.3.0",
     "debug": "^4.3.4",
