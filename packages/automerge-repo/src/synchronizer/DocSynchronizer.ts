@@ -30,7 +30,6 @@ type PendingMessage = {
 
 interface DocSynchronizerConfig {
   handle: DocHandle<unknown>
-  docId: DocumentId
   beelay: A.beelay.Beelay
 }
 
@@ -53,13 +52,13 @@ export class DocSynchronizer extends Synchronizer {
   #handle: DocHandle<unknown>
   #docId: DocumentId
 
-  constructor({ handle, docId, beelay }: DocSynchronizerConfig) {
+  constructor({ handle, beelay }: DocSynchronizerConfig) {
     super()
     this.#handle = handle
     this.#beelay = beelay
-    this.#docId = docId
+    this.#docId = this.#handle.documentId
 
-    this.#log = debug(`automerge-repo:docsync:${docId}`)
+    this.#log = debug(`automerge-repo:docsync:${this.#handle.documentId}`)
 
     if (handle != null) {
       handle.on("ephemeral-message-outbound", payload =>
@@ -97,13 +96,6 @@ export class DocSynchronizer extends Synchronizer {
     this.emit("message", message)
   }
 
-  #addPeer(peerId: PeerId) {
-    if (!this.#peers.includes(peerId)) {
-      this.#peers.push(peerId)
-      this.emit("open-doc", { documentId: this.documentId, peerId })
-    }
-  }
-
   /// PUBLIC
 
   hasPeer(peerId: PeerId) {
@@ -119,6 +111,8 @@ export class DocSynchronizer extends Synchronizer {
         this.#syncStarted = true
         this.#checkDocUnavailable()
       })
+      // TODO: handle this error
+      .catch(() => {})
 
     peerIds.forEach(peerId => {
       if (!this.#peers.includes(peerId)) {

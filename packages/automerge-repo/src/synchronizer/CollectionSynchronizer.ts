@@ -46,7 +46,6 @@ export class CollectionSynchronizer extends Synchronizer {
   #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer({
       beelay: this.beelay,
-      docId: handle.documentId,
       handle,
     })
     docSynchronizer.on("message", event => this.emit("message", event))

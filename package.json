@@ -69,7 +69,9 @@
     "typedoc": "^0.25.12",
     "typescript": "^5.4.2",
     "vite": "^5.2.0",
-    "vite-plugin-wasm": "^3.3.0",
-    "gitest": "^1.4.0"
+    "vite-plugin-wasm": "^3.3.0"
+  },
+  "dependencies": {
+    "vitest": "^2.1.5"
   }
 }

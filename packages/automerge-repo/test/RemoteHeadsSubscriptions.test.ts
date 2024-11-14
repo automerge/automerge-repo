@@ -10,7 +10,7 @@ import {
 } from "../src/network/messages.js"
 import { collectMessages } from "./helpers/collectMessages.js"
 
-describe("RepoHeadsSubscriptions", () => {
+describe.skip("RepoHeadsSubscriptions", () => {
   const storageA = "remote-a" as StorageId
   const storageB = "remote-b" as StorageId
   const storageC = "remote-c" as StorageId

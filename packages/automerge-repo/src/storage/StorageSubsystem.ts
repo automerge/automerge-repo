@@ -145,7 +145,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * Under the hood this makes incremental saves until the incremental size is greater than the
    * snapshot size, at which point the document is compacted into a single snapshot.
    */
-  saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): void {
+  async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
     // Don't bother saving if the document hasn't changed
     if (!this.#shouldSave(documentId, doc)) return
 
@@ -162,7 +162,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
         contents: c,
       }
     })
-    this.#beelay
+    let done = this.#beelay
       .addCommits({
         docId: documentId,
         commits: changes.map(c => {
@@ -178,6 +178,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
         console.error(`Error saving document ${documentId}: ${e}`)
       })
     this.#storedHeads.set(documentId, A.getHeads(doc))
+    await done
   }
 
   /**

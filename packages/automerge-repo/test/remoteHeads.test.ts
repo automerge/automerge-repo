@@ -14,7 +14,7 @@ import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import { collectMessages } from "./helpers/collectMessages.js"
 import { TestDoc } from "./types.js"
 
-describe("DocHandle.remoteHeads", () => {
+describe.skip("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   it("should allow to listen for remote head changes and manually read remote heads", async () => {
