@@ -1486,7 +1486,7 @@ describe("Repo", () => {
       return decimal.endsWith("00")
     }
 
-    it.only("creates new bundles", () => {
+    it("creates new bundles", () => {
       const repo = new Repo({ network: [] })
       const handle = repo.create<TestDoc>()
       let heads = handle.heads()
@@ -1501,6 +1501,64 @@ describe("Repo", () => {
         ).hash
         boundaryHashGenerated = endsWithTwoZerosInDecimal(changeHash)
       }
+    })
+  })
+
+  describe("when syncing collections", () => {
+    function setup() {
+      const abChannel = new MessageChannel()
+
+      const { port1: ab, port2: ba } = abChannel
+
+      const alice = new Repo({
+        network: [new MessageChannelNetworkAdapter(ab)],
+        peerId: "alice" as PeerId,
+        sharePolicy: async () => false,
+      })
+      const bob = new Repo({
+        network: [new MessageChannelNetworkAdapter(ba)],
+        peerId: "bob" as PeerId,
+      })
+      return { alice, bob }
+    }
+
+    it("should sync linked documents", async () => {
+      let { alice, bob } = setup()
+      let doc1 = alice.create<{ linked: A.Link | null }>({ linked: null })
+      let doc2 = alice.create<{ foo: string }>({ foo: "bar" })
+      doc1.change(d => {
+        d.linked = new A.Link(doc2.url)
+      })
+
+      let doc1OnBob = bob.find(doc1.url)
+      // TODO remove this pause
+      await pause(100)
+
+      await doc1OnBob.whenReady()
+      bob.networkSubsystem.disconnect()
+
+      let doc2OnBob = bob.find(doc2.url)
+      await doc2OnBob.whenReady()
+      assert.deepStrictEqual(doc2OnBob.docSync(), { foo: "bar" })
+    })
+
+    it("should sync linked documents when a document is initialized contaiing links", async () => {
+      let { alice, bob } = setup()
+      let doc2 = alice.create<{ foo: string }>({ foo: "bar" })
+      let doc1 = alice.create<{ linked: A.Link | null }>({
+        linked: new A.Link(doc2.url),
+      })
+
+      let doc1OnBob = bob.find(doc1.url)
+      // TODO remove this pause
+      await pause(100)
+
+      await doc1OnBob.whenReady()
+      bob.networkSubsystem.disconnect()
+
+      let doc2OnBob = bob.find(doc2.url)
+      await doc2OnBob.whenReady()
+      assert.deepStrictEqual(doc2OnBob.docSync(), { foo: "bar" })
     })
   })
 })

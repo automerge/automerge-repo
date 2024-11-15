@@ -17,9 +17,10 @@ import {
   SyncMessage,
   isRequestMessage,
 } from "../network/messages.js"
-import { DocumentId, PeerId } from "../types.js"
+import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 import { throttle } from "../helpers/throttle.js"
+import { parseAutomergeUrl } from "../AutomergeUrl.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
@@ -60,11 +61,28 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#log = debug(`automerge-repo:docsync:${this.#handle.documentId}`)
 
-    if (handle != null) {
-      handle.on("ephemeral-message-outbound", payload =>
-        this.#broadcastToPeers(payload)
-      )
-    }
+    handle.on("ephemeral-message-outbound", payload =>
+      this.#broadcastToPeers(payload)
+    )
+
+    handle.on("change", changeInfo => {
+      const newLinks = changeInfo.patches
+        .map(patch => {
+          if (patch.action === "put") {
+            if (patch.value instanceof A.Link) {
+              return patch.value
+            }
+          }
+          return null
+        })
+        .filter(v => v != null)
+      for (const link of newLinks) {
+        const { documentId: target } = parseAutomergeUrl(
+          link.target as AutomergeUrl
+        )
+        this.#beelay.addLink({ from: this.#handle.documentId, to: target })
+      }
+    })
   }
 
   get peerStates() {

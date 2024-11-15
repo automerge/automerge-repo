@@ -281,6 +281,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
     }) as DocHandle<T>
 
+    let initialLinks: A.Link[] = []
+
     handle.update(() => {
       let nextDoc: Automerge.Doc<T>
       if (initialValue) {
@@ -288,8 +290,28 @@ export class Repo extends EventEmitter<RepoEvents> {
       } else {
         nextDoc = Automerge.emptyChange(Automerge.init())
       }
+      const patches = A.diff(nextDoc, [], A.getHeads(nextDoc))
+      for (const patch of patches) {
+        initialLinks = patches
+          .map(patch => {
+            if (patch.action === "put") {
+              if (patch.value instanceof A.Link) {
+                return patch.value
+              }
+            }
+            return null
+          })
+          .filter(v => v != null)
+      }
       return nextDoc
     })
+
+    for (const link of initialLinks) {
+      const { documentId: target } = parseAutomergeUrl(
+        link.target as AutomergeUrl
+      )
+      this.#beelay.addLink({ from: documentId, to: target })
+    }
 
     this.storageSubsystem.saveDoc(handle.documentId, handle.docSync()!)
 
