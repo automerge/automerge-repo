@@ -37,7 +37,3 @@ export {
   type Heartbeats,
   type UseRemoteAwarenessProps,
 } from "./useRemoteAwareness.js"
-export {
-  useCollection,
-  type Progress,
-} from "./useCollection.js"

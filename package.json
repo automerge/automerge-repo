@@ -36,7 +36,7 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "file:./vendor/automerge/javascript",
+    "@automerge/automerge": "3.0.0-collectionsync-alpha.1",
     "@manypkg/cli": "^0.21.3",
     "@types/debug": "^4.1.12",
     "@types/node": "^20.11.30",

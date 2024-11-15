@@ -125,7 +125,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     this.#beelay.on("bundleRequired", ({ start, end, checkpoints, docId }) => {
       ;(async () => {
-        const doc = await this.storageSubsystem.loadDoc(docId)
+        const doc = await this.storageSubsystem.loadDoc(docId as DocumentId)
         if (doc == null) {
           console.warn("document not found when creating bundle")
           return
