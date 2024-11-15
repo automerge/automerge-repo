@@ -1474,6 +1474,35 @@ describe("Repo", () => {
       assert.deepEqual(openDocs, 0)
     })
   })
+  describe("beelay bundle requests", () => {
+    function endsWithTwoZerosInDecimal(hexString: string) {
+      // Validate input is 32 bytes (64 characters) of hex
+      if (!/^[0-9a-fA-F]+$/.test(hexString)) {
+        throw new Error("Input must be a hexadecimal string, got " + hexString)
+      }
+      // Convert hex to decimal string
+      const decimal = BigInt("0x" + hexString).toString()
+      // Check if the last two digits are zeros
+      return decimal.endsWith("00")
+    }
+
+    it.only("creates new bundles", () => {
+      const repo = new Repo({ network: [] })
+      const handle = repo.create<TestDoc>()
+      let heads = handle.heads()
+      let boundaryHashGenerated = false
+      let iteration = 0
+      while (!boundaryHashGenerated) {
+        handle.change(d => {
+          d.foo = `foo${iteration}`
+        })
+        const changeHash = A.decodeChange(
+          A.getLastLocalChange(handle.docSync()!)
+        ).hash
+        boundaryHashGenerated = endsWithTwoZerosInDecimal(changeHash)
+      }
+    })
+  })
 })
 
 const warn = console.warn

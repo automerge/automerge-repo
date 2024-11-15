@@ -123,6 +123,24 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     })
 
+    this.#beelay.on("bundleRequired", ({ start, end, checkpoints, docId }) => {
+      ;(async () => {
+        const doc = await this.storageSubsystem.loadDoc(docId)
+        if (doc == null) {
+          console.warn("document not found when creating bundle")
+          return
+        }
+        const bundle = A.saveBundle(doc, start, end)
+        this.#beelay.addBundle({
+          docId,
+          checkpoints,
+          start,
+          end,
+          data: bundle,
+        })
+      })()
+    })
+
     // SYNCHRONIZER
     this.synchronizer = new CollectionSynchronizer(this.#beelay, this, [])
 
