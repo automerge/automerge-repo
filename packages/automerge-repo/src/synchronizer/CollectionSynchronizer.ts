@@ -90,6 +90,18 @@ export class CollectionSynchronizer extends Synchronizer {
     )
 
     const documentId = message.documentId
+    const senderId = message.senderId
+    const okToSync = await this.repo.syncPolicy(senderId, documentId)
+    if (!okToSync) {
+      log(`sync blocked by policy: ${message.senderId}, ${message.documentId}`)
+      this.emit("message", {
+        type: "doc-unavailable",
+        targetId: senderId,
+        documentId
+      })
+      return
+    }
+
     if (!documentId) {
       throw new Error("received a message with an invalid documentId")
     }
