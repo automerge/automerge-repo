@@ -405,6 +405,12 @@ importers:
         specifier: ^5.0.1
         version: 5.0.10
 
+  packages/automerge-repo-storage-opfs:
+    dependencies:
+      '@automerge/automerge-repo':
+        specifier: workspace:*
+        version: link:../automerge-repo
+
   packages/automerge-repo-svelte-store:
     dependencies:
       '@automerge/automerge':
