@@ -28,7 +28,7 @@ export const useDocuments = <T>(idsOrUrls?: DocId[]) => {
           return idOrUrl as DocumentId
         }
       }) ?? [],
-    [idsOrUrls]
+    idsOrUrls ?? []
   )
   const prevIds = useRef<DocumentId[]>([])
   const [documents, setDocuments] = useState(() => {
