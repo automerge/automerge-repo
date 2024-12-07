@@ -1,6 +1,6 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import { AnyDocumentId } from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim/next"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRepo } from "./useRepo.js"
 
 /** A hook which returns a document identified by a URL and a function to change the document.
@@ -19,26 +19,19 @@ export function useDocument<T>(
 ] {
   const repo = useRepo()
   const handle = id ? repo.find<T>(id) : null
-  const handleRef = useRef<DocHandle<T> | null>(handle)
-  if (handle !== handleRef.current) {
-    handleRef.current = handle
-  }
 
   // a state value we use to trigger a re-render
   const [, setGeneration] = useState(0)
   const rerender = () => setGeneration(v => v + 1)
 
   useEffect(() => {
-    if (!id || !handle) {
+    if (!handle) {
       return
     }
 
-    handleRef.current = handle
     handle
       .doc()
-      .then(() => {
-        rerender()
-      })
+      .then(rerender)
       .catch(e => console.error(e))
 
     handle.on("change", rerender)
@@ -49,7 +42,7 @@ export function useDocument<T>(
     }
 
     return cleanup
-  }, [id, handle])
+  }, [handle])
 
   const changeDoc = useCallback(
     (changeFn: ChangeFn<T>, options?: ChangeOptions<T> | undefined) => {
