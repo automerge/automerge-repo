@@ -3,7 +3,10 @@ import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messa
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"
-import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import {
+  interpretAsDocumentId,
+  parseAutomergeUrl,
+} from "../src/AutomergeUrl.js"
 import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
@@ -74,6 +77,53 @@ describe("Repo", () => {
       const handle = repo.create({ foo: "bar" })
       await handle.doc()
       assert.equal(handle.docSync().foo, "bar")
+    })
+
+    it("can create a document with an initial id", async () => {
+      const { repo } = setup()
+      const docId = interpretAsDocumentId(Uuid.v4() as LegacyDocumentId)
+      const docUrl = stringifyAutomergeUrl(docId)
+      const handle = repo.create({ foo: "bar" }, docId)
+      await handle.doc()
+      assert.equal(handle.documentId, docId)
+      assert.equal(handle.url, docUrl)
+    })
+
+    it("throws an error if we try to create a handle with an invalid id", async () => {
+      const { repo } = setup()
+      const docId = "invalid-url" as unknown as AutomergeUrl
+      try {
+        repo.create({ foo: "bar" }, docId)
+      } catch (e: any) {
+        assert.equal(e.message, "Invalid AutomergeUrl: 'invalid-url'")
+      }
+    })
+
+    it("throws an error if we try to create a handle with an existing id", async () => {
+      const { repo } = setup()
+      const handle = repo.create({ foo: "bar" })
+      const docId = handle.url
+      expect(() => {
+        repo.create({ foo: "bar" }, docId)
+      }).toThrow()
+    })
+
+    it("throws an error if we try to create a handle with an existing id that isn't loaded yet", async () => {
+      const { repo, storageAdapter, networkAdapter } = setup()
+
+      // we simulate a document that exists in storage but hasn't been loaded yet
+      // by writing it to the storage adapter with a different repo
+      const writerRepo = new Repo({
+        storage: storageAdapter,
+        network: [networkAdapter],
+      })
+      const handle = writerRepo.create({ foo: "bar" })
+
+      const docId = handle.url
+
+      expect(() => {
+        repo.create({ foo: "bar" }, docId)
+      }).toThrow()
     })
 
     it("can find a document by url", () => {
