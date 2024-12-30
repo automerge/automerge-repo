@@ -129,11 +129,13 @@ describe("DocHandle.remoteHeads", () => {
       aliceDoc.change(d => (d.foo = "bar"))
 
       // bob waits for the document to arrive
-      const bobDoc = bob.find<TestDoc>(aliceDoc.url)
+      const bobDoc = await bob.find<TestDoc>(aliceDoc.url)
       await bobDoc.whenReady()
 
       // alice's service worker waits for the document to arrive
-      const aliceServiceWorkerDoc = aliceServiceWorker.find(aliceDoc.documentId)
+      const aliceServiceWorkerDoc = await aliceServiceWorker.find(
+        aliceDoc.documentId
+      )
       await aliceServiceWorkerDoc.whenReady()
 
       let aliceSeenByBobPromise = new Promise<DocHandleRemoteHeadsPayload>(
@@ -169,7 +171,7 @@ describe("DocHandle.remoteHeads", () => {
       bobDocB.change(d => (d.foo = "B"))
 
       // alice opens doc A
-      const aliceDocA = alice.find<TestDoc>(bobDocA.url)
+      const aliceDocA = await alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
@@ -198,8 +200,8 @@ describe("DocHandle.remoteHeads", () => {
       bobDocB.change(d => (d.foo = "B"))
 
       // alice opens the docs
-      const _aliceDocA = alice.find<TestDoc>(bobDocA.url)
-      const _aliceDocB = alice.find<TestDoc>(bobDocB.url)
+      const _aliceDocA = await alice.find<TestDoc>(bobDocA.url)
+      const _aliceDocB = await alice.find<TestDoc>(bobDocB.url)
 
       // alice subscribes to bob's service worker
       alice.subscribeToRemotes([bobServiceWorkerStorageId])
@@ -209,7 +211,7 @@ describe("DocHandle.remoteHeads", () => {
       // stored remote heads immediately.
 
       // open doc and subscribe alice's second tab to bob's service worker
-      const alice2DocA = alice2.find<TestDoc>(bobDocA.url)
+      const alice2DocA = await alice2.find<TestDoc>(bobDocA.url)
       alice2.subscribeToRemotes([bobServiceWorkerStorageId])
 
       const remoteHeadsChangedMessages = (
@@ -243,7 +245,7 @@ describe("DocHandle.remoteHeads", () => {
       alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
       // alice opens doc A
-      const alice1DocA = alice.find<TestDoc>(bobDocA.url)
+      const alice1DocA = await alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
