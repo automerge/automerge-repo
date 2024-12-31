@@ -1,7 +1,7 @@
 import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import { decode } from "cbor-x"
-import { describe, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   encodeHeads,
   generateAutomergeUrl,
@@ -11,7 +11,6 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
-import { UNLOADED } from "../src/DocHandle.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -57,7 +56,7 @@ describe("DocHandle", () => {
 
   it("should return undefined if we access the doc before ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
-    assert.equal(handle.docSync(), undefined)
+    assert.throws(() => handle.docSync())
   })
 
   it("should not return a doc until ready", async () => {
@@ -296,7 +295,9 @@ describe("DocHandle", () => {
     // we don't have it in storage, so we request it from the network
     handle.request()
 
-    assert.equal(handle.docSync(), undefined)
+    await expect(() => {
+      handle.docSync()
+    }).toThrowError("DocHandle is not ready")
     assert.equal(handle.isReady(), false)
     assert.throws(() => handle.change(_ => {}))
   })

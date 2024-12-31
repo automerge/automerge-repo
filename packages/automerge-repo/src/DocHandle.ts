@@ -311,7 +311,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns the current document, or undefined if the document is not ready.
    */
   docSync() {
-    if (!this.isReady()) return undefined
+    if (!this.isReady()) throw new Error("DocHandle is not ready")
     if (this.#fixedHeads) {
       const doc = this.#doc
       return doc ? A.view(doc, decodeHeads(this.#fixedHeads)) : undefined
