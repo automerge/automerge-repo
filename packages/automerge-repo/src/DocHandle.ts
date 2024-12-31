@@ -288,8 +288,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns the current document, or undefined if the document is not ready.
    */
   docSync() {
-    if (!this.isReady()) return undefined
-    else return this.#doc
+    if (!this.isReady()) throw new Error("DocHandle is not ready")
+    return this.#doc
   }
 
   /**
