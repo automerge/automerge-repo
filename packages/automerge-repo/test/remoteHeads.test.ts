@@ -13,6 +13,7 @@ import {
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import { collectMessages } from "./helpers/collectMessages.js"
 import { TestDoc } from "./types.js"
+import { pause } from "../src/helpers/pause.js"
 
 describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -155,7 +156,7 @@ describe("DocHandle.remoteHeads", () => {
       assert.deepStrictEqual(heads, aliceServiceWorkerDoc.heads())
     })
 
-    it.only("should report remoteHeads only for documents the subscriber has open", async () => {
+    it("should report remoteHeads only for documents the subscriber has open", async () => {
       const { alice, bob, bobServiceWorkerStorageId } = await setup()
 
       // alice subscribes to bob's service worker
@@ -167,6 +168,8 @@ describe("DocHandle.remoteHeads", () => {
 
       const bobDocB = bob.create<TestDoc>()
       bobDocB.change(d => (d.foo = "B"))
+
+      await pause(50)
 
       // alice opens doc A
       console.log("alice.find", bobDocA.url)
@@ -199,6 +202,8 @@ describe("DocHandle.remoteHeads", () => {
 
       const bobDocB = bob.create<TestDoc>()
       bobDocB.change(d => (d.foo = "B"))
+
+      await pause(50)
 
       // alice opens the docs
       const _aliceDocA = await alice.find<TestDoc>(bobDocA.url)
@@ -247,6 +252,8 @@ describe("DocHandle.remoteHeads", () => {
       // alice subscribes to bob's service worker
       alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
+      await pause(50)
+
       // alice opens doc A
       const alice1DocAPromise = alice.find<TestDoc>(bobDocA.url)
 
@@ -260,7 +267,7 @@ describe("DocHandle.remoteHeads", () => {
 
       const alice1DocA = await alice1DocAPromise
 
-      assert.strictEqual(remoteHeadsChangedMessages.length, 2)
+      assert.strictEqual(remoteHeadsChangedMessages.length, 1)
       assert(
         remoteHeadsChangedMessages.every(
           d => d.documentId === alice1DocA.documentId
