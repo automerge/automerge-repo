@@ -41,6 +41,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
     const docSynchronizer = new DocSynchronizer({
       handle,
+      peerId: this.repo.networkSubsystem.peerId,
       onLoadSyncState: async peerId => {
         if (!this.repo.storageSubsystem) {
           return

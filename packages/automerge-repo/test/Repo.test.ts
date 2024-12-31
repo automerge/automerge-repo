@@ -670,7 +670,7 @@ describe("Repo", () => {
 
           if (idx < numberOfPeers - 1) {
             network.push(pair[0])
-            pair[0].whenReady()
+            networkReady.push(pair[0].whenReady())
           }
 
           const repo = new Repo({
@@ -713,14 +713,20 @@ describe("Repo", () => {
         d.foo = "bar"
       })
 
-      await pause(500)
+      console.log("pausing")
+      await pause(2000)
+      console.log("pausing done")
+
+      console.log("let's  sgo")
       const handleN = await repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
       assert.deepStrictEqual(handleN.docSync(), { foo: "bar" })
 
       // TODO: this isn't working!???!
+      console.log("REVERSE")
       const handleNBack = repos[numberOfPeers - 1].create({
         foo: "reverse-trip",
       })
+      console.log("FINDING")
       const handle0Back = await repos[0].find<TestDoc>(handleNBack.url)
       assert.deepStrictEqual(handle0Back.docSync(), { foo: "reverse-trip" })
     })

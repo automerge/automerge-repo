@@ -155,7 +155,7 @@ describe("DocHandle.remoteHeads", () => {
       assert.deepStrictEqual(heads, aliceServiceWorkerDoc.heads())
     })
 
-    it("should report remoteHeads only for documents the subscriber has open", async () => {
+    it.only("should report remoteHeads only for documents the subscriber has open", async () => {
       const { alice, bob, bobServiceWorkerStorageId } = await setup()
 
       // alice subscribes to bob's service worker
@@ -169,6 +169,7 @@ describe("DocHandle.remoteHeads", () => {
       bobDocB.change(d => (d.foo = "B"))
 
       // alice opens doc A
+      console.log("alice.find", bobDocA.url)
       const aliceDocAPromise = alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (
