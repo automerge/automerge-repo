@@ -261,7 +261,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     // Register the document with the synchronizer. This advertises our interest in the document.
-    void this.synchronizer.addDocument(handle)
+    this.synchronizer.addDocument(handle)
   }
 
   #receiveMessage(message: RepoMessage) {

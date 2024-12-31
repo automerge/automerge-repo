@@ -716,6 +716,13 @@ describe("Repo", () => {
       await pause(500)
       const handleN = await repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
       assert.deepStrictEqual(handleN.docSync(), { foo: "bar" })
+
+      // TODO: this isn't working!???!
+      const handleNBack = repos[numberOfPeers - 1].create({
+        foo: "reverse-trip",
+      })
+      const handle0Back = await repos[0].find<TestDoc>(handleNBack.url)
+      assert.deepStrictEqual(handle0Back.docSync(), { foo: "reverse-trip" })
     })
 
     const setup = async ({

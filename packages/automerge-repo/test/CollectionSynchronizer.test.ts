@@ -28,13 +28,13 @@ describe("CollectionSynchronizer", () => {
         done()
       })
 
-      synchronizer.addDocument(handle.documentId)
+      synchronizer.addDocument(handle)
     }))
 
   it("starts synchronizing existing documents when a peer is added", () =>
     new Promise<void>(done => {
       const handle = repo.create()
-      synchronizer.addDocument(handle.documentId)
+      synchronizer.addDocument(handle)
       synchronizer.once("message", event => {
         const { targetId, documentId } = event as SyncMessage
         assert(targetId === "peer1")
@@ -50,7 +50,7 @@ describe("CollectionSynchronizer", () => {
 
       repo.sharePolicy = async (peerId: PeerId) => peerId !== "peer1"
 
-      synchronizer.addDocument(handle.documentId)
+      synchronizer.addDocument(handle)
       synchronizer.once("message", () => {
         reject(new Error("Should not have sent a message"))
       })
@@ -71,7 +71,7 @@ describe("CollectionSynchronizer", () => {
         reject(new Error("Should not have sent a message"))
       })
 
-      synchronizer.addDocument(handle.documentId)
+      synchronizer.addDocument(handle)
 
       setTimeout(done)
     }))

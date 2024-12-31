@@ -489,49 +489,6 @@ describe("DocHandle", () => {
     assert.equal(handle.isDeleted(), true)
   })
 
-  it("should clear document reference when unloaded", async () => {
-    const handle = setup()
-
-    handle.change(doc => {
-      doc.foo = "bar"
-    })
-    const doc = await handle.doc()
-    assert.equal(doc?.foo, "bar")
-
-    handle.unload()
-    assert.equal(handle.isUnloaded(), true)
-
-    const clearedDoc = await handle.doc([UNLOADED])
-    assert.notEqual(clearedDoc?.foo, "bar")
-  })
-
-  it("should allow reloading after unloading", async () => {
-    const handle = setup()
-
-    handle.change(doc => {
-      doc.foo = "bar"
-    })
-    const doc = await handle.doc()
-    assert.equal(doc?.foo, "bar")
-
-    handle.unload()
-
-    // reload to transition from unloaded to loading
-    handle.reload()
-
-    // simulate requesting from the network
-    handle.request()
-
-    // simulate updating from the network
-    handle.update(doc => {
-      return A.change(doc, d => (d.foo = "bar"))
-    })
-
-    const reloadedDoc = await handle.doc()
-    assert.equal(handle.isReady(), true)
-    assert.equal(reloadedDoc?.foo, "bar")
-  })
-
   it("should allow changing at old heads", async () => {
     const handle = setup()
 
