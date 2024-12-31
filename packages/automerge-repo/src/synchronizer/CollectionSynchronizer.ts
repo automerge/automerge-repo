@@ -29,7 +29,7 @@ export class CollectionSynchronizer extends Synchronizer {
   }
 
   /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
-  async #fetchDocSynchronizer(handle: DocHandle<unknown>) {
+  #fetchDocSynchronizer(handle: DocHandle<unknown>) {
     if (!this.docSynchronizers[handle.documentId]) {
       this.docSynchronizers[handle.documentId] =
         this.#initDocSynchronizer(handle)
@@ -110,7 +110,7 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#docSetUp[documentId] = true
 
     const handle = await this.repo.find(documentId, { skipReady: true })
-    const docSynchronizer = await this.#fetchDocSynchronizer(handle)
+    const docSynchronizer = this.#fetchDocSynchronizer(handle)
 
     docSynchronizer.receiveMessage(message)
 
@@ -124,12 +124,12 @@ export class CollectionSynchronizer extends Synchronizer {
   /**
    * Starts synchronizing the given document with all peers that we share it generously with.
    */
-  async addDocument(handle: DocHandle<unknown>) {
+  addDocument(handle: DocHandle<unknown>) {
     // HACK: this is a hack to prevent us from adding the same document twice
     if (this.#docSetUp[handle.documentId]) {
       return
     }
-    const docSynchronizer = await this.#fetchDocSynchronizer(handle)
+    const docSynchronizer = this.#fetchDocSynchronizer(handle)
     void this.#documentGenerousPeers(handle.documentId).then(peers => {
       docSynchronizer.beginSync(peers)
     })
