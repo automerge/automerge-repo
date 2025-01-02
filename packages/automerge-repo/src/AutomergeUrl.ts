@@ -5,25 +5,40 @@ import type {
   DocumentId,
   AnyDocumentId,
 } from "./types.js"
+import type { Heads } from "@automerge/automerge/slim"
 import * as Uuid from "uuid"
 import bs58check from "bs58check"
 
 export const urlPrefix = "automerge:"
 
+interface ParsedAutomergeUrl {
+  /** unencoded DocumentId */
+  binaryDocumentId: BinaryDocumentId
+  /** bs58 encoded DocumentId */
+  documentId: DocumentId
+  /** Optional array of heads, if specified in URL */
+  heads?: Heads
+}
+
 /** Given an Automerge URL, returns the DocumentId in both base58check-encoded form and binary form */
-export const parseAutomergeUrl = (url: AutomergeUrl) => {
+export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
+  const [baseUrl, headsSection] = url.split("#")
   const regex = new RegExp(`^${urlPrefix}(\\w+)$`)
-  const [, docMatch] = url.match(regex) || []
+  const [, docMatch] = baseUrl.match(regex) || []
   const documentId = docMatch as DocumentId
   const binaryDocumentId = documentIdToBinary(documentId)
 
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
-  return {
-    /** unencoded DocumentId */
-    binaryDocumentId,
-    /** encoded DocumentId */
-    documentId,
-  }
+  if (!headsSection) return { binaryDocumentId, documentId }
+  const heads = headsSection.split(":").map(head => {
+    try {
+      bs58check.decode(head)
+      return head
+    } catch (e) {
+      throw new Error(`Invalid head in URL: ${head}`)
+    }
+  })
+  return { binaryDocumentId, documentId, heads }
 }
 
 /**
@@ -32,25 +47,38 @@ export const parseAutomergeUrl = (url: AutomergeUrl) => {
  */
 export const stringifyAutomergeUrl = (
   arg: UrlOptions | DocumentId | BinaryDocumentId
-) => {
-  const documentId =
-    arg instanceof Uint8Array || typeof arg === "string"
-      ? arg
-      : "documentId" in arg
-      ? arg.documentId
-      : undefined
+): AutomergeUrl => {
+  if (arg instanceof Uint8Array || typeof arg === "string") {
+    return (urlPrefix +
+      (arg instanceof Uint8Array
+        ? binaryToDocumentId(arg)
+        : arg)) as AutomergeUrl
+  }
+
+  const { documentId, heads = [] } = arg
+
+  if (documentId === undefined)
+    throw new Error("Invalid documentId: " + documentId)
 
   const encodedDocumentId =
     documentId instanceof Uint8Array
       ? binaryToDocumentId(documentId)
-      : typeof documentId === "string"
-      ? documentId
-      : undefined
+      : documentId
 
-  if (encodedDocumentId === undefined)
-    throw new Error("Invalid documentId: " + documentId)
+  let url = `${urlPrefix}${encodedDocumentId}`
 
-  return (urlPrefix + encodedDocumentId) as AutomergeUrl
+  if (heads && heads.length > 0) {
+    heads.forEach(head => {
+      try {
+        bs58check.decode(head)
+      } catch (e) {
+        throw new Error(`Invalid head: ${head}`)
+      }
+    })
+    url += "#" + heads.join(":")
+  }
+
+  return url as AutomergeUrl
 }
 
 /**
@@ -58,12 +86,24 @@ export const stringifyAutomergeUrl = (
  * discriminator in Typescript.
  */
 export const isValidAutomergeUrl = (str: unknown): str is AutomergeUrl => {
-  if (typeof str !== "string") return false
-  if (!str || !str.startsWith(urlPrefix)) return false
-  const automergeUrl = str as AutomergeUrl
+  if (typeof str !== "string" || !str || !str.startsWith(urlPrefix))
+    return false
   try {
-    const { documentId } = parseAutomergeUrl(automergeUrl)
-    return isValidDocumentId(documentId)
+    const { documentId, heads } = parseAutomergeUrl(str as AutomergeUrl)
+    if (!isValidDocumentId(documentId)) return false
+    if (
+      heads &&
+      !heads.every(head => {
+        try {
+          bs58check.decode(head)
+          return true
+        } catch {
+          return false
+        }
+      })
+    )
+      return false
+    return true
   } catch {
     return false
   }
@@ -141,4 +181,5 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 
 type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
+  heads?: Heads
 }

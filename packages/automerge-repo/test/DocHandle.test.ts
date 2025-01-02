@@ -113,8 +113,8 @@ describe("DocHandle", () => {
     assert.equal(handle.isReady(), true)
 
     const history = handle.history()
-    const view = handle.view(history[1])
-    assert.deepEqual(view, { foo: "one" })
+    const viewHandle = handle.view(history[1])
+    assert.deepEqual(await viewHandle.doc(), { foo: "one" })
   })
 
   it("should return diffs", async () => {

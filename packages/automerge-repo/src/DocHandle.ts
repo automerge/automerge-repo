@@ -28,6 +28,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** The XState actor running our state machine.  */
   #machine
 
+  /** If set, this handle will only show the document at these heads */
+  #fixedHeads?: A.Heads
+
   /** The last known state of our document. */
   #prevDocState: T = A.init<T>()
 
@@ -47,6 +50,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     if ("timeoutDelay" in options && options.timeoutDelay) {
       this.#timeoutDelay = options.timeoutDelay
+    }
+
+    if ("heads" in options) {
+      this.#fixedHeads = options.heads
     }
 
     const doc = A.init<T>()
@@ -202,7 +209,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** Our documentId in Automerge URL form.
    */
   get url(): AutomergeUrl {
-    return stringifyAutomergeUrl({ documentId: this.documentId })
+    return stringifyAutomergeUrl({
+      documentId: this.documentId,
+      heads: this.#fixedHeads,
+    })
   }
 
   /**
@@ -275,6 +285,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       // if we timed out, return undefined
       return undefined
     }
+    // If we have fixed heads, return a view at those heads
+    if (this.#fixedHeads) {
+      const doc = this.#doc
+      if (!doc || this.isUnavailable()) return undefined
+      return A.view(doc, this.#fixedHeads)
+    }
     // Return the document
     return !this.isUnavailable() ? this.#doc : undefined
   }
@@ -294,7 +310,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    */
   docSync() {
     if (!this.isReady()) return undefined
-    else return this.#doc
+    if (this.#fixedHeads) {
+      const doc = this.#doc
+      return doc ? A.view(doc, this.#fixedHeads) : undefined
+    }
+    return this.#doc
   }
 
   /**
@@ -303,8 +323,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns the current document's heads, or undefined if the document is not ready
    */
   heads(): A.Heads | undefined {
-    if (!this.isReady()) {
-      return undefined
+    if (!this.isReady()) return undefined
+    if (this.#fixedHeads) {
+      return this.#fixedHeads
     }
     return A.getHeads(this.#doc)
   }
@@ -314,9 +335,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Creates a fixed "view" of an automerge document at the given point in time represented
-   * by the `heads` passed in. The return value is the same type as docSync() and will return
-   * undefined if the object hasn't finished loading.
+   * Returns an array of all past "heads" for the document in topological order.
    *
    * @remarks
    * A point-in-time in an automerge document is an *array* of heads since there may be
@@ -325,7 +344,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * history views would be quite large under concurrency (every thing in each branch against each other).
    * There might be a clever way to think about this, but we haven't found it yet, so for now at least
    * we present a single traversable view which excludes concurrency.
-   * @returns The individual heads for every change in the document.
+   * @returns A.Heads[] - The individual heads for every change in the document. Each item is a tagged string[1].
    */
   history(): A.Heads[] | undefined {
     if (!this.isReady()) {
@@ -337,7 +356,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Creates a fixed "view" of an automerge document at the given point in time represented
+   * Creates a new DocHandle with a fixed "view" at the given point in time represented
    * by the `heads` passed in. The return value is the same type as docSync() and will return
    * undefined if the object hasn't finished loading.
    *
@@ -346,13 +365,24 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * of Automerge doesn't check types at runtime, so if you go back to an old set of heads
    * that doesn't match the heads here, Typescript will not save you.
    *
-   * @returns An Automerge.Doc<T> at the point in time.
+   * @argument heads - The heads to view the document at. See history().
+   * @returns DocHandle<T> at the time of `heads`
    */
-  view(heads: A.Heads): A.Doc<T> | undefined {
+  view(heads: A.Heads): DocHandle<T> {
     if (!this.isReady()) {
-      return undefined
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before calling view().`
+      )
     }
-    return A.view(this.#doc, heads)
+    // Create a new handle with the same documentId but fixed heads
+    const handle = new DocHandle<T>(this.documentId, {
+      heads,
+      timeoutDelay: this.#timeoutDelay,
+    })
+    handle.update(() => A.clone(this.#doc))
+    handle.doneLoading()
+
+    return handle
   }
 
   /**
@@ -360,19 +390,46 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * if applied.
    *
    * @remarks
-   * We allow specifying both a from/to heads or just a single comparison point, in which case
-   * the base will be the current document heads.
+   * We allow specifying either:
+   * - Two sets of heads to compare directly
+   * - A single set of heads to compare against our current heads
+   * - Another DocHandle to compare against (which must share history with this document)
    *
-   * @returns Automerge patches that go from one document state to the other. Use view() to get the full state.
+   * @throws Error if the documents don't share history or if either document is not ready
+   * @returns Automerge patches that go from one document state to the other
    */
-  diff(first: A.Heads, second?: A.Heads): A.Patch[] | undefined {
+  diff(first: A.Heads | DocHandle<T>, second?: A.Heads): A.Patch[] {
     if (!this.isReady()) {
-      return undefined
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before calling diff().`
+      )
     }
-    // We allow only one set of heads to be specified, in which case we use the doc's heads
-    const from = second ? first : this.heads() || [] // because we guard above this should always have useful data
+
+    const doc = this.#doc
+    if (!doc) throw new Error("Document not available")
+
+    // If first argument is a DocHandle
+    if (first instanceof DocHandle) {
+      if (!first.isReady()) {
+        throw new Error("Cannot diff against a handle that isn't ready")
+      }
+      const otherHeads = first.heads()
+      if (!otherHeads) throw new Error("Other document's heads not available")
+
+      // Create a temporary merged doc to verify shared history and compute diff
+      try {
+        const mergedDoc = A.merge(A.clone(doc), first.docSync()!)
+        // Use the merged doc to compute the diff
+        return A.diff(mergedDoc, this.heads()!, otherHeads)
+      } catch (e) {
+        throw new Error("Documents do not share history")
+      }
+    }
+
+    // Otherwise treat as heads
+    const from = second ? first : this.heads() || []
     const to = second ? second : first
-    return A.diff(this.#doc, from, to)
+    return A.diff(doc, from, to)
   }
 
   /**
@@ -451,6 +508,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         `DocHandle#${this.documentId} is in ${this.state} and not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
+
+    if (this.#fixedHeads) {
+      throw new Error(
+        `DocHandle#${this.documentId} is in view-only mode at specific heads. Use clone() to create a new document from this state.`
+      )
+    }
+
     this.#machine.send({
       type: UPDATE,
       payload: { callback: doc => A.change(doc, options, callback) },
@@ -465,13 +529,18 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     heads: A.Heads,
     callback: A.ChangeFn<T>,
     options: A.ChangeOptions<T> = {}
-  ): string[] | undefined {
+  ): A.Heads[] | undefined {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
       )
     }
-    let resultHeads: string[] | undefined = undefined
+    if (this.#fixedHeads) {
+      throw new Error(
+        `DocHandle#${this.documentId} is in view-only mode at specific heads. Use clone() to create a new document from this state.`
+      )
+    }
+    let resultHeads: A.Heads | undefined = undefined
     this.#machine.send({
       type: UPDATE,
       payload: {
@@ -501,6 +570,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   ) {
     if (!this.isReady() || !otherHandle.isReady()) {
       throw new Error("Both handles must be ready to merge")
+    }
+    if (this.#fixedHeads) {
+      throw new Error(
+        `DocHandle#${this.documentId} is in view-only mode at specific heads. Use clone() to create a new document from this state.`
+      )
     }
     const mergingDoc = otherHandle.docSync()
     if (!mergingDoc) {
@@ -576,6 +650,9 @@ export type DocHandleOptions<T> =
   // EXISTING DOCUMENTS
   | {
       isNew?: false
+
+      // An optional point in time to lock the document to.
+      heads?: A.Heads
 
       /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
       timeoutDelay?: number
