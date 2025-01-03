@@ -129,6 +129,8 @@ describe("DocHandle.remoteHeads", () => {
       const aliceDoc = alice.create<TestDoc>()
       aliceDoc.change(d => (d.foo = "bar"))
 
+      await pause(50)
+
       // bob waits for the document to arrive
       const bobDoc = await bob.find<TestDoc>(aliceDoc.url)
 
@@ -206,8 +208,8 @@ describe("DocHandle.remoteHeads", () => {
       await pause(50)
 
       // alice opens the docs
-      const _aliceDocA = await alice.find<TestDoc>(bobDocA.url)
-      const _aliceDocB = await alice.find<TestDoc>(bobDocB.url)
+      const _aliceDocA = alice.find<TestDoc>(bobDocA.url)
+      const _aliceDocB = alice.find<TestDoc>(bobDocB.url)
 
       // alice subscribes to bob's service worker
       alice.subscribeToRemotes([bobServiceWorkerStorageId])
@@ -231,7 +233,7 @@ describe("DocHandle.remoteHeads", () => {
       const alice2DocA = await alice2DocAPromise
 
       // we should only be notified of the head changes of doc A
-      assert.strictEqual(remoteHeadsChangedMessages.length, 2)
+      assert.strictEqual(remoteHeadsChangedMessages.length, 1)
       assert(
         remoteHeadsChangedMessages.every(
           d => d.documentId === alice2DocA.documentId
