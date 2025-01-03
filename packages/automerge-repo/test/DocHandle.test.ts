@@ -117,6 +117,43 @@ describe("DocHandle", () => {
     assert.deepEqual(await viewHandle.doc(), { foo: "one" })
   })
 
+  it("should support fixed heads from construction", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "zero"))
+    handle.change(d => (d.foo = "one"))
+
+    const history = handle.history()
+    const viewHandle = new DocHandle<TestDoc>(TEST_ID, { heads: history[0] })
+    viewHandle.update(() => A.clone(handle.docSync()!))
+    viewHandle.doneLoading()
+
+    assert.deepEqual(await viewHandle.doc(), { foo: "zero" })
+  })
+
+  it("should prevent changes on fixed-heads handles", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "zero"))
+    const viewHandle = handle.view(handle.heads()!)
+
+    assert.throws(() => viewHandle.change(d => (d.foo = "one")))
+    assert.throws(() =>
+      viewHandle.changeAt(handle.heads()!, d => (d.foo = "one"))
+    )
+    assert.throws(() => viewHandle.merge(handle))
+  })
+
+  it("should return fixed heads from heads()", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "zero"))
+    const originalHeads = handle.heads()!
+
+    handle.change(d => (d.foo = "one"))
+    const viewHandle = handle.view(originalHeads)
+
+    assert.deepEqual(viewHandle.heads(), originalHeads)
+    assert.notDeepEqual(viewHandle.heads(), handle.heads())
+  })
+
   it("should return diffs", async () => {
     const handle = setup()
     handle.change(d => (d.foo = "zero"))
@@ -152,6 +189,31 @@ describe("DocHandle", () => {
       { action: "put", path: ["foo"], value: "" },
       { action: "splice", path: ["foo", 0], value: "one" },
     ])
+  })
+
+  it("should support diffing against another handle", async () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "zero"))
+    const viewHandle = handle.view(handle.heads()!)
+
+    handle.change(d => (d.foo = "one"))
+
+    const patches = viewHandle.diff(handle)
+    assert.deepEqual(patches, [
+      { action: "put", path: ["foo"], value: "" },
+      { action: "splice", path: ["foo", 0], value: "one" },
+    ])
+  })
+
+  // TODO: alexg -- should i remove this test? should this fail or no?
+  it.skip("should fail diffing against unrelated handles", async () => {
+    const handle1 = setup()
+    const handle2 = setup()
+
+    handle1.change(d => (d.foo = "zero"))
+    handle2.change(d => (d.foo = "one"))
+
+    assert.throws(() => handle1.diff(handle2))
   })
 
   it("should allow direct access to decoded changes", async () => {
