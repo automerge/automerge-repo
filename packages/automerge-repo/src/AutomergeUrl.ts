@@ -22,15 +22,20 @@ interface ParsedAutomergeUrl {
 
 /** Given an Automerge URL, returns the DocumentId in both base58check-encoded form and binary form */
 export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
-  const [baseUrl, headsSection] = url.split("#")
+  const [baseUrl, headsSection, ...rest] = url.split("#")
+  if (rest.length > 0) {
+    throw new Error("Invalid URL: contains multiple heads sections")
+  }
   const regex = new RegExp(`^${urlPrefix}(\\w+)$`)
   const [, docMatch] = baseUrl.match(regex) || []
   const documentId = docMatch as DocumentId
   const binaryDocumentId = documentIdToBinary(documentId)
 
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
-  if (!headsSection) return { binaryDocumentId, documentId }
-  const heads = headsSection.split(":").map(head => {
+  if (headsSection === undefined) return { binaryDocumentId, documentId }
+
+  const encodedHeads = headsSection === "" ? [] : headsSection.split("|")
+  const heads = encodedHeads.map(head => {
     try {
       bs58check.decode(head)
       return head
@@ -55,7 +60,7 @@ export const stringifyAutomergeUrl = (
         : arg)) as AutomergeUrl
   }
 
-  const { documentId, heads = [] } = arg
+  const { documentId, heads = undefined } = arg
 
   if (documentId === undefined)
     throw new Error("Invalid documentId: " + documentId)
@@ -67,7 +72,7 @@ export const stringifyAutomergeUrl = (
 
   let url = `${urlPrefix}${encodedDocumentId}`
 
-  if (heads && heads.length > 0) {
+  if (heads !== undefined) {
     heads.forEach(head => {
       try {
         bs58check.decode(head)
@@ -75,7 +80,7 @@ export const stringifyAutomergeUrl = (
         throw new Error(`Invalid head: ${head}`)
       }
     })
-    url += "#" + heads.join(":")
+    url += "#" + heads.join("|")
   }
 
   return url as AutomergeUrl
