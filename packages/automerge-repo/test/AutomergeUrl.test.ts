@@ -7,6 +7,7 @@ import {
   isValidAutomergeUrl,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
+  UrlHeads,
 } from "../src/AutomergeUrl.js"
 import type {
   AutomergeUrl,
@@ -108,14 +109,16 @@ describe("AutomergeUrl with heads", () => {
   // Create some sample encoded heads for testing
   const head1 = bs58check.encode(new Uint8Array([1, 2, 3, 4])) as string
   const head2 = bs58check.encode(new Uint8Array([5, 6, 7, 8])) as string
+  const goodHeads = [head1, head2] as UrlHeads
   const urlWithHeads = `${goodUrl}#${head1}|${head2}` as AutomergeUrl
-  const invalidHead = "not-base58-encoded" as string
+  const invalidHead = "not-base58-encoded"
+  const invalidHeads = [invalidHead] as UrlHeads
 
   describe("stringifyAutomergeUrl", () => {
     it("should stringify a url with heads", () => {
       const url = stringifyAutomergeUrl({
         documentId: goodDocumentId,
-        heads: [head1, head2],
+        heads: goodHeads,
       })
       assert.strictEqual(url, urlWithHeads)
     })
@@ -124,7 +127,7 @@ describe("AutomergeUrl with heads", () => {
       assert.throws(() =>
         stringifyAutomergeUrl({
           documentId: goodDocumentId,
-          heads: [invalidHead],
+          heads: invalidHeads,
         })
       )
     })

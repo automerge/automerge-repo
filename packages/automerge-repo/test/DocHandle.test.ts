@@ -2,7 +2,11 @@ import * as A from "@automerge/automerge/next"
 import assert from "assert"
 import { decode } from "cbor-x"
 import { describe, it, vi } from "vitest"
-import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import {
+  encodeHeads,
+  generateAutomergeUrl,
+  parseAutomergeUrl,
+} from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
@@ -83,7 +87,7 @@ describe("DocHandle", () => {
     handle.change(d => (d.foo = "bar"))
     assert.equal(handle.isReady(), true)
 
-    const heads = A.getHeads(handle.docSync())
+    const heads = encodeHeads(A.getHeads(handle.docSync()))
     assert.notDeepEqual(handle.heads(), [])
     assert.deepEqual(heads, handle.heads())
   })

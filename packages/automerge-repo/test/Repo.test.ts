@@ -3,7 +3,13 @@ import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messa
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"
-import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import {
+  encodeHeads,
+  getHeadsFromUrl,
+  isValidAutomergeUrl,
+  parseAutomergeUrl,
+  UrlHeads,
+} from "../src/AutomergeUrl.js"
 import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
@@ -1175,7 +1181,10 @@ describe("Repo", () => {
         bobHandle.documentId,
         await charlieRepo!.storageSubsystem.id()
       )
-      assert.deepStrictEqual(storedSyncState.sharedHeads, bobHandle.heads())
+      assert.deepStrictEqual(
+        encodeHeads(storedSyncState.sharedHeads),
+        bobHandle.heads()
+      )
 
       teardown()
     })
@@ -1275,7 +1284,7 @@ describe("Repo", () => {
 
       const nextRemoteHeadsPromise = new Promise<{
         storageId: StorageId
-        heads: A.Heads
+        heads: UrlHeads
       }>(resolve => {
         handle.on("remote-heads", ({ storageId, heads }) => {
           resolve({ storageId, heads })
@@ -1523,6 +1532,111 @@ describe("Repo", () => {
       const openDocs = Object.keys(server.metrics().documents).length
       assert.deepEqual(openDocs, 0)
     })
+  })
+})
+
+describe("Repo heads-in-URLs functionality", () => {
+  const setup = () => {
+    const repo = new Repo({})
+    const handle = repo.create()
+    handle.change((doc: any) => (doc.title = "Hello World"))
+    return { repo, handle }
+  }
+
+  it("finds a document view by URL with heads", async () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    const view = repo.find(url)
+    expect(view.docSync()).toEqual({ title: "Hello World" })
+  })
+
+  it("returns a view, not the actual handle, when finding by URL with heads", async () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    await handle.change((doc: any) => (doc.title = "Changed"))
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    const view = repo.find(url)
+    expect(view.docSync()).toEqual({ title: "Hello World" })
+    expect(handle.docSync()).toEqual({ title: "Changed" })
+  })
+
+  it("changes to a document view do not affect the original", async () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    const view = repo.find(url)
+    expect(() =>
+      view.change((doc: any) => (doc.title = "Changed in View"))
+    ).toThrow()
+    expect(handle.docSync()).toEqual({ title: "Hello World" })
+  })
+
+  it("document views are read-only", async () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    const view = repo.find(url)
+    expect(() => view.change((doc: any) => (doc.title = "Changed"))).toThrow()
+  })
+
+  it("finds the latest document when given a URL without heads", async () => {
+    const { repo, handle } = setup()
+    await handle.change((doc: any) => (doc.title = "Changed"))
+    const found = repo.find(handle.url)
+    expect(found.docSync()).toEqual({ title: "Changed" })
+  })
+
+  it("getHeadsFromUrl returns heads array if present or undefined", () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    expect(getHeadsFromUrl(url)).toEqual(heads)
+
+    const urlWithoutHeads = generateAutomergeUrl()
+    expect(getHeadsFromUrl(urlWithoutHeads)).toBeUndefined()
+  })
+
+  it("isValidAutomergeUrl returns true for valid URLs", () => {
+    const { repo, handle } = setup()
+    const url = generateAutomergeUrl()
+    expect(isValidAutomergeUrl(url)).toBe(true)
+
+    const urlWithHeads = stringifyAutomergeUrl({
+      documentId: handle.documentId,
+      heads: handle.heads()!,
+    })
+    expect(isValidAutomergeUrl(urlWithHeads)).toBe(true)
+  })
+
+  it("isValidAutomergeUrl returns false for invalid URLs", () => {
+    const { repo, handle } = setup()
+    expect(isValidAutomergeUrl("not a url")).toBe(false)
+    expect(isValidAutomergeUrl("automerge:invalidid")).toBe(false)
+    expect(isValidAutomergeUrl("automerge:validid#invalidhead")).toBe(false)
+  })
+
+  it("parseAutomergeUrl extracts documentId and heads", () => {
+    const { repo, handle } = setup()
+    const url = stringifyAutomergeUrl({
+      documentId: handle.documentId,
+      heads: handle.heads()!,
+    })
+    const parsed = parseAutomergeUrl(url)
+    expect(parsed.documentId).toBe(handle.documentId)
+    expect(parsed.heads).toEqual(handle.heads())
+  })
+
+  it("stringifyAutomergeUrl creates valid URL", () => {
+    const { repo, handle } = setup()
+    const url = stringifyAutomergeUrl({
+      documentId: handle.documentId,
+      heads: handle.heads()!,
+    })
+    expect(isValidAutomergeUrl(url)).toBe(true)
+    const parsed = parseAutomergeUrl(url)
+    expect(parsed.documentId).toBe(handle.documentId)
+    expect(parsed.heads).toEqual(handle.heads())
   })
 })
 

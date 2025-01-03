@@ -9,6 +9,7 @@ import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
 import * as Uuid from "uuid"
 import { EventEmitter } from "eventemitter3"
+import { decodeHeads, UrlHeads } from "../AutomergeUrl.js"
 
 type StorageSubsystemEvents = {
   "document-loaded": (arg: {
@@ -173,6 +174,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     } else {
       await this.#saveIncremental(documentId, doc)
     }
+
     this.#storedHeads.set(documentId, A.getHeads(doc))
   }
 

@@ -2,7 +2,12 @@ import * as A from "@automerge/automerge/slim/next"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import { assertEvent, assign, createActor, setup, waitFor } from "xstate"
-import { stringifyAutomergeUrl } from "./AutomergeUrl.js"
+import {
+  decodeHeads,
+  encodeHeads,
+  stringifyAutomergeUrl,
+  UrlHeads,
+} from "./AutomergeUrl.js"
 import { encode } from "./helpers/cbor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { withTimeout } from "./helpers/withTimeout.js"
@@ -29,7 +34,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #machine
 
   /** If set, this handle will only show the document at these heads */
-  #fixedHeads?: A.Heads
+  #fixedHeads?: UrlHeads
 
   /** The last known state of our document. */
   #prevDocState: T = A.init<T>()
@@ -39,7 +44,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #timeoutDelay = 60_000
 
   /** A dictionary mapping each peer to the last heads we know they have. */
-  #remoteHeads: Record<StorageId, A.Heads> = {}
+  #remoteHeads: Record<StorageId, UrlHeads> = {}
 
   /** @hidden */
   constructor(
@@ -289,7 +294,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if (this.#fixedHeads) {
       const doc = this.#doc
       if (!doc || this.isUnavailable()) return undefined
-      return A.view(doc, this.#fixedHeads)
+      return A.view(doc, decodeHeads(this.#fixedHeads))
     }
     // Return the document
     return !this.isUnavailable() ? this.#doc : undefined
@@ -312,7 +317,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if (!this.isReady()) return undefined
     if (this.#fixedHeads) {
       const doc = this.#doc
-      return doc ? A.view(doc, this.#fixedHeads) : undefined
+      return doc ? A.view(doc, decodeHeads(this.#fixedHeads)) : undefined
     }
     return this.#doc
   }
@@ -322,12 +327,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * This precisely defines the state of a document.
    * @returns the current document's heads, or undefined if the document is not ready
    */
-  heads(): A.Heads | undefined {
+  heads(): UrlHeads | undefined {
     if (!this.isReady()) return undefined
     if (this.#fixedHeads) {
       return this.#fixedHeads
     }
-    return A.getHeads(this.#doc)
+    return encodeHeads(A.getHeads(this.#doc))
   }
 
   begin() {
@@ -344,15 +349,17 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * history views would be quite large under concurrency (every thing in each branch against each other).
    * There might be a clever way to think about this, but we haven't found it yet, so for now at least
    * we present a single traversable view which excludes concurrency.
-   * @returns A.Heads[] - The individual heads for every change in the document. Each item is a tagged string[1].
+   * @returns UrlHeads[] - The individual heads for every change in the document. Each item is a tagged string[1].
    */
-  history(): A.Heads[] | undefined {
+  history(): UrlHeads[] | undefined {
     if (!this.isReady()) {
       return undefined
     }
     // This just returns all the heads as individual strings.
 
-    return A.topoHistoryTraversal(this.#doc).map(h => [h]) as A.Heads[]
+    return A.topoHistoryTraversal(this.#doc).map(h =>
+      encodeHeads([h])
+    ) as UrlHeads[]
   }
 
   /**
@@ -368,7 +375,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @argument heads - The heads to view the document at. See history().
    * @returns DocHandle<T> at the time of `heads`
    */
-  view(heads: A.Heads): DocHandle<T> {
+  view(heads: UrlHeads): DocHandle<T> {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before calling view().`
@@ -398,7 +405,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @throws Error if the documents don't share history or if either document is not ready
    * @returns Automerge patches that go from one document state to the other
    */
-  diff(first: A.Heads | DocHandle<T>, second?: A.Heads): A.Patch[] {
+  diff(first: UrlHeads | DocHandle<T>, second?: UrlHeads): A.Patch[] {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before calling diff().`
@@ -417,19 +424,19 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       if (!otherHeads) throw new Error("Other document's heads not available")
 
       // Create a temporary merged doc to verify shared history and compute diff
-      try {
-        const mergedDoc = A.merge(A.clone(doc), first.docSync()!)
-        // Use the merged doc to compute the diff
-        return A.diff(mergedDoc, this.heads()!, otherHeads)
-      } catch (e) {
-        throw new Error("Documents do not share history")
-      }
+      const mergedDoc = A.merge(A.clone(doc), first.docSync()!)
+      // Use the merged doc to compute the diff
+      return A.diff(
+        mergedDoc,
+        decodeHeads(this.heads()!),
+        decodeHeads(otherHeads)
+      )
     }
 
     // Otherwise treat as heads
-    const from = second ? first : this.heads() || []
+    const from = second ? first : ((this.heads() || []) as UrlHeads)
     const to = second ? second : first
-    return A.diff(doc, from, to)
+    return A.diff(doc, decodeHeads(from), decodeHeads(to))
   }
 
   /**
@@ -447,11 +454,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if (!this.isReady()) {
       return undefined
     }
+
     if (!change) {
       change = this.heads()![0]
     }
     // we return undefined instead of null by convention in this API
-    return A.inspectChange(this.#doc, change) || undefined
+    return (
+      A.inspectChange(this.#doc, decodeHeads([change] as UrlHeads)[0]) ||
+      undefined
+    )
   }
 
   /**
@@ -477,13 +488,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Called by the repo either when a doc handle changes or we receive new remote heads.
    * @hidden
    */
-  setRemoteHeads(storageId: StorageId, heads: A.Heads) {
+  setRemoteHeads(storageId: StorageId, heads: UrlHeads) {
     this.#remoteHeads[storageId] = heads
     this.emit("remote-heads", { storageId, heads })
   }
 
   /** Returns the heads of the storageId. */
-  getRemoteHeads(storageId: StorageId): A.Heads | undefined {
+  getRemoteHeads(storageId: StorageId): UrlHeads | undefined {
     return this.#remoteHeads[storageId]
   }
 
@@ -526,10 +537,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns A set of heads representing the concurrent change that was made.
    */
   changeAt(
-    heads: A.Heads,
+    heads: UrlHeads,
     callback: A.ChangeFn<T>,
     options: A.ChangeOptions<T> = {}
-  ): A.Heads[] | undefined {
+  ): UrlHeads[] | undefined {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
@@ -540,13 +551,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         `DocHandle#${this.documentId} is in view-only mode at specific heads. Use clone() to create a new document from this state.`
       )
     }
-    let resultHeads: A.Heads | undefined = undefined
+    let resultHeads: UrlHeads | undefined = undefined
     this.#machine.send({
       type: UPDATE,
       payload: {
         callback: doc => {
-          const result = A.changeAt(doc, heads, options, callback)
-          resultHeads = result.newHeads || undefined
+          const result = A.changeAt(doc, decodeHeads(heads), options, callback)
+          resultHeads = result.newHeads
+            ? encodeHeads(result.newHeads)
+            : undefined
           return result.newDoc
         },
       },
@@ -652,7 +665,7 @@ export type DocHandleOptions<T> =
       isNew?: false
 
       // An optional point in time to lock the document to.
-      heads?: A.Heads
+      heads?: UrlHeads
 
       /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
       timeoutDelay?: number
@@ -717,7 +730,7 @@ export interface DocHandleOutboundEphemeralMessagePayload<T> {
 /** Emitted when we have new remote heads for this document */
 export interface DocHandleRemoteHeadsPayload {
   storageId: StorageId
-  heads: A.Heads
+  heads: UrlHeads
 }
 
 // STATE MACHINE TYPES & CONSTANTS

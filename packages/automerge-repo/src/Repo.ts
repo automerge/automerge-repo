@@ -2,8 +2,8 @@ import { next as Automerge } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
+  encodeHeads,
   generateAutomergeUrl,
-  getHeadsFromUrl,
   interpretAsDocumentId,
   isValidAutomergeUrl,
   parseAutomergeUrl,
@@ -195,16 +195,20 @@ export class Repo extends EventEmitter<RepoEvents> {
       const heads = handle.getRemoteHeads(storageId)
       const haveHeadsChanged =
         message.syncState.theirHeads &&
-        (!heads || !headsAreSame(heads, message.syncState.theirHeads))
+        (!heads ||
+          !headsAreSame(heads, encodeHeads(message.syncState.theirHeads)))
 
       if (haveHeadsChanged && message.syncState.theirHeads) {
-        handle.setRemoteHeads(storageId, message.syncState.theirHeads)
+        handle.setRemoteHeads(
+          storageId,
+          encodeHeads(message.syncState.theirHeads)
+        )
 
         if (storageId && this.#remoteHeadsGossipingEnabled) {
           this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
             message.documentId,
             storageId,
-            message.syncState.theirHeads
+            encodeHeads(message.syncState.theirHeads)
           )
         }
       }

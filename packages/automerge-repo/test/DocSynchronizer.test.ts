@@ -1,7 +1,11 @@
 import assert from "assert"
 import { describe, it } from "vitest"
 import { next as Automerge } from "@automerge/automerge"
-import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import {
+  encodeHeads,
+  generateAutomergeUrl,
+  parseAutomergeUrl,
+} from "../src/AutomergeUrl.js"
 import { DocHandle } from "../src/DocHandle.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import {
@@ -67,11 +71,14 @@ describe("DocSynchronizer", () => {
 
     assert.equal(message1.peerId, "alice")
     assert.equal(message1.documentId, handle.documentId)
-    assert.deepEqual(message1.syncState.lastSentHeads, [])
+    assert.deepStrictEqual(message1.syncState.lastSentHeads, [])
 
     assert.equal(message2.peerId, "alice")
     assert.equal(message2.documentId, handle.documentId)
-    assert.deepEqual(message2.syncState.lastSentHeads, handle.heads())
+    assert.deepStrictEqual(
+      encodeHeads(message2.syncState.lastSentHeads),
+      handle.heads()
+    )
   })
 
   it("still syncs with a peer after it disconnects and reconnects", async () => {

@@ -5,11 +5,20 @@ import type {
   DocumentId,
   AnyDocumentId,
 } from "./types.js"
-import type { Heads } from "@automerge/automerge/slim"
+
 import * as Uuid from "uuid"
 import bs58check from "bs58check"
+import {
+  uint8ArrayFromHexString,
+  uint8ArrayToHexString,
+} from "./helpers/bufferFromHex.js"
+
+import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
 
 export const urlPrefix = "automerge:"
+
+// We need to define our own version of heads because the AutomergeHeads type is not bs58check encoded
+export type UrlHeads = string[] & { __automergeUrlHeadsBrand: unknown }
 
 interface ParsedAutomergeUrl {
   /** unencoded DocumentId */
@@ -17,7 +26,9 @@ interface ParsedAutomergeUrl {
   /** bs58 encoded DocumentId */
   documentId: DocumentId
   /** Optional array of heads, if specified in URL */
-  heads?: Heads
+  heads?: UrlHeads
+  /** Optional hex array of heads, in Automerge core format */
+  hexHeads?: string[] // AKA: heads
 }
 
 /** Given an Automerge URL, returns the DocumentId in both base58check-encoded form and binary form */
@@ -34,16 +45,15 @@ export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
   if (headsSection === undefined) return { binaryDocumentId, documentId }
 
-  const encodedHeads = headsSection === "" ? [] : headsSection.split("|")
-  const heads = encodedHeads.map(head => {
+  const heads = (headsSection === "" ? [] : headsSection.split("|")) as UrlHeads
+  const hexHeads = heads.map(head => {
     try {
-      bs58check.decode(head)
-      return head
+      return uint8ArrayToHexString(bs58check.decode(head))
     } catch (e) {
       throw new Error(`Invalid head in URL: ${head}`)
     }
   })
-  return { binaryDocumentId, documentId, heads }
+  return { binaryDocumentId, hexHeads, documentId, heads }
 }
 
 /**
@@ -157,6 +167,12 @@ export const documentIdToBinary = (docId: DocumentId) =>
 export const binaryToDocumentId = (docId: BinaryDocumentId) =>
   bs58check.encode(docId) as DocumentId
 
+export const encodeHeads = (heads: AutomergeHeads): UrlHeads =>
+  heads.map(h => bs58check.encode(uint8ArrayFromHexString(h))) as UrlHeads
+
+export const decodeHeads = (heads: UrlHeads): AutomergeHeads =>
+  heads.map(h => uint8ArrayToHexString(bs58check.decode(h))) as AutomergeHeads
+
 export const parseLegacyUUID = (str: string) => {
   if (!Uuid.validate(str)) return undefined
   const documentId = Uuid.parse(str) as BinaryDocumentId
@@ -201,5 +217,5 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 
 type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
-  heads?: Heads
+  heads?: UrlHeads
 }

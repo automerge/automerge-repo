@@ -7,12 +7,13 @@ import {
 } from "./network/messages.js"
 import { StorageId } from "./index.js"
 import debug from "debug"
+import { UrlHeads } from "./AutomergeUrl.js"
 
 // Notify a DocHandle that remote heads have changed
 export type RemoteHeadsSubscriptionEventPayload = {
   documentId: DocumentId
   storageId: StorageId
-  remoteHeads: A.Heads
+  remoteHeads: UrlHeads
   timestamp: number
 }
 
@@ -21,7 +22,7 @@ export type NotifyRemoteHeadsPayload = {
   targetId: PeerId
   documentId: DocumentId
   storageId: StorageId
-  heads: A.Heads
+  heads: UrlHeads
   timestamp: number
 }
 
@@ -216,7 +217,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   handleImmediateRemoteHeadsChanged(
     documentId: DocumentId,
     storageId: StorageId,
-    heads: A.Heads
+    heads: UrlHeads
   ) {
     this.#log("handleLocalHeadsChanged", documentId, storageId, heads)
     const remote = this.#knownHeads.get(documentId)
@@ -334,7 +335,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   #changedHeads(msg: RemoteHeadsChanged): {
     documentId: DocumentId
     storageId: StorageId
-    remoteHeads: A.Heads
+    remoteHeads: UrlHeads
     timestamp: number
   }[] {
     const changedHeads = []
@@ -371,5 +372,5 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
 
 type LastHeads = {
   timestamp: number
-  heads: A.Heads
+  heads: UrlHeads
 }
