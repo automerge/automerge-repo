@@ -3,7 +3,9 @@ import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
   generateAutomergeUrl,
+  getHeadsFromUrl,
   interpretAsDocumentId,
+  isValidAutomergeUrl,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import {
@@ -430,19 +432,22 @@ export class Repo extends EventEmitter<RepoEvents> {
     /** The url or documentId of the handle to retrieve */
     id: AnyDocumentId
   ): DocHandle<T> {
-    const documentId = interpretAsDocumentId(id)
+    const { documentId, heads } = isValidAutomergeUrl(id)
+      ? parseAutomergeUrl(id)
+      : { documentId: interpretAsDocumentId(id), heads: undefined }
 
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      if (this.#handleCache[documentId].isUnavailable()) {
+    const cachedHandle = this.#handleCache[documentId]
+    if (cachedHandle) {
+      if (cachedHandle.isUnavailable()) {
         // this ensures that the event fires after the handle has been returned
         setTimeout(() => {
-          this.#handleCache[documentId].emit("unavailable", {
-            handle: this.#handleCache[documentId],
+          cachedHandle.emit("unavailable", {
+            handle: cachedHandle,
           })
         })
       }
-      return this.#handleCache[documentId]
+      // If we already have the handle, return it immediately (or a view of the handle if heads are specified)
+      return heads ? cachedHandle.view(heads) : cachedHandle
     }
 
     // If we don't already have the handle, make an empty one and try loading it
@@ -473,7 +478,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       .catch(err => {
         this.#log("error waiting for network", { err })
       })
-    return handle
+
+    // If we already have the handle, return it immediately (or a view of the handle if heads are specified)
+    return heads ? handle.view(heads) : handle
   }
 
   delete(

@@ -81,6 +81,21 @@ export const stringifyAutomergeUrl = (
   return url as AutomergeUrl
 }
 
+/** Helper to extract just the heads from a URL if they exist */
+export const getHeadsFromUrl = (url: AutomergeUrl): string[] | undefined => {
+  const { heads } = parseAutomergeUrl(url)
+  return heads
+}
+
+export const anyDocumentIdToAutomergeUrl = (id: AnyDocumentId) =>
+  isValidAutomergeUrl(id)
+    ? id
+    : isValidDocumentId(id)
+    ? stringifyAutomergeUrl({ documentId: id })
+    : isValidUuid(id)
+    ? parseLegacyUUID(id)
+    : undefined
+
 /**
  * Given a string, returns true if it is a valid Automerge URL. This function also acts as a type
  * discriminator in Typescript.
