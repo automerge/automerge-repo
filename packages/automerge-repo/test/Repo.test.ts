@@ -967,6 +967,8 @@ describe("Repo", () => {
 
       await eventPromise(aliceRepo.networkSubsystem, "peer")
 
+      // Not sure why we need this pause here, but... we do.
+      await pause(100)
       const handle = await charlieRepo.find<TestDoc>(url)
       const doc = await handle.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
@@ -1020,6 +1022,10 @@ describe("Repo", () => {
         peerId: "b" as PeerId,
         network: [new MessageChannelNetworkAdapter(ba)],
       })
+
+      // We need a proper peer status API so we can tell when the
+      // peer is connected. For now we just wait a bit.
+      await pause(50)
 
       // The empty repo should be notified of the new peer, send it a request
       // and eventually resolve the handle to "READY"

@@ -37,6 +37,7 @@ import type {
   DocumentId,
   PeerId,
 } from "./types.js"
+import { abortable, AbortOptions } from "./helpers/abortable.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -413,59 +414,62 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
+   * Loads a document without waiting for ready state
+   */
+  async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
+    // If we have the handle cached, return it
+    if (this.#handleCache[documentId]) {
+      return this.#handleCache[documentId]
+    }
+
+    // If we don't already have the handle, make an empty one and try loading it
+    const handle = this.#getHandle<T>({ documentId })
+    const loadedDoc = await (this.storageSubsystem
+      ? this.storageSubsystem.loadDoc(handle.documentId)
+      : Promise.resolve(null))
+
+    if (loadedDoc) {
+      // We need to cast this to <T> because loadDoc operates in <unknowns>.
+      // This is really where we ought to be validating the input matches <T>.
+      handle.update(() => loadedDoc as Automerge.Doc<T>)
+      handle.doneLoading()
+    } else {
+      // Because the network subsystem might still be booting up, we wait
+      // here so that we don't immediately give up loading because we're still
+      // making our initial connection to a sync server.
+      await this.networkSubsystem.whenReady()
+      handle.request()
+    }
+
+    this.#registerHandleWithSubsystems(handle)
+    return handle
+  }
+
+  /**
    * Retrieves a document by id. It gets data from the local system, but also emits a `document`
    * event to advertise interest in the document.
    */
   async find<T>(
     /** The url or documentId of the handle to retrieve */
     id: AnyDocumentId,
-    { skipReady = false }: { skipReady?: boolean } = {}
+    options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
     const documentId = interpretAsDocumentId(id)
+    const { skipReady, signal } = options
 
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      if (skipReady) {
-        return this.#handleCache[documentId]
-      }
-      await this.#handleCache[documentId].whenReady([READY])
-
-      return this.#handleCache[documentId]
-    }
-
-    // If we don't already have the handle, make an empty one and try loading it
-    const handle = this.#getHandle<T>({
-      documentId,
-    }) as DocHandle<T>
-
-    // Loading & network is going to be asynchronous no matter what,
-    // but we want to return the handle immediately.
-    const attemptLoad = this.storageSubsystem
-      ? this.storageSubsystem.loadDoc(handle.documentId)
-      : Promise.resolve(null)
-
-    const loadedDoc = await attemptLoad
-
-    if (loadedDoc) {
-      // uhhhh, sorry if you're reading this because we were lying to the type system
-      handle.update(() => loadedDoc as Automerge.Doc<T>)
-      handle.doneLoading()
-    } else {
-      // we want to wait for the network subsystem to be ready before
-      // we request the document. this prevents entering unavailable during initialization.
-      await this.networkSubsystem.whenReady()
-      handle.request()
-    }
-    this.#registerHandleWithSubsystems(handle)
-    if (skipReady) {
-      return handle
-    }
-    await handle.whenReady([READY, UNAVAILABLE])
-
-    if (handle.state === UNAVAILABLE) {
-      throw new Error(`Document ${id} is unavailable`)
-    }
-    return handle
+    return Promise.race([
+      (async () => {
+        const handle = await this.#loadDocument<T>(documentId)
+        if (!skipReady) {
+          await handle.whenReady([READY, UNAVAILABLE])
+          if (handle.state === UNAVAILABLE) {
+            throw new Error(`Document ${id} is unavailable`)
+          }
+        }
+        return handle
+      })(),
+      abortable(signal),
+    ])
   }
 
   delete(
@@ -656,6 +660,10 @@ export interface RepoEvents {
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (arg: DeleteDocumentPayload) => void
   "doc-metrics": (arg: DocMetrics) => void
+}
+
+export interface RepoFindOptions {
+  skipReady?: boolean
 }
 
 export interface DocumentPayload {
