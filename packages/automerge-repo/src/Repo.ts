@@ -468,7 +468,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         const handle = await this.#loadDocument<T>(documentId)
         if (!skipReady) {
           await handle.whenReady([READY, UNAVAILABLE])
-          if (handle.state === UNAVAILABLE) {
+          if (handle.state === UNAVAILABLE && !signal?.aborted) {
             throw new Error(`Document ${id} is unavailable`)
           }
         }
