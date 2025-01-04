@@ -5,10 +5,9 @@ import {
   PeerId,
   Repo,
 } from "@automerge/automerge-repo"
-import { DummyStorageAdapter } from "@automerge/automerge-repo/test/helpers/DummyStorageAdapter"
 import { render, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { useHandle } from "../src/useHandle"
+import { useDocHandle } from "../src/useDocHandle"
 import { RepoContext } from "../src/useRepo"
 
 interface ExampleDoc {
@@ -45,10 +44,10 @@ describe("useHandle", () => {
     url,
     onHandle,
   }: {
-    url: AutomergeUrl | undefined
-    onHandle: (handle: DocHandle<unknown> | undefined) => void
+    url: AutomergeUrl
+    onHandle: (handle: DocHandle<unknown>) => void
   }) => {
-    const handle = useHandle(url)
+    const handle = useDocHandle(url)
     onHandle(handle)
     return null
   }
@@ -61,35 +60,19 @@ describe("useHandle", () => {
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
   })
 
-  it("returns undefined when no url given", async () => {
-    const { wrapper } = setup()
-    const onHandle = vi.fn()
-
-    render(<Component url={undefined} onHandle={onHandle} />, { wrapper })
-    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
-  })
-
   it("updates the handle when the url changes", async () => {
     const { wrapper, handleA, handleB } = setup()
     const onHandle = vi.fn()
 
     const { rerender } = render(
-      <Component url={undefined} onHandle={onHandle} />,
+      <Component url={handleA.url} onHandle={onHandle} />,
       { wrapper }
     )
-    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
-
-    // set url to doc A
-    rerender(<Component url={handleA.url} onHandle={onHandle} />)
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
 
     // set url to doc B
     rerender(<Component url={handleB.url} onHandle={onHandle} />)
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleB))
-
-    // set url to undefined
-    rerender(<Component url={undefined} onHandle={onHandle} />)
-    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
   })
 
   it("does not return undefined after the url is updated", async () => {
