@@ -1460,6 +1460,50 @@ describe("Repo", () => {
   })
 })
 
+describe("Repo.find() abort behavior", () => {
+  it("aborts immediately if signal is already aborted", async () => {
+    const repo = new Repo()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      repo.find(generateAutomergeUrl(), { signal: controller.signal })
+    ).rejects.toThrow("Operation aborted")
+  })
+
+  it("can abort while waiting for ready state", async () => {
+    // Create a repo with no network adapters so document can't become ready
+    const repo = new Repo()
+    const handle = repo.create()
+    const url = handle.url
+
+    const controller = new AbortController()
+
+    // Start find and abort after a moment
+    const findPromise = repo.find(handle.url, { signal: controller.signal })
+    setTimeout(() => controller.abort(), 10)
+
+    await expect(findPromise).rejects.toThrow("Operation aborted")
+  })
+
+  it("returns handle immediately when skipReady is true, even with abort signal", async () => {
+    const repo = new Repo()
+    const controller = new AbortController()
+    const url = generateAutomergeUrl()
+
+    const handle = await repo.find(url, {
+      skipReady: true,
+      signal: controller.signal,
+    })
+
+    expect(handle).toBeDefined()
+
+    // Abort shouldn't affect the result since we skipped ready
+    controller.abort()
+    expect(handle.url).toBe(url)
+  })
+})
+
 const warn = console.warn
 const NO_OP = () => {}
 
