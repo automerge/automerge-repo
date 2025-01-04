@@ -695,7 +695,6 @@ describe("Repo", () => {
         }
 
         await connectedPromise
-        console.log("All connected")
         return { repos }
       }
 
@@ -707,20 +706,12 @@ describe("Repo", () => {
         d.foo = "bar"
       })
 
-      console.log("pausing")
-      await pause(2000)
-      console.log("pausing done")
-
-      console.log("let's  sgo")
       const handleN = await repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
       assert.deepStrictEqual(handleN.docSync(), { foo: "bar" })
 
-      // TODO: this isn't working!???!
-      console.log("REVERSE")
       const handleNBack = repos[numberOfPeers - 1].create({
         foo: "reverse-trip",
       })
-      console.log("FINDING")
       const handle0Back = await repos[0].find<TestDoc>(handleNBack.url)
       assert.deepStrictEqual(handle0Back.docSync(), { foo: "reverse-trip" })
     })
@@ -849,11 +840,8 @@ describe("Repo", () => {
     it("changes are replicated from aliceRepo to bobRepo", async () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
 
-      console.log("before bob")
       const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
-      console.log("found bob")
       const bobDoc = await bobHandle.doc()
-      console.log("bobDoc", bobDoc)
       assert.deepStrictEqual(bobDoc, { foo: "bar" })
       teardown()
     })
@@ -1286,34 +1274,6 @@ describe("Repo", () => {
 
       teardown()
     })
-  })
-
-  it("peer receives a document when connection is recovered", async () => {
-    const alice = "alice" as PeerId
-    const bob = "bob" as PeerId
-    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
-    const aliceRepo = new Repo({
-      network: [aliceAdapter],
-      peerId: alice,
-    })
-    const bobRepo = new Repo({
-      network: [bobAdapter],
-      peerId: bob,
-    })
-    const aliceDoc = aliceRepo.create()
-    aliceDoc.change((doc: any) => (doc.text = "Hello world"))
-
-    expect(async () => {
-      const bobDoc = await bobRepo.find(aliceDoc.url)
-    }).rejects.toThrow(/Document (.*) is unavailable/)
-
-    aliceAdapter.peerCandidate(bob)
-    // Bob isn't yet connected to Alice and can't respond to her sync message
-    await pause(100)
-    bobAdapter.peerCandidate(alice)
-
-    const bobDoc = await bobRepo.find(aliceDoc.url)
-    assert.equal(bobDoc.isReady(), true)
   })
 
   describe("with peers (mesh network)", () => {

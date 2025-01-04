@@ -99,7 +99,6 @@ export class DocSynchronizer extends Synchronizer {
   /// PRIVATE
 
   async #syncWithPeers() {
-    console.log(`syncWithPeers`)
     const doc = await this.#handle.doc()
     if (doc === undefined) return
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
@@ -126,16 +125,8 @@ export class DocSynchronizer extends Synchronizer {
 
   #withSyncState(peerId: PeerId, callback: (syncState: A.SyncState) => void) {
     this.#addPeer(peerId)
-    console.log(
-      this.#peerId,
-      "with sync state",
-      this.#handle.documentId,
-      peerId,
-      this.#peerDocumentStatuses
-    )
 
     if (!(peerId in this.#peerDocumentStatuses)) {
-      console.log(`${this.#peerId}: setting ${peerId} to unknown`)
       this.#peerDocumentStatuses[peerId] = "unknown"
     }
 
@@ -191,7 +182,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
-    console.log(`sendSyncMessage ->${peerId}`)
+    this.#log(`sendSyncMessage ->${peerId}`)
 
     this.#withSyncState(peerId, syncState => {
       const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
@@ -206,12 +197,6 @@ export class DocSynchronizer extends Synchronizer {
           !Object.values(this.#peerDocumentStatuses).includes("has") &&
           this.#peerDocumentStatuses[peerId] === "unknown"
         ) {
-          console.log(
-            "sending request message to",
-            peerId,
-            "from ",
-            this.#handle.documentId
-          )
           // we don't have the document (or access to it), so we request it
           this.emit("message", {
             type: "request",
@@ -220,12 +205,6 @@ export class DocSynchronizer extends Synchronizer {
             data: message,
           } as RequestMessage)
         } else {
-          console.log(
-            "sending NON REQUEST message to",
-            peerId,
-            "from ",
-            this.#handle.documentId
-          )
           this.emit("message", {
             type: "sync",
             targetId: peerId,
@@ -255,8 +234,6 @@ export class DocSynchronizer extends Synchronizer {
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
-
-    console.log("beginSync", this.#handle.documentId, this.#handle.state)
     const docPromise = this.#handle
       .doc([READY, REQUESTING, UNAVAILABLE])
       .then(doc => {
@@ -274,27 +251,12 @@ export class DocSynchronizer extends Synchronizer {
         return doc ?? A.init<unknown>()
       })
 
-    console.log(`beginSync: ${peerIds.join(", ")}`)
-
     const peersWithDocument = this.#peers.some(peerId => {
-      console.log(
-        peerId,
-        this.#peerDocumentStatuses[peerId],
-        this.#peerDocumentStatuses[peerId] == "has"
-      )
       return this.#peerDocumentStatuses[peerId] == "has"
     })
 
-    console.log({
-      peersWithDocument,
-      peerDocStatus: this.#peerDocumentStatuses,
-    })
     if (peersWithDocument) {
-      console.log(
-        "someone we know has this document. wait to get it before talking"
-      )
       await this.#handle.whenReady()
-      console.log("okay, got it")
     }
 
     peerIds.forEach(peerId => {
@@ -310,7 +272,6 @@ export class DocSynchronizer extends Synchronizer {
 
         docPromise
           .then(doc => {
-            console.log("sending sync message to", peerId, doc)
             if (doc) {
               this.#sendSyncMessage(peerId, doc)
             }
@@ -396,13 +357,6 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#withSyncState(message.senderId, syncState => {
       this.#handle.update(doc => {
-        console.log(
-          "received sync message in state",
-          this.#handle.documentId,
-          this.#handle.state,
-          "from",
-          message.senderId
-        )
         const start = performance.now()
 
         const [newDoc, newSyncState] = A.receiveSyncMessage(
@@ -422,7 +376,6 @@ export class DocSynchronizer extends Synchronizer {
 
         // respond to just this peer (as required)
         this.#sendSyncMessage(message.senderId, doc)
-        console.log("newDoc", A.getHeads(newDoc))
         return newDoc
       })
 
@@ -431,13 +384,6 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #checkDocUnavailable() {
-    console.log(
-      "checking availability",
-      this.#syncStarted,
-      this.#handle.heads(),
-      this.#handle.inState([REQUESTING]),
-      this.#peerDocumentStatuses
-    )
     // if we know none of the peers have the document, tell all our peers that we don't either
     if (
       this.#syncStarted &&
@@ -448,8 +394,6 @@ export class DocSynchronizer extends Synchronizer {
           this.#peerDocumentStatuses[peerId] === "wants"
       )
     ) {
-      console.log("document is unavailable", this.#handle.documentId)
-
       this.#peers
         .filter(peerId => this.#peerDocumentStatuses[peerId] === "wants")
         .forEach(peerId => {

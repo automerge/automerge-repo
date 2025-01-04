@@ -172,7 +172,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     const afterHeads = A.getHeads(after)
     const docChanged = !headsAreSame(afterHeads, beforeHeads)
     if (docChanged) {
-      console.log("doc changed", beforeHeads, afterHeads)
       this.emit("heads-changed", { handle: this, doc: after })
 
       const patches = A.diff(after, beforeHeads, afterHeads)

@@ -174,7 +174,6 @@ describe("DocHandle.remoteHeads", () => {
       await pause(50)
 
       // alice opens doc A
-      console.log("alice.find", bobDocA.url)
       const aliceDocAPromise = alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (

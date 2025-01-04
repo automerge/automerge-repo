@@ -371,7 +371,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     handle.doneLoading()
-    console.log("create", handle.documentId, handle.state)
     return handle
   }
 
@@ -459,15 +458,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     this.#registerHandleWithSubsystems(handle)
     if (skipReady) {
-      console.log(
-        this.networkSubsystem.peerId,
-        "Skipping ready for sync messages"
-      )
       return handle
     }
     await handle.whenReady([READY, UNAVAILABLE])
 
-    console.log("handle state", handle.state)
     if (handle.state === UNAVAILABLE) {
       throw new Error(`Document ${id} is unavailable`)
     }
