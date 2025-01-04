@@ -968,7 +968,7 @@ describe("Repo", () => {
       await eventPromise(aliceRepo.networkSubsystem, "peer")
 
       // Not sure why we need this pause here, but... we do.
-      await pause(100)
+      await pause(150)
       const handle = await charlieRepo.find<TestDoc>(url)
       const doc = await handle.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
@@ -1481,7 +1481,7 @@ describe("Repo.find() abort behavior", () => {
 
     // Start find and abort after a moment
     const findPromise = repo.find(handle.url, { signal: controller.signal })
-    setTimeout(() => controller.abort(), 10)
+    controller.abort()
 
     await expect(findPromise).rejects.toThrow("Operation aborted")
   })
