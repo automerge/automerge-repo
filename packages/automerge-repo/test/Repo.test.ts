@@ -1481,7 +1481,7 @@ describe("Repo heads-in-URLs functionality", () => {
     const { repo, handle } = setup()
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
-    const view = repo.find(url)
+    const view = await repo.find(url)
     expect(view.docSync()).toEqual({ title: "Hello World" })
   })
 
@@ -1490,8 +1490,8 @@ describe("Repo heads-in-URLs functionality", () => {
     const heads = handle.heads()!
     await handle.change((doc: any) => (doc.title = "Changed"))
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
-    const view = repo.find(url)
-    expect(view.docSync()).toEqual({ title: "Hello World" })
+    const view = await repo.find(url)
+    expect(view.doc()).toEqual({ title: "Hello World" })
     expect(handle.docSync()).toEqual({ title: "Changed" })
   })
 
@@ -1499,7 +1499,7 @@ describe("Repo heads-in-URLs functionality", () => {
     const { repo, handle } = setup()
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
-    const view = repo.find(url)
+    const view = await repo.find(url)
     expect(() =>
       view.change((doc: any) => (doc.title = "Changed in View"))
     ).toThrow()
@@ -1510,14 +1510,14 @@ describe("Repo heads-in-URLs functionality", () => {
     const { repo, handle } = setup()
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
-    const view = repo.find(url)
+    const view = await repo.find(url)
     expect(() => view.change((doc: any) => (doc.title = "Changed"))).toThrow()
   })
 
   it("finds the latest document when given a URL without heads", async () => {
     const { repo, handle } = setup()
     await handle.change((doc: any) => (doc.title = "Changed"))
-    const found = repo.find(handle.url)
+    const found = await repo.find(handle.url)
     expect(found.docSync()).toEqual({ title: "Changed" })
   })
 
@@ -1571,6 +1571,50 @@ describe("Repo heads-in-URLs functionality", () => {
     const parsed = parseAutomergeUrl(url)
     expect(parsed.documentId).toBe(handle.documentId)
     expect(parsed.heads).toEqual(handle.heads())
+  })
+})
+
+describe("Repo.find() abort behavior", () => {
+  it("aborts immediately if signal is already aborted", async () => {
+    const repo = new Repo()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      repo.find(generateAutomergeUrl(), { signal: controller.signal })
+    ).rejects.toThrow("Operation aborted")
+  })
+
+  it("can abort while waiting for ready state", async () => {
+    // Create a repo with no network adapters so document can't become ready
+    const repo = new Repo()
+    const handle = repo.create()
+    const url = handle.url
+
+    const controller = new AbortController()
+
+    // Start find and abort after a moment
+    const findPromise = repo.find(handle.url, { signal: controller.signal })
+    setTimeout(() => controller.abort(), 10)
+
+    await expect(findPromise).rejects.toThrow("Operation aborted")
+  })
+
+  it("returns handle immediately when skipReady is true, even with abort signal", async () => {
+    const repo = new Repo()
+    const controller = new AbortController()
+    const url = generateAutomergeUrl()
+
+    const handle = await repo.find(url, {
+      skipReady: true,
+      signal: controller.signal,
+    })
+
+    expect(handle).toBeDefined()
+
+    // Abort shouldn't affect the result since we skipped ready
+    controller.abort()
+    expect(handle.url).toBe(url)
   })
 })
 
