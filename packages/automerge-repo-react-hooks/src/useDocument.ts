@@ -24,18 +24,18 @@ import { useDocHandle } from "./useDocHandle.js"
  * </Suspense>
  * ```
  */
+
 export function useDocument<T>(
   id: AnyDocumentId
 ): [Doc<T>, (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void] {
   const handle = useDocHandle<T>(id)
-  const [doc, setDoc] = useState<Doc<T>>()
+  const [doc, setDoc] = useState<Doc<T>>(() => handle.docSync())
+  const [deleteError, setDeleteError] = useState<Error>()
 
   useEffect(() => {
-    setDoc(handle.docSync())
-
     const onChange = () => setDoc(handle.docSync())
     const onDelete = () => {
-      throw new Error(`Document ${id} was deleted`)
+      setDeleteError(new Error(`Document ${id} was deleted`))
     }
 
     handle.on("change", onChange)
@@ -54,6 +54,10 @@ export function useDocument<T>(
     [handle]
   )
 
-  // TODO: this exclamation point is because docSync() needs its type signature updated
-  return [doc!, changeDoc]
+  // Throw delete error during render
+  if (deleteError) {
+    throw deleteError
+  }
+
+  return [doc, changeDoc]
 }

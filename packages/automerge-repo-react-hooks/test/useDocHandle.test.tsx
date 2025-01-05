@@ -1,4 +1,4 @@
-import React from "react"
+import React, { Suspense } from "react"
 import {
   AutomergeUrl,
   DocHandle,
@@ -56,7 +56,12 @@ describe("useHandle", () => {
     const { handleA, wrapper } = setup()
     const onHandle = vi.fn()
 
-    render(<Component url={handleA.url} onHandle={onHandle} />, { wrapper })
+    render(
+      <Suspense fallback={null}>
+        <Component url={handleA.url} onHandle={onHandle} />
+      </Suspense>,
+      { wrapper }
+    )
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
   })
 
