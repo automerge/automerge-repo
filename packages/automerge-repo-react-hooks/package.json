@@ -22,6 +22,7 @@
     "react-usestateref": "^1.0.8"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^14.0.0",
     "jsdom": "^22.1.0",
     "rollup-plugin-visualizer": "^5.9.3",

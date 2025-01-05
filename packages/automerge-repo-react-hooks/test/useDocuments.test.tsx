@@ -6,7 +6,7 @@ import {
   stringifyAutomergeUrl,
 } from "@automerge/automerge-repo"
 import { DummyStorageAdapter } from "@automerge/automerge-repo/helpers/DummyStorageAdapter.js"
-import { act, render, waitFor } from "@testing-library/react"
+import { render, waitFor } from "@testing-library/react"
 import React from "react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocuments } from "../src/useDocuments"
@@ -114,11 +114,11 @@ describe("useDocuments", () => {
       )
     )
 
-    act(() => {
+    React.act(() => {
       // multiply the value of foo in each document by 10
       documentIds.forEach(id => {
         const handle = repo.find(id)
-        handle.change(s => (s.foo *= 10))
+        handle.change((s: any) => (s.foo *= 10))
       })
     })
     await waitFor(() =>
@@ -140,11 +140,11 @@ describe("useDocuments", () => {
       )
     )
 
-    act(() => {
+    React.act(() => {
       // multiply the value of foo in each document by 10
       documentIds.forEach(id => {
         const handle = repo.find(id)
-        handle.change(s => (s.foo *= 10))
+        handle.change((s: any) => (s.foo *= 10))
       })
     })
     await waitFor(() =>
@@ -197,7 +197,7 @@ describe("useDocuments", () => {
     )
 
     // remove the first document
-    act(() => {
+    React.act(() => {
       rerender(<Component idsOrUrls={documentIds.slice(1)} onDocs={onDocs} />)
     })
     // 👆 Note that this only works because documentIds.slice(1) is a different
@@ -213,11 +213,11 @@ describe("useDocuments", () => {
 
     // update all the docs that are still in the list
 
-    act(() => {
+    React.act(() => {
       // multiply the value of foo in each document by 10
       documentIds.slice(1).forEach(id => {
         const handle = repo.find(id)
-        handle.change(s => (s.foo *= 10))
+        handle.change((s: any) => (s.foo *= 10))
       })
     })
 
@@ -229,11 +229,11 @@ describe("useDocuments", () => {
       )
     )
 
-    act(() => {
+    React.act(() => {
       // multiply the value of foo in each document by 10
       documentIds.slice(1).forEach(id => {
         const handle = repo.find(id)
-        handle.change(s => (s.foo *= 10))
+        handle.change((s: any) => (s.foo *= 10))
       })
     })
 
