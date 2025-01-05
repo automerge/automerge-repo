@@ -29,8 +29,14 @@ export function useDocument<T>(
   id: AnyDocumentId
 ): [Doc<T>, (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void] {
   const handle = useDocHandle<T>(id)
+  // Initialize with current doc state
   const [doc, setDoc] = useState<Doc<T>>(() => handle.docSync())
   const [deleteError, setDeleteError] = useState<Error>()
+
+  // Reinitialize doc when handle changes
+  useEffect(() => {
+    setDoc(handle.docSync())
+  }, [handle])
 
   useEffect(() => {
     const onChange = () => setDoc(handle.docSync())
@@ -54,7 +60,6 @@ export function useDocument<T>(
     [handle]
   )
 
-  // Throw delete error during render
   if (deleteError) {
     throw deleteError
   }
