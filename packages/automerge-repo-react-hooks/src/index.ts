@@ -24,7 +24,7 @@
  *
  */
 export { useDocument } from "./useDocument.js"
-// export { useDocuments } from "./useDocuments.js"
+export { useDocuments } from "./useDocuments.js"
 export { useDocHandle } from "./useDocHandle.js"
 export { RepoContext, useRepo } from "./useRepo.js"
 export {
