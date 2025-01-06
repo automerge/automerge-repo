@@ -19,7 +19,8 @@
     "classnames": "^2.3.2",
     "postcss": "^8.4.21",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-error-boundary": "^5.0.0"
   },
   "devDependencies": {
     "tailwindcss": "^3.2.4"
