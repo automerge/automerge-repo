@@ -309,9 +309,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Creates a fixed "view" of an automerge document at the given point in time represented
-   * by the `heads` passed in. The return value is the same type as docSync() and will return
-   * undefined if the object hasn't finished loading.
+   * Returns the history of an automerge document, one change at a time in an arbitrary but consistent order.
    *
    * @remarks
    * A point-in-time in an automerge document is an *array* of heads since there may be
@@ -333,7 +331,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /**
    * Creates a fixed "view" of an automerge document at the given point in time represented
-   * by the `heads` passed in. The return value is the same type as docSync() and will return
+   * by the `heads` passed in. The return value is the same type as doc() and will return
    * undefined if the object hasn't finished loading.
    *
    * @remarks
