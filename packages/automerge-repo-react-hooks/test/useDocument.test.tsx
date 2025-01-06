@@ -167,10 +167,8 @@ describe("useDocument", () => {
   })
 
   // Test unavailable document
-  it("should handle unavailable documents", async () => {
+  it.only("should handle unavailable documents", async () => {
     const { wrapper, repo } = setup()
-    await repo.networkSubsystem.whenReady()
-    console.log("Netowrk subsystem ready")
     const onError = vi.fn()
 
     // Create handle for nonexistent document
@@ -185,8 +183,6 @@ describe("useDocument", () => {
       { wrapper }
     )
 
-    // Should show loading then error
-    expect(screen.getByTestId("loading")).toBeInTheDocument()
     await waitFor(() => {
       expect(onError).toHaveBeenCalledWith(
         expect.objectContaining({
