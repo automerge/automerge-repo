@@ -1,9 +1,10 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import type { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import { wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef } from "react"
 
 const handleCache = new Map<AnyDocumentId, WeakRef<DocHandle<any>>>()
-const promiseCache = new Map<AnyDocumentId, Promise<DocHandle<any>>>()
+const wrapperCache = new Map<AnyDocumentId, ReturnType<typeof wrapPromise>>()
 
 export function useDocHandle<T>(id: AnyDocumentId): DocHandle<T> {
   const repo = useRepo()
@@ -12,7 +13,7 @@ export function useDocHandle<T>(id: AnyDocumentId): DocHandle<T> {
   useEffect(() => {
     return () => {
       controllerRef.current?.abort()
-      promiseCache.delete(id)
+      wrapperCache.delete(id)
     }
   }, [id])
 
@@ -27,22 +28,25 @@ export function useDocHandle<T>(id: AnyDocumentId): DocHandle<T> {
     handleCache.delete(id)
   }
 
-  // Return cached promise if we have one in flight
-  let promise = promiseCache.get(id) as Promise<DocHandle<T>>
-  if (!promise) {
+  // Return cached wrapper if we have one in flight
+  let wrapper = wrapperCache.get(id)
+  if (!wrapper) {
     // Start new request
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
-    promise = repo
+    const promise = repo
       .find<T>(id, { signal: controllerRef.current.signal })
       .then(handle => {
         handleCache.set(id, new WeakRef(handle))
-        promiseCache.delete(id)
+        wrapperCache.delete(id)
         return handle
       })
-    promiseCache.set(id, promise)
+
+    wrapper = wrapPromise(promise)
+    wrapperCache.set(id, wrapper)
   }
 
-  throw promise
+  // TODO: Why do I need this cast?
+  return wrapper.read() as DocHandle<T>
 }

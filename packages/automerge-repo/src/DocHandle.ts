@@ -73,7 +73,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           return { doc: A.init() }
         }),
         onUnavailable: assign(() => {
-          // TODO
           return { doc: A.init() }
         }),
         onUnload: assign(() => {
