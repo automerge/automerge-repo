@@ -83,7 +83,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // Process pending sync messages immediately after the handle becomes ready.
     void (async () => {
-      await handle.doc([READY, REQUESTING])
+      await handle.whenReady([READY, REQUESTING])
       this.#processAllPendingSyncMessages()
     })()
   }
@@ -99,8 +99,8 @@ export class DocSynchronizer extends Synchronizer {
   /// PRIVATE
 
   async #syncWithPeers() {
-    const doc = await this.#handle.doc()
-    if (doc === undefined) return
+    await this.#handle.whenReady()
+    const doc = this.#handle.docSync()
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
 
@@ -235,8 +235,9 @@ export class DocSynchronizer extends Synchronizer {
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
     const docPromise = this.#handle
-      .doc([READY, REQUESTING, UNAVAILABLE])
-      .then(doc => {
+      .whenReady([READY, REQUESTING, UNAVAILABLE])
+      .then(() => {
+        const doc = this.#handle.docSync()
         // we register out peers first, then say that sync has started
         this.#syncStarted = true
         this.#checkDocUnavailable()

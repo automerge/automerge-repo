@@ -32,8 +32,8 @@ export const useDocuments = <T>(idsOrUrls?: DocId[]) => {
   )
   const prevIds = useRef<DocumentId[]>([])
   const [documents, setDocuments] = useState(() => {
-    return ids.reduce((docs, id) => {
-      const handle = repo.find<T>(id)
+    return ids.reduce(async (docs, id) => {
+      const handle = await repo.find<T>(id)
       const doc = handle.docSync()
       if (doc) {
         docs[id] = doc
@@ -73,22 +73,17 @@ export const useDocuments = <T>(idsOrUrls?: DocId[]) => {
     }
 
     // Add a new document to our map
-    const addNewDocument = (id: DocumentId) => {
-      const handle = repo.find<T>(id)
+    const addNewDocument = async (id: DocumentId) => {
+      const handle = await repo.find<T>(id)
       if (handle.docSync()) {
         updateDocument(id, handle.docSync())
         addListener(handle)
       } else {
         // As each document loads, update our map
-        handle
-          .doc()
-          .then(doc => {
-            updateDocument(id, doc)
-            addListener(handle)
-          })
-          .catch(err => {
-            console.error(`Error loading document ${id} in useDocuments: `, err)
-          })
+        const doc = handle.docSync()
+
+        updateDocument(id, doc)
+        addListener(handle)
       }
     }
 
@@ -115,7 +110,7 @@ export const useDocuments = <T>(idsOrUrls?: DocId[]) => {
         // This is a new document that was not in our list before.
         // We need to update its state in the documents array and register
         // new listeners.
-        addNewDocument(id)
+        void addNewDocument(id)
       }
     }
 
