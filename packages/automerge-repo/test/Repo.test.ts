@@ -72,7 +72,6 @@ describe("Repo", () => {
     it("can create a document with an initial value", async () => {
       const { repo } = setup()
       const handle = repo.create({ foo: "bar" })
-      await handle.doc()
       assert.equal(handle.docSync().foo, "bar")
     })
 
@@ -126,7 +125,7 @@ describe("Repo", () => {
       handle.change(d => {
         d.foo = "bar"
       })
-      const v = await handle.doc()
+      const v = handle.docSync()
       assert.equal(handle.isReady(), true)
       assert.equal(v.foo, "bar")
     })
@@ -237,13 +236,13 @@ describe("Repo", () => {
       assert.equal(handle, bobHandle)
       assert.equal(handle.isReady(), true)
 
-      const v = await bobHandle.doc()
+      const v = bobHandle.docSync()
       assert.equal(v?.foo, "bar")
     })
 
     it("saves the document when creating it", async () => {
       const { repo, storageAdapter } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = repo.create<TestDoc>({ foo: "saved" })
 
       const repo2 = new Repo({
         storage: storageAdapter,
@@ -253,7 +252,7 @@ describe("Repo", () => {
 
       const bobHandle = await repo2.find<TestDoc>(handle.url)
       await bobHandle.whenReady()
-      assert.equal(bobHandle.isReady(), true)
+      assert.deepEqual(bobHandle.docSync(), { foo: "saved" })
     })
 
     it("saves the document when changed and can find it again", async () => {
@@ -274,7 +273,7 @@ describe("Repo", () => {
 
       const bobHandle = await repo2.find<TestDoc>(handle.url)
 
-      const v = await bobHandle.doc()
+      const v = bobHandle.docSync()
       assert.equal(v?.foo, "bar")
     })
 
@@ -286,7 +285,7 @@ describe("Repo", () => {
       })
       // we now have a snapshot and an incremental change in storage
       assert.equal(handle.isReady(), true)
-      const foo = await handle.doc()
+      const foo = handle.docSync()
       assert.equal(foo?.foo, "bar")
 
       await pause()
@@ -303,7 +302,7 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       assert.equal(handle.isReady(), true)
-      await handle.doc()
+      await handle.whenReady()
 
       await pause()
       repo.delete(handle.url)
@@ -340,7 +339,7 @@ describe("Repo", () => {
 
       const exported = await repo.export(handle.documentId)
       const loaded = A.load(exported)
-      const doc = await handle.doc()
+      const doc = handle.docSync()
       assert.deepEqual(doc, loaded)
     })
 
@@ -375,8 +374,6 @@ describe("Repo", () => {
         storage,
       })
       const handle2 = await repo2.find(handle.url)
-      await handle2.doc()
-
       assert.deepEqual(storage.keys(), initialKeys)
     })
 
@@ -403,8 +400,6 @@ describe("Repo", () => {
           storage,
         })
         const handle2 = await repo2.find(handle.url)
-        await handle2.doc()
-
         assert(storage.keys().length !== 0)
       }
     })
@@ -444,7 +439,7 @@ describe("Repo", () => {
 
       const handle = repo.import<TestDoc>(saved)
       assert.equal(handle.isReady(), true)
-      const v = await handle.doc()
+      const v = handle.docSync()
       assert.equal(v?.foo, "bar")
 
       expect(A.getHistory(v)).toEqual(A.getHistory(updatedDoc))
@@ -463,7 +458,7 @@ describe("Repo", () => {
       const { repo } = setup()
       // @ts-ignore - passing something other than UInt8Array
       const handle = repo.import<TestDoc>(A.from({ foo: 123 }))
-      const doc = await handle.doc()
+      const doc = handle.docSync()
       expect(doc).toEqual({})
     })
 
@@ -471,7 +466,7 @@ describe("Repo", () => {
       const { repo } = setup()
       // @ts-ignore - passing something other than UInt8Array
       const handle = repo.import<TestDoc>({ foo: 123 })
-      const doc = await handle.doc()
+      const doc = handle.docSync()
       expect(doc).toEqual({})
     })
 
@@ -479,14 +474,12 @@ describe("Repo", () => {
       it("contains doc handle", async () => {
         const { repo } = setup()
         const handle = repo.create({ foo: "bar" })
-        await handle.doc()
         assert(repo.handles[handle.documentId])
       })
 
       it("delete removes doc handle", async () => {
         const { repo } = setup()
         const handle = repo.create({ foo: "bar" })
-        await handle.doc()
         await repo.delete(handle.documentId)
         assert(repo.handles[handle.documentId] === undefined)
       })
@@ -494,7 +487,6 @@ describe("Repo", () => {
       it("removeFromCache removes doc handle", async () => {
         const { repo } = setup()
         const handle = repo.create({ foo: "bar" })
-        await handle.doc()
         await repo.removeFromCache(handle.documentId)
         assert(repo.handles[handle.documentId] === undefined)
       })
@@ -553,8 +545,8 @@ describe("Repo", () => {
 
     it("should not be in a new repo yet because the storage is slow", async () => {
       const { pausedStorage, repo, handle, handle2 } = setup()
-      expect((await handle.doc()).foo).toEqual("first")
-      expect((await handle2.doc()).foo).toEqual("second")
+      expect((await handle).docSync().foo).toEqual("first")
+      expect((await handle2).docSync().foo).toEqual("second")
 
       // Reload repo
       const repo2 = new Repo({
@@ -841,7 +833,7 @@ describe("Repo", () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
 
       const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
-      const bobDoc = await bobHandle.doc()
+      const bobDoc = bobHandle.docSync()
       assert.deepStrictEqual(bobDoc, { foo: "bar" })
       teardown()
     })
@@ -850,7 +842,7 @@ describe("Repo", () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
 
       const handle3 = await charlieRepo.find<TestDoc>(aliceHandle.url)
-      const doc3 = await handle3.doc()
+      const doc3 = handle3.docSync()
       assert.deepStrictEqual(doc3, { foo: "bar" })
       teardown()
     })
@@ -870,11 +862,10 @@ describe("Repo", () => {
 
       // Now, let's load it on the original bob repo (which shares a "disk")
       const bobFoundIt = await bobRepo.find<TestDoc>(inStorageHandle.url)
-      await bobFoundIt.whenReady()
 
       // Before checking if it syncs, make sure we have it!
       // (This behaviour is mostly test-validation, we are already testing load/save elsewhere.)
-      assert.deepStrictEqual(await bobFoundIt.doc(), { foo: "foundOnFakeDisk" })
+      assert.deepStrictEqual(bobFoundIt.docSync(), { foo: "foundOnFakeDisk" })
 
       await pause(10)
 
@@ -915,10 +906,7 @@ describe("Repo", () => {
       const { charlieRepo, notForCharlie, teardown } = await setup()
 
       const handle = await charlieRepo.find<TestDoc>(notForCharlie)
-
-      await pause(50)
-
-      const doc = await handle.doc()
+      const doc = handle.docSync()
 
       assert.deepStrictEqual(doc, { foo: "baz" })
 
@@ -932,7 +920,7 @@ describe("Repo", () => {
 
       await pause(50)
 
-      const doc = await handle.doc()
+      const doc = handle.docSync()
       assert.deepStrictEqual(doc, { foo: "bap" })
 
       teardown()
@@ -970,12 +958,12 @@ describe("Repo", () => {
       // Not sure why we need this pause here, but... we do.
       await pause(150)
       const handle = await charlieRepo.find<TestDoc>(url)
-      const doc = await handle.doc()
+      const doc = handle.docSync()
       assert.deepStrictEqual(doc, { foo: "baz" })
 
       // an additional find should also return the correct resolved document
       const handle2 = await charlieRepo.find<TestDoc>(url)
-      const doc2 = await handle2.doc()
+      const doc2 = handle2.docSync()
       assert.deepStrictEqual(doc2, { foo: "baz" })
 
       teardown()
@@ -1047,7 +1035,7 @@ describe("Repo", () => {
       await changePromise
 
       const handle3 = await charlieRepo.find<TestDoc>(aliceHandle.url)
-      const doc3 = await handle3.doc()
+      const doc3 = handle3.docSync()
 
       assert.deepStrictEqual(doc3, { foo: "baz" })
 
@@ -1073,7 +1061,7 @@ describe("Repo", () => {
 
         // make sure the doc is ready
         if (!doc.isReady()) {
-          await doc.doc()
+          await doc.whenReady()
         }
 
         // make a random change to it
@@ -1383,7 +1371,6 @@ describe("Repo", () => {
       await pause(50)
 
       const charlieHandle = await charlieRepo.find(handle2.url)
-      await charlieHandle.doc()
       assert.deepStrictEqual(charlieHandle.docSync(), { foo: "bar" })
 
       teardown()
@@ -1402,7 +1389,6 @@ describe("Repo", () => {
       await pause(50)
 
       const charlieHandle = await charlieRepo.find(handle2.url)
-      await charlieHandle.doc()
       assert.deepStrictEqual(charlieHandle.docSync(), { foo: "bar" })
 
       // now make a change to doc2 on bobs side and merge it into doc1
@@ -1414,7 +1400,6 @@ describe("Repo", () => {
       // wait for the network to do it's thang
       await pause(350)
 
-      await charlieHandle.doc()
       assert.deepStrictEqual(charlieHandle.docSync(), { foo: "baz" })
 
       teardown()

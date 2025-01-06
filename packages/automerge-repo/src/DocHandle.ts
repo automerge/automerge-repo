@@ -281,27 +281,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * @returns the current state of this handle's Automerge document.
-   *
-   * This is the recommended way to access a handle's document. Note that this waits for the handle
-   * to be ready if necessary. If loading (or synchronization) fails, this will never resolve.
-   */
-  async doc(
-    /** states to wait for, such as "LOADING". mostly for internal use. */
-    awaitStates: HandleState[] = ["ready", "unavailable"]
-  ) {
-    try {
-      // wait for the document to enter one of the desired states
-      await this.#statePromise(awaitStates)
-    } catch (error) {
-      // if we timed out, return undefined
-      return undefined
-    }
-    // Return the document
-    return !this.isUnavailable() ? this.#doc : undefined
-  }
-
-  /**
    * Synchronously returns the current state of the Automerge document this handle manages.
    *
    * Not to be confused with the SyncState of the document, which describes the state of the

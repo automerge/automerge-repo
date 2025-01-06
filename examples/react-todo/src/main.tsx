@@ -3,7 +3,8 @@ import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-networ
 import { BrowserWebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { RepoContext } from "@automerge/automerge-repo-react-hooks"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
-import React from "react"
+import React, { Suspense } from "react"
+import { ErrorBoundary } from "react-error-boundary"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
 import { State } from "./types.js"
@@ -27,7 +28,7 @@ declare global {
 const rootDocUrl = `${document.location.hash.substring(1)}`
 let handle
 if (isValidAutomergeUrl(rootDocUrl)) {
-  handle = repo.find(rootDocUrl)
+  handle = await repo.find(rootDocUrl)
 } else {
   handle = repo.create<State>({ todos: [] })
 }
@@ -38,7 +39,11 @@ window.repo = repo
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App url={docUrl} />
+      <ErrorBoundary fallback={<div>Something went wrong</div>}>
+        <Suspense fallback={<div>Loading...</div>}>
+          <App url={docUrl} />
+        </Suspense>
+      </ErrorBoundary>
     </React.StrictMode>
   </RepoContext.Provider>
 )

@@ -3,7 +3,11 @@ import { wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useRef } from "react"
 
-const wrapperCache = new Map<AnyDocumentId, ReturnType<typeof wrapPromise>>()
+// Shared with useDocHandles
+export const wrapperCache = new Map<
+  AnyDocumentId,
+  ReturnType<typeof wrapPromise>
+>()
 
 interface UseDocHandleSuspendingParams {
   suspense: true

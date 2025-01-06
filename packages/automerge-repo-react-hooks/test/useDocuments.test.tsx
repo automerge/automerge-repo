@@ -1,250 +1,236 @@
-import {
-  AutomergeUrl,
-  DocumentId,
-  PeerId,
-  Repo,
-  stringifyAutomergeUrl,
-} from "@automerge/automerge-repo"
-import { DummyStorageAdapter } from "@automerge/automerge-repo/helpers/DummyStorageAdapter.js"
-import { render, waitFor } from "@testing-library/react"
-import React from "react"
+import React, { Suspense } from "react"
+import { AutomergeUrl, Repo, PeerId } from "@automerge/automerge-repo"
+import { render, act } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocuments } from "../src/useDocuments"
 import { RepoContext } from "../src/useRepo"
+import { ErrorBoundary } from "react-error-boundary"
+
+interface ExampleDoc {
+  foo: string
+  counter?: number
+  nested?: {
+    value: string
+  }
+}
+
+function getRepoWrapper(repo: Repo) {
+  return ({ children }) => (
+    <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+  )
+}
 
 describe("useDocuments", () => {
-  const setup = () => {
-    const repo = new Repo({
-      peerId: "alice" as PeerId,
-      network: [],
-      storage: new DummyStorageAdapter(),
-    })
+  const repo = new Repo({
+    peerId: "bob" as PeerId,
+  })
 
-    const wrapper = ({ children }) => {
-      return (
-        <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
-      )
+  function setup() {
+    const handleA = repo.create<ExampleDoc>()
+    handleA.change(doc => (doc.foo = "A"))
+
+    const handleB = repo.create<ExampleDoc>()
+    handleB.change(doc => (doc.foo = "B"))
+
+    const handleC = repo.create<ExampleDoc>()
+    handleC.change(doc => (doc.foo = "C"))
+
+    return {
+      repo,
+      handleA,
+      handleB,
+      handleC,
+      handles: [handleA, handleB, handleC],
+      urls: [handleA.url, handleB.url, handleC.url],
+      wrapper: getRepoWrapper(repo),
     }
-
-    let documentValues: Record<string, any> = {}
-
-    const documentIds = range(10).map(i => {
-      const value = { foo: i }
-      const handle = repo.create(value)
-      documentValues[handle.documentId] = value
-      return handle.documentId
-    })
-
-    return { repo, wrapper, documentIds, documentValues }
   }
 
-  const Component = ({
-    idsOrUrls,
-    onDocs,
+  const DocumentsComponent = ({
+    urls,
+    onState,
   }: {
-    idsOrUrls: (DocumentId | AutomergeUrl)[]
-    onDocs: (documents: Record<DocumentId, unknown>) => void
+    urls: AutomergeUrl[]
+    onState: (docs: Map<AutomergeUrl, ExampleDoc>, change: any) => void
   }) => {
-    const documents = useDocuments(idsOrUrls)
-    onDocs(documents)
+    const [docs, change] = useDocuments<ExampleDoc>(urls)
+    onState(docs, change)
     return null
   }
 
-  it("returns a collection of documents, given a list of ids", async () => {
-    const { documentIds, wrapper } = setup()
-    const onDocs = vi.fn()
+  it("should sync documents and handle changes", async () => {
+    const { handleA, wrapper } = setup()
+    const onState = vi.fn()
 
-    render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-      )
-    )
-  })
-
-  it("returns a collection of loaded documents immediately, given a list of ids", async () => {
-    const { documentIds, wrapper } = setup()
-    const onDocs = vi.fn()
-
-    render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
-
-    expect(onDocs).not.toHaveBeenCalledWith({})
-    expect(onDocs).toHaveBeenCalledWith(
-      Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-    )
-  })
-
-  it("cleans up listeners properly", async () => {
-    const { documentIds, wrapper, repo } = setup()
-    const onDocs = vi.fn()
-
-    // The goal here is to check that we're not leaking listeners.
-    // We do this by mounting the component a set number of times and then
-    // checking the number of listeners on the handle at the end.
-    const numMounts = 5 // arbitrary number here
-    for (let i = 0; i < numMounts; i++) {
-      const { unmount } = render(
-        <Component idsOrUrls={documentIds} onDocs={onDocs} />,
-        { wrapper }
-      )
-      await waitFor(() => unmount())
-    }
-
-    for (const id of documentIds) {
-      const handle = repo.find(id)
-
-      // You might expect we'd check that it's equal to 0 here.
-      // but it turns out that automerge-repo registers an internal
-      // change handler which remain on the doc even after unmount,
-      // so we can't do that.
-      // By comparing to numMounts, we ensure that if mount+unmount
-      // does leak a listener, it'll fail this test.
-      expect(handle.listenerCount("change")).toBeLessThan(numMounts)
-    }
-  })
-
-  it("updates documents when they change", async () => {
-    const { repo, documentIds, wrapper } = setup()
-    const onDocs = vi.fn()
-
-    render(<Component idsOrUrls={documentIds} onDocs={onDocs} />, { wrapper })
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-      )
+    const Wrapped = () => (
+      <ErrorBoundary fallback={<div>Error!</div>}>
+        <Suspense fallback={<div>Loading...</div>}>
+          <DocumentsComponent urls={[handleA.url]} onState={onState} />
+        </Suspense>
+      </ErrorBoundary>
     )
 
-    React.act(() => {
-      // multiply the value of foo in each document by 10
-      documentIds.forEach(id => {
-        const handle = repo.find(id)
-        handle.change((s: any) => (s.foo *= 10))
-      })
+    await act(async () => {
+      render(<Wrapped />, { wrapper })
     })
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
-      )
-    )
-  })
 
-  it("updates documents when they change, if URLs are passed in", async () => {
-    const { repo, documentIds, wrapper } = setup()
-    const onDocs = vi.fn()
-    const documentUrls = documentIds.map(id => stringifyAutomergeUrl(id))
-
-    render(<Component idsOrUrls={documentUrls} onDocs={onDocs} />, { wrapper })
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-      )
-    )
-
-    React.act(() => {
-      // multiply the value of foo in each document by 10
-      documentIds.forEach(id => {
-        const handle = repo.find(id)
-        handle.change((s: any) => (s.foo *= 10))
-      })
+    await act(async () => {
+      await Promise.resolve()
     })
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i * 10 }]))
-      )
-    )
+
+    // Initial state
+    expect(onState).toHaveBeenCalled()
+    const [docs] = onState.mock.lastCall
+    expect(docs.get(handleA.url)?.foo).toBe("A")
+
+    // Make a change
+    const [, change] = onState.mock.lastCall
+    await act(async () => {
+      change(handleA.url, doc => (doc.foo = "Changed"))
+      await Promise.resolve()
+    })
+
+    // Verify change was synced
+    const [finalDocs] = onState.mock.lastCall
+    expect(finalDocs.get(handleA.url)?.foo).toBe("Changed")
   })
 
-  it(`removes documents when they're removed from the list of ids`, async () => {
-    const { documentIds, wrapper } = setup()
-    const onDocs = vi.fn()
+  it("should handle multiple documents and parallel changes", async () => {
+    const { handleA, handleB, wrapper } = setup()
+    const onState = vi.fn()
 
-    const { rerender } = render(
-      <Component idsOrUrls={documentIds} onDocs={onDocs} />,
+    const Wrapped = () => (
+      <ErrorBoundary fallback={<div>Error!</div>}>
+        <Suspense fallback={<div>Loading...</div>}>
+          <DocumentsComponent
+            urls={[handleA.url, handleB.url]}
+            onState={onState}
+          />
+        </Suspense>
+      </ErrorBoundary>
+    )
+
+    await act(async () => {
+      render(<Wrapped />, { wrapper })
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // Check initial state
+    const [docs, change] = onState.mock.lastCall
+    expect(docs.get(handleA.url)?.foo).toBe("A")
+    expect(docs.get(handleB.url)?.foo).toBe("B")
+
+    // Make parallel changes
+    await act(async () => {
+      change(handleA.url, doc => {
+        doc.counter = 1
+        doc.nested = { value: "A1" }
+      })
+      change(handleB.url, doc => {
+        doc.counter = 2
+        doc.nested = { value: "B1" }
+      })
+      await Promise.resolve()
+    })
+
+    // Verify both changes were synced
+    const [finalDocs] = onState.mock.lastCall
+    expect(finalDocs.get(handleA.url)).toEqual({
+      foo: "A",
+      counter: 1,
+      nested: { value: "A1" },
+    })
+    expect(finalDocs.get(handleB.url)).toEqual({
+      foo: "B",
+      counter: 2,
+      nested: { value: "B1" },
+    })
+  })
+
+  it("should handle document removal and cleanup listeners", async () => {
+    const { handleA, handleB, wrapper } = setup()
+    const onState = vi.fn()
+
+    const Wrapped = ({ urls }: { urls: AutomergeUrl[] }) => (
+      <ErrorBoundary fallback={<div>Error!</div>}>
+        <Suspense fallback={<div>Loading...</div>}>
+          <DocumentsComponent urls={urls} onState={onState} />
+        </Suspense>
+      </ErrorBoundary>
+    )
+
+    const { rerender, unmount } = render(
+      <Wrapped urls={[handleA.url, handleB.url]} />,
       { wrapper }
     )
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-      )
-    )
 
-    // remove the first document
-    rerender(<Component idsOrUrls={documentIds.slice(1)} onDocs={onDocs} />)
-    // 👆 Note that this only works because documentIds.slice(1) is a different
-    // object from documentIds. If we modified documentIds directly, the hook
-    // wouldn't re-run.
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(
-          documentIds.map((id, i) => [id, { foo: i }]).slice(1)
-        )
-      )
-    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // Initial state
+    let [docs] = onState.mock.lastCall
+    expect(docs.size).toBe(2)
+
+    // Remove one document
+    rerender(<Wrapped urls={[handleA.url]} />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // Check document was removed
+    docs = onState.mock.lastCall[0]
+    expect(docs.size).toBe(1)
+    expect(docs.has(handleA.url)).toBe(true)
+    expect(docs.has(handleB.url)).toBe(false)
+
+    // Test cleanup
+    unmount()
+
+    // Make a change - should not trigger update
+    const callCount = onState.mock.calls.length
+    handleA.change(doc => (doc.foo = "Changed after unmount"))
+    expect(onState.mock.calls.length).toBe(callCount)
   })
 
-  it(`keeps updating documents after the list has changed`, async () => {
-    const { documentIds, wrapper, repo } = setup()
-    const onDocs = vi.fn()
+  it("should handle rapid successive changes", async () => {
+    const { handleA, wrapper } = setup()
+    const onState = vi.fn()
 
-    const { rerender } = render(
-      <Component idsOrUrls={documentIds} onDocs={onDocs} />,
-      { wrapper }
-    )
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(documentIds.map((id, i) => [id, { foo: i }]))
-      )
+    const Wrapped = () => (
+      <ErrorBoundary fallback={<div>Error!</div>}>
+        <Suspense fallback={<div>Loading...</div>}>
+          <DocumentsComponent urls={[handleA.url]} onState={onState} />
+        </Suspense>
+      </ErrorBoundary>
     )
 
-    // remove the first document
-    React.act(() => {
-      rerender(<Component idsOrUrls={documentIds.slice(1)} onDocs={onDocs} />)
-    })
-    // 👆 Note that this only works because documentIds.slice(1) is a different
-    // object from documentIds. If we modified documentIds directly, the hook
-    // wouldn't re-run.
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(
-          documentIds.map((id, i) => [id, { foo: i }]).slice(1)
-        )
-      )
-    )
-
-    // update all the docs that are still in the list
-
-    React.act(() => {
-      // multiply the value of foo in each document by 10
-      documentIds.slice(1).forEach(id => {
-        const handle = repo.find(id)
-        handle.change((s: any) => (s.foo *= 10))
-      })
+    await act(async () => {
+      render(<Wrapped />, { wrapper })
     })
 
-    await waitFor(() =>
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(
-          documentIds.map((id, i) => [id, { foo: i * 10 }]).slice(1)
-        )
-      )
-    )
-
-    React.act(() => {
-      // multiply the value of foo in each document by 10
-      documentIds.slice(1).forEach(id => {
-        const handle = repo.find(id)
-        handle.change((s: any) => (s.foo *= 10))
-      })
+    await act(async () => {
+      await Promise.resolve()
     })
 
-    await waitFor(() => {
-      expect(onDocs).toHaveBeenCalledWith(
-        Object.fromEntries(
-          documentIds.map((id, i) => [id, { foo: i * 100 }]).slice(1)
-        )
-      )
+    const [, change] = onState.mock.lastCall
+
+    // Make rapid changes
+    await act(async () => {
+      for (let i = 0; i < 5; i++) {
+        change(handleA.url, doc => {
+          doc.counter = i
+        })
+      }
+      await Promise.resolve()
     })
+
+    // Should have final value
+    const [finalDocs] = onState.mock.lastCall
+    expect(finalDocs.get(handleA.url)?.counter).toBe(4)
   })
 })
-
-const range = (n: number) => [...Array(n).keys()]
