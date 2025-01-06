@@ -56,6 +56,7 @@ export class DocSynchronizer extends Synchronizer {
   #syncStates: Record<PeerId, A.SyncState> = {}
 
   #pendingSyncMessages: Array<PendingMessage> = []
+
   #peerId: PeerId
   #syncStarted = false
 

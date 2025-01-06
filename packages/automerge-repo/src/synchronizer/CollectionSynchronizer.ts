@@ -117,7 +117,7 @@ export class CollectionSynchronizer extends Synchronizer {
 
     // Initiate sync with any new peers
     const peers = await this.#documentGenerousPeers(documentId)
-    docSynchronizer.beginSync(
+    void docSynchronizer.beginSync(
       peers.filter(peerId => !docSynchronizer.hasPeer(peerId))
     )
   }
@@ -132,7 +132,7 @@ export class CollectionSynchronizer extends Synchronizer {
     }
     const docSynchronizer = this.#fetchDocSynchronizer(handle)
     void this.#documentGenerousPeers(handle.documentId).then(peers => {
-      docSynchronizer.beginSync(peers)
+      void docSynchronizer.beginSync(peers)
     })
   }
 
@@ -154,7 +154,7 @@ export class CollectionSynchronizer extends Synchronizer {
     for (const docSynchronizer of Object.values(this.docSynchronizers)) {
       const { documentId } = docSynchronizer
       void this.repo.sharePolicy(peerId, documentId).then(okToShare => {
-        if (okToShare) docSynchronizer.beginSync([peerId])
+        if (okToShare) void docSynchronizer.beginSync([peerId])
       })
     }
   }
