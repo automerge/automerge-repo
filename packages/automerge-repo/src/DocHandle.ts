@@ -354,8 +354,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Creates a new DocHandle with a fixed "view" at the given point in time represented
-   * by the `heads` passed in. The return value is the same type as docSync() and will return
+   * Creates a fixed "view" of an automerge document at the given point in time represented
+   * by the `heads` passed in. The return value is the same type as doc() and will return
    * undefined if the object hasn't finished loading.
    *
    * @remarks
