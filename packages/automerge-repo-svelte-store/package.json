@@ -1,13 +1,13 @@
 {
   "name": "@automerge/automerge-repo-svelte-store",
   "version": "2.0.0-alpha.14",
-  "description": "A Svelte store containing your automerge documentsj",
+  "description": "A Svelte store containing your automerge documents",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-svelte-store",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "",
     "watch": "npm-watch build"
   },
   "peerDependencies": {

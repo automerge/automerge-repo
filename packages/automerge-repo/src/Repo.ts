@@ -388,7 +388,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    * be notified of the newly created DocHandle.
    *
    * @throws if the cloned handle is not yet ready or if
-   * `clonedHandle.docSync()` returns `undefined` (i.e. the handle is unavailable).
+   * `clonedHandle.doc()` returns `undefined` (i.e. the handle is unavailable).
    */
   clone<T>(clonedHandle: DocHandle<T>) {
     if (!clonedHandle.isReady()) {
@@ -398,7 +398,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
     }
 
-    const sourceDoc = clonedHandle.docSync()
+    const sourceDoc = clonedHandle.doc()
     if (!sourceDoc) {
       throw new Error("Cloned handle doesn't have a document.")
     }
@@ -496,7 +496,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const documentId = interpretAsDocumentId(id)
 
     const handle = this.#getHandle({ documentId })
-    const doc = handle.docSync()
+    const doc = handle.doc()
     return Automerge.save(doc)
   }
 
@@ -550,7 +550,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       : Object.values(this.#handleCache)
     await Promise.all(
       handles.map(async handle => {
-        const doc = handle.docSync()
+        const doc = handle.doc()
         if (!doc) {
           return
         }
@@ -574,7 +574,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     const handle = this.#getHandle({ documentId })
     await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
-    const doc = handle.docSync()
+    const doc = handle.doc()
     if (doc) {
       if (handle.isReady()) {
         handle.unload()

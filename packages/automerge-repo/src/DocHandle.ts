@@ -281,16 +281,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Synchronously returns the current state of the Automerge document this handle manages.
-   *
-   * Not to be confused with the SyncState of the document, which describes the state of the
-   * synchronization process.
+   * Returns the current state of the Automerge document this handle manages.
    *
    * @returns the current document
    * @throws on deleted and unavailable documents
    *
    */
-  docSync() {
+  doc() {
     if (!this.isReady()) throw new Error("DocHandle is not ready")
     return this.#doc
   }
@@ -500,7 +497,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if (!this.isReady() || !otherHandle.isReady()) {
       throw new Error("Both handles must be ready to merge")
     }
-    const mergingDoc = otherHandle.docSync()
+    const mergingDoc = otherHandle.doc()
     if (!mergingDoc) {
       throw new Error("The document to be merged in is falsy, aborting.")
     }

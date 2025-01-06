@@ -60,7 +60,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
         // Bob receives the change
         await eventPromise(bobHandle, "change")
-        assert.equal(bobHandle.docSync().foo, "bar")
+        assert.equal(bobHandle.doc().foo, "bar")
 
         // Bob changes the document
         bobHandle.change(d => {
@@ -69,7 +69,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
         // Alice receives the change
         await eventPromise(aliceHandle, "change")
-        assert.equal(aliceHandle.docSync().foo, "baz")
+        assert.equal(aliceHandle.doc().foo, "baz")
       }
 
       // Run the test in both directions, in case they're different types of adapters
@@ -111,8 +111,8 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       // Bob and Charlie receive the change
       await eventPromises([bobHandle, charlieHandle], "change")
-      assert.equal(bobHandle.docSync().foo, "bar")
-      assert.equal(charlieHandle.docSync().foo, "bar")
+      assert.equal(bobHandle.doc().foo, "bar")
+      assert.equal(charlieHandle.doc().foo, "bar")
 
       // Charlie changes the document
       charlieHandle.change(d => {
@@ -121,8 +121,8 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       // Alice and Bob receive the change
       await eventPromises([aliceHandle, bobHandle], "change")
-      assert.equal(bobHandle.docSync().foo, "baz")
-      assert.equal(charlieHandle.docSync().foo, "baz")
+      assert.equal(bobHandle.doc().foo, "baz")
+      assert.equal(charlieHandle.doc().foo, "baz")
 
       teardown()
     })

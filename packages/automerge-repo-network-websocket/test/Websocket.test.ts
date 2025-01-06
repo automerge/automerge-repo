@@ -518,8 +518,7 @@ describe("Websocket adapters", () => {
       })
 
       // make a change to the handle on the sync server
-      const handle = repo.find<{ foo: string }>(url)
-      await handle.whenReady()
+      const handle = await repo.find<{ foo: string }>(url)
       handle.change(d => (d.foo = "baz"))
 
       // Okay, so now there is a document on both the client and the server
@@ -621,7 +620,7 @@ describe("Websocket adapters", () => {
 
       let localHeads = A.getHeads(clientDoc)
       let remoteHeads = handle.heads()
-      if (!headsAreSame(localHeads, remoteHeads)) {
+      if (!headsAreSame(localHeads, remoteHeads || [])) {
         throw new Error("heads not equal")
       }
     })
