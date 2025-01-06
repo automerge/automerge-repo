@@ -167,7 +167,7 @@ describe("useDocument", () => {
   })
 
   // Test unavailable document
-  it.only("should handle unavailable documents", async () => {
+  it("should handle unavailable documents", async () => {
     const { wrapper, repo } = setup()
     const onError = vi.fn()
 
