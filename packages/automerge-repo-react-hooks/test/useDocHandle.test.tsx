@@ -5,10 +5,11 @@ import {
   PeerId,
   Repo,
 } from "@automerge/automerge-repo"
-import { render, waitFor } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocHandle } from "../src/useDocHandle"
 import { RepoContext } from "../src/useRepo"
+import { ErrorBoundary } from "./helpers/ErrorBoundary"
 
 interface ExampleDoc {
   foo: string
@@ -112,5 +113,140 @@ describe("useHandle", () => {
     // set url to doc B
     rerender(<Component url={handleB.url} onHandle={onHandle2} />)
     await waitFor(() => expect(onHandle2).not.toHaveBeenCalledWith(handleA))
+  })
+
+  it("suspends while loading a handle", async () => {
+    const { handleA, wrapper } = await setup()
+    const onHandle = vi.fn()
+    let promiseResolve: (value: DocHandle<ExampleDoc>) => void
+
+    // Mock find to return a delayed promise
+    const originalFind = repo.find.bind(repo)
+    repo.find = vi.fn().mockImplementation(
+      () =>
+        new Promise(resolve => {
+          promiseResolve = resolve
+        })
+    )
+
+    render(
+      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+        <Component url={handleA.url} onHandle={onHandle} />
+      </Suspense>,
+      { wrapper }
+    )
+
+    // Should show loading state
+    expect(screen.getByTestId("loading")).toBeInTheDocument()
+    expect(onHandle).not.toHaveBeenCalled()
+
+    // Resolve the find
+    promiseResolve!(await originalFind(handleA.url))
+
+    // Should show content
+    await waitFor(() => {
+      expect(onHandle).toHaveBeenCalledWith(handleA)
+    })
+  })
+
+  it("handles unavailable documents correctly", async () => {
+    const { repo, wrapper } = await setup()
+    const onHandle = vi.fn()
+
+    // Create a handle but make it unavailable
+    const unavailableHandle = repo.create<ExampleDoc>()
+    const url = unavailableHandle.url
+    await repo.delete(url)
+
+    // Mock find to simulate network error
+    repo.find = vi.fn().mockRejectedValue(new Error("Document unavailable"))
+
+    const onError = vi.fn()
+
+    render(
+      <ErrorBoundary onError={onError}>
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <Component
+            url={url}
+            onHandle={() => {
+              throw new Error("Should not reach here")
+            }}
+          />
+        </Suspense>
+      </ErrorBoundary>,
+      { wrapper }
+    )
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Document unavailable",
+        })
+      )
+    })
+
+    it("handles slow network correctly", async () => {
+      const { handleA, wrapper } = await setup()
+      const onHandle = vi.fn()
+
+      // Mock find to simulate slow network
+      const originalFind = repo.find.bind(repo)
+      repo.find = vi.fn().mockImplementation(async (...args) => {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        return originalFind(...args)
+      })
+
+      render(
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <Component url={handleA.url} onHandle={onHandle} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      // Should show loading initially
+      expect(screen.getByTestId("loading")).toBeInTheDocument()
+      expect(onHandle).not.toHaveBeenCalled()
+
+      // Should eventually resolve
+      await waitFor(() => {
+        expect(onHandle).toHaveBeenCalledWith(handleA)
+      })
+    })
+
+    it("handles rapid url changes during loading", async () => {
+      const { handleA, handleB, wrapper } = await setup()
+      const onHandle = vi.fn()
+      const delays: Record<string, number> = {
+        [handleA.url]: 100,
+        [handleB.url]: 50,
+      }
+
+      // Mock find to simulate different network delays
+      const originalFind = repo.find.bind(repo)
+      repo.find = vi.fn().mockImplementation(async (url: string) => {
+        await new Promise(resolve => setTimeout(resolve, delays[url]))
+        return originalFind(url)
+      })
+
+      const { rerender } = render(
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <Component url={handleA.url} onHandle={onHandle} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      // Quickly switch to B before A loads
+      rerender(
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <Component url={handleB.url} onHandle={onHandle} />
+        </Suspense>
+      )
+
+      // Should eventually resolve with B, not A
+      await waitFor(() => {
+        expect(onHandle).toHaveBeenLastCalledWith(handleB)
+        expect(onHandle).not.toHaveBeenCalledWith(handleA)
+      })
+    })
   })
 })
