@@ -496,8 +496,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const documentId = interpretAsDocumentId(id)
 
     const handle = this.#getHandle({ documentId })
-    const doc = await handle.doc()
-    if (!doc) return undefined
+    const doc = handle.docSync()
     return Automerge.save(doc)
   }
 
@@ -574,7 +573,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       return
     }
     const handle = this.#getHandle({ documentId })
-    const doc = await handle.doc([READY, UNLOADED, DELETED, UNAVAILABLE])
+    await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
+    const doc = handle.docSync()
     if (doc) {
       if (handle.isReady()) {
         handle.unload()
