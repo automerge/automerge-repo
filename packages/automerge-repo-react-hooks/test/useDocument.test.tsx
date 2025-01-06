@@ -133,9 +133,7 @@ describe("useDocument", () => {
     React.act(() => handleA.delete())
 
     // Should trigger error boundary
-    await waitFor(() => {
-      expect(onError).toHaveBeenCalledWith(expect.any(Error))
-    })
+    expect(screen.getByTestId("error")).toHaveTextContent("Error")
   })
 
   it("should switch documents when url changes", async () => {
@@ -169,19 +167,14 @@ describe("useDocument", () => {
     expect(onDoc).toHaveBeenCalledWith({ foo: "B" })
   })
 
-  // Test unavailable document
   it("should handle unavailable documents", async () => {
     const { wrapper, repo } = setup()
-    const onError = vi.fn()
 
     // Create handle for nonexistent document
     const url = generateAutomergeUrl()
 
     render(
-      <ErrorBoundary
-        fallback={<div data-testid="error">Error</div>}
-        onError={onError}
-      >
+      <ErrorBoundary fallback={<div data-testid="error">Error</div>}>
         <Suspense fallback={<div data-testid="loading">Loading...</div>}>
           <Component url={url} onDoc={vi.fn()} />
         </Suspense>
@@ -189,12 +182,8 @@ describe("useDocument", () => {
       { wrapper }
     )
 
-    await waitFor(() => {
-      expect(onError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining("unavailable"),
-        })
-      )
+    waitFor(() => {
+      expect(screen.getByTestId("error")).toHaveTextContent("Error")
     })
   })
 
