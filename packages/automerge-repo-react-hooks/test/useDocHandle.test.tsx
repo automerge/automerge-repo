@@ -99,40 +99,6 @@ describe("useHandle", () => {
     await waitFor(() => expect(onHandle2).not.toHaveBeenCalledWith(undefined))
   })
 
-  it("suspends while loading a handle", async () => {
-    const { handleA, wrapper } = await setup()
-    const onHandle = vi.fn()
-    let promiseResolve: (value: DocHandle<ExampleDoc>) => void
-
-    // Mock find to return a delayed promise
-    const originalFind = repo.find.bind(repo)
-    repo.find = vi.fn().mockImplementation(
-      () =>
-        new Promise(resolve => {
-          promiseResolve = resolve
-        })
-    )
-
-    render(
-      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
-        <Component url={handleA.url} onHandle={onHandle} />
-      </Suspense>,
-      { wrapper }
-    )
-
-    // Should show loading state
-    expect(screen.getByTestId("loading")).toBeInTheDocument()
-    expect(onHandle).not.toHaveBeenCalled()
-
-    // Resolve the find
-    promiseResolve!(await originalFind(handleA.url))
-
-    // Should show content
-    await waitFor(() => {
-      expect(onHandle).toHaveBeenCalledWith(handleA)
-    })
-  })
-
   it("handles unavailable documents correctly", async () => {
     const { repo, wrapper } = await setup()
     const url = generateAutomergeUrl()
@@ -194,6 +160,42 @@ describe("useHandle", () => {
 
     // Verify error boundary never rendered
     expect(screen.queryByTestId("error")).not.toBeInTheDocument()
+  })
+
+  it("suspends while loading a handle", async () => {
+    const { handleA, wrapper } = await setup()
+    const onHandle = vi.fn()
+    let promiseResolve: (value: DocHandle<ExampleDoc>) => void
+
+    // Mock find to return a delayed promise
+    const originalFind = repo.find.bind(repo)
+    repo.find = vi.fn().mockImplementation(
+      () =>
+        new Promise(resolve => {
+          promiseResolve = resolve
+        })
+    )
+
+    render(
+      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+        <Component url={handleA.url} onHandle={onHandle} />
+      </Suspense>,
+      { wrapper }
+    )
+
+    // Should show loading state
+    expect(screen.getByTestId("loading")).toBeInTheDocument()
+    expect(onHandle).not.toHaveBeenCalled()
+
+    // Resolve the find
+    promiseResolve!(await originalFind(handleA.url))
+
+    // Should show content
+    await waitFor(() => {
+      expect(onHandle).toHaveBeenCalledWith(handleA)
+      // return repo.find to its natural state
+      repo.find = originalFind
+    })
   })
 
   it("handles rapid url changes during loading", async () => {
