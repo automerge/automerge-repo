@@ -281,17 +281,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Synchronously returns the current state of the Automerge document this handle manages, or
-   * undefined. Consider using `await handle.doc()` instead. Check `isReady()`, or use `whenReady()`
-   * if you want to make sure loading is complete first.
+   * Synchronously returns the current state of the Automerge document this handle manages.
    *
    * Not to be confused with the SyncState of the document, which describes the state of the
    * synchronization process.
    *
-   * Note that `undefined` is not a valid Automerge document, so the return from this function is
-   * unambigous.
+   * @returns the current document
+   * @throws on deleted and unavailable documents
    *
-   * @returns the current document, or undefined if the document is not ready.
    */
   docSync() {
     if (!this.isReady()) throw new Error("DocHandle is not ready")
