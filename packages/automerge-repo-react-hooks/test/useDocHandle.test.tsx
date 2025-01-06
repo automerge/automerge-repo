@@ -49,7 +49,7 @@ describe("useHandle", () => {
     url: AutomergeUrl
     onHandle: (handle: DocHandle<unknown>) => void
   }) => {
-    const handle = useDocHandle(url)
+    const handle = useDocHandle(url, { suspense: true })
     onHandle(handle)
     return null
   }

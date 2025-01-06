@@ -25,6 +25,10 @@ import { useDocHandle } from "./useDocHandle.js"
  * ```
  */
 
+export interface UseDocumentParams {
+  suspense?: boolean
+}
+
 export function useDocument<T>(
   id: AnyDocumentId
 ): [Doc<T>, (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void] {
