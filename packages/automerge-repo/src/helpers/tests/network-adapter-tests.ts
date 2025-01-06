@@ -61,10 +61,14 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         // Bob receives the change
         await eventPromise(bobHandle, "change")
 <<<<<<< HEAD
+<<<<<<< HEAD
         assert.equal(bobHandle.docSync().foo, "bar")
 =======
         assert.equal((await bobHandle).docSync()?.foo, "bar")
 >>>>>>> 169b11dc (failed wip)
+=======
+        assert.equal(bobHandle.doc().foo, "bar")
+>>>>>>> 31b6d960 (updating other packages)
 
         // Bob changes the document
         bobHandle.change(d => {
@@ -74,10 +78,14 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         // Alice receives the change
         await eventPromise(aliceHandle, "change")
 <<<<<<< HEAD
+<<<<<<< HEAD
         assert.equal(aliceHandle.docSync().foo, "baz")
 =======
         assert.equal((await aliceHandle.docSync())?.foo, "baz")
 >>>>>>> 169b11dc (failed wip)
+=======
+        assert.equal(aliceHandle.doc().foo, "baz")
+>>>>>>> 31b6d960 (updating other packages)
       }
 
       // Run the test in both directions, in case they're different types of adapters
@@ -119,13 +127,8 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       // Bob and Charlie receive the change
       await eventPromises([bobHandle, charlieHandle], "change")
-<<<<<<< HEAD
-      assert.equal(bobHandle.docSync().foo, "bar")
-      assert.equal(charlieHandle.docSync().foo, "bar")
-=======
-      assert.equal((await bobHandle.docSync())?.foo, "bar")
-      assert.equal((await charlieHandle.docSync())?.foo, "bar")
->>>>>>> 169b11dc (failed wip)
+      assert.equal((await bobHandle).doc().foo, "bar")
+      assert.equal((await charlieHandle).doc().foo, "bar")
 
       // Charlie changes the document
       charlieHandle.change(d => {
@@ -134,8 +137,8 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       // Alice and Bob receive the change
       await eventPromises([aliceHandle, bobHandle], "change")
-      assert.equal(bobHandle.docSync().foo, "baz")
-      assert.equal(charlieHandle.docSync().foo, "baz")
+      assert.equal(bobHandle.doc().foo, "baz")
+      assert.equal(charlieHandle.doc().foo, "baz")
 
       teardown()
     })

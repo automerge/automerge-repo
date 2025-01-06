@@ -9,7 +9,7 @@ import React, { Suspense } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocument } from "../src/useDocument"
 import { RepoContext } from "../src/useRepo"
-import { ErrorBoundary } from "./helpers/ErrorBoundary"
+import { ErrorBoundary } from "react-error-boundary"
 
 interface ExampleDoc {
   foo: string
@@ -113,7 +113,10 @@ describe("useDocument", () => {
     const onError = vi.fn()
 
     render(
-      <ErrorBoundary onError={onError}>
+      <ErrorBoundary
+        fallback={<div data-testid="error">Error</div>}
+        onError={onError}
+      >
         <Suspense fallback={<div data-testid="loading">Loading...</div>}>
           <Component url={handleA.url} onDoc={onDoc} />
         </Suspense>
@@ -175,7 +178,10 @@ describe("useDocument", () => {
     const url = generateAutomergeUrl()
 
     render(
-      <ErrorBoundary onError={onError}>
+      <ErrorBoundary
+        fallback={<div data-testid="error">Error</div>}
+        onError={onError}
+      >
         <Suspense fallback={<div data-testid="loading">Loading...</div>}>
           <Component url={url} onDoc={vi.fn()} />
         </Suspense>

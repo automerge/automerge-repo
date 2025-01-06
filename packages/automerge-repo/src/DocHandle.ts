@@ -298,43 +298,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * @returns the current state of this handle's Automerge document.
-   *
-   * This is the recommended way to access a handle's document. Note that this waits for the handle
-   * to be ready if necessary. If loading (or synchronization) fails, this will never resolve.
-   */
-  async doc(
-    /** states to wait for, such as "LOADING". mostly for internal use. */
-    awaitStates: HandleState[] = ["ready", "unavailable"]
-  ) {
-    try {
-      // wait for the document to enter one of the desired states
-      await this.#statePromise(awaitStates)
-    } catch (error) {
-      // if we timed out, return undefined
-      return undefined
-    }
-    // If we have fixed heads, return a view at those heads
-    if (this.#fixedHeads) {
-      const doc = this.#doc
-      if (!doc || this.isUnavailable()) return undefined
-      return A.view(doc, decodeHeads(this.#fixedHeads))
-    }
-    // Return the document
-    return !this.isUnavailable() ? this.#doc : undefined
-  }
-
-  /**
-   * Synchronously returns the current state of the Automerge document this handle manages.
-   *
-   * Not to be confused with the SyncState of the document, which describes the state of the
-   * synchronization process.
+   * Returns the current state of the Automerge document this handle manages.
    *
    * @returns the current document
    * @throws on deleted and unavailable documents
    *
    */
-  docSync() {
+  doc() {
     if (!this.isReady()) throw new Error("DocHandle is not ready")
     if (this.#fixedHeads) {
       const doc = this.#doc
@@ -610,10 +580,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         `DocHandle#${this.documentId} is in view-only mode at specific heads. Use clone() to create a new document from this state.`
       )
     }
-    const mergingDoc = otherHandle.docSync()
-    if (!mergingDoc) {
-      throw new Error("The document to be merged in is falsy, aborting.")
-    }
+    const mergingDoc = otherHandle.doc()
 
     this.update(doc => {
       return A.merge(doc, mergingDoc)

@@ -34,16 +34,16 @@ export function useDocument<T>(
 ): [Doc<T>, (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void] {
   const handle = useDocHandle<T>(id, { suspense: true })
   // Initialize with current doc state
-  const [doc, setDoc] = useState<Doc<T>>(() => handle.docSync())
+  const [doc, setDoc] = useState<Doc<T>>(() => handle.doc())
   const [deleteError, setDeleteError] = useState<Error>()
 
   // Reinitialize doc when handle changes
   useEffect(() => {
-    setDoc(handle.docSync())
+    setDoc(handle.doc())
   }, [handle])
 
   useEffect(() => {
-    const onChange = () => setDoc(handle.docSync())
+    const onChange = () => setDoc(handle.doc())
     const onDelete = () => {
       setDeleteError(new Error(`Document ${id} was deleted`))
     }

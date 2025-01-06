@@ -25,7 +25,7 @@ export function useDocuments<T>(
         const onChange = () => {
           setDocMap(prev => {
             const next = new Map(prev)
-            next.set(id, handle.docSync())
+            next.set(id, handle.doc())
             return next
           })
         }
@@ -33,7 +33,7 @@ export function useDocuments<T>(
         // Initial state
         setDocMap(prev => {
           const next = new Map(prev)
-          next.set(id, handle.docSync())
+          next.set(id, handle.doc())
           return next
         })
 
