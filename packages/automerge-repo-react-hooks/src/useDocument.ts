@@ -32,7 +32,7 @@ export interface UseDocumentParams {
 export function useDocument<T>(
   id: AnyDocumentId
 ): [Doc<T>, (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void] {
-  const handle = useDocHandle<T>(id)
+  const handle = useDocHandle<T>(id, { suspense: true })
   // Initialize with current doc state
   const [doc, setDoc] = useState<Doc<T>>(() => handle.docSync())
   const [deleteError, setDeleteError] = useState<Error>()
