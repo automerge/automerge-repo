@@ -1,9 +1,15 @@
-import { AutomergeUrl, PeerId, Repo } from "@automerge/automerge-repo"
+import {
+  AutomergeUrl,
+  generateAutomergeUrl,
+  PeerId,
+  Repo,
+} from "@automerge/automerge-repo"
 import { render, screen, waitFor } from "@testing-library/react"
 import React, { Suspense } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocument } from "../src/useDocument"
 import { RepoContext } from "../src/useRepo"
+import { ErrorBoundary } from "./helpers/ErrorBoundary"
 
 interface ExampleDoc {
   foo: string
@@ -21,6 +27,9 @@ describe("useDocument", () => {
     const handleB = repo.create<ExampleDoc>()
     handleB.change(doc => (doc.foo = "B"))
 
+    const handleC = repo.create<ExampleDoc>()
+    handleC.change(doc => (doc.foo = "C"))
+
     const wrapper = ({ children }) => {
       return (
         <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
@@ -31,6 +40,7 @@ describe("useDocument", () => {
       repo,
       handleA,
       handleB,
+      handleC,
       wrapper,
     }
   }
@@ -155,29 +165,161 @@ describe("useDocument", () => {
     })
     expect(onDoc).toHaveBeenCalledWith({ foo: "B" })
   })
+
+  // Test unavailable document
+  it("should handle unavailable documents", async () => {
+    const { wrapper, repo } = setup()
+    await repo.networkSubsystem.whenReady()
+    console.log("Netowrk subsystem ready")
+    const onError = vi.fn()
+
+    // Create handle for nonexistent document
+    const url = generateAutomergeUrl()
+
+    render(
+      <ErrorBoundary onError={onError}>
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <Component url={url} onDoc={vi.fn()} />
+        </Suspense>
+      </ErrorBoundary>,
+      { wrapper }
+    )
+
+    // Should show loading then error
+    expect(screen.getByTestId("loading")).toBeInTheDocument()
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("unavailable"),
+        })
+      )
+    })
+  })
+
+  // Test slow-loading document
+  it("should handle slow-loading documents", async () => {
+    const { wrapper, repo } = setup()
+    const onDoc = vi.fn()
+
+    // Create handle but delay its availability
+    const slowHandle = repo.create({ foo: "slow" })
+    const originalFind = repo.find.bind(repo)
+    repo.find = vi.fn().mockImplementation(async (...args) => {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      return originalFind(...args)
+    })
+
+    render(
+      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+        <Component url={slowHandle.url} onDoc={onDoc} />
+      </Suspense>,
+      { wrapper }
+    )
+
+    // Should show loading state
+    expect(screen.getByTestId("loading")).toBeInTheDocument()
+
+    // Eventually shows content
+    await waitFor(() => {
+      expect(screen.getByTestId("content")).toHaveTextContent("slow")
+    })
+    expect(onDoc).toHaveBeenCalledWith({ foo: "slow" })
+  })
+
+  // Test concurrent document switches
+  it("should handle rapid document switches correctly", async () => {
+    const { wrapper, handleA, handleB, handleC } = setup()
+    const onDoc = vi.fn()
+
+    const { rerender } = render(
+      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+        <Component url={handleA.url} onDoc={onDoc} />
+      </Suspense>,
+      { wrapper }
+    )
+
+    // Quick switches between documents
+    rerender(
+      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+        <Component url={handleB.url} onDoc={onDoc} />
+      </Suspense>
+    )
+    rerender(
+      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+        <Component url={handleC.url} onDoc={onDoc} />
+      </Suspense>
+    )
+
+    // Should eventually settle on final document
+    await waitFor(() => {
+      expect(screen.getByTestId("content")).toHaveTextContent("C")
+    })
+    expect(onDoc).toHaveBeenCalledWith({ foo: "C" })
+  })
+
+  // Test document changes during loading
+  it("should handle document changes while loading", async () => {
+    const { wrapper, repo } = setup()
+    const onDoc = vi.fn()
+
+    const handle = repo.create({ foo: "initial" })
+    let resolveFind: (value: any) => void
+    const originalFind = repo.find.bind(repo)
+    repo.find = vi.fn().mockImplementation(async (...args) => {
+      return new Promise(resolve => {
+        resolveFind = resolve
+      })
+    })
+
+    render(
+      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+        <Component url={handle.url} onDoc={onDoc} />
+      </Suspense>,
+      { wrapper }
+    )
+
+    // Modify document while it's still loading
+    handle.change(doc => (doc.foo = "changed"))
+
+    // Resolve the find
+    resolveFind!(await originalFind(handle.url))
+
+    // Should show final state
+    await waitFor(() => {
+      expect(screen.getByTestId("content")).toHaveTextContent("changed")
+    })
+    expect(onDoc).toHaveBeenCalledWith({ foo: "changed" })
+  })
+
+  // Test cleanup on unmount
+  it("should cleanup subscriptions on unmount", async () => {
+    const { wrapper, handleA } = setup()
+    const { unmount } = render(
+      <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+        <Component url={handleA.url} onDoc={vi.fn()} />
+      </Suspense>,
+      { wrapper }
+    )
+
+    // Wait for initial render
+    await waitFor(() => {
+      expect(screen.getByTestId("content")).toBeInTheDocument()
+    })
+
+    // Spy on removeListener
+    const removeListenerSpy = vi.spyOn(handleA, "removeListener")
+
+    // Unmount component
+    unmount()
+
+    // Should have cleaned up listeners
+    expect(removeListenerSpy).toHaveBeenCalledWith(
+      "change",
+      expect.any(Function)
+    )
+    expect(removeListenerSpy).toHaveBeenCalledWith(
+      "delete",
+      expect.any(Function)
+    )
+  })
 })
-
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode; onError: (error: Error) => void },
-  { hasError: boolean }
-> {
-  constructor(props) {
-    super(props)
-    this.state = { hasError: false }
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true }
-  }
-
-  componentDidCatch(error) {
-    this.props.onError(error)
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return null
-    }
-    return this.props.children
-  }
-}
