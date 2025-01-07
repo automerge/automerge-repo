@@ -1,6 +1,6 @@
 type Status = "pending" | "success" | "error"
 
-type PromiseWrapper<T> = {
+export type PromiseWrapper<T> = {
   promise: Promise<T>
   read(): T
 }
