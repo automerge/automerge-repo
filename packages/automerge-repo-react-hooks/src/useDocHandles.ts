@@ -24,9 +24,13 @@ export function useDocHandles<T>(
   for (const id of ids) {
     let wrapper = wrapperCache.get(id)!
     if (!wrapper) {
-      const promise = repo.find<T>(id)
-      wrapper = wrapPromise(promise)
-      wrapperCache.set(id, wrapper)
+      try {
+        const promise = repo.find<T>(id)
+        wrapper = wrapPromise(promise)
+        wrapperCache.set(id, wrapper)
+      } catch (e) {
+        continue
+      }
     }
 
     // Try to read each wrapper.
@@ -38,6 +42,8 @@ export function useDocHandles<T>(
     } catch (e) {
       if (e instanceof Promise) {
         pendingPromises.push(wrapper as PromiseWrapper<DocHandle<T>>)
+      } else {
+        nextHandleMap.set(id, undefined)
       }
     }
   }
@@ -49,10 +55,17 @@ export function useDocHandles<T>(
 
   useEffect(() => {
     if (pendingPromises.length > 0) {
-      void Promise.all(pendingPromises.map(p => p.promise)).then(handles => {
-        handles.forEach(h => nextHandleMap.set(h.url, h))
-        setHandleMap(nextHandleMap)
-      })
+      void Promise.allSettled(pendingPromises.map(p => p.promise)).then(
+        handles => {
+          handles.forEach(r => {
+            if (r.status === "fulfilled") {
+              const h = r.value as DocHandle<T>
+              nextHandleMap.set(h.url, h)
+            }
+          })
+          setHandleMap(nextHandleMap)
+        }
+      )
     } else {
       setHandleMap(nextHandleMap)
     }
