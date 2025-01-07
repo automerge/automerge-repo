@@ -233,4 +233,109 @@ describe("useHandle", () => {
       expect(onHandle).not.toHaveBeenCalledWith(handleA)
     })
   })
+
+  describe("useHandle with suspense: false", () => {
+    it("returns undefined while loading then resolves to handle", async () => {
+      const { handleA, repo, wrapper } = await setup()
+      const onHandle = vi.fn()
+
+      // Mock find to simulate network delay
+      const originalFind = repo.find.bind(repo)
+      repo.find = vi.fn().mockImplementation(async (...args) => {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        return originalFind(...args)
+      })
+
+      const NonSuspenseComponent = ({
+        url,
+        onHandle,
+      }: {
+        url: AutomergeUrl
+        onHandle: (handle: DocHandle<unknown> | undefined) => void
+      }) => {
+        const handle = useDocHandle(url, { suspense: false })
+        onHandle(handle)
+        return null
+      }
+
+      render(<NonSuspenseComponent url={handleA.url} onHandle={onHandle} />, {
+        wrapper,
+      })
+
+      // Initially should be called with undefined
+      expect(onHandle).toHaveBeenCalledWith(undefined)
+
+      // Wait for handle to load
+      await waitFor(() => {
+        expect(onHandle).toHaveBeenLastCalledWith(handleA)
+      })
+
+      // Restore original find implementation
+      repo.find = originalFind
+    })
+
+    it("handles unavailable documents by returning undefined", async () => {
+      const { repo, wrapper } = await setup()
+      const url = generateAutomergeUrl()
+      const onHandle = vi.fn()
+
+      const NonSuspenseComponent = ({
+        url,
+        onHandle,
+      }: {
+        url: AutomergeUrl
+        onHandle: (handle: DocHandle<unknown> | undefined) => void
+      }) => {
+        const handle = useDocHandle(url, { suspense: false })
+        onHandle(handle)
+        return null
+      }
+
+      render(<NonSuspenseComponent url={url} onHandle={onHandle} />, {
+        wrapper,
+      })
+
+      // Should start with undefined
+      expect(onHandle).toHaveBeenCalledWith(undefined)
+
+      // Should continue to return undefined after attempted load
+      await waitFor(() => {
+        expect(onHandle).toHaveBeenLastCalledWith(undefined)
+      })
+    })
+
+    it("updates the handle when url changes", async () => {
+      const { wrapper, handleA, handleB } = setup()
+      const onHandle = vi.fn()
+
+      const NonSuspenseComponent = ({
+        url,
+        onHandle,
+      }: {
+        url: AutomergeUrl
+        onHandle: (handle: DocHandle<unknown> | undefined) => void
+      }) => {
+        const handle = useDocHandle(url, { suspense: false })
+        onHandle(handle)
+        return null
+      }
+
+      const { rerender } = render(
+        <NonSuspenseComponent url={handleA.url} onHandle={onHandle} />,
+        { wrapper }
+      )
+
+      // Wait for first handle to load
+      await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
+
+      // Change URL
+      rerender(<NonSuspenseComponent url={handleB.url} onHandle={onHandle} />)
+
+      // Should temporarily return to undefined
+      expect(onHandle).toHaveBeenCalledWith(undefined)
+
+      // Then resolve to new handle
+      await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleB))
+    })
+  })
 })
