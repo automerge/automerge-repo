@@ -420,6 +420,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     options: AbortOptions = {}
   ): FindProgress<T> {
     const { signal } = options
+    const abortPromise = abortable(signal)
     const documentId = interpretAsDocumentId(id)
 
     // Check cache first - return plain FindStep for terminal states
@@ -451,22 +452,27 @@ export class Repo extends EventEmitter<RepoEvents> {
         const handle = that.#getHandle<T>({ documentId })
         yield { state: "loading", progress: 25, handle }
 
-        const loadedDoc = await (that.storageSubsystem
+        const loadingPromise = await (that.storageSubsystem
           ? that.storageSubsystem.loadDoc(handle.documentId)
           : Promise.resolve(null))
+
+        const loadedDoc = await Promise.race([loadingPromise, abortPromise])
 
         if (loadedDoc) {
           handle.update(() => loadedDoc as Automerge.Doc<T>)
           handle.doneLoading()
           yield { state: "loading", progress: 50, handle }
         } else {
-          await that.networkSubsystem.whenReady()
+          await Promise.race([that.networkSubsystem.whenReady(), abortPromise])
           handle.request()
           yield { state: "loading", progress: 75, handle }
         }
 
         that.#registerHandleWithSubsystems(handle)
-        await handle.whenReady([READY, UNAVAILABLE, DELETED])
+        await Promise.race([
+          handle.whenReady([READY, UNAVAILABLE, DELETED]),
+          abortPromise,
+        ])
 
         if (handle.state === UNAVAILABLE) {
           throw new Error(`Document ${id} is unavailable`)
