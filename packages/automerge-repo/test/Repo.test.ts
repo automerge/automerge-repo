@@ -1573,13 +1573,12 @@ describe("Repo.find() abort behavior", () => {
   it("can abort while waiting for ready state", async () => {
     // Create a repo with no network adapters so document can't become ready
     const repo = new Repo()
-    const handle = repo.create()
-    const url = handle.url
+    const url = generateAutomergeUrl()
 
     const controller = new AbortController()
 
     // Start find and abort after a moment
-    const findPromise = repo.find(handle.url, { signal: controller.signal })
+    const findPromise = repo.find(url, { signal: controller.signal })
     controller.abort()
 
     await expect(findPromise).rejects.toThrow("Operation aborted")
