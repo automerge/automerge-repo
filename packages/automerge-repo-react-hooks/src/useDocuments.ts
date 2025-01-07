@@ -10,11 +10,15 @@ type ChangeDocFn<T> = (
   options?: ChangeOptions<T>
 ) => void
 
+interface UseDocumentsOptions {
+  suspense?: boolean
+}
+
 export function useDocuments<T>(
-  ids: AutomergeUrl[]
+  ids: AutomergeUrl[],
+  { suspense = true }: UseDocumentsOptions = {}
 ): [DocMap<T>, ChangeDocFn<T>] {
-  // Pass suspense: true to useDocHandles since we want to ensure data is ready
-  const handleMap = useDocHandles<T>(ids, { suspense: true })
+  const handleMap = useDocHandles<T>(ids, { suspense })
   const [docMap, setDocMap] = useState<DocMap<T>>(() => new Map())
 
   useEffect(() => {
