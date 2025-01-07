@@ -38,6 +38,8 @@ import type {
   PeerId,
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
+import { FindProgress } from "./FindProgress.js"
+import { skip } from "node:test"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -413,6 +415,116 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
+  findWithProgress<T>(
+    id: AnyDocumentId,
+    options: AbortOptions = {}
+  ): FindProgress<T> {
+    const { signal } = options
+    const documentId = interpretAsDocumentId(id)
+
+    // Check cache first - return plain FindStep for terminal states
+    if (this.#handleCache[documentId]) {
+      const handle = this.#handleCache[documentId]
+      if (handle.state === UNAVAILABLE) {
+        return {
+          state: "failed",
+          error: new Error(`Document ${id} is unavailable`),
+        }
+      }
+      if (handle.state === DELETED) {
+        return {
+          state: "failed",
+          error: new Error(`Document ${id} was deleted`),
+        }
+      }
+      if (handle.state === READY) {
+        return {
+          state: "ready",
+          handle,
+        }
+      }
+    }
+
+    const that = this
+    async function* progressGenerator(): AsyncGenerator<FindProgress<T>> {
+      try {
+        const handle = that.#getHandle<T>({ documentId })
+        yield { state: "loading", progress: 25, handle }
+
+        const loadedDoc = await (that.storageSubsystem
+          ? that.storageSubsystem.loadDoc(handle.documentId)
+          : Promise.resolve(null))
+
+        if (loadedDoc) {
+          handle.update(() => loadedDoc as Automerge.Doc<T>)
+          handle.doneLoading()
+          yield { state: "loading", progress: 50, handle }
+        } else {
+          await that.networkSubsystem.whenReady()
+          handle.request()
+          yield { state: "loading", progress: 75, handle }
+        }
+
+        that.#registerHandleWithSubsystems(handle)
+        await handle.whenReady([READY, UNAVAILABLE, DELETED])
+
+        if (handle.state === UNAVAILABLE) {
+          throw new Error(`Document ${id} is unavailable`)
+        }
+        if (handle.state === DELETED) {
+          throw new Error(`Document ${id} was deleted`)
+        }
+
+        yield { state: "ready", handle }
+      } catch (error) {
+        yield {
+          state: "failed",
+          error: error instanceof Error ? error : new Error(String(error)),
+        }
+      }
+    }
+
+    const iterator = progressGenerator()
+
+    const next = async () => {
+      const result = await iterator.next()
+      return { ...result.value, next }
+    }
+
+    const untilReady = async (skipReady: boolean) => {
+      for await (const state of iterator) {
+        if (skipReady && state.handle.state === "requesting") {
+          return state.handle
+        }
+        if (state.state === "ready") return state.handle
+        if (state.state === "failed") throw state.error
+      }
+      throw new Error("Iterator completed without reaching ready state")
+    }
+
+    const handle = this.#getHandle<T>({ documentId })
+    const initial = { state: "loading" as const, progress: 0, handle }
+    return { ...initial, next, untilReady }
+  }
+
+  async find<T>(
+    id: AnyDocumentId,
+    options: RepoFindOptions & AbortOptions = {}
+  ): Promise<DocHandle<T>> {
+    const { skipReady, signal } = options
+    const progress = this.findWithProgress<T>(id, { signal })
+
+    if (progress.state === "ready") {
+      return progress.handle
+    }
+
+    if (progress.state === "failed") {
+      throw progress.error
+    }
+
+    return progress.untilReady(skipReady)
+  }
+
   /**
    * Loads a document without waiting for ready state
    */
@@ -449,7 +561,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Retrieves a document by id. It gets data from the local system, but also emits a `document`
    * event to advertise interest in the document.
    */
-  async find<T>(
+  async findClassic<T>(
     /** The url or documentId of the handle to retrieve */
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
