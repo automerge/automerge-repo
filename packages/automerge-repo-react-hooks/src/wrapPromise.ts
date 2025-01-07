@@ -1,6 +1,7 @@
 type Status = "pending" | "success" | "error"
 
 type PromiseWrapper<T> = {
+  promise: Promise<T>
   read(): T
 }
 
@@ -21,6 +22,7 @@ export function wrapPromise<T>(promise: Promise<T>): PromiseWrapper<T> {
   )
 
   return {
+    promise,
     read(): T {
       switch (status) {
         case "pending":

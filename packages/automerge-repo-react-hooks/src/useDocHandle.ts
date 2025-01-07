@@ -1,7 +1,7 @@
-import type { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
 import { wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
-import { useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
 // Shared with useDocHandles
 export const wrapperCache = new Map<
@@ -34,6 +34,7 @@ export function useDocHandle<T>(
 ): DocHandle<T> | undefined {
   const repo = useRepo()
   const controllerRef = useRef<AbortController>()
+  const [handle, setHandle] = useState<DocHandle<T> | undefined>()
 
   let wrapper = wrapperCache.get(id)
   if (!wrapper) {
@@ -45,16 +46,22 @@ export function useDocHandle<T>(
     wrapperCache.set(id, wrapper)
   }
 
-  if (suspense === false) {
-    try {
-      return wrapper.read() as DocHandle<T>
-    } catch (e) {
-      if (e instanceof Promise) {
-        return undefined
-      }
-      throw e
+  useEffect(() => {
+    if (suspense === false) {
+      void wrapper.promise
+        .then(handle => {
+          setHandle(handle as DocHandle<T>)
+        })
+        .catch(e => {
+          console.log("handle promise caught", e)
+          setHandle(undefined)
+        })
     }
-  }
+  }, [suspense, wrapper])
 
-  return wrapper.read() as DocHandle<T>
+  if (suspense) {
+    return wrapper.read() as DocHandle<T>
+  } else {
+    return handle || undefined
+  }
 }
