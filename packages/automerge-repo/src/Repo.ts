@@ -40,8 +40,8 @@ import type {
   PeerId,
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
-import { FindProgress } from "./FindProgress.js"
-import { skip } from "node:test"
+import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
+import { pause } from "./helpers/pause.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -424,7 +424,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   findWithProgress<T>(
     id: AnyDocumentId,
     options: AbortOptions = {}
-  ): FindProgress<T> {
+  ): FindProgressWithMethods<T> | FindProgress<T> {
     const { signal } = options
     const abortPromise = abortable(signal)
     const documentId = interpretAsDocumentId(id)
@@ -433,15 +433,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (this.#handleCache[documentId]) {
       const handle = this.#handleCache[documentId]
       if (handle.state === UNAVAILABLE) {
-        return {
-          state: "failed",
+        const result = {
+          state: "unavailable" as const,
           error: new Error(`Document ${id} is unavailable`),
+          handle,
         }
+        return result
       }
       if (handle.state === DELETED) {
         return {
           state: "failed",
           error: new Error(`Document ${id} was deleted`),
+          handle,
         }
       }
       if (handle.state === READY) {
@@ -452,6 +455,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     }
 
+    // the generator takes over `this`, so we need an alias to the repo this
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
     async function* progressGenerator(): AsyncGenerator<FindProgress<T>> {
       try {
@@ -475,13 +480,14 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
 
         that.#registerHandleWithSubsystems(handle)
+
         await Promise.race([
-          handle.whenReady([READY, UNAVAILABLE, DELETED]),
+          handle.whenReady([READY, UNAVAILABLE]),
           abortPromise,
         ])
 
         if (handle.state === UNAVAILABLE) {
-          throw new Error(`Document ${id} is unavailable`)
+          yield { state: "unavailable", handle }
         }
         if (handle.state === DELETED) {
           throw new Error(`Document ${id} was deleted`)
@@ -492,6 +498,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         yield {
           state: "failed",
           error: error instanceof Error ? error : new Error(String(error)),
+          handle,
         }
       }
     }
@@ -503,10 +510,13 @@ export class Repo extends EventEmitter<RepoEvents> {
       return { ...result.value, next }
     }
 
-    const untilReady = async (skipReady: boolean) => {
+    const untilReady = async (allowableStates: string[]) => {
       for await (const state of iterator) {
-        if (skipReady && state.handle.state === "requesting") {
+        if (allowableStates.includes(state.handle.state)) {
           return state.handle
+        }
+        if (state.state === "unavailable") {
+          throw new Error(`Document ${id} is unavailable`)
         }
         if (state.state === "ready") return state.handle
         if (state.state === "failed") throw state.error
@@ -523,18 +533,21 @@ export class Repo extends EventEmitter<RepoEvents> {
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
-    const { skipReady, signal } = options
+    const { allowableStates = ["ready"], signal } = options
     const progress = this.findWithProgress<T>(id, { signal })
 
-    if (progress.state === "ready") {
+    /*if (allowableStates.includes(progress.state)) {
+      console.log("returning early")
+      return progress.handle
+    }*/
+
+    // @ts-expect-error -- my initial result is a FindProgressWithMethods which has untilReady
+    if (progress.untilReady) {
+      this.#registerHandleWithSubsystems(progress.handle)
+      return progress.untilReady(allowableStates)
+    } else {
       return progress.handle
     }
-
-    if (progress.state === "failed") {
-      throw progress.error
-    }
-
-    return progress.untilReady(skipReady)
   }
 
   /**
@@ -579,12 +592,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
     const documentId = interpretAsDocumentId(id)
-    const { skipReady, signal } = options
+    const { allowableStates, signal } = options
 
     return Promise.race([
       (async () => {
         const handle = await this.#loadDocument<T>(documentId)
-        if (!skipReady) {
+        if (!allowableStates) {
           await handle.whenReady([READY, UNAVAILABLE])
           if (handle.state === UNAVAILABLE && !signal?.aborted) {
             throw new Error(`Document ${id} is unavailable`)
@@ -787,7 +800,7 @@ export interface RepoEvents {
 }
 
 export interface RepoFindOptions {
-  skipReady?: boolean
+  allowableStates?: string[]
 }
 
 export interface DocumentPayload {
