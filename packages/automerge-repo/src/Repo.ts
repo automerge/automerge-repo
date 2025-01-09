@@ -1,4 +1,4 @@
-import { next as Automerge } from "@automerge/automerge/slim"
+import { next as Automerge, load } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
@@ -39,7 +39,7 @@ import type {
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
-import { pause } from "./helpers/pause.js"
+import { compute, createSignal, Signal } from "./helpers/signals.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -66,6 +66,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   saveDebounceRate = 100
 
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
+  #signalCache: Record<DocumentId, Signal<FindProgress<unknown>>> = {}
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
@@ -415,11 +416,120 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
+  /**
+   * Loads a document without waiting for ready state
+   */
+  async #loadDocumentWithSignal<T>(signal: Signal<FindProgress<T>>) {
+    // If we don't already have the handle, make an empty one and try loading it
+    const handle = signal.peek().handle
+
+    const loadedDoc = await (this.storageSubsystem
+      ? this.storageSubsystem.loadDoc(handle.documentId)
+      : Promise.resolve(null))
+
+    signal.set({ state: "loading", progress: 25, handle })
+
+    if (loadedDoc) {
+      // We need to cast this to <T> because loadDoc operates in <unknowns>.
+      // This is really where we ought to be validating the input matches <T>.
+      handle.update(() => loadedDoc as Automerge.Doc<T>)
+      handle.doneLoading()
+      signal.set({ state: "loading", progress: 50, handle })
+    } else {
+      // Because the network subsystem might still be booting up, we wait
+      // here so that we don't immediately give up loading because we're still
+      // making our initial connection to a sync server.
+      signal.set({ state: "loading", progress: 40, handle })
+      await this.networkSubsystem.whenReady()
+      signal.set({ state: "loading", progress: 60, handle })
+      handle.request()
+    }
+
+    this.#registerHandleWithSubsystems(handle)
+    signal.set({ state: "loading", progress: 80, handle })
+  }
+
+  findWithSignalProgress<T>(
+    id: AnyDocumentId,
+    options: AbortOptions = {}
+  ): Signal<FindProgress<T>> {
+    const { abortSignal } = options
+    const abortPromise = abortable(abortSignal)
+
+    const documentId = interpretAsDocumentId(id)
+
+    // first, let's get a handle
+    let signal = this.#signalCache[documentId] as
+      | Signal<FindProgress<T>>
+      | undefined
+
+    if (!signal) {
+      const handle = this.#getHandle<T>({ documentId })
+      signal = createSignal<FindProgress<T>>({
+        state: "loading",
+        progress: 0,
+        handle,
+      })
+
+      this.#loadDocumentWithSignal(signal)
+        .then(async () => {
+          if (!signal) {
+            throw new Error("Signal got lost")
+          }
+          await Promise.race([
+            handle.whenReady([READY, UNAVAILABLE]),
+            abortPromise,
+          ])
+
+          if (handle.state === UNAVAILABLE) {
+            signal.set({ state: "unavailable", handle })
+          }
+          if (handle.state === DELETED) {
+            throw new Error(`Document ${id} was deleted`)
+          }
+
+          signal.set({ state: "ready", handle })
+        })
+        .catch(error => {
+          signal?.set({ state: "failed", error, handle })
+        })
+    }
+
+    return signal
+  }
+
+  async find<T>(
+    id: AnyDocumentId,
+    options: RepoFindOptions & AbortOptions = {}
+  ): Promise<DocHandle<T>> {
+    const { allowableStates = ["ready"], abortSignal } = options
+    const findSignal = this.findWithSignalProgress<T>(id, { abortSignal })
+
+    const readySignal = compute(get => {
+      // TODO: type stuff
+      const state = get(
+        findSignal as Signal<unknown>
+      ) as typeof findSignal.value
+      if (state.state === "ready") {
+        return state.handle
+      }
+    })
+
+    return new Promise(resolve => {
+      compute(get => {
+        const maybeHandle = get(readySignal as Signal<unknown>) as
+          | DocHandle<T>
+          | undefined
+        maybeHandle && resolve(maybeHandle)
+      })
+    })
+  }
+
   findWithProgress<T>(
     id: AnyDocumentId,
     options: AbortOptions = {}
   ): FindProgressWithMethods<T> | FindProgress<T> {
-    const { signal } = options
+    const { abortSignal: signal } = options
     const abortPromise = abortable(signal)
     const documentId = interpretAsDocumentId(id)
 
@@ -523,20 +633,19 @@ export class Repo extends EventEmitter<RepoEvents> {
     return { ...initial, next, untilReady }
   }
 
-  async find<T>(
+  async findGenerator<T>(
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
     const { allowableStates = ["ready"], signal } = options
     const progress = this.findWithProgress<T>(id, { signal })
 
-    /*if (allowableStates.includes(progress.state)) {
-      console.log("returning early")
+    if (allowableStates.includes(progress.state)) {
       return progress.handle
-    }*/
+    }
 
-    // @ts-expect-error -- my initial result is a FindProgressWithMethods which has untilReady
-    if (progress.untilReady) {
+    if ("untilReady" in progress) {
+      // TODO: this line somehow makes a sync test pass but i don't understand why we need it
       this.#registerHandleWithSubsystems(progress.handle)
       return progress.untilReady(allowableStates)
     } else {

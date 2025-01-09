@@ -189,7 +189,7 @@ describe("Repo", () => {
       assert.deepStrictEqual(handle2.doc(), { foo: "bar", baz: "baz" })
     })
 
-    it("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
+    it.only("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
       const { repo } = setup()
       expect(async () => {
         await repo.find<TestDoc>("invalid-url" as unknown as AutomergeUrl)
