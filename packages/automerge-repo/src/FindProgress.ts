@@ -17,6 +17,11 @@ interface FindProgressLoading<T> extends FindProgressBase<T> {
   progress: number
 }
 
+interface FindProgressRequesting<T> extends FindProgressBase<T> {
+  state: "requesting"
+  progress: number
+}
+
 interface FindProgressReady<T> extends FindProgressBase<T> {
   state: "ready"
 }
@@ -36,6 +41,7 @@ interface FindProgressAborted<T> extends FindProgressBase<T> {
 
 export type FindProgress<T> =
   | FindProgressLoading<T>
+  | FindProgressRequesting<T>
   | FindProgressReady<T>
   | FindProgressFailed<T>
   | FindProgressUnavailable<T>

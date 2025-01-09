@@ -1,4 +1,4 @@
-import { next as Automerge, load } from "@automerge/automerge/slim"
+import { next as Automerge } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
@@ -441,7 +441,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       // making our initial connection to a sync server.
       signal.set({ state: "loading", progress: 40, handle })
       await this.networkSubsystem.whenReady()
-      signal.set({ state: "loading", progress: 60, handle })
+      signal.set({ state: "requesting", progress: 60, handle })
       handle.request()
     }
 
@@ -482,6 +482,10 @@ export class Repo extends EventEmitter<RepoEvents> {
           ])
 
           if (handle.state === UNAVAILABLE) {
+            // TODO: i think there's a more principled way to do this
+            // probably by having new peers put the handle back into requesting
+            // remove the document from the cache
+            delete this.#signalCache[documentId]
             signal.set({ state: "unavailable", handle })
           }
           if (handle.state === DELETED) {
@@ -501,12 +505,18 @@ export class Repo extends EventEmitter<RepoEvents> {
   async find<T>(
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
-  ) {
+  ): Promise<DocHandle<T>> {
     const { allowableStates = ["ready"], abortSignal } = options
     const progressSignal = this.findWithSignalProgress<T>(id, { abortSignal })
 
     return new Promise((resolve, reject) => {
       const cleanup = progressSignal.subscribe(progress => {
+        // console.log("got signal", progress, allowableStates)
+        if (allowableStates.includes(progress.state)) {
+          cleanup()
+          this.#registerHandleWithSubsystems(progress.handle)
+          resolve(progress.handle)
+        }
         switch (progress.state) {
           case "failed":
             cleanup()
@@ -637,8 +647,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
-    const { allowableStates = ["ready"], signal } = options
-    const progress = this.findWithProgress<T>(id, { signal })
+    const { allowableStates = ["ready"], abortSignal } = options
+    const progress = this.findWithProgress<T>(id, { abortSignal })
 
     if (allowableStates.includes(progress.state)) {
       return progress.handle
@@ -695,20 +705,20 @@ export class Repo extends EventEmitter<RepoEvents> {
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
     const documentId = interpretAsDocumentId(id)
-    const { allowableStates, signal } = options
+    const { allowableStates, abortSignal } = options
 
     return Promise.race([
       (async () => {
         const handle = await this.#loadDocument<T>(documentId)
         if (!allowableStates) {
           await handle.whenReady([READY, UNAVAILABLE])
-          if (handle.state === UNAVAILABLE && !signal?.aborted) {
+          if (handle.state === UNAVAILABLE && !abortSignal?.aborted) {
             throw new Error(`Document ${id} is unavailable`)
           }
         }
         return handle
       })(),
-      abortable(signal),
+      abortable(abortSignal),
     ])
   }
 

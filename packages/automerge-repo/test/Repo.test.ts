@@ -832,6 +832,7 @@ describe("Repo", () => {
     it("changes are replicated from aliceRepo to bobRepo", async () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
 
+      console.log(bobRepo)
       const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
       const bobDoc = bobHandle.doc()
       assert.deepStrictEqual(bobDoc, { foo: "bar" })
@@ -1407,7 +1408,7 @@ describe("Repo", () => {
   })
 
   describe("the denylist", () => {
-    it.skip("should immediately return an unavailable message in response to a request for a denylisted document", async () => {
+    it("should immediately return an unavailable message in response to a request for a denylisted document", async () => {
       const storage = new DummyStorageAdapter()
 
       // first create the document in storage
