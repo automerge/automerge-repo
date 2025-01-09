@@ -1452,7 +1452,7 @@ describe("Repo.find() abort behavior", () => {
     controller.abort()
 
     await expect(
-      repo.find(generateAutomergeUrl(), { signal: controller.signal })
+      repo.find(generateAutomergeUrl(), { abortSignal: controller.signal })
     ).rejects.toThrow("Operation aborted")
   })
 
@@ -1464,7 +1464,7 @@ describe("Repo.find() abort behavior", () => {
     const controller = new AbortController()
 
     // Start find and abort after a moment
-    const findPromise = repo.find(url, { signal: controller.signal })
+    const findPromise = repo.find(url, { abortSignal: controller.signal })
     controller.abort()
 
     await expect(findPromise).rejects.toThrow("Operation aborted")
@@ -1478,7 +1478,7 @@ describe("Repo.find() abort behavior", () => {
 
     const handle = await repo.find(url, {
       allowableStates: ["unavailable"],
-      signal: controller.signal,
+      abortSignal: controller.signal,
     })
 
     expect(handle).toBeDefined()
