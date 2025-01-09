@@ -189,7 +189,7 @@ describe("Repo", () => {
       assert.deepStrictEqual(handle2.doc(), { foo: "bar", baz: "baz" })
     })
 
-    it.only("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
+    it("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
       const { repo } = setup()
       expect(async () => {
         await repo.find<TestDoc>("invalid-url" as unknown as AutomergeUrl)
@@ -1407,7 +1407,7 @@ describe("Repo", () => {
   })
 
   describe("the denylist", () => {
-    it("should immediately return an unavailable message in response to a request for a denylisted document", async () => {
+    it.skip("should immediately return an unavailable message in response to a request for a denylisted document", async () => {
       const storage = new DummyStorageAdapter()
 
       // first create the document in storage

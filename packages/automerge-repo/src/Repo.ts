@@ -501,26 +501,26 @@ export class Repo extends EventEmitter<RepoEvents> {
   async find<T>(
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
-  ): Promise<DocHandle<T>> {
+  ) {
     const { allowableStates = ["ready"], abortSignal } = options
-    const findSignal = this.findWithSignalProgress<T>(id, { abortSignal })
+    const progressSignal = this.findWithSignalProgress<T>(id, { abortSignal })
 
-    const readySignal = compute(get => {
-      // TODO: type stuff
-      const state = get(
-        findSignal as Signal<unknown>
-      ) as typeof findSignal.value
-      if (state.state === "ready") {
-        return state.handle
-      }
-    })
-
-    return new Promise(resolve => {
-      compute(get => {
-        const maybeHandle = get(readySignal as Signal<unknown>) as
-          | DocHandle<T>
-          | undefined
-        maybeHandle && resolve(maybeHandle)
+    return new Promise((resolve, reject) => {
+      const cleanup = progressSignal.subscribe(progress => {
+        switch (progress.state) {
+          case "failed":
+            cleanup()
+            reject(progress.error)
+            break
+          case "unavailable":
+            cleanup()
+            reject(new Error(`Document ${id} is unavailable`))
+            break
+          case "ready":
+            cleanup()
+            resolve(progress.handle)
+            break
+        }
       })
     })
   }
