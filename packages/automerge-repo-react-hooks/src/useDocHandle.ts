@@ -2,11 +2,13 @@ import {
   AnyDocumentId,
   compute,
   DocHandle,
+  Signal,
 } from "@automerge/automerge-repo/slim"
 import { wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
 import { abortable } from "@automerge/automerge-repo/helpers/abortable.js"
+import { FindProgress } from "../../automerge-repo/dist/FindProgress.js"
 
 // Shared with useDocHandles
 export const promiseCache = new Map<
@@ -63,21 +65,7 @@ export function useDocHandle<T>(
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
-    promise = new Promise<DocHandle<T>>((resolve, reject) => {
-      const computed = compute(get => {
-        const prog = get(progSig)
-
-        if (prog.state === "ready") {
-          resolve(prog.handle as DocHandle<T>)
-        } else if (prog.state === "failed") {
-          reject(prog.error)
-        } else if (prog.state === "unavailable") {
-          reject(new Error(`Document ${id} is unavailable`))
-        }
-
-        return prog
-      })
-    })
+    promise = signalPromise<T>(progSig, id)
     const abortPromise = abortable(controllerRef.current?.signal)
 
     const cacheablePromise = wrapPromise(Promise.race([promise, abortPromise]))
@@ -86,4 +74,25 @@ export function useDocHandle<T>(
   }
 
   throw promise as Promise<DocHandle<T>>
+}
+
+function signalPromise<T>(
+  progSig: Signal<FindProgress<unknown>>,
+  id: AnyDocumentId
+): Promise<DocHandle<unknown>> | undefined {
+  return new Promise<DocHandle<T>>((resolve, reject) => {
+    compute(get => {
+      const prog = get(progSig)
+
+      if (prog.state === "ready") {
+        resolve(prog.handle as DocHandle<T>)
+      } else if (prog.state === "failed") {
+        reject(prog.error)
+      } else if (prog.state === "unavailable") {
+        reject(new Error(`Document ${id} is unavailable`))
+      }
+
+      return prog
+    })
+  })
 }
