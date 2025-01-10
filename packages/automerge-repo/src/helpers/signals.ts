@@ -7,7 +7,6 @@ export interface Signal<T> {
   set: (newValue: T) => void
   subscribe: (fn: (value: T) => void) => () => void
   peek: () => T
-  value: T
 }
 
 export function createSignal<T>(initialValue: T): Signal<T> {
@@ -32,9 +31,6 @@ export function createSignal<T>(initialValue: T): Signal<T> {
       return () => subscribers.delete(ref)
     },
     peek: () => currentValue,
-    get value() {
-      return currentValue
-    },
   }
 }
 
@@ -45,7 +41,7 @@ export function compute<T>(
 
   const get = (signal: Signal<any>) => {
     accessed.add(signal)
-    return signal.value
+    return signal.peek()
   }
 
   const value = fn(get, undefined)
