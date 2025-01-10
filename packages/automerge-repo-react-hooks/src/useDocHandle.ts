@@ -8,11 +8,6 @@ import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
 
 // Shared with useDocHandles
-export const wrapperCache = new Map<
-  AnyDocumentId,
-  ReturnType<typeof wrapPromise>
->()
-
 export const promiseCache = new Map<
   AnyDocumentId,
   Promise<DocHandle<unknown>>
@@ -30,44 +25,63 @@ type UseDocHandleParams =
   | UseDocHandleSynchronousParams
 export function useDocHandle<T>(
   id: AnyDocumentId,
-  params?: UseDocHandleSuspendingParams
-): DocHandle<T>
-export function useDocHandle<T>(
-  id: AnyDocumentId,
-  params?: UseDocHandleSynchronousParams
-): DocHandle<T> | undefined
-export function useDocHandle<T>(
-  id: AnyDocumentId,
   { suspense }: UseDocHandleParams = { suspense: false }
 ): DocHandle<T> | undefined {
   const repo = useRepo()
   const controllerRef = useRef<AbortController>()
 
+  // Cleanup effect for when id changes or component unmounts
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.abort()
+      promiseCache.delete(id)
+    }
+  }, [id])
+
   // Get current progress
-  const val = repo.findWithSignalProgress(id).peek()
+  const progSig = repo.findWithSignalProgress(id)
+  const progress = progSig.peek()
 
   // For ready state, we can return the handle immediately
-  if (val.state === "ready") {
-    return val.handle as DocHandle<T>
+  if (progress.state === "ready") {
+    return progress.handle as DocHandle<T>
   }
 
-  // For non-suspense mode, return previous handle or undefined
+  // For non-suspense mode, return undefined
   if (!suspense) {
-    console.log("non-suspense mode, returning undefined", val)
     return undefined
   }
 
   // If we're here, we're in suspense mode and not ready.
-  // We'll create an abortable promise from the signal.
   let promise = promiseCache.get(id)
   if (!promise) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
-    promise = repo.find<T>(id, {
-      abortSignal: controllerRef.current.signal,
+    promise = new Promise<DocHandle<T>>((resolve, reject) => {
+      const computed = compute(get => {
+        const prog = get(progSig)
+
+        if (prog.state === "ready") {
+          resolve(prog.handle as DocHandle<T>)
+        } else if (prog.state === "failed") {
+          reject(prog.error)
+        } else if (prog.state === "unavailable") {
+          reject(new Error(`Document ${id} is unavailable`))
+        }
+
+        return prog
+      })
+
+      controllerRef.current?.signal.addEventListener("abort", () => {
+        reject(new Error("Operation aborted"))
+      })
     })
-    promiseCache.set(id, promise)
+
+    const cacheablePromise = wrapPromise(promise)
+
+    promiseCache.set(id, cacheablePromise as any)
   }
-  throw promise
+
+  throw promise as Promise<DocHandle<T>>
 }
