@@ -25,6 +25,10 @@ type UseDocHandleParams =
   | UseDocHandleSynchronousParams
 export function useDocHandle<T>(
   id: AnyDocumentId,
+  options: UseDocHandleSuspendingParams
+): DocHandle<T>
+export function useDocHandle<T>(
+  id: AnyDocumentId,
   { suspense }: UseDocHandleParams = { suspense: false }
 ): DocHandle<T> | undefined {
   const repo = useRepo()
