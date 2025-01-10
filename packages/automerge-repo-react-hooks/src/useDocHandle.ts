@@ -60,23 +60,23 @@ export function useDocHandle<T>(
   }
 
   // If we're here, we're in suspense mode and not ready.
-  let promise = promiseCache.get(id)
-  if (!promise) {
+  let wrapper = promiseCache.get(id)
+  if (!wrapper) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
-    promise = signalPromise<T>(progSig, id)
+    const promise = handlePromise<T>(progSig, id)
     const abortPromise = abortable(controllerRef.current?.signal)
+    const wrapper = wrapPromise(Promise.race([promise, abortPromise]))
 
-    const cacheablePromise = wrapPromise(Promise.race([promise, abortPromise]))
-
-    promiseCache.set(id, cacheablePromise as any)
+    promiseCache.set(id, wrapper as any)
+    throw promise // WTF
   }
 
-  throw promise as Promise<DocHandle<T>>
+  throw wrapper as Promise<DocHandle<T>>
 }
 
-function signalPromise<T>(
+function handlePromise<T>(
   progSig: Signal<FindProgress<unknown>>,
   id: AnyDocumentId
 ): Promise<DocHandle<unknown>> | undefined {
