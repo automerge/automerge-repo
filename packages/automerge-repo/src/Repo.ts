@@ -39,7 +39,7 @@ import type {
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
-import { compute, createSignal, Signal } from "./helpers/signals.js"
+import { createSignal, Signal } from "./helpers/signals.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -509,30 +509,34 @@ export class Repo extends EventEmitter<RepoEvents> {
     const { allowableStates = ["ready"], abortSignal } = options
     const progressSignal = this.findWithSignalProgress<T>(id, { abortSignal })
 
-    return new Promise((resolve, reject) => {
-      const cleanup = progressSignal.subscribe(progress => {
-        // console.log("got signal", progress, allowableStates)
-        if (allowableStates.includes(progress.state)) {
-          cleanup()
-          this.#registerHandleWithSubsystems(progress.handle)
-          resolve(progress.handle)
-        }
-        switch (progress.state) {
-          case "failed":
+    const resultPromise: Promise<DocHandle<T>> = new Promise(
+      (resolve, reject) => {
+        const cleanup = progressSignal.subscribe(progress => {
+          // console.log("got signal", progress, allowableStates)
+          if (allowableStates.includes(progress.state)) {
             cleanup()
-            reject(progress.error)
-            break
-          case "unavailable":
-            cleanup()
-            reject(new Error(`Document ${id} is unavailable`))
-            break
-          case "ready":
-            cleanup()
+            this.#registerHandleWithSubsystems(progress.handle)
             resolve(progress.handle)
-            break
-        }
-      })
-    })
+          }
+          switch (progress.state) {
+            case "failed":
+              cleanup()
+              reject(progress.error)
+              break
+            case "unavailable":
+              cleanup()
+              reject(new Error(`Document ${id} is unavailable`))
+              break
+            case "ready":
+              cleanup()
+              resolve(progress.handle)
+              break
+          }
+        })
+      }
+    )
+
+    return Promise.race([resultPromise, abortable(abortSignal)])
   }
 
   findWithProgress<T>(

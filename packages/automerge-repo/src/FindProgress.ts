@@ -2,6 +2,7 @@ import { DocHandle } from "./DocHandle.js"
 
 export type FindProgressState =
   | "loading"
+  | "requesting"
   | "ready"
   | "failed"
   | "aborted"

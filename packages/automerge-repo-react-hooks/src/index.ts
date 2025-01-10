@@ -11,9 +11,9 @@
  * Most hooks depend on RepoContext being available.
  *
  * #### {@link useDocument}
- * Return the current state of a document (or undefined) and a change function.
+ * Return the current state of a document and a change function.
  *
- * #### {@link useHandle}
+ * #### {@link useDocHandle}
  * Return a DocHandle by passing in a DocumentURL.
  *
  * #### {@link useLocalAwareness} & {@link useRemoteAwareness}

@@ -41,7 +41,9 @@ export function useDocHandle<T>(
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
-    const promise = repo.find<T>(id, { signal: controllerRef.current.signal })
+    const promise = repo.find<T>(id, {
+      abortSignal: controllerRef.current.signal,
+    })
     wrapper = wrapPromise(promise)
     wrapperCache.set(id, wrapper)
   }
@@ -52,8 +54,7 @@ export function useDocHandle<T>(
         .then(handle => {
           setHandle(handle as DocHandle<T>)
         })
-        .catch(e => {
-          console.log("handle promise caught", e)
+        .catch(() => {
           setHandle(undefined)
         })
     }

@@ -22,7 +22,7 @@ function getRepoWrapper(repo: Repo) {
   )
 }
 
-describe("useHandle", () => {
+describe("useDocHandle", () => {
   const repo = new Repo({
     peerId: "bob" as PeerId,
   })
@@ -234,7 +234,7 @@ describe("useHandle", () => {
     })
   })
 
-  describe("useHandle with suspense: false", () => {
+  describe("useDocHandle with suspense: false", () => {
     it("returns undefined while loading then resolves to handle", async () => {
       const { handleA, repo, wrapper } = await setup()
       const onHandle = vi.fn()
