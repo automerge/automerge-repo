@@ -28,7 +28,14 @@ interface UseDocHandleSynchronousParams {
 type UseDocHandleParams =
   | UseDocHandleSuspendingParams
   | UseDocHandleSynchronousParams
-
+export function useDocHandle<T>(
+  id: AnyDocumentId,
+  params?: UseDocHandleSuspendingParams
+): DocHandle<T>
+export function useDocHandle<T>(
+  id: AnyDocumentId,
+  params?: UseDocHandleSynchronousParams
+): DocHandle<T> | undefined
 export function useDocHandle<T>(
   id: AnyDocumentId,
   { suspense }: UseDocHandleParams = { suspense: false }
