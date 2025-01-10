@@ -48,3 +48,9 @@ export type FindProgress<T> =
   | FindProgressFailed
   | FindProgressUnavailable
   | FindProgressAborted
+
+export function isProgressWithHandle<T>(
+  progress: FindProgress<T>
+): progress is FindProgressWithHandle<T> {
+  return progress.state === "requesting" || progress.state === "ready"
+}

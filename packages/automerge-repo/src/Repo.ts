@@ -42,6 +42,7 @@ import {
   FindProgress,
   FindProgressWithHandle,
   FindProgressWithHandleState,
+  isProgressWithHandle,
 } from "./FindProgress.js"
 import { createSignal, Signal } from "./helpers/signals.js"
 
@@ -519,13 +520,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       (resolve, reject) => {
         progressSignal.subscribe(progress => {
           if (
-            allowableStates.includes(
-              progress.state as unknown as FindProgressWithHandleState
-            )
+            isProgressWithHandle(progress) &&
+            allowableStates.includes(progress.state)
           ) {
-            this.#registerHandleWithSubsystems(
-              (progress as FindProgressWithHandle<T>).handle
-            )
+            this.#registerHandleWithSubsystems(progress.handle)
             resolve(progress.handle)
           }
           switch (progress.state) {
