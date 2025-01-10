@@ -4,7 +4,7 @@ import {
   DocHandle,
   Signal,
 } from "@automerge/automerge-repo/slim"
-import { wrapPromise } from "./wrapPromise.js"
+import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
 import { abortable } from "@automerge/automerge-repo/helpers/abortable.js"
@@ -46,7 +46,7 @@ export function useDocHandle<T>(
   }, [id])
 
   // Get current progress
-  const progSig = repo.findWithSignalProgress(id)
+  const progSig = repo.findWithSignalProgress<T>(id)
   const progress = progSig.peek()
 
   // For ready state, we can return the handle immediately
@@ -60,26 +60,25 @@ export function useDocHandle<T>(
   }
 
   // If we're here, we're in suspense mode and not ready.
-  let wrapper = promiseCache.get(id)
+  let wrapper = promiseCache.get(id) as PromiseWrapper<DocHandle<T>> | undefined
   if (!wrapper) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
     const promise = handlePromise<T>(progSig, id)
     const abortPromise = abortable(controllerRef.current?.signal)
-    const wrapper = wrapPromise(Promise.race([promise, abortPromise]))
+    wrapper = wrapPromise(Promise.race([promise, abortPromise]))
 
     promiseCache.set(id, wrapper as any)
-    throw promise // WTF
   }
 
-  throw wrapper as Promise<DocHandle<T>>
+  return wrapper.read()
 }
 
 function handlePromise<T>(
-  progSig: Signal<FindProgress<unknown>>,
+  progSig: Signal<FindProgress<T>>,
   id: AnyDocumentId
-): Promise<DocHandle<unknown>> | undefined {
+): Promise<DocHandle<T>> {
   return new Promise<DocHandle<T>>((resolve, reject) => {
     compute(get => {
       const prog = get(progSig)
