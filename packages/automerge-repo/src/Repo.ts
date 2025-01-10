@@ -38,7 +38,11 @@ import type {
   PeerId,
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
-import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
+import {
+  FindProgress,
+  FindProgressWithHandle,
+  FindProgressWithHandleState,
+} from "./FindProgress.js"
 import { createSignal, Signal } from "./helpers/signals.js"
 
 function randomPeerId() {
@@ -419,34 +423,36 @@ export class Repo extends EventEmitter<RepoEvents> {
   /**
    * Loads a document without waiting for ready state
    */
-  async #loadDocumentWithSignal<T>(signal: Signal<FindProgress<T>>) {
-    // If we don't already have the handle, make an empty one and try loading it
-    const handle = signal.peek().handle
-
+  async #loadDocumentWithSignal<T>(
+    handle: DocHandle<T>,
+    signal: Signal<FindProgress<T>>
+  ) {
     const loadedDoc = await (this.storageSubsystem
       ? this.storageSubsystem.loadDoc(handle.documentId)
       : Promise.resolve(null))
 
-    signal.set({ state: "loading", progress: 25, handle })
+    signal.set({ state: "loading", progress: 25 })
 
     if (loadedDoc) {
       // We need to cast this to <T> because loadDoc operates in <unknowns>.
       // This is really where we ought to be validating the input matches <T>.
       handle.update(() => loadedDoc as Automerge.Doc<T>)
       handle.doneLoading()
-      signal.set({ state: "loading", progress: 50, handle })
+      signal.set({ state: "loading", progress: 50 })
     } else {
       // Because the network subsystem might still be booting up, we wait
       // here so that we don't immediately give up loading because we're still
       // making our initial connection to a sync server.
-      signal.set({ state: "loading", progress: 40, handle })
+      signal.set({ state: "loading", progress: 40 })
       await this.networkSubsystem.whenReady()
+
+      // this handle is for docsynchronizer because we do this annoyingly implicitly
       signal.set({ state: "requesting", progress: 60, handle })
       handle.request()
     }
 
     this.#registerHandleWithSubsystems(handle)
-    signal.set({ state: "loading", progress: 80, handle })
+    signal.set({ state: "loading", progress: 80 })
   }
 
   findWithSignalProgress<T>(
@@ -468,14 +474,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       signal = createSignal<FindProgress<T>>({
         state: "loading",
         progress: 0,
-        handle,
       })
 
-      this.#loadDocumentWithSignal(signal)
+      this.#loadDocumentWithSignal(handle, signal)
         .then(async () => {
           if (!signal) {
             throw new Error("Signal got lost")
           }
+
           await Promise.race([
             handle.whenReady([READY, UNAVAILABLE]),
             abortPromise,
@@ -486,7 +492,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             // probably by having new peers put the handle back into requesting
             // remove the document from the cache
             delete this.#signalCache[documentId]
-            signal.set({ state: "unavailable", handle })
+            signal.set({ state: "unavailable" })
           }
           if (handle.state === DELETED) {
             throw new Error(`Document ${id} was deleted`)
@@ -495,7 +501,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           signal.set({ state: "ready", handle })
         })
         .catch(error => {
-          signal?.set({ state: "failed", error, handle })
+          signal?.set({ state: "failed", error })
         })
     }
 
@@ -511,24 +517,25 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const resultPromise: Promise<DocHandle<T>> = new Promise(
       (resolve, reject) => {
-        const cleanup = progressSignal.subscribe(progress => {
-          // console.log("got signal", progress, allowableStates)
-          if (allowableStates.includes(progress.state)) {
-            cleanup()
-            this.#registerHandleWithSubsystems(progress.handle)
+        progressSignal.subscribe(progress => {
+          if (
+            allowableStates.includes(
+              progress.state as unknown as FindProgressWithHandleState
+            )
+          ) {
+            this.#registerHandleWithSubsystems(
+              (progress as FindProgressWithHandle<T>).handle
+            )
             resolve(progress.handle)
           }
           switch (progress.state) {
             case "failed":
-              cleanup()
               reject(progress.error)
               break
             case "unavailable":
-              cleanup()
               reject(new Error(`Document ${id} is unavailable`))
               break
             case "ready":
-              cleanup()
               resolve(progress.handle)
               break
           }
@@ -537,193 +544,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     )
 
     return Promise.race([resultPromise, abortable(abortSignal)])
-  }
-
-  findWithProgress<T>(
-    id: AnyDocumentId,
-    options: AbortOptions = {}
-  ): FindProgressWithMethods<T> | FindProgress<T> {
-    const { abortSignal: signal } = options
-    const abortPromise = abortable(signal)
-    const documentId = interpretAsDocumentId(id)
-
-    // Check cache first - return plain FindStep for terminal states
-    if (this.#handleCache[documentId]) {
-      const handle = this.#handleCache[documentId]
-      if (handle.state === UNAVAILABLE) {
-        const result = {
-          state: "unavailable" as const,
-          error: new Error(`Document ${id} is unavailable`),
-          handle,
-        }
-        return result
-      }
-      if (handle.state === DELETED) {
-        return {
-          state: "failed",
-          error: new Error(`Document ${id} was deleted`),
-          handle,
-        }
-      }
-      if (handle.state === READY) {
-        return {
-          state: "ready",
-          handle,
-        }
-      }
-    }
-
-    // the generator takes over `this`, so we need an alias to the repo this
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const that = this
-    async function* progressGenerator(): AsyncGenerator<FindProgress<T>> {
-      try {
-        const handle = that.#getHandle<T>({ documentId })
-        yield { state: "loading", progress: 25, handle }
-
-        const loadingPromise = await (that.storageSubsystem
-          ? that.storageSubsystem.loadDoc(handle.documentId)
-          : Promise.resolve(null))
-
-        const loadedDoc = await Promise.race([loadingPromise, abortPromise])
-
-        if (loadedDoc) {
-          handle.update(() => loadedDoc as Automerge.Doc<T>)
-          handle.doneLoading()
-          yield { state: "loading", progress: 50, handle }
-        } else {
-          await Promise.race([that.networkSubsystem.whenReady(), abortPromise])
-          handle.request()
-          yield { state: "loading", progress: 75, handle }
-        }
-
-        that.#registerHandleWithSubsystems(handle)
-
-        await Promise.race([
-          handle.whenReady([READY, UNAVAILABLE]),
-          abortPromise,
-        ])
-
-        if (handle.state === UNAVAILABLE) {
-          yield { state: "unavailable", handle }
-        }
-        if (handle.state === DELETED) {
-          throw new Error(`Document ${id} was deleted`)
-        }
-
-        yield { state: "ready", handle }
-      } catch (error) {
-        yield {
-          state: "failed",
-          error: error instanceof Error ? error : new Error(String(error)),
-          handle,
-        }
-      }
-    }
-
-    const iterator = progressGenerator()
-
-    const next = async () => {
-      const result = await iterator.next()
-      return { ...result.value, next }
-    }
-
-    const untilReady = async (allowableStates: string[]) => {
-      for await (const state of iterator) {
-        if (allowableStates.includes(state.handle.state)) {
-          return state.handle
-        }
-        if (state.state === "unavailable") {
-          throw new Error(`Document ${id} is unavailable`)
-        }
-        if (state.state === "ready") return state.handle
-        if (state.state === "failed") throw state.error
-      }
-      throw new Error("Iterator completed without reaching ready state")
-    }
-
-    const handle = this.#getHandle<T>({ documentId })
-    const initial = { state: "loading" as const, progress: 0, handle }
-    return { ...initial, next, untilReady }
-  }
-
-  async findGenerator<T>(
-    id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
-  ): Promise<DocHandle<T>> {
-    const { allowableStates = ["ready"], abortSignal } = options
-    const progress = this.findWithProgress<T>(id, { abortSignal })
-
-    if (allowableStates.includes(progress.state)) {
-      return progress.handle
-    }
-
-    if ("untilReady" in progress) {
-      // TODO: this line somehow makes a sync test pass but i don't understand why we need it
-      this.#registerHandleWithSubsystems(progress.handle)
-      return progress.untilReady(allowableStates)
-    } else {
-      return progress.handle
-    }
-  }
-
-  /**
-   * Loads a document without waiting for ready state
-   */
-  async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      return this.#handleCache[documentId]
-    }
-
-    // If we don't already have the handle, make an empty one and try loading it
-    const handle = this.#getHandle<T>({ documentId })
-    const loadedDoc = await (this.storageSubsystem
-      ? this.storageSubsystem.loadDoc(handle.documentId)
-      : Promise.resolve(null))
-
-    if (loadedDoc) {
-      // We need to cast this to <T> because loadDoc operates in <unknowns>.
-      // This is really where we ought to be validating the input matches <T>.
-      handle.update(() => loadedDoc as Automerge.Doc<T>)
-      handle.doneLoading()
-    } else {
-      // Because the network subsystem might still be booting up, we wait
-      // here so that we don't immediately give up loading because we're still
-      // making our initial connection to a sync server.
-      await this.networkSubsystem.whenReady()
-      handle.request()
-    }
-
-    this.#registerHandleWithSubsystems(handle)
-    return handle
-  }
-
-  /**
-   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
-   * event to advertise interest in the document.
-   */
-  async findClassic<T>(
-    /** The url or documentId of the handle to retrieve */
-    id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
-  ): Promise<DocHandle<T>> {
-    const documentId = interpretAsDocumentId(id)
-    const { allowableStates, abortSignal } = options
-
-    return Promise.race([
-      (async () => {
-        const handle = await this.#loadDocument<T>(documentId)
-        if (!allowableStates) {
-          await handle.whenReady([READY, UNAVAILABLE])
-          if (handle.state === UNAVAILABLE && !abortSignal?.aborted) {
-            throw new Error(`Document ${id} is unavailable`)
-          }
-        }
-        return handle
-      })(),
-      abortable(abortSignal),
-    ])
   }
 
   delete(
@@ -917,7 +737,7 @@ export interface RepoEvents {
 }
 
 export interface RepoFindOptions {
-  allowableStates?: string[]
+  allowableStates?: FindProgressWithHandle<any>["state"][]
 }
 
 export interface DocumentPayload {

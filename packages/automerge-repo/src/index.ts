@@ -16,7 +16,8 @@
  *
  * ```typescript
  * import { Repo } from "@automerge/automerge-repo";
- *
+ *import { createSignal } from '../../../examples/react-counter/node_modules/@automerge/automerge-repo/dist/helpers/signals';
+
  * const repo = new Repo({
  *   storage: <storage adapter>,
  *   network: [<network adapter>, <network adapter>]
@@ -91,6 +92,8 @@ export type {
   StorageKey,
   StorageId,
 } from "./storage/types.js"
+
+export { createSignal, compute, type Signal } from "./helpers/signals.js"
 
 export * from "./types.js"
 

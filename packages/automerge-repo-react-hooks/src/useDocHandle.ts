@@ -9,6 +9,11 @@ export const wrapperCache = new Map<
   ReturnType<typeof wrapPromise>
 >()
 
+export const promiseCache = new Map<
+  AnyDocumentId,
+  Promise<DocHandle<unknown>>
+>()
+
 interface UseDocHandleSuspendingParams {
   suspense: true
 }
@@ -34,7 +39,9 @@ export function useDocHandle<T>(
 ): DocHandle<T> | undefined {
   const repo = useRepo()
   const controllerRef = useRef<AbortController>()
-  const [handle, setHandle] = useState<DocHandle<T> | undefined>()
+  const [handle, setHandle] = useState<DocHandle<T> | undefined>(
+    repo.findWithSignalProgress(id).peek().handle as DocHandle<T> | undefined
+  )
 
   let wrapper = wrapperCache.get(id)
   if (!wrapper) {

@@ -111,7 +111,7 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#docSetUp[documentId] = true
 
     const handle = await this.repo.find(documentId, {
-      allowableStates: ["ready", "unavailable", "requesting"],
+      allowableStates: ["ready", "requesting"],
     })
     const docSynchronizer = this.#fetchDocSynchronizer(handle)
 

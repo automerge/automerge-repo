@@ -1,55 +1,50 @@
 import { DocHandle } from "./DocHandle.js"
 
-export type FindProgressState =
-  | "loading"
-  | "requesting"
-  | "ready"
-  | "failed"
-  | "aborted"
-  | "unavailable"
+export type FindProgressState = FindProgress<unknown>["state"]
+export type FindProgressWithHandleState =
+  FindProgressWithHandle<unknown>["state"]
 
-interface FindProgressBase<T> {
+interface FindProgressBase {
   state: FindProgressState
-  handle: DocHandle<T>
 }
 
-interface FindProgressLoading<T> extends FindProgressBase<T> {
+interface FindProgressLoading extends FindProgressBase {
   state: "loading"
   progress: number
 }
 
-interface FindProgressRequesting<T> extends FindProgressBase<T> {
+interface FindProgressRequesting<T> extends FindProgressBase {
   state: "requesting"
   progress: number
+  handle: DocHandle<T>
 }
 
-interface FindProgressReady<T> extends FindProgressBase<T> {
+interface FindProgressReady<T> extends FindProgressBase {
   state: "ready"
+  handle: DocHandle<T>
 }
 
-interface FindProgressFailed<T> extends FindProgressBase<T> {
+interface FindProgressFailed extends FindProgressBase {
   state: "failed"
   error: Error
 }
 
-interface FindProgressUnavailable<T> extends FindProgressBase<T> {
+interface FindProgressUnavailable extends FindProgressBase {
   state: "unavailable"
 }
 
-interface FindProgressAborted<T> extends FindProgressBase<T> {
+interface FindProgressAborted extends FindProgressBase {
   state: "aborted"
 }
 
-export type FindProgress<T> =
-  | FindProgressLoading<T>
+export type FindProgressWithHandle<T> =
   | FindProgressRequesting<T>
   | FindProgressReady<T>
-  | FindProgressFailed<T>
-  | FindProgressUnavailable<T>
-  | FindProgressAborted<T>
 
-export type FindProgressWithMethods<T> = FindProgress<T> & {
-  next: () => Promise<FindProgressWithMethods<T>>
-  // TODO: i don't like this allowableStates
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
-}
+export type FindProgress<T> =
+  | FindProgressLoading
+  | FindProgressRequesting<T> // needs to return the handle for docsynchronizer but others shouldn't see it
+  | FindProgressReady<T>
+  | FindProgressFailed
+  | FindProgressUnavailable
+  | FindProgressAborted

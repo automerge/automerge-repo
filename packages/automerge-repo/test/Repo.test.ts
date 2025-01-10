@@ -1467,23 +1467,6 @@ describe("Repo.find() abort behavior", () => {
     await expect(findPromise).rejects.toThrow("Operation aborted")
     await expect(findPromise).rejects.not.toThrow("unavailable")
   })
-
-  it("returns handle immediately when allow unavailable is true, even with abort signal", async () => {
-    const repo = new Repo()
-    const controller = new AbortController()
-    const url = generateAutomergeUrl()
-
-    const handle = await repo.find(url, {
-      allowableStates: ["unavailable"],
-      abortSignal: controller.signal,
-    })
-
-    expect(handle).toBeDefined()
-
-    // Abort shouldn't affect the result since we skipped ready
-    controller.abort()
-    expect(handle.url).toBe(url)
-  })
 })
 
 const warn = console.warn
