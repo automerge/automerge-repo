@@ -44,7 +44,7 @@ import {
   FindProgressWithHandleState,
   isProgressWithHandle,
 } from "./FindProgress.js"
-import { createSignal, Signal } from "./helpers/signals.js"
+import { compute, createSignal, Signal } from "./helpers/signals.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -453,16 +453,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.#registerHandleWithSubsystems(handle)
-    signal.set({ state: "loading", progress: 80 })
   }
 
-  findWithSignalProgress<T>(
-    id: AnyDocumentId,
-    options: AbortOptions = {}
-  ): Signal<FindProgress<T>> {
-    const { abortSignal } = options
-    const abortPromise = abortable(abortSignal)
-
+  findWithSignalProgress<T>(id: AnyDocumentId): Signal<FindProgress<T>> {
     const documentId = interpretAsDocumentId(id)
 
     // first, let's get a handle
@@ -476,6 +469,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         state: "loading",
         progress: 0,
       })
+      this.#signalCache[documentId] = signal as Signal<FindProgress<unknown>>
 
       this.#loadDocumentWithSignal(handle, signal)
         .then(async () => {
@@ -483,10 +477,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             throw new Error("Signal got lost")
           }
 
-          await Promise.race([
-            handle.whenReady([READY, UNAVAILABLE]),
-            abortPromise,
-          ])
+          await handle.whenReady([READY, UNAVAILABLE])
 
           if (handle.state === UNAVAILABLE) {
             // TODO: i think there's a more principled way to do this
@@ -514,16 +505,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
     const { allowableStates = ["ready"], abortSignal } = options
-    const progressSignal = this.findWithSignalProgress<T>(id, { abortSignal })
+    const progressSignal = this.findWithSignalProgress<T>(id)
 
     const resultPromise: Promise<DocHandle<T>> = new Promise(
       (resolve, reject) => {
-        progressSignal.subscribe(progress => {
+        compute(get => {
+          const progress = get(progressSignal)
           if (
             isProgressWithHandle(progress) &&
             allowableStates.includes(progress.state)
           ) {
             this.#registerHandleWithSubsystems(progress.handle)
+
             resolve(progress.handle)
           }
           switch (progress.state) {

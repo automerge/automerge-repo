@@ -35,12 +35,12 @@ export function createSignal<T>(initialValue: T): Signal<T> {
 }
 
 export function compute<T>(
-  fn: (get: (signal: Signal<unknown>) => unknown, prev?: T) => T
+  fn: (get: <U>(signal: Signal<U>) => U, prev?: T) => T
 ): Signal<T> {
   const accessed = new Set<Signal<unknown>>()
 
-  const get = (signal: Signal<any>) => {
-    accessed.add(signal)
+  const get = <U>(signal: Signal<U>) => {
+    accessed.add(signal as Signal<unknown>)
     return signal.peek()
   }
 

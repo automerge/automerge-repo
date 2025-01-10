@@ -832,7 +832,6 @@ describe("Repo", () => {
     it("changes are replicated from aliceRepo to bobRepo", async () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
 
-      console.log(bobRepo)
       const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
       const bobDoc = bobHandle.doc()
       assert.deepStrictEqual(bobDoc, { foo: "bar" })
@@ -841,7 +840,6 @@ describe("Repo", () => {
 
     it("can load a document from aliceRepo on charlieRepo", async () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
-
       const handle3 = await charlieRepo.find<TestDoc>(aliceHandle.url)
       const doc3 = handle3.doc()
       assert.deepStrictEqual(doc3, { foo: "bar" })
