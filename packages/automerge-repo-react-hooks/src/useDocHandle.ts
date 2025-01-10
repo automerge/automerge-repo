@@ -6,6 +6,7 @@ import {
 import { wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
+import { abortable } from "@automerge/automerge-repo/helpers/abortable.js"
 
 // Shared with useDocHandles
 export const promiseCache = new Map<
@@ -76,13 +77,10 @@ export function useDocHandle<T>(
 
         return prog
       })
-
-      controllerRef.current?.signal.addEventListener("abort", () => {
-        reject(new Error("Operation aborted"))
-      })
     })
+    const abortPromise = abortable(controllerRef.current?.signal)
 
-    const cacheablePromise = wrapPromise(promise)
+    const cacheablePromise = wrapPromise(Promise.race([promise, abortPromise]))
 
     promiseCache.set(id, cacheablePromise as any)
   }
