@@ -2,7 +2,7 @@ import { AutomergeUrl, DocHandle } from "@automerge/automerge-repo/slim"
 import { useState, useEffect } from "react"
 import { useRepo } from "./useRepo.js"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
-import { wrapperCache } from "./useDocHandle.js"
+import { promiseCache } from "./useDocHandle.js"
 
 interface UseDocHandlesParams {
   suspense?: boolean
@@ -22,12 +22,12 @@ export function useDocHandles<T>(
 
   // Check if we need any new wrappers
   for (const id of ids) {
-    let wrapper = wrapperCache.get(id)!
+    let wrapper = promiseCache.get(id)!
     if (!wrapper) {
       try {
         const promise = repo.find<T>(id)
         wrapper = wrapPromise(promise)
-        wrapperCache.set(id, wrapper)
+        promiseCache.set(id, wrapper)
       } catch (e) {
         continue
       }

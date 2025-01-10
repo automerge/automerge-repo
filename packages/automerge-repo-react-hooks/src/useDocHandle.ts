@@ -13,7 +13,7 @@ import { FindProgress } from "../../automerge-repo/dist/FindProgress.js"
 // Shared with useDocHandles
 export const promiseCache = new Map<
   AnyDocumentId,
-  Promise<DocHandle<unknown>>
+  PromiseWrapper<DocHandle<unknown>>
 >()
 
 interface UseDocHandleSuspendingParams {
