@@ -1,4 +1,8 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import {
+  AnyDocumentId,
+  compute,
+  DocHandle,
+} from "@automerge/automerge-repo/slim"
 import { wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
@@ -27,49 +31,36 @@ type UseDocHandleParams =
 
 export function useDocHandle<T>(
   id: AnyDocumentId,
-  params: UseDocHandleSuspendingParams
-): DocHandle<T>
-export function useDocHandle<T>(
-  id: AnyDocumentId,
-  params?: UseDocHandleSynchronousParams
-): DocHandle<T> | undefined
-export function useDocHandle<T>(
-  id: AnyDocumentId,
   { suspense }: UseDocHandleParams = { suspense: false }
 ): DocHandle<T> | undefined {
   const repo = useRepo()
   const controllerRef = useRef<AbortController>()
-  const [handle, setHandle] = useState<DocHandle<T> | undefined>(
-    repo.findWithSignalProgress(id).peek().handle as DocHandle<T> | undefined
-  )
 
-  let wrapper = wrapperCache.get(id)
-  if (!wrapper) {
+  // Get current progress
+  const val = repo.findWithSignalProgress(id).peek()
+
+  // For ready state, we can return the handle immediately
+  if (val.state === "ready") {
+    return val.handle as DocHandle<T>
+  }
+
+  // For non-suspense mode, return previous handle or undefined
+  if (!suspense) {
+    console.log("non-suspense mode, returning undefined", val)
+    return undefined
+  }
+
+  // If we're here, we're in suspense mode and not ready.
+  // We'll create an abortable promise from the signal.
+  let promise = promiseCache.get(id)
+  if (!promise) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
-    const promise = repo.find<T>(id, {
+    promise = repo.find<T>(id, {
       abortSignal: controllerRef.current.signal,
     })
-    wrapper = wrapPromise(promise)
-    wrapperCache.set(id, wrapper)
+    promiseCache.set(id, promise)
   }
-
-  useEffect(() => {
-    if (suspense === false) {
-      void wrapper.promise
-        .then(handle => {
-          setHandle(handle as DocHandle<T>)
-        })
-        .catch(() => {
-          setHandle(undefined)
-        })
-    }
-  }, [suspense, wrapper])
-
-  if (suspense) {
-    return wrapper.read() as DocHandle<T>
-  } else {
-    return handle || undefined
-  }
+  throw promise
 }

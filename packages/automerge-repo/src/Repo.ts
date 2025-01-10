@@ -465,10 +465,17 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     if (!signal) {
       const handle = this.#getHandle<T>({ documentId })
-      signal = createSignal<FindProgress<T>>({
-        state: "loading",
-        progress: 0,
-      })
+      if (handle.state === "ready") {
+        signal = createSignal<FindProgress<T>>({
+          state: "ready",
+          handle,
+        })
+      } else {
+        signal = createSignal<FindProgress<T>>({
+          state: "loading",
+          progress: 0,
+        })
+      }
       this.#signalCache[documentId] = signal as Signal<FindProgress<unknown>>
 
       this.#loadDocumentWithSignal(handle, signal)

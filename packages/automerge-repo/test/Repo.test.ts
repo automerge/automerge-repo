@@ -1467,6 +1467,23 @@ describe("Repo.find() abort behavior", () => {
   })
 })
 
+describe("findWithSignalProgress", () => {
+  it("returns ready state immediately for locally created documents", () => {
+    const repo = new Repo()
+    const handle = repo.create<TestDoc>()
+    handle.change(d => {
+      d.foo = "bar"
+    })
+
+    const signal = repo.findWithSignalProgress<TestDoc>(handle.url)
+    const progress = signal.peek()
+
+    assert.equal(progress.state, "ready")
+    assert.equal((progress as any).handle, handle)
+    assert.equal((progress as any).handle.doc().foo, "bar")
+  })
+})
+
 const warn = console.warn
 const NO_OP = () => {}
 
