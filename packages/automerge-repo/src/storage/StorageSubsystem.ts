@@ -9,7 +9,6 @@ import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
 import * as Uuid from "uuid"
 import { EventEmitter } from "eventemitter3"
-import { decodeHeads, UrlHeads } from "../AutomergeUrl.js"
 
 type StorageSubsystemEvents = {
   "document-loaded": (arg: {

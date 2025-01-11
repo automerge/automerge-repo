@@ -1,4 +1,3 @@
-import { next as A } from "@automerge/automerge/slim"
 import { EventEmitter } from "eventemitter3"
 import { DocumentId, PeerId } from "./types.js"
 import {
@@ -357,11 +356,14 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       if (docRemote && docRemote.timestamp >= timestamp) {
         continue
       } else {
-        remote.set(storageId as StorageId, { timestamp, heads })
+        remote.set(storageId as StorageId, {
+          timestamp,
+          heads: heads as UrlHeads,
+        })
         changedHeads.push({
           documentId,
           storageId: storageId as StorageId,
-          remoteHeads: heads,
+          remoteHeads: heads as UrlHeads,
           timestamp,
         })
       }
