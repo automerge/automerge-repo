@@ -22,6 +22,7 @@ import { describe, it } from "vitest"
 import WebSocket from "ws"
 import { BrowserWebSocketClientAdapter } from "../src/BrowserWebSocketClientAdapter.js"
 import { NodeWSServerAdapter } from "../src/NodeWSServerAdapter.js"
+import { encodeHeads } from "../../automerge-repo/dist/AutomergeUrl.js"
 
 describe("Websocket adapters", () => {
   const browserPeerId = "browser" as PeerId
@@ -620,15 +621,10 @@ describe("Websocket adapters", () => {
         await pause(50)
       }
 
-      const dh = new DocHandle<{
-        foo: string
-      }>("docId" as DocumentId)
-      dh.update(() => clientDoc)
-
-      let localHeads = dh.heads()
+      // we encode localHeads for consistency with URL formatted heads
+      let localHeads = A.getHeads(clientDoc)
       let remoteHeads = handle.heads()
-      console.log({ localHeads, remoteHeads })
-      if (!headsAreSame(localHeads, remoteHeads)) {
+      if (!headsAreSame(encodeHeads(localHeads), remoteHeads)) {
         throw new Error("heads not equal")
       }
     })
