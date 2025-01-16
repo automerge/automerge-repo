@@ -1,6 +1,7 @@
 import { next as A } from "@automerge/automerge"
 import {
   AutomergeUrl,
+  DocHandle,
   DocumentId,
   PeerId,
   Repo,
@@ -619,8 +620,14 @@ describe("Websocket adapters", () => {
         await pause(50)
       }
 
-      let localHeads = A.getHeads(clientDoc)
+      const dh = new DocHandle<{
+        foo: string
+      }>("docId" as DocumentId)
+      dh.update(() => clientDoc)
+
+      let localHeads = dh.heads()
       let remoteHeads = handle.heads()
+      console.log({ localHeads, remoteHeads })
       if (!headsAreSame(localHeads, remoteHeads)) {
         throw new Error("heads not equal")
       }

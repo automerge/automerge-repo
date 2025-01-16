@@ -107,7 +107,12 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
             if (!("data" in message)) {
               this.emit("message", message)
             } else {
-              const data = message.data as ArrayBufferLike
+              if (!message.data) {
+                throw new Error(
+                  "We got a message without data, we can't send this."
+                )
+              }
+              const data = message.data
               this.emit("message", {
                 ...message,
                 data: new Uint8Array(data),
