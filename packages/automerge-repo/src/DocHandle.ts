@@ -188,7 +188,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #checkForChanges(before: A.Doc<T>, after: A.Doc<T>) {
     const beforeHeads = A.getHeads(before)
     const afterHeads = A.getHeads(after)
-    const docChanged = !headsAreSame(afterHeads, beforeHeads)
+    const docChanged = !headsAreSame(
+      encodeHeads(afterHeads),
+      encodeHeads(beforeHeads)
+    )
     if (docChanged) {
       this.emit("heads-changed", { handle: this, doc: after })
 

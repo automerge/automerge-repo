@@ -9,6 +9,7 @@ import { keyHash, headsHash } from "./keyHash.js"
 import { chunkTypeFromKey } from "./chunkTypeFromKey.js"
 import * as Uuid from "uuid"
 import { EventEmitter } from "eventemitter3"
+import { encodeHeads } from "../AutomergeUrl.js"
 
 type StorageSubsystemEvents = {
   "document-loaded": (arg: {
@@ -280,7 +281,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     }
 
     const newHeads = A.getHeads(doc)
-    if (headsAreSame(newHeads, oldHeads)) {
+    if (headsAreSame(encodeHeads(newHeads), encodeHeads(oldHeads))) {
       // the document hasn't changed
       return false
     }
