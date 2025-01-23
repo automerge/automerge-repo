@@ -4,6 +4,7 @@ import type {
   BinaryDocumentId,
   DocumentId,
   AnyDocumentId,
+  UrlHeads,
 } from "./types.js"
 
 import * as Uuid from "uuid"
@@ -16,9 +17,6 @@ import {
 import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
 
 export const urlPrefix = "automerge:"
-
-// We need to define our own version of heads because the AutomergeHeads type is not bs58check encoded
-export type UrlHeads = string[] & { __automergeUrlHeadsBrand: unknown }
 
 interface ParsedAutomergeUrl {
   /** unencoded DocumentId */
