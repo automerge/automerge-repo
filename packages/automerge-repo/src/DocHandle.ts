@@ -6,12 +6,11 @@ import {
   decodeHeads,
   encodeHeads,
   stringifyAutomergeUrl,
-  UrlHeads,
 } from "./AutomergeUrl.js"
 import { encode } from "./helpers/cbor.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { withTimeout } from "./helpers/withTimeout.js"
-import type { AutomergeUrl, DocumentId, PeerId } from "./types.js"
+import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
 import { StorageId } from "./storage/types.js"
 
 /**

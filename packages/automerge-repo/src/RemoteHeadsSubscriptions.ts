@@ -1,12 +1,11 @@
 import { EventEmitter } from "eventemitter3"
-import { DocumentId, PeerId } from "./types.js"
+import { DocumentId, PeerId, UrlHeads } from "./types.js"
 import {
   RemoteHeadsChanged,
   RemoteSubscriptionControlMessage,
 } from "./network/messages.js"
 import { StorageId } from "./index.js"
 import debug from "debug"
-import { UrlHeads } from "./AutomergeUrl.js"
 
 // Notify a DocHandle that remote heads have changed
 export type RemoteHeadsSubscriptionEventPayload = {
