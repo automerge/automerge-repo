@@ -260,18 +260,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
     }
 
-    handle.on("unavailable", () => {
-      this.#log("document unavailable", { documentId: handle.documentId })
-      this.emit("unavailable-document", {
-        documentId: handle.documentId,
-      })
-    })
-
     // Register the document with the synchronizer. This advertises our interest in the document.
-    this.synchronizer.addDocument(handle.documentId)
-
-    // Preserve the old event in case anyone was using it.
-    this.emit("document", { handle })
+    void this.synchronizer.addDocument(handle)
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -432,26 +422,21 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Retrieves a document by id. It gets data from the local system, but also emits a `document`
    * event to advertise interest in the document.
    */
-  find<T>(
+  async find<T>(
     /** The url or documentId of the handle to retrieve */
-    id: AnyDocumentId
-  ): DocHandle<T> {
-    const { documentId, heads } = isValidAutomergeUrl(id)
-      ? parseAutomergeUrl(id)
-      : { documentId: interpretAsDocumentId(id), heads: undefined }
+    id: AnyDocumentId,
+    { skipReady = false }: { skipReady?: boolean } = {}
+  ): Promise<DocHandle<T>> {
+    const documentId = interpretAsDocumentId(id)
 
-    const cachedHandle = this.#handleCache[documentId]
-    if (cachedHandle) {
-      if (cachedHandle.isUnavailable()) {
-        // this ensures that the event fires after the handle has been returned
-        setTimeout(() => {
-          cachedHandle.emit("unavailable", {
-            handle: cachedHandle,
-          })
-        })
+    // If we have the handle cached, return it
+    if (this.#handleCache[documentId]) {
+      if (skipReady) {
+        return this.#handleCache[documentId]
       }
-      // If we already have the handle, return it immediately (or a view of the handle if heads are specified)
-      return heads ? cachedHandle.view(heads) : cachedHandle
+      await this.#handleCache[documentId].whenReady([READY])
+
+      return this.#handleCache[documentId]
     }
 
     // If we don't already have the handle, make an empty one and try loading it
@@ -465,26 +450,30 @@ export class Repo extends EventEmitter<RepoEvents> {
       ? this.storageSubsystem.loadDoc(handle.documentId)
       : Promise.resolve(null)
 
-    attemptLoad
-      .then(async loadedDoc => {
-        if (loadedDoc) {
-          // uhhhh, sorry if you're reading this because we were lying to the type system
-          handle.update(() => loadedDoc as Automerge.Doc<T>)
-          handle.doneLoading()
-        } else {
-          // we want to wait for the network subsystem to be ready before
-          // we request the document. this prevents entering unavailable during initialization.
-          await this.networkSubsystem.whenReady()
-          handle.request()
-        }
-        this.#registerHandleWithSubsystems(handle)
-      })
-      .catch(err => {
-        this.#log("error waiting for network", { err })
-      })
+    const loadedDoc = await attemptLoad
 
-    // If we already have the handle, return it immediately (or a view of the handle if heads are specified)
-    return heads ? handle.view(heads) : handle
+    if (loadedDoc) {
+      // uhhhh, sorry if you're reading this because we were lying to the type system
+      handle.update(() => loadedDoc as Automerge.Doc<T>)
+      handle.doneLoading()
+    } else {
+      // we want to wait for the network subsystem to be ready before
+      // we request the document. this prevents entering unavailable during initialization.
+      await this.networkSubsystem.whenReady()
+      handle.request()
+    }
+    this.#registerHandleWithSubsystems(handle)
+    if (skipReady) {
+      console.log("Skipping ready for sync messages")
+      return handle
+    }
+    await handle.whenReady([READY, UNAVAILABLE])
+
+    console.log("handle state", handle.state)
+    if (handle.state === UNAVAILABLE) {
+      throw new Error(`Document ${id} is unavailable`)
+    }
+    return handle
   }
 
   delete(

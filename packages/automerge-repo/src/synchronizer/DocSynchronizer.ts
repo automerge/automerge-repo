@@ -351,7 +351,13 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#withSyncState(message.senderId, syncState => {
       this.#handle.update(doc => {
+        console.log(
+          "received sync message in state",
+          this.#handle.documentId,
+          this.#handle.state
+        )
         const start = performance.now()
+
         const [newDoc, newSyncState] = A.receiveSyncMessage(
           doc,
           syncState,
