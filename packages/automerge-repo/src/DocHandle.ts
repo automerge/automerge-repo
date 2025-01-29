@@ -415,7 +415,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       if (!otherHeads) throw new Error("Other document's heads not available")
 
       // Create a temporary merged doc to verify shared history and compute diff
-      const mergedDoc = A.merge(A.clone(doc), first.docSync()!)
+      const mergedDoc = A.merge(A.clone(doc), first.doc()!)
       // Use the merged doc to compute the diff
       return A.diff(
         mergedDoc,

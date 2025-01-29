@@ -60,15 +60,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
         // Bob receives the change
         await eventPromise(bobHandle, "change")
-<<<<<<< HEAD
-<<<<<<< HEAD
-        assert.equal(bobHandle.docSync().foo, "bar")
-=======
-        assert.equal((await bobHandle).docSync()?.foo, "bar")
->>>>>>> 169b11dc (failed wip)
-=======
-        assert.equal(bobHandle.doc().foo, "bar")
->>>>>>> 31b6d960 (updating other packages)
+        assert.equal((await bobHandle).doc()?.foo, "bar")
 
         // Bob changes the document
         bobHandle.change(d => {
@@ -77,15 +69,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
         // Alice receives the change
         await eventPromise(aliceHandle, "change")
-<<<<<<< HEAD
-<<<<<<< HEAD
-        assert.equal(aliceHandle.docSync().foo, "baz")
-=======
-        assert.equal((await aliceHandle.docSync())?.foo, "baz")
->>>>>>> 169b11dc (failed wip)
-=======
         assert.equal(aliceHandle.doc().foo, "baz")
->>>>>>> 31b6d960 (updating other packages)
       }
 
       // Run the test in both directions, in case they're different types of adapters
