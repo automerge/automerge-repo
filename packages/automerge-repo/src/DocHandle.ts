@@ -307,8 +307,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   doc() {
     if (!this.isReady()) throw new Error("DocHandle is not ready")
     if (this.#fixedHeads) {
-      const doc = this.#doc
-      return doc ? A.view(doc, decodeHeads(this.#fixedHeads)) : undefined
+      return A.view(this.#doc, decodeHeads(this.#fixedHeads))
     }
     return this.#doc
   }

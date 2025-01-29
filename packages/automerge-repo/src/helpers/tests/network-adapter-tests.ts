@@ -111,8 +111,8 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       // Bob and Charlie receive the change
       await eventPromises([bobHandle, charlieHandle], "change")
-      assert.equal((await bobHandle).doc().foo, "bar")
-      assert.equal((await charlieHandle).doc().foo, "bar")
+      assert.equal(bobHandle.doc().foo, "bar")
+      assert.equal(charlieHandle.doc().foo, "bar")
 
       // Charlie changes the document
       charlieHandle.change(d => {

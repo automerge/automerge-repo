@@ -41,7 +41,6 @@ import type {
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
-import { pause } from "./helpers/pause.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
