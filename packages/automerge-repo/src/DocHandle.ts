@@ -317,8 +317,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * This precisely defines the state of a document.
    * @returns the current document's heads, or undefined if the document is not ready
    */
-  heads(): UrlHeads | undefined {
-    if (!this.isReady()) return undefined
+  heads(): UrlHeads {
+    if (!this.isReady()) throw new Error("DocHandle is not ready")
     if (this.#fixedHeads) {
       return this.#fixedHeads
     }

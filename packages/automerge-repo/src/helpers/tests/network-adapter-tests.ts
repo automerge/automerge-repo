@@ -49,8 +49,9 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         // Alice creates a document
         const aliceHandle = aliceRepo.create<TestDoc>()
 
-        // Bob receives the document
-        await eventPromise(bobRepo, "document")
+        // TODO: ... let connections complete. this shouldn't be necessary.
+        await pause(50)
+
         const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
 
         // Alice changes the document
@@ -100,7 +101,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       const docUrl = aliceHandle.url
 
       // Bob and Charlie receive the document
-      await eventPromises([bobRepo, charlieRepo], "document")
+      await pause(50)
       const bobHandle = await bobRepo.find<TestDoc>(docUrl)
       const charlieHandle = await charlieRepo.find<TestDoc>(docUrl)
 
