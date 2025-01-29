@@ -8,9 +8,6 @@ import {
   getHeadsFromUrl,
   isValidAutomergeUrl,
   parseAutomergeUrl,
-  UrlHeads,
-} from "../src/AutomergeUrl.js"
-import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
@@ -19,6 +16,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
   AnyDocumentId,
+  UrlHeads,
   AutomergeUrl,
   DocHandle,
   DocumentId,
@@ -560,7 +558,7 @@ describe("Repo", () => {
       })
 
       // Could not find the document that is not yet saved because of slow storage.
-      expect(async () => {
+      await expect(async () => {
         const reloadedHandle = await repo2.find<{ foo: string }>(handle.url)
       }).rejects.toThrow(/Document (.*) is unavailable/)
       expect(pausedStorage.keys()).to.deep.equal([])
@@ -612,7 +610,7 @@ describe("Repo", () => {
         ).toEqual("first")
         // Really, it's okay if the second one is also flushed but I'm forcing the issue
         // in the test storage engine above to make sure the behaviour is as documented
-        expect(async () => {
+        await expect(async () => {
           ;(await repo.find<{ foo: string }>(handle2.documentId)).doc()
         }).rejects.toThrow(/Document (.*) is unavailable/)
       }
@@ -1467,7 +1465,7 @@ describe("Repo heads-in-URLs functionality", () => {
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
     const view = await repo.find(url)
-    expect(view.docSync()).toEqual({ title: "Hello World" })
+    expect(view.doc()).toEqual({ title: "Hello World" })
   })
 
   it("returns a view, not the actual handle, when finding by URL with heads", async () => {
@@ -1477,7 +1475,7 @@ describe("Repo heads-in-URLs functionality", () => {
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
     const view = await repo.find(url)
     expect(view.doc()).toEqual({ title: "Hello World" })
-    expect(handle.docSync()).toEqual({ title: "Changed" })
+    expect(handle.doc()).toEqual({ title: "Changed" })
   })
 
   it("changes to a document view do not affect the original", async () => {
@@ -1488,7 +1486,7 @@ describe("Repo heads-in-URLs functionality", () => {
     expect(() =>
       view.change((doc: any) => (doc.title = "Changed in View"))
     ).toThrow()
-    expect(handle.docSync()).toEqual({ title: "Hello World" })
+    expect(handle.doc()).toEqual({ title: "Hello World" })
   })
 
   it("document views are read-only", async () => {
@@ -1503,7 +1501,7 @@ describe("Repo heads-in-URLs functionality", () => {
     const { repo, handle } = setup()
     await handle.change((doc: any) => (doc.title = "Changed"))
     const found = await repo.find(handle.url)
-    expect(found.docSync()).toEqual({ title: "Changed" })
+    expect(found.doc()).toEqual({ title: "Changed" })
   })
 
   it("getHeadsFromUrl returns heads array if present or undefined", () => {

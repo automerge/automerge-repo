@@ -127,7 +127,7 @@ describe("DocHandle", () => {
 
     const history = handle.history()
     const viewHandle = new DocHandle<TestDoc>(TEST_ID, { heads: history[0] })
-    viewHandle.update(() => A.clone(handle.docSync()!))
+    viewHandle.update(() => A.clone(handle.doc()!))
     viewHandle.doneLoading()
 
     assert.deepEqual(await viewHandle.doc(), { foo: "zero" })

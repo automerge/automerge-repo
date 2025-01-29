@@ -427,7 +427,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   ): FindProgressWithMethods<T> | FindProgress<T> {
     const { signal } = options
     const abortPromise = abortable(signal)
-    const documentId = interpretAsDocumentId(id)
+
+    const { documentId, heads } = isValidAutomergeUrl(id)
+      ? parseAutomergeUrl(id)
+      : { documentId: interpretAsDocumentId(id), heads: undefined }
 
     // Check cache first - return plain FindStep for terminal states
     if (this.#handleCache[documentId]) {
@@ -448,9 +451,11 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
       }
       if (handle.state === READY) {
+        // If we already have the handle, return it immediately (or a view of the handle if heads are specified)
         return {
           state: "ready",
-          handle,
+          // TODO: this handle needs to be cached (or at least avoid running clone)
+          handle: heads ? handle.view(heads) : handle,
         }
       }
     }
@@ -541,8 +546,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       return progress.handle
     }*/
 
-    // @ts-expect-error -- my initial result is a FindProgressWithMethods which has untilReady
-    if (progress.untilReady) {
+    if ("untilReady" in progress) {
       this.#registerHandleWithSubsystems(progress.handle)
       return progress.untilReady(allowableStates)
     } else {
