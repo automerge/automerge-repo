@@ -1,5 +1,6 @@
 import {
   AutomergeUrl,
+  Doc,
   generateAutomergeUrl,
   PeerId,
   Repo,
@@ -50,9 +51,9 @@ describe("useDocument", () => {
     onDoc,
   }: {
     url: AutomergeUrl
-    onDoc: (doc: ExampleDoc) => void
+    onDoc: (doc: Doc<ExampleDoc>) => void
   }) => {
-    const [doc] = useDocument<ExampleDoc>(url)
+    const [doc] = useDocument<ExampleDoc>(url, { suspense: true })
     onDoc(doc)
     return <div data-testid="content">{doc.foo}</div>
   }
