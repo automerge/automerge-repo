@@ -54,7 +54,7 @@ describe("DocHandle", () => {
     assert.deepEqual(doc, handle.doc())
   })
 
-  it("should return undefined if we access the doc before ready", async () => {
+  it("should throw an exception if we access the doc before ready", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.throws(() => handle.doc())
   })
@@ -91,10 +91,10 @@ describe("DocHandle", () => {
     assert.deepEqual(heads, handle.heads())
   })
 
-  it("should return undefined if the heads aren't loaded", async () => {
+  it("should throw an if the heads aren't loaded", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
-    assert.deepEqual(handle.heads(), undefined)
+    expect(() => handle.heads()).toThrow("DocHandle is not ready")
   })
 
   it("should return the history when requested", async () => {

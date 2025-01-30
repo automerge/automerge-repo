@@ -25,19 +25,19 @@ export function useDocHandle<T>(
   params: UseDocHandleSuspendingParams
 ): DocHandle<T>
 export function useDocHandle<T>(
-  id: AnyDocumentId,
+  id: AnyDocumentId | undefined,
   params?: UseDocHandleSynchronousParams
 ): DocHandle<T> | undefined
 export function useDocHandle<T>(
-  id: AnyDocumentId,
+  id: AnyDocumentId | undefined,
   { suspense }: UseDocHandleParams = { suspense: false }
 ): DocHandle<T> | undefined {
   const repo = useRepo()
   const controllerRef = useRef<AbortController>()
   const [handle, setHandle] = useState<DocHandle<T> | undefined>()
 
-  let wrapper = wrapperCache.get(id)
-  if (!wrapper) {
+  let wrapper = id ? wrapperCache.get(id) : undefined
+  if (!wrapper && id) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
@@ -47,6 +47,9 @@ export function useDocHandle<T>(
   }
 
   useEffect(() => {
+    if (!wrapper) {
+      return
+    }
     if (suspense === false) {
       void wrapper.promise
         .then(handle => {
@@ -60,7 +63,7 @@ export function useDocHandle<T>(
   }, [suspense, wrapper])
 
   if (suspense) {
-    return wrapper.read() as DocHandle<T>
+    return wrapper && (wrapper.read() as DocHandle<T>)
   } else {
     return handle || undefined
   }

@@ -313,6 +313,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
+   *
+   * @deprecated */
+  docSync() {
+    return this.doc()
+  }
+
+  /**
    * Returns the current "heads" of the document, akin to a git commit.
    * This precisely defines the state of a document.
    * @returns the current document's heads, or undefined if the document is not ready
