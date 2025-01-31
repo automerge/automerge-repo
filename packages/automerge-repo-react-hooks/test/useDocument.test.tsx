@@ -110,7 +110,7 @@ describe("useDocument", () => {
     expect(onDoc).toHaveBeenCalledWith({ foo: "new value" })
   })
 
-  it.only("should throw error if the doc is deleted", async () => {
+  it("should throw error if the doc is deleted", async () => {
     // suppress console.error from the error boundary
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
