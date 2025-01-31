@@ -195,14 +195,14 @@ describe("Repo", () => {
 
     it("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
       const { repo } = setup()
-      expect(async () => {
+      await expect(async () => {
         await repo.find<TestDoc>("invalid-url" as unknown as AutomergeUrl)
       }).rejects.toThrow("Invalid AutomergeUrl: 'invalid-url'")
     })
 
     it("doesn't find a document that doesn't exist", async () => {
       const { repo } = setup()
-      expect(async () => {
+      await expect(async () => {
         await repo.find<TestDoc>(generateAutomergeUrl())
       }).rejects.toThrow(/Document (.*) is unavailable/)
     })
@@ -1442,7 +1442,7 @@ describe("Repo", () => {
         eventPromise(client.networkSubsystem, "peer"),
       ])
 
-      expect(async () => {
+      await expect(async () => {
         const clientDoc = await client.find(doc.url)
       }).rejects.toThrow(/Document (.*) is unavailable/)
 
