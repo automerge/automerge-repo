@@ -13,7 +13,7 @@
  * #### {@link useDocument}
  * Return the current state of a document (or undefined) and a change function.
  *
- * #### {@link useHandle}
+ * #### {@link useDocHandle}
  * Return a DocHandle by passing in a DocumentURL.
  *
  * #### {@link useLocalAwareness} & {@link useRemoteAwareness}

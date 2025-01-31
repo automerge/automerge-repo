@@ -12,7 +12,7 @@ import "@testing-library/jest-dom"
 
 import { useDocument } from "../src/useDocument"
 import { RepoContext } from "../src/useRepo"
-import { TestingErrorBoundary as ErrorBoundary } from "./TestingErrorBoundary"
+import { ErrorBoundary } from "react-error-boundary"
 
 interface ExampleDoc {
   foo: string
@@ -110,7 +110,10 @@ describe("useDocument", () => {
     expect(onDoc).toHaveBeenCalledWith({ foo: "new value" })
   })
 
-  it("should throw error if the doc is deleted", async () => {
+  it.only("should throw error if the doc is deleted", async () => {
+    // suppress console.error from the error boundary
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
     const { wrapper, handleA } = setup()
     const onDoc = vi.fn()
     const onError = vi.fn()
@@ -137,6 +140,8 @@ describe("useDocument", () => {
 
     // Should trigger error boundary
     expect(screen.getByTestId("error")).toHaveTextContent("Error")
+
+    consoleSpy.mockRestore()
   })
 
   it("should switch documents when url changes", async () => {
@@ -171,6 +176,9 @@ describe("useDocument", () => {
   })
 
   it("should handle unavailable documents", async () => {
+    // suppress console.error from the error boundary
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
     const { wrapper, repo } = setup()
 
     // Create handle for nonexistent document
@@ -188,6 +196,8 @@ describe("useDocument", () => {
     waitFor(() => {
       expect(screen.getByTestId("error")).toHaveTextContent("Error")
     })
+
+    consoleSpy.mockRestore()
   })
 
   // Test slow-loading document

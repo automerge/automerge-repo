@@ -12,7 +12,7 @@ import "@testing-library/jest-dom"
 import { describe, expect, it, vi } from "vitest"
 import { useDocHandle } from "../src/useDocHandle"
 import { RepoContext } from "../src/useRepo"
-import { TestingErrorBoundary as ErrorBoundary } from "./TestingErrorBoundary"
+import { ErrorBoundary } from "react-error-boundary"
 
 interface ExampleDoc {
   foo: string
@@ -24,7 +24,7 @@ function getRepoWrapper(repo: Repo) {
   )
 }
 
-describe("useHandle", () => {
+describe("useDocHandle", () => {
   const repo = new Repo({
     peerId: "bob" as PeerId,
   })
@@ -102,6 +102,9 @@ describe("useHandle", () => {
   })
 
   it("handles unavailable documents correctly", async () => {
+    // suppress console.error from the error boundary
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+
     const { repo, wrapper } = await setup()
     const url = generateAutomergeUrl()
 
@@ -125,6 +128,8 @@ describe("useHandle", () => {
       // Optional: verify loading is no longer shown
       expect(screen.queryByTestId("loading")).not.toBeInTheDocument()
     })
+
+    consoleSpy.mockRestore()
   })
 
   it("handles slow network correctly", async () => {
@@ -236,7 +241,7 @@ describe("useHandle", () => {
     })
   })
 
-  describe("useHandle with suspense: false", () => {
+  describe("useDocHandle with suspense: false", () => {
     it("returns undefined while loading then resolves to handle", async () => {
       const { handleA, repo, wrapper } = await setup()
       const onHandle = vi.fn()

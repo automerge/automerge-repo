@@ -4,7 +4,7 @@ import { render, act, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocuments } from "../src/useDocuments"
 import { RepoContext } from "../src/useRepo"
-import { TestingErrorBoundary as ErrorBoundary } from "./TestingErrorBoundary"
+import { ErrorBoundary } from "react-error-boundary"
 
 interface ExampleDoc {
   foo: string
