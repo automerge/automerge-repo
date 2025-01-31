@@ -12,7 +12,7 @@ import "@testing-library/jest-dom"
 
 import { useDocument } from "../src/useDocument"
 import { RepoContext } from "../src/useRepo"
-import { ErrorBoundary } from "react-error-boundary"
+import { TestingErrorBoundary as ErrorBoundary } from "./TestingErrorBoundary"
 
 interface ExampleDoc {
   foo: string
