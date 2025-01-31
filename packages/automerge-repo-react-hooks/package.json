@@ -17,8 +17,8 @@
     "@automerge/automerge": "^2.2.8",
     "@automerge/automerge-repo": "workspace:*",
     "eventemitter3": "^5.0.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
     "react-usestateref": "^1.0.8"
   },
   "devDependencies": {
@@ -32,8 +32,8 @@
     "vite-plugin-dts": "^3.9.1"
   },
   "peerDependencies": {
-    "react": ">16.8.0",
-    "react-dom": ">16.8.0"
+    "react": ">18.3.0",
+    "react-dom": ">18.3.0"
   },
   "watch": {
     "build": {
