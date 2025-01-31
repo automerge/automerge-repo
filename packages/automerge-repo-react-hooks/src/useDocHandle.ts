@@ -1,13 +1,16 @@
 import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
-import { wrapPromise } from "./wrapPromise.js"
+import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
 
 // Shared with useDocHandles
 export const wrapperCache = new Map<
   AnyDocumentId,
-  ReturnType<typeof wrapPromise>
+  PromiseWrapper<DocHandle<unknown>>
 >()
+// NB: this is a global cache that isn't keyed on the Repo
+//     so if your app uses the same documents in two Repos
+//     this could cause problems. please let me know if you do.
 
 interface UseDocHandleSuspendingParams {
   suspense: true
@@ -46,25 +49,28 @@ export function useDocHandle<T>(
     wrapperCache.set(id, wrapper)
   }
 
+  /* From here we split into two paths: suspense and not.
+   * In the suspense path, we return the wrapper directly.
+   * In the non-suspense path, we wait for the promise to resolve
+   * and then set the handle via setState. Suspense relies on
+   * re-running this function until it succeeds, whereas the synchronous
+   * form uses a setState to track the value. */
   useEffect(() => {
-    if (!wrapper) {
+    if (suspense || !wrapper) {
       return
     }
-    if (suspense === false) {
-      void wrapper.promise
-        .then(handle => {
-          setHandle(handle as DocHandle<T>)
-        })
-        .catch(e => {
-          console.log("handle promise caught", e)
-          setHandle(undefined)
-        })
-    }
+    wrapper.promise
+      .then(handle => {
+        setHandle(handle as DocHandle<T>)
+      })
+      .catch(() => {
+        setHandle(undefined)
+      })
   }, [suspense, wrapper])
 
-  if (suspense) {
-    return wrapper && (wrapper.read() as DocHandle<T>)
+  if (suspense && wrapper) {
+    return wrapper.read() as DocHandle<T>
   } else {
-    return handle || undefined
+    return handle
   }
 }
