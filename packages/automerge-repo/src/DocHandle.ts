@@ -87,7 +87,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           return { doc: A.init() }
         }),
         onUnload: assign(() => {
-          // TODO
           return { doc: A.init() }
         }),
       },
@@ -316,6 +315,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    *
    * @deprecated */
   docSync() {
+    console.warn(
+      "docSync is deprecated. Use doc() instead. This function will be removed as part of the 2.0 release."
+    )
     return this.doc()
   }
 
