@@ -394,8 +394,6 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
    * be notified of the newly created DocHandle.
    *
-   * @throws if the cloned handle is not yet ready or if
-   * `clonedHandle.doc()` returns `undefined` (i.e. the handle is unavailable).
    */
   clone<T>(clonedHandle: DocHandle<T>) {
     if (!clonedHandle.isReady()) {
@@ -406,10 +404,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     const sourceDoc = clonedHandle.doc()
-    if (!sourceDoc) {
-      throw new Error("Cloned handle doesn't have a document.")
-    }
-
     const handle = this.create<T>()
 
     handle.update(() => {
@@ -690,11 +684,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       : Object.values(this.#handleCache)
     await Promise.all(
       handles.map(async handle => {
-        const doc = handle.doc()
-        if (!doc) {
-          return
-        }
-        return this.storageSubsystem!.saveDoc(handle.documentId, doc)
+        return this.storageSubsystem!.saveDoc(handle.documentId, handle.doc())
       })
     )
   }
@@ -715,6 +705,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const handle = this.#getHandle({ documentId })
     await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
     const doc = handle.doc()
+    // because this is an internal-ish function, we'll be extra careful about undefined docs here
     if (doc) {
       if (handle.isReady()) {
         handle.unload()
