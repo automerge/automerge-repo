@@ -1,4 +1,5 @@
 import typescriptEslint from "@typescript-eslint/eslint-plugin"
+import pluginReact from "eslint-plugin-react"
 import globals from "globals"
 import tsParser from "@typescript-eslint/parser"
 import path from "node:path"
@@ -76,7 +77,16 @@ export default [
       "testSetup.ts",
     ],
   },
+  {
+    settings: {
+      react: {
+        version: "^18.2.0",
+      },
+    },
+  },
   js.configs.recommended,
+  pluginReact.configs.flat.recommended,
+  pluginReact.configs.flat["jsx-runtime"],
   ...compat.extends(
     "plugin:@typescript-eslint/eslint-recommended",
     "plugin:@typescript-eslint/recommended"

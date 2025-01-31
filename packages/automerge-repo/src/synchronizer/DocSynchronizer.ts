@@ -57,6 +57,8 @@ export class DocSynchronizer extends Synchronizer {
 
   #pendingSyncMessages: Array<PendingMessage> = []
 
+  // We keep this around at least in part for debugging.
+  // eslint-disable-next-line no-unused-private-class-members
   #peerId: PeerId
   #syncStarted = false
 

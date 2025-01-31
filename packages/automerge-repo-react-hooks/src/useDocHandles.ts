@@ -22,7 +22,7 @@ export function useDocHandles<T>(
 
   // Check if we need any new wrappers
   for (const id of ids) {
-    let wrapper = wrapperCache.get(id)!
+    let wrapper = wrapperCache.get(id)
     if (!wrapper) {
       try {
         const promise = repo.find<T>(id)
@@ -48,12 +48,12 @@ export function useDocHandles<T>(
     }
   }
 
-  // If any promises are pending, suspend with Promise.all
-  if (suspense && pendingPromises.length > 0) {
-    throw Promise.all(pendingPromises.map(p => p.promise))
-  }
-
+  // Suspense is handled quasi-synchronously below by throwing if we still have
+  // unresolved promises.
   useEffect(() => {
+    if (suspense) {
+      return
+    }
     if (pendingPromises.length > 0) {
       void Promise.allSettled(pendingPromises.map(p => p.promise)).then(
         handles => {
@@ -69,7 +69,17 @@ export function useDocHandles<T>(
     } else {
       setHandleMap(nextHandleMap)
     }
-  }, [suspense, ids])
+  }, [suspense, pendingPromises, nextHandleMap])
+
+  // If any promises are pending, suspend with Promise.all
+  // Note that this behaviour is different from the synchronous
+  // form where we get gradual load-in of child documents.
+  // I couldn't find an obvious way of incremental loading with
+  // a single hook for suspense.
+  // (But maybe with suspense this hook is less useful?)
+  if (suspense && pendingPromises.length > 0) {
+    throw Promise.all(pendingPromises.map(p => p.promise))
+  }
 
   return handleMap
 }
