@@ -7,6 +7,8 @@ import {
   Repo,
 } from "@automerge/automerge-repo"
 import { render, screen, waitFor } from "@testing-library/react"
+import "@testing-library/jest-dom"
+
 import { describe, expect, it, vi } from "vitest"
 import { useDocHandle } from "../src/useDocHandle"
 import { RepoContext } from "../src/useRepo"

@@ -8,6 +8,8 @@ import {
 import { render, screen, waitFor } from "@testing-library/react"
 import React, { Suspense } from "react"
 import { describe, expect, it, vi } from "vitest"
+import "@testing-library/jest-dom"
+
 import { useDocument } from "../src/useDocument"
 import { RepoContext } from "../src/useRepo"
 import { ErrorBoundary } from "react-error-boundary"
