@@ -80,18 +80,18 @@ describe("useDocuments", () => {
 
     // Initial state
     expect(onState).toHaveBeenCalled()
-    const [docs] = onState.mock.lastCall
+    const [docs] = onState.mock.lastCall || []
     expect(docs.get(handleA.url)?.foo).toBe("A")
 
     // Make a change
-    const [, change] = onState.mock.lastCall
+    const [, change] = onState.mock.lastCall || []
     await act(async () => {
       change(handleA.url, doc => (doc.foo = "Changed"))
       await Promise.resolve()
     })
 
     // Verify change was synced
-    const [finalDocs] = onState.mock.lastCall
+    const [finalDocs] = onState.mock.lastCall || []
     expect(finalDocs.get(handleA.url)?.foo).toBe("Changed")
   })
 
@@ -119,7 +119,7 @@ describe("useDocuments", () => {
     })
 
     // Check initial state
-    const [docs, change] = onState.mock.lastCall
+    const [docs, change] = onState.mock.lastCall || []
     expect(docs.get(handleA.url)?.foo).toBe("A")
     expect(docs.get(handleB.url)?.foo).toBe("B")
 
@@ -137,7 +137,7 @@ describe("useDocuments", () => {
     })
 
     // Verify both changes were synced
-    const [finalDocs] = onState.mock.lastCall
+    const [finalDocs] = onState.mock.lastCall || []
     expect(finalDocs.get(handleA.url)).toEqual({
       foo: "A",
       counter: 1,
@@ -172,7 +172,7 @@ describe("useDocuments", () => {
     })
 
     // Initial state
-    let [docs] = onState.mock.lastCall
+    let [docs] = onState.mock.lastCall || []
     expect(docs.size).toBe(2)
 
     // Remove one document
@@ -183,7 +183,7 @@ describe("useDocuments", () => {
     })
 
     // Check document was removed
-    docs = onState.mock.lastCall[0]
+    docs = onState.mock.lastCall?.[0]
     expect(docs.size).toBe(1)
     expect(docs.has(handleA.url)).toBe(true)
     expect(docs.has(handleB.url)).toBe(false)
@@ -217,7 +217,7 @@ describe("useDocuments", () => {
       await Promise.resolve()
     })
 
-    const [, change] = onState.mock.lastCall
+    const [, change] = onState.mock.lastCall || []
 
     // Make rapid changes
     await act(async () => {
@@ -230,7 +230,7 @@ describe("useDocuments", () => {
     })
 
     // Should have final value
-    const [finalDocs] = onState.mock.lastCall
+    const [finalDocs] = onState.mock.lastCall || []
     expect(finalDocs.get(handleA.url)?.counter).toBe(4)
   })
 
@@ -289,7 +289,7 @@ describe("useDocuments", () => {
 
       // Initial state should be empty map
       expect(onState).toHaveBeenCalled()
-      let [docs] = onState.mock.lastCall
+      let [docs] = onState.mock.lastCall || []
       expect(docs.size).toBe(0)
 
       // Wait for document to load
@@ -298,7 +298,7 @@ describe("useDocuments", () => {
       })
 
       // Document should now be loaded
-      docs = onState.mock.lastCall[0]
+      docs = onState.mock.lastCall?.[0]
       expect(docs.get(handleA.url)?.foo).toBe("A")
     })
 
@@ -318,7 +318,7 @@ describe("useDocuments", () => {
       render(<Wrapped />, { wrapper })
 
       // Initial state should be empty
-      let [docs] = onState.mock.lastCall
+      let [docs] = onState.mock.lastCall || []
       expect(docs.size).toBe(0)
 
       // Wait for documents to load
@@ -327,13 +327,13 @@ describe("useDocuments", () => {
       })
 
       // Check loaded state
-      docs = onState.mock.lastCall[0]
+      docs = onState.mock.lastCall?.[0]
       expect(docs.size).toBe(2)
       expect(docs.get(handleA.url)?.foo).toBe("A")
       expect(docs.get(handleB.url)?.foo).toBe("B")
 
       // Make changes after loading
-      const [, change] = onState.mock.lastCall
+      const [, change] = onState.mock.lastCall || []
       await act(async () => {
         change(handleA.url, doc => {
           doc.counter = 1
@@ -346,7 +346,7 @@ describe("useDocuments", () => {
       })
 
       // Verify changes
-      const [finalDocs] = onState.mock.lastCall
+      const [finalDocs] = onState.mock.lastCall || []
       expect(finalDocs.get(handleA.url)).toEqual({
         foo: "A",
         counter: 1,
@@ -375,7 +375,7 @@ describe("useDocuments", () => {
       )
 
       // Initial state should be empty
-      let [docs] = onState.mock.lastCall
+      let [docs] = onState.mock.lastCall || []
       expect(docs.size).toBe(0)
 
       // Remove one document before load completes
@@ -388,7 +388,7 @@ describe("useDocuments", () => {
 
       // Should only have loaded the remaining document
       waitFor(() => {
-        docs = onState.mock.lastCall[0]
+        docs = onState.mock.lastCall?.[0]
         expect(docs.size).toBe(1)
         expect(docs.has(handleA.url)).toBe(true)
         expect(docs.has(handleB.url)).toBe(false)
@@ -411,7 +411,7 @@ describe("useDocuments", () => {
       const { unmount } = render(<Wrapped />, { wrapper })
 
       // Initial state empty
-      expect(onState.mock.lastCall[0].size).toBe(0)
+      expect(onState.mock.lastCall?.[0].size).toBe(0)
 
       // Unmount before load completes
       unmount()
@@ -451,7 +451,7 @@ describe("useDocuments", () => {
       })
 
       // Should have latest state
-      const [docs] = onState.mock.lastCall
+      const [docs] = onState.mock.lastCall || []
       expect(docs.get(handleA.url)).toEqual({
         foo: "A",
         counter: 1,
@@ -475,7 +475,7 @@ describe("useDocuments", () => {
       render(<Wrapped />, { wrapper })
 
       // Initial state empty
-      let [docs] = onState.mock.lastCall
+      let [docs] = onState.mock.lastCall || []
       expect(docs.size).toBe(0)
 
       // Should remain empty after attempted load
@@ -483,7 +483,7 @@ describe("useDocuments", () => {
         await Promise.resolve()
       })
 
-      docs = onState.mock.lastCall[0]
+      docs = onState.mock.lastCall?.[0]
       expect(docs.size).toBe(0)
     })
   })
