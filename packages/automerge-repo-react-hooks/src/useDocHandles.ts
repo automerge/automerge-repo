@@ -51,9 +51,6 @@ export function useDocHandles<T>(
   // Suspense is handled quasi-synchronously below by throwing if we still have
   // unresolved promises.
   useEffect(() => {
-    if (suspense) {
-      return
-    }
     if (pendingPromises.length > 0) {
       void Promise.allSettled(pendingPromises.map(p => p.promise)).then(
         handles => {
@@ -69,7 +66,7 @@ export function useDocHandles<T>(
     } else {
       setHandleMap(nextHandleMap)
     }
-  }, [suspense, pendingPromises, nextHandleMap])
+  }, [suspense, ids])
 
   // If any promises are pending, suspend with Promise.all
   // Note that this behaviour is different from the synchronous
