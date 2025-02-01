@@ -86,7 +86,6 @@ export class DocSynchronizer extends Synchronizer {
 
     // Process pending sync messages immediately after the handle becomes ready.
     void (async () => {
-      await handle.whenReady([READY, REQUESTING])
       this.#processAllPendingSyncMessages()
     })()
   }
