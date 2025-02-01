@@ -261,3 +261,5 @@ With gratitude for contributions by:
 - Jeremy Rose
 - Alex Currie-Clark
 - Dylan Mackenzie
+- Maciek Sakrejda
+
