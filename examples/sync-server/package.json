@@ -2,7 +2,7 @@
   "name": "@automerge/example-sync-server",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/sync-server",
   "private": true,
-  "version": "2.0.0-alpha.11",
+  "version": "2.0.0-alpha.22",
   "main": "index.js",
   "license": "MIT",
   "type": "module",
@@ -15,6 +15,7 @@
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-storage-nodefs": "workspace:*",
     "express": "^4.18.1",
+    "prom-client": "^15.1.3",
     "ws": "^8.7.0"
   },
   "devDependencies": {

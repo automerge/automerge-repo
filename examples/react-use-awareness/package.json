@@ -1,6 +1,6 @@
 {
   "name": "automerge-use-awareness-example-project",
-  "version": "2.0.0-alpha.11",
+  "version": "2.0.0-alpha.22",
   "private": true,
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-use-awareness",
   "type": "module",
@@ -14,8 +14,8 @@
     "@automerge/automerge-repo-react-hooks": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "eventemitter3": "^5.0.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
     "react-usestateref": "^1.0.8",
     "uuid": "^9.0.0"
   },

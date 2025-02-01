@@ -40,9 +40,9 @@ A `Repo` exposes these methods:
 
 - `create<T>(initialValue: T?)`
   Creates a new `Automerge.Doc` and returns a `DocHandle` for it. Accepts an optional initial value for the document. Produces an empty document (potentially violating the type!) otherwise.
-- `find<T>(docId: DocumentId)`  
+- `find<T>(docId: DocumentId): Promise<DocHandle<T>>`  
   Looks up a given document either on the local machine or (if necessary) over any configured
-  networks.
+  networks. Returns a promise that resolves when the document is loaded or throws if load fails.
 - `delete(docId: DocumentId)`  
   Deletes the local copy of a document from the local cache and local storage. _This does not currently delete the document from any other peers_.
 - `import(binary: Uint8Array)`  
@@ -57,10 +57,9 @@ A `Repo` exposes these methods:
 A `DocHandle` is a wrapper around an `Automerge.Doc`. Its primary function is to dispatch changes to
 the document.
 
-- `handle.doc()` or `handle.docSync()`
-  Returns a `Promise<Doc<T>>` that will contain the current value of the document.
-  it waits until the document has finished loading and/or synchronizing over the network before
-  returning a value.
+- `handle.doc()`
+  Returns a `Doc<T>` that will contain the current value of the document.
+  Throws an error if the document is deleted.
 - `handle.change((doc: T) => void)`  
   Calls the provided callback with an instrumented mutable object
   representing the document. Any changes made to the document will be recorded and distributed to

@@ -13,6 +13,7 @@ import {
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import { collectMessages } from "./helpers/collectMessages.js"
 import { TestDoc } from "./types.js"
+import { pause } from "../src/helpers/pause.js"
 
 describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -128,13 +129,15 @@ describe("DocHandle.remoteHeads", () => {
       const aliceDoc = alice.create<TestDoc>()
       aliceDoc.change(d => (d.foo = "bar"))
 
+      await pause(50)
+
       // bob waits for the document to arrive
-      const bobDoc = bob.find<TestDoc>(aliceDoc.url)
-      await bobDoc.whenReady()
+      const bobDoc = await bob.find<TestDoc>(aliceDoc.url)
 
       // alice's service worker waits for the document to arrive
-      const aliceServiceWorkerDoc = aliceServiceWorker.find(aliceDoc.documentId)
-      await aliceServiceWorkerDoc.whenReady()
+      const aliceServiceWorkerDoc = await aliceServiceWorker.find(
+        aliceDoc.documentId
+      )
 
       let aliceSeenByBobPromise = new Promise<DocHandleRemoteHeadsPayload>(
         resolve => {
@@ -168,16 +171,20 @@ describe("DocHandle.remoteHeads", () => {
       const bobDocB = bob.create<TestDoc>()
       bobDocB.change(d => (d.foo = "B"))
 
+      await pause(50)
+
       // alice opens doc A
-      const aliceDocA = alice.find<TestDoc>(bobDocA.url)
+      const aliceDocAPromise = alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
           emitter: alice.networkSubsystem,
           event: "message",
-          until: aliceDocA.whenReady(),
+          until: aliceDocAPromise,
         })
       ).filter(({ type }) => type === "remote-heads-changed")
+
+      const aliceDocA = await aliceDocAPromise
 
       // we should only be notified of the head changes of doc A
       assert(
@@ -197,6 +204,8 @@ describe("DocHandle.remoteHeads", () => {
       const bobDocB = bob.create<TestDoc>()
       bobDocB.change(d => (d.foo = "B"))
 
+      await pause(50)
+
       // alice opens the docs
       const _aliceDocA = alice.find<TestDoc>(bobDocA.url)
       const _aliceDocB = alice.find<TestDoc>(bobDocB.url)
@@ -209,19 +218,21 @@ describe("DocHandle.remoteHeads", () => {
       // stored remote heads immediately.
 
       // open doc and subscribe alice's second tab to bob's service worker
-      const alice2DocA = alice2.find<TestDoc>(bobDocA.url)
+      const alice2DocAPromise = alice2.find<TestDoc>(bobDocA.url)
       alice2.subscribeToRemotes([bobServiceWorkerStorageId])
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
           emitter: alice2.networkSubsystem,
           event: "message",
-          until: alice2DocA.whenReady(),
+          until: alice2DocAPromise,
         })
       ).filter(({ type }) => type === "remote-heads-changed")
 
+      const alice2DocA = await alice2DocAPromise
+
       // we should only be notified of the head changes of doc A
-      assert.strictEqual(remoteHeadsChangedMessages.length, 2)
+      assert.strictEqual(remoteHeadsChangedMessages.length, 1)
       assert(
         remoteHeadsChangedMessages.every(
           d => d.documentId === alice2DocA.documentId
@@ -242,18 +253,22 @@ describe("DocHandle.remoteHeads", () => {
       // alice subscribes to bob's service worker
       alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
+      await pause(50)
+
       // alice opens doc A
-      const alice1DocA = alice.find<TestDoc>(bobDocA.url)
+      const alice1DocAPromise = alice.find<TestDoc>(bobDocA.url)
 
       const remoteHeadsChangedMessages = (
         await collectMessages({
           emitter: alice.networkSubsystem,
           event: "message",
-          until: alice1DocA.whenReady(),
+          until: alice1DocAPromise,
         })
       ).filter(({ type }) => type === "remote-heads-changed")
 
-      assert.strictEqual(remoteHeadsChangedMessages.length, 2)
+      const alice1DocA = await alice1DocAPromise
+
+      assert.strictEqual(remoteHeadsChangedMessages.length, 1)
       assert(
         remoteHeadsChangedMessages.every(
           d => d.documentId === alice1DocA.documentId

@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-react-hooks",
-  "version": "2.0.0-alpha.11",
+  "version": "2.0.0-alpha.22",
   "description": "Hooks to access an Automerge Repo from your react app.",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-react-hooks",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -17,19 +17,23 @@
     "@automerge/automerge": "^2.2.8",
     "@automerge/automerge-repo": "workspace:*",
     "eventemitter3": "^5.0.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
     "react-usestateref": "^1.0.8"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^14.0.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
     "jsdom": "^22.1.0",
+    "react-error-boundary": "^5.0.0",
     "rollup-plugin-visualizer": "^5.9.3",
+    "vite": "^6.0.7",
     "vite-plugin-dts": "^3.9.1"
   },
   "peerDependencies": {
-    "react": ">16.8.0",
-    "react-dom": ">16.8.0"
+    "react": ">18.3.0",
+    "react-dom": ">18.3.0"
   },
   "watch": {
     "build": {

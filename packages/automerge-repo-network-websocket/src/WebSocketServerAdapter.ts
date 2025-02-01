@@ -123,7 +123,14 @@ export class WebSocketServerAdapter extends NetworkAdapter {
   }
 
   receiveMessage(messageBytes: Uint8Array, socket: WebSocket) {
-    const message: FromClientMessage = decode(messageBytes)
+    let message: FromClientMessage
+    try {
+      message = decode(messageBytes)
+    } catch (e) {
+      log("invalid message received, closing connection")
+      socket.close()
+      return
+    }
 
     const { type, senderId } = message
 

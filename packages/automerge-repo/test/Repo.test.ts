@@ -3,8 +3,11 @@ import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messa
 import assert from "assert"
 import * as Uuid from "uuid"
 import { describe, expect, it } from "vitest"
-import { parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
+  encodeHeads,
+  getHeadsFromUrl,
+  isValidAutomergeUrl,
+  parseAutomergeUrl,
   generateAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
@@ -13,6 +16,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
   AnyDocumentId,
+  UrlHeads,
   AutomergeUrl,
   DocHandle,
   DocumentId,
@@ -72,35 +76,34 @@ describe("Repo", () => {
     it("can create a document with an initial value", async () => {
       const { repo } = setup()
       const handle = repo.create({ foo: "bar" })
-      await handle.doc()
-      assert.equal(handle.docSync().foo, "bar")
+      assert.equal(handle.doc().foo, "bar")
     })
 
-    it("can find a document by url", () => {
+    it("can find a document by url", async () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
       handle.change((d: TestDoc) => {
         d.foo = "bar"
       })
 
-      const handle2 = repo.find(handle.url)
+      const handle2 = await repo.find(handle.url)
       assert.equal(handle, handle2)
-      assert.deepEqual(handle2.docSync(), { foo: "bar" })
+      assert.deepEqual(handle2.doc(), { foo: "bar" })
     })
 
-    it("can find a document by its unprefixed document ID", () => {
+    it("can find a document by its unprefixed document ID", async () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()
       handle.change((d: TestDoc) => {
         d.foo = "bar"
       })
 
-      const handle2 = repo.find(handle.documentId)
+      const handle2 = await repo.find(handle.documentId)
       assert.equal(handle, handle2)
-      assert.deepEqual(handle2.docSync(), { foo: "bar" })
+      assert.deepEqual(handle2.doc(), { foo: "bar" })
     })
 
-    it("can find a document by legacy UUID (for now)", () => {
+    it("can find a document by legacy UUID (for now)", async () => {
       disableConsoleWarn()
 
       const { repo } = setup()
@@ -113,9 +116,9 @@ describe("Repo", () => {
       const { binaryDocumentId } = parseAutomergeUrl(url)
       const legacyDocId = Uuid.stringify(binaryDocumentId) as LegacyDocumentId
 
-      const handle2 = repo.find(legacyDocId)
+      const handle2 = await repo.find(legacyDocId)
       assert.equal(handle, handle2)
-      assert.deepEqual(handle2.docSync(), { foo: "bar" })
+      assert.deepEqual(handle2.doc(), { foo: "bar" })
 
       reenableConsoleWarn()
     })
@@ -126,7 +129,7 @@ describe("Repo", () => {
       handle.change(d => {
         d.foo = "bar"
       })
-      const v = await handle.doc()
+      const v = handle.doc()
       assert.equal(handle.isReady(), true)
       assert.equal(v.foo, "bar")
     })
@@ -140,8 +143,8 @@ describe("Repo", () => {
       const handle2 = repo.clone(handle)
       assert.equal(handle2.isReady(), true)
       assert.notEqual(handle.documentId, handle2.documentId)
-      assert.deepStrictEqual(handle.docSync(), handle2.docSync())
-      assert.deepStrictEqual(handle2.docSync(), { foo: "bar" })
+      assert.deepStrictEqual(handle.doc(), handle2.doc())
+      assert.deepStrictEqual(handle2.doc(), { foo: "bar" })
     })
 
     it("the cloned documents are distinct", () => {
@@ -159,9 +162,9 @@ describe("Repo", () => {
         d.baz = "baz"
       })
 
-      assert.notDeepStrictEqual(handle.docSync(), handle2.docSync())
-      assert.deepStrictEqual(handle.docSync(), { foo: "bar", bar: "bif" })
-      assert.deepStrictEqual(handle2.docSync(), { foo: "bar", baz: "baz" })
+      assert.notDeepStrictEqual(handle.doc(), handle2.doc())
+      assert.deepStrictEqual(handle.doc(), { foo: "bar", bar: "bif" })
+      assert.deepStrictEqual(handle2.doc(), { foo: "bar", baz: "baz" })
     })
 
     it("the cloned documents can merge", () => {
@@ -181,59 +184,47 @@ describe("Repo", () => {
 
       handle.merge(handle2)
 
-      assert.deepStrictEqual(handle.docSync(), {
+      assert.deepStrictEqual(handle.doc(), {
         foo: "bar",
         bar: "bif",
         baz: "baz",
       })
       // only the one handle should be changed
-      assert.deepStrictEqual(handle2.docSync(), { foo: "bar", baz: "baz" })
+      assert.deepStrictEqual(handle2.doc(), { foo: "bar", baz: "baz" })
     })
 
     it("throws an error if we try to find a handle with an invalid AutomergeUrl", async () => {
       const { repo } = setup()
-      try {
-        repo.find<TestDoc>("invalid-url" as unknown as AutomergeUrl)
-      } catch (e: any) {
-        assert.equal(e.message, "Invalid AutomergeUrl: 'invalid-url'")
-      }
+      await expect(async () => {
+        await repo.find<TestDoc>("invalid-url" as unknown as AutomergeUrl)
+      }).rejects.toThrow("Invalid AutomergeUrl: 'invalid-url'")
     })
 
     it("doesn't find a document that doesn't exist", async () => {
       const { repo } = setup()
-      const handle = repo.find<TestDoc>(generateAutomergeUrl())
-
-      await handle.whenReady(["ready", "unavailable"])
-
-      assert.equal(handle.isReady(), false)
-      assert.equal(handle.state, "unavailable")
-      const doc = await handle.doc()
-      assert.equal(doc, undefined)
-    })
-
-    it("emits an unavailable event when you don't have the document locally and are not connected to anyone", async () => {
-      const { repo } = setup()
-      const url = generateAutomergeUrl()
-      const handle = repo.find<TestDoc>(url)
-      assert.equal(handle.isReady(), false)
-      await eventPromise(handle, "unavailable")
+      await expect(async () => {
+        await repo.find<TestDoc>(generateAutomergeUrl())
+      }).rejects.toThrow(/Document (.*) is unavailable/)
     })
 
     it("doesn't mark a document as unavailable until network adapters are ready", async () => {
       const { repo, networkAdapter } = setup({ startReady: false })
       const url = generateAutomergeUrl()
-      const handle = repo.find<TestDoc>(url)
 
-      let wasUnavailable = false
-      handle.on("unavailable", () => {
-        wasUnavailable = true
-      })
+      const attemptedFind = repo.find<TestDoc>(url)
 
-      await pause(50)
-      assert.equal(wasUnavailable, false)
+      // First verify it stays pending for 50ms
+      await expect(
+        Promise.race([attemptedFind, pause(50)])
+      ).resolves.toBeUndefined()
 
+      // Trigger the rejection
       networkAdapter.forceReady()
-      await eventPromise(handle, "unavailable")
+
+      // Now verify it rejects
+      await expect(attemptedFind).rejects.toThrow(
+        /Document (.*) is unavailable/
+      )
     })
 
     it("can find a created document", async () => {
@@ -244,18 +235,18 @@ describe("Repo", () => {
       })
       assert.equal(handle.isReady(), true)
 
-      const bobHandle = repo.find<TestDoc>(handle.url)
+      const bobHandle = await repo.find<TestDoc>(handle.url)
 
       assert.equal(handle, bobHandle)
       assert.equal(handle.isReady(), true)
 
-      const v = await bobHandle.doc()
+      const v = bobHandle.doc()
       assert.equal(v?.foo, "bar")
     })
 
     it("saves the document when creating it", async () => {
       const { repo, storageAdapter } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = repo.create<TestDoc>({ foo: "saved" })
 
       const repo2 = new Repo({
         storage: storageAdapter,
@@ -263,9 +254,9 @@ describe("Repo", () => {
 
       await repo.flush()
 
-      const bobHandle = repo2.find<TestDoc>(handle.url)
+      const bobHandle = await repo2.find<TestDoc>(handle.url)
       await bobHandle.whenReady()
-      assert.equal(bobHandle.isReady(), true)
+      assert.deepEqual(bobHandle.doc(), { foo: "saved" })
     })
 
     it("saves the document when changed and can find it again", async () => {
@@ -284,9 +275,9 @@ describe("Repo", () => {
         storage: storageAdapter,
       })
 
-      const bobHandle = repo2.find<TestDoc>(handle.url)
+      const bobHandle = await repo2.find<TestDoc>(handle.url)
 
-      const v = await bobHandle.doc()
+      const v = bobHandle.doc()
       assert.equal(v?.foo, "bar")
     })
 
@@ -298,7 +289,7 @@ describe("Repo", () => {
       })
       // we now have a snapshot and an incremental change in storage
       assert.equal(handle.isReady(), true)
-      const foo = await handle.doc()
+      const foo = handle.doc()
       assert.equal(foo?.foo, "bar")
 
       await pause()
@@ -315,7 +306,7 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       assert.equal(handle.isReady(), true)
-      await handle.doc()
+      await handle.whenReady()
 
       await pause()
       repo.delete(handle.url)
@@ -352,7 +343,7 @@ describe("Repo", () => {
 
       const exported = await repo.export(handle.documentId)
       const loaded = A.load(exported)
-      const doc = await handle.doc()
+      const doc = handle.doc()
       assert.deepEqual(doc, loaded)
     })
 
@@ -386,9 +377,7 @@ describe("Repo", () => {
       const repo2 = new Repo({
         storage,
       })
-      const handle2 = repo2.find(handle.url)
-      await handle2.doc()
-
+      const handle2 = await repo2.find(handle.url)
       assert.deepEqual(storage.keys(), initialKeys)
     })
 
@@ -414,9 +403,7 @@ describe("Repo", () => {
         const repo2 = new Repo({
           storage,
         })
-        const handle2 = repo2.find(handle.url)
-        await handle2.doc()
-
+        const handle2 = await repo2.find(handle.url)
         assert(storage.keys().length !== 0)
       }
     })
@@ -456,7 +443,7 @@ describe("Repo", () => {
 
       const handle = repo.import<TestDoc>(saved)
       assert.equal(handle.isReady(), true)
-      const v = await handle.doc()
+      const v = handle.doc()
       assert.equal(v?.foo, "bar")
 
       expect(A.getHistory(v)).toEqual(A.getHistory(updatedDoc))
@@ -475,7 +462,7 @@ describe("Repo", () => {
       const { repo } = setup()
       // @ts-ignore - passing something other than UInt8Array
       const handle = repo.import<TestDoc>(A.from({ foo: 123 }))
-      const doc = await handle.doc()
+      const doc = handle.doc()
       expect(doc).toEqual({})
     })
 
@@ -483,8 +470,38 @@ describe("Repo", () => {
       const { repo } = setup()
       // @ts-ignore - passing something other than UInt8Array
       const handle = repo.import<TestDoc>({ foo: 123 })
-      const doc = await handle.doc()
+      const doc = handle.doc()
       expect(doc).toEqual({})
+    })
+
+    describe("handle cache", () => {
+      it("contains doc handle", async () => {
+        const { repo } = setup()
+        const handle = repo.create({ foo: "bar" })
+        assert(repo.handles[handle.documentId])
+      })
+
+      it("delete removes doc handle", async () => {
+        const { repo } = setup()
+        const handle = repo.create({ foo: "bar" })
+        await repo.delete(handle.documentId)
+        assert(repo.handles[handle.documentId] === undefined)
+      })
+
+      it("removeFromCache removes doc handle", async () => {
+        const { repo } = setup()
+        const handle = repo.create({ foo: "bar" })
+        await repo.removeFromCache(handle.documentId)
+        assert(repo.handles[handle.documentId] === undefined)
+      })
+
+      it("removeFromCache for documentId not found", async () => {
+        const { repo } = setup()
+        const badDocumentId = "badbadbad" as DocumentId
+        const handleCacheSize = Object.keys(repo.handles).length
+        await repo.removeFromCache(badDocumentId)
+        assert(Object.keys(repo.handles).length === handleCacheSize)
+      })
     })
   })
 
@@ -532,8 +549,8 @@ describe("Repo", () => {
 
     it("should not be in a new repo yet because the storage is slow", async () => {
       const { pausedStorage, repo, handle, handle2 } = setup()
-      expect((await handle.doc()).foo).toEqual("first")
-      expect((await handle2.doc()).foo).toEqual("second")
+      expect((await handle).doc().foo).toEqual("first")
+      expect((await handle2).doc().foo).toEqual("second")
 
       // Reload repo
       const repo2 = new Repo({
@@ -541,9 +558,10 @@ describe("Repo", () => {
       })
 
       // Could not find the document that is not yet saved because of slow storage.
-      const reloadedHandle = repo2.find<{ foo: string }>(handle.url)
+      await expect(async () => {
+        const reloadedHandle = await repo2.find<{ foo: string }>(handle.url)
+      }).rejects.toThrow(/Document (.*) is unavailable/)
       expect(pausedStorage.keys()).to.deep.equal([])
-      expect(await reloadedHandle.doc()).toEqual(undefined)
     })
 
     it("should be visible to a new repo after flush()", async () => {
@@ -563,10 +581,10 @@ describe("Repo", () => {
         })
 
         expect(
-          (await repo.find<{ foo: string }>(handle.documentId).doc()).foo
+          (await repo.find<{ foo: string }>(handle.documentId)).doc().foo
         ).toEqual("first")
         expect(
-          (await repo.find<{ foo: string }>(handle2.documentId).doc()).foo
+          (await repo.find<{ foo: string }>(handle2.documentId)).doc().foo
         ).toEqual("second")
       }
     })
@@ -588,13 +606,13 @@ describe("Repo", () => {
         })
 
         expect(
-          (await repo.find<{ foo: string }>(handle.documentId).doc()).foo
+          (await repo.find<{ foo: string }>(handle.documentId)).doc().foo
         ).toEqual("first")
         // Really, it's okay if the second one is also flushed but I'm forcing the issue
         // in the test storage engine above to make sure the behaviour is as documented
-        expect(
-          await repo.find<{ foo: string }>(handle2.documentId).doc()
-        ).toEqual(undefined)
+        await expect(async () => {
+          ;(await repo.find<{ foo: string }>(handle2.documentId)).doc()
+        }).rejects.toThrow(/Document (.*) is unavailable/)
       }
     })
 
@@ -642,7 +660,7 @@ describe("Repo", () => {
 
           if (idx < numberOfPeers - 1) {
             network.push(pair[0])
-            pair[0].whenReady()
+            networkReady.push(pair[0].whenReady())
           }
 
           const repo = new Repo({
@@ -673,7 +691,6 @@ describe("Repo", () => {
         }
 
         await connectedPromise
-
         return { repos }
       }
 
@@ -685,10 +702,14 @@ describe("Repo", () => {
         d.foo = "bar"
       })
 
-      const handleN = repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
+      const handleN = await repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
+      assert.deepStrictEqual(handleN.doc(), { foo: "bar" })
 
-      await handleN.whenReady()
-      assert.deepStrictEqual(handleN.docSync(), { foo: "bar" })
+      const handleNBack = repos[numberOfPeers - 1].create({
+        foo: "reverse-trip",
+      })
+      const handle0Back = await repos[0].find<TestDoc>(handleNBack.url)
+      assert.deepStrictEqual(handle0Back.doc(), { foo: "reverse-trip" })
     })
 
     const setup = async ({
@@ -815,9 +836,8 @@ describe("Repo", () => {
     it("changes are replicated from aliceRepo to bobRepo", async () => {
       const { bobRepo, aliceHandle, teardown } = await setup()
 
-      const bobHandle = bobRepo.find<TestDoc>(aliceHandle.url)
-      await eventPromise(bobHandle, "change")
-      const bobDoc = await bobHandle.doc()
+      const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
+      const bobDoc = bobHandle.doc()
       assert.deepStrictEqual(bobDoc, { foo: "bar" })
       teardown()
     })
@@ -825,9 +845,8 @@ describe("Repo", () => {
     it("can load a document from aliceRepo on charlieRepo", async () => {
       const { charlieRepo, aliceHandle, teardown } = await setup()
 
-      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.url)
-      await eventPromise(handle3, "change")
-      const doc3 = await handle3.doc()
+      const handle3 = await charlieRepo.find<TestDoc>(aliceHandle.url)
+      const doc3 = handle3.doc()
       assert.deepStrictEqual(doc3, { foo: "bar" })
       teardown()
     })
@@ -846,12 +865,11 @@ describe("Repo", () => {
       await bobRepo2.flush()
 
       // Now, let's load it on the original bob repo (which shares a "disk")
-      const bobFoundIt = bobRepo.find<TestDoc>(inStorageHandle.url)
-      await bobFoundIt.whenReady()
+      const bobFoundIt = await bobRepo.find<TestDoc>(inStorageHandle.url)
 
       // Before checking if it syncs, make sure we have it!
       // (This behaviour is mostly test-validation, we are already testing load/save elsewhere.)
-      assert.deepStrictEqual(await bobFoundIt.doc(), { foo: "foundOnFakeDisk" })
+      assert.deepStrictEqual(bobFoundIt.doc(), { foo: "foundOnFakeDisk" })
 
       await pause(10)
 
@@ -891,11 +909,8 @@ describe("Repo", () => {
     it("charlieRepo can request a document not initially shared with it", async () => {
       const { charlieRepo, notForCharlie, teardown } = await setup()
 
-      const handle = charlieRepo.find<TestDoc>(notForCharlie)
-
-      await pause(50)
-
-      const doc = await handle.doc()
+      const handle = await charlieRepo.find<TestDoc>(notForCharlie)
+      const doc = handle.doc()
 
       assert.deepStrictEqual(doc, { foo: "baz" })
 
@@ -905,11 +920,11 @@ describe("Repo", () => {
     it("charlieRepo can request a document across a network of multiple peers", async () => {
       const { charlieRepo, notForBob, teardown } = await setup()
 
-      const handle = charlieRepo.find<TestDoc>(notForBob)
+      const handle = await charlieRepo.find<TestDoc>(notForBob)
 
       await pause(50)
 
-      const doc = await handle.doc()
+      const doc = handle.doc()
       assert.deepStrictEqual(doc, { foo: "bap" })
 
       teardown()
@@ -918,42 +933,10 @@ describe("Repo", () => {
     it("doesn't find a document which doesn't exist anywhere on the network", async () => {
       const { charlieRepo, teardown } = await setup()
       const url = generateAutomergeUrl()
-      const handle = charlieRepo.find<TestDoc>(url)
-      assert.equal(handle.isReady(), false)
 
-      const doc = await handle.doc()
-      assert.equal(doc, undefined)
-
-      teardown()
-    })
-
-    it("emits an unavailable event when it's not found on the network", async () => {
-      const { aliceRepo, teardown } = await setup()
-      const url = generateAutomergeUrl()
-      const handle = aliceRepo.find(url)
-      assert.equal(handle.isReady(), false)
-      await eventPromise(handle, "unavailable")
-      teardown()
-    })
-
-    it("emits an unavailable event every time an unavailable doc is requested", async () => {
-      const { charlieRepo, teardown } = await setup()
-      const url = generateAutomergeUrl()
-      const handle = charlieRepo.find<TestDoc>(url)
-      assert.equal(handle.isReady(), false)
-
-      await Promise.all([
-        eventPromise(handle, "unavailable"),
-        eventPromise(charlieRepo, "unavailable-document"),
-      ])
-
-      // make sure it emits a second time if the doc is still unavailable
-      const handle2 = charlieRepo.find<TestDoc>(url)
-      assert.equal(handle2.isReady(), false)
-      await Promise.all([
-        eventPromise(handle, "unavailable"),
-        eventPromise(charlieRepo, "unavailable-document"),
-      ])
+      await expect(charlieRepo.find<TestDoc>(url)).rejects.toThrow(
+        /Document (.*) is unavailable/
+      )
 
       teardown()
     })
@@ -968,21 +951,23 @@ describe("Repo", () => {
       } = await setup({ connectAlice: false })
 
       const url = stringifyAutomergeUrl({ documentId: notForCharlie })
-      const handle = charlieRepo.find<TestDoc>(url)
-      assert.equal(handle.isReady(), false)
-
-      await eventPromise(handle, "unavailable")
+      await expect(charlieRepo.find<TestDoc>(url)).rejects.toThrow(
+        /Document (.*) is unavailable/
+      )
 
       connectAliceToBob()
 
       await eventPromise(aliceRepo.networkSubsystem, "peer")
 
-      const doc = await handle.doc(["ready"])
+      // Not sure why we need this pause here, but... we do.
+      await pause(150)
+      const handle = await charlieRepo.find<TestDoc>(url)
+      const doc = handle.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
 
       // an additional find should also return the correct resolved document
-      const handle2 = charlieRepo.find<TestDoc>(url)
-      const doc2 = await handle2.doc()
+      const handle2 = await charlieRepo.find<TestDoc>(url)
+      const doc2 = handle2.doc()
       assert.deepStrictEqual(doc2, { foo: "baz" })
 
       teardown()
@@ -1018,11 +1003,9 @@ describe("Repo", () => {
         sharePolicy: async () => true,
       })
 
-      const handle = a.find(url)
-
-      // We expect this to be unavailable as there is no connected peer and
-      // the repo has no storage.
-      await eventPromise(handle, "unavailable")
+      await expect(a.find<TestDoc>(url)).rejects.toThrow(
+        /Document (.*) is unavailable/
+      )
 
       // Now create a repo pointing at the storage containing the document and
       // connect it to the other end of the MessageChannel
@@ -1032,9 +1015,14 @@ describe("Repo", () => {
         network: [new MessageChannelNetworkAdapter(ba)],
       })
 
+      // We need a proper peer status API so we can tell when the
+      // peer is connected. For now we just wait a bit.
+      await pause(50)
+
       // The empty repo should be notified of the new peer, send it a request
       // and eventually resolve the handle to "READY"
-      await handle.whenReady()
+      const handle = await a.find<TestDoc>(url)
+      expect(handle.state).toBe("ready")
     })
 
     it("a deleted document from charlieRepo can be refetched", async () => {
@@ -1050,9 +1038,8 @@ describe("Repo", () => {
       })
       await changePromise
 
-      const handle3 = charlieRepo.find<TestDoc>(aliceHandle.url)
-      await eventPromise(handle3, "change")
-      const doc3 = await handle3.doc()
+      const handle3 = await charlieRepo.find<TestDoc>(aliceHandle.url)
+      const doc3 = handle3.doc()
 
       assert.deepStrictEqual(doc3, { foo: "baz" })
 
@@ -1078,7 +1065,7 @@ describe("Repo", () => {
 
         // make sure the doc is ready
         if (!doc.isReady()) {
-          await doc.doc()
+          await doc.whenReady()
         }
 
         // make a random change to it
@@ -1096,10 +1083,10 @@ describe("Repo", () => {
 
       const data = { presence: "alice" }
 
-      const aliceHandle = aliceRepo.find<TestDoc>(
+      const aliceHandle = await aliceRepo.find<TestDoc>(
         stringifyAutomergeUrl({ documentId: notForCharlie })
       )
-      const bobHandle = bobRepo.find<TestDoc>(
+      const bobHandle = await bobRepo.find<TestDoc>(
         stringifyAutomergeUrl({ documentId: notForCharlie })
       )
 
@@ -1142,7 +1129,10 @@ describe("Repo", () => {
         bobHandle.documentId,
         await charlieRepo!.storageSubsystem.id()
       )
-      assert.deepStrictEqual(storedSyncState.sharedHeads, bobHandle.heads())
+      assert.deepStrictEqual(
+        encodeHeads(storedSyncState.sharedHeads),
+        bobHandle.heads()
+      )
 
       teardown()
     })
@@ -1242,14 +1232,14 @@ describe("Repo", () => {
 
       const nextRemoteHeadsPromise = new Promise<{
         storageId: StorageId
-        heads: A.Heads
+        heads: UrlHeads
       }>(resolve => {
         handle.on("remote-heads", ({ storageId, heads }) => {
           resolve({ storageId, heads })
         })
       })
 
-      const charlieHandle = charlieRepo.find<TestDoc>(handle.url)
+      const charlieHandle = await charlieRepo.find<TestDoc>(handle.url)
       await charlieHandle.whenReady()
 
       // make a change on charlie
@@ -1285,34 +1275,6 @@ describe("Repo", () => {
 
       teardown()
     })
-  })
-
-  it("peer receives a document when connection is recovered", async () => {
-    const alice = "alice" as PeerId
-    const bob = "bob" as PeerId
-    const [aliceAdapter, bobAdapter] = DummyNetworkAdapter.createConnectedPair()
-    const aliceRepo = new Repo({
-      network: [aliceAdapter],
-      peerId: alice,
-    })
-    const bobRepo = new Repo({
-      network: [bobAdapter],
-      peerId: bob,
-    })
-    const aliceDoc = aliceRepo.create()
-    aliceDoc.change((doc: any) => (doc.text = "Hello world"))
-
-    const bobDoc = bobRepo.find(aliceDoc.url)
-    await eventPromise(bobDoc, "unavailable")
-
-    aliceAdapter.peerCandidate(bob)
-    // Bob isn't yet connected to Alice and can't respond to her sync message
-    await pause(100)
-    bobAdapter.peerCandidate(alice)
-
-    await bobDoc.whenReady()
-
-    assert.equal(bobDoc.isReady(), true)
   })
 
   describe("with peers (mesh network)", () => {
@@ -1376,8 +1338,8 @@ describe("Repo", () => {
 
       const aliceHandle = aliceRepo.create<TestDoc>()
 
-      const bobHandle = bobRepo.find(aliceHandle.url)
-      const charlieHandle = charlieRepo.find(aliceHandle.url)
+      const bobHandle = await bobRepo.find(aliceHandle.url)
+      const charlieHandle = await charlieRepo.find(aliceHandle.url)
 
       // Alice should not receive her own ephemeral message
       aliceHandle.on("ephemeral-message", () => {
@@ -1415,9 +1377,8 @@ describe("Repo", () => {
       // pause to let the sync happen
       await pause(50)
 
-      const charlieHandle = charlieRepo.find(handle2.url)
-      await charlieHandle.doc()
-      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "bar" })
+      const charlieHandle = await charlieRepo.find(handle2.url)
+      assert.deepStrictEqual(charlieHandle.doc(), { foo: "bar" })
 
       teardown()
     })
@@ -1434,9 +1395,8 @@ describe("Repo", () => {
       // pause to let the sync happen
       await pause(50)
 
-      const charlieHandle = charlieRepo.find(handle2.url)
-      await charlieHandle.doc()
-      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "bar" })
+      const charlieHandle = await charlieRepo.find(handle2.url)
+      assert.deepStrictEqual(charlieHandle.doc(), { foo: "bar" })
 
       // now make a change to doc2 on bobs side and merge it into doc1
       handle2.change(d => {
@@ -1447,11 +1407,197 @@ describe("Repo", () => {
       // wait for the network to do it's thang
       await pause(350)
 
-      await charlieHandle.doc()
-      assert.deepStrictEqual(charlieHandle.docSync(), { foo: "baz" })
+      assert.deepStrictEqual(charlieHandle.doc(), { foo: "baz" })
 
       teardown()
     })
+  })
+
+  describe("the denylist", () => {
+    it("should immediately return an unavailable message in response to a request for a denylisted document", async () => {
+      const storage = new DummyStorageAdapter()
+
+      // first create the document in storage
+      const dummyRepo = new Repo({ network: [], storage })
+      const doc = dummyRepo.create({ foo: "bar" })
+      await dummyRepo.flush()
+
+      // Check that the document actually is in storage
+      let docId = doc.documentId
+      assert(storage.keys().some((k: string) => k.includes(docId)))
+
+      const channel = new MessageChannel()
+      const { port1: clientToServer, port2: serverToClient } = channel
+      const server = new Repo({
+        network: [new MessageChannelNetworkAdapter(serverToClient)],
+        storage,
+        denylist: [doc.url],
+      })
+      const client = new Repo({
+        network: [new MessageChannelNetworkAdapter(clientToServer)],
+      })
+
+      await Promise.all([
+        eventPromise(server.networkSubsystem, "peer"),
+        eventPromise(client.networkSubsystem, "peer"),
+      ])
+
+      await expect(async () => {
+        const clientDoc = await client.find(doc.url)
+      }).rejects.toThrow(/Document (.*) is unavailable/)
+
+      const openDocs = Object.keys(server.metrics().documents).length
+      assert.deepEqual(openDocs, 0)
+    })
+  })
+})
+
+describe("Repo heads-in-URLs functionality", () => {
+  const setup = () => {
+    const repo = new Repo({})
+    const handle = repo.create()
+    handle.change((doc: any) => (doc.title = "Hello World"))
+    return { repo, handle }
+  }
+
+  it("finds a document view by URL with heads", async () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    const view = await repo.find(url)
+    expect(view.doc()).toEqual({ title: "Hello World" })
+  })
+
+  it("returns a view, not the actual handle, when finding by URL with heads", async () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    await handle.change((doc: any) => (doc.title = "Changed"))
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    const view = await repo.find(url)
+    expect(view.doc()).toEqual({ title: "Hello World" })
+    expect(handle.doc()).toEqual({ title: "Changed" })
+  })
+
+  it("changes to a document view do not affect the original", async () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    const view = await repo.find(url)
+    expect(() =>
+      view.change((doc: any) => (doc.title = "Changed in View"))
+    ).toThrow()
+    expect(handle.doc()).toEqual({ title: "Hello World" })
+  })
+
+  it("document views are read-only", async () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    const view = await repo.find(url)
+    expect(() => view.change((doc: any) => (doc.title = "Changed"))).toThrow()
+  })
+
+  it("finds the latest document when given a URL without heads", async () => {
+    const { repo, handle } = setup()
+    await handle.change((doc: any) => (doc.title = "Changed"))
+    const found = await repo.find(handle.url)
+    expect(found.doc()).toEqual({ title: "Changed" })
+  })
+
+  it("getHeadsFromUrl returns heads array if present or undefined", () => {
+    const { repo, handle } = setup()
+    const heads = handle.heads()!
+    const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
+    expect(getHeadsFromUrl(url)).toEqual(heads)
+
+    const urlWithoutHeads = generateAutomergeUrl()
+    expect(getHeadsFromUrl(urlWithoutHeads)).toBeUndefined()
+  })
+
+  it("isValidAutomergeUrl returns true for valid URLs", () => {
+    const { repo, handle } = setup()
+    const url = generateAutomergeUrl()
+    expect(isValidAutomergeUrl(url)).toBe(true)
+
+    const urlWithHeads = stringifyAutomergeUrl({
+      documentId: handle.documentId,
+      heads: handle.heads()!,
+    })
+    expect(isValidAutomergeUrl(urlWithHeads)).toBe(true)
+  })
+
+  it("isValidAutomergeUrl returns false for invalid URLs", () => {
+    const { repo, handle } = setup()
+    expect(isValidAutomergeUrl("not a url")).toBe(false)
+    expect(isValidAutomergeUrl("automerge:invalidid")).toBe(false)
+    expect(isValidAutomergeUrl("automerge:validid#invalidhead")).toBe(false)
+  })
+
+  it("parseAutomergeUrl extracts documentId and heads", () => {
+    const { repo, handle } = setup()
+    const url = stringifyAutomergeUrl({
+      documentId: handle.documentId,
+      heads: handle.heads()!,
+    })
+    const parsed = parseAutomergeUrl(url)
+    expect(parsed.documentId).toBe(handle.documentId)
+    expect(parsed.heads).toEqual(handle.heads())
+  })
+
+  it("stringifyAutomergeUrl creates valid URL", () => {
+    const { repo, handle } = setup()
+    const url = stringifyAutomergeUrl({
+      documentId: handle.documentId,
+      heads: handle.heads()!,
+    })
+    expect(isValidAutomergeUrl(url)).toBe(true)
+    const parsed = parseAutomergeUrl(url)
+    expect(parsed.documentId).toBe(handle.documentId)
+    expect(parsed.heads).toEqual(handle.heads())
+  })
+})
+
+describe("Repo.find() abort behavior", () => {
+  it("aborts immediately if signal is already aborted", async () => {
+    const repo = new Repo()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      repo.find(generateAutomergeUrl(), { signal: controller.signal })
+    ).rejects.toThrow("Operation aborted")
+  })
+
+  it("can abort while waiting for ready state", async () => {
+    // Create a repo with no network adapters so document can't become ready
+    const repo = new Repo()
+    const url = generateAutomergeUrl()
+
+    const controller = new AbortController()
+
+    // Start find and abort after a moment
+    const findPromise = repo.find(url, { signal: controller.signal })
+    controller.abort()
+
+    await expect(findPromise).rejects.toThrow("Operation aborted")
+    await expect(findPromise).rejects.not.toThrow("unavailable")
+  })
+
+  it("returns handle immediately when allow unavailable is true, even with abort signal", async () => {
+    const repo = new Repo()
+    const controller = new AbortController()
+    const url = generateAutomergeUrl()
+
+    const handle = await repo.find(url, {
+      allowableStates: ["unavailable"],
+      signal: controller.signal,
+    })
+
+    expect(handle).toBeDefined()
+
+    // Abort shouldn't affect the result since we skipped ready
+    controller.abort()
+    expect(handle.url).toBe(url)
   })
 })
 

@@ -1,63 +1,100 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
-import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim/next"
-import { useCallback, useEffect, useRef, useState } from "react"
-import { useRepo } from "./useRepo.js"
+import { AnyDocumentId } from "@automerge/automerge-repo/slim"
+import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
+import { useCallback, useEffect, useState } from "react"
+import { useDocHandle } from "./useDocHandle.js"
 
-/** A hook which returns a document identified by a URL and a function to change the document.
+/**
+ * A hook which returns a document and a function to change it.
+ * Uses React Suspense for loading states, returning a tuple matching useState pattern.
  *
- * @returns a tuple of the document and a function to change the document.
- * The document will be `undefined` if the document is not available in storage or from any peers
+ * @example
+ * ```tsx
+ * function Counter() {
+ *   const [doc, changeDoc] = useDocument<{ count: number }>(docUrl)
+ *   return (
+ *     <button onClick={() => changeDoc(d => d.count++)}>
+ *       Count: {doc.count}
+ *     </button>
+ *   )
+ * }
  *
- * @remarks
- * This requires a {@link RepoContext} to be provided by a parent component.
- * */
+ * // Must be wrapped in Suspense boundary
+ * <Suspense fallback={<Loading />}>
+ *   <Counter />
+ * </Suspense>
+ * ```
+ */
+
+interface UseDocumentSuspendingParams {
+  suspense: true
+}
+interface UseDocumentSynchronousParams {
+  suspense: false
+}
+
+type UseDocumentParams =
+  | UseDocumentSuspendingParams
+  | UseDocumentSynchronousParams
+
+export type UseDocumentReturn<T> = [
+  Doc<T>,
+  (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void
+]
+
 export function useDocument<T>(
-  id?: AnyDocumentId
-): [
-  Doc<T> | undefined,
-  (changeFn: ChangeFn<T>, options?: ChangeOptions<T> | undefined) => void
-] {
-  const repo = useRepo()
-  const handle = id ? repo.find<T>(id) : null
-  const handleRef = useRef<DocHandle<T> | null>(handle)
-  if (handle !== handleRef.current) {
-    handleRef.current = handle
-  }
+  id: AnyDocumentId,
+  params: UseDocumentSuspendingParams
+): UseDocumentReturn<T>
+export function useDocument<T>(
+  id: AnyDocumentId | undefined,
+  params?: UseDocumentSynchronousParams
+): UseDocumentReturn<T> | [undefined, () => void]
+export function useDocument<T>(
+  id: AnyDocumentId | undefined,
+  params: UseDocumentParams = { suspense: false }
+): UseDocumentReturn<T> | [undefined, () => void] {
+  // @ts-expect-error -- typescript doesn't realize we're discriminating these types the same way in both functions
+  const handle = useDocHandle<T>(id, params)
+  // Initialize with current doc state
+  const [doc, setDoc] = useState<Doc<T> | undefined>(() => handle?.doc())
+  const [deleteError, setDeleteError] = useState<Error>()
 
-  // a state value we use to trigger a re-render
-  const [, setGeneration] = useState(0)
-  const rerender = () => setGeneration(v => v + 1)
+  // Reinitialize doc when handle changes
+  useEffect(() => {
+    setDoc(handle?.doc())
+  }, [handle])
 
   useEffect(() => {
-    if (!id || !handle) {
+    if (!handle) {
       return
     }
-
-    handleRef.current = handle
-    handle
-      .doc()
-      .then(() => {
-        rerender()
-      })
-      .catch(e => console.error(e))
-
-    handle.on("change", rerender)
-    handle.on("delete", rerender)
-    const cleanup = () => {
-      handle.removeListener("change", rerender)
-      handle.removeListener("delete", rerender)
+    const onChange = () => setDoc(handle.doc())
+    const onDelete = () => {
+      setDeleteError(new Error(`Document ${id} was deleted`))
     }
 
-    return cleanup
-  }, [id, handle])
+    handle.on("change", onChange)
+    handle.on("delete", onDelete)
+
+    return () => {
+      handle.removeListener("change", onChange)
+      handle.removeListener("delete", onDelete)
+    }
+  }, [handle, id])
 
   const changeDoc = useCallback(
-    (changeFn: ChangeFn<T>, options?: ChangeOptions<T> | undefined) => {
-      if (!handle) return
-      handle.change(changeFn, options)
+    (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => {
+      handle!.change(changeFn, options)
     },
     [handle]
   )
 
-  return [handle?.docSync(), changeDoc] as const
+  if (deleteError) {
+    throw deleteError
+  }
+
+  if (!doc) {
+    return [undefined, () => {}]
+  }
+  return [doc, changeDoc]
 }

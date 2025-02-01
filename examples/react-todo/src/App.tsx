@@ -1,7 +1,7 @@
 import { AutomergeUrl } from "@automerge/automerge-repo"
 import { useDocument, useRepo } from "@automerge/automerge-repo-react-hooks"
 import cx from "classnames"
-import { useRef, useState } from "react"
+import { Suspense, useRef, useState } from "react"
 
 import { Todo } from "./Todo.js"
 import { ExtendedArray, Filter, State, TodoData } from "./types.js"
@@ -28,7 +28,7 @@ export function App({ url }: { url: AutomergeUrl }) {
     if (!state) return []
     return state.todos.filter(async url => {
       if (filter === Filter.all) return true
-      const todo = await repo.find<TodoData>(url).doc()
+      const todo = (await repo.find<TodoData>(url)).doc()
       if (filter === Filter.completed) return todo.completed
       if (filter === Filter.incomplete) return !todo.completed
       return false
@@ -38,7 +38,7 @@ export function App({ url }: { url: AutomergeUrl }) {
   const destroyCompleted = async () => {
     if (!state) return
     for (const url of await getFilteredTodos(Filter.completed)) {
-      const todo = await repo.find<TodoData>(url).doc()
+      const todo = (await repo.find<TodoData>(url)).doc()
       if (todo.completed) destroy(url)
     }
   }
@@ -89,16 +89,18 @@ export function App({ url }: { url: AutomergeUrl }) {
 
           {/* todos */}
           <section>
-            <ul className="border-y divide-y divide-solid">
-              {state.todos.map(url => (
-                <Todo
-                  key={url}
-                  url={url}
-                  onDestroy={url => destroy(url)}
-                  filter={filter}
-                />
-              ))}
-            </ul>
+            <Suspense fallback={<li>Loading todo items...</li>}>
+              <ul className="border-y divide-y divide-solid">
+                {state.todos.map(url => (
+                  <Todo
+                    key={url}
+                    url={url}
+                    onDestroy={url => destroy(url)}
+                    filter={filter}
+                  />
+                ))}
+              </ul>
+            </Suspense>
           </section>
 
           {/* footer tools */}

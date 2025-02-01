@@ -2,11 +2,20 @@ import { next as Automerge } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
+  encodeHeads,
   generateAutomergeUrl,
   interpretAsDocumentId,
+  isValidAutomergeUrl,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
-import { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
+import {
+  DELETED,
+  DocHandle,
+  DocHandleEncodedChangePayload,
+  READY,
+  UNAVAILABLE,
+  UNLOADED,
+} from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
@@ -20,8 +29,18 @@ import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import { SyncStatePayload } from "./synchronizer/Synchronizer.js"
-import type { AnyDocumentId, DocumentId, PeerId } from "./types.js"
+import {
+  DocSyncMetrics,
+  SyncStatePayload,
+} from "./synchronizer/Synchronizer.js"
+import type {
+  AnyDocumentId,
+  AutomergeUrl,
+  DocumentId,
+  PeerId,
+} from "./types.js"
+import { abortable, AbortOptions } from "./helpers/abortable.js"
+import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -70,6 +89,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     sharePolicy,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
+    denylist = [],
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
@@ -89,13 +109,16 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    this.synchronizer = new CollectionSynchronizer(this)
+    this.synchronizer = new CollectionSynchronizer(this, denylist)
 
     // When the synchronizer emits messages, send them to peers
     this.synchronizer.on("message", message => {
       this.#log(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
     })
+
+    // Forward metrics from doc synchronizers
+    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
 
     if (this.#remoteHeadsGossipingEnabled) {
       this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
@@ -106,6 +129,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
+    if (storageSubsystem) {
+      storageSubsystem.on("document-loaded", event =>
+        this.emit("doc-metrics", { type: "doc-loaded", ...event })
+      )
+    }
+
     this.storageSubsystem = storageSubsystem
 
     // NETWORK
@@ -168,16 +197,20 @@ export class Repo extends EventEmitter<RepoEvents> {
       const heads = handle.getRemoteHeads(storageId)
       const haveHeadsChanged =
         message.syncState.theirHeads &&
-        (!heads || !headsAreSame(heads, message.syncState.theirHeads))
+        (!heads ||
+          !headsAreSame(heads, encodeHeads(message.syncState.theirHeads)))
 
       if (haveHeadsChanged && message.syncState.theirHeads) {
-        handle.setRemoteHeads(storageId, message.syncState.theirHeads)
+        handle.setRemoteHeads(
+          storageId,
+          encodeHeads(message.syncState.theirHeads)
+        )
 
         if (storageId && this.#remoteHeadsGossipingEnabled) {
           this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
             message.documentId,
             storageId,
-            message.syncState.theirHeads
+            encodeHeads(message.syncState.theirHeads)
           )
         }
       }
@@ -229,18 +262,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
     }
 
-    handle.on("unavailable", () => {
-      this.#log("document unavailable", { documentId: handle.documentId })
-      this.emit("unavailable-document", {
-        documentId: handle.documentId,
-      })
-    })
-
     // Register the document with the synchronizer. This advertises our interest in the document.
-    this.synchronizer.addDocument(handle.documentId)
-
-    // Preserve the old event in case anyone was using it.
-    this.emit("document", { handle })
+    this.synchronizer.addDocument(handle)
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -371,8 +394,6 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
    * be notified of the newly created DocHandle.
    *
-   * @throws if the cloned handle is not yet ready or if
-   * `clonedHandle.docSync()` returns `undefined` (i.e. the handle is unavailable).
    */
   clone<T>(clonedHandle: DocHandle<T>) {
     if (!clonedHandle.isReady()) {
@@ -382,11 +403,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
     }
 
-    const sourceDoc = clonedHandle.docSync()
-    if (!sourceDoc) {
-      throw new Error("Cloned handle doesn't have a document.")
-    }
-
+    const sourceDoc = clonedHandle.doc()
     const handle = this.create<T>()
 
     handle.update(() => {
@@ -397,58 +414,196 @@ export class Repo extends EventEmitter<RepoEvents> {
     return handle
   }
 
-  /**
-   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
-   * event to advertise interest in the document.
-   */
-  find<T>(
-    /** The url or documentId of the handle to retrieve */
-    id: AnyDocumentId
-  ): DocHandle<T> {
-    const documentId = interpretAsDocumentId(id)
+  findWithProgress<T>(
+    id: AnyDocumentId,
+    options: AbortOptions = {}
+  ): FindProgressWithMethods<T> | FindProgress<T> {
+    const { signal } = options
+    const abortPromise = abortable(signal)
 
+    const { documentId, heads } = isValidAutomergeUrl(id)
+      ? parseAutomergeUrl(id)
+      : { documentId: interpretAsDocumentId(id), heads: undefined }
+
+    // Check cache first - return plain FindStep for terminal states
+    if (this.#handleCache[documentId]) {
+      const handle = this.#handleCache[documentId]
+      if (handle.state === UNAVAILABLE) {
+        const result = {
+          state: "unavailable" as const,
+          error: new Error(`Document ${id} is unavailable`),
+          handle,
+        }
+        return result
+      }
+      if (handle.state === DELETED) {
+        return {
+          state: "failed",
+          error: new Error(`Document ${id} was deleted`),
+          handle,
+        }
+      }
+      if (handle.state === READY) {
+        // If we already have the handle, return it immediately (or a view of the handle if heads are specified)
+        return {
+          state: "ready",
+          // TODO: this handle needs to be cached (or at least avoid running clone)
+          handle: heads ? handle.view(heads) : handle,
+        }
+      }
+    }
+
+    // the generator takes over `this`, so we need an alias to the repo this
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const that = this
+    async function* progressGenerator(): AsyncGenerator<FindProgress<T>> {
+      try {
+        const handle = that.#getHandle<T>({ documentId })
+        yield { state: "loading", progress: 25, handle }
+
+        const loadingPromise = await (that.storageSubsystem
+          ? that.storageSubsystem.loadDoc(handle.documentId)
+          : Promise.resolve(null))
+
+        const loadedDoc = await Promise.race([loadingPromise, abortPromise])
+
+        if (loadedDoc) {
+          handle.update(() => loadedDoc as Automerge.Doc<T>)
+          handle.doneLoading()
+          yield { state: "loading", progress: 50, handle }
+        } else {
+          await Promise.race([that.networkSubsystem.whenReady(), abortPromise])
+          handle.request()
+          yield { state: "loading", progress: 75, handle }
+        }
+
+        that.#registerHandleWithSubsystems(handle)
+
+        await Promise.race([
+          handle.whenReady([READY, UNAVAILABLE]),
+          abortPromise,
+        ])
+
+        if (handle.state === UNAVAILABLE) {
+          yield { state: "unavailable", handle }
+        }
+        if (handle.state === DELETED) {
+          throw new Error(`Document ${id} was deleted`)
+        }
+
+        yield { state: "ready", handle }
+      } catch (error) {
+        yield {
+          state: "failed",
+          error: error instanceof Error ? error : new Error(String(error)),
+          handle,
+        }
+      }
+    }
+
+    const iterator = progressGenerator()
+
+    const next = async () => {
+      const result = await iterator.next()
+      return { ...result.value, next }
+    }
+
+    const untilReady = async (allowableStates: string[]) => {
+      for await (const state of iterator) {
+        if (allowableStates.includes(state.handle.state)) {
+          return state.handle
+        }
+        if (state.state === "unavailable") {
+          throw new Error(`Document ${id} is unavailable`)
+        }
+        if (state.state === "ready") return state.handle
+        if (state.state === "failed") throw state.error
+      }
+      throw new Error("Iterator completed without reaching ready state")
+    }
+
+    const handle = this.#getHandle<T>({ documentId })
+    const initial = { state: "loading" as const, progress: 0, handle }
+    return { ...initial, next, untilReady }
+  }
+
+  async find<T>(
+    id: AnyDocumentId,
+    options: RepoFindOptions & AbortOptions = {}
+  ): Promise<DocHandle<T>> {
+    const { allowableStates = ["ready"], signal } = options
+    const progress = this.findWithProgress<T>(id, { signal })
+
+    /*if (allowableStates.includes(progress.state)) {
+      console.log("returning early")
+      return progress.handle
+    }*/
+
+    if ("untilReady" in progress) {
+      this.#registerHandleWithSubsystems(progress.handle)
+      return progress.untilReady(allowableStates)
+    } else {
+      return progress.handle
+    }
+  }
+
+  /**
+   * Loads a document without waiting for ready state
+   */
+  async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
     // If we have the handle cached, return it
     if (this.#handleCache[documentId]) {
-      if (this.#handleCache[documentId].isUnavailable()) {
-        // this ensures that the event fires after the handle has been returned
-        setTimeout(() => {
-          this.#handleCache[documentId].emit("unavailable", {
-            handle: this.#handleCache[documentId],
-          })
-        })
-      }
       return this.#handleCache[documentId]
     }
 
     // If we don't already have the handle, make an empty one and try loading it
-    const handle = this.#getHandle<T>({
-      documentId,
-    }) as DocHandle<T>
-
-    // Loading & network is going to be asynchronous no matter what,
-    // but we want to return the handle immediately.
-    const attemptLoad = this.storageSubsystem
+    const handle = this.#getHandle<T>({ documentId })
+    const loadedDoc = await (this.storageSubsystem
       ? this.storageSubsystem.loadDoc(handle.documentId)
-      : Promise.resolve(null)
+      : Promise.resolve(null))
 
-    attemptLoad
-      .then(async loadedDoc => {
-        if (loadedDoc) {
-          // uhhhh, sorry if you're reading this because we were lying to the type system
-          handle.update(() => loadedDoc as Automerge.Doc<T>)
-          handle.doneLoading()
-        } else {
-          // we want to wait for the network subsystem to be ready before
-          // we request the document. this prevents entering unavailable during initialization.
-          await this.networkSubsystem.whenReady()
-          handle.request()
-        }
-        this.#registerHandleWithSubsystems(handle)
-      })
-      .catch(err => {
-        this.#log("error waiting for network", { err })
-      })
+    if (loadedDoc) {
+      // We need to cast this to <T> because loadDoc operates in <unknowns>.
+      // This is really where we ought to be validating the input matches <T>.
+      handle.update(() => loadedDoc as Automerge.Doc<T>)
+      handle.doneLoading()
+    } else {
+      // Because the network subsystem might still be booting up, we wait
+      // here so that we don't immediately give up loading because we're still
+      // making our initial connection to a sync server.
+      await this.networkSubsystem.whenReady()
+      handle.request()
+    }
+
+    this.#registerHandleWithSubsystems(handle)
     return handle
+  }
+
+  /**
+   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
+   * event to advertise interest in the document.
+   */
+  async findClassic<T>(
+    /** The url or documentId of the handle to retrieve */
+    id: AnyDocumentId,
+    options: RepoFindOptions & AbortOptions = {}
+  ): Promise<DocHandle<T>> {
+    const documentId = interpretAsDocumentId(id)
+    const { allowableStates, signal } = options
+
+    return Promise.race([
+      (async () => {
+        const handle = await this.#loadDocument<T>(documentId)
+        if (!allowableStates) {
+          await handle.whenReady([READY, UNAVAILABLE])
+          if (handle.state === UNAVAILABLE && !signal?.aborted) {
+            throw new Error(`Document ${id} is unavailable`)
+          }
+        }
+        return handle
+      })(),
+      abortable(signal),
+    ])
   }
 
   delete(
@@ -475,8 +630,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const documentId = interpretAsDocumentId(id)
 
     const handle = this.#getHandle({ documentId })
-    const doc = await handle.doc()
-    if (!doc) return undefined
+    const doc = handle.doc()
     return Automerge.save(doc)
   }
 
@@ -530,13 +684,44 @@ export class Repo extends EventEmitter<RepoEvents> {
       : Object.values(this.#handleCache)
     await Promise.all(
       handles.map(async handle => {
-        const doc = handle.docSync()
-        if (!doc) {
-          return
-        }
-        return this.storageSubsystem!.saveDoc(handle.documentId, doc)
+        return this.storageSubsystem!.saveDoc(handle.documentId, handle.doc())
       })
     )
+  }
+
+  /**
+   * Removes a DocHandle from the handleCache.
+   * @hidden this API is experimental and may change.
+   * @param documentId - documentId of the DocHandle to remove from handleCache, if present in cache.
+   * @returns Promise<void>
+   */
+  async removeFromCache(documentId: DocumentId) {
+    if (!this.#handleCache[documentId]) {
+      this.#log(
+        `WARN: removeFromCache called but handle not found in handleCache for documentId: ${documentId}`
+      )
+      return
+    }
+    const handle = this.#getHandle({ documentId })
+    await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
+    const doc = handle.doc()
+    // because this is an internal-ish function, we'll be extra careful about undefined docs here
+    if (doc) {
+      if (handle.isReady()) {
+        handle.unload()
+      } else {
+        this.#log(
+          `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
+        )
+      }
+      delete this.#handleCache[documentId]
+      // TODO: remove document from synchronizer when removeDocument is implemented
+      // this.synchronizer.removeDocument(documentId)
+    } else {
+      this.#log(
+        `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
+      )
+    }
   }
 
   shutdown(): Promise<void> {
@@ -575,6 +760,13 @@ export interface RepoConfig {
    * Whether to enable the experimental remote heads gossiping feature
    */
   enableRemoteHeadsGossiping?: boolean
+
+  /**
+   * A list of automerge URLs which should never be loaded regardless of what
+   * messages are received or what the share policy is. This is useful to avoid
+   * loading documents that are known to be too resource intensive.
+   */
+  denylist?: AutomergeUrl[]
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -598,6 +790,11 @@ export interface RepoEvents {
   "delete-document": (arg: DeleteDocumentPayload) => void
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (arg: DeleteDocumentPayload) => void
+  "doc-metrics": (arg: DocMetrics) => void
+}
+
+export interface RepoFindOptions {
+  allowableStates?: string[]
 }
 
 export interface DocumentPayload {
@@ -607,3 +804,17 @@ export interface DocumentPayload {
 export interface DeleteDocumentPayload {
   documentId: DocumentId
 }
+
+export type DocMetrics =
+  | DocSyncMetrics
+  | {
+      type: "doc-loaded"
+      documentId: DocumentId
+      durationMillis: number
+      numOps: number
+      numChanges: number
+    }
+  | {
+      type: "doc-denied"
+      documentId: DocumentId
+    }

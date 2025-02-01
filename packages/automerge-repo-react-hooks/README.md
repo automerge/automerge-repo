@@ -19,6 +19,6 @@ Most hooks depend on RepoContext being available.
 
 Return a document & updater fn, by ID.
 
-#### [useHandle](./src/useHandle.ts)
+#### [useDocHandle](./src/useDocHandle.ts)
 
 Return a handle, by ID.

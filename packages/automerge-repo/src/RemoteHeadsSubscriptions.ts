@@ -1,6 +1,5 @@
-import { next as A } from "@automerge/automerge/slim"
 import { EventEmitter } from "eventemitter3"
-import { DocumentId, PeerId } from "./types.js"
+import { DocumentId, PeerId, UrlHeads } from "./types.js"
 import {
   RemoteHeadsChanged,
   RemoteSubscriptionControlMessage,
@@ -12,7 +11,7 @@ import debug from "debug"
 export type RemoteHeadsSubscriptionEventPayload = {
   documentId: DocumentId
   storageId: StorageId
-  remoteHeads: A.Heads
+  remoteHeads: UrlHeads
   timestamp: number
 }
 
@@ -21,7 +20,7 @@ export type NotifyRemoteHeadsPayload = {
   targetId: PeerId
   documentId: DocumentId
   storageId: StorageId
-  heads: A.Heads
+  heads: UrlHeads
   timestamp: number
 }
 
@@ -216,7 +215,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   handleImmediateRemoteHeadsChanged(
     documentId: DocumentId,
     storageId: StorageId,
-    heads: A.Heads
+    heads: UrlHeads
   ) {
     this.#log("handleLocalHeadsChanged", documentId, storageId, heads)
     const remote = this.#knownHeads.get(documentId)
@@ -334,7 +333,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   #changedHeads(msg: RemoteHeadsChanged): {
     documentId: DocumentId
     storageId: StorageId
-    remoteHeads: A.Heads
+    remoteHeads: UrlHeads
     timestamp: number
   }[] {
     const changedHeads = []
@@ -356,11 +355,14 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       if (docRemote && docRemote.timestamp >= timestamp) {
         continue
       } else {
-        remote.set(storageId as StorageId, { timestamp, heads })
+        remote.set(storageId as StorageId, {
+          timestamp,
+          heads: heads as UrlHeads,
+        })
         changedHeads.push({
           documentId,
           storageId: storageId as StorageId,
-          remoteHeads: heads,
+          remoteHeads: heads as UrlHeads,
           timestamp,
         })
       }
@@ -371,5 +373,5 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
 
 type LastHeads = {
   timestamp: number
-  heads: A.Heads
+  heads: UrlHeads
 }

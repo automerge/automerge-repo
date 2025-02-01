@@ -27,8 +27,11 @@ export type AnyDocumentId =
   | BinaryDocumentId
   | LegacyDocumentId
 
+// We need to define our own version of heads because the AutomergeHeads type is not bs58check encoded
+export type UrlHeads = string[] & { __automergeUrlHeads: unknown }
+
 /** A branded type for peer IDs */
 export type PeerId = string & { __peerId: true }
 
 /** A randomly generated string created when the {@link Repo} starts up */
-export type SessionId = string & { __SessionId: true }
+export type SessionId = string & { __sessionId: true }

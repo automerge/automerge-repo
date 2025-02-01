@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-demo-counter",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-counter",
   "private": true,
-  "version": "2.0.0-alpha.11",
+  "version": "2.0.0-alpha.22",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
@@ -15,7 +15,7 @@
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-react-hooks": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
   }
 }

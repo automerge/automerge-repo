@@ -49,9 +49,10 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         // Alice creates a document
         const aliceHandle = aliceRepo.create<TestDoc>()
 
-        // Bob receives the document
-        await eventPromise(bobRepo, "document")
-        const bobHandle = bobRepo.find<TestDoc>(aliceHandle.url)
+        // TODO: ... let connections complete. this shouldn't be necessary.
+        await pause(50)
+
+        const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
 
         // Alice changes the document
         aliceHandle.change(d => {
@@ -60,7 +61,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
         // Bob receives the change
         await eventPromise(bobHandle, "change")
-        assert.equal((await bobHandle.doc())?.foo, "bar")
+        assert.equal((await bobHandle).doc()?.foo, "bar")
 
         // Bob changes the document
         bobHandle.change(d => {
@@ -69,7 +70,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
         // Alice receives the change
         await eventPromise(aliceHandle, "change")
-        assert.equal((await aliceHandle.doc())?.foo, "baz")
+        assert.equal(aliceHandle.doc().foo, "baz")
       }
 
       // Run the test in both directions, in case they're different types of adapters
@@ -100,9 +101,9 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       const docUrl = aliceHandle.url
 
       // Bob and Charlie receive the document
-      await eventPromises([bobRepo, charlieRepo], "document")
-      const bobHandle = bobRepo.find<TestDoc>(docUrl)
-      const charlieHandle = charlieRepo.find<TestDoc>(docUrl)
+      await pause(50)
+      const bobHandle = await bobRepo.find<TestDoc>(docUrl)
+      const charlieHandle = await charlieRepo.find<TestDoc>(docUrl)
 
       // Alice changes the document
       aliceHandle.change(d => {
@@ -111,8 +112,8 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       // Bob and Charlie receive the change
       await eventPromises([bobHandle, charlieHandle], "change")
-      assert.equal((await bobHandle.doc())?.foo, "bar")
-      assert.equal((await charlieHandle.doc())?.foo, "bar")
+      assert.equal(bobHandle.doc().foo, "bar")
+      assert.equal(charlieHandle.doc().foo, "bar")
 
       // Charlie changes the document
       charlieHandle.change(d => {
@@ -121,8 +122,8 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       // Alice and Bob receive the change
       await eventPromises([aliceHandle, bobHandle], "change")
-      assert.equal((await bobHandle.doc())?.foo, "baz")
-      assert.equal((await charlieHandle.doc())?.foo, "baz")
+      assert.equal(bobHandle.doc().foo, "baz")
+      assert.equal(charlieHandle.doc().foo, "baz")
 
       teardown()
     })
@@ -141,7 +142,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       )
 
       const aliceHandle = aliceRepo.create<TestDoc>()
-      const charlieHandle = charlieRepo.find(aliceHandle.url)
+      const charlieHandle = await charlieRepo.find(aliceHandle.url)
 
       // pause to give charlie a chance to let alice know it wants the doc
       await pause(100)

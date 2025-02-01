@@ -30,6 +30,7 @@ type PendingMessage = {
 
 interface DocSynchronizerConfig {
   handle: DocHandle<unknown>
+  peerId: PeerId
   onLoadSyncState?: (peerId: PeerId) => Promise<A.SyncState | undefined>
 }
 
@@ -56,13 +57,17 @@ export class DocSynchronizer extends Synchronizer {
 
   #pendingSyncMessages: Array<PendingMessage> = []
 
+  // We keep this around at least in part for debugging.
+  // eslint-disable-next-line no-unused-private-class-members
+  #peerId: PeerId
   #syncStarted = false
 
   #handle: DocHandle<unknown>
   #onLoadSyncState: (peerId: PeerId) => Promise<A.SyncState | undefined>
 
-  constructor({ handle, onLoadSyncState }: DocSynchronizerConfig) {
+  constructor({ handle, peerId, onLoadSyncState }: DocSynchronizerConfig) {
     super()
+    this.#peerId = peerId
     this.#handle = handle
     this.#onLoadSyncState =
       onLoadSyncState ?? (() => Promise.resolve(undefined))
@@ -81,7 +86,7 @@ export class DocSynchronizer extends Synchronizer {
 
     // Process pending sync messages immediately after the handle becomes ready.
     void (async () => {
-      await handle.doc([READY, REQUESTING])
+      await handle.whenReady([READY, REQUESTING])
       this.#processAllPendingSyncMessages()
     })()
   }
@@ -97,8 +102,7 @@ export class DocSynchronizer extends Synchronizer {
   /// PRIVATE
 
   async #syncWithPeers() {
-    this.#log(`syncWithPeers`)
-    const doc = await this.#handle.doc()
+    const doc = await this.#handle.legacyAsyncDoc() // XXX THIS ONE IS WEIRD
     if (doc === undefined) return
     this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
   }
@@ -226,16 +230,15 @@ export class DocSynchronizer extends Synchronizer {
     return this.#peers.includes(peerId)
   }
 
-  beginSync(peerIds: PeerId[]) {
+  async beginSync(peerIds: PeerId[]) {
     const noPeersWithDocument = peerIds.every(
       peerId => this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
     )
 
     // At this point if we don't have anything in our storage, we need to use an empty doc to sync
     // with; but we don't want to surface that state to the front end
-
-    const docPromise = this.#handle
-      .doc([READY, REQUESTING, UNAVAILABLE])
+    const docPromise = this.#handle // TODO THIS IS ALSO WEIRD
+      .legacyAsyncDoc([READY, REQUESTING, UNAVAILABLE])
       .then(doc => {
         // we register out peers first, then say that sync has started
         this.#syncStarted = true
@@ -251,7 +254,13 @@ export class DocSynchronizer extends Synchronizer {
         return doc ?? A.init<unknown>()
       })
 
-    this.#log(`beginSync: ${peerIds.join(", ")}`)
+    const peersWithDocument = this.#peers.some(peerId => {
+      return this.#peerDocumentStatuses[peerId] == "has"
+    })
+
+    if (peersWithDocument) {
+      await this.#handle.whenReady()
+    }
 
     peerIds.forEach(peerId => {
       this.#withSyncState(peerId, syncState => {
@@ -351,11 +360,20 @@ export class DocSynchronizer extends Synchronizer {
 
     this.#withSyncState(message.senderId, syncState => {
       this.#handle.update(doc => {
+        const start = performance.now()
+
         const [newDoc, newSyncState] = A.receiveSyncMessage(
           doc,
           syncState,
           message.data
         )
+        const end = performance.now()
+        this.emit("metrics", {
+          type: "receive-sync-message",
+          documentId: this.#handle.documentId,
+          durationMillis: end - start,
+          ...A.stats(doc),
+        })
 
         this.#setSyncState(message.senderId, newSyncState)
 

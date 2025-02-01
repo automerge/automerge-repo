@@ -107,9 +107,9 @@ for (let i = 0; i < 100000; i++) {
   })
 
   await pause(0)
-  const a = await aliceRepo.find(doc.url).doc()
-  const b = await bobRepo.find(doc.url).doc()
-  const c = await charlieRepo.find(doc.url).doc()
+  const a = (await aliceRepo.find(doc.url)).doc()
+  const b = (await bobRepo.find(doc.url)).doc()
+  const c = (await charlieRepo.find(doc.url)).doc()
   assert.deepStrictEqual(a, b, "A and B should be equal")
   assert.deepStrictEqual(b, c, "B and C should be equal")
 
