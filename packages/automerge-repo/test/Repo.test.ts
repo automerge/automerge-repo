@@ -255,7 +255,6 @@ describe("Repo", () => {
       await repo.flush()
 
       const bobHandle = await repo2.find<TestDoc>(handle.url)
-      await bobHandle.whenReady()
       assert.deepEqual(bobHandle.doc(), { foo: "saved" })
     })
 
@@ -306,7 +305,6 @@ describe("Repo", () => {
         d.foo = "bar"
       })
       assert.equal(handle.isReady(), true)
-      await handle.whenReady()
 
       await pause()
       repo.delete(handle.url)
@@ -1063,11 +1061,6 @@ describe("Repo", () => {
             : // tails, pick a random doc
               (getRandomItem(docs) as DocHandle<TestDoc>)
 
-        // make sure the doc is ready
-        if (!doc.isReady()) {
-          await doc.whenReady()
-        }
-
         // make a random change to it
         doc.change(d => {
           d.foo = Math.random().toString()
@@ -1240,7 +1233,6 @@ describe("Repo", () => {
       })
 
       const charlieHandle = await charlieRepo.find<TestDoc>(handle.url)
-      await charlieHandle.whenReady()
 
       // make a change on charlie
       charlieHandle.change(d => {
