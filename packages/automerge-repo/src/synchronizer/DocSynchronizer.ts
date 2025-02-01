@@ -234,23 +234,12 @@ export class DocSynchronizer extends Synchronizer {
       peerId => this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
     )
 
-    // At this point if we don't have anything in our storage, we need to use an empty doc to sync
-    // with; but we don't want to surface that state to the front end
-    const docPromise = this.#handle // TODO THIS IS ALSO WEIRD
+    const weirdSideEffectPromise = this.#handle
       .legacyAsyncDoc([READY, REQUESTING, UNAVAILABLE])
-      .then(doc => {
+      .then(() => {
         // we register out peers first, then say that sync has started
         this.#syncStarted = true
         this.#checkDocUnavailable()
-
-        const wasUnavailable = doc === undefined
-        if (wasUnavailable && noPeersWithDocument) {
-          return
-        }
-
-        // If the doc is unavailable we still need a blank document to generate
-        // the sync message from
-        return doc ?? A.init<unknown>()
       })
 
     const peersWithDocument = this.#peers.some(peerId => {
@@ -272,11 +261,23 @@ export class DocSynchronizer extends Synchronizer {
         )
         this.#setSyncState(peerId, reparsedSyncState)
 
-        docPromise
-          .then(doc => {
-            if (doc) {
-              this.#sendSyncMessage(peerId, doc)
+        // At this point if we don't have anything in our storage, we need to use an empty doc to sync
+        // with; but we don't want to surface that state to the front end
+        this.#handle
+          .whenReady([READY, REQUESTING, UNAVAILABLE])
+          .then(() => {
+            const doc = this.#handle.isReady()
+              ? this.#handle.doc()
+              : A.init<unknown>()
+
+            const wasUnavailable = doc === undefined
+            if (wasUnavailable && noPeersWithDocument) {
+              return
             }
+
+            // If the doc is unavailable we still need a blank document to generate
+            // the sync message from
+            this.#sendSyncMessage(peerId, doc ?? A.init<unknown>())
           })
           .catch(err => {
             this.#log(`Error loading doc for ${peerId}: ${err}`)
