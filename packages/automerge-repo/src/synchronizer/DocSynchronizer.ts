@@ -230,11 +230,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   async beginSync(peerIds: PeerId[]) {
-    const noPeersWithDocument = peerIds.every(
-      peerId => this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
-    )
-
-    const weirdSideEffectPromise = this.#handle
+    void this.#handle
       .legacyAsyncDoc([READY, REQUESTING, UNAVAILABLE])
       .then(() => {
         // we register out peers first, then say that sync has started
@@ -269,6 +265,11 @@ export class DocSynchronizer extends Synchronizer {
             const doc = this.#handle.isReady()
               ? this.#handle.doc()
               : A.init<unknown>()
+
+            const noPeersWithDocument = peerIds.every(
+              peerId =>
+                this.#peerDocumentStatuses[peerId] in ["unavailable", "wants"]
+            )
 
             const wasUnavailable = doc === undefined
             if (wasUnavailable && noPeersWithDocument) {
