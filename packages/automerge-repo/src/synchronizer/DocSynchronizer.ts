@@ -231,9 +231,13 @@ export class DocSynchronizer extends Synchronizer {
 
   async beginSync(peerIds: PeerId[]) {
     void this.#handle
-      .legacyAsyncDoc([READY, REQUESTING, UNAVAILABLE])
+      .whenReady([READY, REQUESTING, UNAVAILABLE])
       .then(() => {
-        // we register out peers first, then say that sync has started
+        this.#syncStarted = true
+        this.#checkDocUnavailable()
+      })
+      .catch(e => {
+        console.log("caught whenready", e)
         this.#syncStarted = true
         this.#checkDocUnavailable()
       })
