@@ -259,8 +259,6 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
-    handle.legacyAsyncDoc()
-
     assert(vi.getTimerCount() > timerCount)
 
     // simulate loading from storage

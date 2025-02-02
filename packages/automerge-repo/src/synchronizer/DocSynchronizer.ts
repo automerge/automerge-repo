@@ -101,9 +101,13 @@ export class DocSynchronizer extends Synchronizer {
   /// PRIVATE
 
   async #syncWithPeers() {
-    const doc = await this.#handle.legacyAsyncDoc() // XXX THIS ONE IS WEIRD
-    if (doc === undefined) return
-    this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
+    try {
+      await this.#handle.whenReady()
+      const doc = this.#handle.doc() // XXX THIS ONE IS WEIRD
+      this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
+    } catch (e) {
+      console.log("sync with peers threw an exception")
+    }
   }
 
   async #broadcastToPeers({
