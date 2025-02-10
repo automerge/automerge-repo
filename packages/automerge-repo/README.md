@@ -262,4 +262,3 @@ With gratitude for contributions by:
 - Alex Currie-Clark
 - Dylan Mackenzie
 - Maciek Sakrejda
-
