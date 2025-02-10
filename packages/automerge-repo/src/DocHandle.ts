@@ -614,7 +614,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   broadcast(message: unknown) {
     this.emit("ephemeral-message-outbound", {
       handle: this,
-      data: encode(message),
+      data: new Uint8Array(encode(message)),
     })
   }
 
