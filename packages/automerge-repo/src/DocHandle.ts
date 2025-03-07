@@ -45,6 +45,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** A dictionary mapping each peer to the last heads we know they have. */
   #remoteHeads: Record<StorageId, UrlHeads> = {}
 
+  /** Cache for view handles, keyed by the stringified heads */
+  #viewCache: Map<string, DocHandle<T>> = new Map()
+
   /** @hidden */
   constructor(
     public documentId: DocumentId,
@@ -359,6 +362,16 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before calling view().`
       )
     }
+
+    // Create a cache key from the heads
+    const cacheKey = JSON.stringify(heads)
+
+    // Check if we have a cached handle for these heads
+    const cachedHandle = this.#viewCache.get(cacheKey)
+    if (cachedHandle) {
+      return cachedHandle
+    }
+
     // Create a new handle with the same documentId but fixed heads
     const handle = new DocHandle<T>(this.documentId, {
       heads,
@@ -366,6 +379,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
     handle.update(() => A.clone(this.#doc))
     handle.doneLoading()
+
+    // Store in cache
+    this.#viewCache.set(cacheKey, handle)
 
     return handle
   }
@@ -463,7 +479,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Called by the repo either when a doc handle changes or we receive new remote heads.
+   * Called by the repo when a doc handle changes or we receive new remote heads.
    * @hidden
    */
   setRemoteHeads(storageId: StorageId, heads: UrlHeads) {
@@ -575,14 +591,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Used in testing to mark this document as unavailable.
+   * Updates the internal state machine to mark the document unavailable.
    * @hidden
    */
   unavailable() {
     this.#machine.send({ type: DOC_UNAVAILABLE })
   }
 
-  /** Called by the repo when the document is not found in storage.
+  /**
+   * Called by the repo either when the document is not found in storage.
    * @hidden
    * */
   request() {
