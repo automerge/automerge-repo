@@ -520,4 +520,71 @@ describe("DocHandle", () => {
       assert.deepStrictEqual(decode(data), message)
     })
   })
+
+  it("should cache view handles based on heads", async () => {
+    // Create and setup a document with some data
+    const handle = setup()
+    handle.change(doc => {
+      doc.foo = "Hello"
+    })
+    const heads1 = handle.heads()
+
+    // Make another change to get a different set of heads
+    handle.change(doc => {
+      doc.foo = "Hello, World!"
+    })
+
+    // Create a view at the first set of heads
+    const view1 = handle.view(heads1)
+
+    // Request the same view again
+    const view2 = handle.view(heads1)
+
+    // Verify we got the same handle instance back (cached version)
+    expect(view1).toBe(view2)
+
+    // Verify the contents are correct
+    expect(view1.doc().foo).toBe("Hello")
+
+    // Test with a different set of heads
+    const view3 = handle.view(handle.heads())
+    expect(view3).not.toBe(view1)
+    expect(view3.doc().foo).toBe("Hello, World!")
+  })
+
+  it("should improve performance when requesting the same view multiple times", () => {
+    // Create and setup a document with some data
+    const handle = setup()
+    handle.change(doc => {
+      doc.foo = "Hello"
+    })
+    const heads = handle.heads()
+
+    // First, measure time without cache (first access)
+    const startTimeNoCached = performance.now()
+    const firstView = handle.view(heads)
+    const endTimeNoCached = performance.now()
+
+    // Now measure with cache (subsequent accesses)
+    const startTimeCached = performance.now()
+    for (let i = 0; i < 100; i++) {
+      handle.view(heads)
+    }
+    const endTimeCached = performance.now()
+
+    // Assert that all views are the same instance
+    for (let i = 0; i < 10; i++) {
+      expect(handle.view(heads)).toBe(firstView)
+    }
+
+    // Calculate average times
+    const timeForFirstAccess = endTimeNoCached - startTimeNoCached
+    const timeForCachedAccesses = (endTimeCached - startTimeCached) / 100
+
+    console.log(`Time for first view (no cache): ${timeForFirstAccess}ms`)
+    console.log(`Average time per cached view: ${timeForCachedAccesses}ms`)
+
+    // Cached access should be significantly faster
+    expect(timeForCachedAccesses).toBeLessThan(timeForFirstAccess / 10)
+  })
 })
