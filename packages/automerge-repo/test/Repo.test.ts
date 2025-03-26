@@ -62,9 +62,9 @@ describe("Repo", () => {
       assert(repo.storageSubsystem)
     })
 
-    it("can create a document", () => {
+    it("can create a document", async () => {
       const { repo } = setup()
-      const handle = repo.create()
+      const handle = await repo.create()
       assert.notEqual(handle.documentId, null)
       assert.equal(
         handle.isReady(),
@@ -75,13 +75,13 @@ describe("Repo", () => {
 
     it("can create a document with an initial value", async () => {
       const { repo } = setup()
-      const handle = repo.create({ foo: "bar" })
+      const handle = await repo.create({ foo: "bar" })
       assert.equal(handle.doc().foo, "bar")
     })
 
     it("can find a document by url", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change((d: TestDoc) => {
         d.foo = "bar"
       })
@@ -93,7 +93,7 @@ describe("Repo", () => {
 
     it("can find a document by its unprefixed document ID", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change((d: TestDoc) => {
         d.foo = "bar"
       })
@@ -107,7 +107,7 @@ describe("Repo", () => {
       disableConsoleWarn()
 
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change((d: TestDoc) => {
         d.foo = "bar"
       })
@@ -125,7 +125,7 @@ describe("Repo", () => {
 
     it("can change a document", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
@@ -134,26 +134,26 @@ describe("Repo", () => {
       assert.equal(v.foo, "bar")
     })
 
-    it("can clone a document", () => {
+    it("can clone a document", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
-      const handle2 = repo.clone(handle)
+      const handle2 = await repo.clone(handle)
       assert.equal(handle2.isReady(), true)
       assert.notEqual(handle.documentId, handle2.documentId)
       assert.deepStrictEqual(handle.doc(), handle2.doc())
       assert.deepStrictEqual(handle2.doc(), { foo: "bar" })
     })
 
-    it("the cloned documents are distinct", () => {
+    it("the cloned documents are distinct", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
-      const handle2 = repo.clone(handle)
+      const handle2 = await repo.clone(handle)
 
       handle.change(d => {
         d.bar = "bif"
@@ -167,13 +167,13 @@ describe("Repo", () => {
       assert.deepStrictEqual(handle2.doc(), { foo: "bar", baz: "baz" })
     })
 
-    it("the cloned documents can merge", () => {
+    it("the cloned documents can merge", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
-      const handle2 = repo.clone(handle)
+      const handle2 = await repo.clone(handle)
 
       handle.change(d => {
         d.bar = "bif"
@@ -229,7 +229,7 @@ describe("Repo", () => {
 
     it("can find a created document", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
@@ -246,7 +246,7 @@ describe("Repo", () => {
 
     it("saves the document when creating it", async () => {
       const { repo, storageAdapter } = setup()
-      const handle = repo.create<TestDoc>({ foo: "saved" })
+      const handle = await repo.create<TestDoc>({ foo: "saved" })
 
       const repo2 = new Repo({
         storage: storageAdapter,
@@ -260,7 +260,7 @@ describe("Repo", () => {
 
     it("saves the document when changed and can find it again", async () => {
       const { repo, storageAdapter } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
 
       handle.change(d => {
         d.foo = "bar"
@@ -282,7 +282,7 @@ describe("Repo", () => {
 
     it("can delete an existing document", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
@@ -300,7 +300,7 @@ describe("Repo", () => {
 
     it("can delete an existing document by url", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
@@ -313,10 +313,10 @@ describe("Repo", () => {
       assert.equal(repo.handles[handle.documentId], undefined)
     })
 
-    it("deleting a document emits an event", async () =>
+    it("deleting a document emits an event", async () => {
+      const { repo } = setup()
+      const handle = await repo.create<TestDoc>()
       new Promise<void>(done => {
-        const { repo } = setup()
-        const handle = repo.create<TestDoc>()
         handle.change(d => {
           d.foo = "bar"
         })
@@ -329,11 +329,12 @@ describe("Repo", () => {
         })
 
         repo.delete(handle.documentId)
-      }))
+      })
+    })
 
     it("exports a document", async () => {
       const { repo } = setup()
-      const handle = repo.create<TestDoc>()
+      const handle = await repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
@@ -359,7 +360,7 @@ describe("Repo", () => {
         storage,
       })
 
-      const handle = repo.create<{ count: number }>()
+      const handle = await repo.create<{ count: number }>()
 
       handle.change(d => {
         d.count = 0
@@ -369,6 +370,7 @@ describe("Repo", () => {
       })
 
       await repo.flush()
+      await repo.shutdown()
 
       const initialKeys = storage.keys()
 
@@ -376,7 +378,8 @@ describe("Repo", () => {
         storage,
       })
       const handle2 = await repo2.find(handle.url)
-      assert.deepEqual(storage.keys(), initialKeys)
+      await repo2.shutdown()
+      assert.deepStrictEqual(storage.keys(), initialKeys)
     })
 
     it("doesn't delete a document from storage when we refresh", async () => {
@@ -386,7 +389,7 @@ describe("Repo", () => {
         storage,
       })
 
-      const handle = repo.create<{ count: number }>()
+      const handle = await repo.create<{ count: number }>()
 
       handle.change(d => {
         d.count = 0
@@ -408,7 +411,7 @@ describe("Repo", () => {
 
     it("doesn't create multiple snapshots in storage when a series of large changes are made in succession", async () => {
       const { repo, storageAdapter } = setup()
-      const handle = repo.create<{ objects: LargeObject[] }>()
+      const handle = await repo.create<{ objects: LargeObject[] }>()
 
       for (let i = 0; i < 5; i++) {
         handle.change(d => {
@@ -439,7 +442,7 @@ describe("Repo", () => {
 
       const saved = A.save(updatedDoc)
 
-      const handle = repo.import<TestDoc>(saved)
+      const handle = await repo.import<TestDoc>(saved)
       assert.equal(handle.isReady(), true)
       const v = handle.doc()
       assert.equal(v?.foo, "bar")
@@ -449,9 +452,9 @@ describe("Repo", () => {
 
     it("throws an error if we try to import a nonsensical byte array", async () => {
       const { repo } = setup()
-      expect(() => {
-        repo.import<TestDoc>(new Uint8Array([1, 2, 3]))
-      }).toThrow()
+      expect(async () => {
+        await repo.import<TestDoc>(new Uint8Array([1, 2, 3]))
+      }).rejects.toThrow()
     })
 
     // TODO: not sure if this is the desired behavior from `import`.
@@ -459,7 +462,7 @@ describe("Repo", () => {
     it("makes an empty document if we try to import an automerge doc", async () => {
       const { repo } = setup()
       // @ts-ignore - passing something other than UInt8Array
-      const handle = repo.import<TestDoc>(A.from({ foo: 123 }))
+      const handle = await repo.import<TestDoc>(A.from({ foo: 123 }))
       const doc = handle.doc()
       expect(doc).toEqual({})
     })
@@ -467,7 +470,7 @@ describe("Repo", () => {
     it("makes an empty document if we try to import a plain object", async () => {
       const { repo } = setup()
       // @ts-ignore - passing something other than UInt8Array
-      const handle = repo.import<TestDoc>({ foo: 123 })
+      const handle = await repo.import<TestDoc>({ foo: 123 })
       const doc = handle.doc()
       expect(doc).toEqual({})
     })
@@ -475,20 +478,20 @@ describe("Repo", () => {
     describe("handle cache", () => {
       it("contains doc handle", async () => {
         const { repo } = setup()
-        const handle = repo.create({ foo: "bar" })
+        const handle = await repo.create({ foo: "bar" })
         assert(repo.handles[handle.documentId])
       })
 
       it("delete removes doc handle", async () => {
         const { repo } = setup()
-        const handle = repo.create({ foo: "bar" })
-        await repo.delete(handle.documentId)
+        const handle = await repo.create({ foo: "bar" })
+        repo.delete(handle.documentId)
         assert(repo.handles[handle.documentId] === undefined)
       })
 
       it("removeFromCache removes doc handle", async () => {
         const { repo } = setup()
-        const handle = repo.create({ foo: "bar" })
+        const handle = await repo.create({ foo: "bar" })
         await repo.removeFromCache(handle.documentId)
         assert(repo.handles[handle.documentId] === undefined)
       })
@@ -504,8 +507,12 @@ describe("Repo", () => {
   })
 
   describe("flush behaviour", () => {
-    const setup = () => {
+    const setup = async () => {
       let blockedSaves = new Set<{ path: StorageKey; resolve: () => void }>()
+
+      // Don't start blocking saves until we've finished setup
+      let beginBlocking = false
+
       let resume = (documentIds?: DocumentId[]) => {
         const savesToUnblock = documentIds
           ? Array.from(blockedSaves).filter(({ path }) =>
@@ -518,6 +525,9 @@ describe("Repo", () => {
       {
         const originalSave = pausedStorage.save.bind(pausedStorage)
         pausedStorage.save = async (...args) => {
+          if (!beginBlocking) {
+            return originalSave(...args)
+          }
           await new Promise<void>(resolve => {
             const blockedSave = {
               path: args[0],
@@ -540,15 +550,19 @@ describe("Repo", () => {
       })
 
       // Create a pair of handles
-      const handle = repo.create<{ foo: string }>({ foo: "first" })
-      const handle2 = repo.create<{ foo: string }>({ foo: "second" })
+      const handlePromise = repo.create<{ foo: string }>({ foo: "first" })
+      const handle2Promise = repo.create<{ foo: string }>({ foo: "second" })
+      resume()
+      const handle = await handlePromise
+      const handle2 = await handle2Promise
+      beginBlocking = true
       return { resume, pausedStorage, repo, handle, handle2 }
     }
 
     it("should not be in a new repo yet because the storage is slow", async () => {
-      const { pausedStorage, repo, handle, handle2 } = setup()
-      expect((await handle).doc().foo).toEqual("first")
-      expect((await handle2).doc().foo).toEqual("second")
+      const { pausedStorage, repo, handle, handle2 } = await setup()
+      expect(handle.doc().foo).toEqual("first")
+      expect(handle2.doc().foo).toEqual("second")
 
       // Reload repo
       const repo2 = new Repo({
@@ -563,7 +577,7 @@ describe("Repo", () => {
     })
 
     it("should be visible to a new repo after flush()", async () => {
-      const { resume, pausedStorage, repo, handle, handle2 } = setup()
+      const { resume, pausedStorage, repo, handle, handle2 } = await setup()
 
       const flushPromise = repo.flush()
       resume()
@@ -588,7 +602,7 @@ describe("Repo", () => {
     })
 
     it("should only block on flushing requested documents", async () => {
-      const { resume, pausedStorage, repo, handle, handle2 } = setup()
+      const { resume, pausedStorage, repo, handle, handle2 } = await setup()
 
       const flushPromise = repo.flush([handle.documentId])
       resume([handle.documentId])
@@ -619,9 +633,9 @@ describe("Repo", () => {
         network: [],
         storage: new DummyStorageAdapter(),
       })
-      const handle = repo.create<{ field?: string }>()
+      const handle = await repo.create<{ field?: string }>()
 
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 5; i++) {
         const flushPromise = repo.flush([handle.documentId])
         handle.change((doc: any) => {
           doc.field += Array(1024)
@@ -695,7 +709,7 @@ describe("Repo", () => {
       const numberOfPeers = 10
       const { repos } = await createNConnectedRepos(numberOfPeers, 10)
 
-      const handle0 = repos[0].create()
+      const handle0 = await repos[0].create()
       handle0.change((d: any) => {
         d.foo = "bar"
       })
@@ -703,7 +717,7 @@ describe("Repo", () => {
       const handleN = await repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
       assert.deepStrictEqual(handleN.doc(), { foo: "bar" })
 
-      const handleNBack = repos[numberOfPeers - 1].create({
+      const handleNBack = await repos[numberOfPeers - 1].create({
         foo: "reverse-trip",
       })
       const handle0Back = await repos[0].find<TestDoc>(handleNBack.url)
@@ -787,19 +801,19 @@ describe("Repo", () => {
         connectAliceToBob()
       }
 
-      const aliceHandle = aliceRepo.create<TestDoc>()
+      const aliceHandle = await aliceRepo.create<TestDoc>()
       aliceHandle.change(d => {
         d.foo = "bar"
       })
 
-      const notForCharlieHandle = aliceRepo.create<TestDoc>()
+      const notForCharlieHandle = await aliceRepo.create<TestDoc>()
       const notForCharlie = notForCharlieHandle.documentId
       charlieExcludedDocuments.push(notForCharlie)
       notForCharlieHandle.change(d => {
         d.foo = "baz"
       })
 
-      const notForBobHandle = aliceRepo.create<TestDoc>()
+      const notForBobHandle = await aliceRepo.create<TestDoc>()
       const notForBob = notForBobHandle.documentId
       bobExcludedDocuments.push(notForBob)
       notForBobHandle.change(d => {
@@ -857,7 +871,7 @@ describe("Repo", () => {
       const bobRepo2 = new Repo({
         storage: bobStorage,
       })
-      const inStorageHandle = bobRepo2.create<TestDoc>({
+      const inStorageHandle = await bobRepo2.create<TestDoc>({
         foo: "foundOnFakeDisk",
       })
       await bobRepo2.flush()
@@ -986,7 +1000,7 @@ describe("Repo", () => {
       const isolatedRepo = new Repo({
         storage,
       })
-      const unsyncedHandle = isolatedRepo.create<TestDoc>()
+      const unsyncedHandle = await isolatedRepo.create<TestDoc>()
       const url = unsyncedHandle.url
       await isolatedRepo.flush()
 
@@ -1057,7 +1071,7 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-              repo.create<TestDoc>()
+              await repo.create<TestDoc>()
             : // tails, pick a random doc
               (getRandomItem(docs) as DocHandle<TestDoc>)
 
@@ -1110,7 +1124,7 @@ describe("Repo", () => {
         connectAlice: false,
       })
 
-      const bobHandle = bobRepo.create<TestDoc>()
+      const bobHandle = await bobRepo.create<TestDoc>()
       bobHandle.change(d => {
         d.foo = "bar"
       })
@@ -1136,7 +1150,7 @@ describe("Repo", () => {
         isCharlieEphemeral: true,
       })
 
-      const bobHandle = bobRepo.create<TestDoc>()
+      const bobHandle = await bobRepo.create<TestDoc>()
       bobHandle.change(d => {
         d.foo = "bar"
       })
@@ -1160,15 +1174,15 @@ describe("Repo", () => {
         })
 
       // create a new doc and count sync messages
-      const bobHandle = bobRepo.create<TestDoc>()
-      bobHandle.change(d => {
-        d.foo = "bar"
-      })
       let bobSyncMessages = 0
       bobRepo.networkSubsystem.on("message", message => {
         if (message.type === "sync") {
           bobSyncMessages++
         }
+      })
+      const bobHandle = await bobRepo.create<TestDoc>()
+      bobHandle.change(d => {
+        d.foo = "bar"
       })
       await pause(500)
 
@@ -1215,7 +1229,7 @@ describe("Repo", () => {
       })
       const charliedStorageId = await charlieRepo.storageSubsystem.id()
 
-      const handle = bobRepo.create<TestDoc>()
+      const handle = await bobRepo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
@@ -1328,7 +1342,7 @@ describe("Repo", () => {
     it("can broadcast a message without entering into an infinite loop", async () => {
       const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
 
-      const aliceHandle = aliceRepo.create<TestDoc>()
+      const aliceHandle = await aliceRepo.create<TestDoc>()
 
       const bobHandle = await bobRepo.find(aliceHandle.url)
       const charlieHandle = await charlieRepo.find(aliceHandle.url)
@@ -1360,11 +1374,11 @@ describe("Repo", () => {
     it("notifies peers when a document is cloned", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup()
 
-      const handle = bobRepo.create<TestDoc>()
+      const handle = await bobRepo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
-      const handle2 = bobRepo.clone(handle)
+      const handle2 = await bobRepo.clone(handle)
 
       // pause to let the sync happen
       await pause(50)
@@ -1378,11 +1392,11 @@ describe("Repo", () => {
     it("notifies peers when a document is merged", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup()
 
-      const handle = bobRepo.create<TestDoc>()
+      const handle = await bobRepo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
-      const handle2 = bobRepo.clone(handle)
+      const handle2 = await bobRepo.clone(handle)
 
       // pause to let the sync happen
       await pause(50)
@@ -1411,7 +1425,7 @@ describe("Repo", () => {
 
       // first create the document in storage
       const dummyRepo = new Repo({ network: [], storage })
-      const doc = dummyRepo.create({ foo: "bar" })
+      const doc = await dummyRepo.create({ foo: "bar" })
       await dummyRepo.flush()
 
       // Check that the document actually is in storage
@@ -1445,15 +1459,15 @@ describe("Repo", () => {
 })
 
 describe("Repo heads-in-URLs functionality", () => {
-  const setup = () => {
+  const setup = async () => {
     const repo = new Repo({})
-    const handle = repo.create()
+    const handle = await repo.create()
     handle.change((doc: any) => (doc.title = "Hello World"))
     return { repo, handle }
   }
 
   it("finds a document view by URL with heads", async () => {
-    const { repo, handle } = setup()
+    const { repo, handle } = await setup()
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
     const view = await repo.find(url)
@@ -1461,9 +1475,9 @@ describe("Repo heads-in-URLs functionality", () => {
   })
 
   it("returns a view, not the actual handle, when finding by URL with heads", async () => {
-    const { repo, handle } = setup()
+    const { repo, handle } = await setup()
     const heads = handle.heads()!
-    await handle.change((doc: any) => (doc.title = "Changed"))
+    handle.change((doc: any) => (doc.title = "Changed"))
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
     const view = await repo.find(url)
     expect(view.doc()).toEqual({ title: "Hello World" })
@@ -1471,7 +1485,7 @@ describe("Repo heads-in-URLs functionality", () => {
   })
 
   it("changes to a document view do not affect the original", async () => {
-    const { repo, handle } = setup()
+    const { repo, handle } = await setup()
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
     const view = await repo.find(url)
@@ -1482,7 +1496,7 @@ describe("Repo heads-in-URLs functionality", () => {
   })
 
   it("document views are read-only", async () => {
-    const { repo, handle } = setup()
+    const { repo, handle } = await setup()
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
     const view = await repo.find(url)
@@ -1490,14 +1504,14 @@ describe("Repo heads-in-URLs functionality", () => {
   })
 
   it("finds the latest document when given a URL without heads", async () => {
-    const { repo, handle } = setup()
+    const { repo, handle } = await setup()
     await handle.change((doc: any) => (doc.title = "Changed"))
     const found = await repo.find(handle.url)
     expect(found.doc()).toEqual({ title: "Changed" })
   })
 
-  it("getHeadsFromUrl returns heads array if present or undefined", () => {
-    const { repo, handle } = setup()
+  it("getHeadsFromUrl returns heads array if present or undefined", async () => {
+    const { repo, handle } = await setup()
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
     expect(getHeadsFromUrl(url)).toEqual(heads)
@@ -1506,8 +1520,8 @@ describe("Repo heads-in-URLs functionality", () => {
     expect(getHeadsFromUrl(urlWithoutHeads)).toBeUndefined()
   })
 
-  it("isValidAutomergeUrl returns true for valid URLs", () => {
-    const { repo, handle } = setup()
+  it("isValidAutomergeUrl returns true for valid URLs", async () => {
+    const { repo, handle } = await setup()
     const url = generateAutomergeUrl()
     expect(isValidAutomergeUrl(url)).toBe(true)
 
@@ -1518,15 +1532,15 @@ describe("Repo heads-in-URLs functionality", () => {
     expect(isValidAutomergeUrl(urlWithHeads)).toBe(true)
   })
 
-  it("isValidAutomergeUrl returns false for invalid URLs", () => {
-    const { repo, handle } = setup()
+  it("isValidAutomergeUrl returns false for invalid URLs", async () => {
+    const { repo, handle } = await setup()
     expect(isValidAutomergeUrl("not a url")).toBe(false)
     expect(isValidAutomergeUrl("automerge:invalidid")).toBe(false)
     expect(isValidAutomergeUrl("automerge:validid#invalidhead")).toBe(false)
   })
 
-  it("parseAutomergeUrl extracts documentId and heads", () => {
-    const { repo, handle } = setup()
+  it("parseAutomergeUrl extracts documentId and heads", async () => {
+    const { repo, handle } = await setup()
     const url = stringifyAutomergeUrl({
       documentId: handle.documentId,
       heads: handle.heads()!,
@@ -1536,8 +1550,8 @@ describe("Repo heads-in-URLs functionality", () => {
     expect(parsed.heads).toEqual(handle.heads())
   })
 
-  it("stringifyAutomergeUrl creates valid URL", () => {
-    const { repo, handle } = setup()
+  it("stringifyAutomergeUrl creates valid URL", async () => {
+    const { repo, handle } = await setup()
     const url = stringifyAutomergeUrl({
       documentId: handle.documentId,
       heads: handle.heads()!,

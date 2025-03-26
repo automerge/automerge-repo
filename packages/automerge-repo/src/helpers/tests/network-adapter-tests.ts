@@ -47,7 +47,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         const bobRepo = new Repo({ network: b, peerId: bob })
 
         // Alice creates a document
-        const aliceHandle = aliceRepo.create<TestDoc>()
+        const aliceHandle = await aliceRepo.create<TestDoc>()
 
         // TODO: ... let connections complete. this shouldn't be necessary.
         await pause(50)
@@ -97,7 +97,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       const charlieRepo = new Repo({ network: c, peerId: charlie })
 
       // Alice creates a document
-      const aliceHandle = aliceRepo.create<TestDoc>()
+      const aliceHandle = await aliceRepo.create<TestDoc>()
       const docUrl = aliceHandle.url
 
       // Bob and Charlie receive the document
@@ -141,7 +141,7 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         "peer"
       )
 
-      const aliceHandle = aliceRepo.create<TestDoc>()
+      const aliceHandle = await aliceRepo.create<TestDoc>()
       const charlieHandle = await charlieRepo.find(aliceHandle.url)
 
       // pause to give charlie a chance to let alice know it wants the doc

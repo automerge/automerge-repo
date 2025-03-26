@@ -16,9 +16,9 @@ describe("CollectionSynchronizer", () => {
     assert(synchronizer !== null)
   })
 
-  it("starts synchronizing a document to peers when added", () =>
+  it("starts synchronizing a document to peers when added", async () => {
+    const handle = await repo.create()
     new Promise<void>(done => {
-      const handle = repo.create()
       synchronizer.addPeer("peer1" as PeerId)
 
       synchronizer.once("message", event => {
@@ -29,11 +29,12 @@ describe("CollectionSynchronizer", () => {
       })
 
       synchronizer.addDocument(handle)
-    }))
+    })
+  })
 
-  it("starts synchronizing existing documents when a peer is added", () =>
+  it("starts synchronizing existing documents when a peer is added", async () => {
+    const handle = await repo.create()
     new Promise<void>(done => {
-      const handle = repo.create()
       synchronizer.addDocument(handle)
       synchronizer.once("message", event => {
         const { targetId, documentId } = event as SyncMessage
@@ -42,12 +43,12 @@ describe("CollectionSynchronizer", () => {
         done()
       })
       synchronizer.addPeer("peer1" as PeerId)
-    }))
+    })
+  })
 
-  it("should not synchronize to a peer which is excluded from the share policy", () =>
+  it("should not synchronize to a peer which is excluded from the share policy", async () => {
+    const handle = await repo.create()
     new Promise<void>((done, reject) => {
-      const handle = repo.create()
-
       repo.sharePolicy = async (peerId: PeerId) => peerId !== "peer1"
 
       synchronizer.addDocument(handle)
@@ -57,11 +58,12 @@ describe("CollectionSynchronizer", () => {
       synchronizer.addPeer("peer1" as PeerId)
 
       setTimeout(done)
-    }))
+    })
+  })
 
-  it("should not synchronize a document which is excluded from the share policy", () =>
+  it("should not synchronize a document which is excluded from the share policy", async () => {
+    const handle = await repo.create()
     new Promise<void>((done, reject) => {
-      const handle = repo.create()
       repo.sharePolicy = async (_, documentId) =>
         documentId !== handle.documentId
 
@@ -74,5 +76,6 @@ describe("CollectionSynchronizer", () => {
       synchronizer.addDocument(handle)
 
       setTimeout(done)
-    }))
+    })
+  })
 })

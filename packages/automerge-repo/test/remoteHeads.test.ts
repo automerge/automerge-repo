@@ -126,7 +126,7 @@ describe("DocHandle.remoteHeads", () => {
       bob.subscribeToRemotes([aliceServiceWorkerStorageId])
 
       // alice creates a doc
-      const aliceDoc = alice.create<TestDoc>()
+      const aliceDoc = await alice.create<TestDoc>()
       aliceDoc.change(d => (d.foo = "bar"))
 
       await pause(50)
@@ -165,10 +165,10 @@ describe("DocHandle.remoteHeads", () => {
       alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
       // bob creates two docs
-      const bobDocA = bob.create<TestDoc>()
+      const bobDocA = await bob.create<TestDoc>()
       bobDocA.change(d => (d.foo = "A"))
 
-      const bobDocB = bob.create<TestDoc>()
+      const bobDocB = await bob.create<TestDoc>()
       bobDocB.change(d => (d.foo = "B"))
 
       await pause(50)
@@ -198,10 +198,10 @@ describe("DocHandle.remoteHeads", () => {
       const { alice, alice2, bob, bobServiceWorkerStorageId } = await setup()
 
       // bob creates 2 docs
-      const bobDocA = bob.create<TestDoc>()
+      const bobDocA = await bob.create<TestDoc>()
       bobDocA.change(d => (d.foo = "A"))
 
-      const bobDocB = bob.create<TestDoc>()
+      const bobDocB = await bob.create<TestDoc>()
       bobDocB.change(d => (d.foo = "B"))
 
       await pause(50)
@@ -244,10 +244,10 @@ describe("DocHandle.remoteHeads", () => {
       const { alice, bob, bobServiceWorkerStorageId } = await setup()
 
       // bob creates 2 docs
-      const bobDocA = bob.create<TestDoc>()
+      const bobDocA = await bob.create<TestDoc>()
       bobDocA.change(d => (d.foo = "A"))
 
-      const bobDocB = bob.create<TestDoc>()
+      const bobDocB = await bob.create<TestDoc>()
       bobDocB.change(d => (d.foo = "B"))
 
       // alice subscribes to bob's service worker
