@@ -44,4 +44,10 @@ export class DummyStorageAdapter implements StorageAdapterInterface {
   keys() {
     return Object.keys(this.#data)
   }
+
+  clone() {
+    const clone = new DummyStorageAdapter()
+    clone.#data = { ...this.#data }
+    return clone
+  }
 }

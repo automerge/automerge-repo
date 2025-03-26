@@ -144,8 +144,9 @@ export const isValidDocumentId = (str: unknown): str is DocumentId => {
   if (binaryDocumentID === undefined) return false // invalid base58check encoding
 
   // confirm that the document ID is a valid UUID
-  const documentId = Uuid.stringify(binaryDocumentID)
-  return Uuid.validate(documentId)
+  // const documentId = Uuid.stringify(binaryDocumentID)
+  // return Uuid.validate(documentId)
+  return true
 }
 
 export const isValidUuid = (str: unknown): str is LegacyDocumentId =>
@@ -175,6 +176,12 @@ export const parseLegacyUUID = (str: string) => {
   if (!Uuid.validate(str)) return undefined
   const documentId = Uuid.parse(str) as BinaryDocumentId
   return stringifyAutomergeUrl({ documentId })
+}
+
+export function automergeUrlFromBeelayId(beelayId: string): AutomergeUrl {
+  const rawBeelayDoc = documentIdToBinary(beelayId as DocumentId)
+  const docId = binaryToDocumentId(rawBeelayDoc as BinaryDocumentId)
+  return stringifyAutomergeUrl({ documentId: docId })
 }
 
 /**
@@ -216,4 +223,21 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
   heads?: UrlHeads
+}
+
+function hexToUint8Array(hex: string): Uint8Array {
+  if (hex.length % 2 !== 0) {
+    throw new Error("Hex string must have an even length")
+  }
+  const array = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < hex.length; i += 2) {
+    array[i / 2] = parseInt(hex.substr(i, 2), 16)
+  }
+  return array
+}
+
+function uint8ArrayToHex(uint8Array: Uint8Array): string {
+  return Array.from(uint8Array)
+    .map(byte => byte.toString(16).padStart(2, "0"))
+    .join("")
 }

@@ -1,7 +1,8 @@
-import { next as Automerge } from "@automerge/automerge/slim"
+import { next as Automerge, beelay } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
+  automergeUrlFromBeelayId,
   encodeHeads,
   generateAutomergeUrl,
   interpretAsDocumentId,
@@ -41,6 +42,9 @@ import type {
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
+import { BeelayStorageAdapter } from "./storage/beelay.js"
+import { StorageAdapter } from "./storage/StorageAdapter.js"
+import { BeelaySynchronizer } from "./BeelaySynchronizer.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -81,6 +85,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
+  #beelay: beelay.Beelay | null = null
+  #beelayWaiters: ((beelay: beelay.Beelay) => void)[] = []
+  #beelaySynchronizer: BeelaySynchronizer
+  #stopped = false
 
   constructor({
     storage,
@@ -90,8 +98,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
     denylist = [],
+    beelay: beelayConfig,
   }: RepoConfig = {}) {
     super()
+    Automerge.initLogging("debug")
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
@@ -110,6 +120,11 @@ export class Repo extends EventEmitter<RepoEvents> {
     // SYNCHRONIZER
     // The synchronizer uses the network subsystem to keep documents in sync with peers.
     this.synchronizer = new CollectionSynchronizer(this, denylist)
+
+    const beelayPromise = new Promise<beelay.Beelay>(resolve => {
+      this.#beelayWaiters.push(resolve)
+    })
+    this.#beelaySynchronizer = new BeelaySynchronizer(beelayPromise, denylist)
 
     // When the synchronizer emits messages, send them to peers
     this.synchronizer.on("message", message => {
@@ -248,6 +263,41 @@ export class Repo extends EventEmitter<RepoEvents> {
         handle.setRemoteHeads(message.storageId, message.remoteHeads)
       })
     }
+
+    this.#initBeelay(storage)
+  }
+
+  async #initBeelay(storageAdapter?: StorageAdapter) {
+    let storage: beelay.StorageAdapter = beelay.createMemoryStorageAdapter()
+    let signer = beelay.createMemorySigner()
+    if (storageAdapter) {
+      let beelayAdapter = new BeelayStorageAdapter(storageAdapter)
+      let signingKey = await beelayAdapter.loadSigningKey()
+      if (signingKey != null) {
+        signer = beelay.createMemorySigner(signingKey)
+      } else {
+        beelayAdapter.saveSigningKey(signer.signingKey)
+      }
+      storage = beelayAdapter
+    }
+    this.#beelay = await beelay.loadBeelay({ storage, signer })
+    if (this.#stopped) {
+      this.#beelay.stop()
+    } else {
+      for (const waiter of this.#beelayWaiters) {
+        waiter(this.#beelay)
+      }
+    }
+  }
+
+  async beelay(): Promise<beelay.Beelay> {
+    if (this.#beelay != null) {
+      return this.#beelay
+    } else {
+      return new Promise(resolve => {
+        this.#beelayWaiters.push(resolve)
+      })
+    }
   }
 
   // The `document` event is fired by the DocCollection any time we create a new document or look
@@ -264,6 +314,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Register the document with the synchronizer. This advertises our interest in the document.
     this.synchronizer.addDocument(handle)
+    this.#beelaySynchronizer.addDocument(handle)
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -310,11 +361,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!handler) {
       handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
         ({ documentId, syncState }: SyncStatePayload) => {
+          this.#log("doing the save", storageId, documentId, syncState)
           void this.storageSubsystem!.saveSyncState(
             documentId,
             storageId,
             syncState
-          )
+          ).then(() => {
+            this.#log("saved")
+          })
         },
         this.saveDebounceRate
       )
@@ -360,8 +414,25 @@ export class Repo extends EventEmitter<RepoEvents> {
    * system. we emit a `document` event to advertise interest in the document.
    */
   async create<T>(initialValue?: T): Promise<DocHandle<T>> {
-    // Generate a new UUID and store it in the buffer
-    const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    let beelay = await this.beelay()
+    let doc = Automerge.init<T>()
+    if (initialValue) {
+      doc = Automerge.from(initialValue)
+    } else {
+      doc = Automerge.emptyChange(Automerge.init())
+    }
+    let initialCommit = Automerge.getLastLocalChange(doc)!
+    let initialHash = Automerge.decodeChange(initialCommit).hash
+    let beelayDoc = await beelay.createDoc({
+      initialCommit: {
+        hash: initialHash,
+        parents: [],
+        contents: initialCommit,
+      },
+      otherParents: [{ type: "public" }],
+    })
+    let { documentId } = parseAutomergeUrl(automergeUrlFromBeelayId(beelayDoc))
+
     const handle = this.#getHandle<T>({
       documentId,
     }) as DocHandle<T>
@@ -369,13 +440,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#registerHandleWithSubsystems(handle)
 
     handle.update(() => {
-      let nextDoc: Automerge.Doc<T>
-      if (initialValue) {
-        nextDoc = Automerge.from(initialValue)
-      } else {
-        nextDoc = Automerge.emptyChange(Automerge.init())
-      }
-      return nextDoc
+      return doc
     })
 
     handle.doneLoading()
@@ -480,10 +545,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         that.#registerHandleWithSubsystems(handle)
 
         await Promise.race([
-          handle.whenReady([READY, UNAVAILABLE]),
+          handle.whenReady([UNAVAILABLE, READY]),
           abortPromise,
         ])
-
         if (handle.state === UNAVAILABLE) {
           yield { state: "unavailable", handle }
         }
@@ -524,7 +588,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const handle = this.#getHandle<T>({ documentId })
     const initial = { state: "loading" as const, progress: 0, handle }
-    return { ...initial, next, untilReady }
+    return { ...initial, untilReady }
   }
 
   async find<T>(
@@ -534,10 +598,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     const { allowableStates = ["ready"], signal } = options
     const progress = this.findWithProgress<T>(id, { signal })
 
-    /*if (allowableStates.includes(progress.state)) {
+    if (allowableStates.includes(progress.state)) {
       console.log("returning early")
       return progress.handle
-    }*/
+    }
 
     if ("untilReady" in progress) {
       this.#registerHandleWithSubsystems(progress.handle)
@@ -728,7 +792,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.networkSubsystem.adapters.forEach(adapter => {
       adapter.disconnect()
     })
-    return this.flush()
+    return (async () => {
+      await this.flush()
+      if (this.#beelay != null) {
+        await this.#beelay.stop()
+      }
+      this.#stopped = true
+    })()
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -767,6 +837,8 @@ export interface RepoConfig {
    * loading documents that are known to be too resource intensive.
    */
   denylist?: AutomergeUrl[]
+
+  beelay?: beelay.Config
 }
 
 /** A function that determines whether we should share a document with a peer
