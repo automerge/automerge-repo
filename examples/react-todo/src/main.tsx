@@ -8,15 +8,19 @@ import { ErrorBoundary } from "react-error-boundary"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
 import { State } from "./types.js"
+import { connectClientWebsocket } from "@automerge/beelay-network-websocket"
 import "./index.css"
 
 const repo = new Repo({
-  network: [
-    new BroadcastChannelNetworkAdapter(),
-    new WebSocketClientAdapter("ws://localhost:3030"),
-  ],
+  network: [new BroadcastChannelNetworkAdapter()],
   storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),
 })
+
+console.log("getting the beelay")
+const beelay = await repo.beelay()
+console.log("got the beelay")
+connectClientWebsocket(beelay, "ws://localhost:3030/beelay")
+await new Promise(resolve => setTimeout(resolve, 1000))
 
 declare global {
   interface Window {
@@ -30,7 +34,7 @@ let handle
 if (isValidAutomergeUrl(rootDocUrl)) {
   handle = await repo.find(rootDocUrl)
 } else {
-  handle = repo.create<State>({ todos: [] })
+  handle = await repo.create<State>({ todos: [] })
 }
 const docUrl = (document.location.hash = handle.url)
 window.handle = handle // we'll use this later for experimentation

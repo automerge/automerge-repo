@@ -42,7 +42,7 @@ export type FindProgress<T> =
   | FindProgressAborted<T>
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
-  next: () => Promise<FindProgressWithMethods<T>>
+  // next: () => Promise<FindProgressWithMethods<T>>
   // TODO: i don't like this allowableStates
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
 }

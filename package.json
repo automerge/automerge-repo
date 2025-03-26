@@ -28,7 +28,7 @@
   "engines": {
     "node": ">=18.2.0 <22.0.0"
   },
-  "packageManager": "pnpm@9.7.0",
+  "packageManager": "pnpm@10.8.0",
   "prettier": {
     "semi": false,
     "singleQuote": false,
@@ -36,7 +36,7 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "^2.2.8",
+    "@automerge/automerge": "file:../automerge/javascript",
     "@manypkg/cli": "^0.21.3",
     "@types/debug": "^4.1.12",
     "@types/node": "^20.11.30",

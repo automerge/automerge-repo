@@ -7,6 +7,7 @@ import { WebSocketServerAdapter } from "@automerge/automerge-repo-network-websoc
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import { default as Prometheus } from "prom-client"
 import os from "os"
+import { acceptWebsocket } from "@automerge/beelay-network-websocket"
 
 const registry = new Prometheus.Registry()
 Prometheus.collectDefaultMetrics({ register: registry })
@@ -38,6 +39,9 @@ export class Server {
   /** @type WebSocketServer */
   #socket
 
+  /** @type WebSocketServer */
+  #beelaySocket
+
   /** @type ReturnType<import("express").Express["listen"]> */
   #server
 
@@ -52,14 +56,17 @@ export class Server {
       fs.mkdirSync(dir)
     }
 
-    var hostname = os.hostname()
+    var hostname = (process.env.PUBLIC_HOSTNAME || os.hostname()).trim()
+    console.log("accepting websocket connections for host:", hostname)
 
     this.#socket = new WebSocketServer({ noServer: true })
+    const app = express()
+    app.use(express.static("public"))
 
     const PORT =
       process.env.PORT !== undefined ? parseInt(process.env.PORT) : 3030
-    const app = express()
-    app.use(express.static("public"))
+
+    this.#beelaySocket = new WebSocketServer({ noServer: true })
 
     const config = {
       network: [new WebSocketServerAdapter(this.#socket)],
@@ -71,9 +78,13 @@ export class Server {
       sharePolicy: async () => false,
     }
     const serverRepo = new Repo(config)
+    serverRepo.beelay().then(beelay => {
+      console.log("beelay peer ID is: ", beelay.peerId)
+      acceptWebsocket(beelay, hostname, this.#beelaySocket)
+    })
 
     // Observe metrics for prometheus and also log the events so log aggregators like loki can pick them up
-    serverRepo.on("doc-metrics", (event) => {
+    serverRepo.on("doc-metrics", event => {
       console.log(JSON.stringify(event))
       metrics.numOps.observe(event.numOps)
       if (event.type === "doc-loaded") {
@@ -96,13 +107,19 @@ export class Server {
     this.#server = app.listen(PORT, () => {
       console.log(`Listening on port ${PORT}`)
       this.#isReady = true
-      this.#readyResolvers.forEach((resolve) => resolve(true))
+      this.#readyResolvers.forEach(resolve => resolve(true))
     })
 
     this.#server.on("upgrade", (request, socket, head) => {
-      this.#socket.handleUpgrade(request, socket, head, (socket) => {
-        this.#socket.emit("connection", socket, request)
-      })
+      if (request.url === "/beelay") {
+        this.#beelaySocket.handleUpgrade(request, socket, head, socket => {
+          this.#beelaySocket.emit("connection", socket, request)
+        })
+      } else {
+        this.#socket.handleUpgrade(request, socket, head, socket => {
+          this.#socket.emit("connection", socket, request)
+        })
+      }
     })
   }
 
@@ -111,7 +128,7 @@ export class Server {
       return true
     }
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       this.#readyResolvers.push(resolve)
     })
   }

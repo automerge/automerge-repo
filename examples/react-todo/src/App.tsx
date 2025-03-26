@@ -52,7 +52,7 @@ export function App({ url }: { url: AutomergeUrl }) {
           {/* new todo form */}
           <header>
             <form
-              onSubmit={e => {
+              onSubmit={async e => {
                 e.preventDefault()
                 if (!newTodoInput.current) return
 
@@ -61,7 +61,7 @@ export function App({ url }: { url: AutomergeUrl }) {
                 // don't create empty todos
                 if (newTodoText.length === 0) return
 
-                const handle = repo.create<TodoData>()
+                const handle = await repo.create<TodoData>()
                 const url = handle.url
                 handle.change(t => {
                   t.url = url

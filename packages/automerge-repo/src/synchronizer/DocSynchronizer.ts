@@ -417,7 +417,7 @@ export class DocSynchronizer extends Synchronizer {
           this.emit("message", message)
         })
 
-      this.#handle.unavailable()
+      this.#handle.unavailableSyncV1()
     }
   }
 

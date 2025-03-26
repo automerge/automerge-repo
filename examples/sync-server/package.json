@@ -14,6 +14,7 @@
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-storage-nodefs": "workspace:*",
+    "@automerge/beelay-network-websocket": "workspace:*",
     "express": "^4.18.1",
     "prom-client": "^15.1.3",
     "ws": "^8.7.0"

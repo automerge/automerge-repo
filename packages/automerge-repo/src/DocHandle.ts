@@ -92,6 +92,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         onUnload: assign(() => {
           return { doc: A.init() }
         }),
+        onRequest: () => {
+          this.emit("requested")
+        },
       },
     }).createMachine({
       /** @xstate-layout N4IgpgJg5mDOIC5QAoC2BDAxgCwJYDswBKAYgFUAFAEQEEAVAUQG0AGAXUVAAcB7WXAC64e+TiAAeiAOwAOAKwA6ACxSAzKqks1ATjlTdAGhABPRAFolAJksKN2y1KtKAbFLla5AX09G0WPISkVAwAMgyMrBxIILz8QiJikggAjCzOijKqLEqqybJyLizaRqYIFpbJtro5Uo7J2o5S3r4YOATECrgQADZgJADCAEoM9MzsYrGCwqLRSeoyCtra8pa5adquySXmDjY5ac7JljLJeepKzSB+bYGdPX0AYgCSAHJUkRN8UwmziM7HCgqyVcUnqcmScmcMm2ZV2yiyzkOx1OalUFx8V1aAQ63R46AgBCgJGGAEUyAwAMp0D7RSbxGagJKHFgKOSWJTJGRSCosCpKaEmRCqbQKU5yXINeTaer6LwY67YogKXH4wkkKgAeX6AH1hjQqABNGncL70xKIJQ5RY5BHOJag6wwpRyEWImQVeT1aWrVSXBXtJUqgn4Ik0ADqNCedG1L3CYY1gwA0saYqbpuaEG4pKLksKpFDgcsCjDhTnxTKpTLdH6sQGFOgAO7oKYhl5gAQNngAJwA1iRY3R40ndSNDSm6enfpm5BkWAVkvy7bpuTCKq7ndZnfVeSwuTX-HWu2AAI4AVzgQhD6q12rILxoADVIyEaAAhMLjtM-RmIE4LVSQi4nLLDIGzOCWwLKA0cgyLBoFWNy+43B0R5nheaqajqepjuMtJfgyEh-FoixqMCoKqOyhzgYKCDOq6UIeuCSxHOoSGKgop74OgABuzbdOgABGvTXlho5GrhJpxJOP4pLulT6KoMhpJY2hzsWNF0QobqMV6LG+pc+A8BAcBiP6gSfFJ36EQgKksksKxrHamwwmY7gLKB85QjBzoAWxdZdL0FnfARST8ooLC7qoTnWBU4pyC5ViVMKBQaHUDQuM4fm3EGhJBWaU7-CysEAUp3LpEpWw0WYRw2LmqzgqciIsCxWUdI2zaXlAbYdt2PZ5dJ1n5jY2iJY1ikOIcMJHCyUWHC62hRZkUVNPKta3Kh56wJ1-VWUyzhFc64JWJCtQNBBzhQW4cHwbsrVKpxPF8YJgV4ZZIWIKkiKiiNSkqZYWjzCWaQ5hFh0AcCuR3QoR74qUknBRmzholpv3OkpRQNNRpTzaKTWKbIWR5FDxm9AIkA7e9skUYCWayLILBZGoLkUSKbIyIdpxHPoyTeN4QA */
@@ -105,6 +108,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         UPDATE: { actions: "onUpdate" },
         UNLOAD: ".unloaded",
         DELETE: ".deleted",
+        DOC_READY: ".ready",
       },
       states: {
         idle: {
@@ -120,11 +124,39 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           after: { [delay]: "unavailable" },
         },
         requesting: {
-          on: {
-            DOC_UNAVAILABLE: "unavailable",
-            DOC_READY: "ready",
+          type: "parallel",
+          entry: "onRequest",
+          states: {
+            syncV1: {
+              initial: "requesting",
+              states: {
+                requesting: {
+                  on: {
+                    DOC_UNAVAILABLE_SYNC_V1: "unavailable",
+                  },
+                  after: { [delay]: "unavailable" },
+                },
+                unavailable: {
+                  type: "final",
+                },
+              },
+            },
+            beelay: {
+              initial: "requesting",
+              states: {
+                requesting: {
+                  on: {
+                    DOC_UNAVAILABLE_BEELAY: "unavailable",
+                  },
+                  after: { [delay]: "unavailable" },
+                },
+                unavailable: {
+                  type: "final",
+                },
+              },
+            },
           },
-          after: { [delay]: "unavailable" },
+          onDone: "unavailable",
         },
         unavailable: {
           entry: "onUnavailable",
@@ -148,7 +180,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     this.#machine.subscribe(state => {
       const before = this.#prevDocState
       const after = state.context.doc
-      this.#log(`→ ${state.value} %o`, after)
+      this.#log(`→ ${JSON.stringify(state.value)} %o`, after)
       // if the document has changed, emit a change event
       this.#checkForChanges(before, after)
     })
@@ -162,6 +194,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Returns the current document, regardless of state */
   get #doc() {
+    return this.#machine?.getSnapshot().context.doc
+  }
+
+  /** Returns the current document, regardless of state */
+  get unsafeDoc() {
     return this.#machine?.getSnapshot().context.doc
   }
 
@@ -263,8 +300,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     states.some(s => this.#machine.getSnapshot().matches(s))
 
   /** @hidden */
-  get state() {
-    return this.#machine.getSnapshot().value
+  get state(): HandleState {
+    const machineState = this.#machine.getSnapshot().value
+    if (typeof machineState == "object") return "requesting"
+    return machineState
   }
 
   /**
@@ -594,8 +633,16 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Updates the internal state machine to mark the document unavailable.
    * @hidden
    */
-  unavailable() {
-    this.#machine.send({ type: DOC_UNAVAILABLE })
+  unavailableSyncV1() {
+    this.#machine.send({ type: DOC_UNAVAILABLE_SYNC_V1 })
+  }
+
+  /**
+   * Updates the internal state machine to mark the document unavailable.
+   * @hidden
+   */
+  unavailableBeelay() {
+    this.#machine.send({ type: DOC_UNAVAILABLE_BEELAY })
   }
 
   /**
@@ -603,6 +650,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    * */
   request() {
+    this.#log("request")
     if (this.#state === "loading") this.#machine.send({ type: REQUEST })
   }
 
@@ -674,6 +722,7 @@ export interface DocHandleEvents<T> {
   "ephemeral-message-outbound": (
     payload: DocHandleOutboundEphemeralMessagePayload<T>
   ) => void
+  requested: () => void
   "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
 }
 
@@ -781,7 +830,8 @@ type DocHandleEvent<T> =
   | { type: typeof RELOAD }
   | { type: typeof DELETE }
   | { type: typeof TIMEOUT }
-  | { type: typeof DOC_UNAVAILABLE }
+  | { type: typeof DOC_UNAVAILABLE_SYNC_V1 }
+  | { type: typeof DOC_UNAVAILABLE_BEELAY }
 
 const BEGIN = "BEGIN"
 const REQUEST = "REQUEST"
@@ -791,4 +841,5 @@ const UNLOAD = "UNLOAD"
 const RELOAD = "RELOAD"
 const DELETE = "DELETE"
 const TIMEOUT = "TIMEOUT"
-const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"
+const DOC_UNAVAILABLE_SYNC_V1 = "DOC_UNAVAILABLE_SYNC_V1"
+const DOC_UNAVAILABLE_BEELAY = "DOC_UNAVAILABLE_BEELAY"

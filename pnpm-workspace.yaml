@@ -2,3 +2,5 @@ packages:
   - packages/**
   - examples/**
   - "!packages/create-vite-app/template/**"
+overrides:
+  "@automerge/automerge": "file:../automerge-beelay/javascript"
