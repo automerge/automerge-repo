@@ -4,13 +4,15 @@ import assert from "assert"
 import fs from "fs"
 import os from "os"
 import path from "path"
-import { describe, it } from "vitest"
+import { describe, it, expect } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { PeerId, cbor } from "../src/index.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { StorageId } from "../src/storage/types.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import * as Uuid from "uuid"
+import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
+import { DocumentId } from "../src/types.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -241,6 +243,83 @@ describe("StorageSubsystem", () => {
           assert.strictEqual(Uuid.validate(id1), true)
           assert.strictEqual(Uuid.validate(id2), true)
           assert.strictEqual(id1, id2)
+        })
+      })
+
+      describe("loadDoc", () => {
+        it("maintains correct document state when loading chunks in order", async () => {
+          const storageAdapter = new DummyStorageAdapter()
+          const storage = new StorageSubsystem(storageAdapter)
+
+          // Create a document with multiple changes
+          const doc = A.init<{ foo: string }>()
+          const doc1 = A.change(doc, d => {
+            d.foo = "first"
+          })
+          const doc2 = A.change(doc1, d => {
+            d.foo = "second"
+          })
+          const doc3 = A.change(doc2, d => {
+            d.foo = "third"
+          })
+
+          // Save the document with multiple changes
+          const documentId = "test-doc" as DocumentId
+          await storage.saveDoc(documentId, doc3)
+
+          // Load the document
+          const loadedDoc = await storage.loadDoc<{ foo: string }>(documentId)
+
+          // Verify the document state is correct
+          expect(loadedDoc?.foo).toBe("third")
+        })
+
+        it("combines chunks with snapshot first", async () => {
+          const storageAdapter = new DummyStorageAdapter()
+          const storage = new StorageSubsystem(storageAdapter)
+
+          // Create a document with multiple changes
+          const doc = A.init<{ foo: string }>()
+          const doc1 = A.change(doc, d => {
+            d.foo = "first"
+          })
+          const doc2 = A.change(doc1, d => {
+            d.foo = Array(10000)
+              .fill(0)
+              .map(() =>
+                String.fromCharCode(Math.floor(Math.random() * 26) + 97)
+              )
+              .join("")
+          })
+
+          // Save the document with multiple changes
+          const documentId = "test-doc" as DocumentId
+          await storage.saveDoc(documentId, doc2)
+
+          const doc3 = A.change(doc2, d => {
+            d.foo = "third"
+          })
+          await storage.saveDoc(documentId, doc3)
+
+          // Load the document
+          const loadedDoc = await storage.loadDoc<{ foo: string }>(documentId)
+
+          // Verify the document state is correct
+          expect(loadedDoc?.foo).toBe(doc3.foo)
+
+          // Get the raw binary data from storage
+          const binary = await storage.loadDocData(documentId)
+          expect(binary).not.toBeNull()
+          if (!binary) return
+
+          // Verify the binary starts with the Automerge magic value
+          expect(binary[0]).toBe(0x85)
+          expect(binary[1]).toBe(0x6f)
+          expect(binary[2]).toBe(0x4a)
+          expect(binary[3]).toBe(0x83)
+
+          // Verify the chunk type is CHUNK_TYPE_DOCUMENT (0x00)
+          expect(binary[8]).toBe(0x00)
         })
       })
     })

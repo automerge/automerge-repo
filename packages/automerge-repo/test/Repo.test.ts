@@ -33,6 +33,7 @@ import {
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
+import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
