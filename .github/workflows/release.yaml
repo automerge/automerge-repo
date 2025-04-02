@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      
+
       # Get the current package version
       - id: get-version
         name: Get current version
@@ -33,14 +33,14 @@ jobs:
           # Get the previous commit hash
           PREV_COMMIT=$(git rev-parse HEAD^)
           echo "Previous commit: $PREV_COMMIT"
-          
+
           # Get the previous version from the previous commit
           PREV_VERSION=$(git show $PREV_COMMIT:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
           echo "Previous version: $PREV_VERSION"
-          
+
           CURRENT_VERSION=${{ steps.get-version.outputs.version }}
           echo "Current version: $CURRENT_VERSION"
-          
+
           if [ "$PREV_VERSION" != "$CURRENT_VERSION" ]; then
             echo "Version has been updated from $PREV_VERSION to $CURRENT_VERSION"
             echo "has_updated=true" >> $GITHUB_OUTPUT
@@ -81,7 +81,7 @@ jobs:
         with:
           branch: gh-pages
           folder: docs
-          
+
   publish-js:
     name: Publish package
     runs-on: ubuntu-latest
@@ -115,7 +115,7 @@ jobs:
         id: tests
         run: |
           pnpm test
-          
+
       - name: Publish Release
         if: steps.tests.outcome == 'success'
         run: |
@@ -126,18 +126,18 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
           echo //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} > .npmrc
-          
+
           EXTRA_ARGS=""
           if [[ $VERSION == *"alpha."* ]] || [[ $VERSION == *"beta."* ]] || [[ $VERSION == *"rc."* ]]; then
             echo "Is pre-release version"
             EXTRA_ARGS="$EXTRA_ARGS --dist-tag next"
           fi
-          
+
           # Use --force-publish to ensure all packages are published
           # This preserves the original workflow where all packages are released
           # with the version number from the root package.json
           npx lerna publish ${VERSION} --yes --force-publish --no-git-tag-version $EXTRA_ARGS
-          
+
       - name: Create GitHub Release
         if: steps.tests.outcome == 'success'
         uses: softprops/action-gh-release@v1
@@ -147,8 +147,6 @@ jobs:
           target_commitish: main
           generate_release_notes: true
           draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         env:
           VERSION: ${{ needs.check_if_version_upgraded.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
