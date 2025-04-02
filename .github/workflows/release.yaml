@@ -11,13 +11,39 @@ jobs:
     name: Check if package version has been upgraded
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version-updated.outputs.current-package-version }}
-      has_updated: ${{ steps.version-updated.outputs.has-updated }}
+      version: ${{ steps.get-version.outputs.version }}
+      has_updated: ${{ steps.check-version.outputs.has_updated }}
     steps:
-      - uses: JiPaix/package-json-updated-action@v1.0.5
-        id: version-updated
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # Get the current package version
+      - id: get-version
+        name: Get current version
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      # Check if version has been updated
+      - id: check-version
+        name: Check if version updated
+        run: |
+          git fetch origin
+          # Get the previous package.json content
+          PREV_VERSION=$(git show origin/main:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
+          echo "Previous version: $PREV_VERSION"
+          CURRENT_VERSION=${{ steps.get-version.outputs.version }}
+
+          if [ "$PREV_VERSION" != "$CURRENT_VERSION" ]; then
+            echo "Version has been updated from $PREV_VERSION to $CURRENT_VERSION"
+            echo "has_updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "Version has not changed"
+            echo "has_updated=false" >> $GITHUB_OUTPUT
+          fi
+
   publish-docs:
     name: Publish Docs
     runs-on: ubuntu-latest
@@ -27,6 +53,10 @@ jobs:
     if: |
       needs.check_if_version_upgraded.outputs.has_updated == 'true'
     steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
       - uses: actions/setup-node@v3
         with:
           node-version: "18.x"
@@ -35,13 +65,9 @@ jobs:
         with:
           version: 8
           run_install: false
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          ref: ${{ github.ref }}
       - name: Install and Build
         run: |
-          pnpm install 
+          pnpm install --frozen-lockfile
           pnpm build
       - name: Build docs
         run: npx typedoc
@@ -50,6 +76,7 @@ jobs:
         with:
           branch: gh-pages
           folder: docs
+
   publish-js:
     name: Publish package
     runs-on: ubuntu-latest
@@ -59,6 +86,10 @@ jobs:
     if: |
       needs.check_if_version_upgraded.outputs.has_updated == 'true'
     steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
       - uses: actions/setup-node@v3
         with:
           node-version: "18.x"
@@ -67,14 +98,10 @@ jobs:
         with:
           version: 8
           run_install: false
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          ref: ${{ github.ref }}
       - name: Install Dependencies
         id: deps
         run: |
-          pnpm install
+          pnpm install --frozen-lockfile
       - name: Build Release
         id: build_release
         run: |
@@ -83,12 +110,25 @@ jobs:
         id: tests
         run: |
           pnpm test
+
+      - name: Create GitHub Release
+        if: steps.tests.outcome == 'success'
+        uses: softprops/action-gh-release@v1
+        with:
+          name: v${{ needs.check_if_version_upgraded.outputs.version }}
+          tag_name: v${{ needs.check_if_version_upgraded.outputs.version }}
+          target_commitish: main
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish Release
         if: steps.tests.outcome == 'success'
         run: |
           if [ "$NODE_AUTH_TOKEN" = "" ]; then
             echo "You need a NPM_TOKEN secret in order to publish."
-            false
+            exit 1
           fi
           git config user.name github-actions
           git config user.email github-actions@github.com
@@ -102,15 +142,4 @@ jobs:
         env:
           VERSION: ${{ needs.check_if_version_upgraded.outputs.version }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Tag release
-        if: steps.tests.outcome == 'success'
-        uses: softprops/action-gh-release@v1
-        with:
-          name: v${{ needs.check_if_version_upgraded.outputs.version }}
-          tag_name: v${{ needs.check_if_version_upgraded.outputs.version }}
-          target_commitish: main
-          generate_release_notes: true
-          draft: false
-        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
