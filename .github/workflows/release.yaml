@@ -30,11 +30,16 @@ jobs:
       - id: check-version
         name: Check if version updated
         run: |
-          git fetch origin
-          # Get the previous package.json content
-          PREV_VERSION=$(git show origin/main:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
+          # Get the previous commit hash
+          PREV_COMMIT=$(git rev-parse HEAD^)
+          echo "Previous commit: $PREV_COMMIT"
+
+          # Get the previous version from the previous commit
+          PREV_VERSION=$(git show $PREV_COMMIT:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
           echo "Previous version: $PREV_VERSION"
+
           CURRENT_VERSION=${{ steps.get-version.outputs.version }}
+          echo "Current version: $CURRENT_VERSION"
 
           if [ "$PREV_VERSION" != "$CURRENT_VERSION" ]; then
             echo "Version has been updated from $PREV_VERSION to $CURRENT_VERSION"
