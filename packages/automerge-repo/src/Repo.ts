@@ -482,14 +482,21 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     }
 
-    const subscribers = new Set<(progress: FindProgress<T>) => void>()
-    let currentProgress: FindProgress<T> | undefined
-
-    const notifySubscribers = (progress: FindProgress<T>) => {
-      currentProgress = progress
-      subscribers.forEach(callback => callback(progress))
-      // Cache all states, not just terminal ones
-      this.#progressCache[documentId] = progress
+    // Create a new progress signal
+    const progressSignal = {
+      subscribers: new Set<(progress: FindProgress<T>) => void>(),
+      currentProgress: undefined as FindProgress<T> | undefined,
+      notify: (progress: FindProgress<T>) => {
+        progressSignal.currentProgress = progress
+        progressSignal.subscribers.forEach(callback => callback(progress))
+        // Cache all states, not just terminal ones
+        this.#progressCache[documentId] = progress
+      },
+      peek: () => progressSignal.currentProgress || initial,
+      subscribe: (callback: (progress: FindProgress<T>) => void) => {
+        progressSignal.subscribers.add(callback)
+        return () => progressSignal.subscribers.delete(callback)
+      },
     }
 
     // the generator takes over `this`, so we need an alias to the repo this
@@ -502,7 +509,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       progress: 0,
       handle: this.#getHandle<T>({ documentId }),
     }
-    notifySubscribers(initial)
+    progressSignal.notify(initial)
 
     let currentStep = 0
     const steps = [
@@ -510,7 +517,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         try {
           handle = that.#getHandle<T>({ documentId })
           const progress25 = { state: "loading" as const, progress: 25, handle }
-          notifySubscribers(progress25)
+          progressSignal.notify(progress25)
           return progress25
         } catch (error) {
           const failedProgress = {
@@ -518,7 +525,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             error: error instanceof Error ? error : new Error(String(error)),
             handle: handle || that.#getHandle<T>({ documentId }),
           }
-          notifySubscribers(failedProgress)
+          progressSignal.notify(failedProgress)
           return failedProgress
         }
       },
@@ -538,7 +545,7 @@ export class Repo extends EventEmitter<RepoEvents> {
               progress: 50,
               handle: handle!,
             }
-            notifySubscribers(progress50)
+            progressSignal.notify(progress50)
             return progress50
           } else {
             await Promise.race([
@@ -551,7 +558,7 @@ export class Repo extends EventEmitter<RepoEvents> {
               progress: 75,
               handle: handle!,
             }
-            notifySubscribers(progress75)
+            progressSignal.notify(progress75)
             return progress75
           }
         } catch (error) {
@@ -560,7 +567,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             error: error instanceof Error ? error : new Error(String(error)),
             handle: handle || that.#getHandle<T>({ documentId }),
           }
-          notifySubscribers(failedProgress)
+          progressSignal.notify(failedProgress)
           return failedProgress
         }
       },
@@ -578,7 +585,7 @@ export class Repo extends EventEmitter<RepoEvents> {
               state: "unavailable" as const,
               handle: handle!,
             }
-            notifySubscribers(unavailableProgress)
+            progressSignal.notify(unavailableProgress)
             return unavailableProgress
           }
           if (handle!.state === DELETED) {
@@ -586,7 +593,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           }
 
           const readyProgress = { state: "ready" as const, handle: handle! }
-          notifySubscribers(readyProgress)
+          progressSignal.notify(readyProgress)
           return readyProgress
         } catch (error) {
           const failedProgress = {
@@ -594,7 +601,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             error: error instanceof Error ? error : new Error(String(error)),
             handle: handle || that.#getHandle<T>({ documentId }),
           }
-          notifySubscribers(failedProgress)
+          progressSignal.notify(failedProgress)
           return failedProgress
         }
       },
@@ -610,7 +617,8 @@ export class Repo extends EventEmitter<RepoEvents> {
         ...result,
         next,
         untilReady,
-        peek: () => currentProgress || initial,
+        peek: progressSignal.peek,
+        subscribe: progressSignal.subscribe,
       }
     }
 
@@ -634,7 +642,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       ...initial,
       next,
       untilReady,
-      peek: () => currentProgress || initial,
+      peek: progressSignal.peek,
+      subscribe: progressSignal.subscribe,
     }
     this.#progressCache[documentId] = result
     return result
