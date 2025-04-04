@@ -480,65 +480,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     // the generator takes over `this`, so we need an alias to the repo this
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
-    async function* progressGenerator(): AsyncGenerator<FindProgress<T>> {
-      let handle: DocHandle<T> | undefined
-      try {
-        handle = that.#getHandle<T>({ documentId })
-        const progress25 = { state: "loading" as const, progress: 25, handle }
-        notifySubscribers(progress25)
-        yield progress25
+    let handle: DocHandle<T> | undefined
 
-        const loadingPromise = await (that.storageSubsystem
-          ? that.storageSubsystem.loadDoc(handle.documentId)
-          : Promise.resolve(null))
-
-        const loadedDoc = await Promise.race([loadingPromise, abortPromise])
-
-        if (loadedDoc) {
-          handle.update(() => loadedDoc as Automerge.Doc<T>)
-          handle.doneLoading()
-          const progress50 = { state: "loading" as const, progress: 50, handle }
-          notifySubscribers(progress50)
-          yield progress50
-        } else {
-          await Promise.race([that.networkSubsystem.whenReady(), abortPromise])
-          handle.request()
-          const progress75 = { state: "loading" as const, progress: 75, handle }
-          notifySubscribers(progress75)
-          yield progress75
-        }
-
-        that.#registerHandleWithSubsystems(handle)
-
-        await Promise.race([
-          handle.whenReady([READY, UNAVAILABLE]),
-          abortPromise,
-        ])
-
-        if (handle.state === UNAVAILABLE) {
-          const unavailableProgress = { state: "unavailable" as const, handle }
-          notifySubscribers(unavailableProgress)
-          yield unavailableProgress
-        }
-        if (handle.state === DELETED) {
-          throw new Error(`Document ${id} was deleted`)
-        }
-
-        const readyProgress = { state: "ready" as const, handle }
-        notifySubscribers(readyProgress)
-        yield readyProgress
-      } catch (error) {
-        const failedProgress = {
-          state: "failed" as const,
-          error: error instanceof Error ? error : new Error(String(error)),
-          handle: handle || that.#getHandle<T>({ documentId }),
-        }
-        notifySubscribers(failedProgress)
-        yield failedProgress
-      }
-    }
-
-    const iterator = progressGenerator()
     const initial = {
       state: "loading" as const,
       progress: 0,
@@ -546,23 +489,130 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     notifySubscribers(initial)
 
+    let currentStep = 0
+    const steps = [
+      async () => {
+        try {
+          handle = that.#getHandle<T>({ documentId })
+          const progress25 = { state: "loading" as const, progress: 25, handle }
+          notifySubscribers(progress25)
+          return progress25
+        } catch (error) {
+          const failedProgress = {
+            state: "failed" as const,
+            error: error instanceof Error ? error : new Error(String(error)),
+            handle: handle || that.#getHandle<T>({ documentId }),
+          }
+          notifySubscribers(failedProgress)
+          return failedProgress
+        }
+      },
+      async () => {
+        try {
+          const loadingPromise = await (that.storageSubsystem
+            ? that.storageSubsystem.loadDoc(handle!.documentId)
+            : Promise.resolve(null))
+
+          const loadedDoc = await Promise.race([loadingPromise, abortPromise])
+
+          if (loadedDoc) {
+            handle!.update(() => loadedDoc as Automerge.Doc<T>)
+            handle!.doneLoading()
+            const progress50 = {
+              state: "loading" as const,
+              progress: 50,
+              handle: handle!,
+            }
+            notifySubscribers(progress50)
+            return progress50
+          } else {
+            await Promise.race([
+              that.networkSubsystem.whenReady(),
+              abortPromise,
+            ])
+            handle!.request()
+            const progress75 = {
+              state: "loading" as const,
+              progress: 75,
+              handle: handle!,
+            }
+            notifySubscribers(progress75)
+            return progress75
+          }
+        } catch (error) {
+          const failedProgress = {
+            state: "failed" as const,
+            error: error instanceof Error ? error : new Error(String(error)),
+            handle: handle || that.#getHandle<T>({ documentId }),
+          }
+          notifySubscribers(failedProgress)
+          return failedProgress
+        }
+      },
+      async () => {
+        try {
+          that.#registerHandleWithSubsystems(handle!)
+
+          await Promise.race([
+            handle!.whenReady([READY, UNAVAILABLE]),
+            abortPromise,
+          ])
+
+          if (handle!.state === UNAVAILABLE) {
+            const unavailableProgress = {
+              state: "unavailable" as const,
+              handle: handle!,
+            }
+            notifySubscribers(unavailableProgress)
+            return unavailableProgress
+          }
+          if (handle!.state === DELETED) {
+            throw new Error(`Document ${id} was deleted`)
+          }
+
+          const readyProgress = { state: "ready" as const, handle: handle! }
+          notifySubscribers(readyProgress)
+          return readyProgress
+        } catch (error) {
+          const failedProgress = {
+            state: "failed" as const,
+            error: error instanceof Error ? error : new Error(String(error)),
+            handle: handle || that.#getHandle<T>({ documentId }),
+          }
+          notifySubscribers(failedProgress)
+          return failedProgress
+        }
+      },
+    ]
+
     const next = async () => {
-      const result = await iterator.next()
-      return { ...result.value, next, peek: () => currentProgress || initial }
+      if (currentStep >= steps.length) {
+        throw new Error("No more steps")
+      }
+      const result = await steps[currentStep]()
+      currentStep++
+      return {
+        ...result,
+        next,
+        untilReady,
+        peek: () => currentProgress || initial,
+      }
     }
 
     const untilReady = async (allowableStates: string[]) => {
-      for await (const state of iterator) {
-        if (allowableStates.includes(state.handle.state)) {
-          return state.handle
+      while (currentStep < steps.length) {
+        const result = await steps[currentStep]()
+        currentStep++
+        if (allowableStates.includes(result.handle.state)) {
+          return result.handle
         }
-        if (state.state === "unavailable") {
+        if (result.state === "unavailable") {
           throw new Error(`Document ${id} is unavailable`)
         }
-        if (state.state === "ready") return state.handle
-        if (state.state === "failed") throw state.error
+        if (result.state === "ready") return result.handle
+        if (result.state === "failed") throw result.error
       }
-      throw new Error("Iterator completed without reaching ready state")
+      throw new Error("Operation completed without reaching ready state")
     }
 
     return {
