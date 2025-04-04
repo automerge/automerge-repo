@@ -499,11 +499,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       },
     }
 
-    // the generator takes over `this`, so we need an alias to the repo this
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const that = this
-    let handle: DocHandle<T> | undefined
-
     const initial = {
       state: "loading" as const,
       progress: 0,
@@ -511,121 +506,72 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     progressSignal.notify(initial)
 
-    let currentStep = 0
-    const steps = [
-      async () => {
-        try {
-          handle = that.#getHandle<T>({ documentId })
-          const progress25 = { state: "loading" as const, progress: 25, handle }
-          progressSignal.notify(progress25)
-          return progress25
-        } catch (error) {
-          const failedProgress = {
-            state: "failed" as const,
-            error: error instanceof Error ? error : new Error(String(error)),
-            handle: handle || that.#getHandle<T>({ documentId }),
+    // Start the loading process
+    void (async () => {
+      try {
+        const handle = this.#getHandle<T>({ documentId })
+        const progress25 = { state: "loading" as const, progress: 25, handle }
+        progressSignal.notify(progress25)
+
+        const loadingPromise = await (this.storageSubsystem
+          ? this.storageSubsystem.loadDoc(handle.documentId)
+          : Promise.resolve(null))
+
+        const loadedDoc = await Promise.race([loadingPromise, abortPromise])
+
+        if (loadedDoc) {
+          handle.update(() => loadedDoc as Automerge.Doc<T>)
+          handle.doneLoading()
+          const progress50 = {
+            state: "loading" as const,
+            progress: 50,
+            handle,
           }
-          progressSignal.notify(failedProgress)
-          return failedProgress
+          progressSignal.notify(progress50)
+        } else {
+          await Promise.race([this.networkSubsystem.whenReady(), abortPromise])
+          handle.request()
+          const progress75 = {
+            state: "loading" as const,
+            progress: 75,
+            handle,
+          }
+          progressSignal.notify(progress75)
         }
-      },
-      async () => {
-        try {
-          const loadingPromise = await (that.storageSubsystem
-            ? that.storageSubsystem.loadDoc(handle!.documentId)
-            : Promise.resolve(null))
 
-          const loadedDoc = await Promise.race([loadingPromise, abortPromise])
+        this.#registerHandleWithSubsystems(handle)
 
-          if (loadedDoc) {
-            handle!.update(() => loadedDoc as Automerge.Doc<T>)
-            handle!.doneLoading()
-            const progress50 = {
-              state: "loading" as const,
-              progress: 50,
-              handle: handle!,
-            }
-            progressSignal.notify(progress50)
-            return progress50
-          } else {
-            await Promise.race([
-              that.networkSubsystem.whenReady(),
-              abortPromise,
-            ])
-            handle!.request()
-            const progress75 = {
-              state: "loading" as const,
-              progress: 75,
-              handle: handle!,
-            }
-            progressSignal.notify(progress75)
-            return progress75
+        await Promise.race([
+          handle.whenReady([READY, UNAVAILABLE]),
+          abortPromise,
+        ])
+
+        if (handle.state === UNAVAILABLE) {
+          const unavailableProgress = {
+            state: "unavailable" as const,
+            handle,
           }
-        } catch (error) {
-          const failedProgress = {
-            state: "failed" as const,
-            error: error instanceof Error ? error : new Error(String(error)),
-            handle: handle || that.#getHandle<T>({ documentId }),
-          }
-          progressSignal.notify(failedProgress)
-          return failedProgress
+          progressSignal.notify(unavailableProgress)
+          return
         }
-      },
-      async () => {
-        try {
-          that.#registerHandleWithSubsystems(handle!)
-
-          await Promise.race([
-            handle!.whenReady([READY, UNAVAILABLE]),
-            abortPromise,
-          ])
-
-          if (handle!.state === UNAVAILABLE) {
-            const unavailableProgress = {
-              state: "unavailable" as const,
-              handle: handle!,
-            }
-            progressSignal.notify(unavailableProgress)
-            return unavailableProgress
-          }
-          if (handle!.state === DELETED) {
-            throw new Error(`Document ${id} was deleted`)
-          }
-
-          const readyProgress = { state: "ready" as const, handle: handle! }
-          progressSignal.notify(readyProgress)
-          return readyProgress
-        } catch (error) {
-          const failedProgress = {
-            state: "failed" as const,
-            error: error instanceof Error ? error : new Error(String(error)),
-            handle: handle || that.#getHandle<T>({ documentId }),
-          }
-          progressSignal.notify(failedProgress)
-          return failedProgress
+        if (handle.state === DELETED) {
+          throw new Error(`Document ${id} was deleted`)
         }
-      },
-    ]
 
-    const untilReady = async (allowableStates: string[]) => {
-      while (currentStep < steps.length) {
-        const result = await steps[currentStep]()
-        currentStep++
-        if (allowableStates.includes(result.handle.state)) {
-          return result.handle
+        const readyProgress = { state: "ready" as const, handle }
+        progressSignal.notify(readyProgress)
+      } catch (error) {
+        const failedProgress = {
+          state: "failed" as const,
+          error: error instanceof Error ? error : new Error(String(error)),
+          handle: this.#getHandle<T>({ documentId }),
         }
-        if (result.state === "unavailable") {
-          throw new Error(`Document ${id} is unavailable`)
-        }
-        if (result.state === "ready") return result.handle
-        if (result.state === "failed") throw result.error
+        progressSignal.notify(failedProgress)
       }
-      throw new Error("Operation completed without reaching ready state")
-    }
+    })()
 
     const result = {
       ...initial,
-      untilReady,
       peek: progressSignal.peek,
       subscribe: progressSignal.subscribe,
     }
@@ -640,9 +586,22 @@ export class Repo extends EventEmitter<RepoEvents> {
     const { allowableStates = ["ready"], signal } = options
     const progress = this.findWithProgress<T>(id, { signal })
 
-    if ("untilReady" in progress) {
+    if ("subscribe" in progress) {
       this.#registerHandleWithSubsystems(progress.handle)
-      return progress.untilReady(allowableStates)
+      return new Promise((resolve, reject) => {
+        const unsubscribe = progress.subscribe(state => {
+          if (allowableStates.includes(state.handle.state)) {
+            unsubscribe()
+            resolve(state.handle)
+          } else if (state.state === "unavailable") {
+            unsubscribe()
+            reject(new Error(`Document ${id} is unavailable`))
+          } else if (state.state === "failed") {
+            unsubscribe()
+            reject(state.error)
+          }
+        })
+      })
     } else {
       if (progress.handle.state === READY) {
         return progress.handle
