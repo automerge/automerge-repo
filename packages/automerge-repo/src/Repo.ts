@@ -438,14 +438,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       ? parseAutomergeUrl(id)
       : { documentId: interpretAsDocumentId(id), heads: undefined }
 
-    const subscribers = new Set<(progress: FindProgress<T>) => void>()
-    let currentProgress: FindProgress<T> | undefined
-
-    const notifySubscribers = (progress: FindProgress<T>) => {
-      currentProgress = progress
-      subscribers.forEach(callback => callback(progress))
-    }
-
     // Check handle cache first - return plain FindStep for terminal states
     if (this.#handleCache[documentId]) {
       const handle = this.#handleCache[documentId]
@@ -455,7 +447,6 @@ export class Repo extends EventEmitter<RepoEvents> {
           error: new Error(`Document ${id} is unavailable`),
           handle,
         }
-        notifySubscribers(result)
         return result
       }
       if (handle.state === DELETED) {
@@ -464,7 +455,6 @@ export class Repo extends EventEmitter<RepoEvents> {
           error: new Error(`Document ${id} was deleted`),
           handle,
         }
-        notifySubscribers(result)
         return result
       }
       if (handle.state === READY) {
@@ -472,9 +462,38 @@ export class Repo extends EventEmitter<RepoEvents> {
           state: "ready" as const,
           handle: heads ? handle.view(heads) : handle,
         }
-        notifySubscribers(result)
         return result
       }
+    }
+
+    // Check progress cache for any existing signal
+    const cachedProgress = this.#progressCache[documentId]
+    if (cachedProgress) {
+      const handle = this.#handleCache[documentId]
+      if (handle) {
+        // If the handle is in a terminal state, return the cached progress
+        if (
+          handle.state === READY ||
+          handle.state === UNAVAILABLE ||
+          handle.state === DELETED
+        ) {
+          return cachedProgress as FindProgressWithMethods<T>
+        }
+        // If the handle is still loading, return the cached progress to avoid duplicate loads
+        if (handle.state === "loading") {
+          return cachedProgress as FindProgressWithMethods<T>
+        }
+      }
+    }
+
+    const subscribers = new Set<(progress: FindProgress<T>) => void>()
+    let currentProgress: FindProgress<T> | undefined
+
+    const notifySubscribers = (progress: FindProgress<T>) => {
+      currentProgress = progress
+      subscribers.forEach(callback => callback(progress))
+      // Cache all states, not just terminal ones
+      this.#progressCache[documentId] = progress
     }
 
     // the generator takes over `this`, so we need an alias to the repo this
@@ -615,12 +634,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       throw new Error("Operation completed without reaching ready state")
     }
 
-    return {
+    const result = {
       ...initial,
       next,
       untilReady,
       peek: () => currentProgress || initial,
     }
+    this.#progressCache[documentId] = result
+    return result
   }
 
   async find<T>(
@@ -630,15 +651,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     const { allowableStates = ["ready"], signal } = options
     const progress = this.findWithProgress<T>(id, { signal })
 
-    /*if (allowableStates.includes(progress.state)) {
-      console.log("returning early")
-      return progress.handle
-    }*/
-
     if ("untilReady" in progress) {
       this.#registerHandleWithSubsystems(progress.handle)
       return progress.untilReady(allowableStates)
     } else {
+      if (progress.handle.state === READY) {
+        return progress.handle
+      }
+      // If the handle isn't ready, wait for it and then return it
+      await progress.handle.whenReady([READY, UNAVAILABLE])
       return progress.handle
     }
   }
@@ -712,6 +733,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.delete()
 
     delete this.#handleCache[documentId]
+    delete this.#progressCache[documentId]
     this.emit("delete-document", { documentId })
   }
 
