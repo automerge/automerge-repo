@@ -470,19 +470,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     const cachedProgress = this.#progressCache[documentId]
     if (cachedProgress) {
       const handle = this.#handleCache[documentId]
-      if (handle) {
-        // If the handle is in a terminal state, return the cached progress
-        if (
-          handle.state === READY ||
+      // Return cached progress if we have a handle and it's either in a terminal state or loading
+      if (
+        handle &&
+        (handle.state === READY ||
           handle.state === UNAVAILABLE ||
-          handle.state === DELETED
-        ) {
-          return cachedProgress as FindProgressWithMethods<T>
-        }
-        // If the handle is still loading, return the cached progress to avoid duplicate loads
-        if (handle.state === "loading") {
-          return cachedProgress as FindProgressWithMethods<T>
-        }
+          handle.state === DELETED ||
+          handle.state === "loading")
+      ) {
+        return cachedProgress as FindProgressWithMethods<T>
       }
     }
 
