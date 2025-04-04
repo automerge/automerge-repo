@@ -40,7 +40,19 @@ import type {
   PeerId,
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
-import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
+import { FindProgress } from "./FindProgress.js"
+
+export type FindProgressWithMethods<T> = FindProgress<T> & {
+  next: () => Promise<FindProgressWithMethods<T>>
+  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+  peek: () => FindProgress<T>
+}
+
+export type ProgressSignal<T> = {
+  peek: () => FindProgress<T>
+  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
+  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+}
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -81,6 +93,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
+  #progressCache: Record<DocumentId, FindProgress<any>> = {}
 
   constructor({
     storage,
@@ -425,7 +438,15 @@ export class Repo extends EventEmitter<RepoEvents> {
       ? parseAutomergeUrl(id)
       : { documentId: interpretAsDocumentId(id), heads: undefined }
 
-    // Check cache first - return plain FindStep for terminal states
+    const subscribers = new Set<(progress: FindProgress<T>) => void>()
+    let currentProgress: FindProgress<T> | undefined
+
+    const notifySubscribers = (progress: FindProgress<T>) => {
+      currentProgress = progress
+      subscribers.forEach(callback => callback(progress))
+    }
+
+    // Check handle cache first - return plain FindStep for terminal states
     if (this.#handleCache[documentId]) {
       const handle = this.#handleCache[documentId]
       if (handle.state === UNAVAILABLE) {
@@ -434,22 +455,25 @@ export class Repo extends EventEmitter<RepoEvents> {
           error: new Error(`Document ${id} is unavailable`),
           handle,
         }
+        notifySubscribers(result)
         return result
       }
       if (handle.state === DELETED) {
-        return {
-          state: "failed",
+        const result = {
+          state: "failed" as const,
           error: new Error(`Document ${id} was deleted`),
           handle,
         }
+        notifySubscribers(result)
+        return result
       }
       if (handle.state === READY) {
-        // If we already have the handle, return it immediately (or a view of the handle if heads are specified)
-        return {
-          state: "ready",
-          // TODO: this handle needs to be cached (or at least avoid running clone)
+        const result = {
+          state: "ready" as const,
           handle: heads ? handle.view(heads) : handle,
         }
+        notifySubscribers(result)
+        return result
       }
     }
 
@@ -457,9 +481,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
     async function* progressGenerator(): AsyncGenerator<FindProgress<T>> {
+      let handle: DocHandle<T> | undefined
       try {
-        const handle = that.#getHandle<T>({ documentId })
-        yield { state: "loading", progress: 25, handle }
+        handle = that.#getHandle<T>({ documentId })
+        const progress25 = { state: "loading" as const, progress: 25, handle }
+        notifySubscribers(progress25)
+        yield progress25
 
         const loadingPromise = await (that.storageSubsystem
           ? that.storageSubsystem.loadDoc(handle.documentId)
@@ -470,11 +497,15 @@ export class Repo extends EventEmitter<RepoEvents> {
         if (loadedDoc) {
           handle.update(() => loadedDoc as Automerge.Doc<T>)
           handle.doneLoading()
-          yield { state: "loading", progress: 50, handle }
+          const progress50 = { state: "loading" as const, progress: 50, handle }
+          notifySubscribers(progress50)
+          yield progress50
         } else {
           await Promise.race([that.networkSubsystem.whenReady(), abortPromise])
           handle.request()
-          yield { state: "loading", progress: 75, handle }
+          const progress75 = { state: "loading" as const, progress: 75, handle }
+          notifySubscribers(progress75)
+          yield progress75
         }
 
         that.#registerHandleWithSubsystems(handle)
@@ -485,27 +516,39 @@ export class Repo extends EventEmitter<RepoEvents> {
         ])
 
         if (handle.state === UNAVAILABLE) {
-          yield { state: "unavailable", handle }
+          const unavailableProgress = { state: "unavailable" as const, handle }
+          notifySubscribers(unavailableProgress)
+          yield unavailableProgress
         }
         if (handle.state === DELETED) {
           throw new Error(`Document ${id} was deleted`)
         }
 
-        yield { state: "ready", handle }
+        const readyProgress = { state: "ready" as const, handle }
+        notifySubscribers(readyProgress)
+        yield readyProgress
       } catch (error) {
-        yield {
-          state: "failed",
+        const failedProgress = {
+          state: "failed" as const,
           error: error instanceof Error ? error : new Error(String(error)),
-          handle,
+          handle: handle || that.#getHandle<T>({ documentId }),
         }
+        notifySubscribers(failedProgress)
+        yield failedProgress
       }
     }
 
     const iterator = progressGenerator()
+    const initial = {
+      state: "loading" as const,
+      progress: 0,
+      handle: this.#getHandle<T>({ documentId }),
+    }
+    notifySubscribers(initial)
 
     const next = async () => {
       const result = await iterator.next()
-      return { ...result.value, next }
+      return { ...result.value, next, peek: () => currentProgress || initial }
     }
 
     const untilReady = async (allowableStates: string[]) => {
@@ -522,9 +565,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       throw new Error("Iterator completed without reaching ready state")
     }
 
-    const handle = this.#getHandle<T>({ documentId })
-    const initial = { state: "loading" as const, progress: 0, handle }
-    return { ...initial, next, untilReady }
+    return {
+      ...initial,
+      next,
+      untilReady,
+      peek: () => currentProgress || initial,
+    }
   }
 
   async find<T>(
