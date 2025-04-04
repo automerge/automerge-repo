@@ -482,6 +482,13 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     }
 
+    const handle = this.#getHandle<T>({ documentId })
+    const initial = {
+      state: "loading" as const,
+      progress: 0,
+      handle,
+    }
+
     // Create a new progress signal
     const progressSignal = {
       subscribers: new Set<(progress: FindProgress<T>) => void>(),
@@ -499,76 +506,16 @@ export class Repo extends EventEmitter<RepoEvents> {
       },
     }
 
-    const initial = {
-      state: "loading" as const,
-      progress: 0,
-      handle: this.#getHandle<T>({ documentId }),
-    }
     progressSignal.notify(initial)
 
     // Start the loading process
-    void (async () => {
-      try {
-        const handle = this.#getHandle<T>({ documentId })
-        const progress25 = { state: "loading" as const, progress: 25, handle }
-        progressSignal.notify(progress25)
-
-        const loadingPromise = await (this.storageSubsystem
-          ? this.storageSubsystem.loadDoc(handle.documentId)
-          : Promise.resolve(null))
-
-        const loadedDoc = await Promise.race([loadingPromise, abortPromise])
-
-        if (loadedDoc) {
-          handle.update(() => loadedDoc as Automerge.Doc<T>)
-          handle.doneLoading()
-          const progress50 = {
-            state: "loading" as const,
-            progress: 50,
-            handle,
-          }
-          progressSignal.notify(progress50)
-        } else {
-          await Promise.race([this.networkSubsystem.whenReady(), abortPromise])
-          handle.request()
-          const progress75 = {
-            state: "loading" as const,
-            progress: 75,
-            handle,
-          }
-          progressSignal.notify(progress75)
-        }
-
-        this.#registerHandleWithSubsystems(handle)
-
-        await Promise.race([
-          handle.whenReady([READY, UNAVAILABLE]),
-          abortPromise,
-        ])
-
-        if (handle.state === UNAVAILABLE) {
-          const unavailableProgress = {
-            state: "unavailable" as const,
-            handle,
-          }
-          progressSignal.notify(unavailableProgress)
-          return
-        }
-        if (handle.state === DELETED) {
-          throw new Error(`Document ${id} was deleted`)
-        }
-
-        const readyProgress = { state: "ready" as const, handle }
-        progressSignal.notify(readyProgress)
-      } catch (error) {
-        const failedProgress = {
-          state: "failed" as const,
-          error: error instanceof Error ? error : new Error(String(error)),
-          handle: this.#getHandle<T>({ documentId }),
-        }
-        progressSignal.notify(failedProgress)
-      }
-    })()
+    void this.#loadDocumentWithProgress(
+      id,
+      documentId,
+      handle,
+      progressSignal,
+      abortPromise
+    )
 
     const result = {
       ...initial,
@@ -577,6 +524,72 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     this.#progressCache[documentId] = result
     return result
+  }
+
+  async #loadDocumentWithProgress<T>(
+    id: AnyDocumentId,
+    documentId: DocumentId,
+    handle: DocHandle<T>,
+    progressSignal: {
+      notify: (progress: FindProgress<T>) => void
+    },
+    abortPromise: Promise<never>
+  ) {
+    try {
+      progressSignal.notify({
+        state: "loading" as const,
+        progress: 25,
+        handle,
+      })
+
+      const loadingPromise = await (this.storageSubsystem
+        ? this.storageSubsystem.loadDoc(handle.documentId)
+        : Promise.resolve(null))
+
+      const loadedDoc = await Promise.race([loadingPromise, abortPromise])
+
+      if (loadedDoc) {
+        handle.update(() => loadedDoc as Automerge.Doc<T>)
+        handle.doneLoading()
+        progressSignal.notify({
+          state: "loading" as const,
+          progress: 50,
+          handle,
+        })
+      } else {
+        await Promise.race([this.networkSubsystem.whenReady(), abortPromise])
+        handle.request()
+        progressSignal.notify({
+          state: "loading" as const,
+          progress: 75,
+          handle,
+        })
+      }
+
+      this.#registerHandleWithSubsystems(handle)
+
+      await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
+
+      if (handle.state === UNAVAILABLE) {
+        const unavailableProgress = {
+          state: "unavailable" as const,
+          handle,
+        }
+        progressSignal.notify(unavailableProgress)
+        return
+      }
+      if (handle.state === DELETED) {
+        throw new Error(`Document ${id} was deleted`)
+      }
+
+      progressSignal.notify({ state: "ready" as const, handle })
+    } catch (error) {
+      progressSignal.notify({
+        state: "failed" as const,
+        error: error instanceof Error ? error : new Error(String(error)),
+        handle: this.#getHandle<T>({ documentId }),
+      })
+    }
   }
 
   async find<T>(
