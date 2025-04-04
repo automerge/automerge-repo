@@ -78,6 +78,11 @@ export type {
 } from "./network/NetworkAdapterInterface.js"
 
 export type {
+  NetworkSubsystemEvents,
+  PeerPayload,
+} from "./network/NetworkSubsystem.js"
+
+export type {
   DocumentUnavailableMessage,
   EphemeralMessage,
   Message,
