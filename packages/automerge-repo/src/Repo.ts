@@ -43,9 +43,9 @@ import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
-  next: () => Promise<FindProgressWithMethods<T>>
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
   peek: () => FindProgress<T>
+  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
 }
 
 export type ProgressSignal<T> = {
@@ -607,21 +607,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       },
     ]
 
-    const next = async () => {
-      if (currentStep >= steps.length) {
-        throw new Error("No more steps")
-      }
-      const result = await steps[currentStep]()
-      currentStep++
-      return {
-        ...result,
-        next,
-        untilReady,
-        peek: progressSignal.peek,
-        subscribe: progressSignal.subscribe,
-      }
-    }
-
     const untilReady = async (allowableStates: string[]) => {
       while (currentStep < steps.length) {
         const result = await steps[currentStep]()
@@ -640,7 +625,6 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const result = {
       ...initial,
-      next,
       untilReady,
       peek: progressSignal.peek,
       subscribe: progressSignal.subscribe,
