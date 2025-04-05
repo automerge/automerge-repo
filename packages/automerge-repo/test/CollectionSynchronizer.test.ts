@@ -75,4 +75,20 @@ describe("CollectionSynchronizer", () => {
 
       setTimeout(done)
     }))
+
+  it("should not synchronize a document removed from synchronizer", () =>
+    new Promise<void>((done, reject) => {
+      const handle = repo.create()
+
+      synchronizer.addDocument(handle.documentId)
+      synchronizer.removeDocument(handle.documentId)
+
+      synchronizer.once("message", () => {
+        reject(new Error("Should not have sent a message"))
+      })
+
+      synchronizer.addPeer("peer2" as PeerId)
+
+      setTimeout(done)
+    }))
 })
