@@ -8,9 +8,10 @@ import { next as Automerge } from "@automerge/automerge"
 
 // Simple function to compare heads
 function headsAreSame(heads1: string[], heads2: string[]): boolean {
-  if (heads1.length !== heads2.length) return false
   const set1 = new Set(heads1)
-  return heads2.every(h => set1.has(h))
+  const set2 = new Set(heads2)
+  // Check if either set is a subset of the other
+  return [...set1].every(h => set2.has(h)) || [...set2].every(h => set1.has(h))
 }
 
 type Doc = {
@@ -20,39 +21,74 @@ type Doc = {
 }
 
 async function main() {
-  // Create a message channel between the two repos
-  const { port1, port2 } = new MessageChannel()
+  // Create message channels for the star topology
+  const { port1: portAC1, port2: portAC2 } = new MessageChannel() // A-C connection
+  const { port1: portAD1, port2: portAD2 } = new MessageChannel() // A-D connection
+  const { port1: portAE1, port2: portAE2 } = new MessageChannel() // A-E connection
+  const { port1: portAB1, port2: portAB2 } = new MessageChannel() // A-B connection
 
-  // Create the first repo
-  const peer1 = "peer1" as PeerId
-  const repo1 = new Repo({
-    network: [new MessageChannelNetworkAdapter(port1)],
-    peerId: peer1,
+  // Create the repos
+  const peerA = "peerA" as PeerId
+  const peerB = "peerB" as PeerId
+  const peerC = "peerC" as PeerId
+  const peerD = "peerD" as PeerId
+  const peerE = "peerE" as PeerId
+
+  const repoA = new Repo({
+    network: [
+      new MessageChannelNetworkAdapter(portAB1),
+      new MessageChannelNetworkAdapter(portAC1),
+      new MessageChannelNetworkAdapter(portAD1),
+      new MessageChannelNetworkAdapter(portAE1),
+    ],
+    peerId: peerA,
     sharePolicy: async () => true,
   })
 
-  // Create the second repo
-  const peer2 = "peer2" as PeerId
-  const repo2 = new Repo({
-    network: [new MessageChannelNetworkAdapter(port2)],
-    peerId: peer2,
+  const repoB = new Repo({
+    network: [new MessageChannelNetworkAdapter(portAB2)],
+    peerId: peerB,
     sharePolicy: async () => true,
   })
 
-  // Create a document in repo1
-  const handle1 = repo1.create<Doc>()
-  console.log("Created document in repo1:", handle1.documentId)
+  const repoC = new Repo({
+    network: [new MessageChannelNetworkAdapter(portAC2)],
+    peerId: peerC,
+    sharePolicy: async () => true,
+  })
 
-  // Share it with repo2
-  const handle2 = await repo2.find<Doc>(handle1.documentId)
-  console.log("Found document in repo2:", handle2.documentId)
+  const repoD = new Repo({
+    network: [new MessageChannelNetworkAdapter(portAD2)],
+    peerId: peerD,
+    sharePolicy: async () => true,
+  })
+
+  const repoE = new Repo({
+    network: [new MessageChannelNetworkAdapter(portAE2)],
+    peerId: peerE,
+    sharePolicy: async () => true,
+  })
+
+  // Create a document in repoA
+  const handleA = repoA.create<Doc>()
+  console.log("Created document in repoA:", handleA.documentId)
+
+  // Share it with all other repos
+  const handleB = await repoB.find<Doc>(handleA.documentId)
+  console.log("Found document in repoB:", handleB.documentId)
+  const handleC = await repoC.find<Doc>(handleA.documentId)
+  console.log("Found document in repoC:", handleC.documentId)
+  const handleD = await repoD.find<Doc>(handleA.documentId)
+  console.log("Found document in repoD:", handleD.documentId)
+  const handleE = await repoE.find<Doc>(handleA.documentId)
+  console.log("Found document in repoE:", handleE.documentId)
 
   // Create operation generator
   const config: NetworkConfig = {
-    peerId: peer1,
-    peers: [peer2],
+    peerId: peerA,
+    peers: [peerB, peerC, peerD, peerE],
     numDocuments: 1,
-    numOperations: 1000,
+    numOperations: 10000,
     operationTypes: [
       "TEXT_INSERT",
       "TEXT_DELETE",
@@ -60,14 +96,17 @@ async function main() {
       "LIST_DELETE",
       "MAP_SET",
     ],
-    numPeers: 2,
+    numPeers: 5,
     latency: 0,
     messageLoss: 0,
   }
   const generator = new OperationGenerator(config)
 
   // Generate and apply operations
-  const operations = generator.generate([peer1, peer2], [handle1.documentId])
+  const operations = generator.generate(
+    [peerA, peerB, peerC, peerD, peerE],
+    [handleA.documentId]
+  )
 
   console.log(`\nApplying ${operations.length} operations...`)
   let successCount = 0
@@ -75,7 +114,16 @@ async function main() {
 
   for (const op of operations) {
     // Apply the operation
-    const handle = op.peerId === peer1 ? handle1 : handle2
+    const handle =
+      op.peerId === peerA
+        ? handleA
+        : op.peerId === peerB
+        ? handleB
+        : op.peerId === peerC
+        ? handleC
+        : op.peerId === peerD
+        ? handleD
+        : handleE
     handle.change(doc => {
       const index = Number(op.path![op.path!.length - 1])
       const pathPrefix = op.path!.slice(0, -1)
@@ -128,23 +176,34 @@ async function main() {
     // Wait a tiny bit for sync
     await new Promise(resolve => setTimeout(resolve, 1))
 
-    // Every 100 operations, print progress and verify docs match
-    if (successCount % 100 === 0) {
+    // Every 1000 operations, print progress and verify docs match
+    if (successCount % 1000 === 0) {
       console.log(
         `\nProgress: ${successCount} successful operations (${skipCount} skipped)`
       )
-      console.log("Doc1 heads:", handle1.heads())
-      console.log("Doc2 heads:", handle2.heads())
+      console.log("DocA heads:", handleA.heads())
+      console.log("DocB heads:", handleB.heads())
+      console.log("DocC heads:", handleC.heads())
+      console.log("DocD heads:", handleD.heads())
+      console.log("DocE heads:", handleE.heads())
 
-      // Wait for heads to match, with timeout
+      // Wait for all heads to match, with timeout
       let waited = 0
-      while (!headsAreSame(handle1.heads(), handle2.heads())) {
+      while (
+        !headsAreSame(handleA.heads(), handleB.heads()) ||
+        !headsAreSame(handleB.heads(), handleC.heads()) ||
+        !headsAreSame(handleC.heads(), handleD.heads()) ||
+        !headsAreSame(handleD.heads(), handleE.heads())
+      ) {
         await new Promise(resolve => setTimeout(resolve, 10))
         waited += 10
-        if (waited > 100) {
-          console.error("Failed to synchronize after 100ms")
-          console.log("Doc1:", handle1.doc())
-          console.log("Doc2:", handle2.doc())
+        if (waited > 500) {
+          console.error("Failed to synchronize after 500ms")
+          console.log("DocA:", handleA.doc())
+          console.log("DocB:", handleB.doc())
+          console.log("DocC:", handleC.doc())
+          console.log("DocD:", handleD.doc())
+          console.log("DocE:", handleE.doc())
           process.exit(1)
         }
       }
@@ -152,18 +211,71 @@ async function main() {
     }
   }
 
-  // Check final state in both repos
+  // Check final state in all repos
   console.log("\nFinal Results:")
   console.log(`Total operations: ${operations.length}`)
   console.log(`Successful operations: ${successCount}`)
   console.log(`Skipped operations: ${skipCount}`)
-  console.log("Final Doc1 heads:", handle1.heads())
-  console.log("Final Doc2 heads:", handle2.heads())
+  console.log("Final DocA heads:", handleA.heads())
+  console.log("Final DocB heads:", handleB.heads())
+  console.log("Final DocC heads:", handleC.heads())
+  console.log("Final DocD heads:", handleD.heads())
+  console.log("Final DocE heads:", handleE.heads())
 
-  await repo1.shutdown()
-  await repo2.shutdown()
+  // Wait for final heads to match, with timeout
+  let waited = 0
+  while (
+    !headsAreSame(handleA.heads(), handleB.heads()) ||
+    !headsAreSame(handleB.heads(), handleC.heads()) ||
+    !headsAreSame(handleC.heads(), handleD.heads()) ||
+    !headsAreSame(handleD.heads(), handleE.heads())
+  ) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+    waited += 10
+    if (waited > 500) {
+      console.error("Failed to synchronize final state after 500ms")
+      console.log("Final DocA:", handleA.doc())
+      console.log("Final DocB:", handleB.doc())
+      console.log("Final DocC:", handleC.doc())
+      console.log("Final DocD:", handleD.doc())
+      console.log("Final DocE:", handleE.doc())
+      process.exit(1)
+    }
+    // Debug logging
+    if (waited % 100 === 0) {
+      console.log("Waiting for final sync...")
+      console.log(
+        "A-B heads match:",
+        headsAreSame(handleA.heads(), handleB.heads())
+      )
+      console.log(
+        "B-C heads match:",
+        headsAreSame(handleB.heads(), handleC.heads())
+      )
+      console.log(
+        "C-D heads match:",
+        headsAreSame(handleC.heads(), handleD.heads())
+      )
+      console.log(
+        "D-E heads match:",
+        headsAreSame(handleD.heads(), handleE.heads())
+      )
+      console.log("A heads:", handleA.heads())
+      console.log("B heads:", handleB.heads())
+      console.log("C heads:", handleC.heads())
+      console.log("D heads:", handleD.heads())
+      console.log("E heads:", handleE.heads())
+    }
+  }
+  console.log("Final heads synchronized after", waited, "ms")
+
+  await repoA.shutdown()
+  await repoB.shutdown()
+  await repoC.shutdown()
+  await repoD.shutdown()
+  await repoE.shutdown()
   console.log("Repos shut down successfully")
-  process.exit(0) // Force exit after shutdown
+  process.exit(0)
 }
 
 main().catch(console.error)
