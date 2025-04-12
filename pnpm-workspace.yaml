@@ -1,4 +1,5 @@
 packages:
   - packages/**
   - examples/**
+  - fuzzer/**
   - "!packages/create-vite-app/template/**"

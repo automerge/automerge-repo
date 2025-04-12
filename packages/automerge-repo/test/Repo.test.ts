@@ -34,6 +34,22 @@ import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
 import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
+import { diff } from "deep-object-diff"
+
+function assertDocumentsEqual(actual: any, expected: any, message?: string) {
+  try {
+    assert.deepStrictEqual(actual, expected, message)
+  } catch (e) {
+    if (e instanceof assert.AssertionError) {
+      const differences = diff(actual, expected)
+      console.error(
+        "Document differences:",
+        JSON.stringify(differences, null, 2)
+      )
+    }
+    throw e
+  }
+}
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -736,13 +752,13 @@ describe("Repo", () => {
       })
 
       const handleN = await repos[numberOfPeers - 1].find<TestDoc>(handle0.url)
-      assert.deepStrictEqual(handleN.doc(), { foo: "bar" })
+      assertDocumentsEqual(handleN.doc(), { foo: "bar" })
 
       const handleNBack = repos[numberOfPeers - 1].create({
         foo: "reverse-trip",
       })
       const handle0Back = await repos[0].find<TestDoc>(handleNBack.url)
-      assert.deepStrictEqual(handle0Back.doc(), { foo: "reverse-trip" })
+      assertDocumentsEqual(handle0Back.doc(), { foo: "reverse-trip" })
     })
 
     const setup = async ({
@@ -871,7 +887,7 @@ describe("Repo", () => {
 
       const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
       const bobDoc = bobHandle.doc()
-      assert.deepStrictEqual(bobDoc, { foo: "bar" })
+      assertDocumentsEqual(bobDoc, { foo: "bar" })
       teardown()
     })
 
@@ -880,7 +896,7 @@ describe("Repo", () => {
 
       const handle3 = await charlieRepo.find<TestDoc>(aliceHandle.url)
       const doc3 = handle3.doc()
-      assert.deepStrictEqual(doc3, { foo: "bar" })
+      assertDocumentsEqual(doc3, { foo: "bar" })
       teardown()
     })
 
@@ -902,7 +918,7 @@ describe("Repo", () => {
 
       // Before checking if it syncs, make sure we have it!
       // (This behaviour is mostly test-validation, we are already testing load/save elsewhere.)
-      assert.deepStrictEqual(bobFoundIt.doc(), { foo: "foundOnFakeDisk" })
+      assertDocumentsEqual(bobFoundIt.doc(), { foo: "foundOnFakeDisk" })
 
       await pause(10)
 
@@ -945,7 +961,7 @@ describe("Repo", () => {
       const handle = await charlieRepo.find<TestDoc>(notForCharlie)
       const doc = handle.doc()
 
-      assert.deepStrictEqual(doc, { foo: "baz" })
+      assertDocumentsEqual(doc, { foo: "baz" })
 
       teardown()
     })
@@ -958,7 +974,7 @@ describe("Repo", () => {
       await pause(50)
 
       const doc = handle.doc()
-      assert.deepStrictEqual(doc, { foo: "bap" })
+      assertDocumentsEqual(doc, { foo: "bap" })
 
       teardown()
     })
@@ -996,12 +1012,12 @@ describe("Repo", () => {
       await pause(150)
       const handle = await charlieRepo.find<TestDoc>(url)
       const doc = handle.doc()
-      assert.deepStrictEqual(doc, { foo: "baz" })
+      assertDocumentsEqual(doc, { foo: "baz" })
 
       // an additional find should also return the correct resolved document
       const handle2 = await charlieRepo.find<TestDoc>(url)
       const doc2 = handle2.doc()
-      assert.deepStrictEqual(doc2, { foo: "baz" })
+      assertDocumentsEqual(doc2, { foo: "baz" })
 
       teardown()
     })
@@ -1074,7 +1090,7 @@ describe("Repo", () => {
       const handle3 = await charlieRepo.find<TestDoc>(aliceHandle.url)
       const doc3 = handle3.doc()
 
-      assert.deepStrictEqual(doc3, { foo: "baz" })
+      assertDocumentsEqual(doc3, { foo: "baz" })
 
       teardown()
     })
@@ -1133,7 +1149,7 @@ describe("Repo", () => {
       aliceHandle.broadcast(data)
       const { message } = await eventPromise(bobHandle, "ephemeral-message")
 
-      assert.deepStrictEqual(message, data)
+      assertDocumentsEqual(message, data)
       assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
 
       await charliePromise
@@ -1157,7 +1173,7 @@ describe("Repo", () => {
         bobHandle.documentId,
         await charlieRepo!.storageSubsystem.id()
       )
-      assert.deepStrictEqual(
+      assertDocumentsEqual(
         encodeHeads(storedSyncState.sharedHeads),
         bobHandle.heads()
       )
@@ -1183,7 +1199,7 @@ describe("Repo", () => {
         bobHandle.documentId,
         await charlieRepo!.storageSubsystem.id()
       )
-      assert.deepStrictEqual(storedSyncState, undefined)
+      assertDocumentsEqual(storedSyncState, undefined)
 
       teardown()
     })
@@ -1277,13 +1293,13 @@ describe("Repo", () => {
       // pause to let the sync happen
       await pause(100)
 
-      assert.deepStrictEqual(charlieHandle.heads(), handle.heads())
+      assertDocumentsEqual(charlieHandle.heads(), handle.heads())
 
       const nextRemoteHeads = await nextRemoteHeadsPromise
-      assert.deepStrictEqual(nextRemoteHeads.storageId, charliedStorageId)
-      assert.deepStrictEqual(nextRemoteHeads.heads, charlieHandle.heads())
+      assertDocumentsEqual(nextRemoteHeads.storageId, charliedStorageId)
+      assertDocumentsEqual(nextRemoteHeads.heads, charlieHandle.heads())
 
-      assert.deepStrictEqual(
+      assertDocumentsEqual(
         handle.getRemoteHeads(charliedStorageId),
         charlieHandle.heads()
       )
@@ -1386,8 +1402,8 @@ describe("Repo", () => {
 
       const [bob, charlie] = await Promise.all([bobGotIt, charlieGotIt])
 
-      assert.deepStrictEqual(bob.message, message)
-      assert.deepStrictEqual(charlie.message, message)
+      assertDocumentsEqual(bob.message, message)
+      assertDocumentsEqual(charlie.message, message)
 
       teardown()
     })
@@ -1405,7 +1421,7 @@ describe("Repo", () => {
       await pause(50)
 
       const charlieHandle = await charlieRepo.find(handle2.url)
-      assert.deepStrictEqual(charlieHandle.doc(), { foo: "bar" })
+      assertDocumentsEqual(charlieHandle.doc(), { foo: "bar" })
 
       teardown()
     })
@@ -1423,7 +1439,7 @@ describe("Repo", () => {
       await pause(50)
 
       const charlieHandle = await charlieRepo.find(handle2.url)
-      assert.deepStrictEqual(charlieHandle.doc(), { foo: "bar" })
+      assertDocumentsEqual(charlieHandle.doc(), { foo: "bar" })
 
       // now make a change to doc2 on bobs side and merge it into doc1
       handle2.change(d => {
@@ -1434,7 +1450,7 @@ describe("Repo", () => {
       // wait for the network to do it's thang
       await pause(350)
 
-      assert.deepStrictEqual(charlieHandle.doc(), { foo: "baz" })
+      assertDocumentsEqual(charlieHandle.doc(), { foo: "baz" })
 
       teardown()
     })

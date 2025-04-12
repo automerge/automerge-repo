@@ -21,7 +21,8 @@
   "devDependencies": {
     "http-server": "^14.1.0",
     "ts-node": "^10.9.2",
-    "vite": "^5.0.8"
+    "vite": "^5.0.8",
+    "deep-object-diff": "^1.1.9"
   },
   "dependencies": {
     "@automerge/automerge": "^2.2.8",
