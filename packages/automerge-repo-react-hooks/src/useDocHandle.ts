@@ -51,8 +51,7 @@ export function useDocHandle<T>(
 
   let wrapper = id ? wrapperCache.get(id) : undefined
   if (!wrapper && id) {
-    // TODO: WHY WHY WHY
-    // controllerRef.current?.abort()
+    controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
     const promise = repo.find<T>(id, { signal: controllerRef.current.signal })

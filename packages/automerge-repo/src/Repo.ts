@@ -39,7 +39,7 @@ import type {
   DocumentId,
   PeerId,
 } from "./types.js"
-import { abortable, AbortOptions } from "./helpers/abortable.js"
+import { AbortOptions } from "./helpers/abortable.js"
 import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
 
 function randomPeerId() {
@@ -419,8 +419,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     options: AbortOptions = {}
   ): FindProgressWithMethods<T> | FindProgress<T> {
     const { signal } = options
-    const abortPromise = abortable(signal)
-
     const { documentId, heads } = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
       : { documentId: interpretAsDocumentId(id), heads: undefined }
@@ -461,28 +459,24 @@ export class Repo extends EventEmitter<RepoEvents> {
         const handle = that.#getHandle<T>({ documentId })
         yield { state: "loading", progress: 25, handle }
 
-        const loadingPromise = await (that.storageSubsystem
-          ? that.storageSubsystem.loadDoc(handle.documentId)
-          : Promise.resolve(null))
-
-        const loadedDoc = await Promise.race([loadingPromise, abortPromise])
+        const loadingPromise =
+          that.storageSubsystem?.loadDoc(handle.documentId) ??
+          Promise.resolve(null)
+        const loadedDoc = await abortable(loadingPromise, signal)
 
         if (loadedDoc) {
           handle.update(() => loadedDoc as Automerge.Doc<T>)
           handle.doneLoading()
           yield { state: "loading", progress: 50, handle }
         } else {
-          await Promise.race([that.networkSubsystem.whenReady(), abortPromise])
+          await abortable(that.networkSubsystem.whenReady(), signal)
           handle.request()
           yield { state: "loading", progress: 75, handle }
         }
 
         that.#registerHandleWithSubsystems(handle)
 
-        await Promise.race([
-          handle.whenReady([READY, UNAVAILABLE]),
-          abortPromise,
-        ])
+        await abortable(handle.whenReady([READY, UNAVAILABLE]), signal)
 
         if (handle.state === UNAVAILABLE) {
           yield { state: "unavailable", handle }
@@ -591,7 +585,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const documentId = interpretAsDocumentId(id)
     const { allowableStates, signal } = options
 
-    return Promise.race([
+    return abortable(
       (async () => {
         const handle = await this.#loadDocument<T>(documentId)
         if (!allowableStates) {
@@ -602,8 +596,8 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
         return handle
       })(),
-      abortable(signal),
-    ])
+      signal
+    )
   }
 
   delete(
@@ -734,6 +728,33 @@ export class Repo extends EventEmitter<RepoEvents> {
   metrics(): { documents: { [key: string]: any } } {
     return { documents: this.synchronizer.metrics() }
   }
+}
+
+export function abortable<T>(
+  p: Promise<T>,
+  signal: AbortSignal | undefined
+): Promise<T> {
+  let settled = false
+  return new Promise((resolve, reject) => {
+    signal?.addEventListener(
+      "abort",
+      () => {
+        if (!settled) {
+          reject(new DOMException("Operation aborted", "AbortError"))
+        }
+      },
+      { once: true }
+    )
+    p.then(result => {
+      resolve(result)
+    })
+      .catch(error => {
+        reject(error)
+      })
+      .finally(() => {
+        settled = true
+      })
+  })
 }
 
 export interface RepoConfig {
