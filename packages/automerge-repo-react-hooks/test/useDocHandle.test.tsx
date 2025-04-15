@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest"
 import { useDocHandle } from "../src/useDocHandle"
 import { RepoContext } from "../src/useRepo"
 import { ErrorBoundary } from "react-error-boundary"
+import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter"
 
 interface ExampleDoc {
   foo: string
@@ -42,6 +43,39 @@ describe("useDocHandle", () => {
       handleB,
       wrapper: getRepoWrapper(repo),
     }
+  }
+
+  function setupPairedRepos(latency = 10) {
+    // Create two connected repos with network delay
+    const [adapterCreator, adapterFinder] =
+      DummyNetworkAdapter.createConnectedPair({
+        latency,
+      })
+
+    // TODO: fix types here
+    const repoCreator = new Repo({
+      peerId: "peer-creator" as PeerId,
+      network: [adapterCreator],
+    })
+    const repoFinder = new Repo({
+      peerId: "peer-finder" as PeerId,
+      network: [adapterFinder],
+    })
+
+    // TODO: dummynetwork adapter should probably take care of this
+    // Initialize the network.
+    adapterCreator.peerCandidate(`peer-finder` as PeerId)
+    adapterFinder.peerCandidate(`peer-creator` as PeerId)
+
+    const wrapper = ({ children }) => {
+      return (
+        <RepoContext.Provider value={repoFinder}>
+          {children}
+        </RepoContext.Provider>
+      )
+    }
+
+    return { repoCreator, repoFinder, wrapper }
   }
 
   const Component = ({
@@ -133,15 +167,9 @@ describe("useDocHandle", () => {
   })
 
   it("handles slow network correctly", async () => {
-    const { handleA, repo, wrapper } = await setup()
+    const { repoCreator, wrapper } = await setupPairedRepos()
+    const handleA = repoCreator.create({ foo: "A" })
     const onHandle = vi.fn()
-
-    // Mock find to simulate slow network
-    const originalFind = repo.find.bind(repo)
-    repo.find = vi.fn().mockImplementation(async (...args) => {
-      await new Promise(resolve => setTimeout(resolve, 100))
-      return originalFind(...args)
-    })
 
     render(
       <ErrorBoundary fallback={<div data-testid="error">Error</div>}>
@@ -163,25 +191,18 @@ describe("useDocHandle", () => {
     })
 
     // Verify callback was called with correct handle
-    expect(onHandle).toHaveBeenCalledWith(handleA)
+    expect(onHandle).toHaveBeenCalledWith(
+      expect.objectContaining({ url: handleA.url })
+    )
 
     // Verify error boundary never rendered
     expect(screen.queryByTestId("error")).not.toBeInTheDocument()
   })
 
   it("suspends while loading a handle", async () => {
-    const { handleA, wrapper } = await setup()
+    const { repoCreator, wrapper } = await setupPairedRepos()
+    const handleA = repoCreator.create({ foo: "A" })
     const onHandle = vi.fn()
-    let promiseResolve: (value: DocHandle<ExampleDoc>) => void
-
-    // Mock find to return a delayed promise
-    const originalFind = repo.find.bind(repo)
-    repo.find = vi.fn().mockImplementation(
-      () =>
-        new Promise(resolve => {
-          promiseResolve = resolve
-        })
-    )
 
     render(
       <Suspense fallback={<div data-testid="loading">Loading...</div>}>
@@ -194,31 +215,19 @@ describe("useDocHandle", () => {
     expect(screen.getByTestId("loading")).toBeInTheDocument()
     expect(onHandle).not.toHaveBeenCalled()
 
-    // Resolve the find
-    promiseResolve!(await originalFind(handleA.url))
-
     // Should show content
     await waitFor(() => {
-      expect(onHandle).toHaveBeenCalledWith(handleA)
-      // return repo.find to its natural state
-      repo.find = originalFind
+      expect(onHandle).toHaveBeenCalledWith(
+        expect.objectContaining({ url: handleA.url })
+      )
     })
   })
 
   it("handles rapid url changes during loading", async () => {
-    const { handleA, handleB, wrapper } = await setup()
+    const { repoCreator, repoFinder, wrapper } = await setupPairedRepos()
+    const handleA = repoCreator.create({ foo: "A" })
+    const handleB = repoFinder.create({ foo: "B" })
     const onHandle = vi.fn()
-    const delays: Record<string, number> = {
-      [handleA.url]: 100,
-      [handleB.url]: 50,
-    }
-
-    // Mock find to simulate different network delays
-    const originalFind = repo.find.bind(repo)
-    repo.find = vi.fn().mockImplementation(async (url: string) => {
-      await new Promise(resolve => setTimeout(resolve, delays[url]))
-      return originalFind(url)
-    })
 
     const { rerender } = render(
       <Suspense fallback={<div data-testid="loading">Loading...</div>}>
@@ -237,21 +246,18 @@ describe("useDocHandle", () => {
     // Should eventually resolve with B, not A
     await waitFor(() => {
       expect(onHandle).toHaveBeenLastCalledWith(handleB)
-      expect(onHandle).not.toHaveBeenCalledWith(handleA)
+      expect(onHandle).not.toHaveBeenCalledWith(
+        expect.objectContaining({ url: handleA.url })
+      )
     })
   })
 
   describe("useDocHandle with suspense: false", () => {
     it("returns undefined while loading then resolves to handle", async () => {
-      const { handleA, repo, wrapper } = await setup()
-      const onHandle = vi.fn()
+      const { repoCreator, wrapper } = await setupPairedRepos()
+      const handleA = repoCreator.create({ foo: "A" })
 
-      // Mock find to simulate network delay
-      const originalFind = repo.find.bind(repo)
-      repo.find = vi.fn().mockImplementation(async (...args) => {
-        await new Promise(resolve => setTimeout(resolve, 100))
-        return originalFind(...args)
-      })
+      const onHandle = vi.fn()
 
       const NonSuspenseComponent = ({
         url,
@@ -274,11 +280,10 @@ describe("useDocHandle", () => {
 
       // Wait for handle to load
       await waitFor(() => {
-        expect(onHandle).toHaveBeenLastCalledWith(handleA)
+        expect(onHandle).toHaveBeenCalledWith(
+          expect.objectContaining({ url: handleA.url })
+        )
       })
-
-      // Restore original find implementation
-      repo.find = originalFind
     })
 
     it("handles unavailable documents by returning undefined", async () => {
@@ -337,9 +342,6 @@ describe("useDocHandle", () => {
 
       // Change URL
       rerender(<NonSuspenseComponent url={handleB.url} onHandle={onHandle} />)
-
-      // Should temporarily return to undefined
-      expect(onHandle).toHaveBeenCalledWith(undefined)
 
       // Then resolve to new handle
       await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleB))

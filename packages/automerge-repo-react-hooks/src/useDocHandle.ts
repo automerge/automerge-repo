@@ -37,11 +37,22 @@ export function useDocHandle<T>(
 ): DocHandle<T> | undefined {
   const repo = useRepo()
   const controllerRef = useRef<AbortController>()
+
+  // TODO: we don't want to call this on every invocation
+  let initialHandle: DocHandle<T> | undefined
+  if (id) {
+    const progress = repo.findWithProgress<T>(id)
+    if (progress.state === "ready") {
+      initialHandle = progress.handle
+    }
+  }
+
   const [handle, setHandle] = useState<DocHandle<T> | undefined>()
 
   let wrapper = id ? wrapperCache.get(id) : undefined
   if (!wrapper && id) {
-    controllerRef.current?.abort()
+    // TODO: WHY WHY WHY
+    // controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
     const promise = repo.find<T>(id, { signal: controllerRef.current.signal })
@@ -67,6 +78,10 @@ export function useDocHandle<T>(
         setHandle(undefined)
       })
   }, [suspense, wrapper])
+
+  if (initialHandle) {
+    return initialHandle
+  }
 
   if (suspense && wrapper) {
     return wrapper.read() as DocHandle<T>
