@@ -1,55 +1,56 @@
 /**
- * Creates a promise that rejects when the signal is aborted.
+ * Wraps a Promise and causes it to reject when the signal is aborted.
  *
  * @remarks
- * This utility creates a promise that rejects when the provided AbortSignal is aborted.
- * It's designed to be used with Promise.race() to make operations abortable.
+ * This utility wraps a Promise and rejects when the provided AbortSignal is aborted.
+ * It's designed to make Promise awaits abortable.
  *
  * @example
  * ```typescript
  * const controller = new AbortController();
  *
  * try {
- *   const result = await Promise.race([
- *     fetch('https://api.example.com/data'),
- *     abortable(controller.signal)
- *   ]);
+ *   const result = await abortable(fetch('https://api.example.com/data'), controller.signal);
+ *   // Meanwhile, to abort in concurrent code before the above line returns: controller.abort();
  * } catch (err) {
  *   if (err.name === 'AbortError') {
  *     console.log('The operation was aborted');
  *   }
  * }
  *
- * // Later, to abort:
- * controller.abort();
  * ```
  *
+ * @param p - A Promise to wrap
  * @param signal - An AbortSignal that can be used to abort the operation
- * @param cleanup - Optional cleanup function that will be called if aborted
- * @returns A promise that rejects with AbortError when the signal is aborted
- * @throws {DOMException} With name "AbortError" when aborted
+ * @returns A wrapper Promise that rejects with AbortError if the signal is aborted
+ * before the promise p settles, and settles as p settles otherwise
+ * @throws {DOMException} With name "AbortError" if aborted before p settles
  */
-export function abortable(
-  signal?: AbortSignal,
-  cleanup?: () => void
-): Promise<never> {
-  if (signal?.aborted) {
-    throw new DOMException("Operation aborted", "AbortError")
-  }
 
-  if (!signal) {
-    return new Promise(() => {}) // Never resolves
-  }
-
-  return new Promise((_, reject) => {
-    signal.addEventListener(
+export function abortable<T>(
+  p: Promise<T>,
+  signal: AbortSignal | undefined
+): Promise<T> {
+  let settled = false
+  return new Promise((resolve, reject) => {
+    signal?.addEventListener(
       "abort",
       () => {
-        cleanup?.()
-        reject(new DOMException("Operation aborted", "AbortError"))
+        if (!settled) {
+          reject(new DOMException("Operation aborted", "AbortError"))
+        }
       },
       { once: true }
     )
+    p.then(result => {
+      resolve(result)
+    })
+      .catch(error => {
+        reject(error)
+      })
+      .finally(() => {
+        settled = true
+      })
   })
 }
 

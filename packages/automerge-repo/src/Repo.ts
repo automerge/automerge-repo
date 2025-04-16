@@ -39,7 +39,7 @@ import type {
   DocumentId,
   PeerId,
 } from "./types.js"
-import { AbortOptions } from "./helpers/abortable.js"
+import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
 
 function randomPeerId() {
@@ -728,33 +728,6 @@ export class Repo extends EventEmitter<RepoEvents> {
   metrics(): { documents: { [key: string]: any } } {
     return { documents: this.synchronizer.metrics() }
   }
-}
-
-export function abortable<T>(
-  p: Promise<T>,
-  signal: AbortSignal | undefined
-): Promise<T> {
-  let settled = false
-  return new Promise((resolve, reject) => {
-    signal?.addEventListener(
-      "abort",
-      () => {
-        if (!settled) {
-          reject(new DOMException("Operation aborted", "AbortError"))
-        }
-      },
-      { once: true }
-    )
-    p.then(result => {
-      resolve(result)
-    })
-      .catch(error => {
-        reject(error)
-      })
-      .finally(() => {
-        settled = true
-      })
-  })
 }
 
 export interface RepoConfig {
