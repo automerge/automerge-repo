@@ -37,17 +37,16 @@ export function useDocHandle<T>(
 ): DocHandle<T> | undefined {
   const repo = useRepo()
   const controllerRef = useRef<AbortController>()
+  const [handle, setHandle] = useState<DocHandle<T> | undefined>()
 
-  // TODO: we don't want to call this on every invocation
-  let initialHandle: DocHandle<T> | undefined
-  if (id) {
+  let currentHandle: DocHandle<T> | undefined = handle
+  if (id && !currentHandle) {
+    // if we haven't saved a handle yet, check if one is immediately available
     const progress = repo.findWithProgress<T>(id)
     if (progress.state === "ready") {
-      initialHandle = progress.handle
+      currentHandle = progress.handle
     }
   }
-
-  const [handle, setHandle] = useState<DocHandle<T> | undefined>()
 
   let wrapper = id ? wrapperCache.get(id) : undefined
   if (!wrapper && id) {
@@ -78,13 +77,9 @@ export function useDocHandle<T>(
       })
   }, [suspense, wrapper])
 
-  if (initialHandle) {
-    return initialHandle
+  if (currentHandle || !suspense || !wrapper) {
+    return currentHandle
   }
 
-  if (suspense && wrapper) {
-    return wrapper.read() as DocHandle<T>
-  } else {
-    return handle
-  }
+  return wrapper.read() as DocHandle<T>
 }
