@@ -9,13 +9,12 @@ export class DummyNetworkAdapter extends NetworkAdapter {
   #sendMessage: SendMessageFn
   #ready = false
   #readyResolver: ((value: void) => void) | undefined
-  #readyPromise = new Promise(resolve => {
+  #readyPromise = new Promise<void>(resolve => {
     this.#readyResolver = resolve
   })
   isReady() {
     return this.#ready
   }
-  // @ts-expect-error ah whatever
   whenReady() {
     return this.#readyPromise
   }

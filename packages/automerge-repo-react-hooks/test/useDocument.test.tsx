@@ -57,7 +57,6 @@ describe("useDocument", () => {
         latency,
       })
 
-    // TODO: fix types here
     const repoCreator = new Repo({
       peerId: "peer-creator" as PeerId,
       network: [adapterCreator],
