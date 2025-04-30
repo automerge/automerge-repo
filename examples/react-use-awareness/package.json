@@ -1,6 +1,6 @@
 {
   "name": "automerge-use-awareness-example-project",
-  "version": "2.0.0-alpha.27",
+  "version": "2.0.0-beta.1",
   "private": true,
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-use-awareness",
   "type": "module",
