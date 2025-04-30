@@ -1,44 +1,52 @@
 import { DocHandle } from "@automerge/automerge-repo/slim"
 
-export type PeerId = string & { __peerId: true }
-export type DocumentId = string & { __documentId: true }
-
-export interface NetworkConfig {
-  peerId: PeerId
-  peers: PeerId[]
-  numDocuments: number
-  numPeers: number
-  latency: number
-  messageLoss: number
-  numOperations: number
-  operationTypes: OperationType[]
+export type Doc = {
+  text?: string
+  list?: any[]
+  map?: Record<string, any>
 }
 
 export type OperationType =
   | "TEXT_INSERT"
   | "TEXT_DELETE"
-  | "MAP_SET"
   | "LIST_INSERT"
   | "LIST_DELETE"
+  | "MAP_SET"
 
-export interface Operation {
+export type Operation = {
   type: OperationType
   peerId: PeerId
   documentId: DocumentId
-  value?: any
   path?: string[]
+  value?: any
 }
 
-export interface TestCase {
-  name: string
-  config: NetworkConfig
-  operations: Operation[]
+export type PeerId = string
+export type DocumentId = string
+
+export type NetworkConfig = {
+  peerId: PeerId
+  peers: PeerId[]
+  numDocuments: number
+  numOperations: number
+  operationTypes: OperationType[]
+  numPeers: number
+  latency: number
+  messageLoss: number
 }
 
 export interface FuzzerResult {
   success: boolean
   error?: string
-  testCase: TestCase
+  operations: number
+  time: number
+}
+
+export interface TestCase {
+  name: string
+  description: string
+  setup: () => Promise<void>
+  verify: (handles: DocHandle<any>[]) => Promise<FuzzerResult>
 }
 
 export interface NetworkSimulator {

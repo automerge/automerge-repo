@@ -12,7 +12,7 @@
     "lint": "eslint src/**/*.ts"
   },
   "dependencies": {
-    "@automerge/automerge": "2.2.8",
+    "@automerge/automerge": "*",
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-network-messagechannel": "workspace:*",
     "debug": "^4.3.4",
@@ -21,6 +21,7 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "0x": "^5.8.0",
     "@types/jest": "^29.5.0",
     "@types/node": "^18.15.11",
     "@types/uuid": "^9.0.1",

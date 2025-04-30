@@ -4,6 +4,7 @@ import {
   PeerId,
   DocumentId,
   NetworkConfig,
+  Doc,
 } from "./types.js"
 
 // Define a union type for all possible value types
@@ -91,5 +92,106 @@ export class OperationGenerator {
       default:
         throw new Error(`Unknown type: ${type}`)
     }
+  }
+}
+
+// Generate a single random operation
+export function generateRandomOperation(): Operation {
+  const operationTypes: OperationType[] = [
+    "TEXT_INSERT",
+    "TEXT_DELETE",
+    "LIST_INSERT",
+    "LIST_DELETE",
+    "MAP_SET",
+  ]
+  const type = operationTypes[Math.floor(Math.random() * operationTypes.length)]
+  const operation: Operation = {
+    type,
+    peerId: "test-peer",
+    documentId: "test-doc",
+  }
+
+  // Add path and value based on operation type
+  switch (type) {
+    case "TEXT_INSERT":
+      operation.path = ["text"]
+      operation.path.push("0") // Always insert at the start for simplicity
+      operation.value = generateRandomValue()
+      break
+    case "TEXT_DELETE":
+      operation.path = ["text"]
+      operation.path.push("0") // Always delete from the start for simplicity
+      break
+    case "LIST_INSERT":
+      operation.path = ["list"]
+      operation.value = generateRandomValue()
+      operation.path.push("0") // Always insert at the start for simplicity
+      break
+    case "LIST_DELETE":
+      operation.path = ["list"]
+      operation.path.push("0") // Always delete from the start for simplicity
+      break
+    case "MAP_SET":
+      operation.path = ["map"]
+      operation.value = generateRandomValue()
+      break
+  }
+
+  return operation
+}
+
+// Apply a single operation to a document
+export function applyOperation(doc: Doc, operation: Operation): void {
+  const index = Number(operation.path![operation.path!.length - 1])
+
+  switch (operation.type) {
+    case "TEXT_INSERT":
+      if (!doc.text) doc.text = ""
+      if (index <= doc.text.length) {
+        doc.text =
+          doc.text.slice(0, index) + operation.value + doc.text.slice(index)
+      }
+      break
+    case "TEXT_DELETE":
+      if (!doc.text) doc.text = ""
+      if (index < doc.text.length) {
+        doc.text = doc.text.slice(0, index) + doc.text.slice(index + 1)
+      }
+      break
+    case "LIST_INSERT":
+      if (!doc.list) doc.list = []
+      if (index <= doc.list.length) {
+        doc.list.splice(index, 0, operation.value)
+      }
+      break
+    case "LIST_DELETE":
+      if (!doc.list) doc.list = []
+      if (index < doc.list.length) {
+        doc.list.splice(index, 1)
+      }
+      break
+    case "MAP_SET":
+      if (!doc.map) doc.map = {}
+      doc.map[operation.path![operation.path!.length - 1]] = operation.value
+      break
+  }
+}
+
+// Helper function to generate random values
+function generateRandomValue(): PrimitiveValueType {
+  const types = ["string", "number", "boolean", "null"]
+  const type = types[Math.floor(Math.random() * types.length)]
+
+  switch (type) {
+    case "string":
+      return Math.random().toString(36).substring(7)
+    case "number":
+      return Math.floor(Math.random() * 100)
+    case "boolean":
+      return Math.random() > 0.5
+    case "null":
+      return null
+    default:
+      throw new Error(`Unknown type: ${type}`)
   }
 }
