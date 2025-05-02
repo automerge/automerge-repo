@@ -40,7 +40,19 @@ import type {
   PeerId,
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
-import { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
+import { FindProgress } from "./FindProgress.js"
+
+export type FindProgressWithMethods<T> = FindProgress<T> & {
+  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+  peek: () => FindProgress<T>
+  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
+}
+
+export type ProgressSignal<T> = {
+  peek: () => FindProgress<T>
+  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
+  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+}
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -81,6 +93,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
+  #progressCache: Record<DocumentId, FindProgress<any>> = {}
 
   constructor({
     storage,
@@ -423,7 +436,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       ? parseAutomergeUrl(id)
       : { documentId: interpretAsDocumentId(id), heads: undefined }
 
-    // Check cache first - return plain FindStep for terminal states
+    // Check handle cache first - return plain FindStep for terminal states
     if (this.#handleCache[documentId]) {
       const handle = this.#handleCache[documentId]
       if (handle.state === UNAVAILABLE) {
@@ -435,90 +448,146 @@ export class Repo extends EventEmitter<RepoEvents> {
         return result
       }
       if (handle.state === DELETED) {
-        return {
-          state: "failed",
+        const result = {
+          state: "failed" as const,
           error: new Error(`Document ${id} was deleted`),
           handle,
         }
+        return result
       }
       if (handle.state === READY) {
-        // If we already have the handle, return it immediately (or a view of the handle if heads are specified)
-        return {
-          state: "ready",
-          // TODO: this handle needs to be cached (or at least avoid running clone)
+        const result = {
+          state: "ready" as const,
           handle: heads ? handle.view(heads) : handle,
         }
+        return result
       }
     }
 
-    // the generator takes over `this`, so we need an alias to the repo this
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const that = this
-    async function* progressGenerator(): AsyncGenerator<FindProgress<T>> {
-      try {
-        const handle = that.#getHandle<T>({ documentId })
-        yield { state: "loading", progress: 25, handle }
-
-        const loadingPromise =
-          that.storageSubsystem?.loadDoc(handle.documentId) ??
-          Promise.resolve(null)
-        const loadedDoc = await abortable(loadingPromise, signal)
-
-        if (loadedDoc) {
-          handle.update(() => loadedDoc as Automerge.Doc<T>)
-          handle.doneLoading()
-          yield { state: "loading", progress: 50, handle }
-        } else {
-          await abortable(that.networkSubsystem.whenReady(), signal)
-          handle.request()
-          yield { state: "loading", progress: 75, handle }
-        }
-
-        that.#registerHandleWithSubsystems(handle)
-
-        await abortable(handle.whenReady([READY, UNAVAILABLE]), signal)
-
-        if (handle.state === UNAVAILABLE) {
-          yield { state: "unavailable", handle }
-        }
-        if (handle.state === DELETED) {
-          throw new Error(`Document ${id} was deleted`)
-        }
-
-        yield { state: "ready", handle }
-      } catch (error) {
-        yield {
-          state: "failed",
-          error: error instanceof Error ? error : new Error(String(error)),
-          handle,
-        }
+    // Check progress cache for any existing signal
+    const cachedProgress = this.#progressCache[documentId]
+    if (cachedProgress) {
+      const handle = this.#handleCache[documentId]
+      // Return cached progress if we have a handle and it's either in a terminal state or loading
+      if (
+        handle &&
+        (handle.state === READY ||
+          handle.state === UNAVAILABLE ||
+          handle.state === DELETED ||
+          handle.state === "loading")
+      ) {
+        return cachedProgress as FindProgressWithMethods<T>
       }
-    }
-
-    const iterator = progressGenerator()
-
-    const next = async () => {
-      const result = await iterator.next()
-      return { ...result.value, next }
-    }
-
-    const untilReady = async (allowableStates: string[]) => {
-      for await (const state of iterator) {
-        if (allowableStates.includes(state.handle.state)) {
-          return state.handle
-        }
-        if (state.state === "unavailable") {
-          throw new Error(`Document ${id} is unavailable`)
-        }
-        if (state.state === "ready") return state.handle
-        if (state.state === "failed") throw state.error
-      }
-      throw new Error("Iterator completed without reaching ready state")
     }
 
     const handle = this.#getHandle<T>({ documentId })
-    const initial = { state: "loading" as const, progress: 0, handle }
-    return { ...initial, next, untilReady }
+    const initial = {
+      state: "loading" as const,
+      progress: 0,
+      handle,
+    }
+
+    // Create a new progress signal
+    const progressSignal = {
+      subscribers: new Set<(progress: FindProgress<T>) => void>(),
+      currentProgress: undefined as FindProgress<T> | undefined,
+      notify: (progress: FindProgress<T>) => {
+        progressSignal.currentProgress = progress
+        progressSignal.subscribers.forEach(callback => callback(progress))
+        // Cache all states, not just terminal ones
+        this.#progressCache[documentId] = progress
+      },
+      peek: () => progressSignal.currentProgress || initial,
+      subscribe: (callback: (progress: FindProgress<T>) => void) => {
+        progressSignal.subscribers.add(callback)
+        return () => progressSignal.subscribers.delete(callback)
+      },
+    }
+
+    progressSignal.notify(initial)
+
+    // Start the loading process
+    void this.#loadDocumentWithProgress(
+      id,
+      documentId,
+      handle,
+      progressSignal,
+      signal ? abortable(new Promise(() => {}), signal) : new Promise(() => {})
+    )
+
+    const result = {
+      ...initial,
+      peek: progressSignal.peek,
+      subscribe: progressSignal.subscribe,
+    }
+    this.#progressCache[documentId] = result
+    return result
+  }
+
+  async #loadDocumentWithProgress<T>(
+    id: AnyDocumentId,
+    documentId: DocumentId,
+    handle: DocHandle<T>,
+    progressSignal: {
+      notify: (progress: FindProgress<T>) => void
+    },
+    abortPromise: Promise<never>
+  ) {
+    try {
+      progressSignal.notify({
+        state: "loading" as const,
+        progress: 25,
+        handle,
+      })
+
+      const loadingPromise = await (this.storageSubsystem
+        ? this.storageSubsystem.loadDoc(handle.documentId)
+        : Promise.resolve(null))
+
+      const loadedDoc = await Promise.race([loadingPromise, abortPromise])
+
+      if (loadedDoc) {
+        handle.update(() => loadedDoc as Automerge.Doc<T>)
+        handle.doneLoading()
+        progressSignal.notify({
+          state: "loading" as const,
+          progress: 50,
+          handle,
+        })
+      } else {
+        await Promise.race([this.networkSubsystem.whenReady(), abortPromise])
+        handle.request()
+        progressSignal.notify({
+          state: "loading" as const,
+          progress: 75,
+          handle,
+        })
+      }
+
+      this.#registerHandleWithSubsystems(handle)
+
+      await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
+
+      if (handle.state === UNAVAILABLE) {
+        const unavailableProgress = {
+          state: "unavailable" as const,
+          handle,
+        }
+        progressSignal.notify(unavailableProgress)
+        return
+      }
+      if (handle.state === DELETED) {
+        throw new Error(`Document ${id} was deleted`)
+      }
+
+      progressSignal.notify({ state: "ready" as const, handle })
+    } catch (error) {
+      progressSignal.notify({
+        state: "failed" as const,
+        error: error instanceof Error ? error : new Error(String(error)),
+        handle: this.#getHandle<T>({ documentId }),
+      })
+    }
   }
 
   async find<T>(
@@ -528,15 +597,28 @@ export class Repo extends EventEmitter<RepoEvents> {
     const { allowableStates = ["ready"], signal } = options
     const progress = this.findWithProgress<T>(id, { signal })
 
-    /*if (allowableStates.includes(progress.state)) {
-      console.log("returning early")
-      return progress.handle
-    }*/
-
-    if ("untilReady" in progress) {
+    if ("subscribe" in progress) {
       this.#registerHandleWithSubsystems(progress.handle)
-      return progress.untilReady(allowableStates)
+      return new Promise((resolve, reject) => {
+        const unsubscribe = progress.subscribe(state => {
+          if (allowableStates.includes(state.handle.state)) {
+            unsubscribe()
+            resolve(state.handle)
+          } else if (state.state === "unavailable") {
+            unsubscribe()
+            reject(new Error(`Document ${id} is unavailable`))
+          } else if (state.state === "failed") {
+            unsubscribe()
+            reject(state.error)
+          }
+        })
+      })
     } else {
+      if (progress.handle.state === READY) {
+        return progress.handle
+      }
+      // If the handle isn't ready, wait for it and then return it
+      await progress.handle.whenReady([READY, UNAVAILABLE])
       return progress.handle
     }
   }
@@ -610,6 +692,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.delete()
 
     delete this.#handleCache[documentId]
+    delete this.#progressCache[documentId]
     this.emit("delete-document", { documentId })
   }
 

@@ -33,6 +33,7 @@ import {
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
+import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -428,6 +429,40 @@ describe("Repo", () => {
         1,
         `found ${storedSnapshotCount} snapshots in storage instead of 1`
       )
+    })
+
+    it("should not call loadDoc multiple times when find() is called in quick succession", async () => {
+      const { repo, storageAdapter } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      await repo.flush()
+
+      // Create a new repo instance that will use the same storage
+      const repo2 = new Repo({
+        storage: storageAdapter,
+      })
+
+      // Track how many times loadDoc is called
+      let loadDocCallCount = 0
+      const originalLoadDoc = repo2.storageSubsystem!.loadDoc.bind(
+        repo2.storageSubsystem
+      )
+      repo2.storageSubsystem!.loadDoc = async documentId => {
+        loadDocCallCount++
+        return originalLoadDoc(documentId)
+      }
+
+      // Call find() twice in quick succession
+      const find1 = repo2.find(handle.url)
+      const find2 = repo2.find(handle.url)
+
+      // Wait for both calls to complete
+      await Promise.all([find1, find2])
+
+      // Verify loadDoc was only called once
+      assert.equal(loadDocCallCount, 1, "loadDoc should only be called once")
     })
 
     it("can import an existing document", async () => {
