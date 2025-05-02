@@ -595,6 +595,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
     const { allowableStates = ["ready"], signal } = options
+    
+    // Check if already aborted
+    if (signal?.aborted) {
+      throw new Error("Operation aborted")
+    }
+
     const progress = this.findWithProgress<T>(id, { signal })
 
     if ("subscribe" in progress) {
