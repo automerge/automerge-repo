@@ -175,7 +175,7 @@ describe("RepoHeadsSubscriptions", () => {
       event: "change-remote-subs",
     })
 
-    // unsubsscribe from storage B
+    // unsubscribe from storage B
     remoteHeadsSubscriptions.unsubscribeFromRemotes([storageB])
 
     // should forward unsubscribe to generous peer
@@ -223,8 +223,12 @@ describe("RepoHeadsSubscriptions", () => {
       emitter: remoteHeadsSubscriptions,
       event: "notify-remote-heads",
     })
+    assert(!remoteHeadsSubscriptions.isDocSubscribedTo(docA))
+    assert(!remoteHeadsSubscriptions.isDocSubscribedTo(docC))
     remoteHeadsSubscriptions.subscribePeerToDoc(peerC, docA)
     remoteHeadsSubscriptions.subscribePeerToDoc(peerC, docC)
+    assert(remoteHeadsSubscriptions.isDocSubscribedTo(docA))
+    assert(remoteHeadsSubscriptions.isDocSubscribedTo(docC))
 
     // change message for docA in storageB
     remoteHeadsSubscriptions.handleRemoteHeads(docAHeadsChangedForStorageB)
@@ -248,7 +252,7 @@ describe("RepoHeadsSubscriptions", () => {
 
     // unsubscribe peer C
     remoteHeadsSubscriptions.handleControlMessage(unsubscribePeerCFromStorageB)
-    const messagesAfteUnsubscribePromise = collectMessages({
+    const messagesAfterUnsubscribePromise = collectMessages({
       emitter: remoteHeadsSubscriptions,
       event: "notify-remote-heads",
     })
@@ -256,8 +260,8 @@ describe("RepoHeadsSubscriptions", () => {
     // heads of docB for storageB change
     remoteHeadsSubscriptions.handleRemoteHeads(docBHeadsChangedForStorageB)
 
-    // expect not to be be notified
-    messages = await messagesAfteUnsubscribePromise
+    // expect not to be notified
+    messages = await messagesAfterUnsubscribePromise
     assert.strictEqual(messages.length, 0)
   })
 
