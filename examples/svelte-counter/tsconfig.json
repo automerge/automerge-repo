@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "allowJs": false,
+    "allowJs": true,
     "allowSyntheticDefaultImports": true,
     "checkJs": true,
     "esModuleInterop": false,
@@ -17,5 +17,11 @@
     "useDefineForClassFields": true
   },
   "extends": "@tsconfig/svelte/tsconfig.json",
-  "include": ["src/**/*.d.ts", "src/**/*.ts", "src/**/*.js", "src/**/*.svelte"]
+  "include": [
+    "./node_modules/svelte/src/main/ambient.d.ts",
+    "src/**/*.d.ts",
+    "src/**/*.ts",
+    "src/**/*.js",
+    "src/**/*.svelte"
+  ]
 }

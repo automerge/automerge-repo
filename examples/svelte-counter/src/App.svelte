@@ -6,33 +6,38 @@
 
   import {
     Counter as AutomergeCounter,
-    Repo,
     isValidAutomergeUrl,
+    type AutomergeUrl
   } from "@automerge/automerge-repo"
-  import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-  import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
-  import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
+  
+  import { repo } from "./lib/repo"
   import { setContextRepo } from "@automerge/automerge-repo-svelte-store"
-
-  const repo = new Repo({
-    network: [
-      new BroadcastChannelNetworkAdapter(),
-      new WebSocketClientAdapter("ws://localhost:3030"),
-    ],
-    storage: new IndexedDBStorageAdapter(),
-  })
-
+  
+  // Set the repo in context for components to access
   setContextRepo(repo)
-
-  const rootDocUrl = `${document.location.hash.substring(1)}`
-  let handle
-  if (isValidAutomergeUrl(rootDocUrl)) {
-    handle = repo.find(rootDocUrl)
-  } else {
-    handle = repo.create<DocType>({ count: new AutomergeCounter() })
+  
+  // Handle document initialization
+  let docUrl = $state<AutomergeUrl | "">("")
+  
+  async function initializeDoc() {
+    const rootDocUrl = `${document.location.hash.substring(1)}`
+    
+    if (isValidAutomergeUrl(rootDocUrl)) {
+      const handle = await repo.find(rootDocUrl)
+      document.location.hash = handle.url
+      return handle.url
+    } else {
+      const handle = await repo.create<DocType>({ count: new AutomergeCounter() })
+      document.location.hash = handle.url
+      return handle.url
+    }
   }
-
-  const docUrl = (document.location.hash = handle.url)
+  
+  $effect(() => {
+    initializeDoc().then(url => {
+      docUrl = url as AutomergeUrl
+    })
+  })
 </script>
 
 <main>
@@ -47,7 +52,9 @@
   <h1>Automerge + Svelte</h1>
 
   <div class="card">
-    <Counter documentUrl={docUrl} />
+    {#if docUrl}
+      <Counter documentUrl={docUrl} />
+    {/if}
   </div>
 
   <p class="read-the-docs">
