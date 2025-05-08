@@ -1,5 +1,4 @@
-import { AutomergeUrl } from "@automerge/automerge-repo"
-import { useDocument, useRepo } from "@automerge/automerge-repo-react-hooks"
+import { useDocument, useRepo, AutomergeUrl } from "@automerge/react"
 import cx from "classnames"
 import { Suspense, useRef, useState } from "react"
 

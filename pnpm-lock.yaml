@@ -116,24 +116,9 @@ importers:
 
   examples/react-counter:
     dependencies:
-      '@automerge/automerge':
-        specifier: ^2.2.7
-        version: 2.2.9
-      '@automerge/automerge-repo':
+      '@automerge/react':
         specifier: workspace:*
-        version: link:../../packages/automerge-repo
-      '@automerge/automerge-repo-network-messagechannel':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-network-messagechannel
-      '@automerge/automerge-repo-network-websocket':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-network-websocket
-      '@automerge/automerge-repo-react-hooks':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-react-hooks
-      '@automerge/automerge-repo-storage-indexeddb':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-storage-indexeddb
+        version: link:../../packages/automerge-react
       react:
         specifier: ^18.3.0
         version: 18.3.1
@@ -143,24 +128,9 @@ importers:
 
   examples/react-todo:
     dependencies:
-      '@automerge/automerge':
-        specifier: ^2.2.7
-        version: 2.2.9
-      '@automerge/automerge-repo':
+      '@automerge/react':
         specifier: workspace:*
-        version: link:../../packages/automerge-repo
-      '@automerge/automerge-repo-network-broadcastchannel':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-network-broadcastchannel
-      '@automerge/automerge-repo-network-websocket':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-network-websocket
-      '@automerge/automerge-repo-react-hooks':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-react-hooks
-      '@automerge/automerge-repo-storage-indexeddb':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-storage-indexeddb
+        version: link:../../packages/automerge-react
       autoprefixer:
         specifier: ^10.4.13
         version: 10.4.21(postcss@8.5.3)
@@ -186,18 +156,9 @@ importers:
 
   examples/react-use-awareness:
     dependencies:
-      '@automerge/automerge-repo':
+      '@automerge/react':
         specifier: workspace:*
-        version: link:../../packages/automerge-repo
-      '@automerge/automerge-repo-network-broadcastchannel':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-network-broadcastchannel
-      '@automerge/automerge-repo-react-hooks':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-react-hooks
-      '@automerge/automerge-repo-storage-indexeddb':
-        specifier: workspace:*
-        version: link:../../packages/automerge-repo-storage-indexeddb
+        version: link:../../packages/automerge-react
       eventemitter3:
         specifier: ^5.0.1
         version: 5.0.1
@@ -468,6 +429,9 @@ importers:
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
+      '@automerge/automerge-repo-network-broadcastchannel':
+        specifier: workspace:*
+        version: link:../automerge-repo-network-broadcastchannel
       '@automerge/automerge-repo-network-messagechannel':
         specifier: workspace:*
         version: link:../automerge-repo-network-messagechannel

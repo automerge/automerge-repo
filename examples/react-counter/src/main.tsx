@@ -8,7 +8,7 @@ import {
   MessageChannelNetworkAdapter,
   IndexedDBStorageAdapter,
   RepoContext,
-} from "@automerge/vanillajs"
+} from "@automerge/react"
 
 // We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
 // This means we only ever create one websocket connection to the sync server, we only do our writes in one place
