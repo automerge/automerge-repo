@@ -1,8 +1,13 @@
-import { isValidAutomergeUrl, Repo, Counter } from "@automerge/automerge-repo"
-import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
-import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
-import { RepoContext } from "@automerge/automerge-repo-react-hooks"
+import {
+  isValidAutomergeUrl,
+  Repo,
+  Counter,
+  WebSocketClientAdapter,
+  BroadcastChannelNetworkAdapter,
+  IndexedDBStorageAdapter,
+  RepoContext,
+} from "@automerge/react"
+
 import React from "react"
 import ReactDOM from "react-dom/client"
 import App from "./App.tsx"

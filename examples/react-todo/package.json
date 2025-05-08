@@ -9,12 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.2.7",
-    "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
-    "@automerge/automerge-repo-network-websocket": "workspace:*",
-    "@automerge/automerge-repo-react-hooks": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/react": "workspace:*",
     "autoprefixer": "^10.4.13",
     "classnames": "^2.3.2",
     "postcss": "^8.4.21",

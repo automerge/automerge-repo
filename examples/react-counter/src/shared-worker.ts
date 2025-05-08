@@ -21,7 +21,7 @@ const repoPromise = (async () => {
   )
   return new Repo({
     storage: new IndexedDBStorageAdapter(),
-    network: [new WebSocketClientAdapter("ws://localhost:3030")],
+    network: [new WebSocketClientAdapter("ws://sync.automerge.org")],
     peerId: ("shared-worker-" + Math.round(Math.random() * 10000)) as any,
     sharePolicy: async peerId => peerId.includes("storage-server"),
   })

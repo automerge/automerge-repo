@@ -1,11 +1,14 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App"
-import { Repo, isValidAutomergeUrl } from "@automerge/automerge-repo"
-import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-import { RepoContext } from "@automerge/automerge-repo-react-hooks"
+import {
+  Repo,
+  isValidAutomergeUrl,
+  BroadcastChannelNetworkAdapter,
+  IndexedDBStorageAdapter,
+  RepoContext,
+} from "@automerge/react"
 import { v4 } from "uuid"
-import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter("use-awareness-example"),

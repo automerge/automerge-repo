@@ -1,8 +1,13 @@
-import { DocHandle, Repo, isValidAutomergeUrl } from "@automerge/automerge-repo"
-import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
-import { RepoContext } from "@automerge/automerge-repo-react-hooks"
-import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
+import {
+  DocHandle,
+  Repo,
+  isValidAutomergeUrl,
+  BroadcastChannelNetworkAdapter,
+  WebSocketClientAdapter,
+  IndexedDBStorageAdapter,
+  RepoContext,
+} from "@automerge/react"
+
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"
 import ReactDOM from "react-dom/client"

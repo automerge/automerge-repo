@@ -9,10 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
-    "@automerge/automerge-repo-react-hooks": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/react": "workspace:*",
     "eventemitter3": "^5.0.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

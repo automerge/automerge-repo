@@ -1,7 +1,6 @@
 import automergeLogo from "./assets/automerge.png"
 import "./App.css"
-import { AutomergeUrl, Counter } from "@automerge/automerge-repo"
-import { useDocument } from "@automerge/automerge-repo-react-hooks"
+import { useDocument, AutomergeUrl, Counter } from "@automerge/react"
 
 interface CounterDoc {
   counter: Counter

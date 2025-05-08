@@ -9,12 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge": "^2.2.7",
-    "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge-repo-network-messagechannel": "workspace:*",
-    "@automerge/automerge-repo-network-websocket": "workspace:*",
-    "@automerge/automerge-repo-react-hooks": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/react": "workspace:*",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   }

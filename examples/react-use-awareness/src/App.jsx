@@ -2,7 +2,7 @@ import {
   useDocument,
   useLocalAwareness,
   useRemoteAwareness,
-} from "@automerge/automerge-repo-react-hooks"
+} from "@automerge/react"
 
 export function App({ userId, url }) {
   const [doc, changeDoc] = useDocument(url)

@@ -1,10 +1,14 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
-import { DocHandle, Repo, isValidAutomergeUrl } from "@automerge/automerge-repo"
-import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
-import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
-import { RepoContext } from "@automerge/automerge-repo-react-hooks"
+import {
+  DocHandle,
+  Repo,
+  isValidAutomergeUrl,
+  MessageChannelNetworkAdapter,
+  IndexedDBStorageAdapter,
+  RepoContext,
+} from "@automerge/vanillajs"
 
 // We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
 // This means we only ever create one websocket connection to the sync server, we only do our writes in one place
