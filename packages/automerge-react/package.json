@@ -1,6 +1,6 @@
 {
   "name": "@automerge/react",
-  "version": "2.0.0-beta.2",
+  "version": "2.0.0-beta.3",
   "description": "A quick-import React package for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-react",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -19,8 +19,8 @@
     "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
     "@automerge/automerge-repo-network-messagechannel": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "@automerge/automerge-repo-react-hooks": "workspace:*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "react": "^18.0.0"
   },
   "peerDependencies": {
