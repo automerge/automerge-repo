@@ -6,16 +6,30 @@
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "svelte": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
-    "build": "",
-    "watch": "npm-watch build"
+    "build": "svelte-package",
+    "watch": "svelte-package --watch"
   },
   "peerDependencies": {
-    "@automerge/automerge": "^2.2.8",
-    "svelte": "^3.0.0 || ^4.0.0"
+    "svelte": "^3.0.0 || ^4.0.0 || ^5.0.0"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*"
+  },
+  "devDependencies": {
+    "@sveltejs/package": "^2.3.11",
+    "typescript": "^5.0.0"
   },
   "watch": {
     "build": {
