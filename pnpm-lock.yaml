@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       '@automerge/automerge':
-        specifier: ^2.2.8
+        specifier: ^2.2.9
         version: 2.2.9
       '@manypkg/cli':
         specifier: ^0.21.3

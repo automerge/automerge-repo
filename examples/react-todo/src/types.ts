@@ -1,4 +1,4 @@
-import { AutomergeUrl } from "@automerge/automerge-repo"
+import type { AutomergeUrl } from "@automerge/react"
 
 /** Inside an Automerge change function, any arrays found on the document have these utility functions */
 export interface ExtendedArray<T> extends Array<T> {
