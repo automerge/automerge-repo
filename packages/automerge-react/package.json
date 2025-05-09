@@ -32,7 +32,8 @@
     "vitest": "^1.0.0"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./slim": "./dist/slim.js"
   },
   "watch": {
     "build": {
