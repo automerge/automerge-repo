@@ -1,4 +1,4 @@
-import * as A from "@automerge/automerge/slim/next"
+import { next as A } from "@automerge/automerge/slim"
 import * as sha256 from "fast-sha256"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 

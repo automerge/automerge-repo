@@ -1,4 +1,4 @@
-import * as A from "@automerge/automerge/slim/next"
+import { next as A } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import { assertEvent, assign, createActor, setup, waitFor } from "xstate"
