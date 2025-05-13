@@ -1,4 +1,4 @@
-import * as A from "@automerge/automerge/next"
+import { next as A } from "@automerge/automerge"
 import assert from "assert"
 import { decode } from "cbor-x"
 import { describe, expect, it, vi } from "vitest"
