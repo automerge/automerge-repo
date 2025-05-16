@@ -138,6 +138,7 @@ export class CollectionSynchronizer extends Synchronizer {
     })
   }
 
+  /** Removes a document and stops synchronizing them */
   removeDocument(documentId: DocumentId) {
     log(`removing document ${documentId}`)
     const docSynchronizer = this.docSynchronizers[documentId]

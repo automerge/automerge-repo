@@ -95,5 +95,7 @@ describe("CollectionSynchronizer", () => {
       assert(synchronizer.docSynchronizers[handle.documentId] !== undefined)
       synchronizer.removeDocument(handle.documentId)
       assert(synchronizer.docSynchronizers[handle.documentId] === undefined)
+      // removing document again should not throw an error
+      synchronizer.removeDocument(handle.documentId)
     }))
 })
