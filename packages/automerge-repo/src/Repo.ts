@@ -110,8 +110,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.sharePolicy = sharePolicy ?? this.sharePolicy
 
     this.on("delete-document", ({ documentId }) => {
-      // TODO Pass the delete on to the network
-      // synchronizer.removeDocument(documentId)
+      this.synchronizer.removeDocument(documentId)
 
       if (storageSubsystem) {
         storageSubsystem.removeDoc(documentId).catch(err => {
@@ -798,8 +797,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         )
       }
       delete this.#handleCache[documentId]
-      // TODO: remove document from synchronizer when removeDocument is implemented
-      // this.synchronizer.removeDocument(documentId)
+      this.synchronizer.removeDocument(documentId)
     } else {
       this.#log(
         `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
