@@ -139,9 +139,10 @@ export class CollectionSynchronizer extends Synchronizer {
   }
 
   removeDocument(documentId: DocumentId) {
+    log(`removing document ${documentId}`)
     const docSynchronizer = this.docSynchronizers[documentId]
     if (docSynchronizer !== undefined) {
-      this.peers.forEach(peerId => void docSynchronizer.endSync(peerId))
+      this.peers.forEach(peerId => docSynchronizer.endSync(peerId))
     }
     delete this.docSynchronizers[documentId]
     delete this.#docSetUp[documentId]
