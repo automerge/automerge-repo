@@ -534,7 +534,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     heads: UrlHeads,
     callback: A.ChangeFn<T>,
     options: A.ChangeOptions<T> = {}
-  ): UrlHeads[] | undefined {
+  ): UrlHeads | undefined {
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
