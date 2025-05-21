@@ -669,66 +669,66 @@ describe("Repo", () => {
   })
 
   describe("with peers (linear network)", async () => {
-    it("n-peers connected in a line", async () => {
-      const createNConnectedRepos = async (
-        numberOfPeers: number,
-        latency?: number
-      ) => {
-        const networkAdapters: DummyNetworkAdapter[][] = []
-        const repos: Repo[] = []
-        const networkReady: Promise<void>[] = []
+    const createLinearConnectedRepos = async (
+      numberOfPeers: number,
+      latency?: number
+    ) => {
+      const networkAdapters: DummyNetworkAdapter[][] = []
+      const repos: Repo[] = []
+      const networkReady: Promise<void>[] = []
 
-        // Create n repos and connect them in a line.
-        for (let idx = 0; idx < numberOfPeers; idx++) {
-          const network = []
+      // Create n repos and connect them in a line.
+      for (let idx = 0; idx < numberOfPeers; idx++) {
+        const network = []
 
-          const pair = DummyNetworkAdapter.createConnectedPair({ latency })
-          networkAdapters.push(pair)
+        const pair = DummyNetworkAdapter.createConnectedPair({ latency })
+        networkAdapters.push(pair)
 
-          if (idx > 0) {
-            const a = networkAdapters[idx - 1][1]
-            network.push(a)
-            networkReady.push(a.whenReady())
-          }
-
-          if (idx < numberOfPeers - 1) {
-            network.push(pair[0])
-            networkReady.push(pair[0].whenReady())
-          }
-
-          const repo = new Repo({
-            network,
-            storage: new DummyStorageAdapter(),
-            peerId: `peer-${idx}` as PeerId,
-            sharePolicy: async () => true,
-          })
-          repos.push(repo)
+        if (idx > 0) {
+          const a = networkAdapters[idx - 1][1]
+          network.push(a)
+          networkReady.push(a.whenReady())
         }
 
-        await Promise.all(networkReady)
-
-        const connectedPromise = Promise.all(
-          repos.map(repo => repo.networkSubsystem.whenReady)
-        )
-
-        // Initialize the network.
-        for (let idx = 0; idx < numberOfPeers; idx++) {
-          if (idx > 0) {
-            networkAdapters[idx - 1][1].peerCandidate(
-              `peer-${idx - 1}` as PeerId
-            )
-          }
-          if (idx < numberOfPeers - 1) {
-            networkAdapters[idx][0].peerCandidate(`peer-${idx + 1}` as PeerId)
-          }
+        if (idx < numberOfPeers - 1) {
+          network.push(pair[0])
+          networkReady.push(pair[0].whenReady())
         }
 
-        await connectedPromise
-        return { repos }
+        const repo = new Repo({
+          network,
+          storage: new DummyStorageAdapter(),
+          peerId: `peer-${idx}` as PeerId,
+          sharePolicy: async () => true,
+        })
+        repos.push(repo)
       }
 
+      await Promise.all(networkReady)
+
+      const connectedPromise = Promise.all(
+        repos.map(repo => repo.networkSubsystem.whenReady)
+      )
+
+      // Initialize the network.
+      for (let idx = 0; idx < numberOfPeers; idx++) {
+        if (idx > 0) {
+          networkAdapters[idx - 1][1].peerCandidate(
+            `peer-${idx - 1}` as PeerId
+          )
+        }
+        if (idx < numberOfPeers - 1) {
+          networkAdapters[idx][0].peerCandidate(`peer-${idx + 1}` as PeerId)
+        }
+      }
+
+      await connectedPromise
+      return { repos }
+    }
+
+    it("n-peers connected in a line", async () => {
       const numberOfPeers = 10
-      const { repos } = await createNConnectedRepos(numberOfPeers, 10)
+      const { repos } = await createLinearConnectedRepos(numberOfPeers, 10)
 
       const handle0 = repos[0].create()
       handle0.change((d: any) => {
@@ -743,6 +743,57 @@ describe("Repo", () => {
       })
       const handle0Back = await repos[0].find<TestDoc>(handleNBack.url)
       assert.deepStrictEqual(handle0Back.doc(), { foo: "reverse-trip" })
+    })
+
+    // Passes
+    it.only("chain of 3 repos can load a document (both awaits)", async () => {
+      const { repos } = await createLinearConnectedRepos(3)
+      const [repo1, repo2, repo3] = repos
+
+      const handle = repo1.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "baz"
+      })
+
+      const _ = await repo2.find<TestDoc>(handle.url)
+      const charlieHandle = await repo3.find<TestDoc>(handle.url)
+      await charlieHandle.whenReady()
+      const doc = charlieHandle.doc()
+      assert.deepStrictEqual(doc, { foo: "baz" })
+    })
+
+    // Passes
+    it.only("chain of 3 repos can load a document (allow requesting state)", async () => {
+      const { repos } = await createLinearConnectedRepos(3)
+      const [repo1, repo2, repo3] = repos
+
+      const handle = repo1.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "baz"
+      })
+
+      const _ = repo2.find<TestDoc>(handle.url)
+      const charlieHandle = await repo3.find<TestDoc>(handle.url, { allowableStates: ['ready', 'requesting'] })
+      await charlieHandle.whenReady()
+      const doc = charlieHandle.doc()
+      assert.deepStrictEqual(doc, { foo: "baz" })
+    })
+
+    // Fails
+    it.only("chain of 3 repos can load a document (one awaits)", async () => {
+      const { repos } = await createLinearConnectedRepos(3)
+      const [repo1, repo2, repo3] = repos
+
+      const handle = repo1.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "baz"
+      })
+
+      const _ = repo2.find<TestDoc>(handle.url)
+      const charlieHandle = await repo3.find<TestDoc>(handle.url)
+      await charlieHandle.whenReady()
+      const doc = charlieHandle.doc()
+      assert.deepStrictEqual(doc, { foo: "baz" })
     })
 
     const setup = async ({
@@ -883,6 +934,7 @@ describe("Repo", () => {
       assert.deepStrictEqual(doc3, { foo: "bar" })
       teardown()
     })
+
 
     it("synchronizes changes from bobRepo to charlieRepo when loading from storage", async () => {
       const { bobRepo, bobStorage, teardown } = await setup()
