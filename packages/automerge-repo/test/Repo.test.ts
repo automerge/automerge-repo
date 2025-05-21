@@ -756,9 +756,9 @@ describe("Repo", () => {
       })
 
       const _ = await repo2.find<TestDoc>(handle.url)
-      const charlieHandle = await repo3.find<TestDoc>(handle.url)
-      await charlieHandle.whenReady()
-      const doc = charlieHandle.doc()
+      const handle3 = await repo3.find<TestDoc>(handle.url)
+      await handle3.whenReady()
+      const doc = handle3.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
     })
 
@@ -773,9 +773,9 @@ describe("Repo", () => {
       })
 
       const _ = repo2.find<TestDoc>(handle.url)
-      const charlieHandle = await repo3.find<TestDoc>(handle.url, { allowableStates: ['ready', 'requesting'] })
-      await charlieHandle.whenReady()
-      const doc = charlieHandle.doc()
+      const handle3 = await repo3.find<TestDoc>(handle.url, { allowableStates: ['ready', 'requesting'] })
+      await handle3.whenReady()
+      const doc = handle3.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
     })
 
@@ -790,9 +790,9 @@ describe("Repo", () => {
       })
 
       const _ = repo2.find<TestDoc>(handle.url)
-      const charlieHandle = await repo3.find<TestDoc>(handle.url)
-      await charlieHandle.whenReady()
-      const doc = charlieHandle.doc()
+      const handle3 = await repo3.find<TestDoc>(handle.url)
+      await handle3.whenReady()
+      const doc = handle3.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
     })
 
