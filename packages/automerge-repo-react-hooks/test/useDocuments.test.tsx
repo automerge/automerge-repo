@@ -3,49 +3,10 @@ import { AutomergeUrl, Repo, PeerId } from "@automerge/automerge-repo"
 import { render, act, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocuments } from "../src/useDocuments"
-import { RepoContext } from "../src/useRepo"
 import { ErrorBoundary } from "react-error-boundary"
-
-interface ExampleDoc {
-  foo: string
-  counter?: number
-  nested?: {
-    value: string
-  }
-}
-
-function getRepoWrapper(repo: Repo) {
-  return ({ children }) => (
-    <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
-  )
-}
+import { ExampleDoc, setup } from "./testSetup"
 
 describe("useDocuments", () => {
-  const repo = new Repo({
-    peerId: "bob" as PeerId,
-  })
-
-  function setup() {
-    const handleA = repo.create<ExampleDoc>()
-    handleA.change(doc => (doc.foo = "A"))
-
-    const handleB = repo.create<ExampleDoc>()
-    handleB.change(doc => (doc.foo = "B"))
-
-    const handleC = repo.create<ExampleDoc>()
-    handleC.change(doc => (doc.foo = "C"))
-
-    return {
-      repo,
-      handleA,
-      handleB,
-      handleC,
-      handles: [handleA, handleB, handleC],
-      urls: [handleA.url, handleB.url, handleC.url],
-      wrapper: getRepoWrapper(repo),
-    }
-  }
-
   const DocumentsComponent = ({
     urls,
     onState,
@@ -235,31 +196,6 @@ describe("useDocuments", () => {
   })
 
   describe("useDocuments with suspense: false", () => {
-    const repo = new Repo({
-      peerId: "bob" as PeerId,
-    })
-
-    function setup() {
-      const handleA = repo.create<ExampleDoc>()
-      handleA.change(doc => (doc.foo = "A"))
-
-      const handleB = repo.create<ExampleDoc>()
-      handleB.change(doc => (doc.foo = "B"))
-
-      const handleC = repo.create<ExampleDoc>()
-      handleC.change(doc => (doc.foo = "C"))
-
-      return {
-        repo,
-        handleA,
-        handleB,
-        handleC,
-        handles: [handleA, handleB, handleC],
-        urls: [handleA.url, handleB.url, handleC.url],
-        wrapper: getRepoWrapper(repo),
-      }
-    }
-
     const NonSuspendingDocumentsComponent = ({
       urls,
       onState,

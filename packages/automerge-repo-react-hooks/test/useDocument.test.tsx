@@ -2,10 +2,6 @@ import {
   AutomergeUrl,
   Doc,
   generateAutomergeUrl,
-  PeerId,
-  Repo,
-  NetworkAdapter,
-  Message,
 } from "@automerge/automerge-repo"
 import { render, screen, waitFor } from "@testing-library/react"
 import React, { Suspense } from "react"
@@ -13,74 +9,10 @@ import { describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom"
 
 import { useDocument } from "../src/useDocument"
-import { RepoContext } from "../src/useRepo"
 import { ErrorBoundary } from "react-error-boundary"
-import { DummyNetworkAdapter, pause } from "../src/helpers/DummyNetworkAdapter"
-interface ExampleDoc {
-  foo: string
-}
+import { setup, setupPairedRepos, ExampleDoc } from "./testSetup"
 
 describe("useDocument", () => {
-  function setup() {
-    const repo = new Repo({
-      peerId: "bob" as PeerId,
-    })
-
-    const handleA = repo.create<ExampleDoc>()
-    handleA.change(doc => (doc.foo = "A"))
-
-    const handleB = repo.create<ExampleDoc>()
-    handleB.change(doc => (doc.foo = "B"))
-
-    const handleC = repo.create<ExampleDoc>()
-    handleC.change(doc => (doc.foo = "C"))
-
-    const wrapper = ({ children }) => {
-      return (
-        <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
-      )
-    }
-
-    return {
-      repo,
-      handleA,
-      handleB,
-      handleC,
-      wrapper,
-    }
-  }
-
-  function setupPairedRepos(latency = 10) {
-    // Create two connected repos with network delay
-    const [adapterCreator, adapterFinder] =
-      DummyNetworkAdapter.createConnectedPair({
-        latency,
-      })
-
-    const repoCreator = new Repo({
-      peerId: "peer-creator" as PeerId,
-      network: [adapterCreator],
-    })
-    const repoFinder = new Repo({
-      peerId: "peer-finder" as PeerId,
-      network: [adapterFinder],
-    })
-
-    // TODO: dummynetwork adapter should probably take care of this
-    // Initialize the network.
-    adapterCreator.peerCandidate(`peer-finder` as PeerId)
-    adapterFinder.peerCandidate(`peer-creator` as PeerId)
-
-    const wrapper = ({ children }) => {
-      return (
-        <RepoContext.Provider value={repoFinder}>
-          {children}
-        </RepoContext.Provider>
-      )
-    }
-
-    return { repoCreator, repoFinder, wrapper }
-  }
   const Component = ({
     url,
     onDoc,
