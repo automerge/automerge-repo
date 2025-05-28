@@ -245,7 +245,9 @@ describe("useDocuments", () => {
     })
 
     it("should handle loading multiple documents asynchronously", async () => {
-      const { handleA, handleB, wrapper } = setup()
+      const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
+      const handleA = repoCreator.create({ foo: "A" })
+      const handleB = repoCreator.create({ foo: "B" })
       const onState = vi.fn()
 
       const Wrapped = () => (
@@ -260,12 +262,15 @@ describe("useDocuments", () => {
       render(<Wrapped />, { wrapper })
 
       // Initial state should be empty
-      let [docs] = onState.mock.lastCall || []
+      let docs = onState.mock.lastCall?.[0]
       expect(docs.size).toBe(0)
 
       // Wait for documents to load
       await act(async () => {
-        await Promise.resolve()
+        await Promise.all([
+          repoFinder.find(handleA.url),
+          repoFinder.find(handleB.url),
+        ])
       })
 
       // Check loaded state
