@@ -4,7 +4,7 @@ import { render, act, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocuments } from "../src/useDocuments"
 import { ErrorBoundary } from "react-error-boundary"
-import { ExampleDoc, setup } from "./testSetup"
+import { ExampleDoc, setup, setupPairedRepos } from "./testSetup"
 
 describe("useDocuments", () => {
   const DocumentsComponent = ({
@@ -331,10 +331,11 @@ describe("useDocuments", () => {
       })
     })
 
-    it("should cleanup listeners when unmounting with pending loads", async () => {
-      const { handleA, wrapper } = setup()
+    it("should clean up listeners when unmounting with pending loads", async () => {
+      const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
       const onState = vi.fn()
 
+      const handleA = repoCreator.create({ foo: "bar" })
       const Wrapped = () => (
         <ErrorBoundary fallback={<div>Error!</div>}>
           <NonSuspendingDocumentsComponent
@@ -353,13 +354,14 @@ describe("useDocuments", () => {
       unmount()
 
       // Wait for what would have been load completion
+      let finderHandleA
       await act(async () => {
-        await Promise.resolve()
+        finderHandleA = await repoFinder.find(handleA.url)
       })
 
       // Should not have received any updates after unmount
       const callCount = onState.mock.calls.length
-      handleA.change(doc => (doc.foo = "Changed after unmount"))
+      finderHandleA.change(doc => (doc.foo = "Changed after unmount"))
       expect(onState.mock.calls.length).toBe(callCount)
     })
 
