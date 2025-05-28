@@ -208,14 +208,17 @@ describe("useDocuments", () => {
       return null
     }
 
-    it("should start with empty map and load documents asynchronously", async () => {
-      const { handleA, wrapper } = setup()
+    it("should start with already-loaded documents and load other documents asynchronously", async () => {
+      const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
+      const handleA = repoFinder.create({ foo: "A" })
+      const handleB = repoCreator.create({ foo: "B" })
+
       const onState = vi.fn()
 
       const Wrapped = () => (
         <ErrorBoundary fallback={<div>Error!</div>}>
           <NonSuspendingDocumentsComponent
-            urls={[handleA.url]}
+            urls={[handleA.url, handleB.url]}
             onState={onState}
           />
         </ErrorBoundary>
@@ -223,19 +226,22 @@ describe("useDocuments", () => {
 
       render(<Wrapped />, { wrapper })
 
-      // Initial state should be empty map
+      // Initial state should include local document
       expect(onState).toHaveBeenCalled()
-      let [docs] = onState.mock.lastCall || []
-      expect(docs.size).toBe(0)
+      let docs = onState.mock.lastCall?.[0]
+      expect(docs.size).toBe(1)
+      expect(docs.get(handleA.url)?.foo).toBe("A")
 
-      // Wait for document to load
+      // Wait for remote document to load
       await act(async () => {
-        await Promise.resolve()
+        await repoFinder.find(handleB.url)
       })
 
-      // Document should now be loaded
+      // Both should now be loaded
       docs = onState.mock.lastCall?.[0]
+      expect(docs.size).toBe(2)
       expect(docs.get(handleA.url)?.foo).toBe("A")
+      expect(docs.get(handleB.url)?.foo).toBe("B")
     })
 
     it("should handle loading multiple documents asynchronously", async () => {
