@@ -411,7 +411,8 @@ describe("useDocuments", () => {
       render(<Wrapped />, { wrapper })
 
       // Initial state empty
-      let [docs] = onState.mock.lastCall || []
+      let docs = onState.mock.lastCall?.[0]
+      expect(docs).toBeDefined()
       expect(docs.size).toBe(0)
 
       // Should remain empty after attempted load
@@ -420,6 +421,7 @@ describe("useDocuments", () => {
       })
 
       docs = onState.mock.lastCall?.[0]
+      expect(docs).toBeDefined()
       expect(docs.size).toBe(0)
     })
   })
