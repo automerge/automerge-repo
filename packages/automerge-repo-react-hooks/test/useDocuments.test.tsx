@@ -296,7 +296,10 @@ describe("useDocuments", () => {
     })
 
     it("should handle document removal with pending loads", async () => {
-      const { handleA, handleB, wrapper } = setup()
+      const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
+      const handleA = repoCreator.create({ foo: "A" })
+      const handleB = repoCreator.create({ foo: "B" })
+
       const onState = vi.fn()
 
       const Wrapped = ({ urls }: { urls: AutomergeUrl[] }) => (
@@ -311,7 +314,8 @@ describe("useDocuments", () => {
       )
 
       // Initial state should be empty
-      let [docs] = onState.mock.lastCall || []
+      let docs = onState.mock.lastCall?.[0]
+      expect(docs).toBeDefined()
       expect(docs.size).toBe(0)
 
       // Remove one document before load completes
@@ -319,7 +323,10 @@ describe("useDocuments", () => {
 
       // Wait for remaining document to load
       await act(async () => {
-        await Promise.resolve()
+        await Promise.all([
+          repoFinder.find(handleA.url),
+          repoFinder.find(handleB.url),
+        ])
       })
 
       // Should only have loaded the remaining document
