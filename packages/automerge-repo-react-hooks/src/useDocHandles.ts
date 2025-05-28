@@ -20,7 +20,13 @@ export function useDocHandles<T>(
 
     // Initialize the map with any handles that are ready
     for (const id of ids) {
-      const progress = repo.findWithProgress<T>(id)
+      let progress
+      try {
+        progress = repo.findWithProgress<T>(id)
+      } catch (e) {
+        continue
+      }
+
       if (progress.state === "ready") {
         map.set(id, progress.handle)
       }
