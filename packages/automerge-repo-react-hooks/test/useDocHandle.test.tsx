@@ -11,72 +11,13 @@ import "@testing-library/jest-dom"
 
 import { describe, expect, it, vi } from "vitest"
 import { useDocHandle } from "../src/useDocHandle"
-import { RepoContext } from "../src/useRepo"
 import { ErrorBoundary } from "react-error-boundary"
-import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter"
-
-interface ExampleDoc {
-  foo: string
-}
-
-function getRepoWrapper(repo: Repo) {
-  return ({ children }) => (
-    <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
-  )
-}
+import { setup, setupPairedRepos } from "./testSetup"
 
 describe("useDocHandle", () => {
   const repo = new Repo({
     peerId: "bob" as PeerId,
   })
-
-  function setup() {
-    const handleA = repo.create<ExampleDoc>()
-    handleA.change(doc => (doc.foo = "A"))
-
-    const handleB = repo.create<ExampleDoc>()
-    handleB.change(doc => (doc.foo = "B"))
-
-    return {
-      repo,
-      handleA,
-      handleB,
-      wrapper: getRepoWrapper(repo),
-    }
-  }
-
-  function setupPairedRepos(latency = 10) {
-    // Create two connected repos with network delay
-    const [adapterCreator, adapterFinder] =
-      DummyNetworkAdapter.createConnectedPair({
-        latency,
-      })
-
-    // TODO: fix types here
-    const repoCreator = new Repo({
-      peerId: "peer-creator" as PeerId,
-      network: [adapterCreator],
-    })
-    const repoFinder = new Repo({
-      peerId: "peer-finder" as PeerId,
-      network: [adapterFinder],
-    })
-
-    // TODO: dummynetwork adapter should probably take care of this
-    // Initialize the network.
-    adapterCreator.peerCandidate(`peer-finder` as PeerId)
-    adapterFinder.peerCandidate(`peer-creator` as PeerId)
-
-    const wrapper = ({ children }) => {
-      return (
-        <RepoContext.Provider value={repoFinder}>
-          {children}
-        </RepoContext.Provider>
-      )
-    }
-
-    return { repoCreator, repoFinder, wrapper }
-  }
 
   const Component = ({
     url,
@@ -167,7 +108,7 @@ describe("useDocHandle", () => {
   })
 
   it("handles slow network correctly", async () => {
-    const { repoCreator, wrapper } = await setupPairedRepos()
+    const { repoCreator, wrapper } = setupPairedRepos()
     const handleA = repoCreator.create({ foo: "A" })
     const onHandle = vi.fn()
 
