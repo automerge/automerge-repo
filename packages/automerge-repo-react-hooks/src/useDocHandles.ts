@@ -15,13 +15,32 @@ export function useDocHandles<T>(
   { suspense = false }: UseDocHandlesParams = {}
 ): DocHandleMap<T> {
   const repo = useRepo()
-  const [handleMap, setHandleMap] = useState<DocHandleMap<T>>(() => new Map())
+  const [handleMap, setHandleMap] = useState<DocHandleMap<T>>(() => {
+    const map = new Map()
+
+    // Initialize the map with any handles that are ready
+    for (const id of ids) {
+      let progress
+      try {
+        progress = repo.findWithProgress<T>(id)
+      } catch (e) {
+        continue
+      }
+
+      if (progress.state === "ready") {
+        map.set(id, progress.handle)
+      }
+    }
+
+    return map
+  })
 
   const pendingPromises: PromiseWrapper<DocHandle<T>>[] = []
   const nextHandleMap = new Map<AutomergeUrl, DocHandle<T> | undefined>()
 
   // Check if we need any new wrappers
   for (const id of ids) {
+    let handle = handleMap.get(id)
     let wrapper = wrapperCache.get(id)
     if (!wrapper) {
       try {
@@ -37,7 +56,7 @@ export function useDocHandles<T>(
     // Update handleMap with any available handles,
     // and collect any pending promises
     try {
-      const handle = wrapper.read() as DocHandle<T>
+      handle ??= wrapper.read() as DocHandle<T>
       nextHandleMap.set(id, handle)
     } catch (e) {
       if (e instanceof Promise) {

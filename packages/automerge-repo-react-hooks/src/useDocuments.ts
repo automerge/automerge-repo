@@ -19,7 +19,16 @@ export function useDocuments<T>(
   { suspense = true }: UseDocumentsOptions = {}
 ): [DocMap<T>, ChangeDocFn<T>] {
   const handleMap = useDocHandles<T>(ids, { suspense })
-  const [docMap, setDocMap] = useState<DocMap<T>>(() => new Map())
+  const [docMap, setDocMap] = useState<DocMap<T>>(() => {
+    const docs: DocMap<T> = new Map()
+    handleMap.forEach(handle => {
+      const url = handle?.url
+      if (url) {
+        docs.set(url, handle?.doc())
+      }
+    })
+    return docs
+  })
 
   useEffect(() => {
     const listeners = new Map<AutomergeUrl, () => void>()
