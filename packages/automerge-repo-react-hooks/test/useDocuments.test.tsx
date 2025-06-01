@@ -4,7 +4,7 @@ import { render, act, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocuments } from "../src/useDocuments"
 import { ErrorBoundary } from "react-error-boundary"
-import { ExampleDoc, setup } from "./testSetup"
+import { ExampleDoc, setup, setupPairedRepos } from "./testSetup"
 
 describe("useDocuments", () => {
   const DocumentsComponent = ({
@@ -208,14 +208,17 @@ describe("useDocuments", () => {
       return null
     }
 
-    it("should start with empty map and load documents asynchronously", async () => {
-      const { handleA, wrapper } = setup()
+    it("should start with already-loaded documents and load other documents asynchronously", async () => {
+      const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
+      const handleA = repoFinder.create({ foo: "A" })
+      const handleB = repoCreator.create({ foo: "B" })
+
       const onState = vi.fn()
 
       const Wrapped = () => (
         <ErrorBoundary fallback={<div>Error!</div>}>
           <NonSuspendingDocumentsComponent
-            urls={[handleA.url]}
+            urls={[handleA.url, handleB.url]}
             onState={onState}
           />
         </ErrorBoundary>
@@ -223,23 +226,28 @@ describe("useDocuments", () => {
 
       render(<Wrapped />, { wrapper })
 
-      // Initial state should be empty map
+      // Initial state should include local document
       expect(onState).toHaveBeenCalled()
-      let [docs] = onState.mock.lastCall || []
-      expect(docs.size).toBe(0)
+      let docs = onState.mock.lastCall?.[0]
+      expect(docs.size).toBe(1)
+      expect(docs.get(handleA.url)?.foo).toBe("A")
 
-      // Wait for document to load
+      // Wait for remote document to load
       await act(async () => {
-        await Promise.resolve()
+        await repoFinder.find(handleB.url)
       })
 
-      // Document should now be loaded
+      // Both should now be loaded
       docs = onState.mock.lastCall?.[0]
+      expect(docs.size).toBe(2)
       expect(docs.get(handleA.url)?.foo).toBe("A")
+      expect(docs.get(handleB.url)?.foo).toBe("B")
     })
 
     it("should handle loading multiple documents asynchronously", async () => {
-      const { handleA, handleB, wrapper } = setup()
+      const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
+      const handleA = repoCreator.create({ foo: "A" })
+      const handleB = repoCreator.create({ foo: "B" })
       const onState = vi.fn()
 
       const Wrapped = () => (
@@ -254,12 +262,15 @@ describe("useDocuments", () => {
       render(<Wrapped />, { wrapper })
 
       // Initial state should be empty
-      let [docs] = onState.mock.lastCall || []
+      let docs = onState.mock.lastCall?.[0]
       expect(docs.size).toBe(0)
 
       // Wait for documents to load
       await act(async () => {
-        await Promise.resolve()
+        await Promise.all([
+          repoFinder.find(handleA.url),
+          repoFinder.find(handleB.url),
+        ])
       })
 
       // Check loaded state
@@ -296,7 +307,10 @@ describe("useDocuments", () => {
     })
 
     it("should handle document removal with pending loads", async () => {
-      const { handleA, handleB, wrapper } = setup()
+      const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
+      const handleA = repoCreator.create({ foo: "A" })
+      const handleB = repoCreator.create({ foo: "B" })
+
       const onState = vi.fn()
 
       const Wrapped = ({ urls }: { urls: AutomergeUrl[] }) => (
@@ -311,7 +325,8 @@ describe("useDocuments", () => {
       )
 
       // Initial state should be empty
-      let [docs] = onState.mock.lastCall || []
+      let docs = onState.mock.lastCall?.[0]
+      expect(docs).toBeDefined()
       expect(docs.size).toBe(0)
 
       // Remove one document before load completes
@@ -319,7 +334,10 @@ describe("useDocuments", () => {
 
       // Wait for remaining document to load
       await act(async () => {
-        await Promise.resolve()
+        await Promise.all([
+          repoFinder.find(handleA.url),
+          repoFinder.find(handleB.url),
+        ])
       })
 
       // Should only have loaded the remaining document
@@ -331,10 +349,11 @@ describe("useDocuments", () => {
       })
     })
 
-    it("should cleanup listeners when unmounting with pending loads", async () => {
-      const { handleA, wrapper } = setup()
+    it("should clean up listeners when unmounting with pending loads", async () => {
+      const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
       const onState = vi.fn()
 
+      const handleA = repoCreator.create({ foo: "bar" })
       const Wrapped = () => (
         <ErrorBoundary fallback={<div>Error!</div>}>
           <NonSuspendingDocumentsComponent
@@ -353,13 +372,14 @@ describe("useDocuments", () => {
       unmount()
 
       // Wait for what would have been load completion
+      let finderHandleA
       await act(async () => {
-        await Promise.resolve()
+        finderHandleA = await repoFinder.find(handleA.url)
       })
 
       // Should not have received any updates after unmount
       const callCount = onState.mock.calls.length
-      handleA.change(doc => (doc.foo = "Changed after unmount"))
+      finderHandleA.change(doc => (doc.foo = "Changed after unmount"))
       expect(onState.mock.calls.length).toBe(callCount)
     })
 
@@ -411,7 +431,8 @@ describe("useDocuments", () => {
       render(<Wrapped />, { wrapper })
 
       // Initial state empty
-      let [docs] = onState.mock.lastCall || []
+      let docs = onState.mock.lastCall?.[0]
+      expect(docs).toBeDefined()
       expect(docs.size).toBe(0)
 
       // Should remain empty after attempted load
@@ -420,6 +441,7 @@ describe("useDocuments", () => {
       })
 
       docs = onState.mock.lastCall?.[0]
+      expect(docs).toBeDefined()
       expect(docs.size).toBe(0)
     })
   })
