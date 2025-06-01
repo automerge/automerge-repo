@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-svelte-store",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A Svelte store containing your automerge documents",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-svelte-store",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "@automerge/create-repo-node-app",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Create an automerge-repo app for node",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/create-repo-node-app",
   "author": "Alex Good <alex@memoryandthought.me>",
