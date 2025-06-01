@@ -59,11 +59,11 @@ All hooks from `@automerge/automerge-repo-react-hooks` are re-exported:
 
 - `useRepo`
 - `useDocument`
-- `useHandle`
+- `useDocuments`
+- `useDocHandle`
+- `useDocHandles`
 - `useLocalAwareness`
 - `useRemoteAwareness`
-- `useBootstrap`
-- `useSyncState`
 
 ## License
 
