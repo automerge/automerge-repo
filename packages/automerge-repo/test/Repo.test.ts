@@ -519,6 +519,9 @@ describe("Repo", () => {
         const handle = repo.create({ foo: "bar" })
         await repo.delete(handle.documentId)
         assert(repo.handles[handle.documentId] === undefined)
+        assert(
+          repo.synchronizer.docSynchronizers[handle.documentId] === undefined
+        )
       })
 
       it("removeFromCache removes doc handle", async () => {
@@ -526,6 +529,9 @@ describe("Repo", () => {
         const handle = repo.create({ foo: "bar" })
         await repo.removeFromCache(handle.documentId)
         assert(repo.handles[handle.documentId] === undefined)
+        assert(
+          repo.synchronizer.docSynchronizers[handle.documentId] === undefined
+        )
       })
 
       it("removeFromCache for documentId not found", async () => {
