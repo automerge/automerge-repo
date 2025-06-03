@@ -797,6 +797,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         )
       }
       delete this.#handleCache[documentId]
+      delete this.#progressCache[documentId]
       this.synchronizer.removeDocument(documentId)
     } else {
       this.#log(
