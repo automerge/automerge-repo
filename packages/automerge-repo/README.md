@@ -267,4 +267,3 @@ With gratitude for contributions by:
 - Bijela Gora
 - Mykola Veremchuk
 - Blaine Cook
-
