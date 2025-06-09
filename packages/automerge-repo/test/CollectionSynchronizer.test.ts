@@ -75,4 +75,27 @@ describe("CollectionSynchronizer", () => {
 
       setTimeout(done)
     }))
+
+  it("removes document", () =>
+    new Promise<void>((done, reject) => {
+      const handle = repo.create()
+      synchronizer.addDocument(handle)
+      synchronizer.addPeer("peer1" as PeerId)
+      // starts synchronizing document to peer
+      synchronizer.once("message", event => {
+        const { targetId, documentId } = event as SyncMessage
+        assert(targetId === "peer1")
+        assert(documentId === handle.documentId)
+        done()
+      })
+      // no message should be sent after removing document
+      synchronizer.once("message", () => {
+        reject(new Error("Should not have sent a message"))
+      })
+      assert(synchronizer.docSynchronizers[handle.documentId] !== undefined)
+      synchronizer.removeDocument(handle.documentId)
+      assert(synchronizer.docSynchronizers[handle.documentId] === undefined)
+      // removing document again should not throw an error
+      synchronizer.removeDocument(handle.documentId)
+    }))
 })
