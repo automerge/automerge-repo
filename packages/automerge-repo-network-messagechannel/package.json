@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-network-messagechannel",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "MessageChannel network adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-network-messagechannel",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",

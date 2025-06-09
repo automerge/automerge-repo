@@ -1,6 +1,6 @@
 {
   "name": "@automerge/vanillajs",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A quick-import vanilla JS package for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-vanillajs",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",

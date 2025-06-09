@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-react-hooks",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Hooks to access an Automerge Repo from your react app.",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-react-hooks",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",

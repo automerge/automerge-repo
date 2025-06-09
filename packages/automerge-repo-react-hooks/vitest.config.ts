@@ -4,7 +4,7 @@ import path from "path"
 export default defineConfig({
   test: {
     globals: true,
-    setupFiles: [path.join(__dirname, "./test/testSetup.ts")],
+    setupFiles: [path.join(__dirname, "./test/testSetup.tsx")],
     environment: "jsdom",
     coverage: {
       provider: "v8",
