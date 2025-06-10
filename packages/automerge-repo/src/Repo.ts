@@ -43,7 +43,7 @@ import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+  untilReady: () => Promise<DocHandle<T>>
   peek: () => FindProgress<T>
   subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
 }
@@ -51,7 +51,7 @@ export type FindProgressWithMethods<T> = FindProgress<T> & {
 export type ProgressSignal<T> = {
   peek: () => FindProgress<T>
   subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+  untilReady: () => Promise<DocHandle<T>>
 }
 
 function randomPeerId() {
@@ -438,14 +438,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Check handle cache first - return plain FindStep for terminal states
     if (this.#handleCache[documentId]) {
       const handle = this.#handleCache[documentId]
-      if (handle.state === UNAVAILABLE) {
-        const result = {
-          state: "unavailable" as const,
-          error: new Error(`Document ${id} is unavailable`),
-          handle,
-        }
-        return result
-      }
+
       if (handle.state === DELETED) {
         const result = {
           state: "failed" as const,
@@ -589,7 +582,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
-  async find<T>(
+  async find2<T>(
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
@@ -628,6 +621,45 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
+  async find<T>(
+    id: AnyDocumentId,
+    options: RepoFindOptions & AbortOptions = {}
+  ): Promise<DocHandle<T>> {
+    const { signal } = options
+
+    // Check if already aborted
+    if (signal?.aborted) {
+      throw new Error("Operation aborted")
+    }
+
+    const progress = this.findWithProgress<T>(id, { signal })
+
+    if ("subscribe" in progress) {
+      this.#registerHandleWithSubsystems(progress.handle)
+      return new Promise((resolve, reject) => {
+        const unsubscribe = progress.subscribe(state => {
+          if (state.handle.state === "ready") {
+            unsubscribe()
+            resolve(state.handle)
+          } else if (state.state === "unavailable") {
+            unsubscribe()
+            reject(new Error(`Document ${id} is unavailable`))
+          } else if (state.state === "failed") {
+            unsubscribe()
+            reject(state.error)
+          }
+        })
+      })
+    } else {
+      if (progress.handle.state === READY) {
+        return progress.handle
+      }
+      // If the handle isn't ready, wait for it and then return it
+      await progress.handle.whenReady()
+      return progress.handle
+    }
+  }
+
   /**
    * Loads a document without waiting for ready state
    */
@@ -658,33 +690,6 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     this.#registerHandleWithSubsystems(handle)
     return handle
-  }
-
-  /**
-   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
-   * event to advertise interest in the document.
-   */
-  async findClassic<T>(
-    /** The url or documentId of the handle to retrieve */
-    id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
-  ): Promise<DocHandle<T>> {
-    const documentId = interpretAsDocumentId(id)
-    const { allowableStates, signal } = options
-
-    return abortable(
-      (async () => {
-        const handle = await this.#loadDocument<T>(documentId)
-        if (!allowableStates) {
-          await handle.whenReady([READY, UNAVAILABLE])
-          if (handle.state === UNAVAILABLE && !signal?.aborted) {
-            throw new Error(`Document ${id} is unavailable`)
-          }
-        }
-        return handle
-      })(),
-      signal
-    )
   }
 
   delete(
