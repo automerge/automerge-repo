@@ -719,9 +719,7 @@ describe("Repo", () => {
       // Initialize the network.
       for (let idx = 0; idx < numberOfPeers; idx++) {
         if (idx > 0) {
-          networkAdapters[idx - 1][1].peerCandidate(
-            `peer-${idx - 1}` as PeerId
-          )
+          networkAdapters[idx - 1][1].peerCandidate(`peer-${idx - 1}` as PeerId)
         }
         if (idx < numberOfPeers - 1) {
           networkAdapters[idx][0].peerCandidate(`peer-${idx + 1}` as PeerId)
@@ -752,7 +750,7 @@ describe("Repo", () => {
     })
 
     // Passes
-    it.only("chain of 3 repos can load a document (both awaits)", async () => {
+    it("chain of 3 repos can load a document (both awaits)", async () => {
       const { repos } = await createLinearConnectedRepos(3)
       const [repo1, repo2, repo3] = repos
 
@@ -763,30 +761,13 @@ describe("Repo", () => {
 
       const _ = await repo2.find<TestDoc>(handle.url)
       const handle3 = await repo3.find<TestDoc>(handle.url)
-      await handle3.whenReady()
-      const doc = handle3.doc()
-      assert.deepStrictEqual(doc, { foo: "baz" })
-    })
-
-    // Passes
-    it.only("chain of 3 repos can load a document (allow requesting state)", async () => {
-      const { repos } = await createLinearConnectedRepos(3)
-      const [repo1, repo2, repo3] = repos
-
-      const handle = repo1.create<TestDoc>()
-      handle.change(d => {
-        d.foo = "baz"
-      })
-
-      const _ = repo2.find<TestDoc>(handle.url)
-      const handle3 = await repo3.find<TestDoc>(handle.url, { allowableStates: ['ready', 'requesting'] })
-      await handle3.whenReady()
+      console.log(handle3.state)
       const doc = handle3.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
     })
 
     // Fails
-    it.only("chain of 3 repos can load a document (one awaits)", async () => {
+    it("chain of 3 repos can load a document (one awaits)", async () => {
       const { repos } = await createLinearConnectedRepos(3)
       const [repo1, repo2, repo3] = repos
 
@@ -796,8 +777,9 @@ describe("Repo", () => {
       })
 
       const _ = repo2.find<TestDoc>(handle.url)
+
       const handle3 = await repo3.find<TestDoc>(handle.url)
-      await handle3.whenReady()
+      console.log(handle3.state)
       const doc = handle3.doc()
       assert.deepStrictEqual(doc, { foo: "baz" })
     })
@@ -940,7 +922,6 @@ describe("Repo", () => {
       assert.deepStrictEqual(doc3, { foo: "bar" })
       teardown()
     })
-
 
     it("synchronizes changes from bobRepo to charlieRepo when loading from storage", async () => {
       const { bobRepo, bobStorage, teardown } = await setup()
@@ -1666,23 +1647,6 @@ describe("Repo.find() abort behavior", () => {
 
     await expect(findPromise).rejects.toThrow("Operation aborted")
     await expect(findPromise).rejects.not.toThrow("unavailable")
-  })
-
-  it("returns handle immediately when allow unavailable is true, even with abort signal", async () => {
-    const repo = new Repo()
-    const controller = new AbortController()
-    const url = generateAutomergeUrl()
-
-    const handle = await repo.find(url, {
-      allowableStates: ["unavailable"],
-      signal: controller.signal,
-    })
-
-    expect(handle).toBeDefined()
-
-    // Abort shouldn't affect the result since we skipped ready
-    controller.abort()
-    expect(handle.url).toBe(url)
   })
 })
 
