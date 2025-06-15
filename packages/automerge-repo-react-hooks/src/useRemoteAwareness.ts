@@ -1,6 +1,6 @@
 import {
   DocHandle,
-  DocHandleEphemeralMessagePayload,
+  type DocHandleEphemeralMessagePayload,
 } from "@automerge/automerge-repo/slim"
 import { useEffect } from "react"
 import useStateRef from "react-usestateref"
@@ -11,7 +11,7 @@ export const peerEvents = new EventEmitter()
 
 export interface UseRemoteAwarenessProps<T> {
   /** The handle to receive ephemeral state on */
-  handle: DocHandle<T>
+  handle?: DocHandle<unknown>
   /** Our user ID */
   localUserId?: string
   /** How long to wait (in ms) before marking a peer as offline */
@@ -21,7 +21,7 @@ export interface UseRemoteAwarenessProps<T> {
 }
 
 /** A map from peer ID to their state */
-export type PeerStates = Record<string, any>
+export type PeerStates<T> = Record<string, T>
 /** A map from peer ID to their last heartbeat timestamp */
 export type Heartbeats = Record<string, number>
 
@@ -42,19 +42,24 @@ export const useRemoteAwareness = <T>({
   localUserId,
   offlineTimeout = 30000,
   getTime = () => new Date().getTime(),
-}: UseRemoteAwarenessProps<T>): [PeerStates, Heartbeats] => {
+}: UseRemoteAwarenessProps<T>): [PeerStates<T>, Heartbeats] => {
   // TODO: You should be able to use multiple instances of this hook on the same handle (write test)
   // TODO: This should support some kind of caching or memoization when switching between channelIDs
-  const [peerStates, setPeerStates, peerStatesRef] = useStateRef<PeerStates>({})
+  const [peerStates, setPeerStates, peerStatesRef] = useStateRef<PeerStates<T>>(
+    {}
+  )
   const [heartbeats, setHeartbeats, heartbeatsRef] = useStateRef<Heartbeats>({})
   useEffect(() => {
+    if (!handle) return
+
     // Receive incoming message
     const handleIncomingUpdate = (
-      event: DocHandleEphemeralMessagePayload<T>
+      event: DocHandleEphemeralMessagePayload<unknown>
     ) => {
-      const [userId, state] = event.message as [string, unknown]
+      const [userId, state] = event.message as [string, T]
       if (userId === localUserId) return
       if (!heartbeatsRef.current[userId]) peerEvents.emit("new_peer", event) // Let useLocalAwareness know we've seen a new peer
+
       setPeerStates({
         ...peerStatesRef.current,
         [userId]: state,

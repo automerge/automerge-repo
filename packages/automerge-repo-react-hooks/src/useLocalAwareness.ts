@@ -1,18 +1,21 @@
 import { useEffect } from "react"
 import useStateRef from "react-usestateref"
-import { peerEvents } from "./useRemoteAwareness.js"
+import { peerEvents } from "./useRemoteAwareness"
 import { DocHandle } from "@automerge/automerge-repo/slim"
 
-export interface UseLocalAwarenessProps {
+export interface UseLocalAwarenessProps<T> {
   /** The document handle to send ephemeral state on */
-  handle: DocHandle<unknown>
+  handle?: DocHandle<unknown>
   /** Our user ID **/
   userId: string
   /** The initial state object/primitive we should advertise */
-  initialState: any
+  initialState: T
   /** How frequently to send heartbeats */
   heartbeatTime?: number
 }
+
+type StateUpdater<T> = (prevState: T) => T
+
 /**
  * This hook maintains state for the local client.
  * Like React.useState, it returns a [state, setState] array.
@@ -24,26 +27,30 @@ export interface UseLocalAwarenessProps {
  * Note that userIds aren't secure (yet). Any client can lie about theirs.
  *
  * @param {string} props.userId Unique user ID. Clients can lie about this.
- * @param {any} props.initialState Initial state object/primitive
+ * @param {T} props.initialState Initial state object/primitive
  * @param {number?1500} props.heartbeatTime How often to send a heartbeat (in ms)
  * @returns [state, setState]
  */
-export const useLocalAwareness = ({
-  handle,
+export const useLocalAwareness = <T>({
+  handle?,
   userId,
   initialState,
   heartbeatTime = 15000,
-}: UseLocalAwarenessProps) => {
-  const [localState, setLocalState, localStateRef] = useStateRef(initialState)
+}: UseLocalAwarenessProps<T>): [
+  T,
+  (stateOrUpdater: T | StateUpdater<T>) => void
+] => {
+  const [localState, setLocalState, localStateRef] =
+    useStateRef<T>(initialState)
 
-  const setState = (stateOrUpdater: any) => {
+  const setState = (stateOrUpdater: T | StateUpdater<T>) => {
     const state =
       typeof stateOrUpdater === "function"
-        ? stateOrUpdater(localStateRef.current)
+        ? (stateOrUpdater as StateUpdater<T>)(localStateRef.current)
         : stateOrUpdater
     setLocalState(state)
     // TODO: Send deltas instead of entire state
-    handle.broadcast([userId, state])
+    handle?.broadcast([userId, state])
   }
 
   useEffect(() => {
@@ -55,7 +62,7 @@ export const useLocalAwareness = ({
 
     // Send periodic heartbeats
     const heartbeat = () =>
-      void handle.broadcast([userId, localStateRef.current])
+      void handle?.broadcast([userId, localStateRef.current])
     heartbeat() // Initial heartbeat
     // TODO: we don't need to send a heartbeat if we've changed state recently; use recursive setTimeout instead of setInterval
     const heartbeatIntervalId = setInterval(heartbeat, heartbeatTime)
@@ -64,16 +71,18 @@ export const useLocalAwareness = ({
 
   useEffect(() => {
     // Send entire state to new peers
-    let broadcastTimeoutId: ReturnType<typeof setTimeout>
+    let broadcastTimeoutId: ReturnType<typeof setTimeout> | undefined
     const newPeerEvents = peerEvents.on("new_peer", () => {
       broadcastTimeoutId = setTimeout(
-        () => handle.broadcast([userId, localStateRef.current]),
+        () => handle?.broadcast([userId, localStateRef.current]),
         500 // Wait for the peer to be ready
       )
     })
     return () => {
       newPeerEvents.off("new_peer")
-      broadcastTimeoutId && clearTimeout(broadcastTimeoutId)
+      if (broadcastTimeoutId) {
+        clearTimeout(broadcastTimeoutId)
+      }
     }
   }, [handle, userId, peerEvents])
 
