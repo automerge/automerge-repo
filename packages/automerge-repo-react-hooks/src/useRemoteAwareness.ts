@@ -12,11 +12,11 @@ export const peerEvents = new EventEmitter()
 export interface UseRemoteAwarenessProps<T> {
   /** The handle to receive ephemeral state on */
   handle?: DocHandle<unknown>
-  /** Our user ID */
+  /** Our user ID - Automerge BroadcastChannel sometimes sends us our own messages; optionally filters them */
   localUserId?: string
   /** How long to wait (in ms) before marking a peer as offline */
   offlineTimeout?: number
-  /** Function to provide current epoch time */
+  /** Function to provide current epoch time (used for testing) */
   getTime?: () => number
 }
 
@@ -31,11 +31,6 @@ export type Heartbeats = Record<string, number>
  * It also returns their heartbeat status.
  * It is intended to be used alongside useLocalAwareness.
  *
- * @param {string} props.handle A document handle to associate with
- * @param {string?} props.localUserId Automerge BroadcastChannel sometimes sends us our own messages; optionally filters them
- * @param {number?30000} props.offlineTimeout How long to wait (in ms) before marking a peer as offline
- * @param {function?} props.getTime Function to provide current epoch time (used for testing)
- * @returns [ peerStates: { [userId]: state, ... }, { [userId]: heartbeatEpochTime, ...} ]
  */
 export const useRemoteAwareness = <T>({
   handle,

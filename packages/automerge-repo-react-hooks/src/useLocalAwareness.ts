@@ -6,17 +6,18 @@ import { DocHandle } from "@automerge/automerge-repo/slim"
 export interface UseLocalAwarenessProps<T> {
   /** The document handle to send ephemeral state on */
   handle?: DocHandle<unknown>
-  /** Our user ID **/
+  /** Our unique user ID. Clients can lie about this. **/
   userId: string
   /** The initial state object/primitive we should advertise */
   initialState: T
-  /** How frequently to send heartbeats */
+  /** How frequently to send heartbeats (in ms) */
   heartbeatTime?: number
 }
 
 type StateUpdater<T> = (prevState: T) => T
 
 /**
+ *
  * This hook maintains state for the local client.
  * Like React.useState, it returns a [state, setState] array.
  * It is intended to be used alongside useRemoteAwareness.
@@ -26,10 +27,6 @@ type StateUpdater<T> = (prevState: T) => T
  *
  * Note that userIds aren't secure (yet). Any client can lie about theirs.
  *
- * @param {string} props.userId Unique user ID. Clients can lie about this.
- * @param {T} props.initialState Initial state object/primitive
- * @param {number?1500} props.heartbeatTime How often to send a heartbeat (in ms)
- * @returns [state, setState]
  */
 export const useLocalAwareness = <T>({
   handle?,
