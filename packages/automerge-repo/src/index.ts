@@ -121,6 +121,12 @@ export const Counter = Automerge.Counter
 export const RawString = Automerge.RawString
 // In automerge 3.0 RawString is renamed to ImmutableString
 export const ImmutableString = Automerge.RawString
+
+// Export separate RawString and ImmutableString types,
+// whose symbols are only usable as values otherwise.
+export type RawString = InstanceType<typeof Automerge.RawString>
+export type ImmutableString = RawString
+
 export type Counter = Automerge.Counter
 export type Doc<T> = Automerge.Doc<T>
 export type Heads = Automerge.Heads
