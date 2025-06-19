@@ -298,6 +298,8 @@ export class DocSynchronizer extends Synchronizer {
   endSync(peerId: PeerId) {
     this.#log(`removing peer ${peerId}`)
     this.#peers = this.#peers.filter(p => p !== peerId)
+    delete this.#peerDocumentStatuses[peerId]
+    this.#checkDocUnavailable()
   }
 
   receiveMessage(message: RepoMessage) {
@@ -399,7 +401,7 @@ export class DocSynchronizer extends Synchronizer {
     // if we know none of the peers have the document, tell all our peers that we don't either
     if (
       this.#syncStarted &&
-      this.#handle.inState([REQUESTING]) &&
+      this.#handle.inState([REQUESTING, UNAVAILABLE]) &&
       this.#peers.every(
         peerId =>
           this.#peerDocumentStatuses[peerId] === "unavailable" ||
@@ -409,6 +411,9 @@ export class DocSynchronizer extends Synchronizer {
       this.#peers
         .filter(peerId => this.#peerDocumentStatuses[peerId] === "wants")
         .forEach(peerId => {
+          // Transition the peer to unavailable so that we don't send it a doc-unavailable
+          // message every time we run #checkDocUnavailable
+          this.#peerDocumentStatuses[peerId] = "unavailable"
           const message: MessageContents<DocumentUnavailableMessage> = {
             type: "doc-unavailable",
             documentId: this.#handle.documentId,
