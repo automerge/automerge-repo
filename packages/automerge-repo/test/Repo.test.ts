@@ -208,6 +208,52 @@ describe("Repo", () => {
       }).rejects.toThrow(/Document (.*) is unavailable/)
     })
 
+    it("immediately marks a document as unavailable even if requested multiple times", async () => {
+      /**
+       * This exercises an issue where the first time a document is requested
+       * from some remote and the remote doesn't have the document then it
+       * immediately returns an unavailable error, but if the same document is
+       * requested again before the remote is restarted then it never sends
+       * the unavailable message leading to timeouts on the requesting end
+       */
+      const alice = new Repo({
+        peerId: "alice" as PeerId,
+        sharePolicy: async () => false,
+      })
+      const bob = new Repo({ peerId: "bob" as PeerId })
+      const [aliceToBob, bobToAlice] = DummyNetworkAdapter.createConnectedPair()
+      alice.networkSubsystem.addNetworkAdapter(aliceToBob)
+      bob.networkSubsystem.addNetworkAdapter(bobToAlice)
+      aliceToBob.peerCandidate("bob" as PeerId)
+      bobToAlice.peerCandidate("alice" as PeerId)
+      await Promise.all([
+        alice.networkSubsystem.whenReady(),
+        bob.networkSubsystem.whenReady(),
+      ])
+
+      await assert.rejects(() =>
+        bob.find("automerge:uKK1dJ4vE3E6r27kz5bsFaCykvM" as AutomergeUrl)
+      )
+      aliceToBob.emit("peer-disconnected", { peerId: "bob" as PeerId })
+      bobToAlice.emit("peer-disconnected", { peerId: "alice" as PeerId })
+
+      const charlie = new Repo({ peerId: "charlie" as PeerId })
+      const [charlieToAlice, aliceToCharlie] =
+        DummyNetworkAdapter.createConnectedPair()
+      charlie.networkSubsystem.addNetworkAdapter(charlieToAlice)
+      alice.networkSubsystem.addNetworkAdapter(aliceToCharlie)
+      charlieToAlice.peerCandidate("alice" as PeerId)
+      aliceToCharlie.peerCandidate("charlie" as PeerId)
+      await Promise.all([
+        charlie.networkSubsystem.whenReady(),
+        alice.networkSubsystem.whenReady(),
+      ])
+
+      await assert.rejects(() =>
+        charlie.find("automerge:uKK1dJ4vE3E6r27kz5bsFaCykvM" as AutomergeUrl)
+      )
+    })
+
     it("should not return an unavailable handle on second request", async () => {
       const alice = new Repo({
         peerId: "alice" as PeerId,
