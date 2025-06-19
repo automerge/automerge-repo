@@ -208,6 +208,19 @@ describe("Repo", () => {
       }).rejects.toThrow(/Document (.*) is unavailable/)
     })
 
+    it("should not return an unavailable handle on second request", async () => {
+      const alice = new Repo({
+        peerId: "alice" as PeerId,
+        sharePolicy: async () => true,
+      })
+      await assert.rejects(() =>
+        alice.find("automerge:uKK1dJ4vE3E6r27kz5bsFaCykvM" as AutomergeUrl)
+      )
+      await assert.rejects(() =>
+        alice.find("automerge:uKK1dJ4vE3E6r27kz5bsFaCykvM" as AutomergeUrl)
+      )
+    })
+
     it("doesn't mark a document as unavailable until network adapters are ready", async () => {
       const { repo, networkAdapter } = setup({ startReady: false })
       const url = generateAutomergeUrl()

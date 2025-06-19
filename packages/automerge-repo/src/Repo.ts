@@ -624,6 +624,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
       // If the handle isn't ready, wait for it and then return it
       await progress.handle.whenReady([READY, UNAVAILABLE])
+      if (
+        progress.handle.state === "unavailable" &&
+        !allowableStates.includes(UNAVAILABLE)
+      ) {
+        throw new Error(`Document ${id} is unavailable`)
+      }
       return progress.handle
     }
   }
