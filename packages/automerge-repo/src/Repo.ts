@@ -629,6 +629,133 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
+   * Finds a document by its ID, or creates it if it doesn't exist.
+   *
+   * @remarks
+   * This method combines {@link find} and {@link create} operations. It first attempts
+   * to find the document. If the document doesn't exist (or is unavailable), it creates
+   * a new document with the specified ID.
+   *
+   * Multiple peers can safely call this method with the same document ID simultaneously.
+   * If they do, Automerge will merge their concurrent creates automatically through its
+   * normal CRDT merge semantics.
+   *
+   * @param documentId - The ID of the document to find or create
+   * @param initialValue - The initial value for the document if it needs to be created
+   * @param options - Options for the find operation (abort signal)
+   * @returns A promise that resolves to the document handle
+   *
+   * @example
+   * ```typescript
+   * // Find or create with default empty object
+   * const handle = await repo.findOrCreate(documentId)
+   *
+   * // Find or create with initial data
+   * const handle = await repo.findOrCreate(documentId, { name: "Alice", age: 30 })
+   * ```
+   */
+  async findOrCreate<T>(
+    documentId: DocumentId,
+    initialValue?: T,
+    options: AbortOptions = {}
+  ): Promise<DocHandle<T>> {
+    const { signal } = options
+
+    // Check if already aborted
+    if (signal?.aborted) {
+      throw new Error("Operation aborted")
+    }
+
+    // Get or create the handle
+    const handle = this.#getHandle<T>({ documentId })
+
+    // Check handle state and handle terminal states
+    if (handle.state === READY) {
+      return handle
+    }
+
+    if (handle.state === DELETED) {
+      throw new Error(`Document ${documentId} has been deleted`)
+    }
+
+    // Register for sync (even if UNAVAILABLE - network conditions may have changed)
+    this.#registerHandleWithSubsystems(handle)
+
+    // Try to load from storage first
+    if (this.storageSubsystem && handle.state === UNLOADED) {
+      try {
+        const storedDoc = await this.storageSubsystem.loadDoc(documentId)
+        if (storedDoc) {
+          handle.update(() => storedDoc as Automerge.Doc<T>)
+          handle.doneLoading()
+          return handle
+        }
+      } catch (error) {
+        this.#log("Failed to load from storage:", error)
+      }
+    }
+
+    // Give network a chance to provide the document
+    // But only wait if we have network peers and the document might exist
+    if (this.networkSubsystem.isReady() && handle.state !== READY) {
+      // If we have no peers connected, don't wait - just create
+      const hasPeers = this.peers.length > 0
+
+      if (hasPeers) {
+        try {
+          // Use a shorter timeout for findOrCreate operation
+          // We'll wait up to 5 seconds for the document to be found
+          const findTimeout = 5000
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("FindOrCreate timeout")),
+              findTimeout
+            )
+          )
+
+          await Promise.race([
+            handle.whenReady([READY, UNAVAILABLE, DELETED]),
+            timeoutPromise,
+          ])
+
+          if (handle.state === READY) {
+            return handle
+          }
+
+          if (handle.state === DELETED) {
+            throw new Error(`Document ${documentId} has been deleted`)
+          }
+
+          // If unavailable, continue to create below
+        } catch (error) {
+          // Timeout or other error - continue to create
+          this.#log(
+            "Document not found within timeout, creating new:",
+            documentId,
+            error
+          )
+        }
+      }
+    }
+
+    // If still not ready, create it
+    if (handle.state !== READY && handle.state !== DELETED) {
+      handle.update(() => {
+        let nextDoc: Automerge.Doc<T>
+        if (initialValue) {
+          nextDoc = Automerge.from(initialValue)
+        } else {
+          nextDoc = Automerge.emptyChange(Automerge.init())
+        }
+        return nextDoc
+      })
+      handle.doneLoading()
+    }
+
+    return handle
+  }
+
+  /**
    * Loads a document without waiting for ready state
    */
   async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
