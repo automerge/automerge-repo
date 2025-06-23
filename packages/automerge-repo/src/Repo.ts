@@ -206,7 +206,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         return
       }
 
-      const heads = handle.getRemoteHeads(storageId)
+      const heads = handle.getSyncInfo(storageId)?.lastHeads
       const haveHeadsChanged =
         message.syncState.theirHeads &&
         (!heads ||
