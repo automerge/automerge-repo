@@ -35,8 +35,8 @@ type RemoteHeadsSubscriptionEvents = {
 }
 
 export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscriptionEvents> {
-  // Storage IDs we have received remote heads from
-  #knownHeads: Map<DocumentId, Map<StorageId, LastHeads>> = new Map()
+  // Last known heads and timestamp for each storageId that we know about
+  #syncInfoByDocId: Map<DocumentId, Map<StorageId, SyncInfo>> = new Map()
   // Storage IDs we have subscribed to via Repo.subscribeToRemoteHeads
   #ourSubscriptions: Set<StorageId> = new Set()
   // Storage IDs other peers have subscribed to by sending us a control message
@@ -142,18 +142,18 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       const subscribedDocs = this.#subscribedDocsByPeer.get(control.senderId)
       if (subscribedDocs) {
         for (const documentId of subscribedDocs) {
-          const knownHeads = this.#knownHeads.get(documentId)
-          if (!knownHeads) {
+          const syncInfo = this.#syncInfoByDocId.get(documentId)
+          if (!syncInfo) {
             continue
           }
 
-          const lastHeads = knownHeads.get(remote)
-          if (lastHeads) {
+          const syncInfoForRemote = syncInfo.get(remote)
+          if (syncInfoForRemote) {
             this.emit("notify-remote-heads", {
               targetId: control.senderId,
               documentId,
-              heads: lastHeads.heads,
-              timestamp: lastHeads.timestamp,
+              heads: syncInfoForRemote.lastHeads,
+              timestamp: syncInfoForRemote.lastSyncTimestamp,
               storageId: remote,
             })
           }
@@ -218,17 +218,22 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     heads: UrlHeads
   ) {
     this.#log("handleLocalHeadsChanged", documentId, storageId, heads)
-    const remote = this.#knownHeads.get(documentId)
+    const remote = this.#syncInfoByDocId.get(documentId)
     const timestamp = Date.now()
     if (!remote) {
-      this.#knownHeads.set(
+      this.#syncInfoByDocId.set(
         documentId,
-        new Map([[storageId, { heads, timestamp }]])
+        new Map([
+          [storageId, { lastSyncTimestamp: timestamp, lastHeads: heads }],
+        ])
       )
     } else {
       const docRemote = remote.get(storageId)
-      if (!docRemote || docRemote.timestamp < Date.now()) {
-        remote.set(storageId, { heads, timestamp: Date.now() })
+      if (!docRemote || docRemote.lastSyncTimestamp < Date.now()) {
+        remote.set(storageId, {
+          lastSyncTimestamp: Date.now(),
+          lastHeads: heads,
+        })
       }
     }
     const theirSubs = this.#theirSubscriptions.get(storageId)
@@ -258,13 +263,13 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       })
     }
 
-    for (const [documentId, remote] of this.#knownHeads) {
-      for (const [storageId, { heads, timestamp }] of remote) {
+    for (const [documentId, remote] of this.#syncInfoByDocId) {
+      for (const [storageId, { lastHeads, lastSyncTimestamp }] of remote) {
         this.emit("notify-remote-heads", {
           targetId: peerId,
           documentId: documentId,
-          heads: heads,
-          timestamp: timestamp,
+          heads: lastHeads,
+          timestamp: lastSyncTimestamp,
           storageId: storageId,
         })
       }
@@ -307,7 +312,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
 
     subscribedDocs.add(documentId)
 
-    const remoteHeads = this.#knownHeads.get(documentId)
+    const remoteHeads = this.#syncInfoByDocId.get(documentId)
     if (remoteHeads) {
       for (const [storageId, lastHeads] of remoteHeads) {
         const subscribedPeers = this.#theirSubscriptions.get(storageId)
@@ -315,8 +320,8 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
           this.emit("notify-remote-heads", {
             targetId: peerId,
             documentId,
-            heads: lastHeads.heads,
-            timestamp: lastHeads.timestamp,
+            heads: lastHeads.lastHeads,
+            timestamp: lastHeads.lastSyncTimestamp,
             storageId,
           })
         }
@@ -345,19 +350,19 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       ) {
         continue
       }
-      let remote = this.#knownHeads.get(documentId)
+      let remote = this.#syncInfoByDocId.get(documentId)
       if (!remote) {
         remote = new Map()
-        this.#knownHeads.set(documentId, remote)
+        this.#syncInfoByDocId.set(documentId, remote)
       }
 
       const docRemote = remote.get(storageId as StorageId)
-      if (docRemote && docRemote.timestamp >= timestamp) {
+      if (docRemote && docRemote.lastSyncTimestamp >= timestamp) {
         continue
       } else {
         remote.set(storageId as StorageId, {
-          timestamp,
-          heads: heads as UrlHeads,
+          lastSyncTimestamp: timestamp,
+          lastHeads: heads as UrlHeads,
         })
         changedHeads.push({
           documentId,
@@ -371,7 +376,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   }
 }
 
-type LastHeads = {
-  timestamp: number
-  heads: UrlHeads
+export type SyncInfo = {
+  lastSyncTimestamp: number // timestamp of the last sync
+  lastHeads: UrlHeads // heads of the storageId at the time of the last sync
 }

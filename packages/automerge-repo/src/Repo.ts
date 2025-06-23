@@ -213,10 +213,10 @@ export class Repo extends EventEmitter<RepoEvents> {
           !headsAreSame(heads, encodeHeads(message.syncState.theirHeads)))
 
       if (haveHeadsChanged && message.syncState.theirHeads) {
-        handle.setRemoteHeads(
-          storageId,
-          encodeHeads(message.syncState.theirHeads)
-        )
+        handle.setSyncInfo(storageId, {
+          lastHeads: encodeHeads(message.syncState.theirHeads),
+          lastSyncTimestamp: Date.now(),
+        })
 
         if (storageId && this.#remoteHeadsGossipingEnabled) {
           this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
@@ -255,10 +255,16 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
       })
 
-      this.#remoteHeadsSubscriptions.on("remote-heads-changed", message => {
-        const handle = this.#handleCache[message.documentId]
-        handle.setRemoteHeads(message.storageId, message.remoteHeads)
-      })
+      this.#remoteHeadsSubscriptions.on(
+        "remote-heads-changed",
+        ({ documentId, storageId, remoteHeads, timestamp }) => {
+          const handle = this.#handleCache[documentId]
+          handle.setSyncInfo(storageId, {
+            lastHeads: remoteHeads,
+            lastSyncTimestamp: timestamp,
+          })
+        }
+      )
     }
   }
 

@@ -9,6 +9,7 @@ import {
   DocHandleRemoteHeadsPayload,
   PeerId,
   Repo,
+  UrlHeads,
 } from "../src/index.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import { collectMessages } from "./helpers/collectMessages.js"
@@ -29,7 +30,10 @@ describe("DocHandle.remoteHeads", () => {
     const bobStorageId = await bobRepo.storageId()
 
     const remoteHeadsMessagePromise = eventPromise(handle, "remote-heads")
-    handle.setRemoteHeads(bobStorageId, [])
+    handle.setSyncInfo(bobStorageId, {
+      lastHeads: [] as UrlHeads,
+      lastSyncTimestamp: Date.now(),
+    })
 
     const remoteHeadsMessage = await remoteHeadsMessagePromise
 
