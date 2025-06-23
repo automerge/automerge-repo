@@ -6,6 +6,7 @@ import {
 } from "./network/messages.js"
 import { StorageId } from "./index.js"
 import debug from "debug"
+import { SyncInfo } from "./DocHandle.js"
 
 // Notify a DocHandle that remote heads have changed
 export type RemoteHeadsSubscriptionEventPayload = {
@@ -374,9 +375,4 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     }
     return changedHeads
   }
-}
-
-export type SyncInfo = {
-  lastSyncTimestamp: number // timestamp of the last sync
-  lastHeads: UrlHeads // heads of the storageId at the time of the last sync
 }

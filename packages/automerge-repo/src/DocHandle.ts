@@ -12,7 +12,6 @@ import { headsAreSame } from "./helpers/headsAreSame.js"
 import { withTimeout } from "./helpers/withTimeout.js"
 import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
 import { StorageId } from "./storage/types.js"
-import { SyncInfo } from "./RemoteHeadsSubscriptions.js"
 
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
@@ -654,6 +653,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 }
 
 //  TYPES
+
+export type SyncInfo = {
+  lastHeads: UrlHeads
+  lastSyncTimestamp: number
+}
 
 /** @hidden */
 export type DocHandleOptions<T> =

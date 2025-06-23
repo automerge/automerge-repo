@@ -60,6 +60,7 @@ export type {
   DocHandleOptions,
   DocHandleOutboundEphemeralMessagePayload,
   HandleState,
+  SyncInfo,
 } from "./DocHandle.js"
 
 export type {
