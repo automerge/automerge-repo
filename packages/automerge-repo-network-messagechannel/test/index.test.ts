@@ -1,6 +1,10 @@
-import { describe } from "vitest"
+import { assert, describe, it } from "vitest"
 import { runNetworkAdapterTests } from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
-import { MessageChannelNetworkAdapter as Adapter } from "../src/index.js"
+import {
+  MessageChannelNetworkAdapter as Adapter,
+  MessageChannelNetworkAdapter,
+} from "../src/index.js"
+import { Repo } from "@automerge/automerge-repo/slim"
 
 // bob is the hub, alice and charlie are spokes
 describe("MessageChannelNetworkAdapter", () => {
@@ -51,4 +55,31 @@ describe("MessageChannelNetworkAdapter", () => {
 
     return { adapters: [a, b, c], teardown }
   }, "all-to-all")
+
+  it("should close the network adapter when a 'leave' message is received", async () => {
+    const { port1: aliceToBob, port2: bobToAlice } = new MessageChannel()
+    const alice = new Repo({
+      network: [
+        new MessageChannelNetworkAdapter(aliceToBob, { useWeakRef: false }),
+      ],
+    })
+    const bob = new Repo({
+      network: [
+        new MessageChannelNetworkAdapter(bobToAlice, { useWeakRef: true }),
+      ],
+    })
+
+    await Promise.all([
+      alice.networkSubsystem.whenReady(),
+      bob.networkSubsystem.whenReady(),
+    ])
+
+    alice.networkSubsystem.disconnect()
+
+    // Wait for bob to process the leave message
+    await new Promise(r => setTimeout(r, 100))
+
+    assert.equal(bob.networkSubsystem.adapters.length, 0)
+    assert.equal(alice.networkSubsystem.adapters.length, 0)
+  })
 })

@@ -102,6 +102,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
           delete this.#adaptersByPeer[peerId as PeerId]
         }
       })
+      this.adapters = this.adapters.filter(a => a !== networkAdapter)
     })
 
     this.peerMetadata
