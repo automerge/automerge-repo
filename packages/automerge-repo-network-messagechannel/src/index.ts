@@ -101,6 +101,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
           case "leave":
             if (this.#remotePeerId === senderId) {
               this.emit("peer-disconnected", { peerId: senderId })
+              this.emit("close")
             }
             break
           default:
@@ -167,6 +168,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
         senderId: this.peerId,
       })
       this.emit("peer-disconnected", { peerId: this.#remotePeerId })
+      this.emit("close")
     }
     this.messagePortRef.stop()
   }
