@@ -9,6 +9,7 @@ import {
   DocHandleRemoteHeadsPayload,
   PeerId,
   Repo,
+  UrlHeads,
 } from "../src/index.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import { collectMessages } from "./helpers/collectMessages.js"
@@ -18,7 +19,7 @@ import { pause } from "../src/helpers/pause.js"
 describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-  it("should allow to listen for remote head changes and manually read remote heads", async () => {
+  it("should allow to listen for remote head changes and manually read sync info", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
     const bobRepo = new Repo({
       peerId: "bob" as PeerId,
@@ -29,7 +30,10 @@ describe("DocHandle.remoteHeads", () => {
     const bobStorageId = await bobRepo.storageId()
 
     const remoteHeadsMessagePromise = eventPromise(handle, "remote-heads")
-    handle.setRemoteHeads(bobStorageId, [])
+    handle.setSyncInfo(bobStorageId, {
+      lastHeads: [] as UrlHeads,
+      lastSyncTimestamp: 1000,
+    })
 
     const remoteHeadsMessage = await remoteHeadsMessagePromise
 
@@ -37,7 +41,13 @@ describe("DocHandle.remoteHeads", () => {
     assert.deepStrictEqual(remoteHeadsMessage.heads, [])
 
     // read remote heads manually
-    assert.deepStrictEqual(handle.getRemoteHeads(bobStorageId), [])
+
+    const syncInfo = handle.getSyncInfo(bobStorageId)
+
+    assert.deepStrictEqual(syncInfo, {
+      lastHeads: [] as UrlHeads,
+      lastSyncTimestamp: 1000,
+    })
   })
 
   describe("multi hop sync", () => {

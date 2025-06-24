@@ -42,8 +42,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * unavailable much sooner if all known peers respond that they don't have it.) */
   #timeoutDelay = 60_000
 
-  /** A dictionary mapping each peer to the last heads we know they have. */
-  #remoteHeads: Record<StorageId, UrlHeads> = {}
+  /** A dictionary mapping each peer to the last known heads we have. */
+  #syncInfoByStorageId: Record<StorageId, SyncInfo> = {}
 
   /** Cache for view handles, keyed by the stringified heads */
   #viewCache: Map<string, DocHandle<T>> = new Map()
@@ -482,14 +482,26 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Called by the repo when a doc handle changes or we receive new remote heads.
    * @hidden
    */
-  setRemoteHeads(storageId: StorageId, heads: UrlHeads) {
-    this.#remoteHeads[storageId] = heads
-    this.emit("remote-heads", { storageId, heads })
+  setSyncInfo(storageId: StorageId, syncInfo: SyncInfo) {
+    this.#syncInfoByStorageId[storageId] = syncInfo
+    this.emit("remote-heads", {
+      storageId,
+      heads: syncInfo.lastHeads,
+      timestamp: syncInfo.lastSyncTimestamp,
+    })
   }
 
-  /** Returns the heads of the storageId. */
+  /** Returns the heads of the storageId.
+   *
+   * @deprecated Use getSyncInfo instead.
+   */
   getRemoteHeads(storageId: StorageId): UrlHeads | undefined {
-    return this.#remoteHeads[storageId]
+    return this.#syncInfoByStorageId[storageId]?.lastHeads
+  }
+
+  /** Returns the heads and the timestamp of the last update for the storageId. */
+  getSyncInfo(storageId: StorageId): SyncInfo | undefined {
+    return this.#syncInfoByStorageId[storageId]
   }
 
   /**
@@ -642,6 +654,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
 //  TYPES
 
+export type SyncInfo = {
+  lastHeads: UrlHeads
+  lastSyncTimestamp: number
+}
+
 /** @hidden */
 export type DocHandleOptions<T> =
   // NEW DOCUMENTS
@@ -722,6 +739,7 @@ export interface DocHandleOutboundEphemeralMessagePayload<T> {
 export interface DocHandleRemoteHeadsPayload {
   storageId: StorageId
   heads: UrlHeads
+  timestamp: number
 }
 
 // STATE MACHINE TYPES & CONSTANTS

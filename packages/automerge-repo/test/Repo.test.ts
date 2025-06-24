@@ -1326,9 +1326,10 @@ describe("Repo", () => {
       const nextRemoteHeadsPromise = new Promise<{
         storageId: StorageId
         heads: UrlHeads
+        timestamp: number
       }>(resolve => {
-        handle.on("remote-heads", ({ storageId, heads }) => {
-          resolve({ storageId, heads })
+        handle.on("remote-heads", ({ storageId, heads, timestamp }) => {
+          resolve({ storageId, heads, timestamp })
         })
       })
 
@@ -1348,10 +1349,10 @@ describe("Repo", () => {
       assert.deepStrictEqual(nextRemoteHeads.storageId, charliedStorageId)
       assert.deepStrictEqual(nextRemoteHeads.heads, charlieHandle.heads())
 
-      assert.deepStrictEqual(
-        handle.getRemoteHeads(charliedStorageId),
-        charlieHandle.heads()
-      )
+      const syncInfo = handle.getSyncInfo(charliedStorageId)
+
+      assert.deepStrictEqual(syncInfo?.lastHeads, charlieHandle.heads())
+      assert.strictEqual(syncInfo?.lastSyncTimestamp, nextRemoteHeads.timestamp)
 
       teardown()
     })

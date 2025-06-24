@@ -3,7 +3,7 @@ import assert from "assert"
 import { describe, it } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { RemoteHeadsSubscriptions } from "../src/RemoteHeadsSubscriptions.js"
-import { PeerId, StorageId } from "../src/index.js"
+import { PeerId, StorageId, UrlHeads } from "../src/index.js"
 import {
   RemoteHeadsChanged,
   RemoteSubscriptionControlMessage,
@@ -32,7 +32,7 @@ describe("RepoHeadsSubscriptions", () => {
     newHeads: {
       [storageB]: {
         heads: [],
-        timestamp: Date.now(),
+        timestamp: 1000,
       },
     },
   }
@@ -45,7 +45,7 @@ describe("RepoHeadsSubscriptions", () => {
     newHeads: {
       [storageB]: {
         heads: [],
-        timestamp: Date.now(),
+        timestamp: 2000,
       },
     },
   }
@@ -64,7 +64,7 @@ describe("RepoHeadsSubscriptions", () => {
     newHeads: {
       [storageB]: {
         heads: docBHeads,
-        timestamp: Date.now() + 1,
+        timestamp: 3000,
       },
     },
   }
@@ -153,7 +153,7 @@ describe("RepoHeadsSubscriptions", () => {
     remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
       docC,
       storageB,
-      []
+      [] as UrlHeads
     )
 
     // should forward remote-heads events
@@ -233,7 +233,7 @@ describe("RepoHeadsSubscriptions", () => {
     remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
       docC,
       storageB,
-      []
+      [] as UrlHeads
     )
 
     // expect peer c to be notified both changes
@@ -279,7 +279,7 @@ describe("RepoHeadsSubscriptions", () => {
     remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
       docC,
       storageB,
-      []
+      [] as UrlHeads
     )
 
     // expect peer c to be notified both changes
@@ -309,6 +309,7 @@ describe("RepoHeadsSubscriptions", () => {
     assert.strictEqual(messages[0].storageId, storageB)
     assert.strictEqual(messages[0].documentId, docB)
     assert.deepStrictEqual(messages[0].remoteHeads, docBHeads)
+    assert.strictEqual(messages[0].timestamp, 3000)
   })
 
   it("should remove subs of disconnected peers", async () => {
