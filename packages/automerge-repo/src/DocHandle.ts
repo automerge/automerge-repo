@@ -576,6 +576,20 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
+   * Check if the document can be change()ed. Currently, documents can be
+   * edited unless we are viewing a particular point in time.
+   *
+   * @remarks It is technically possible to back-date changes using changeAt(),
+   *          but we block it for usability reasons when viewing a particular point in time.
+   *          To make changes in the past, use the primary document handle with no heads set.
+   *
+   * @returns boolean indicating whether changes are possible
+   */
+  isReadOnly() {
+    return !!this.#fixedHeads
+  }
+
+  /**
    * Merges another document into this document. Any peers we are sharing changes with will be
    * notified of the changes resulting from the merge.
    *

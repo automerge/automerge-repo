@@ -587,4 +587,57 @@ describe("DocHandle", () => {
     // Cached access should be significantly faster
     expect(timeForCachedAccesses).toBeLessThan(timeForFirstAccess / 10)
   })
+
+  describe("isReadOnly", () => {
+    it("should return false for a regular document handle", () => {
+      const handle = setup()
+      expect(handle.isReadOnly()).toBe(false)
+    })
+
+    it("should return false for a newly created document handle", () => {
+      const handle = new DocHandle<TestDoc>(TEST_ID)
+      expect(handle.isReadOnly()).toBe(false)
+    })
+
+    it("should return true for a view handle with fixed heads", () => {
+      const handle = setup()
+      handle.change(doc => {
+        doc.foo = "test"
+      })
+
+      const heads = handle.heads()
+      const viewHandle = handle.view(heads)
+
+      expect(viewHandle.isReadOnly()).toBe(true)
+    })
+
+    it("should return true for a handle constructed with fixed heads", () => {
+      const handle = setup()
+      handle.change(doc => {
+        doc.foo = "test"
+      })
+
+      const heads = handle.heads()
+      const fixedHeadsHandle = new DocHandle<TestDoc>(TEST_ID, { heads })
+      fixedHeadsHandle.update(() => A.clone(handle.doc()!))
+      fixedHeadsHandle.doneLoading()
+
+      expect(fixedHeadsHandle.isReadOnly()).toBe(true)
+    })
+
+    it("should return false after regular changes", () => {
+      const handle = setup()
+
+      // Initially not read-only
+      expect(handle.isReadOnly()).toBe(false)
+
+      // Make a change
+      handle.change(doc => {
+        doc.foo = "changed"
+      })
+
+      // Still not read-only
+      expect(handle.isReadOnly()).toBe(false)
+    })
+  })
 })
