@@ -640,4 +640,54 @@ describe("DocHandle", () => {
       expect(handle.isReadOnly()).toBe(false)
     })
   })
+
+  it("should continue to function after recovering from an exception in change", () => {
+    const handle = setup()
+
+    // throw an error in the change handler, but catch it
+    let expectedErr = new Error("Argh!")
+    let err: Error | null = null
+    try {
+      handle.change(doc => {
+        doc.foo = "bar"
+        throw expectedErr
+      })
+    } catch (e) {
+      err = e
+    }
+    assert.equal(err, expectedErr, "should have thrown the error")
+
+    // Future changes should still work
+    handle.change(doc => {
+      doc.foo = "baz"
+    })
+    assert.equal(handle.doc()?.foo, "baz", "should have changed foo to baz")
+  })
+
+  it("should continue to function after recovering from an exception in changeAt", () => {
+    const handle = setup()
+    handle.change(d => (d.foo = "bar"))
+
+    const heads = handle.heads()!
+    handle.change(d => (d.foo = "qux"))
+
+    // throw an error in the change handler, but catch it
+    let expectedErr = new Error("Argh!")
+    let err: Error | null = null
+    try {
+      handle.changeAt(heads, doc => {
+        doc.foo = "bar"
+        throw expectedErr
+      })
+    } catch (e) {
+      err = e
+    }
+    assert.equal(err, expectedErr, "should have thrown the error")
+
+    // Future changes should still work
+    const newHeads = handle.changeAt(heads, doc => {
+      doc.foo = "baz"
+    })
+    assert.equal(handle.view(newHeads).doc().foo, "baz")
+  })
 })

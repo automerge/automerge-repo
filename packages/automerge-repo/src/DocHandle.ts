@@ -184,6 +184,39 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
+   * Update the document with whatever the result of callback is
+   *
+   * This is necessary instead of directly calling
+   * `this.#machine.send({ type: UPDATE, payload: { callback } })` because we
+   * want to catch any exceptions that the callback might throw, then rethrow
+   * them after the state machine has processed the update.
+   */
+  #sendUpdate(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+    // This is kind of awkward. we have to pass the callback to xstate and wait for it to run it.
+    // We're relying here on the fact that xstate runs everything synchronously, so by the time
+    // `send` returns we know that the callback will have been run and so `thrownException`  will
+    // be set if the callback threw an error.
+    let thrownException: null | Error = null
+    this.#machine.send({
+      type: UPDATE,
+      payload: {
+        callback: doc => {
+          try {
+            return callback(doc)
+          } catch (e) {
+            thrownException = e as Error
+            return doc
+          }
+        },
+      },
+    })
+    if (thrownException) {
+      // If the callback threw an error, we throw it here so the caller can handle it
+      throw thrownException
+    }
+  }
+
+  /**
    * Called after state transitions. If the document has changed, emits a change event. If we just
    * received the document for the first time, signal that our request has been completed.
    */
@@ -466,7 +499,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    this.#machine.send({ type: UPDATE, payload: { callback } })
+    this.#sendUpdate(callback)
   }
 
   /**
@@ -532,10 +565,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       )
     }
 
-    this.#machine.send({
-      type: UPDATE,
-      payload: { callback: doc => A.change(doc, options, callback) },
-    })
+    this.#sendUpdate(doc => A.change(doc, options, callback))
   }
   /**
    * Makes a change as if the document were at `heads`.
@@ -557,18 +587,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         `DocHandle#${this.documentId} is in view-only mode at specific heads. Use clone() to create a new document from this state.`
       )
     }
+
     let resultHeads: UrlHeads | undefined = undefined
-    this.#machine.send({
-      type: UPDATE,
-      payload: {
-        callback: doc => {
-          const result = A.changeAt(doc, decodeHeads(heads), options, callback)
-          resultHeads = result.newHeads
-            ? encodeHeads(result.newHeads)
-            : undefined
-          return result.newDoc
-        },
-      },
+    this.#sendUpdate(doc => {
+      const result = A.changeAt(doc, decodeHeads(heads), options, callback)
+      resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
+      return result.newDoc
     })
 
     // the callback above will always run before we get here, so this should always contain the new heads
