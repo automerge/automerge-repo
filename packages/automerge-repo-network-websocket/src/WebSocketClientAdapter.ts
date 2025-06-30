@@ -194,7 +194,13 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   receiveMessage(messageBytes: Uint8Array) {
-    const message: FromServerMessage = cbor.decode(new Uint8Array(messageBytes))
+    let message: FromServerMessage
+    try {
+      message = cbor.decode(new Uint8Array(messageBytes))
+    } catch (e) {
+      this.#log("error decoding message:", e)
+      return
+    }
 
     assert(this.socket)
     if (messageBytes.byteLength === 0)
