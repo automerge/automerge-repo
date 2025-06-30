@@ -245,6 +245,40 @@ describe("Websocket adapters", () => {
       // are cleaned up correctly we shouldn't throw
       await pause(1)
     })
+
+    it("should gracefully handle a server sending invalid cbor", async () => {
+      const port = await getPort()
+      const serverUrl = `ws://localhost:${port}`
+      const server = http.createServer()
+      const serverSocket = new WebSocket.Server({ server })
+
+      // This listener will be added in addition to the listener which the server adds
+      // so we know that at some point we will send garbage. Because we only send the
+      // garbage once, the reconnect logic in the client should recover
+      let garbageSent = false
+      serverSocket.on("connection", ws => {
+        // send garbage to the client
+        if (garbageSent) return
+        ws.send(new Uint8Array([0x00, 0x01, 0x02]))
+      })
+      await new Promise<void>(resolve => server.listen(port, resolve))
+      const serverAdapter = new WebSocketServerAdapter(serverSocket)
+
+      const serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: "server" as PeerId,
+      })
+      const browser = new WebSocketClientAdapter(serverUrl, 1000)
+
+      const browserRepo = new Repo({
+        network: [browser],
+        peerId: browserPeerId,
+      })
+
+      await browserRepo.networkSubsystem.whenReady()
+
+      assert.deepStrictEqual(browserRepo.peers, ["server" as PeerId])
+    })
   })
 
   describe("WebSocketServerAdapter", () => {
