@@ -301,7 +301,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "ephemeral":
       case "doc-unavailable":
         this.synchronizer.receiveMessage(message).catch(err => {
-          console.log("error receiving message", { err })
+          console.log("error receiving message", { err, message })
         })
     }
   }
