@@ -506,6 +506,19 @@ describe("DocHandle", () => {
     assert(wasBar, "foo should have been bar as we changed at the old heads")
   })
 
+  it("should emit a change event when the document becomes unavailable", async () => {
+    const handle = setup()
+
+    const p = new Promise<void>(resolve =>
+      handle.once("change", () => resolve())
+    )
+
+    handle.unavailable()
+
+    await p
+    assert.equal(handle.isUnavailable(), true)
+  })
+
   describe("ephemeral messaging", () => {
     it("can broadcast a message for the network to send out", async () => {
       const handle = setup()
