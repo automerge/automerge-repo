@@ -227,8 +227,18 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       encodeHeads(afterHeads),
       encodeHeads(beforeHeads)
     )
+
     if (docChanged) {
       this.emit("heads-changed", { handle: this, doc: after })
+
+      // If we didn't have the document yet, signal that we now do and return
+      // checkForChanges will then be triggered again by the state machine
+      // This ensures that when change is triggered the state is set to ready
+      if (!this.isReady()) {
+        console.log(this.state)
+        this.#machine.send({ type: DOC_READY })
+        return
+      }
 
       const patches = A.diff(after, beforeHeads, afterHeads)
       if (patches.length > 0) {
@@ -240,10 +250,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           patchInfo: { before, after, source: "change" },
         })
       }
-
-      // If we didn't have the document yet, signal that we now do
-      if (!this.isReady()) this.#machine.send({ type: DOC_READY })
     }
+
     this.#prevDocState = after
   }
 

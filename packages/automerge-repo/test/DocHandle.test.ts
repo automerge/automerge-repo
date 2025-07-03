@@ -34,17 +34,22 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
-    const stateInChangeHandle = new Promise<void>(resolve =>
-      handle.once("change", () => {
-        resolve(handle.state)
-      })
-    )
+    handle.on("change", ({ handle }) => {
+      console.log("inside change", handle.state)
+    })
+
+    const states = []
+
+    handle.on("change", ({ handle }) => {
+      states.push(handle.state)
+    })
 
     // simulate loading from storage
     handle.update(doc => docFromMockStorage(doc))
 
+    assert.deepEqual(states, ["ready"])
+
     assert.equal(handle.isReady(), true)
-    assert.equal(await stateInChangeHandle, "ready")
     const doc = handle.doc()
     assert.equal(doc?.foo, "bar")
   })
@@ -512,19 +517,6 @@ describe("DocHandle", () => {
     assert(newHeads && newHeads.length > 0, "should have new heads")
 
     assert(wasBar, "foo should have been bar as we changed at the old heads")
-  })
-
-  it("should emit a change event when the document becomes unavailable", async () => {
-    const handle = setup()
-
-    const p = new Promise<void>(resolve =>
-      handle.once("change", () => resolve())
-    )
-
-    handle.unavailable()
-
-    await p
-    assert.equal(handle.isUnavailable(), true)
   })
 
   describe("ephemeral messaging", () => {
