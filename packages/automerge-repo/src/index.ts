@@ -43,7 +43,7 @@ export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.
 export { isRepoMessage } from "./network/messages.js"
 export { StorageAdapter } from "./storage/StorageAdapter.js"
 export type { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
-import { next as Automerge } from "@automerge/automerge/slim"
+import { next as Automerge, type ObjID } from "@automerge/automerge/slim"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
@@ -167,3 +167,4 @@ export const isRawString = Automerge.isRawString
 export const isImmutableString = Automerge.isRawString
 
 export const getObjectId = Automerge.getObjectId
+export type { ObjID }
