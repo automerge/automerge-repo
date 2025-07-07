@@ -165,3 +165,5 @@ export const unmark = Automerge.unmark
 export const isRawString = Automerge.isRawString
 // In Automerge 3.0 raw string is renamed to immutable string
 export const isImmutableString = Automerge.isRawString
+
+export const getObjectId = Automerge.getObjectId
