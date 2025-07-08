@@ -601,6 +601,76 @@ describe("Repo", () => {
         assert(Object.keys(repo.handles).length === handleCacheSize)
       })
     })
+
+    describe("registerHandleWithSubsystems", () => {
+      it("registers document with synchronizer when creating a new document", async () => {
+        const { repo } = setup()
+        const handle = repo.create<TestDoc>()
+        assert(repo.synchronizer.docSynchronizers[handle.documentId])
+      })
+
+      it("registers save to storage when creating a new document", async () => {
+        const { repo, storageAdapter } = setup()
+        const handle = repo.create<TestDoc>()
+        await pause(10) // wait for debounced save to complete
+        assert(storageAdapter.keys().some(key => key.includes(handle.documentId)))
+      })
+
+      it("registers document with synchronizer when finding an existing document", async () => {
+        const { repo, storageAdapter } = setup()
+        const handle = repo.create<TestDoc>()
+        await pause(10) // wait for debounced save to complete
+
+        const repo2 = new Repo({ storage: storageAdapter })
+        await repo2.find<TestDoc>(handle.url)
+        assert(repo2.synchronizer.docSynchronizers[handle.documentId])
+      })
+
+      it("registers document with synchronizer when finding an existing document with progress", async () => {
+        const { repo, storageAdapter } = setup()
+        const handle = repo.create<TestDoc>()
+        await pause(10) // wait for debounced save to complete
+
+        const repo2 = new Repo({ storage: storageAdapter })
+        repo2.findWithProgress<TestDoc>(handle.url)
+        await pause(10)
+        assert(repo2.synchronizer.docSynchronizers[handle.documentId])
+      })
+
+      it("registers document with synchronizer when there is no storage subsystem", async () => {
+        const repo = new Repo()
+        const handle = repo.create<TestDoc>()
+        assert(repo.synchronizer.docSynchronizers[handle.documentId])
+        assert.equal(handle.listenerCount("heads-changed"), 0) // no save listener registered
+      })
+
+      it("respects saveDebounceRate when saving", async () => {
+        const { repo, storageAdapter } = setup()
+        repo.saveDebounceRate = 100
+        const handle = repo.create<TestDoc>()
+
+        for (let i = 0; i < 5; i++) {
+          handle.change(d => { d.foo = `bar${i}` })
+        }
+        await pause(10)
+        assert(storageAdapter.keys().length < 5)
+
+        const keysBeforeDebouncedSave = storageAdapter.keys().length
+        await pause(150)
+        const keysAfterDebouncedSave = storageAdapter.keys().length
+        assert(keysAfterDebouncedSave > keysBeforeDebouncedSave)
+      })
+
+      it("does not add duplicate heads-changed listeners", async () => {
+        const { repo } = setup()
+        const handle = repo.create<TestDoc>()
+        await pause(10) // wait for debounced save to complete
+        await repo.find<TestDoc>(handle.url)
+        repo.findWithProgress<TestDoc>(handle.url)
+        await pause(10)
+        assert.equal(handle.listenerCount("heads-changed"), 1)
+      })
+    })
   })
 
   describe("flush behaviour", () => {

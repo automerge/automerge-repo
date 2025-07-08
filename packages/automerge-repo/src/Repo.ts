@@ -277,7 +277,17 @@ export class Repo extends EventEmitter<RepoEvents> {
       const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
         void storageSubsystem.saveDoc(handle.documentId, doc)
       }
-      handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
+      const throttledSaveFn = throttle(saveFn, this.saveDebounceRate)
+      // Use a named function to make it easier to identify
+      const wrappedSaveFn = function wrappedSaveFn(payload: DocHandleEncodedChangePayload<any>) {
+        throttledSaveFn(payload)
+      }
+
+      // Add save function as a listener if it's not already registered
+      const existingListeners = handle.listeners("heads-changed")
+      if (!existingListeners.some(listener => listener.name === wrappedSaveFn.name && listener.toString() === wrappedSaveFn.toString())) {
+        handle.on("heads-changed", wrappedSaveFn)
+      }
     }
 
     // Register the document with the synchronizer. This advertises our interest in the document.
