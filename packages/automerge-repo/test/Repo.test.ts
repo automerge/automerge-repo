@@ -1442,6 +1442,18 @@ describe("Repo", () => {
 
       teardown()
     })
+
+    it("does not add duplicate heads-changed listeners", async () => {
+      const { aliceRepo, bobRepo, teardown } = await setup()
+
+      const aliceHandle = aliceRepo.create<TestDoc>({ foo: "bar" })
+      await pause(10)
+
+      const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
+      assert.equal(bobHandle.listenerCount("heads-changed"), 1)
+
+      teardown()
+    })
   })
 
   describe("with peers (mesh network)", () => {
