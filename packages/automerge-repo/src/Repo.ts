@@ -697,6 +697,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Give network a chance to provide the document
     // But only wait if we have network peers and the document might exist
+    // @ts-ignore
     if (this.networkSubsystem.isReady() && handle.state !== READY) {
       // If we have no peers connected, don't wait - just create
       const hasPeers = this.peers.length > 0
@@ -718,10 +719,12 @@ export class Repo extends EventEmitter<RepoEvents> {
             timeoutPromise,
           ])
 
+          // @ts-ignore
           if (handle.state === READY) {
             return handle
           }
 
+          // @ts-ignore
           if (handle.state === DELETED) {
             throw new Error(`Document ${documentId} has been deleted`)
           }
@@ -739,6 +742,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     // If still not ready, create it
+    // @ts-ignore
     if (handle.state !== READY && handle.state !== DELETED) {
       handle.update(() => {
         let nextDoc: Automerge.Doc<T>
