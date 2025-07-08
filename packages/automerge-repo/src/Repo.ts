@@ -289,9 +289,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       const existingListeners = handle.listeners("heads-changed")
       if (
         !existingListeners.some(
-          listener =>
-            listener.name === wrappedSaveFn.name &&
-            listener.toString() === wrappedSaveFn.toString()
+          listener => listener.name === wrappedSaveFn.name
         )
       ) {
         handle.on("heads-changed", wrappedSaveFn)
