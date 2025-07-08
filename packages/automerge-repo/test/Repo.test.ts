@@ -613,7 +613,9 @@ describe("Repo", () => {
         const { repo, storageAdapter } = setup()
         const handle = repo.create<TestDoc>()
         await pause(10) // wait for debounced save to complete
-        assert(storageAdapter.keys().some(key => key.includes(handle.documentId)))
+        assert(
+          storageAdapter.keys().some(key => key.includes(handle.documentId))
+        )
       })
 
       it("registers document with synchronizer when finding an existing document", async () => {
@@ -650,7 +652,9 @@ describe("Repo", () => {
         const handle = repo.create<TestDoc>()
 
         for (let i = 0; i < 5; i++) {
-          handle.change(d => { d.foo = `bar${i}` })
+          handle.change(d => {
+            d.foo = `bar${i}`
+          })
         }
         await pause(10)
         assert(storageAdapter.keys().length < 5)

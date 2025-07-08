@@ -279,13 +279,21 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
       const throttledSaveFn = throttle(saveFn, this.saveDebounceRate)
       // Use a named function to make it easier to identify
-      const wrappedSaveFn = function wrappedSaveFn(payload: DocHandleEncodedChangePayload<any>) {
+      const wrappedSaveFn = function wrappedSaveFn(
+        payload: DocHandleEncodedChangePayload<any>
+      ) {
         throttledSaveFn(payload)
       }
 
       // Add save function as a listener if it's not already registered
       const existingListeners = handle.listeners("heads-changed")
-      if (!existingListeners.some(listener => listener.name === wrappedSaveFn.name && listener.toString() === wrappedSaveFn.toString())) {
+      if (
+        !existingListeners.some(
+          listener =>
+            listener.name === wrappedSaveFn.name &&
+            listener.toString() === wrappedSaveFn.toString()
+        )
+      ) {
         handle.on("heads-changed", wrappedSaveFn)
       }
     }
