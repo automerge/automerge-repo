@@ -74,9 +74,11 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   storageSubsystem?: StorageSubsystem
 
-  /** The debounce rate is adjustable on the repo. */
   /** @hidden */
-  saveDebounceRate = 100
+  #saveDebounceRate: number
+
+  /** @hidden */
+  #saveFn: (payload: DocHandleEncodedChangePayload<any>) => void
 
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
@@ -103,6 +105,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
     denylist = [],
+    saveDebounceRate = 100,
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
@@ -148,6 +151,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.storageSubsystem = storageSubsystem
+
+    this.#saveDebounceRate = saveDebounceRate
+
+    if (this.storageSubsystem) {
+      const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
+        void this.storageSubsystem!.saveDoc(handle.documentId, doc)
+      }
+      // Save no more often than saveDebounceRate.
+      this.#saveFn = throttle(saveFn, this.#saveDebounceRate)
+    } else {
+      this.#saveFn = () => {}
+    }
 
     // NETWORK
     // The network subsystem deals with sending and receiving messages to and from peers.
@@ -271,13 +286,13 @@ export class Repo extends EventEmitter<RepoEvents> {
   // The `document` event is fired by the DocCollection any time we create a new document or look
   // up a document by ID. We listen for it in order to wire up storage and network synchronization.
   #registerHandleWithSubsystems(handle: DocHandle<any>) {
-    const { storageSubsystem } = this
-    if (storageSubsystem) {
-      // Save when the document changes, but no more often than saveDebounceRate.
-      const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
-        void storageSubsystem.saveDoc(handle.documentId, doc)
+    if (this.storageSubsystem) {
+      // Add save function as a listener if it's not already registered
+      const existingListeners = handle.listeners("heads-changed")
+      if (!existingListeners.some(listener => listener === this.#saveFn)) {
+        // Save when the document changes
+        handle.on("heads-changed", this.#saveFn)
       }
-      handle.on("heads-changed", throttle(saveFn, this.saveDebounceRate))
     }
 
     // Register the document with the synchronizer. This advertises our interest in the document.
@@ -334,7 +349,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             syncState
           )
         },
-        this.saveDebounceRate
+        this.#saveDebounceRate
       )
     }
 
@@ -861,6 +876,11 @@ export interface RepoConfig {
    * loading documents that are known to be too resource intensive.
    */
   denylist?: AutomergeUrl[]
+
+  /**
+   * The debounce rate in milliseconds for saving documents. Defaults to 100ms.
+   */
+  saveDebounceRate?: number
 }
 
 /** A function that determines whether we should share a document with a peer
