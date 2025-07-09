@@ -51,8 +51,8 @@ describe("Repo", () => {
       const repo = new Repo({
         storage: storageAdapter,
         network: [networkAdapter],
+        saveDebounceRate: 1,
       })
-      repo.saveDebounceRate = 1
       return { repo, storageAdapter, networkAdapter }
     }
 
@@ -647,8 +647,13 @@ describe("Repo", () => {
       })
 
       it("respects saveDebounceRate when saving", async () => {
-        const { repo, storageAdapter } = setup()
-        repo.saveDebounceRate = 100
+        const storageAdapter = new DummyStorageAdapter()
+        const networkAdapter = new DummyNetworkAdapter()
+        const repo = new Repo({
+          storage: storageAdapter,
+          network: [networkAdapter],
+          saveDebounceRate: 100,
+        })
         const handle = repo.create<TestDoc>()
 
         for (let i = 0; i < 5; i++) {
