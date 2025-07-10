@@ -1,0 +1,45 @@
+{
+  "name": "@automerge/automerge-repo-solid-primitives",
+  "version": "2.1.0",
+  "description": "Access Automerge Repo in your SolidJS application",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "watch": "npm-watch build",
+    "visualize": "VISUALIZE=true vite build"
+  },
+  "author": "chee <chee@rabbits.computer>",
+  "license": "MIT",
+  "devDependencies": {
+    "@automerge/automerge": "3.0.0",
+    "@automerge/automerge-repo": "workspace:*",
+    "@solidjs/testing-library": "^0.8.9",
+    "@testing-library/user-event": "^14.5.2",
+    "rollup-plugin-visualizer": "^5.9.3",
+    "solid-js": "^1.9.4",
+    "vite-plugin-dts": "^3.9.1",
+    "vite-plugin-solid": "^2.11.0"
+  },
+  "peerDependencies": {
+    "@automerge/automerge": "3.0.0",
+    "solid-js": "^1.9.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/automerge/automerge-repo.git"
+  },
+  "homepage": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-solid-primitives",
+  "publishConfig": {
+    "access": "public"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
+  }
+}

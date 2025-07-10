@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "isolatedDeclarations": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "composite": true,
+    "pretty": true,
+    "rootDir": "./src",
+    "rewriteRelativeImportExtensions": true,
+    "outDir": "./out"
+  },
+  "include": ["src"]
+}

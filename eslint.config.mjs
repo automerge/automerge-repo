@@ -116,7 +116,7 @@ export default [
       sourceType: "module",
 
       parserOptions: {
-        project: ["./packages/*/tsconfig.json"],
+        project: ["./packages/*/tsconfig.json", "./packages/*/tsconfig.*.json"],
       },
     },
 
