@@ -1,0 +1,6 @@
+_workshop/
+vite.demo.config.ts
+stats.html
+node_modules/
+dist/
+*.tsbuildinfo
