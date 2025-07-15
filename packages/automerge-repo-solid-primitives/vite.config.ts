@@ -31,6 +31,10 @@ export default defineConfig({
       ],
     },
   },
+  resolve: {
+    conditions: ["solid", "browser", "module", "import"],
+    mainFields: ["browser", "module", "main"],
+  },
   worker: {
     plugins: () => [wasm()],
   },

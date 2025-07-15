@@ -254,7 +254,7 @@ describe("createDocumentProjection", () => {
     // initially handle2 is the same as handle1
     const [changingHandle, setChangingHandle] = createSignal(h1)
 
-    const result = render(() => {
+    const { result } = renderHook<[], () => readonly [string, string]>(() => {
       function Component(props: {
         stableHandle: Accessor<DocHandle<ExampleDoc>>
         changingHandle: Accessor<DocHandle<ExampleDoc>>
@@ -269,50 +269,33 @@ describe("createDocumentProjection", () => {
           props.changingHandle
         )
 
-        return (
-          <>
-            <div data-testid="key-stable">{stableDoc()?.key}</div>
-            <div data-testid="key-changing">{changingDoc()?.key}</div>
-          </>
-        )
+        return () => [stableDoc()!.key, changingDoc()!.key] as const
       }
 
-      return (
-        <Component
-          stableHandle={stableHandle}
-          changingHandle={changingHandle}
-        />
-      )
+      return Component({
+        stableHandle,
+        changingHandle,
+      })
     })
 
     return testEffect(async done => {
       h2.change(doc => (doc.key = "document-2"))
-      expect(result.getByTestId("key-stable").textContent).toBe("value")
-      expect(result.getByTestId("key-changing").textContent).toBe("value")
+      expect(result()).toEqual(["value", "value"])
 
       h1.change(doc => (doc.key = "hello"))
       await new Promise<void>(setImmediate)
-
-      expect(result.getByTestId("key-stable").textContent).toBe("hello")
-      expect(result.getByTestId("key-changing").textContent).toBe("hello")
+      expect(result()).toEqual(["hello", "hello"])
 
       setChangingHandle(() => h2)
-
-      expect(result.getByTestId("key-stable").textContent).toBe("hello")
-      expect(result.getByTestId("key-changing").textContent).toBe("document-2")
+      expect(result()).toEqual(["hello", "document-2"])
 
       setChangingHandle(() => h1)
-
-      expect(result.getByTestId("key-stable").textContent).toBe("hello")
-      expect(result.getByTestId("key-changing").textContent).toBe("hello")
-      done()
+      expect(result()).toEqual(["hello", "hello"])
 
       setChangingHandle(h2)
       h2.change(doc => (doc.key = "world"))
       await new Promise<void>(setImmediate)
-
-      expect(result.getByTestId("key-stable").textContent).toBe("hello")
-      expect(result.getByTestId("key-changing").textContent).toBe("world")
+      expect(result()).toEqual(["hello", "world"])
       done()
     })
   })
