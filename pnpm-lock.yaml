@@ -405,6 +405,9 @@ importers:
       '@solidjs/testing-library':
         specifier: ^0.8.9
         version: 0.8.10(solid-js@1.9.7)
+      '@testing-library/jest-dom':
+        specifier: ^6.6.3
+        version: 6.6.3
       '@testing-library/user-event':
         specifier: ^14.5.2
         version: 14.6.1(@testing-library/dom@10.4.0)
