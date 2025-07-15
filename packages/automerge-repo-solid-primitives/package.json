@@ -16,6 +16,7 @@
     "@automerge/automerge": "3.0.0",
     "@automerge/automerge-repo": "workspace:*",
     "@solidjs/testing-library": "^0.8.9",
+    "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/user-event": "^14.5.2",
     "rollup-plugin-visualizer": "^5.9.3",
     "solid-js": "^1.9.4",
