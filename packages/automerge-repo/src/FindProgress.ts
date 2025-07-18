@@ -43,6 +43,5 @@ export type FindProgress<T> =
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   next: () => Promise<FindProgressWithMethods<T>>
-  // TODO: i don't like this allowableStates
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+  untilReady: () => Promise<DocHandle<T>>
 }
