@@ -3,8 +3,6 @@ import {
   AutomergeUrl,
   DocHandle,
   generateAutomergeUrl,
-  PeerId,
-  Repo,
 } from "@automerge/automerge-repo"
 import { render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
@@ -15,10 +13,6 @@ import { ErrorBoundary } from "react-error-boundary"
 import { setup, setupPairedRepos } from "./testSetup"
 
 describe("useDocHandle", () => {
-  const repo = new Repo({
-    peerId: "bob" as PeerId,
-  })
-
   const Component = ({
     url,
     onHandle,
