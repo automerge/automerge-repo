@@ -125,7 +125,7 @@ yarn
 yarn add @automerge/automerge @automerge/automerge-repo-react-hooks @automerge/automerge-repo-network-broadcastchannel @automerge/automerge-repo-storage-indexeddb vite-plugin-wasm
 ```
 
-Edit the `vite.config.ts`. (This is all need to work around packaging hiccups due to WASM. We look
+Edit the `vite.config.ts`. (This is all needed to work around packaging hiccups due to WASM. We look
 forward to the day that we can delete this step entirely.)
 
 ```ts
