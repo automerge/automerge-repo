@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [],
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.build.json" },
+    { "path": "./tsconfig.test.json" }
+  ]
+}
