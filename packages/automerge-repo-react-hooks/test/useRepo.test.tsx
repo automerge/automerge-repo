@@ -12,7 +12,6 @@ describe("useRepo", () => {
   }
 
   test("should error when context unavailable", () => {
-    const repo = new Repo()
     // Prevent console spam by swallowing console.error "uncaught error" message
     const spy = vi.spyOn(console, "error")
     spy.mockImplementation(() => {})
