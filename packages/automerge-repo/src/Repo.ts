@@ -18,7 +18,7 @@ import {
 } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
-import { throttle } from "./helpers/throttle.js"
+import { throttle, throttleByKey } from "./helpers/throttle.js"
 import {
   NetworkAdapterInterface,
   type PeerMetadata,
@@ -158,8 +158,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
         void this.storageSubsystem!.saveDoc(handle.documentId, doc)
       }
+      const keyFn = ({ handle }: DocHandleEncodedChangePayload<any>) => handle
+
       // Save no more often than saveDebounceRate.
-      this.#saveFn = throttle(saveFn, this.#saveDebounceRate)
+      this.#saveFn = throttleByKey(saveFn, keyFn, this.#saveDebounceRate)
     } else {
       this.#saveFn = () => {}
     }
