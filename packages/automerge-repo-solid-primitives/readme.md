@@ -1,20 +1,10 @@
 # Solid Automerge
 
-<a href="https://www.solidjs.com/"> <img alt="" src=.assets/solid.png width=22
-height=22> Solid </a> primitives for <a
-href="https://automerge.org/docs/repositories/"> <img alt=""
-src=.assets/automerge.png width=22 height=22>Automerge</a> .
+<a href="https://www.solidjs.com/">Solid</a> primitives for <a
+href="https://automerge.org/docs/repositories/"> Automerge</a>.
 
 ```sh
-pnpm add solidjs @automerge/automerge-repo
-pnpm add solid-automerge
-```
-
-or, say:
-
-```sh
-deno add --npm solidjs @automerge/vanillajs
-deno add jsr:@chee/solid-automerge
+pnpm add solid-js @automerge/automerge-repo @automerge/automerge-repo-solid-primitives
 ```
 
 ## useDocument ✨
