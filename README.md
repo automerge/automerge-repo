@@ -30,6 +30,8 @@ This is a monorepo containing the following packages:
   React.
 - [automerge-repo-svelte-store](/packages/automerge-repo-svelte-store/): A custom store for use with
   Svelte.
+- [automerge-repo-svelte-store](/packages/automerge-repo-solid-primitives/): Primitives for use with
+  Solid JS.
 
 #### Storage adapters
 
