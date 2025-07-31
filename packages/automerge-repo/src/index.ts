@@ -33,6 +33,7 @@ export {
   parseAutomergeUrl,
   stringifyAutomergeUrl,
   interpretAsDocumentId,
+  documentIdToBinary,
   generateAutomergeUrl,
   encodeHeads,
   decodeHeads,

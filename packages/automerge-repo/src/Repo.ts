@@ -757,17 +757,36 @@ export class Repo extends EventEmitter<RepoEvents> {
   /**
    * Imports document binary into the repo.
    * @param binary - The binary to import
+   * @param args - Optional argument specifying what document ID to import into,
+   *              if at all possible avoid using this, see the remarks below
+   *
+   * @remarks
+   * If no document ID is provided, a new document will be created. When
+   * specifying the document ID it is important to ensure that two documents using
+   * the same ID share the same history - i.e. don't create a document with the
+   * same ID on unrelated processes that have never communicated with each
+   * other. If you need to ship around a bunch of documents with their IDs
+   * consider using the `automerge-repo-bundles` package which provides a
+   * serialization format for documents and IDs and handles the boilerplate of
+   * importing and exporting these bundles.
    */
-  import<T>(binary: Uint8Array) {
-    const doc = Automerge.load<T>(binary)
+  import<T>(binary: Uint8Array, args?: { docId?: DocumentId }): DocHandle<T> {
+    const docId = args?.docId
+    if (docId != null) {
+      const handle = this.#getHandle<T>({ documentId: docId })
+      handle.update(doc => {
+        return Automerge.loadIncremental(doc, binary)
+      })
+      return handle
+    } else {
+      const doc = Automerge.load<T>(binary)
+      const handle = this.create<T>()
+      handle.update(() => {
+        return Automerge.clone(doc)
+      })
 
-    const handle = this.create<T>()
-
-    handle.update(() => {
-      return Automerge.clone(doc)
-    })
-
-    return handle
+      return handle
+    }
   }
 
   subscribeToRemotes = (remotes: StorageId[]) => {
