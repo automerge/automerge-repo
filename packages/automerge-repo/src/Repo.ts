@@ -1,4 +1,4 @@
-import { next as Automerge } from "@automerge/automerge/slim"
+import { next as Automerge, Heads } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
@@ -38,9 +38,11 @@ import type {
   AutomergeUrl,
   DocumentId,
   PeerId,
+  UrlHeads,
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
+import { Bundle, isBundle } from "./bundle.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
@@ -842,6 +844,57 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   metrics(): { documents: { [key: string]: any } } {
     return { documents: this.synchronizer.metrics() }
+  }
+
+  /**
+   * Export a bundle of document handles which can be imported into another repo
+   *
+   * @remarks
+   * The bundle returned can be encoded to a binary format using the
+   * `Bundle.encode` method. This format is designed to be forwards compatible so
+   * it can be used for long lived storage.
+   *
+   *
+   * @param docs - The dochandles to export in the bundle
+   * @param args - additional arguments for the export. For now this is used to
+   *               specify the heads of the documents to export _after_. This is primarily
+   *               useful if you know the other end already has some initial changes and you
+   *               want to send them new changes
+   *
+   * @returns a {link Bundle} containing the exported documents
+   */
+  exportBundle(
+    docs: DocHandle<unknown>[],
+    args?: { since?: Map<AutomergeUrl, Heads | UrlHeads> }
+  ): Bundle {
+    const bundle = new Bundle(docs, args)
+    return bundle
+  }
+
+  /**
+   * Import a bundle of documents produced using `exportBundle` into the repo
+   *
+   * @param bundle - The bundle to import
+   * @returns a map of document handles which were imported.
+   */
+  importBundle(bundle: Bundle | Uint8Array): {
+    [key: AutomergeUrl]: DocHandle<unknown>
+  } {
+    const result: { [key: AutomergeUrl]: DocHandle<unknown> } = {}
+    let actualBundle
+    if (isBundle(bundle)) {
+      actualBundle = bundle
+    } else {
+      actualBundle = Bundle.decode(bundle)
+    }
+    for (const [documentId, docBundle] of actualBundle.docs.entries()) {
+      const handle = this.#getHandle({ documentId })
+      handle.update(d => Automerge.loadIncremental(d, docBundle.data))
+      if (handle.isReady()) {
+        result[handle.url] = handle
+      }
+    }
+    return result
   }
 }
 

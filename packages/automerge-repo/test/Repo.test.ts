@@ -23,6 +23,7 @@ import {
   LegacyDocumentId,
   PeerId,
   SharePolicy,
+  Bundle,
 } from "../src/index.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
@@ -1633,6 +1634,118 @@ describe("Repo", () => {
       const openDocs = Object.keys(server.metrics().documents).length
       assert.deepEqual(openDocs, 0)
     })
+  })
+
+  describe("when exporting and importing bundles", () => {
+    it("should be able to export and import a bundle", async () => {
+      const bob = new Repo()
+      const alice = new Repo()
+
+      const bobDoc = bob.create({ foo: "bar" })
+      const bundle = bob.exportBundle([bobDoc])
+      const encoded = bundle.encode()
+      const decoded = Bundle.decode(encoded)
+
+      alice.importBundle(decoded)
+
+      const aliceDoc = await alice.find(bobDoc.url)
+      assert.deepStrictEqual(aliceDoc.doc(), { foo: "bar" })
+    })
+  })
+
+  it("should export and import multiple doc handles", async () => {
+    const bob = new Repo()
+    const alice = new Repo()
+
+    const bobDoc1 = bob.create({ foo: "bar" })
+    const bobDoc2 = bob.create({ baz: "qux" })
+    const bundle = bob.exportBundle([bobDoc1, bobDoc2])
+    const encoded = bundle.encode()
+    const decoded = Bundle.decode(encoded)
+
+    alice.importBundle(decoded)
+
+    const aliceDoc1 = await alice.find(bobDoc1.url)
+    assert.deepStrictEqual(aliceDoc1.doc(), { foo: "bar" })
+
+    const aliceDoc2 = await alice.find(bobDoc2.url)
+    assert.deepStrictEqual(aliceDoc2.doc(), { baz: "qux" })
+  })
+
+  it("should return the documents that are ready as a result of loading the bundle", async () => {
+    const bob = new Repo()
+    const alice = new Repo()
+
+    const bobDoc = bob.create({ foo: "bar" })
+    const bundle = bob.exportBundle([bobDoc]).encode()
+
+    const imported = alice.importBundle(bundle)
+    assert.deepStrictEqual(imported[bobDoc.url].doc(), { foo: "bar" })
+  })
+
+  it("allows you to create a bundle containing only new changes", async () => {
+    const bob = new Repo()
+    const alice = new Repo()
+
+    const bobDoc = bob.create({ foo: "bar" })
+    const amBobHeads = A.getHeads(bobDoc.doc())
+    const bobHeads = bobDoc.heads()
+    const firstBundle = bob.exportBundle([bobDoc])
+
+    bobDoc.change(d => (d.foo = "baz"))
+    const incrementalBundle = bob
+      .exportBundle([bobDoc], {
+        since: new Map([[bobDoc.url, bobHeads]]),
+      })
+      .encode()
+    const decodedIncremental = Bundle.decode(incrementalBundle)
+
+    const bundleData = decodedIncremental.data.get(bobDoc.url)
+    assert.deepStrictEqual(bundleData.deps, amBobHeads)
+    assert.deepStrictEqual(bundleData.heads, A.getHeads(bobDoc.doc()))
+
+    alice.importBundle(firstBundle)
+    const imported = alice.importBundle(decodedIncremental)
+    assert.deepStrictEqual(imported[bobDoc.url].doc(), { foo: "baz" })
+  })
+
+  it("marks a document as available if the bundle contained changes which can be used", async () => {
+    const bob = new Repo()
+    const alice = new Repo()
+
+    const bobDoc = bob.create({ foo: "bar" })
+    const bobHeads = bobDoc.heads()
+    const firstBundle = bob.exportBundle([bobDoc]).encode()
+
+    bobDoc.change(d => (d.foo = "baz"))
+    const incrementalBundle = bob.exportBundle([bobDoc], {
+      since: new Map([[bobDoc.url, bobHeads]]),
+    })
+    const encoded = incrementalBundle.encode()
+
+    // Import the incremental first, which should not find the doc because
+    // we are missing changes
+    const importedIncremental = alice.importBundle(encoded)
+    assert.equal(Object.entries(importedIncremental).length, 0)
+    const imported = alice.importBundle(firstBundle)
+    assert.deepStrictEqual(imported[bobDoc.url].doc(), { foo: "baz" })
+  })
+
+  it("marks an existing requesting document as available", async () => {
+    const bob = new Repo()
+    const alice = new Repo()
+
+    const bobDoc = bob.create({ foo: "bar" })
+
+    const bundle = bob.exportBundle([bobDoc])
+    const encoded = bundle.encode()
+
+    const findWithProgress = alice.findWithProgress(bobDoc.url)
+    assert.equal(findWithProgress.state, "loading")
+
+    alice.importBundle(encoded)
+    await findWithProgress.handle.whenReady(["ready"])
+    assert.deepStrictEqual(findWithProgress.handle.doc(), { foo: "bar" })
   })
 })
 

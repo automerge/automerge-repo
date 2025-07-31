@@ -26,6 +26,7 @@
  * ```
  */
 
+export { Bundle } from "./bundle.js"
 export { DocHandle } from "./DocHandle.js"
 export {
   isValidAutomergeUrl,
