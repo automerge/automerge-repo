@@ -1,0 +1,46 @@
+{
+  "name": "@automerge/automerge-repo-bundles",
+  "version": "2.2.0",
+  "description": "A library for bundling automerge documents together to be used with automerge-repo",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-bundles",
+  "author": "Alex Good <alex@patternist.xyz>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "npm-watch build",
+    "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text pnpm test",
+    "test": "vitest",
+    "test:watch": "npm-watch test",
+    "fuzz": "ts-node --esm --experimentalSpecifierResolution=node fuzz/fuzz.ts"
+  },
+  "browser": {
+    "crypto": false
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge": "2.2.8 - 3"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    },
+    "test": {
+      "quiet": true,
+      "patterns": [
+        "./src/**/*",
+        "./test/**/*"
+      ],
+      "extensions": [
+        ".ts"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
