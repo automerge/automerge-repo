@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-bundles",
-  "version": "2.2.0",
+  "version": "2.3.0-alpha.0",
   "description": "A library for bundling automerge documents together to be used with automerge-repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-bundles",
   "author": "Alex Good <alex@patternist.xyz>",
@@ -19,8 +19,8 @@
     "crypto": false
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge": "2.2.8 - 3"
+    "@automerge/automerge": "2.2.8 - 3",
+    "@automerge/automerge-repo": "workspace:*"
   },
   "watch": {
     "build": {
