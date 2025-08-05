@@ -96,6 +96,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
   #progressCache: Record<DocumentId, FindProgress<any>> = {}
+  #saveFns: Record<
+    DocumentId,
+    (payload: DocHandleEncodedChangePayload<any>) => void
+  > = {}
 
   constructor({
     storage,
@@ -155,11 +159,17 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#saveDebounceRate = saveDebounceRate
 
     if (this.storageSubsystem) {
-      const saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
-        void this.storageSubsystem!.saveDoc(handle.documentId, doc)
-      }
       // Save no more often than saveDebounceRate.
-      this.#saveFn = throttle(saveFn, this.#saveDebounceRate)
+      this.#saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
+        let fn = this.#saveFns[handle.documentId]
+        if (!fn) {
+          fn = throttle(() => {
+            void this.storageSubsystem!.saveDoc(handle.documentId, doc)
+          }, this.#saveDebounceRate)
+          this.#saveFns[handle.documentId] = fn
+        }
+        fn({ handle, doc })
+      }
     } else {
       this.#saveFn = () => {}
     }
@@ -725,6 +735,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     delete this.#handleCache[documentId]
     delete this.#progressCache[documentId]
+    delete this.#saveFns[documentId]
     this.emit("delete-document", { documentId })
   }
 
@@ -825,6 +836,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
       delete this.#handleCache[documentId]
       delete this.#progressCache[documentId]
+      delete this.#saveFns[documentId]
       this.synchronizer.removeDocument(documentId)
     } else {
       this.#log(

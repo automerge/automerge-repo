@@ -33,7 +33,6 @@ import {
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
-import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -47,13 +46,13 @@ describe("Repo", () => {
     const setup = ({ startReady = true } = {}) => {
       const storageAdapter = new DummyStorageAdapter()
       const networkAdapter = new DummyNetworkAdapter({ startReady })
-
+      const saveDebounceRate = 1
       const repo = new Repo({
         storage: storageAdapter,
         network: [networkAdapter],
-        saveDebounceRate: 1,
+        saveDebounceRate,
       })
-      return { repo, storageAdapter, networkAdapter }
+      return { repo, storageAdapter, networkAdapter, saveDebounceRate }
     }
 
     it("can instantiate a Repo", () => {
@@ -338,6 +337,32 @@ describe("Repo", () => {
 
       const v = bobHandle.doc()
       assert.equal(v?.foo, "bar")
+    })
+
+    it("can save several documents in quick succession", async () => {
+      // See https://github.com/automerge/automerge-repo/pull/471
+      const { repo, storageAdapter, saveDebounceRate } = setup()
+      const a = repo.create<TestDoc>()
+      const b = repo.create<TestDoc>()
+      const c = repo.create<TestDoc>()
+
+      a.change(doc => (doc.foo = "a"))
+      b.change(doc => (doc.foo = "b"))
+      c.change(doc => (doc.foo = "c"))
+
+      await pause(saveDebounceRate)
+
+      const repo2 = new Repo({
+        storage: storageAdapter,
+      })
+
+      const a2 = await repo2.find<TestDoc>(a.url)
+      const b2 = await repo2.find<TestDoc>(b.url)
+      const c2 = await repo2.find<TestDoc>(c.url)
+
+      assert.deepEqual(a2?.doc(), { foo: "a" })
+      assert.deepEqual(b2?.doc(), { foo: "b" })
+      assert.deepEqual(c2?.doc(), { foo: "c" })
     })
 
     it("can delete an existing document", async () => {
