@@ -85,7 +85,7 @@ export function useDocHandles<T>(
     } else {
       setHandleMap(nextHandleMap)
     }
-  }, [suspense, ids])
+  }, [suspense, ...ids])
 
   // If any promises are pending, suspend with Promise.all
   // Note that this behaviour is different from the synchronous
