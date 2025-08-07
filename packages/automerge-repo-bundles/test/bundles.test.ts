@@ -3,6 +3,7 @@ import assert from "assert"
 import { describe, expect, it } from "vitest"
 import { Bundle, exportBundle, importBundle } from "../src/index.js"
 import * as A from "@automerge/automerge"
+import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 
 describe("when exporting and importing bundles", () => {
   it("should be able to export and import a bundle", async () => {
@@ -139,6 +140,22 @@ describe("when exporting and importing bundles", () => {
       const handle = await alice.find(url)
       assert.deepStrictEqual(handle.doc(), { foo: "bar" })
     }
+  })
+
+  it.only('imported document is synced over the network', async () => {
+    const { port1: ab, port2: ba } = new MessageChannel()
+    const alice = new Repo({ network: [new MessageChannelNetworkAdapter(ab)] })
+    const bob = new Repo({ network: [new MessageChannelNetworkAdapter(ba)] })
+    const charlie = new Repo()
+
+    const charlieDoc = charlie.create({ foo: "bar" })
+    const bundle = exportBundle(charlie, [charlieDoc])
+    importBundle(bob, bundle)
+
+    const findWithProgress = alice.findWithProgress(charlieDoc.url)
+    assert.equal(findWithProgress.state, "loading")
+    await findWithProgress.handle.whenReady(["ready"])
+    assert.deepStrictEqual(findWithProgress.handle.doc(), { foo: "bar" })
   })
 })
 
