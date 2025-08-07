@@ -1,4 +1,4 @@
-import { Repo } from "@automerge/automerge-repo"
+import { Repo, type StorageKey, StorageAdapterInterface, Chunk, AutomergeUrl } from "@automerge/automerge-repo"
 import assert from "assert"
 import { describe, expect, it } from "vitest"
 import { Bundle, exportBundle, importBundle } from "../src/index.js"
@@ -112,4 +112,72 @@ describe("when exporting and importing bundles", () => {
     await findWithProgress.handle.whenReady(["ready"])
     assert.deepStrictEqual(findWithProgress.handle.doc(), { foo: "bar" })
   })
+
+  it("repo persists the bundle data to storage", async () => {
+    const storage = new DummyStorageAdapter()
+
+    let url: AutomergeUrl;
+    {
+      const alice = new Repo({ storage })
+      const bob = new Repo()
+
+      const bobDoc = bob.create({ foo: "bar" })
+      url = bobDoc.url
+      const bundle = exportBundle(bob, [bobDoc])
+
+      const encoded = bundle.encode()
+      importBundle(alice, encoded);
+
+      const handle = await alice.find(bobDoc.url)
+      assert.deepStrictEqual(handle.doc(), { foo: "bar" })
+    }
+
+    {
+      const alice = new Repo({ storage })
+      const handle = await alice.find(url)
+      assert.deepStrictEqual(handle.doc(), { foo: "bar" })
+    }
+  })
 })
+
+export class DummyStorageAdapter implements StorageAdapterInterface {
+  #data: Record<string, Uint8Array> = {}
+
+  #keyToString(key: string[]): string {
+    return key.join(".")
+  }
+
+  #stringToKey(key: string): string[] {
+    return key.split(".")
+  }
+
+  async loadRange(keyPrefix: StorageKey): Promise<Chunk[]> {
+    const range = Object.entries(this.#data)
+      .filter(([key, _]) => key.startsWith(this.#keyToString(keyPrefix)))
+      .map(([key, data]) => ({ key: this.#stringToKey(key), data }))
+    return Promise.resolve(range)
+  }
+
+  async removeRange(keyPrefix: string[]): Promise<void> {
+    Object.entries(this.#data)
+      .filter(([key, _]) => key.startsWith(this.#keyToString(keyPrefix)))
+      .forEach(([key, _]) => delete this.#data[key])
+  }
+
+  async load(key: string[]): Promise<Uint8Array | undefined> {
+    return new Promise(resolve => resolve(this.#data[this.#keyToString(key)]))
+  }
+
+  async save(key: string[], binary: Uint8Array) {
+    this.#data[this.#keyToString(key)] = binary
+    return Promise.resolve()
+  }
+
+  async remove(key: string[]) {
+    delete this.#data[this.#keyToString(key)]
+  }
+
+  keys() {
+    return Object.keys(this.#data)
+  }
+}
