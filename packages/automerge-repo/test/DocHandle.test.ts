@@ -34,10 +34,6 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
-    handle.on("change", ({ handle }) => {
-      console.log("inside change", handle.state)
-    })
-
     const states = []
 
     handle.on("change", ({ handle }) => {

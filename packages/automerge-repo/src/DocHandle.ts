@@ -235,7 +235,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       // checkForChanges will then be triggered again by the state machine
       // This ensures that when change is triggered the state is set to ready
       if (!this.isReady()) {
-        console.log(this.state)
         this.#machine.send({ type: DOC_READY })
         return
       }
