@@ -130,6 +130,8 @@ describe("when exporting and importing bundles", () => {
 
       const handle = await alice.find(bobDoc.url)
       assert.deepStrictEqual(handle.doc(), { foo: "bar" })
+      // Should not be required.
+      // await alice.flush()
     }
 
     {
