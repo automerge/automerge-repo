@@ -68,7 +68,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
           run_install: false
       - uses: actions/checkout@v3
         with:
