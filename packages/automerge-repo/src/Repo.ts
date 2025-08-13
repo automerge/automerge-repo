@@ -777,6 +777,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       handle.update(doc => {
         return Automerge.loadIncremental(doc, binary)
       })
+      this.#registerHandleWithSubsystems(handle)
       return handle
     } else {
       const doc = Automerge.load<T>(binary)

@@ -22,6 +22,9 @@
     "@automerge/automerge": "2.2.8 - 3",
     "@automerge/automerge-repo": "workspace:*"
   },
+  "devDependencies": {
+    "@automerge/automerge-repo-network-messagechannel": "workspace:*"
+  },
   "watch": {
     "build": {
       "patterns": "./src/**/*",
