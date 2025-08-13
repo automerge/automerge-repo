@@ -142,7 +142,7 @@ describe("when exporting and importing bundles", () => {
     }
   })
 
-  it('imported document is synced over the network', async () => {
+  it('syncs imported bundles over the network', async () => {
     const { port1: ab, port2: ba } = new MessageChannel()
     const alice = new Repo({ network: [new MessageChannelNetworkAdapter(ab)] })
     const bob = new Repo({ network: [new MessageChannelNetworkAdapter(ba)] })
