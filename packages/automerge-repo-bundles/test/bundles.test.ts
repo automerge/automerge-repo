@@ -114,7 +114,7 @@ describe("when exporting and importing bundles", () => {
     assert.deepStrictEqual(findWithProgress.handle.doc(), { foo: "bar" })
   })
 
-  it("repo persists the bundle data to storage", async () => {
+  it("persists the bundle data to storage", async () => {
     const storage = new DummyStorageAdapter()
 
     let url: AutomergeUrl;
@@ -142,7 +142,7 @@ describe("when exporting and importing bundles", () => {
     }
   })
 
-  it.only('imported document is synced over the network', async () => {
+  it('imported document is synced over the network', async () => {
     const { port1: ab, port2: ba } = new MessageChannel()
     const alice = new Repo({ network: [new MessageChannelNetworkAdapter(ab)] })
     const bob = new Repo({ network: [new MessageChannelNetworkAdapter(ba)] })
