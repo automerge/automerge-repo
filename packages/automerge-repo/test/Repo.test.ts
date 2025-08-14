@@ -1334,7 +1334,7 @@ describe("Repo", () => {
       teardown()
     })
 
-    it('should lazily sync imported documents with id', async () => {
+    it('should actively sync imported documents with id', async () => {
       const repo = new Repo()
       const handle = repo.create<TestDoc>()
       handle.change(d => {
@@ -1360,7 +1360,7 @@ describe("Repo", () => {
       teardown()
     })
 
-    it('should lazily sync imported documents', async () => {
+    it('should actively sync imported documents', async () => {
       const repo = new Repo()
       const handle = repo.create<TestDoc>()
       handle.change(d => {
