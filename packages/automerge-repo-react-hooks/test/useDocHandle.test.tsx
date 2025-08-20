@@ -299,16 +299,17 @@ describe("useDocHandle", () => {
         return null
       }
 
+      // On first render, we should only render once
       const { rerender } = render(
         <NonSuspenseComponent url={handleA.url} onHandle={onHandle} />,
         { wrapper }
       )
-
+      await act(pause) // allow time for extra re-renders
       expect(onHandle).toHaveBeenCalledTimes(1)
 
+      // On explicit second render with no changes, we should render once more
       rerender(<NonSuspenseComponent url={handleA.url} onHandle={onHandle} />)
-      await act(pause)
-
+      await act(pause) // allow time for extra re-renders
       expect(onHandle).toHaveBeenCalledTimes(2)
     })
   })

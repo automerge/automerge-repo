@@ -75,7 +75,7 @@ export function useDocHandle<T>(
       .catch(() => {
         setHandle(undefined)
       })
-  }, [suspense, wrapper])
+  }, [currentHandle, suspense, wrapper])
 
   if (currentHandle || !suspense || !wrapper) {
     return currentHandle
