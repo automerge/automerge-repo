@@ -65,7 +65,7 @@ export function useDocHandle<T>(
    * re-running this function until it succeeds, whereas the synchronous
    * form uses a setState to track the value. */
   useEffect(() => {
-    if (suspense || !wrapper) {
+    if (currentHandle || suspense || !wrapper) {
       return
     }
     wrapper.promise
