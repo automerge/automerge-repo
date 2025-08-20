@@ -1,7 +1,3 @@
-/**
- * Copyright (c) 2025 - Present. Blend Labs, Inc. All rights reserved
- * Blend Confidential - Restricted
- */
 import React, { act, Suspense } from "react"
 import {
   AutomergeUrl,
