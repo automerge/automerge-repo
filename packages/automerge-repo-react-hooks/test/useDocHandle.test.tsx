@@ -1,4 +1,4 @@
-import React, { Suspense } from "react"
+import React, { act, Suspense } from "react"
 import {
   AutomergeUrl,
   DocHandle,
@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest"
 import { useDocHandle } from "../src/useDocHandle"
 import { ErrorBoundary } from "react-error-boundary"
 import { setup, setupPairedRepos } from "./testSetup"
+import { pause } from "../src/helpers/DummyNetworkAdapter"
 
 describe("useDocHandle", () => {
   const Component = ({
@@ -135,7 +136,7 @@ describe("useDocHandle", () => {
   })
 
   it("suspends while loading a handle", async () => {
-    const { repoCreator, wrapper } = await setupPairedRepos()
+    const { repoCreator, wrapper } = setupPairedRepos()
     const handleA = repoCreator.create({ foo: "A" })
     const onHandle = vi.fn()
 
@@ -159,7 +160,7 @@ describe("useDocHandle", () => {
   })
 
   it("handles rapid url changes during loading", async () => {
-    const { repoCreator, repoFinder, wrapper } = await setupPairedRepos()
+    const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
     const handleA = repoCreator.create({ foo: "A" })
     const handleB = repoFinder.create({ foo: "B" })
     const onHandle = vi.fn()
@@ -187,9 +188,9 @@ describe("useDocHandle", () => {
     })
   })
 
-  describe("useDocHandle with suspense: false", () => {
+  describe("with suspense: false", () => {
     it("returns undefined while loading then resolves to handle", async () => {
-      const { repoCreator, wrapper } = await setupPairedRepos()
+      const { repoCreator, wrapper } = setupPairedRepos()
       const handleA = repoCreator.create({ foo: "A" })
 
       const onHandle = vi.fn()
@@ -280,6 +281,36 @@ describe("useDocHandle", () => {
 
       // Then resolve to new handle
       await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleB))
+    })
+
+    it("does not re-render unnecessarily when the handle does not change", async () => {
+      const { wrapper, handleA } = setup()
+      const onHandle = vi.fn()
+
+      const NonSuspenseComponent = ({
+        url,
+        onHandle,
+      }: {
+        url: AutomergeUrl
+        onHandle: (handle: DocHandle<unknown> | undefined) => void
+      }) => {
+        const handle = useDocHandle(url, { suspense: false })
+        onHandle(handle)
+        return null
+      }
+
+      // On first render, we should only render once
+      const { rerender } = render(
+        <NonSuspenseComponent url={handleA.url} onHandle={onHandle} />,
+        { wrapper }
+      )
+      await act(pause) // allow time for extra re-renders
+      expect(onHandle).toHaveBeenCalledTimes(1)
+
+      // On explicit second render with no changes, we should render once more
+      rerender(<NonSuspenseComponent url={handleA.url} onHandle={onHandle} />)
+      await act(pause) // allow time for extra re-renders
+      expect(onHandle).toHaveBeenCalledTimes(2)
     })
   })
 })
