@@ -493,10 +493,9 @@ describe("Websocket adapters", () => {
         const storage = new DummyStorageAdapter()
         const silentRepo = new Repo({ storage })
         const doc = A.from<T>(contents)
-        const handle = silentRepo.create()
-        handle.update(() => A.clone(doc))
+        const handle = silentRepo.import(A.save(doc))
         const { documentId } = parseAutomergeUrl(handle.url)
-        await pause(150)
+        await silentRepo.flush()
         return {
           url: handle.url,
           doc,
@@ -520,11 +519,11 @@ describe("Websocket adapters", () => {
         msg: Buffer | null
       ): SyncMessage {
         if (msg == null) {
-          throw new Error("expected a peer message, got null")
+          throw new Error("expected a sync message, got null")
         }
         let decoded = CBOR.decode(msg)
         if (decoded.type !== "sync") {
-          throw new Error(`expected a peer message, got type: ${decoded.type}`)
+          throw new Error(`expected a sync message, got type: ${decoded.type}`)
         }
         if (decoded.documentId !== forDocument) {
           throw new Error(
@@ -570,6 +569,7 @@ describe("Websocket adapters", () => {
           type: "join",
           senderId: "client",
           supportedProtocolVersions: ["1"],
+          peerMetadata: {},
         })
       )
 

@@ -24,34 +24,30 @@ import {
   type PeerMetadata,
 } from "./network/NetworkAdapterInterface.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
-import { RepoMessage } from "./network/messages.js"
+import { DocMessage, RepoMessage } from "./network/messages.js"
 import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
-import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import {
-  DocSyncMetrics,
-  SyncStatePayload,
-} from "./synchronizer/Synchronizer.js"
 import type {
   AnyDocumentId,
   AutomergeUrl,
   DocumentId,
   PeerId,
+  UrlHeads,
 } from "./types.js"
 import { abortable, AbortOptions } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
+import {
+  DocumentPhasor,
+  PhaseName,
+  type DocEvent,
+  type Effects as DocEffects,
+} from "./DocumentPhasor.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
   peek: () => FindProgress<T>
   subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
-}
-
-export type ProgressSignal<T> = {
-  peek: () => FindProgress<T>
-  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
 }
 
 function randomPeerId() {
@@ -78,12 +74,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #saveDebounceRate: number
 
   /** @hidden */
-  #saveFn: (payload: DocHandleEncodedChangePayload<any>) => void
-
-  #handleCache: Record<DocumentId, DocHandle<any>> = {}
-
-  /** @hidden */
-  synchronizer: CollectionSynchronizer
+  #saveFn: (payload: { docId: DocumentId }) => void
 
   /** By default, we share generously with all peers. */
   /** @hidden */
@@ -95,11 +86,11 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
-  #progressCache: Record<DocumentId, FindProgress<any>> = {}
-  #saveFns: Record<
-    DocumentId,
-    (payload: DocHandleEncodedChangePayload<any>) => void
-  > = {}
+  #saveFns: Record<DocumentId, (payload: { docId: DocumentId }) => void> = {}
+  #documents: Map<DocumentId, DocState<any>> = new Map()
+  #connectedPeers: Map<PeerId, PeerMetadata> = new Map()
+  #peerId: PeerId
+  #denylist: Set<DocumentId>
 
   constructor({
     storage,
@@ -113,37 +104,20 @@ export class Repo extends EventEmitter<RepoEvents> {
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
-    this.#log = debug(`automerge-repo:repo`)
+    this.#log = debug(`automerge-repo:repo(${peerId})`)
     this.sharePolicy = sharePolicy ?? this.sharePolicy
+    this.#peerId = peerId
+    this.#denylist = new Set(
+      denylist.map(url => parseAutomergeUrl(url).documentId)
+    )
 
     this.on("delete-document", ({ documentId }) => {
-      this.synchronizer.removeDocument(documentId)
-
       if (storageSubsystem) {
         storageSubsystem.removeDoc(documentId).catch(err => {
           this.#log("error deleting document", { documentId, err })
         })
       }
     })
-
-    // SYNCHRONIZER
-    // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    this.synchronizer = new CollectionSynchronizer(this, denylist)
-
-    // When the synchronizer emits messages, send them to peers
-    this.synchronizer.on("message", message => {
-      this.#log(`sending ${message.type} message to ${message.targetId}`)
-      networkSubsystem.send(message)
-    })
-
-    // Forward metrics from doc synchronizers
-    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
-
-    if (this.#remoteHeadsGossipingEnabled) {
-      this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
-        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-      })
-    }
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
@@ -160,15 +134,17 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     if (this.storageSubsystem) {
       // Save no more often than saveDebounceRate.
-      this.#saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
-        let fn = this.#saveFns[handle.documentId]
+      this.#saveFn = ({ docId }: { docId: DocumentId }) => {
+        let docState = this.#documents.get(docId)
+        if (!docState) return
+        let fn = this.#saveFns[docId]
         if (!fn) {
           fn = throttle(() => {
-            void this.storageSubsystem!.saveDoc(handle.documentId, doc)
+            void this.storageSubsystem!.saveDoc(docId, docState.phasor.doc())
           }, this.#saveDebounceRate)
-          this.#saveFns[handle.documentId] = fn
+          this.#saveFns[docId] = fn
         }
-        fn({ handle, doc })
+        fn({ docId })
       }
     } else {
       this.#saveFn = () => {}
@@ -189,8 +165,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     )
     this.networkSubsystem = networkSubsystem
 
+    networkSubsystem.whenReady().then(() => {
+      for (const docId of this.#documents.keys()) {
+        this.#processDocEvent(docId, { type: "network_ready" })
+      }
+    })
+
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
+      this.#connectedPeers.set(peerId, peerMetadata)
       this.#log("peer connected", { peerId })
 
       if (peerMetadata) {
@@ -207,50 +190,24 @@ export class Repo extends EventEmitter<RepoEvents> {
           console.log("error in share policy", { err })
         })
 
-      this.synchronizer.addPeer(peerId)
+      for (const docId of this.#documents.keys()) {
+        this.#processDocEvent(docId, { type: "peer_added", peerId })
+        this.#loadPeerForDoc(docId, peerId, peerMetadata)
+      }
     })
 
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      this.synchronizer.removePeer(peerId)
+      this.#connectedPeers.delete(peerId)
       this.#remoteHeadsSubscriptions.removePeer(peerId)
+      for (const [docId, docState] of this.#documents.entries()) {
+        this.#processDocEvent(docId, { type: "peer_removed", peerId })
+      }
     })
 
     // Handle incoming messages
     networkSubsystem.on("message", async msg => {
       this.#receiveMessage(msg)
-    })
-
-    this.synchronizer.on("sync-state", message => {
-      this.#saveSyncState(message)
-
-      const handle = this.#handleCache[message.documentId]
-
-      const { storageId } = this.peerMetadataByPeerId[message.peerId] || {}
-      if (!storageId) {
-        return
-      }
-
-      const heads = handle.getSyncInfo(storageId)?.lastHeads
-      const haveHeadsChanged =
-        message.syncState.theirHeads &&
-        (!heads ||
-          !headsAreSame(heads, encodeHeads(message.syncState.theirHeads)))
-
-      if (haveHeadsChanged && message.syncState.theirHeads) {
-        handle.setSyncInfo(storageId, {
-          lastHeads: encodeHeads(message.syncState.theirHeads),
-          lastSyncTimestamp: Date.now(),
-        })
-
-        if (storageId && this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-            message.documentId,
-            storageId,
-            encodeHeads(message.syncState.theirHeads)
-          )
-        }
-      }
     })
 
     if (this.#remoteHeadsGossipingEnabled) {
@@ -283,33 +240,214 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#remoteHeadsSubscriptions.on(
         "remote-heads-changed",
         ({ documentId, storageId, remoteHeads, timestamp }) => {
-          const handle = this.#handleCache[documentId]
-          handle.setSyncInfo(storageId, {
+          const docState = this.#documents.get(documentId)
+          if (!docState) return
+          docState.rootHandle.setSyncInfo(storageId, {
             lastHeads: remoteHeads,
             lastSyncTimestamp: timestamp,
           })
+          for (const view of docState.viewHandles) {
+            view.handle.setSyncInfo(storageId, {
+              lastHeads: remoteHeads,
+              lastSyncTimestamp: timestamp,
+            })
+          }
         }
       )
     }
   }
 
-  // The `document` event is fired by the DocCollection any time we create a new document or look
-  // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-  #registerHandleWithSubsystems(handle: DocHandle<any>) {
-    if (this.storageSubsystem) {
-      // Add save function as a listener if it's not already registered
-      const existingListeners = handle.listeners("heads-changed")
-      if (!existingListeners.some(listener => listener === this.#saveFn)) {
-        // Save when the document changes
-        handle.on("heads-changed", this.#saveFn)
+  get peerId(): PeerId {
+    return this.#peerId
+  }
+
+  #loadPeerForDoc(
+    docId: DocumentId,
+    peerId: PeerId,
+    peerMetadata: PeerMetadata
+  ) {
+    this.sharePolicy(peerId, docId).then(shouldShare => {
+      this.#processDocEvent(docId, {
+        type: "peer_share_policy_loaded",
+        peerId,
+        shouldShare,
+      })
+    })
+    let syncStatePromise
+    // Note that somehow `peerMetadata` can be undefined here if the websocket adapter
+    // is used. This is probably due to bad message validation in the websocket adapter
+    if (peerMetadata?.storageId != null && this.storageSubsystem != null) {
+      syncStatePromise = this.storageSubsystem
+        .loadSyncState(docId, peerMetadata.storageId)
+        .then(syncState => {
+          if (syncState == null) syncState = Automerge.initSyncState()
+          return syncState
+        })
+    } else {
+      syncStatePromise = Promise.resolve(Automerge.initSyncState())
+    }
+    syncStatePromise.then(syncState => {
+      this.#processDocEvent(docId, {
+        type: "peer_sync_state_loaded",
+        peerId,
+        syncState,
+      })
+    })
+  }
+
+  #spawnDoc<T>(
+    docId: DocumentId,
+    doc: Automerge.Doc<T> | undefined
+  ): DocState<T> {
+    if (this.#denylist.has(docId)) {
+      throw new Error("attempting to spawn a denied document")
+    }
+    if (this.#documents.has(docId)) {
+      throw new Error(`document phasor for ${docId} already exists`)
+    }
+    const phasor = new DocumentPhasor<T>({
+      ourPeerId: this.#peerId,
+      documentId: docId,
+      initialState: doc,
+      networkReady: this.networkSubsystem.isReady(),
+    })
+    const rootHandle = new DocHandle<T>(
+      docId,
+      changeFn => {
+        const docState = this.#documents.get(docId) as DocState<T> | undefined
+        if (!docState)
+          throw new Error(`Document not found for documentId ${docId}`)
+        const { result, effects } = docState.phasor.localChange(changeFn)
+        this.#handleDocEffects(docId, effects)
+        return result
+      },
+      () => phasor.doc()
+    )
+    rootHandle.on("ephemeral-message-outbound", message => {
+      this.#processDocEvent(docId, {
+        type: "outbound_ephemeral_message",
+        message: message.data,
+      })
+    })
+    const docState = {
+      phasor,
+      rootHandle,
+      rootProgress: {
+        state: "loading" as const,
+        progress: 0,
+        handle: rootHandle,
+      },
+      viewHandles: [],
+      subscribers: new Set<() => void>(),
+    }
+    this.#documents.set(docId, docState)
+    rootHandle.setState(phasor.phase())
+
+    for (const [peerId, peerMetadata] of this.#connectedPeers.entries()) {
+      const effects = phasor.handleEvent({ type: "peer_added", peerId })
+      this.#handleDocEffects(docId, effects)
+      this.#loadPeerForDoc(docId, peerId, peerMetadata)
+    }
+    this.#handleDocEffects(docId, phasor.tick())
+    return docState
+  }
+
+  #processDocEvent<T>(docId: DocumentId, event: DocEvent<T>) {
+    const docState = this.#documents.get(docId)
+    if (docState == null) throw new Error(`unknown doc phasor: ${docId}`)
+    const effects = docState.phasor.handleEvent(event)
+    this.#handleDocEffects(docId, effects)
+  }
+
+  #handleDocEffects<T>(docId: DocumentId, effects: DocEffects<T>) {
+    const docState = this.#documents.get(docId)
+    if (docState == null) throw new Error(`unknown doc phasor: ${docId}`)
+    if (effects.stateChange) {
+      docState.rootHandle.setState(effects.stateChange.after)
+      docState.rootProgress = phaseToProgress(
+        effects.stateChange.after,
+        docState.rootHandle
+      )
+      notify(docState)
+    }
+    if (effects.docChanged != null) {
+      this.#saveFn({ docId })
+      docState.rootHandle.emit("heads-changed", {
+        handle: docState.rootHandle,
+        doc: effects.docChanged.docAfter,
+      })
+      if (effects.docChanged.diff.length > 0) {
+        docState.rootHandle.emit("change", {
+          handle: docState.rootHandle,
+          doc: effects.docChanged.docAfter,
+          patches: effects.docChanged.diff,
+          // TODO: pass along the source (load/change/network)
+          patchInfo: {
+            before: effects.docChanged.docBefore,
+            after: effects.docChanged.docAfter,
+            source: "change",
+          },
+        })
+      }
+    }
+    for (const msg of effects.newEphemeralMessages) {
+      docState.rootHandle.emit("ephemeral-message", {
+        handle: docState.rootHandle,
+        senderId: msg.senderId,
+        message: msg.content,
+      })
+    }
+    if (effects.beginLoad) {
+      this.#log("dispatching load for document ", docId)
+      if (this.storageSubsystem) {
+        this.storageSubsystem.loadDocData(docId).then(data => {
+          this.#processDocEvent(docId, { type: "load_complete", data })
+        })
+      } else {
+        this.#processDocEvent(docId, { type: "load_complete", data: null })
+      }
+    }
+    for (const msg of effects.outboundMessages) {
+      this.networkSubsystem.send(msg)
+    }
+    for (const msg of effects.forwardedEphemeralMessages) {
+      this.networkSubsystem.send(msg)
+    }
+    for (const [peerId, syncState] of effects.newSyncStates.entries()) {
+      const { storageId } = this.peerMetadataByPeerId[peerId]
+
+      if (storageId != null) {
+        this.#saveSyncState({ peerId, documentId: docId, syncState })
       }
     }
 
-    // Register the document with the synchronizer. This advertises our interest in the document.
-    this.synchronizer.addDocument(handle)
+    for (const [peerId, { after }] of effects.remoteHeadsChanged.entries()) {
+      const { storageId } = this.peerMetadataByPeerId[peerId]
+
+      if (storageId != null) {
+        docState.rootHandle.setSyncInfo(storageId, {
+          lastHeads: encodeHeads(after),
+          lastSyncTimestamp: Date.now(),
+        })
+      }
+      if (storageId && this.#remoteHeadsGossipingEnabled) {
+        this.#log("notifying of remote heads change")
+        this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+          docId,
+          storageId,
+          encodeHeads(after)
+        )
+      }
+    }
+    if (this.#remoteHeadsGossipingEnabled) {
+      for (const peerId of effects.newActivePeers) {
+        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, docId)
+      }
+    }
   }
 
   #receiveMessage(message: RepoMessage) {
+    this.#log("received message ", message)
     switch (message.type) {
       case "remote-subscription-change":
         if (this.#remoteHeadsGossipingEnabled) {
@@ -325,8 +463,24 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "request":
       case "ephemeral":
       case "doc-unavailable":
-        this.synchronizer.receiveMessage(message).catch(err => {
-          console.log("error receiving message", { err, message })
+        if (this.#denylist.has(message.documentId)) {
+          if (message.type === "request") {
+            this.networkSubsystem.send({
+              targetId: message.senderId,
+              type: "doc-unavailable",
+              documentId: message.documentId,
+            })
+          }
+          return
+        }
+        let docState = this.#documents.get(message.documentId)
+        if (!docState) {
+          this.#spawnDoc(message.documentId, undefined)
+        }
+        this.#processDocEvent(message.documentId, {
+          type: "sync_message_received",
+          peerId: message.senderId,
+          message: message,
         })
     }
   }
@@ -366,31 +520,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     handler(payload)
   }
 
-  /** Returns an existing handle if we have it; creates one otherwise. */
-  #getHandle<T>({
-    documentId,
-  }: {
-    /** The documentId of the handle to look up or create */
-    documentId: DocumentId /** If we know we're creating a new document, specify this so we can have access to it immediately */
-  }) {
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) return this.#handleCache[documentId]
-
-    // If not, create a new handle, cache it, and return it
-    if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
-    const handle = new DocHandle<T>(documentId)
-    this.#handleCache[documentId] = handle
-    return handle
-  }
-
   /** Returns all the handles we have cached. */
-  get handles() {
-    return this.#handleCache
+  get handles(): Record<DocumentId, DocHandle<any>> {
+    const result: Record<DocumentId, DocHandle<any>> = {}
+    for (const [docId, docState] of this.#documents.entries()) {
+      result[docId] = docState.rootHandle
+    }
+    return result
   }
 
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
-    return this.synchronizer.peers
+    return Array.from(this.#connectedPeers.keys())
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
@@ -405,24 +546,16 @@ export class Repo extends EventEmitter<RepoEvents> {
   create<T>(initialValue?: T): DocHandle<T> {
     // Generate a new UUID and store it in the buffer
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const handle = this.#getHandle<T>({
-      documentId,
-    }) as DocHandle<T>
+    let doc: Automerge.Doc<T>
+    if (initialValue) {
+      doc = Automerge.from(initialValue)
+    } else {
+      doc = Automerge.emptyChange(Automerge.init())
+    }
+    const docState = this.#spawnDoc(documentId, doc)
+    this.#saveFn({ docId: documentId })
 
-    this.#registerHandleWithSubsystems(handle)
-
-    handle.update(() => {
-      let nextDoc: Automerge.Doc<T>
-      if (initialValue) {
-        nextDoc = Automerge.from(initialValue)
-      } else {
-        nextDoc = Automerge.emptyChange(Automerge.init())
-      }
-      return nextDoc
-    })
-
-    handle.doneLoading()
-    return handle
+    return docState.rootHandle
   }
 
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
@@ -438,186 +571,38 @@ export class Repo extends EventEmitter<RepoEvents> {
    * be notified of the newly created DocHandle.
    *
    */
-  clone<T>(clonedHandle: DocHandle<T>) {
+  clone<T>(clonedHandle: DocHandle<T>): DocHandle<T> {
     if (!clonedHandle.isReady()) {
       throw new Error(
         `Cloned handle is not yet in ready state.
         (Try await handle.whenReady() first.)`
       )
     }
-
-    const sourceDoc = clonedHandle.doc()
-    const handle = this.create<T>()
-
-    handle.update(() => {
-      // we replace the document with the new cloned one
-      return Automerge.clone(sourceDoc)
-    })
-
-    return handle
+    return this.import(Automerge.save(clonedHandle.doc()))
   }
 
   findWithProgress<T>(
     id: AnyDocumentId,
     options: AbortOptions = {}
-  ): FindProgressWithMethods<T> | FindProgress<T> {
+  ): FindProgressWithMethods<T> {
     const { signal } = options
     const { documentId, heads } = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
       : { documentId: interpretAsDocumentId(id), heads: undefined }
 
-    // Check handle cache first - return plain FindStep for terminal states
-    if (this.#handleCache[documentId]) {
-      const handle = this.#handleCache[documentId]
-      if (handle.state === UNAVAILABLE) {
-        const result = {
-          state: "unavailable" as const,
-          error: new Error(`Document ${id} is unavailable`),
-          handle,
-        }
-        return result
-      }
-      if (handle.state === DELETED) {
-        const result = {
-          state: "failed" as const,
-          error: new Error(`Document ${id} was deleted`),
-          handle,
-        }
-        return result
-      }
-      if (handle.state === READY) {
-        const result = {
-          state: "ready" as const,
-          handle: heads ? handle.view(heads) : handle,
-        }
-        return result
-      }
+    if (this.#denylist.has(documentId)) {
+      throw new Error(`Document ${id} is unavailable`)
     }
 
-    // Check progress cache for any existing signal
-    const cachedProgress = this.#progressCache[documentId]
-    if (cachedProgress) {
-      const handle = this.#handleCache[documentId]
-      // Return cached progress if we have a handle and it's either in a terminal state or loading
-      if (
-        handle &&
-        (handle.state === READY ||
-          handle.state === UNAVAILABLE ||
-          handle.state === DELETED ||
-          handle.state === "loading")
-      ) {
-        return cachedProgress as FindProgressWithMethods<T>
-      }
+    let docState = this.#documents.get(documentId)
+    if (docState == null) {
+      docState = this.#spawnDoc(documentId, undefined)
     }
 
-    const handle = this.#getHandle<T>({ documentId })
-    const initial = {
-      state: "loading" as const,
-      progress: 0,
-      handle,
+    if (docState.phasor.phase() == "unavailable") {
+      this.#processDocEvent(documentId, { type: "reload" })
     }
-
-    // Create a new progress signal
-    const progressSignal = {
-      subscribers: new Set<(progress: FindProgress<T>) => void>(),
-      currentProgress: undefined as FindProgress<T> | undefined,
-      notify: (progress: FindProgress<T>) => {
-        progressSignal.currentProgress = progress
-        progressSignal.subscribers.forEach(callback => callback(progress))
-        // Cache all states, not just terminal ones
-        this.#progressCache[documentId] = progress
-      },
-      peek: () => progressSignal.currentProgress || initial,
-      subscribe: (callback: (progress: FindProgress<T>) => void) => {
-        progressSignal.subscribers.add(callback)
-        return () => progressSignal.subscribers.delete(callback)
-      },
-    }
-
-    progressSignal.notify(initial)
-
-    // Start the loading process
-    void this.#loadDocumentWithProgress(
-      id,
-      documentId,
-      handle,
-      progressSignal,
-      signal ? abortable(new Promise(() => {}), signal) : new Promise(() => {})
-    )
-
-    const result = {
-      ...initial,
-      peek: progressSignal.peek,
-      subscribe: progressSignal.subscribe,
-    }
-    this.#progressCache[documentId] = result
-    return result
-  }
-
-  async #loadDocumentWithProgress<T>(
-    id: AnyDocumentId,
-    documentId: DocumentId,
-    handle: DocHandle<T>,
-    progressSignal: {
-      notify: (progress: FindProgress<T>) => void
-    },
-    abortPromise: Promise<never>
-  ) {
-    try {
-      progressSignal.notify({
-        state: "loading" as const,
-        progress: 25,
-        handle,
-      })
-
-      const loadingPromise = await (this.storageSubsystem
-        ? this.storageSubsystem.loadDoc(handle.documentId)
-        : Promise.resolve(null))
-
-      const loadedDoc = await Promise.race([loadingPromise, abortPromise])
-
-      if (loadedDoc) {
-        handle.update(() => loadedDoc as Automerge.Doc<T>)
-        handle.doneLoading()
-        progressSignal.notify({
-          state: "loading" as const,
-          progress: 50,
-          handle,
-        })
-      } else {
-        await Promise.race([this.networkSubsystem.whenReady(), abortPromise])
-        handle.request()
-        progressSignal.notify({
-          state: "loading" as const,
-          progress: 75,
-          handle,
-        })
-      }
-
-      this.#registerHandleWithSubsystems(handle)
-
-      await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
-
-      if (handle.state === UNAVAILABLE) {
-        const unavailableProgress = {
-          state: "unavailable" as const,
-          handle,
-        }
-        progressSignal.notify(unavailableProgress)
-        return
-      }
-      if (handle.state === DELETED) {
-        throw new Error(`Document ${id} was deleted`)
-      }
-
-      progressSignal.notify({ state: "ready" as const, handle })
-    } catch (error) {
-      progressSignal.notify({
-        state: "failed" as const,
-        error: error instanceof Error ? error : new Error(String(error)),
-        handle: this.#getHandle<T>({ documentId }),
-      })
-    }
+    return findProgress(docState, heads)
   }
 
   async find<T>(
@@ -633,68 +618,43 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const progress = this.findWithProgress<T>(id, { signal })
 
-    if ("subscribe" in progress) {
-      this.#registerHandleWithSubsystems(progress.handle)
-      return new Promise((resolve, reject) => {
-        const unsubscribe = progress.subscribe(state => {
-          if (allowableStates.includes(state.handle.state)) {
-            unsubscribe()
-            resolve(state.handle)
-          } else if (state.state === "unavailable") {
-            unsubscribe()
-            reject(new Error(`Document ${id} is unavailable`))
-          } else if (state.state === "failed") {
-            unsubscribe()
-            reject(state.error)
-          }
-        })
-      })
-    } else {
-      if (progress.handle.state === READY) {
-        return progress.handle
-      }
-      // If the handle isn't ready, wait for it and then return it
-      await progress.handle.whenReady([READY, UNAVAILABLE])
-      if (
-        progress.handle.state === "unavailable" &&
-        !allowableStates.includes(UNAVAILABLE)
-      ) {
-        throw new Error(`Document ${id} is unavailable`)
-      }
+    if (allowableStates.includes(progress.state)) {
       return progress.handle
     }
+    if (progress.state === "unavailable") {
+      throw new Error(`Document ${id} is unavailable`)
+    }
+
+    const findPromise = new Promise<DocHandle<T>>((resolve, reject) => {
+      const unsubscribe = progress.subscribe(state => {
+        if (allowableStates.includes(state.handle.state)) {
+          unsubscribe()
+          resolve(state.handle)
+        } else if (state.state === "unavailable") {
+          unsubscribe()
+          reject(new Error(`Document ${id} is unavailable`))
+        } else if (state.state === "failed") {
+          unsubscribe()
+          reject(state.error)
+        }
+      })
+    })
+    return Promise.race([
+      findPromise,
+      abortable(new Promise(() => {}), signal) as Promise<never>,
+    ])
   }
 
   /**
    * Loads a document without waiting for ready state
    */
   async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      return this.#handleCache[documentId]
+    let docState = this.#documents.get(documentId)
+    if (!docState) {
+      docState = this.#spawnDoc(documentId, undefined)
     }
 
-    // If we don't already have the handle, make an empty one and try loading it
-    const handle = this.#getHandle<T>({ documentId })
-    const loadedDoc = await (this.storageSubsystem
-      ? this.storageSubsystem.loadDoc(handle.documentId)
-      : Promise.resolve(null))
-
-    if (loadedDoc) {
-      // We need to cast this to <T> because loadDoc operates in <unknowns>.
-      // This is really where we ought to be validating the input matches <T>.
-      handle.update(() => loadedDoc as Automerge.Doc<T>)
-      handle.doneLoading()
-    } else {
-      // Because the network subsystem might still be booting up, we wait
-      // here so that we don't immediately give up loading because we're still
-      // making our initial connection to a sync server.
-      await this.networkSubsystem.whenReady()
-      handle.request()
-    }
-
-    this.#registerHandleWithSubsystems(handle)
-    return handle
+    return docState.rootHandle
   }
 
   /**
@@ -730,12 +690,18 @@ export class Repo extends EventEmitter<RepoEvents> {
   ) {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle({ documentId })
-    handle.delete()
-
-    delete this.#handleCache[documentId]
-    delete this.#progressCache[documentId]
     delete this.#saveFns[documentId]
+
+    const docState = this.#documents.get(documentId)
+    this.#documents.delete(documentId)
+
+    if (docState) {
+      docState.rootHandle.setState("deleted")
+      for (const view of docState.viewHandles) {
+        view.handle.setState("deleted")
+      }
+    }
+
     this.emit("delete-document", { documentId })
   }
 
@@ -749,9 +715,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle({ documentId })
-    const doc = handle.doc()
-    return Automerge.save(doc)
+    const docState = this.#documents.get(documentId)
+    if (!docState) throw new Error("document not found")
+
+    return Automerge.save(docState.phasor.doc())
   }
 
   /**
@@ -771,23 +738,16 @@ export class Repo extends EventEmitter<RepoEvents> {
    * importing and exporting these bundles.
    */
   import<T>(binary: Uint8Array, args?: { docId?: DocumentId }): DocHandle<T> {
-    const docId = args?.docId
-    if (docId != null) {
-      const handle = this.#getHandle<T>({ documentId: docId })
-      handle.update(doc => {
-        return Automerge.loadIncremental(doc, binary)
-      })
-      this.#registerHandleWithSubsystems(handle)
-      return handle
-    } else {
-      const doc = Automerge.load<T>(binary)
-      const handle = this.create<T>()
-      handle.update(() => {
-        return Automerge.clone(doc)
-      })
-
-      return handle
+    const docId =
+      args?.docId || parseAutomergeUrl(generateAutomergeUrl()).documentId
+    if (this.#denylist.has(docId)) {
+      throw new Error(
+        "attempting to import a document which is on the configured denylist"
+      )
     }
+    const doc = Automerge.load<T>(binary)
+    const docState = this.#spawnDoc(docId, doc)
+    return docState.rootHandle
   }
 
   subscribeToRemotes = (remotes: StorageId[]) => {
@@ -819,12 +779,22 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!this.storageSubsystem) {
       return
     }
-    const handles = documents
-      ? documents.map(id => this.#handleCache[id])
-      : Object.values(this.#handleCache)
+    let docStates: DocState<unknown>[] = Array.from(this.#documents.values())
+    if (documents) {
+      docStates = []
+      for (const docId of documents) {
+        const docState = this.#documents.get(docId)
+        if (docState) {
+          docStates.push(docState)
+        }
+      }
+    }
     await Promise.all(
-      handles.map(async handle => {
-        return this.storageSubsystem!.saveDoc(handle.documentId, handle.doc())
+      docStates.map(async docState => {
+        return this.storageSubsystem!.saveDoc(
+          docState.phasor.documentId,
+          docState.phasor.doc()
+        )
       })
     )
   }
@@ -836,33 +806,16 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @returns Promise<void>
    */
   async removeFromCache(documentId: DocumentId) {
-    if (!this.#handleCache[documentId]) {
+    const docState = this.#documents.get(documentId)
+    if (!docState) {
       this.#log(
-        `WARN: removeFromCache called but handle not found in handleCache for documentId: ${documentId}`
+        `WARN: removeFromCache called but handle not found for documentId: ${documentId}`
       )
       return
     }
-    const handle = this.#getHandle({ documentId })
-    await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
-    const doc = handle.doc()
-    // because this is an internal-ish function, we'll be extra careful about undefined docs here
-    if (doc) {
-      if (handle.isReady()) {
-        handle.unload()
-      } else {
-        this.#log(
-          `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
-        )
-      }
-      delete this.#handleCache[documentId]
-      delete this.#progressCache[documentId]
-      delete this.#saveFns[documentId]
-      this.synchronizer.removeDocument(documentId)
-    } else {
-      this.#log(
-        `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
-      )
-    }
+
+    delete this.#saveFns[documentId]
+    this.#documents.delete(documentId)
   }
 
   shutdown(): Promise<void> {
@@ -873,7 +826,18 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   metrics(): { documents: { [key: string]: any } } {
-    return { documents: this.synchronizer.metrics() }
+    return { documents: {} }
+    // return { documents: this.synchronizer.metrics() }
+  }
+
+  peersForDoc(docId: DocumentId): PeerId[] {
+    const docState = this.#documents.get(docId)
+    if (!docState) return []
+    return docState.phasor.activePeers()
+  }
+
+  activeDocs(): Set<DocumentId> {
+    return new Set(this.#documents.keys())
   }
 }
 
@@ -964,3 +928,140 @@ export type DocMetrics =
       type: "doc-denied"
       documentId: DocumentId
     }
+
+/** Notify the repo that the sync state has changed  */
+export interface SyncStatePayload {
+  peerId: PeerId
+  documentId: DocumentId
+  syncState: Automerge.SyncState
+}
+
+export type DocSyncMetrics =
+  | {
+      type: "receive-sync-message"
+      documentId: DocumentId
+      durationMillis: number
+      numOps: number
+      numChanges: number
+    }
+  | {
+      type: "doc-denied"
+      documentId: DocumentId
+    }
+
+type DocState<T> = {
+  rootHandle: DocHandle<T>
+  rootProgress: FindProgress<T>
+  viewHandles: {
+    heads: Automerge.Heads
+    handle: DocHandle<T>
+    progress: FindProgress<T>
+    subscribers: Set<(progress: FindProgress<T>) => void>
+  }[]
+  phasor: DocumentPhasor<T>
+  subscribers: Set<(progress: FindProgress<T>) => void>
+}
+
+function findProgress<T>(
+  docState: DocState<T>,
+  atHeads?: UrlHeads
+): FindProgressWithMethods<T> {
+  let subscribers
+  let progress
+  let peek
+  let handle
+  if (!atHeads) {
+    subscribers = docState.subscribers
+    progress = docState.rootProgress
+    peek = () => docState.rootProgress
+    handle = docState.rootHandle
+  } else {
+    let view = docState.viewHandles.find(handle => handle.heads === atHeads)
+    if (!view) {
+      const viewHandle = docState.rootHandle.view(atHeads)
+      view = {
+        heads: atHeads,
+        handle: viewHandle,
+        progress: {
+          ...docState.rootProgress,
+          handle: viewHandle,
+        },
+        subscribers: new Set<(progress: FindProgress<T>) => void>(),
+      }
+      docState.viewHandles.push(view)
+    }
+    handle = view.handle
+    peek = () => view.progress
+    subscribers = view.subscribers
+    progress = view.progress
+  }
+
+  const subscribe: (
+    callback: (progress: FindProgress<T>) => void
+  ) => () => void = callback => {
+    subscribers.add(callback)
+    return () => {
+      docState.subscribers.delete(callback)
+    }
+  }
+
+  return {
+    ...progress,
+    subscribe,
+    peek,
+    untilReady: (allowableStates: string[]) =>
+      new Promise<DocHandle<T>>(resolve => {
+        const unsubscribe = subscribe(progress => {
+          if (allowableStates.includes(progress.state)) {
+            unsubscribe()
+            resolve(handle)
+          }
+        })
+      }),
+  }
+}
+
+function notify<T>(docState: DocState<T>) {
+  docState.subscribers.forEach(callback => callback(docState.rootProgress))
+}
+
+function phaseToProgress<T>(
+  phase: PhaseName,
+  handle: DocHandle<T>
+): FindProgress<T> {
+  switch (phase) {
+    case "loading": {
+      return {
+        state: "loading" as const,
+        progress: 50,
+        handle,
+      }
+      break
+    }
+    case "requesting": {
+      return {
+        state: "loading" as const,
+        progress: 75,
+        handle,
+      }
+      break
+    }
+    case "ready": {
+      return {
+        state: "ready" as const,
+        handle,
+      }
+      break
+    }
+    case "unavailable": {
+      return {
+        state: "unavailable" as const,
+        handle,
+      }
+      break
+    }
+    default:
+      const exhaustivenessCheck: never = phase
+      throw new Error(`Unhandled phase: ${exhaustivenessCheck}`)
+  }
+}

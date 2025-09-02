@@ -12,7 +12,12 @@ describe("BroadcastChannel", () => {
     const b = new BroadcastChannelNetworkAdapter()
     const c = new BroadcastChannelNetworkAdapter()
 
-    return { adapters: [a, b, c] }
+    return {
+      adapters: [a, b, c],
+      teardown: async () => {
+        await Promise.all([a.disconnect(), b.disconnect(), c.disconnect()])
+      },
+    }
   }
 
   runNetworkAdapterTests(setup)
