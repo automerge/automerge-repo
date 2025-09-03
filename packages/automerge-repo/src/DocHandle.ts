@@ -308,7 +308,16 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * checking `inState()`.
    */
   async whenReady(awaitStates: HandleState[] = ["ready"]) {
-    await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+    try {
+      await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+    } catch (error) {
+      console.log(
+        `error waiting for ${
+          this.documentId
+        } to be in one of states: ${awaitStates.join(", ")}`
+      )
+      throw error
+    }
   }
 
   /**
