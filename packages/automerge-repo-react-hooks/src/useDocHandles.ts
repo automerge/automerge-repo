@@ -3,6 +3,7 @@ import { useState, useEffect } from "react"
 import { useRepo } from "./useRepo.js"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { wrapperCache } from "./useDocHandle.js"
+import { useSet } from "./helpers/useSet.js"
 
 interface UseDocHandlesParams {
   suspense?: boolean
@@ -14,12 +15,13 @@ export function useDocHandles<T>(
   ids: AutomergeUrl[],
   { suspense = false }: UseDocHandlesParams = {}
 ): DocHandleMap<T> {
+  const idSet = useSet(ids)
   const repo = useRepo()
   const [handleMap, setHandleMap] = useState<DocHandleMap<T>>(() => {
     const map = new Map()
 
     // Initialize the map with any handles that are ready
-    for (const id of ids) {
+    for (const id of idSet.values()) {
       let progress
       try {
         progress = repo.findWithProgress<T>(id)
@@ -39,7 +41,7 @@ export function useDocHandles<T>(
   const nextHandleMap = new Map<AutomergeUrl, DocHandle<T> | undefined>()
 
   // Check if we need any new wrappers
-  for (const id of ids) {
+  for (const id of idSet.values()) {
     let handle = handleMap.get(id)
     let wrapper = wrapperCache.get(id)
     if (!wrapper) {
@@ -85,7 +87,7 @@ export function useDocHandles<T>(
     } else {
       setHandleMap(nextHandleMap)
     }
-  }, [suspense, ids])
+  }, [suspense, idSet])
 
   // If any promises are pending, suspend with Promise.all
   // Note that this behaviour is different from the synchronous
