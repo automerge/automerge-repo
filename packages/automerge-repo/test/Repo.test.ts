@@ -1379,7 +1379,7 @@ describe("Repo", () => {
 
       await pause(200)
 
-      const bobHandle = bobRepo.handles[handle.documentId]
+      const bobHandle = bobRepo.handles[aliceHandle.documentId]
       await bobHandle.whenReady()
       assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
 
