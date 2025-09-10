@@ -2,6 +2,7 @@ import { next as Automerge } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
+  binaryToDocumentId,
   encodeHeads,
   generateAutomergeUrl,
   interpretAsDocumentId,
@@ -36,6 +37,7 @@ import {
 import type {
   AnyDocumentId,
   AutomergeUrl,
+  BinaryDocumentId,
   DocumentId,
   PeerId,
 } from "./types.js"
@@ -101,6 +103,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     DocumentId,
     (payload: DocHandleEncodedChangePayload<any>) => void
   > = {}
+  #idFactory: (() => Uint8Array) | null
 
   constructor({
     storage,
@@ -112,11 +115,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     enableRemoteHeadsGossiping = false,
     denylist = [],
     saveDebounceRate = 100,
+    idFactory,
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
 
+    this.#idFactory = idFactory || null
     // Handle legacy sharePolicy
     if (sharePolicy != null && shareConfig != null) {
       throw new Error("cannot provide both sharePolicy and shareConfig at once")
@@ -447,7 +452,11 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   create<T>(initialValue?: T): DocHandle<T> {
     // Generate a new UUID and store it in the buffer
-    const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    let { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    if (this.#idFactory) {
+      const rawDocId = this.#idFactory()
+      documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
+    }
     const handle = this.#getHandle<T>({
       documentId,
     }) as DocHandle<T>
@@ -964,6 +973,13 @@ export interface RepoConfig {
    * The debounce rate in milliseconds for saving documents. Defaults to 100ms.
    */
   saveDebounceRate?: number
+
+  // This is hidden for now because it's an experimental API, mostly here in order
+  // for keyhive to be able to control the ID generation
+  /**
+   * @hidden
+   */
+  idFactory?: () => Uint8Array
 }
 
 /** A function that determines whether we should share a document with a peer

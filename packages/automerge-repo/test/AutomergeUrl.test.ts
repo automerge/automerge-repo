@@ -2,6 +2,7 @@ import assert from "assert"
 import bs58check from "bs58check"
 import { describe, it } from "vitest"
 import {
+  binaryToDocumentId,
   generateAutomergeUrl,
   getHeadsFromUrl,
   isValidAutomergeUrl,
@@ -14,6 +15,7 @@ import type {
   BinaryDocumentId,
   DocumentId,
 } from "../src/types.js"
+import { interpretAsDocumentId } from "../src/AutomergeUrl.js"
 
 const goodUrl = "automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu" as AutomergeUrl
 const badChecksumUrl = "automerge:badbadbad" as AutomergeUrl
@@ -94,14 +96,17 @@ describe("AutomergeUrl", () => {
       assert(isValidAutomergeUrl(url) === false)
     })
 
-    it("should return false for a documentId that is not a valid UUID ", () => {
-      const url = stringifyAutomergeUrl({ documentId: badUuidDocumentId })
-      assert(isValidAutomergeUrl(url) === false)
-    })
-
     it("should return false for a documentId that is just some random type", () => {
       assert(isValidAutomergeUrl({ foo: "bar" } as unknown) === false)
     })
+  })
+
+  it("should allow arbitrary uint8array ids", () => {
+    const raw = new Uint8Array("custom-id".split("").map(c => c.charCodeAt(0)))
+    const documentId = binaryToDocumentId(raw as BinaryDocumentId)
+    const url = stringifyAutomergeUrl({ documentId })
+    const interpreted = interpretAsDocumentId(url)
+    assert.deepStrictEqual(interpreted, documentId)
   })
 })
 
