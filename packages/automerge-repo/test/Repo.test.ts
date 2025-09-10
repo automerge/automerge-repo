@@ -2027,6 +2027,36 @@ describe("Repo.find() abort behavior", () => {
     controller.abort()
     expect(handle.url).toBe(url)
   })
+
+  describe("creating a document with a custom ID factory", () => {
+    it("creates a document with the custom ID", async () => {
+      const id = new Uint8Array("custom-id".split("").map(c => c.charCodeAt(0)))
+      const repo = new Repo({
+        idFactory: () => id,
+      })
+      const handle = repo.create()
+      expect(handle.documentId).toBe("9HUp4wuzRMx9MRvN4x")
+    })
+
+    it("allows syncing documents with a custom ID", async () => {
+      const [aliceToBob, bobToAlice] = DummyNetworkAdapter.createConnectedPair()
+      const alice = new Repo({
+        peerId: "alice" as PeerId,
+        idFactory: () =>
+          new Uint8Array("custom-id".split("").map(c => c.charCodeAt(0))),
+        network: [aliceToBob],
+      })
+      const bob = new Repo({ peerId: "bob" as PeerId, network: [bobToAlice] })
+      aliceToBob.peerCandidate("bob" as PeerId)
+      bobToAlice.peerCandidate("alice" as PeerId)
+
+      await pause(50)
+
+      const handle = alice.create({ foo: "bar" })
+      const bobHandle = await bob.find(handle.url)
+      assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
+    })
+  })
 })
 
 const warn = console.warn
