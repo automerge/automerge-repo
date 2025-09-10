@@ -1334,14 +1334,13 @@ describe("Repo", () => {
       teardown()
     })
 
-    it('should actively sync imported documents with id', async () => {
+    it("should actively sync imported documents with id", async () => {
       const repo = new Repo()
       const handle = repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
       const binary = A.save(handle.doc())
-      
 
       const { bobRepo, teardown, aliceRepo } = await setup({
         connectAlice: true,
@@ -1360,14 +1359,13 @@ describe("Repo", () => {
       teardown()
     })
 
-    it('should actively sync imported documents', async () => {
+    it("should actively sync imported documents", async () => {
       const repo = new Repo()
       const handle = repo.create<TestDoc>()
       handle.change(d => {
         d.foo = "bar"
       })
       const binary = A.save(handle.doc())
-      
 
       const { bobRepo, teardown, aliceRepo } = await setup({
         connectAlice: true,
