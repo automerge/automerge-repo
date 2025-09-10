@@ -1334,6 +1334,56 @@ describe("Repo", () => {
       teardown()
     })
 
+    it("should actively sync imported documents with id", async () => {
+      const repo = new Repo()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      const binary = A.save(handle.doc())
+
+      const { bobRepo, teardown, aliceRepo } = await setup({
+        connectAlice: true,
+      })
+
+      const aliceHandle = aliceRepo.import(binary, { docId: handle.documentId })
+      await aliceHandle.whenReady()
+      assert.deepStrictEqual(aliceHandle.doc(), { foo: "bar" })
+
+      await pause(200)
+
+      const bobHandle = bobRepo.handles[handle.documentId]
+      await bobHandle.whenReady()
+      assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
+
+      teardown()
+    })
+
+    it("should actively sync imported documents", async () => {
+      const repo = new Repo()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      const binary = A.save(handle.doc())
+
+      const { bobRepo, teardown, aliceRepo } = await setup({
+        connectAlice: true,
+      })
+
+      const aliceHandle = aliceRepo.import(binary)
+      await aliceHandle.whenReady()
+      assert.deepStrictEqual(aliceHandle.doc(), { foo: "bar" })
+
+      await pause(200)
+
+      const bobHandle = bobRepo.handles[aliceHandle.documentId]
+      await bobHandle.whenReady()
+      assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
+
+      teardown()
+    })
+
     it("should not save sync state of ephemeral peers", async () => {
       const { bobRepo, teardown, charlieRepo } = await setup({
         connectAlice: false,
