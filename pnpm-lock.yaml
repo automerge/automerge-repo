@@ -309,15 +309,6 @@ importers:
         specifier: ^5.0.8
         version: 5.4.19(@types/node@20.19.9)
 
-  packages/automerge-repo-bundles:
-    dependencies:
-      '@automerge/automerge':
-        specifier: 2.2.8 - 3
-        version: 3.0.0
-      '@automerge/automerge-repo':
-        specifier: workspace:*
-        version: link:../automerge-repo
-
   packages/automerge-repo-network-broadcastchannel:
     dependencies:
       '@automerge/automerge-repo':
