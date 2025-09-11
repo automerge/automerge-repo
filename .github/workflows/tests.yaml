@@ -25,14 +25,13 @@ jobs:
         with:
           node-version: "18.x"
           registry-url: "https://registry.npmjs.org"
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 8
-          run_install: false
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
       - name: Install and Build
         run: |
           pnpm install
