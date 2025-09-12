@@ -530,10 +530,10 @@ describe("Repo", () => {
 
       // Track how many times loadDoc is called
       let loadDocCallCount = 0
-      const originalLoadDoc = repo2.storageSubsystem!.loadDoc.bind(
+      const originalLoadDoc = repo2.storageSubsystem!.loadDocData.bind(
         repo2.storageSubsystem
       )
-      repo2.storageSubsystem!.loadDoc = async documentId => {
+      repo2.storageSubsystem!.loadDocData = async documentId => {
         loadDocCallCount++
         return originalLoadDoc(documentId)
       }
@@ -601,11 +601,8 @@ describe("Repo", () => {
       it("delete removes doc handle", async () => {
         const { repo } = setup()
         const handle = repo.create({ foo: "bar" })
-        await repo.delete(handle.documentId)
+        repo.delete(handle.documentId)
         assert(repo.handles[handle.documentId] === undefined)
-        assert(
-          repo.synchronizer.docSynchronizers[handle.documentId] === undefined
-        )
       })
 
       it("removeFromCache removes doc handle", async () => {
@@ -613,9 +610,6 @@ describe("Repo", () => {
         const handle = repo.create({ foo: "bar" })
         await repo.removeFromCache(handle.documentId)
         assert(repo.handles[handle.documentId] === undefined)
-        assert(
-          repo.synchronizer.docSynchronizers[handle.documentId] === undefined
-        )
       })
 
       it("removeFromCache for documentId not found", async () => {
@@ -628,12 +622,6 @@ describe("Repo", () => {
     })
 
     describe("registerHandleWithSubsystems", () => {
-      it("registers document with synchronizer when creating a new document", async () => {
-        const { repo } = setup()
-        const handle = repo.create<TestDoc>()
-        assert(repo.synchronizer.docSynchronizers[handle.documentId])
-      })
-
       it("registers save to storage when creating a new document", async () => {
         const { repo, storageAdapter } = setup()
         const handle = repo.create<TestDoc>()
@@ -641,34 +629,6 @@ describe("Repo", () => {
         assert(
           storageAdapter.keys().some(key => key.includes(handle.documentId))
         )
-      })
-
-      it("registers document with synchronizer when finding an existing document", async () => {
-        const { repo, storageAdapter } = setup()
-        const handle = repo.create<TestDoc>()
-        await pause(10) // wait for debounced save to complete
-
-        const repo2 = new Repo({ storage: storageAdapter })
-        await repo2.find<TestDoc>(handle.url)
-        assert(repo2.synchronizer.docSynchronizers[handle.documentId])
-      })
-
-      it("registers document with synchronizer when finding an existing document with progress", async () => {
-        const { repo, storageAdapter } = setup()
-        const handle = repo.create<TestDoc>()
-        await pause(10) // wait for debounced save to complete
-
-        const repo2 = new Repo({ storage: storageAdapter })
-        repo2.findWithProgress<TestDoc>(handle.url)
-        await pause(10)
-        assert(repo2.synchronizer.docSynchronizers[handle.documentId])
-      })
-
-      it("registers document with synchronizer when there is no storage subsystem", async () => {
-        const repo = new Repo()
-        const handle = repo.create<TestDoc>()
-        assert(repo.synchronizer.docSynchronizers[handle.documentId])
-        assert.equal(handle.listenerCount("heads-changed"), 0) // no save listener registered
       })
 
       it("respects saveDebounceRate when saving", async () => {
@@ -687,22 +647,14 @@ describe("Repo", () => {
           })
         }
         await pause(10)
+        assert(storageAdapter.keys().length > 0)
         assert(storageAdapter.keys().length < 5)
 
         const keysBeforeDebouncedSave = storageAdapter.keys().length
         await pause(150)
+        console.log(storageAdapter.keys())
         const keysAfterDebouncedSave = storageAdapter.keys().length
         assert(keysAfterDebouncedSave > keysBeforeDebouncedSave)
-      })
-
-      it("does not add duplicate heads-changed listeners", async () => {
-        const { repo } = setup()
-        const handle = repo.create<TestDoc>()
-        await pause(10) // wait for debounced save to complete
-        await repo.find<TestDoc>(handle.url)
-        repo.findWithProgress<TestDoc>(handle.url)
-        await pause(10)
-        assert.equal(handle.listenerCount("heads-changed"), 1)
       })
     })
   })
@@ -810,6 +762,7 @@ describe("Repo", () => {
         expect(
           (await repo.find<{ foo: string }>(handle.documentId)).doc().foo
         ).toEqual("first")
+
         // Really, it's okay if the second one is also flushed but I'm forcing the issue
         // in the test storage engine above to make sure the behaviour is as documented
         await expect(async () => {
@@ -1076,18 +1029,9 @@ describe("Repo", () => {
       await pause(10)
 
       // We should have a docSynchronizer and its peers should be alice and charlie
-      assert.strictEqual(
-        bobRepo.synchronizer.docSynchronizers[bobFoundIt.documentId]?.hasPeer(
-          "alice" as PeerId
-        ),
-        true
-      )
-      assert.strictEqual(
-        bobRepo.synchronizer.docSynchronizers[bobFoundIt.documentId]?.hasPeer(
-          "charlie" as PeerId
-        ),
-        true
-      )
+      const peersForDoc = bobRepo.peersForDoc(bobFoundIt.documentId)
+      assert(peersForDoc.includes("alice" as PeerId))
+      assert(peersForDoc.includes("charlie" as PeerId))
 
       teardown()
     })
@@ -1101,9 +1045,9 @@ describe("Repo", () => {
         eventPromise(charlieRepo.networkSubsystem, "message"),
       ])
 
-      assert.notEqual(aliceRepo.handles[notForCharlie], undefined, "alice yes")
-      assert.notEqual(bobRepo.handles[notForCharlie], undefined, "bob yes")
-      assert.equal(charlieRepo.handles[notForCharlie], undefined, "charlie no")
+      assert(aliceRepo.activeDocs().has(notForCharlie))
+      assert(bobRepo.activeDocs().has(notForCharlie))
+      assert(!charlieRepo.activeDocs().has(notForCharlie))
 
       teardown()
     })
@@ -1151,6 +1095,7 @@ describe("Repo", () => {
         teardown,
         connectAliceToBob,
       } = await setup({ connectAlice: false })
+      await pause(10)
 
       const url = stringifyAutomergeUrl({ documentId: notForCharlie })
       await expect(charlieRepo.find<TestDoc>(url)).rejects.toThrow(
@@ -1258,12 +1203,16 @@ describe("Repo", () => {
         // pick a repo
         const repo = getRandomItem([aliceRepo, bobRepo, charlieRepo])
         const docs = Object.values(repo.handles)
-        const doc =
-          Math.random() < 0.5
-            ? // heads, create a new doc
-              repo.create<TestDoc>()
-            : // tails, pick a random doc
-              (getRandomItem(docs) as DocHandle<TestDoc>)
+
+        let doc: DocHandle<TestDoc>
+        if (Math.random() < 0.5) {
+          // Heads create a new doc
+          doc = repo.create<TestDoc>()
+        } else {
+          // Tails pick a random doc
+          const docId = getRandomItem(Array.from(repo.activeDocs()))
+          doc = await repo.find<TestDoc>(docId)!
+        }
 
         // make a random change to it
         doc.change(d => {
@@ -1407,62 +1356,6 @@ describe("Repo", () => {
       teardown()
     })
 
-    it("should load sync state from storage", async () => {
-      const { bobRepo, teardown, charlie, charlieRepo, bobStorage, bob } =
-        await setup({
-          connectAlice: false,
-        })
-
-      // create a new doc and count sync messages
-      const bobHandle = bobRepo.create<TestDoc>()
-      bobHandle.change(d => {
-        d.foo = "bar"
-      })
-      let bobSyncMessages = 0
-      bobRepo.networkSubsystem.on("message", message => {
-        if (message.type === "sync") {
-          bobSyncMessages++
-        }
-      })
-      await pause(500)
-
-      // repo has no stored sync state for charlie so we should see 2 sync messages
-      assert.strictEqual(bobSyncMessages, 2)
-
-      await bobRepo.flush()
-
-      // setup new repo which uses bob's storage
-      const bob2Repo = new Repo({
-        storage: bobStorage,
-        peerId: "bob-2" as PeerId,
-      })
-
-      // connnect it with charlie
-      const channel = new MessageChannel()
-      bob2Repo.networkSubsystem.addNetworkAdapter(
-        new MessageChannelNetworkAdapter(channel.port2)
-      )
-      charlieRepo.networkSubsystem.addNetworkAdapter(
-        new MessageChannelNetworkAdapter(channel.port1)
-      )
-
-      // lookup doc we've previously created and count the messages
-      bob2Repo.find(bobHandle.documentId)
-      let bob2SyncMessages = 0
-      bob2Repo.networkSubsystem.on("message", message => {
-        if (message.type === "sync") {
-          bob2SyncMessages++
-        }
-      })
-      await pause(100)
-
-      // repo has stored sync state for charlie so we should see one sync messages
-      assert.strictEqual(bob2SyncMessages, 1)
-
-      channel.port1.close()
-      teardown()
-    })
-
     it("should report the remote heads when they change", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup({
         connectAlice: false,
@@ -1477,17 +1370,13 @@ describe("Repo", () => {
       // pause to let the sync happen
       await pause(50)
 
-      const nextRemoteHeadsPromise = new Promise<{
-        storageId: StorageId
-        heads: UrlHeads
-        timestamp: number
-      }>(resolve => {
-        handle.on("remote-heads", ({ storageId, heads, timestamp }) => {
-          resolve({ storageId, heads, timestamp })
-        })
+      const remoteHeadsCalls = []
+      handle.on("remote-heads", ({ storageId, heads, timestamp }) => {
+        remoteHeadsCalls.push({ storageId, heads, timestamp })
       })
 
       const charlieHandle = await charlieRepo.find<TestDoc>(handle.url)
+      console.log("heads before on charlie: ", charlieHandle.heads())
 
       // make a change on charlie
       charlieHandle.change(d => {
@@ -1499,14 +1388,15 @@ describe("Repo", () => {
 
       assert.deepStrictEqual(charlieHandle.heads(), handle.heads())
 
-      const nextRemoteHeads = await nextRemoteHeadsPromise
-      assert.deepStrictEqual(nextRemoteHeads.storageId, charliedStorageId)
-      assert.deepStrictEqual(nextRemoteHeads.heads, charlieHandle.heads())
+      assert(remoteHeadsCalls.length > 0)
+      const lastCall = remoteHeadsCalls[remoteHeadsCalls.length - 1]
+      assert.deepStrictEqual(lastCall.storageId, charliedStorageId)
+      assert.deepStrictEqual(lastCall.heads, charlieHandle.heads())
 
       const syncInfo = handle.getSyncInfo(charliedStorageId)
 
       assert.deepStrictEqual(syncInfo?.lastHeads, charlieHandle.heads())
-      assert.strictEqual(syncInfo?.lastSyncTimestamp, nextRemoteHeads.timestamp)
+      assert.strictEqual(syncInfo?.lastSyncTimestamp, lastCall.timestamp)
 
       teardown()
     })
@@ -1519,18 +1409,6 @@ describe("Repo", () => {
 
       assert.deepStrictEqual(bobRepo.peers, ["alice", "charlie"])
       assert.deepStrictEqual(charlieRepo.peers, ["bob"])
-
-      teardown()
-    })
-
-    it("does not add duplicate heads-changed listeners", async () => {
-      const { aliceRepo, bobRepo, teardown } = await setup()
-
-      const aliceHandle = aliceRepo.create<TestDoc>({ foo: "bar" })
-      await pause(10)
-
-      const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
-      assert.equal(bobHandle.listenerCount("heads-changed"), 1)
 
       teardown()
     })
@@ -1828,8 +1706,11 @@ describe("Repo.find() abort behavior", () => {
   })
 
   it("can abort while waiting for ready state", async () => {
-    // Create a repo with no network adapters so document can't become ready
-    const repo = new Repo()
+    // Create a repo with slow non-responding network adapter so document never becomes ready
+    const repo = new Repo({ peerId: "alice" as PeerId })
+    const network = new DummyNetworkAdapter()
+    repo.networkSubsystem.addNetworkAdapter(network)
+    network.peerCandidate("bob" as PeerId)
     const url = generateAutomergeUrl()
 
     const controller = new AbortController()

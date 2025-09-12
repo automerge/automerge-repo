@@ -9,6 +9,7 @@ import {
   DocHandleRemoteHeadsPayload,
   PeerId,
   Repo,
+  RepoMessage,
   UrlHeads,
 } from "../src/index.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
@@ -20,12 +21,14 @@ describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   it("should allow to listen for remote head changes and manually read sync info", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
     const bobRepo = new Repo({
       peerId: "bob" as PeerId,
       network: [],
       storage: new DummyStorageAdapter(),
       enableRemoteHeadsGossiping: true,
+    })
+    const handle = bobRepo.create<TestDoc>({
+      foo: "bar",
     })
     const bobStorageId = await bobRepo.storageId()
 
@@ -227,19 +230,22 @@ describe("DocHandle.remoteHeads", () => {
       // doc B. If alice subscribes to bob's service worker, bob's service worker should send its
       // stored remote heads immediately.
 
+      let remoteHeadsChangedMessages = []
+      const onmessage = (message: RepoMessage) => {
+        if (message.type === "remote-heads-changed") {
+          remoteHeadsChangedMessages.push(message)
+        }
+      }
+      alice2.networkSubsystem.on("message", onmessage)
+
       // open doc and subscribe alice's second tab to bob's service worker
-      const alice2DocAPromise = alice2.find<TestDoc>(bobDocA.url)
       alice2.subscribeToRemotes([bobServiceWorkerStorageId])
 
-      const remoteHeadsChangedMessages = (
-        await collectMessages({
-          emitter: alice2.networkSubsystem,
-          event: "message",
-          until: alice2DocAPromise,
-        })
-      ).filter(({ type }) => type === "remote-heads-changed")
+      const alice2DocA = await alice2.find<TestDoc>(bobDocA.url)
 
-      const alice2DocA = await alice2DocAPromise
+      await pause(10)
+
+      alice2.networkSubsystem.off("message", onmessage)
 
       // we should only be notified of the head changes of doc A
       assert.strictEqual(remoteHeadsChangedMessages.length, 1)
@@ -265,18 +271,19 @@ describe("DocHandle.remoteHeads", () => {
 
       await pause(50)
 
-      // alice opens doc A
-      const alice1DocAPromise = alice.find<TestDoc>(bobDocA.url)
+      const remoteHeadsChangedMessages = []
+      const onmessage = (message: RepoMessage) => {
+        if (message.type === "remote-heads-changed") {
+          remoteHeadsChangedMessages.push(message)
+        }
+      }
+      alice.networkSubsystem.on("message", onmessage)
 
-      const remoteHeadsChangedMessages = (
-        await collectMessages({
-          emitter: alice.networkSubsystem,
-          event: "message",
-          until: alice1DocAPromise,
-        })
-      ).filter(({ type }) => type === "remote-heads-changed")
+      const alice1DocA = await alice.find<TestDoc>(bobDocA.url)
 
-      const alice1DocA = await alice1DocAPromise
+      await pause(10)
+
+      alice.networkSubsystem.off("message", onmessage)
 
       assert.strictEqual(remoteHeadsChangedMessages.length, 1)
       assert(

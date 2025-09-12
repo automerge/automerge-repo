@@ -103,6 +103,10 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       // Bob and Charlie receive the document
       await pause(50)
       const bobHandle = await bobRepo.find<TestDoc>(docUrl)
+      // Wait here as otherwise bob and charlies requests can cross in the air
+      // and the `find` call resolves as unavailable as soon as the request from
+      // bob arrives.
+      await pause(10)
       const charlieHandle = await charlieRepo.find<TestDoc>(docUrl)
 
       // Alice changes the document
@@ -146,6 +150,8 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       // pause to give charlie a chance to let alice know it wants the doc
       await pause(100)
+
+      const msgPromise = eventPromise(charlieHandle, "ephemeral-message")
 
       const alicePresenceData = { presence: "alice" }
       aliceHandle.broadcast(alicePresenceData)
