@@ -163,7 +163,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
         let fn = this.#saveFns[handle.documentId]
         if (!fn) {
-        fn = throttle(({ doc }: DocHandleEncodedChangePayload<any>) => {
+          fn = throttle(({ doc }: DocHandleEncodedChangePayload<any>) => {
             void this.storageSubsystem!.saveDoc(handle.documentId, doc)
           }, this.#saveDebounceRate)
           this.#saveFns[handle.documentId] = fn
