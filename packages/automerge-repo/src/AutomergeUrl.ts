@@ -142,10 +142,7 @@ export const isValidDocumentId = (str: unknown): str is DocumentId => {
   // try to decode from base58
   const binaryDocumentID = documentIdToBinary(str as DocumentId)
   if (binaryDocumentID === undefined) return false // invalid base58check encoding
-
-  // confirm that the document ID is a valid UUID
-  const documentId = Uuid.stringify(binaryDocumentID)
-  return Uuid.validate(documentId)
+  return true
 }
 
 export const isValidUuid = (str: unknown): str is LegacyDocumentId =>
