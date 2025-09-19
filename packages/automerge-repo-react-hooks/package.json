@@ -23,7 +23,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^14.0.0",
     "eslint-plugin-react-hooks": "^5.1.0",
-    "jsdom": "^22.1.0",
+    "jsdom": "^27.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-error-boundary": "^5.0.0",
