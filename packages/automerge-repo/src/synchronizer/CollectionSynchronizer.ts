@@ -71,7 +71,7 @@ export class CollectionSynchronizer extends Synchronizer {
     const peers = Array.from(this.#peers)
     const generousPeers: PeerId[] = []
     for (const peerId of peers) {
-      const okToShare = await this.repo.sharePolicy(peerId, documentId)
+      const okToShare = await this.#shouldShare(peerId, documentId)
       if (okToShare) generousPeers.push(peerId)
     }
     return generousPeers
@@ -100,6 +100,20 @@ export class CollectionSynchronizer extends Synchronizer {
         type: "doc-denied",
         documentId,
       })
+      this.emit("message", {
+        type: "doc-unavailable",
+        documentId,
+        targetId: message.senderId,
+      })
+      return
+    }
+
+    const hasAccess = await this.repo.shareConfig.access(
+      message.senderId,
+      documentId
+    )
+    if (!hasAccess) {
+      log("access denied")
       this.emit("message", {
         type: "doc-unavailable",
         documentId,
@@ -160,7 +174,7 @@ export class CollectionSynchronizer extends Synchronizer {
     this.#peers.add(peerId)
     for (const docSynchronizer of Object.values(this.docSynchronizers)) {
       const { documentId } = docSynchronizer
-      void this.repo.sharePolicy(peerId, documentId).then(okToShare => {
+      void this.#shouldShare(peerId, documentId).then(okToShare => {
         if (okToShare) void docSynchronizer.beginSync([peerId])
       })
     }
@@ -194,5 +208,13 @@ export class CollectionSynchronizer extends Synchronizer {
         }
       )
     )
+  }
+
+  async #shouldShare(peerId: PeerId, documentId: DocumentId): Promise<boolean> {
+    const [announce, access] = await Promise.all([
+      this.repo.shareConfig.announce(peerId, documentId),
+      this.repo.shareConfig.access(peerId, documentId),
+    ])
+    return announce && access
   }
 }

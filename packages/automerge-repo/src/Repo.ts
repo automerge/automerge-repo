@@ -85,9 +85,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   synchronizer: CollectionSynchronizer
 
-  /** By default, we share generously with all peers. */
-  /** @hidden */
-  sharePolicy: SharePolicy = async () => true
+  #shareConfig: ShareConfig = {
+    announce: async () => true,
+    access: async () => true,
+  }
 
   /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
   /** @hidden */
@@ -106,6 +107,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     network = [],
     peerId = randomPeerId(),
     sharePolicy,
+    shareConfig,
     isEphemeral = storage === undefined,
     enableRemoteHeadsGossiping = false,
     denylist = [],
@@ -114,7 +116,20 @@ export class Repo extends EventEmitter<RepoEvents> {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
-    this.sharePolicy = sharePolicy ?? this.sharePolicy
+
+    // Handle legacy sharePolicy
+    if (sharePolicy != null && shareConfig != null) {
+      throw new Error("cannot provide both sharePolicy and shareConfig at once")
+    }
+    if (sharePolicy) {
+      this.#shareConfig = {
+        announce: sharePolicy,
+        access: async () => true,
+      }
+    }
+    if (shareConfig) {
+      this.#shareConfig = shareConfig
+    }
 
     this.on("delete-document", ({ documentId }) => {
       this.synchronizer.removeDocument(documentId)
@@ -200,7 +215,8 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
       }
 
-      this.sharePolicy(peerId)
+      this.#shareConfig
+        .announce(peerId)
         .then(shouldShare => {
           if (shouldShare && this.#remoteHeadsGossipingEnabled) {
             this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
@@ -394,6 +410,30 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
     return this.synchronizer.peers
+  }
+
+  get peerId(): PeerId {
+    return this.networkSubsystem.peerId
+  }
+
+  /** @hidden */
+  get sharePolicy(): SharePolicy {
+    return this.#shareConfig.announce
+  }
+
+  /** @hidden */
+  set sharePolicy(policy: SharePolicy) {
+    this.#shareConfig.announce = policy
+  }
+
+  /** @hidden */
+  get shareConfig(): ShareConfig {
+    return this.#shareConfig
+  }
+
+  /** @hidden */
+  set shareConfig(config: ShareConfig) {
+    this.#shareConfig = config
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
@@ -897,8 +937,16 @@ export interface RepoConfig {
   /**
    * Normal peers typically share generously with everyone (meaning we sync all our documents with
    * all peers). A server only syncs documents that a peer explicitly requests by ID.
+   * @deprecated Use `shareConfig` instead
    */
   sharePolicy?: SharePolicy
+
+  /**
+   * Whether to share documents with other peers. By default we announce new
+   * documents to everyone and allow everyone access to documents, see the
+   * documentation for {@link ShareConfig} to override this
+   */
+  shareConfig?: ShareConfig
 
   /**
    * Whether to enable the experimental remote heads gossiping feature
@@ -930,6 +978,27 @@ export type SharePolicy = (
   peerId: PeerId,
   documentId?: DocumentId
 ) => Promise<boolean>
+
+/**
+ * A type which determines whether we should share a document with a peer
+ * */
+export type ShareConfig = {
+  /**
+   * Whether we should actively announce a document to a peer
+
+   * @remarks
+   * This functions is called after checking the `access` policy to determine
+   * whether we should announce a document to a connected peer. For example, a
+   * tab connected to a sync server might want to announce every document to the
+   * sync server, but the sync server would not want to announce every document
+   * to every connected peer
+   */
+  announce: SharePolicy
+  /**
+   * Whether a peer should have access to the document
+   */
+  access: (peer: PeerId, doc: DocumentId) => Promise<boolean>
+}
 
 // events & payloads
 export interface RepoEvents {
