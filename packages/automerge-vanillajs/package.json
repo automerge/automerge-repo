@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
+    "vitest": "^3.2.4"
   },
   "exports": {
     ".": "./dist/index.js",
