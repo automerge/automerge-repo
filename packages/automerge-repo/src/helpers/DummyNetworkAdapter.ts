@@ -4,6 +4,7 @@ import { Message, NetworkAdapter, PeerId } from "../../src/index.js"
 export class DummyNetworkAdapter extends NetworkAdapter {
   #sendMessage?: SendMessageFn
 
+  #connected = false
   #ready = false
   #readyResolver?: () => void
   #readyPromise: Promise<void> = new Promise<void>(resolve => {
@@ -39,20 +40,29 @@ export class DummyNetworkAdapter extends NetworkAdapter {
   }
 
   connect(peerId: PeerId) {
+    this.#connected = true
     this.peerId = peerId
   }
 
-  disconnect() {}
+  disconnect() {
+    this.#connected = false
+  }
 
   peerCandidate(peerId: PeerId) {
     this.emit("peer-candidate", { peerId, peerMetadata: {} })
   }
 
   override send(message: Message) {
+    if (!this.#connected) {
+      return
+    }
     this.#sendMessage?.(message)
   }
 
   receive(message: Message) {
+    if (!this.#connected) {
+      return
+    }
     this.emit("message", message)
   }
 
