@@ -120,11 +120,41 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           after: { [delay]: "unavailable" },
         },
         requesting: {
+          type: "parallel",
           on: {
-            DOC_UNAVAILABLE: "unavailable",
             DOC_READY: "ready",
           },
-          after: { [delay]: "unavailable" },
+          states: {
+            syncV1: {
+              initial: "requesting",
+              states: {
+                requesting: {
+                  on: {
+                    DOC_UNAVAILABLE_SYNC_V1: "unavailable",
+                  },
+                  after: { [delay]: "unavailable" },
+                },
+                unavailable: {
+                  type: "final",
+                },
+              },
+            },
+            sedimentree: {
+              initial: "requesting",
+              states: {
+                requesting: {
+                  on: {
+                    DOC_UNAVAILABLE_SEDIMENTREE: "unavailable",
+                  },
+                  after: { [delay]: "unavailable" },
+                },
+                unavailable: {
+                  type: "final",
+                },
+              },
+            },
+          },
+          onDone: "unavailable",
         },
         unavailable: {
           entry: "onUnavailable",
@@ -297,7 +327,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** @hidden */
   get state() {
-    return this.#machine.getSnapshot().value
+    const current = this.#machine.getSnapshot().value
+    if (typeof current === "string") {
+      return current
+    } else {
+      return Object.keys(current)[0]
+    }
+    // this.#machine.getSnapshot().value
+    // return this.#machine.getSnapshot().value
   }
 
   /**
@@ -654,7 +691,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    */
   unavailable() {
-    this.#machine.send({ type: DOC_UNAVAILABLE })
+    this.#machine.send({ type: "DOC_UNAVAILABLE_SYNC_V1" })
+  }
+
+  unavailableSedimentree() {
+    this.#machine.send({ type: "DOC_UNAVAILABLE_SEDIMENTREE" })
   }
 
   /**
@@ -846,7 +887,8 @@ type DocHandleEvent<T> =
   | { type: typeof RELOAD }
   | { type: typeof DELETE }
   | { type: typeof TIMEOUT }
-  | { type: typeof DOC_UNAVAILABLE }
+  | { type: typeof DOC_UNAVAILABLE_SYNC_V1 }
+  | { type: typeof DOC_UNAVAILABLE_SEDIMENTREE }
 
 const BEGIN = "BEGIN"
 const REQUEST = "REQUEST"
@@ -856,4 +898,5 @@ const UNLOAD = "UNLOAD"
 const RELOAD = "RELOAD"
 const DELETE = "DELETE"
 const TIMEOUT = "TIMEOUT"
-const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"
+const DOC_UNAVAILABLE_SYNC_V1 = "DOC_UNAVAILABLE_SYNC_V1"
+const DOC_UNAVAILABLE_SEDIMENTREE = "DOC_UNAVAILABLE_SEDIMENTREE"
