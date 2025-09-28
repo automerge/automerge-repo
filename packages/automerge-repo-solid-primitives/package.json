@@ -24,7 +24,7 @@
     "vite-plugin-solid": "^2.11.0"
   },
   "peerDependencies": {
-    "@automerge/automerge": "3.0.0",
+    "@automerge/automerge": "^3.0.0",
     "solid-js": "^1.9.4"
   },
   "repository": {
