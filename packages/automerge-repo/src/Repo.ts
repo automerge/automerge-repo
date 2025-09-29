@@ -1,4 +1,4 @@
-import { next as Automerge } from "@automerge/automerge/slim"
+import { next as Automerge, Heads } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
@@ -103,7 +103,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     DocumentId,
     (payload: DocHandleEncodedChangePayload<any>) => void
   > = {}
-  #idFactory: (() => Uint8Array) | null
+  #idFactory: ((initialHeads: Heads) => Uint8Array) | null
 
   constructor({
     storage,
@@ -451,10 +451,17 @@ export class Repo extends EventEmitter<RepoEvents> {
    * system. we emit a `document` event to advertise interest in the document.
    */
   create<T>(initialValue?: T): DocHandle<T> {
+    let initialDoc: Automerge.Doc<T>
+    if (initialValue) {
+      initialDoc = Automerge.from(initialValue)
+    } else {
+      initialDoc = Automerge.emptyChange(Automerge.init())
+    }
+
     // Generate a new UUID and store it in the buffer
     let { documentId } = parseAutomergeUrl(generateAutomergeUrl())
     if (this.#idFactory) {
-      const rawDocId = this.#idFactory()
+      const rawDocId = this.#idFactory(Automerge.getHeads(initialDoc))
       documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
     }
     const handle = this.#getHandle<T>({
@@ -464,13 +471,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#registerHandleWithSubsystems(handle)
 
     handle.update(() => {
-      let nextDoc: Automerge.Doc<T>
-      if (initialValue) {
-        nextDoc = Automerge.from(initialValue)
-      } else {
-        nextDoc = Automerge.emptyChange(Automerge.init())
-      }
-      return nextDoc
+      return initialDoc
     })
 
     handle.doneLoading()
@@ -982,7 +983,7 @@ export interface RepoConfig {
   /**
    * @hidden
    */
-  idFactory?: () => Uint8Array
+  idFactory?: (initialHeads: Heads) => Uint8Array
 }
 
 /** A function that determines whether we should share a document with a peer

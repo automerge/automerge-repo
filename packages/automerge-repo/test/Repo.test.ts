@@ -1,4 +1,4 @@
-import { next as A } from "@automerge/automerge"
+import { next as A, Heads } from "@automerge/automerge"
 import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import assert from "assert"
 import * as Uuid from "uuid"
@@ -2036,6 +2036,20 @@ describe("Repo.find() abort behavior", () => {
       })
       const handle = repo.create()
       expect(handle.documentId).toBe("9HUp4wuzRMx9MRvN4x")
+    })
+
+    it("passes the heads of the document to the callback", async () => {
+      const id = new Uint8Array("custom-id".split("").map(c => c.charCodeAt(0)))
+      let calledHeads: Heads | null = null
+      const repo = new Repo({
+        idFactory: (heads: Heads) => {
+          calledHeads = heads
+          return id
+        },
+      })
+      const handle = repo.create()
+      const actualHeads = A.getHeads(handle.doc())
+      assert.deepStrictEqual(actualHeads, calledHeads)
     })
 
     it("allows syncing documents with a custom ID", async () => {
