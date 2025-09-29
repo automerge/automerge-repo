@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-demo-counter",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-counter",
   "private": true,
-  "version": "2.4.0-alpha.0",
+  "version": "2.4.0-alpha.1",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
