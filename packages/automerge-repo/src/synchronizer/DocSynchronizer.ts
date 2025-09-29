@@ -408,6 +408,7 @@ export class DocSynchronizer extends Synchronizer {
           this.#peerDocumentStatuses[peerId] === "wants"
       )
     ) {
+      console.log(this.#peerId, this.#peerDocumentStatuses)
       this.#peers
         .filter(peerId => this.#peerDocumentStatuses[peerId] === "wants")
         .forEach(peerId => {
