@@ -946,7 +946,6 @@ export interface RepoConfig {
   /**
    * Normal peers typically share generously with everyone (meaning we sync all our documents with
    * all peers). A server only syncs documents that a peer explicitly requests by ID.
-   * @deprecated Use `shareConfig` instead
    */
   sharePolicy?: SharePolicy
 
@@ -954,6 +953,10 @@ export interface RepoConfig {
    * Whether to share documents with other peers. By default we announce new
    * documents to everyone and allow everyone access to documents, see the
    * documentation for {@link ShareConfig} to override this
+   *
+   * Note that this is currently an experimental API and will very likely change
+   * without a major release.
+   * @experimental
    */
   shareConfig?: ShareConfig
 
