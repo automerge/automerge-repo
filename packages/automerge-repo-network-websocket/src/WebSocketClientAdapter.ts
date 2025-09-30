@@ -46,13 +46,50 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   #retryIntervalId?: TimeoutId
+  #retryTimeoutId?: TimeoutId
+  #currentRetryDelay?: number
+
+  #setupRetries() {
+    const shouldSetupRetries =
+      this.retryInterval > 0 && !this.#retryIntervalId && !this.#retryTimeoutId
+    if (!shouldSetupRetries) return
+
+    if (this.useExponentialBackoff) {
+      this.#currentRetryDelay = this.#currentRetryDelay
+        ? Math.min(this.#currentRetryDelay * 2, this.maxRetryDelay)
+        : this.retryInterval
+
+      this.#retryTimeoutId = setTimeout(() => {
+        this.#retryTimeoutId = undefined
+        assert(this.peerId)
+        this.connect(this.peerId, this.peerMetadata)
+      }, this.#currentRetryDelay)
+    } else {
+      this.#retryIntervalId = setInterval(() => {
+        assert(this.peerId)
+        this.connect(this.peerId, this.peerMetadata)
+      }, this.retryInterval)
+    }
+  }
+
+  #clearRetries() {
+    clearInterval(this.#retryIntervalId)
+    this.#retryIntervalId = undefined
+
+    clearTimeout(this.#retryTimeoutId)
+    this.#retryTimeoutId = undefined
+    this.#currentRetryDelay = undefined
+  }
+
   #log = debug("automerge-repo:websocket:browser")
 
   remotePeerId?: PeerId // this adapter only connects to one remote client at a time
 
   constructor(
     public readonly url: string,
-    public readonly retryInterval = 5000
+    public readonly retryInterval = 5000,
+    public readonly useExponentialBackoff = false,
+    public readonly maxRetryDelay = 30000
   ) {
     super()
     this.#log = this.#log.extend(url)
@@ -74,10 +111,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
       this.socket.removeEventListener("error", this.onError)
     }
     // Wire up retries
-    if (!this.#retryIntervalId)
-      this.#retryIntervalId = setInterval(() => {
-        this.connect(peerId, peerMetadata)
-      }, this.retryInterval)
+    this.#setupRetries()
 
     this.socket = new WebSocket(this.url)
 
@@ -97,8 +131,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
 
   onOpen = () => {
     this.#log("open")
-    clearInterval(this.#retryIntervalId)
-    this.#retryIntervalId = undefined
+    this.#clearRetries()
     this.join()
   }
 
@@ -108,12 +141,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
     if (this.remotePeerId)
       this.emit("peer-disconnected", { peerId: this.remotePeerId })
 
-    if (this.retryInterval > 0 && !this.#retryIntervalId)
-      // try to reconnect
-      setTimeout(() => {
-        assert(this.peerId)
-        return this.connect(this.peerId, this.peerMetadata)
-      }, this.retryInterval)
+    this.#setupRetries()
   }
 
   onMessage = (event: WebSocket.MessageEvent) => {
@@ -162,7 +190,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
       socket.removeEventListener("error", this.onError)
       socket.close()
     }
-    clearInterval(this.#retryIntervalId)
+    this.#clearRetries()
     if (this.remotePeerId)
       this.emit("peer-disconnected", { peerId: this.remotePeerId })
     this.socket = undefined
