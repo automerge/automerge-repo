@@ -2034,7 +2034,7 @@ describe("Repo.find() abort behavior", () => {
       const repo = new Repo({
         idFactory: () => id,
       })
-      const handle = repo.create()
+      const handle = await repo.create2()
       expect(handle.documentId).toBe("9HUp4wuzRMx9MRvN4x")
     })
 
@@ -2047,7 +2047,7 @@ describe("Repo.find() abort behavior", () => {
           return id
         },
       })
-      const handle = repo.create()
+      const handle = await repo.create2()
       const actualHeads = A.getHeads(handle.doc())
       assert.deepStrictEqual(actualHeads, calledHeads)
     })
@@ -2066,7 +2066,7 @@ describe("Repo.find() abort behavior", () => {
 
       await pause(50)
 
-      const handle = alice.create({ foo: "bar" })
+      const handle = await alice.create2({ foo: "bar" })
       const bobHandle = await bob.find(handle.url)
       assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
     })
