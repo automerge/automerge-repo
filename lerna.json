@@ -1,5 +1,5 @@
 {
   "$schema": "node_modules/lerna/schemas/lerna-schema.json",
   "npmClient": "pnpm",
-  "version": "2.4.0-alpha.1"
+  "version": "2.4.0-alpha.2"
 }
