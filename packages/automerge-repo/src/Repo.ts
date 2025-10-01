@@ -103,7 +103,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     DocumentId,
     (payload: DocHandleEncodedChangePayload<any>) => void
   > = {}
-  #idFactory: ((initialHeads: Heads) => Uint8Array) | null
+  #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
 
   constructor({
     storage,
@@ -459,9 +459,47 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     // Generate a new UUID and store it in the buffer
+    const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    const handle = this.#getHandle<T>({
+      documentId,
+    }) as DocHandle<T>
+
+    this.#registerHandleWithSubsystems(handle)
+
+    handle.update(() => {
+      return initialDoc
+    })
+
+    handle.doneLoading()
+    return handle
+  }
+
+  /**
+   * Creates a new document and returns a handle to it. The initial value of the
+   * document is an empty object `{}` unless an initial value is provided. The
+   * main difference between this and Repo.create is that if an `idGenerator`
+   * was provided at repo construction, that idGenerator will be used to
+   * generate the document ID of the document returned by this method.
+   *
+   * This is a hidden, experimental API which is subject to change or removal without notice.
+   * @hidden
+   * @experimental
+   */
+  async create2<T>(initialValue?: T): Promise<DocHandle<T>> {
+    // Note that the reason this method is hidden and experimental is because it is async,
+    // and it is async because we want to be able to call the #idGenerator, which is async.
+    // This is all really in service of wiring up keyhive and we probably need to find a
+    // nicer way to achieve this.
+    let initialDoc: Automerge.Doc<T>
+    if (initialValue) {
+      initialDoc = Automerge.from(initialValue)
+    } else {
+      initialDoc = Automerge.emptyChange(Automerge.init())
+    }
+
     let { documentId } = parseAutomergeUrl(generateAutomergeUrl())
     if (this.#idFactory) {
-      const rawDocId = this.#idFactory(Automerge.getHeads(initialDoc))
+      const rawDocId = await this.#idFactory(Automerge.getHeads(initialDoc))
       documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
     }
     const handle = this.#getHandle<T>({
@@ -477,7 +515,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.doneLoading()
     return handle
   }
-
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
    *
    * @param clonedHandle - The handle to clone
@@ -983,7 +1020,7 @@ export interface RepoConfig {
   /**
    * @hidden
    */
-  idFactory?: (initialHeads: Heads) => Uint8Array
+  idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
 }
 
 /** A function that determines whether we should share a document with a peer
