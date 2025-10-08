@@ -1,4 +1,22 @@
 /**
+ * An error thrown when an operation is aborted.
+ *
+ * @remarks
+ * This error is thrown when an operation is aborted. It is a subclass of DOMException
+ * with name "AbortError".
+ *
+ * @example
+ * ```typescript
+ * throw new AbortError()
+ * ```
+ */
+export class AbortError extends DOMException {
+  constructor(message?: string) {
+    super(message ?? "Operation aborted", "AbortError")
+  }
+}
+
+/**
  * Wraps a Promise and causes it to reject when the signal is aborted.
  *
  * @remarks
@@ -26,7 +44,6 @@
  * before the promise p settles, and settles as p settles otherwise
  * @throws {DOMException} With name "AbortError" if aborted before p settles
  */
-
 export function abortable<T>(
   p: Promise<T>,
   signal: AbortSignal | undefined
@@ -37,7 +54,7 @@ export function abortable<T>(
       "abort",
       () => {
         if (!settled) {
-          reject(new DOMException("Operation aborted", "AbortError"))
+          reject(new AbortError())
         }
       },
       { once: true }
