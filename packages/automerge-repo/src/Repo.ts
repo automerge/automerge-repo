@@ -41,7 +41,7 @@ import type {
   DocumentId,
   PeerId,
 } from "./types.js"
-import { abortable, AbortOptions } from "./helpers/abortable.js"
+import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
@@ -704,7 +704,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     } catch (error) {
       progressSignal.notify({
         state: "failed" as const,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error:
+          error instanceof Error || error instanceof DOMException
+            ? error
+            : new Error(String(error)),
         handle: this.#getHandle<T>({ documentId }),
       })
     }
@@ -718,7 +721,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Check if already aborted
     if (signal?.aborted) {
-      throw new Error("Operation aborted")
+      throw new AbortError()
     }
 
     const progress = this.findWithProgress<T>(id, { signal })

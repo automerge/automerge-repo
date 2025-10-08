@@ -34,6 +34,7 @@ import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
 import { FindProgress } from "../src/FindProgress.js"
+import { AbortError } from "../src/helpers/abortable.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -1993,7 +1994,7 @@ describe("Repo.find() abort behavior", () => {
 
     await expect(
       repo.find(generateAutomergeUrl(), { signal: controller.signal })
-    ).rejects.toThrow("Operation aborted")
+    ).rejects.toThrow(AbortError)
   })
 
   it("can abort while waiting for ready state", async () => {
@@ -2007,7 +2008,7 @@ describe("Repo.find() abort behavior", () => {
     const findPromise = repo.find(url, { signal: controller.signal })
     controller.abort()
 
-    await expect(findPromise).rejects.toThrow("Operation aborted")
+    await expect(findPromise).rejects.toThrow(AbortError)
     await expect(findPromise).rejects.not.toThrow("unavailable")
   })
 
