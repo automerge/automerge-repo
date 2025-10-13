@@ -2008,7 +2008,13 @@ describe("Repo.find() abort behavior", () => {
     const findPromise = repo.find(url, { signal: controller.signal })
     controller.abort()
 
+    // Official specification just says to check `reason.name === "AbortError"`
+    // Using AbortError promotes correctness across different JS environments and provides a simpler check.
     await expect(findPromise).rejects.toThrow(AbortError)
+    await expect(findPromise).rejects.rejects.toHaveProperty(
+      "name",
+      "AbortError"
+    )
     await expect(findPromise).rejects.not.toThrow("unavailable")
   })
 
