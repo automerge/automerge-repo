@@ -705,6 +705,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       progressSignal.notify({
         state: "failed" as const,
         error:
+          // In most JS environments DOMException extends Error, but not always, in some environments it's a separate type.
+          // Some Node.js DOM polyfills do not always extend the Error
+          // Jsdom polyfill doesn't extend Error, whereas happy-dom does.
           error instanceof Error || error instanceof DOMException
             ? error
             : new Error(String(error)),
