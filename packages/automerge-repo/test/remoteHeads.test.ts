@@ -15,6 +15,8 @@ import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import { collectMessages } from "./helpers/collectMessages.js"
 import { TestDoc } from "./types.js"
 import { pause } from "../src/helpers/pause.js"
+import { truePromiseFactory } from "../src/helpers/truePromiseFactory.js"
+import { falsePromiseFactory } from "../src/helpers/falsePromiseFactory.js"
 
 describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -56,13 +58,13 @@ describe("DocHandle.remoteHeads", () => {
       const alice = new Repo({
         peerId: "alice-tab-1" as PeerId,
         network: [],
-        sharePolicy: async () => true,
+        sharePolicy: truePromiseFactory,
         enableRemoteHeadsGossiping: true,
       })
       const alice2 = new Repo({
         peerId: "alice-tab-2" as PeerId,
         network: [],
-        sharePolicy: async () => true,
+        sharePolicy: truePromiseFactory,
         enableRemoteHeadsGossiping: true,
       })
       const aliceServiceWorker = new Repo({
@@ -77,7 +79,7 @@ describe("DocHandle.remoteHeads", () => {
         peerId: "sync-server" as PeerId,
         network: [],
         isEphemeral: false,
-        sharePolicy: async () => false,
+        sharePolicy: falsePromiseFactory,
         storage: new DummyStorageAdapter(),
         enableRemoteHeadsGossiping: true,
       })
@@ -92,7 +94,7 @@ describe("DocHandle.remoteHeads", () => {
       const bob = new Repo({
         peerId: "bob-tab" as PeerId,
         network: [],
-        sharePolicy: async () => true,
+        sharePolicy: truePromiseFactory,
         enableRemoteHeadsGossiping: true,
       })
 
