@@ -12,6 +12,11 @@ import { headsAreSame } from "./helpers/headsAreSame.js"
 import { withTimeout } from "./helpers/withTimeout.js"
 import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
 import { StorageId } from "./storage/types.js"
+import {
+  AbortError,
+  AbortOptions,
+  isAbortErrorLike,
+} from "./helpers/abortable.js"
 
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
@@ -170,8 +175,16 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.#machine?.getSnapshot().value
   }
 
-  /** Returns a promise that resolves when the docHandle is in one of the given states */
-  #statePromise(awaitStates: HandleState | HandleState[]) {
+  /**
+   * Returns a promise that resolves when the docHandle is in one of the given states
+   *
+   * @param awaitStates - HandleState or HandleStates to wait for
+   * @param signal - Optional AbortSignal to cancel the waiting operation
+   */
+  #statePromise(
+    awaitStates: HandleState | HandleState[],
+    options?: AbortOptions
+  ) {
     const awaitStatesArray = Array.isArray(awaitStates)
       ? awaitStates
       : [awaitStates]
@@ -179,7 +192,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       this.#machine,
       s => awaitStatesArray.some(state => s.matches(state)),
       // use a longer delay here so as not to race with other delays
-      { timeout: this.#timeoutDelay * 2 }
+      { timeout: this.#timeoutDelay * 2, ...options }
     )
   }
 
@@ -301,16 +314,29 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * @returns a promise that resolves when the document is in one of the given states (if no states
-   * are passed, when the document is ready)
+   * Returns promise that resolves when document is in one of the given states (default is 'ready' state)
    *
    * Use this to block until the document handle has finished loading. The async equivalent to
    * checking `inState()`.
+   *
+   * @param awaitStates - HandleState or HandleStates to wait for
+   * @param signal - Optional AbortSignal to cancel the waiting operation
+   * @returns a promise that resolves when the document is in one of the given states (if no states
+   * are passed, when the document is ready)
    */
-  async whenReady(awaitStates: HandleState[] = ["ready"]) {
+  async whenReady(
+    awaitStates: HandleState[] = ["ready"],
+    options?: AbortOptions
+  ) {
     try {
-      await withTimeout(this.#statePromise(awaitStates), this.#timeoutDelay)
+      await withTimeout(
+        this.#statePromise(awaitStates, options),
+        this.#timeoutDelay
+      )
     } catch (error) {
+      if (isAbortErrorLike(error)) {
+        throw new AbortError() //throw new error for stack trace
+      }
       console.log(
         `error waiting for ${
           this.documentId
