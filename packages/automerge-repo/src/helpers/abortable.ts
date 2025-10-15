@@ -17,6 +17,22 @@ export class AbortError extends DOMException {
 }
 
 /**
+ * Detects if candidate `Error` is an `AbortError` or AbortError-like.
+ * @remarks
+ * - This method detects if an error is AbortError-like (for which there could be many implementations)
+ * - AbortController spec defines AbortError as DOMException or Error with `name === 'AbortError'`.
+ */
+export const isAbortErrorLike = (candidate: unknown): boolean => {
+  return (
+    candidate instanceof AbortError ||
+    ((candidate instanceof Error ||
+      //In some JS environments, DOMException is not defined, and sometimes when defined, it does not extend Error; hence extra checks
+      (DOMException && candidate instanceof DOMException)) &&
+      candidate.name === "AbortError")
+  )
+}
+
+/**
  * Wraps a Promise and causes it to reject when the signal is aborted.
  *
  * @remarks
