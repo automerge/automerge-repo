@@ -11,7 +11,7 @@ export const peerEvents = new EventEmitter()
 
 export interface UseRemoteAwarenessProps<T> {
   /** The handle to receive ephemeral state on */
-  handle: DocHandle<T>
+  handle?: DocHandle<T>
   /** Our user ID */
   localUserId?: string
   /** How long to wait (in ms) before marking a peer as offline */
@@ -48,6 +48,10 @@ export const useRemoteAwareness = <T>({
   const [peerStates, setPeerStates, peerStatesRef] = useStateRef<PeerStates>({})
   const [heartbeats, setHeartbeats, heartbeatsRef] = useStateRef<Heartbeats>({})
   useEffect(() => {
+    if (!handle) {
+      return
+    }
+
     // Receive incoming message
     const handleIncomingUpdate = (
       event: DocHandleEphemeralMessagePayload<T>
@@ -66,17 +70,21 @@ export const useRemoteAwareness = <T>({
     }
     // Remove peers we haven't seen recently
     const pruneOfflinePeers = () => {
-      const peerStates = peerStatesRef.current
-      const heartbeats = heartbeatsRef.current
+      const peerStates = { ...peerStatesRef.current }
+      const heartbeats = { ...heartbeatsRef.current }
       const time = getTime()
+      let hasChanges = false
       for (const key in heartbeats) {
         if (time - heartbeats[key] > offlineTimeout) {
           delete peerStates[key]
           delete heartbeats[key]
+          hasChanges = true
         }
       }
-      setPeerStates(peerStates)
-      setHeartbeats(heartbeats)
+      if (hasChanges) {
+        setPeerStates(peerStates)
+        setHeartbeats(heartbeats)
+      }
     }
     handle.on("ephemeral-message", handleIncomingUpdate)
     // Check for offline peers every `offlineTimeout` ms

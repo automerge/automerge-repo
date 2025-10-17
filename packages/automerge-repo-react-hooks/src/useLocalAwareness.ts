@@ -5,7 +5,7 @@ import { DocHandle } from "@automerge/automerge-repo/slim"
 
 export interface UseLocalAwarenessProps {
   /** The document handle to send ephemeral state on */
-  handle: DocHandle<unknown>
+  handle?: DocHandle<unknown>
   /** Our user ID **/
   userId: string
   /** The initial state object/primitive we should advertise */
@@ -43,13 +43,15 @@ export const useLocalAwareness = ({
         : stateOrUpdater
     setLocalState(state)
     // TODO: Send deltas instead of entire state
-    handle.broadcast([userId, state])
+    if (handle) {
+      handle.broadcast([userId, state])
+    }
   }
 
   useEffect(() => {
-    // Don't broadcast if userId isn't set: this avoids bogus broadcasts
-    // during the loading of a userId document.
-    if (!userId) {
+    // Don't broadcast if userId or handle isn't set: this avoids bogus broadcasts
+    // during the loading of a userId document or handle.
+    if (!userId || !handle) {
       return
     }
 
@@ -64,6 +66,10 @@ export const useLocalAwareness = ({
 
   useEffect(() => {
     // Send entire state to new peers
+    if (!handle || !userId) {
+      return
+    }
+
     let broadcastTimeoutId: ReturnType<typeof setTimeout>
     const newPeerEvents = peerEvents.on("new_peer", () => {
       broadcastTimeoutId = setTimeout(
