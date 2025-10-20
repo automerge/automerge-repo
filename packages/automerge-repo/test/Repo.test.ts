@@ -11,7 +11,12 @@ import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
-import { FindProgressWithMethods, Repo, ShareConfig } from "../src/Repo.js"
+import {
+  DocMetrics,
+  FindProgressWithMethods,
+  Repo,
+  ShareConfig,
+} from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
@@ -2039,7 +2044,7 @@ describe("Repo.find() abort behavior", () => {
     it("creates a document with the custom ID", async () => {
       const id = new Uint8Array("custom-id".split("").map(c => c.charCodeAt(0)))
       const repo = new Repo({
-        idFactory: () => id,
+        idFactory: async () => id,
       })
       const handle = await repo.create2()
       expect(handle.documentId).toBe("9HUp4wuzRMx9MRvN4x")
@@ -2049,7 +2054,7 @@ describe("Repo.find() abort behavior", () => {
       const id = new Uint8Array("custom-id".split("").map(c => c.charCodeAt(0)))
       let calledHeads: Heads | null = null
       const repo = new Repo({
-        idFactory: (heads: Heads) => {
+        idFactory: async (heads: Heads) => {
           calledHeads = heads
           return id
         },
@@ -2063,7 +2068,7 @@ describe("Repo.find() abort behavior", () => {
       const [aliceToBob, bobToAlice] = DummyNetworkAdapter.createConnectedPair()
       const alice = new Repo({
         peerId: "alice" as PeerId,
-        idFactory: () =>
+        idFactory: async () =>
           new Uint8Array("custom-id".split("").map(c => c.charCodeAt(0))),
         network: [aliceToBob],
       })
@@ -2076,6 +2081,166 @@ describe("Repo.find() abort behavior", () => {
       const handle = await alice.create2({ foo: "bar" })
       const bobHandle = await bob.find(handle.url)
       assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
+    })
+  })
+
+  describe("emitted metrics", () => {
+    async function setup(): Promise<{ alice: Repo; bob: Repo }> {
+      const [aliceToBob, bobToAlice] = DummyNetworkAdapter.createConnectedPair()
+      const alice = new Repo({
+        peerId: "alice" as PeerId,
+        network: [aliceToBob],
+      })
+      const bob = new Repo({ peerId: "bob" as PeerId, network: [bobToAlice] })
+      aliceToBob.peerCandidate("bob" as PeerId)
+      bobToAlice.peerCandidate("alice" as PeerId)
+
+      await pause(50)
+
+      return { alice, bob }
+    }
+
+    it("should emit events for receive sync message", async () => {
+      const { alice, bob } = await setup()
+
+      const bobEvents: DocMetrics[] = []
+      bob.on("doc-metrics", e => {
+        if (e.type === "receive-sync-message") {
+          bobEvents.push(e)
+        }
+      })
+
+      const handle = await alice.create2({ foo: "bar" })
+      const bobHandle = await bob.find(handle.url)
+
+      assert.notEqual(bobEvents.length, 0)
+      assert(
+        bobEvents.every(
+          e =>
+            e.type === "receive-sync-message" &&
+            e.documentId == handle.documentId &&
+            e.durationMillis > 0
+        )
+      )
+
+      await Promise.all([bob.shutdown(), alice.shutdown()])
+    })
+
+    it("should emit events for generate sync message", async () => {
+      const { alice, bob } = await setup()
+
+      const bobEvents: DocMetrics[] = []
+      bob.on("doc-metrics", e => {
+        if (e.type === "generate-sync-message") {
+          bobEvents.push(e)
+        }
+      })
+
+      const handle = await alice.create2({ foo: "bar" })
+      const bobHandle = await bob.find(handle.url)
+
+      assert.notEqual(bobEvents.length, 0)
+      assert(
+        bobEvents.every(
+          e =>
+            e.type === "generate-sync-message" &&
+            e.documentId == handle.documentId &&
+            e.durationMillis > 0
+        )
+      )
+
+      await Promise.all([bob.shutdown(), alice.shutdown()])
+    })
+
+    it("should emit events on compaction", async () => {
+      const bob = new Repo({ storage: new DummyStorageAdapter() })
+      // Create a doc and change it enough times to trigger compaction
+      const doc = bob.create({ foo: "bar" })
+
+      const events: DocMetrics[] = []
+      bob.on("doc-metrics", e => {
+        if (e.type === "doc-compacted") {
+          events.push(e)
+        }
+      })
+
+      for (let i = 0; i < 1000; i++) {
+        doc.change(d => {
+          A.splice(d, ["foo"], 0, 1, `${i}`)
+        })
+      }
+
+      await pause(50)
+
+      assert.notEqual(events.length, 0)
+      assert(
+        events.every(
+          e =>
+            e.type === "doc-compacted" &&
+            e.documentId == doc.documentId &&
+            e.durationMillis > 0
+        )
+      )
+
+      await bob.shutdown()
+    })
+
+    it("should emit events on save since", async () => {
+      const bob = new Repo({
+        storage: new DummyStorageAdapter(),
+        saveDebounceRate: 10,
+      })
+
+      const events: DocMetrics[] = []
+      bob.on("doc-metrics", e => {
+        console.log("event: ", e)
+        if (e.type === "doc-saved") {
+          events.push(e)
+        }
+      })
+
+      const doc = bob.create({ foo: "bar" })
+
+      // We have to save, then pause, then save again in order to trigger the
+      // initial compaction and then get to the point where the save actually
+      // triggers incremental saves rather than compactions. This is because the
+      // logic in the storage adapter is designed to initially compact on every
+      // change and only start incremental saves as the document gets a little
+      // larger.
+
+      // First create enough changes to get past the "always compact" threshold
+      for (let i = 0; i < 1000; i++) {
+        doc.change(d => {
+          A.splice(d, ["foo"], 0, 1, `${i}`)
+        })
+      }
+
+      // Wait for the debounced save routine to finish
+      await pause(20)
+
+      // Now trigger some changes which will cause incremental saves
+      for (let i = 0; i < 10; i++) {
+        doc.change(d => {
+          A.splice(d, ["foo"], 0, 1, `${i}`)
+        })
+      }
+
+      // Wait for the debounced save routine again
+      await pause(20)
+
+      // Now actually test the events we got
+      assert.notEqual(events.length, 0)
+      assert(
+        events.every(
+          e =>
+            e.type === "doc-saved" &&
+            e.documentId == doc.documentId &&
+            e.durationMillis > 0 &&
+            A.hasHeads(doc.doc(), e.sinceHeads)
+        )
+      )
+
+      await bob.shutdown()
     })
   })
 })

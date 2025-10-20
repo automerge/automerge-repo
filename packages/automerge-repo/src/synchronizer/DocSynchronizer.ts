@@ -191,7 +191,15 @@ export class DocSynchronizer extends Synchronizer {
     this.#log(`sendSyncMessage ->${peerId}`)
 
     this.#withSyncState(peerId, syncState => {
+      const start = performance.now()
       const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
+      const end = performance.now()
+      this.emit("metrics", {
+        type: "generate-sync-message",
+        documentId: this.#handle.documentId,
+        durationMillis: end - start,
+      })
+
       if (message) {
         this.#setSyncState(peerId, newSyncState)
         const isNew = A.getHeads(doc).length === 0

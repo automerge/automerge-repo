@@ -172,6 +172,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       storageSubsystem.on("document-loaded", event =>
         this.emit("doc-metrics", { type: "doc-loaded", ...event })
       )
+      storageSubsystem.on("doc-compacted", event =>
+        this.emit("doc-metrics", { type: "doc-compacted", ...event })
+      )
+      storageSubsystem.on("doc-saved", event =>
+        this.emit("doc-metrics", { type: "doc-saved", ...event })
+      )
     }
 
     this.storageSubsystem = storageSubsystem
@@ -1088,6 +1094,17 @@ export interface DeleteDocumentPayload {
 
 export type DocMetrics =
   | DocSyncMetrics
+  | {
+      type: "doc-compacted"
+      documentId: DocumentId
+      durationMillis: number
+    }
+  | {
+      type: "doc-saved"
+      documentId: DocumentId
+      durationMillis: number
+      sinceHeads: Array<string>
+    }
   | {
       type: "doc-loaded"
       documentId: DocumentId
