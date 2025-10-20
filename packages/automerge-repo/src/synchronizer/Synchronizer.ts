@@ -34,6 +34,11 @@ export type DocSyncMetrics =
       numChanges: number
     }
   | {
+      type: "generate-sync-message"
+      documentId: DocumentId
+      durationMillis: number
+    }
+  | {
       type: "doc-denied"
       documentId: DocumentId
     }

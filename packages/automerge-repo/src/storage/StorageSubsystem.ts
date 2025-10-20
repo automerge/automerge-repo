@@ -17,6 +17,15 @@ type StorageSubsystemEvents = {
     numOps: number
     numChanges: number
   }) => void
+  "doc-compacted": (arg: {
+    documentId: DocumentId
+    durationMillis: number
+  }) => void
+  "doc-saved": (arg: {
+    documentId: DocumentId
+    durationMillis: number
+    sinceHeads: A.Heads
+  }) => void
 }
 
 /**
@@ -224,7 +233,17 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     documentId: DocumentId,
     doc: A.Doc<unknown>
   ): Promise<void> {
-    const binary = A.saveSince(doc, this.#storedHeads.get(documentId) ?? [])
+    const sinceHeads = this.#storedHeads.get(documentId) ?? []
+    const start = performance.now()
+    const binary = A.saveSince(doc, sinceHeads)
+    const end = performance.now()
+    console.log("emitting saved")
+    this.emit("doc-saved", {
+      documentId,
+      durationMillis: end - start,
+      sinceHeads,
+    })
+
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
       this.#log(`Saving incremental ${key} for document ${documentId}`)
@@ -253,7 +272,11 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   ): Promise<void> {
     this.#compacting = true
 
+    const start = performance.now()
     const binary = A.save(doc)
+    const end = performance.now()
+    this.emit("doc-compacted", { documentId, durationMillis: end - start })
+
     const snapshotHash = headsHash(A.getHeads(doc))
     const key = [documentId, "snapshot", snapshotHash]
     const oldKeys = new Set(
