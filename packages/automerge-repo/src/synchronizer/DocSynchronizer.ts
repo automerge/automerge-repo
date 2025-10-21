@@ -198,6 +198,7 @@ export class DocSynchronizer extends Synchronizer {
         type: "generate-sync-message",
         documentId: this.#handle.documentId,
         durationMillis: end - start,
+        forPeer: peerId,
       })
 
       if (message) {
@@ -391,6 +392,7 @@ export class DocSynchronizer extends Synchronizer {
           type: "receive-sync-message",
           documentId: this.#handle.documentId,
           durationMillis: end - start,
+          fromPeer: message.senderId,
           ...A.stats(doc),
         })
 

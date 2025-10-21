@@ -2119,7 +2119,8 @@ describe("Repo.find() abort behavior", () => {
           e =>
             e.type === "receive-sync-message" &&
             e.documentId == handle.documentId &&
-            e.durationMillis > 0
+            e.durationMillis > 0 &&
+            e.fromPeer == ("alice" as PeerId)
         )
       )
 
@@ -2145,7 +2146,8 @@ describe("Repo.find() abort behavior", () => {
           e =>
             e.type === "generate-sync-message" &&
             e.documentId == handle.documentId &&
-            e.durationMillis > 0
+            e.durationMillis > 0 &&
+            e.forPeer == ("alice" as PeerId)
         )
       )
 
