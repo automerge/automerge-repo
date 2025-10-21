@@ -32,11 +32,13 @@ export type DocSyncMetrics =
       durationMillis: number
       numOps: number
       numChanges: number
+      fromPeer: PeerId
     }
   | {
       type: "generate-sync-message"
       documentId: DocumentId
       durationMillis: number
+      forPeer: PeerId
     }
   | {
       type: "doc-denied"
