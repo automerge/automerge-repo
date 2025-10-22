@@ -871,7 +871,6 @@ type DocHandleEvent<T> =
   | { type: typeof UNLOAD }
   | { type: typeof RELOAD }
   | { type: typeof DELETE }
-  | { type: typeof TIMEOUT }
   | { type: typeof DOC_UNAVAILABLE }
 
 const BEGIN = "BEGIN"
@@ -881,5 +880,4 @@ const UPDATE = "UPDATE"
 const UNLOAD = "UNLOAD"
 const RELOAD = "RELOAD"
 const DELETE = "DELETE"
-const TIMEOUT = "TIMEOUT"
 const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"

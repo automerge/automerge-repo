@@ -35,7 +35,7 @@ export class WeakMessagePortRef
 
     try {
       port.postMessage(message, transfer)
-    } catch (err) {
+    } catch {
       this.disconnnect()
     }
   }
@@ -52,7 +52,7 @@ export class WeakMessagePortRef
 
     try {
       port.start()
-    } catch (err) {
+    } catch {
       this.disconnnect()
     }
   }

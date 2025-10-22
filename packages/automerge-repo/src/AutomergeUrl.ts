@@ -47,7 +47,7 @@ export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
   const hexHeads = heads.map(head => {
     try {
       return uint8ArrayToHexString(bs58check.decode(head))
-    } catch (e) {
+    } catch {
       throw new Error(`Invalid head in URL: ${head}`)
     }
   })
@@ -84,7 +84,7 @@ export const stringifyAutomergeUrl = (
     heads.forEach(head => {
       try {
         bs58check.decode(head)
-      } catch (e) {
+      } catch {
         throw new Error(`Invalid head: ${head}`)
       }
     })

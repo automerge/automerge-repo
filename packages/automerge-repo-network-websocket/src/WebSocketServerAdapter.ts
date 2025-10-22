@@ -126,7 +126,7 @@ export class WebSocketServerAdapter extends NetworkAdapter {
     let message: FromClientMessage
     try {
       message = decode(messageBytes)
-    } catch (e) {
+    } catch {
       log("invalid message received, closing connection")
       socket.close()
       return

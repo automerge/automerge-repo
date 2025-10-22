@@ -25,7 +25,7 @@ export function useDocHandles<T>(
       let progress
       try {
         progress = repo.findWithProgress<T>(id)
-      } catch (e) {
+      } catch {
         continue
       }
 
@@ -49,7 +49,7 @@ export function useDocHandles<T>(
         const promise = repo.find<T>(id)
         wrapper = wrapPromise(promise)
         wrapperCache.set(id, wrapper)
-      } catch (e) {
+      } catch {
         continue
       }
     }

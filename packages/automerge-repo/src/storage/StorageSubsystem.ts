@@ -308,7 +308,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     try {
       const loaded = await this.#storageAdapter.load(key)
       return loaded ? A.decodeSyncState(loaded) : undefined
-    } catch (e) {
+    } catch {
       this.#log(`Error loading sync state for ${documentId} from ${storageId}`)
       return undefined
     }

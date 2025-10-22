@@ -79,7 +79,9 @@ export const useLocalAwareness = ({
     })
     return () => {
       newPeerEvents.off("new_peer")
-      broadcastTimeoutId && clearTimeout(broadcastTimeoutId)
+      if (broadcastTimeoutId) {
+        clearTimeout(broadcastTimeoutId)
+      }
     }
   }, [handle, userId, peerEvents])
 
