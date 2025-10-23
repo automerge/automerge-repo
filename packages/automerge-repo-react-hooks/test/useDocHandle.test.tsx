@@ -1,4 +1,4 @@
-import React, { act, Suspense } from "react"
+import React, { act, Suspense, useEffect } from "react"
 import {
   AutomergeUrl,
   DocHandle,
@@ -252,7 +252,7 @@ describe("useDocHandle", () => {
       })
     })
 
-    it("updates the handle when url changes", async () => {
+    it("updates the handle when url changes (docs are loaded)", async () => {
       const { wrapper, handleA, handleB } = setup()
       const onHandle = vi.fn()
 
@@ -264,6 +264,7 @@ describe("useDocHandle", () => {
         onHandle: (handle: DocHandle<unknown> | undefined) => void
       }) => {
         const handle = useDocHandle(url, { suspense: false })
+
         onHandle(handle)
         return null
       }
@@ -281,6 +282,42 @@ describe("useDocHandle", () => {
 
       // Then resolve to new handle
       await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleB))
+    })
+
+    it("updates the handle when url changes (docs are not loaded)", async () => {
+      const { wrapper, nonLocalDocUrlD, nonLocalDocUrlE, repo } = setup()
+      const onHandle = vi.fn()
+
+      const NonSuspenseComponent = ({
+        url,
+        onHandle,
+      }: {
+        url: AutomergeUrl
+        onHandle: (handle: DocHandle<unknown> | undefined) => void
+      }) => {
+        const handle = useDocHandle(url, { suspense: false })
+
+        onHandle(handle)
+        return null
+      }
+
+      const { rerender } = render(
+        <NonSuspenseComponent url={nonLocalDocUrlD} onHandle={onHandle} />,
+        { wrapper }
+      )
+
+      // Wait for first handle to load
+      const handleD = await repo.find(nonLocalDocUrlD)
+      await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleD))
+
+      // Change URL
+      rerender(
+        <NonSuspenseComponent url={nonLocalDocUrlE} onHandle={onHandle} />
+      )
+
+      // Then resolve to new handle
+      const handleE = await repo.find(nonLocalDocUrlE)
+      await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleE))
     })
 
     it("does not re-render unnecessarily when the handle does not change", async () => {
