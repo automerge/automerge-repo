@@ -19,10 +19,25 @@ export interface ExampleDoc {
   }
 }
 
-export function setup() {
-  const repo = new Repo({
-    peerId: "bob" as PeerId,
+export function setup(latency = 100) {
+  const [adapterBob, adapterServer] = DummyNetworkAdapter.createConnectedPair({
+    latency,
   })
+
+  const peerIdBob = "bob" as PeerId
+  const peerIdServer = "server" as PeerId
+  const repo = new Repo({
+    peerId: peerIdBob,
+    network: [adapterBob],
+  })
+
+  const remoteRepo = new Repo({
+    peerId: peerIdServer,
+    network: [adapterServer],
+  })
+
+  adapterBob.peerCandidate(peerIdServer)
+  adapterServer.peerCandidate(peerIdBob)
 
   const handleA = repo.create<ExampleDoc>()
   handleA.change(doc => (doc.foo = "A"))
@@ -33,6 +48,12 @@ export function setup() {
   const handleC = repo.create<ExampleDoc>()
   handleC.change(doc => (doc.foo = "C"))
 
+  const remoteHandleD = remoteRepo.create<ExampleDoc>()
+  remoteHandleD.change(doc => (doc.foo = "D"))
+
+  const remoteHandleE = remoteRepo.create<ExampleDoc>()
+  remoteHandleE.change(doc => (doc.foo = "E"))
+
   const wrapper = ({ children }) => {
     return <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
   }
@@ -42,6 +63,8 @@ export function setup() {
     handleA,
     handleB,
     handleC,
+    nonLocalDocUrlD: remoteHandleD.url,
+    nonLocalDocUrlE: remoteHandleE.url,
     handles: [handleA, handleB, handleC],
     urls: [handleA.url, handleB.url, handleC.url],
     wrapper,
