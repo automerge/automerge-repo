@@ -237,7 +237,6 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     const start = performance.now()
     const binary = A.saveSince(doc, sinceHeads)
     const end = performance.now()
-    console.log("emitting saved")
     this.emit("doc-saved", {
       documentId,
       durationMillis: end - start,
