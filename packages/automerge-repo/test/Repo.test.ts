@@ -35,6 +35,10 @@ import {
   LargeObject,
   generateLargeObject,
 } from "./helpers/generate-large-object.js"
+import twoPeers from "./helpers/twoPeers.js"
+import connectRepos from "./helpers/connectRepos.js"
+import awaitState from "./helpers/awaitState.js"
+import withTimeout from "./helpers/withTimeout.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
@@ -1182,6 +1186,49 @@ describe("Repo", () => {
       teardown()
     })
 
+    it("a previously unavailable document syncs if a connected peer obtains it (but doesn't announce it)", async () => {
+      const alice = new Repo({
+        peerId: "alice" as PeerId,
+        shareConfig: {
+          announce: async peerId => peerId === "charlie",
+          access: async () => true,
+        },
+      })
+      const bob = new Repo({
+        peerId: "bob" as PeerId,
+        shareConfig: {
+          announce: async () => true,
+          access: async () => true,
+        },
+      })
+      const charlie = new Repo({
+        peerId: "charlie" as PeerId,
+        shareConfig: {
+          announce: async () => false,
+          access: async () => true,
+        },
+      })
+      await connectRepos(alice, bob)
+
+      const charlieHandle = charlie.create({ foo: "bar" })
+
+      // Charlie isn't connected to any peer, so we don't have the document
+      await assert.rejects(bob.find(charlieHandle.url))
+
+      // Now, connect charlie to alice
+      await connectRepos(alice, charlie)
+
+      // Alice should now find the document
+      const aliceHandle = await withTimeout(alice.find(charlieHandle.url), 500)
+      assert.deepStrictEqual(aliceHandle.doc(), { foo: "bar" })
+
+      await pause(150) // wait for the sync debounce rate to elapse
+
+      // Bob should now find the document via alice
+      const bobHandle = await withTimeout(bob.find(charlieHandle.url), 500)
+      assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
+    })
+
     it("a previously unavailable document becomes available if the network adapter initially has no peers", async () => {
       // It is possible for a network adapter to be ready without any peer
       // being announced (e.g. the BroadcastChannelNetworkAdapter). In this
@@ -1714,174 +1761,6 @@ describe("Repo", () => {
 
       const openDocs = Object.keys(server.metrics().documents).length
       assert.deepEqual(openDocs, 0)
-    })
-  })
-
-  describe("the sharePolicy", () => {
-    async function connect(left: Repo, right: Repo) {
-      const [leftToRight, rightToLeft] =
-        DummyNetworkAdapter.createConnectedPair({ latency: 0 })
-      left.networkSubsystem.addNetworkAdapter(leftToRight)
-      right.networkSubsystem.addNetworkAdapter(rightToLeft)
-      leftToRight.peerCandidate(right.peerId)
-      rightToLeft.peerCandidate(left.peerId)
-      await Promise.all([
-        left.networkSubsystem.whenReady(),
-        right.networkSubsystem.whenReady(),
-      ])
-      await pause(10)
-    }
-
-    async function withTimeout<T>(
-      promise: Promise<T>,
-      timeout: number
-    ): Promise<T | undefined> {
-      const timeoutPromise = new Promise<T | undefined>(resolve => {
-        setTimeout(() => resolve(undefined), timeout)
-      })
-      return Promise.race([promise, timeoutPromise])
-    }
-
-    async function awaitState(
-      progress: FindProgress<unknown> | FindProgressWithMethods<unknown>,
-      state: string
-    ): Promise<void> {
-      if (progress.state == state) {
-        return
-      }
-      if (!("subscribe" in progress)) {
-        throw new Error(
-          `expected progress in state ${state} but was in final state ${progress.state}`
-        )
-      }
-      await new Promise(resolve => {
-        const unsubscribe = progress.subscribe(progress => {
-          if (progress.state === state) {
-            unsubscribe()
-            resolve(null)
-          }
-        })
-      })
-    }
-
-    // The parts of `RepoConfig` which are either the old sharePolicy API or the new shareConfig API
-    type EitherConfig = { sharePolicy?: SharePolicy; shareConfig?: ShareConfig }
-
-    /// Create two connected peers with the given share configurations
-    async function twoPeers({
-      alice: aliceConfig,
-      bob: bobConfig,
-    }: {
-      alice: EitherConfig
-      bob: EitherConfig
-    }): Promise<{ alice: Repo; bob: Repo }> {
-      const alice = new Repo({
-        peerId: "alice" as PeerId,
-        ...aliceConfig,
-      })
-      const bob = new Repo({
-        peerId: "bob" as PeerId,
-        ...bobConfig,
-      })
-      await connect(alice, bob)
-      return { alice, bob }
-    }
-
-    describe("the legacy API", () => {
-      it("should announce documents to peers for whom the sharePolicy returns true", async () => {
-        const { alice, bob } = await twoPeers({
-          alice: { sharePolicy: async () => true },
-          bob: { sharePolicy: async () => true },
-        })
-        const handle = alice.create({ foo: "bar" })
-
-        // Wait for the announcement to be synced
-        await pause(100)
-
-        // Disconnect and stop alice
-        await alice.shutdown()
-
-        // Bob should have the handle already because it was announced to him
-        const bobHandle = await bob.find(handle.url)
-      })
-
-      it("should not annouce documents to peers for whom the sharePolicy returns false", async () => {
-        const { alice, bob } = await twoPeers({
-          alice: { sharePolicy: async () => false },
-          bob: { sharePolicy: async () => true },
-        })
-        const handle = alice.create({ foo: "bar" })
-
-        // Disconnect and stop alice
-        await alice.shutdown()
-
-        // Bob should have the handle already because it was announced to him
-        const bobHandle = await withTimeout(bob.find(handle.url), 100)
-        assert.equal(bobHandle, null)
-      })
-
-      it("should respond to direct requests for document where the sharePolicy returns false", async () => {
-        const { alice, bob } = await twoPeers({
-          alice: { sharePolicy: async () => false },
-          bob: { sharePolicy: async () => true },
-        })
-        await connect(alice, bob)
-
-        const aliceHandle = alice.create({ foo: "bar" })
-        const bobHandle = await bob.find(aliceHandle.url)
-      })
-    })
-
-    it("should respond to direct requests for document where the announce policy returns false but the access policy returns true", async () => {
-      const { alice, bob } = await twoPeers({
-        alice: {
-          shareConfig: {
-            announce: async () => false,
-            access: async () => true,
-          },
-        },
-        bob: { sharePolicy: async () => true },
-      })
-
-      const aliceHandle = alice.create({ foo: "bar" })
-      const bobHandle = await bob.find(aliceHandle.url)
-    })
-
-    it("should not respond to direct requests for a document where the access policy returns false and the announce policy return trrrue", async () => {
-      const { alice, bob } = await twoPeers({
-        alice: {
-          shareConfig: {
-            announce: async () => true,
-            access: async () => false,
-          },
-        },
-        bob: { sharePolicy: async () => true },
-      })
-      await connect(alice, bob)
-
-      const aliceHandle = alice.create({ foo: "bar" })
-      withTimeout(
-        awaitState(bob.findWithProgress(aliceHandle.url), "unavailable"),
-        500
-      )
-    })
-
-    it("should not respond to direct requests for a document where the access policy and the announce policy return false", async () => {
-      const { alice, bob } = await twoPeers({
-        alice: {
-          shareConfig: {
-            announce: async () => false,
-            access: async () => false,
-          },
-        },
-        bob: { sharePolicy: async () => false },
-      })
-
-      const aliceHandle = alice.create({ foo: "bar" })
-      withTimeout(
-        awaitState(bob.findWithProgress(aliceHandle.url), "unavailable"),
-        500
-      )
     })
   })
 })

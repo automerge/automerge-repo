@@ -977,6 +977,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   metrics(): { documents: { [key: string]: any } } {
     return { documents: this.synchronizer.metrics() }
   }
+
+  shareConfigChanged() {
+    void this.synchronizer.reevaluateDocumentShare()
+  }
 }
 
 export interface RepoConfig {

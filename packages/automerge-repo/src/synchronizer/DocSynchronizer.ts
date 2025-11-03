@@ -201,8 +201,8 @@ export class DocSynchronizer extends Synchronizer {
         forPeer: peerId,
       })
 
+      this.#setSyncState(peerId, newSyncState)
       if (message) {
-        this.#setSyncState(peerId, newSyncState)
         const isNew = A.getHeads(doc).length === 0
 
         if (
