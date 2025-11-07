@@ -7,7 +7,11 @@ export default defineConfig({
     projects: ["packages/*"],
     globals: true,
     setupFiles: [path.join(__dirname, "./testSetup.ts")],
-    environment: "jsdom",
+
+    // This should _not_ be jsdom, because the jsdom polyfill breaks various
+    // instanceof tests when going back and forth from wasm-bindgen
+    environment: "happy-dom",
+
     coverage: {
       provider: "v8",
       reporter: ["lcov", "text", "html"],
