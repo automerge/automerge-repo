@@ -22,6 +22,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #docSetUp: Record<DocumentId, boolean> = {}
 
   #denylist: DocumentId[]
+  #hasRequested: Map<DocumentId, Set<PeerId>> = new Map()
 
   constructor(private repo: Repo, denylist: AutomergeUrl[] = []) {
     super()
@@ -108,6 +109,16 @@ export class CollectionSynchronizer extends Synchronizer {
       return
     }
 
+    // Record the request so that even if access is denied now, we know that the
+    // peer requested the document so that if the share policy changes we know
+    // to begin syncing with this peer
+    if (message.type === "request") {
+      if (!this.#hasRequested.has(documentId)) {
+        this.#hasRequested.set(documentId, new Set())
+      }
+      this.#hasRequested.get(documentId)?.add(message.senderId)
+    }
+
     const hasAccess = await this.repo.shareConfig.access(
       message.senderId,
       documentId
@@ -146,6 +157,7 @@ export class CollectionSynchronizer extends Synchronizer {
     if (this.#docSetUp[handle.documentId]) {
       return
     }
+    this.#docSetUp[handle.documentId] = true
     const docSynchronizer = this.#fetchDocSynchronizer(handle)
     void this.#documentGenerousPeers(handle.documentId).then(peers => {
       void docSynchronizer.beginSync(peers)
@@ -184,6 +196,9 @@ export class CollectionSynchronizer extends Synchronizer {
   removePeer(peerId: PeerId) {
     log(`removing peer ${peerId}`)
     this.#peers.delete(peerId)
+    for (const requested of this.#hasRequested.values()) {
+      requested.delete(peerId)
+    }
 
     for (const docSynchronizer of Object.values(this.docSynchronizers)) {
       docSynchronizer.endSync(peerId)
@@ -193,6 +208,49 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
     return Array.from(this.#peers)
+  }
+
+  /**
+   * Re-evaluates share policy for a document and updates sync accordingly
+   *
+   * @remarks
+   * This is called when the share policy for a document has changed. It re-evaluates
+   * which peers should have access and starts/stops synchronization as needed.
+   */
+  async reevaluateDocumentShare() {
+    const peers = Array.from(this.#peers)
+    const docPromises = []
+    for (const docSynchronizer of Object.values(this.docSynchronizers)) {
+      const documentId = docSynchronizer.documentId
+      docPromises.push(
+        (async () => {
+          for (const peerId of peers) {
+            const shouldShare = await this.#shouldShare(peerId, documentId)
+            const isAlreadySyncing = docSynchronizer.hasPeer(peerId)
+
+            log(
+              `reevaluateDocumentShare: ${peerId} for ${documentId}, shouldShare: ${shouldShare}, isAlreadySyncing: ${isAlreadySyncing}`
+            )
+            if (shouldShare && !isAlreadySyncing) {
+              log(
+                `reevaluateDocumentShare: starting sync with ${peerId} for ${documentId}`
+              )
+              void docSynchronizer.beginSync([peerId])
+            } else if (!shouldShare && isAlreadySyncing) {
+              log(
+                `reevaluateDocumentShare: stopping sync with ${peerId} for ${documentId}`
+              )
+              docSynchronizer.endSync(peerId)
+            }
+          }
+        })().catch(e => {
+          console.log(
+            `error reevaluating document share for ${documentId}: ${e}`
+          )
+        })
+      )
+    }
+    await Promise.allSettled(docPromises)
   }
 
   metrics(): {
@@ -215,6 +273,8 @@ export class CollectionSynchronizer extends Synchronizer {
       this.repo.shareConfig.announce(peerId, documentId),
       this.repo.shareConfig.access(peerId, documentId),
     ])
-    return announce && access
+    const hasRequested =
+      this.#hasRequested.get(documentId)?.has(peerId) ?? false
+    return announce || (access && hasRequested)
   }
 }
