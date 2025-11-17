@@ -3,24 +3,30 @@ import { PeerId } from "./types.js"
 import { EventEmitter } from "eventemitter3"
 
 type UserId = unknown
+type DeviceId = unknown
 
 type PeerState<State> = {
+  peerId: PeerId
+  deviceId: DeviceId
   userId: UserId
   value: State
 }
 
 export type PresenceMessageState<State = any> = {
+  deviceId: DeviceId
   userId: UserId
   type: "state"
   value: State
 }
 
 export type PresenceMessageHeartbeat = {
+  deviceId: DeviceId
   userId: UserId
   type: "heartbeat"
 }
 
 export type PresenceMessageGoodbye = {
+  deviceId: DeviceId
   userId: UserId
   type: "goodbye"
 }
@@ -50,14 +56,15 @@ export class Presence<
 > extends EventEmitter<PresenceEvents> {
   private peersLastSeen = new Map<PeerId, number>()
   private peerStates = new Map<PeerId, PeerState<State>>()
-  private localState: PeerState<State>
+  private localState: Omit<PeerState<State>, "peerId">
 
   private heartbeatInterval: ReturnType<typeof setInterval> | undefined
   private opts: PresenceOpts = {}
 
   constructor(
     private handle: DocHandle<unknown>,
-    userId: string,
+    readonly userId: UserId,
+    readonly deviceId: DeviceId,
     initialState: State,
     opts?: PresenceOpts
   ) {
@@ -67,6 +74,7 @@ export class Presence<
     }
     this.localState = {
       userId,
+      deviceId,
       value: initialState,
     }
 
@@ -85,6 +93,7 @@ export class Presence<
         case "heartbeat":
           this.emit("heartbeat", peerId, {
             type: "heartbeat",
+            deviceId: message.deviceId,
             userId: message.userId,
           })
           break
@@ -93,19 +102,23 @@ export class Presence<
           this.peersLastSeen.delete(peerId)
           this.emit("goodbye", peerId, {
             type: "goodbye",
+            deviceId: message.deviceId,
             userId: message.userId,
           })
           break
         case "state":
-          const newPeerState = message.value as State
+          const { deviceId, userId, value } = message;
           this.peerStates.set(peerId, {
-            userId: message.userId,
-            value: newPeerState,
+            peerId,
+            userId,
+            deviceId,
+            value,
           })
           this.emit("state", peerId, {
             type: "state",
-            userId: this.localState.userId,
-            value: newPeerState,
+            deviceId,
+            userId,
+            value,
           })
           break
       }

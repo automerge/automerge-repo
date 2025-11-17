@@ -32,12 +32,12 @@ describe("Repo", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence(aliceHandle, "alice", {
+      const alicePresence = new Presence(aliceHandle, "alice", "phone", {
         position: 123,
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence(bobHandle, "bob", {
+      const bobPresence = new Presence(bobHandle, "bob", "phone", {
         position: 456,
       })
 
@@ -62,6 +62,7 @@ describe("Repo", () => {
       const alicePresence = new Presence(
         aliceHandle,
         "alice",
+        "phone",
         {
           position: 123,
         },
@@ -71,7 +72,7 @@ describe("Repo", () => {
       )
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence(bobHandle, "bob", {
+      const bobPresence = new Presence(bobHandle, "bob", "phone", {
         position: 456,
       })
 
@@ -98,12 +99,12 @@ describe("Repo", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence(aliceHandle, "alice", {
+      const alicePresence = new Presence(aliceHandle, "alice", "phone", {
         position: 123,
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence(bobHandle, "bob", {
+      const bobPresence = new Presence(bobHandle, "bob", "phone", {
         position: 456,
       })
 
