@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
-  Awareness,
-  AwarenessMessageHeartbeat,
+  Presence,
+  PresenceMessageHeartbeat,
   HEARTBEAT_INTERVAL_MS,
-} from "../src/Awareness.js"
+} from "../src/Presence.js"
 import { Repo } from "../src/Repo.js"
 import { PeerId } from "../src/types.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
@@ -32,21 +32,21 @@ describe("Repo", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const aliceAwareness = new Awareness(aliceHandle, "alice", {
+      const alicePresence = new Presence(aliceHandle, "alice", {
         position: 123,
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobAwareness = new Awareness(bobHandle, "bob", {
+      const bobPresence = new Presence(bobHandle, "bob", {
         position: 456,
       })
 
       await waitFor(() => {
-        const bobPeerMap = bobAwareness.getPeerStates("position")
+        const bobPeerMap = bobPresence.getPeerStates("position")
         expect(bobPeerMap.size).toBe(1)
         expect(bobPeerMap.get(alice.peerId)).toBe(123)
 
-        const alicePeerMap = aliceAwareness.getPeerStates("position")
+        const alicePeerMap = alicePresence.getPeerStates("position")
         expect(alicePeerMap.size).toBe(1)
         expect(alicePeerMap.get(bob.peerId)).toBe(456)
       })
@@ -59,7 +59,7 @@ describe("Repo", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const aliceAwareness = new Awareness(
+      const alicePresence = new Presence(
         aliceHandle,
         "alice",
         {
@@ -71,13 +71,13 @@ describe("Repo", () => {
       )
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobAwareness = new Awareness(bobHandle, "bob", {
+      const bobPresence = new Presence(bobHandle, "bob", {
         position: 456,
       })
 
       let hbPeerId: PeerId
-      let hbPeerMsg: AwarenessMessageHeartbeat
-      bobAwareness.on("heartbeat", (peerId, msg) => {
+      let hbPeerMsg: PresenceMessageHeartbeat
+      bobPresence.on("heartbeat", (peerId, msg) => {
         hbPeerId = peerId
         hbPeerMsg = msg
       })
@@ -98,19 +98,19 @@ describe("Repo", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const aliceAwareness = new Awareness(aliceHandle, "alice", {
+      const alicePresence = new Presence(aliceHandle, "alice", {
         position: 123,
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobAwareness = new Awareness(bobHandle, "bob", {
+      const bobPresence = new Presence(bobHandle, "bob", {
         position: 456,
       })
 
-      aliceAwareness.broadcast("position", 213)
+      alicePresence.broadcast("position", 213)
 
       await waitFor(() => {
-        const bobPeerMap = bobAwareness.getPeerStates("position")
+        const bobPeerMap = bobPresence.getPeerStates("position")
         expect(bobPeerMap.size).toBe(1)
         expect(bobPeerMap.get(alice.peerId)).toBe(213)
       })
