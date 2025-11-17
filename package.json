@@ -74,5 +74,10 @@
   },
   "dependencies": {
     "happy-dom": "^20.0.10"
+  },
+  "pnpm": {
+    "overrides": {
+      "semver": "^7.5.2"
+    }
   }
 }
