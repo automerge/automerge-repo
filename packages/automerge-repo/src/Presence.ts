@@ -164,6 +164,10 @@ export class Presence<
   dispose() {
     this.handle.off("ephemeral-message")
     this.stopHeartbeats()
+    this.handle.broadcast({
+      userId: this.localState.userId,
+      type: "goodbye",
+    })
   }
 
   private broadcastLocalState() {
