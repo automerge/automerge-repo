@@ -42,13 +42,19 @@ describe("Repo", () => {
       })
 
       await waitFor(() => {
-        const bobPeerMap = bobPresence.getPeerStates("position")
-        expect(bobPeerMap.size).toBe(1)
-        expect(bobPeerMap.get(alice.peerId)).toBe(123)
+        const bobPeerStates = bobPresence.getPeerStates()
+        const bobPeers = bobPeerStates.getPeers()
 
-        const alicePeerMap = alicePresence.getPeerStates("position")
-        expect(alicePeerMap.size).toBe(1)
-        expect(alicePeerMap.get(bob.peerId)).toBe(456)
+        expect(bobPeers.length).toBe(1)
+        expect(bobPeerStates.getPeerState(bobPeers[0], "position")).toBe(123)
+
+        const alicePeerStates = alicePresence.getPeerStates()
+        const alicePeers = alicePeerStates.getPeers()
+
+        expect(alicePeers.length).toBe(1)
+        expect(alicePeerStates.getPeerState(alicePeers[0], "position")).toBe(
+          456
+        )
       })
     })
   })
@@ -111,9 +117,11 @@ describe("Repo", () => {
       alicePresence.broadcast("position", 213)
 
       await waitFor(() => {
-        const bobPeerMap = bobPresence.getPeerStates("position")
-        expect(bobPeerMap.size).toBe(1)
-        expect(bobPeerMap.get(alice.peerId)).toBe(213)
+        const bobPeerStates = bobPresence.getPeerStates()
+        const bobPeers = bobPeerStates.getPeers()
+
+        expect(bobPeers.length).toBe(1)
+        expect(bobPeerStates.getPeerState(alice.peerId, "position")).toBe(213)
       })
     })
 
