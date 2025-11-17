@@ -9,57 +9,57 @@ type PeerState<State> = {
   value: State
 }
 
-export type AwarenessMessageState<State = any> = {
+export type PresenceMessageState<State = any> = {
   userId: UserId
   type: "state"
   value: State
 }
 
-export type AwarenessMessageHeartbeat = {
+export type PresenceMessageHeartbeat = {
   userId: UserId
   type: "heartbeat"
 }
 
-export type AwarenessMessageGoodbye = {
+export type PresenceMessageGoodbye = {
   userId: UserId
   type: "goodbye"
 }
 
-export type AwarenessMessage<State = any> =
-  | AwarenessMessageState<State>
-  | AwarenessMessageHeartbeat
-  | AwarenessMessageGoodbye
+export type PresenceMessage<State = any> =
+  | PresenceMessageState<State>
+  | PresenceMessageHeartbeat
+  | PresenceMessageGoodbye
 
-export type AwarenessMessageType = AwarenessMessage["type"]
+export type PresenceMessageType = PresenceMessage["type"]
 
-export type AwarenessEvents<State = any> = {
-  state: (peerId: PeerId, msg: AwarenessMessageState<State>) => void
-  heartbeat: (peerId: PeerId, msg: AwarenessMessageHeartbeat) => void
-  goodbye: (peerId: PeerId, msg: AwarenessMessageGoodbye) => void
+export type PresenceEvents<State = any> = {
+  state: (peerId: PeerId, msg: PresenceMessageState<State>) => void
+  heartbeat: (peerId: PeerId, msg: PresenceMessageHeartbeat) => void
+  goodbye: (peerId: PeerId, msg: PresenceMessageGoodbye) => void
 }
 
-export type AwarenessOpts = {
+export type PresenceOpts = {
   heartbeatMs?: number
 }
 
-export const HEARTBEAT_INTERVAL_MS = 15000;
+export const HEARTBEAT_INTERVAL_MS = 15000
 
-export class Awareness<
+export class Presence<
   State,
   Channel extends keyof State
-> extends EventEmitter<AwarenessEvents> {
+> extends EventEmitter<PresenceEvents> {
   private peersLastSeen = new Map<PeerId, number>()
   private peerStates = new Map<PeerId, PeerState<State>>()
   private localState: PeerState<State>
 
   private heartbeatInterval: ReturnType<typeof setInterval> | undefined
-  private opts: AwarenessOpts = {}
+  private opts: PresenceOpts = {}
 
   constructor(
     private handle: DocHandle<unknown>,
     userId: string,
     initialState: State,
-    opts?: AwarenessOpts
+    opts?: PresenceOpts
   ) {
     super()
     if (opts) {
@@ -72,7 +72,7 @@ export class Awareness<
 
     this.handle.on("ephemeral-message", e => {
       const peerId = e.senderId
-      const message = e.message as AwarenessMessage<State>
+      const message = e.message as PresenceMessage<State>
 
       if (!this.peersLastSeen.has(peerId)) {
         // introduce ourselves
