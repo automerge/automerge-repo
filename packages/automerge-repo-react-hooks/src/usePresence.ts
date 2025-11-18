@@ -49,7 +49,7 @@ export function usePresence<State, Channel extends keyof State>(
 
   return {
     peerStates: presence.getPeerStates(),
-    localState: presence.localState,
+    localState: presence.getLocalState(),
     update: updateLocalState,
   }
 }

@@ -58,7 +58,7 @@ export class Presence<
   Channel extends keyof State
 > extends EventEmitter<PresenceEvents> {
   private peerStates: PeerPresences<State>
-  readonly localState: LocalState<State>
+  private localState: LocalState<State>
 
   private heartbeatInterval: ReturnType<typeof setInterval> | undefined
   private opts: PresenceOpts = {}
@@ -126,6 +126,11 @@ export class Presence<
   getPeerStates() {
     // TODO: expose just a read-only view
     return this.peerStates
+  }
+
+  getLocalState() {
+    // TODO: expose just a read-only view
+    return this.localState
   }
 
   broadcast(channel: Channel, msg: State[Channel]) {
