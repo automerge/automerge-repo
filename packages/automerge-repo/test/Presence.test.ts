@@ -10,7 +10,7 @@ import { PeerId } from "../src/types.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
 import { waitFor } from "./helpers/waitFor.js"
 
-describe("Repo", () => {
+describe("Presence", () => {
   async function setup() {
     const alice = new Repo({ peerId: "alice" as PeerId })
     const bob = new Repo({ peerId: "bob" as PeerId })
