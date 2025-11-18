@@ -19,7 +19,7 @@ const userId = v4()
 
 const rootDocUrl = `${document.location.hash.substring(1)}`
 const handle = isValidAutomergeUrl(rootDocUrl)
-  ? repo.find(rootDocUrl)
+  ? await repo.find(rootDocUrl)
   : repo.create()
 
 const docUrl = (document.location.hash = handle.url)
