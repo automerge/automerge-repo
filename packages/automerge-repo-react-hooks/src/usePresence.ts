@@ -7,17 +7,12 @@ import {
   LocalState,
   PresenceOpts,
 } from "@automerge/automerge-repo/slim"
+import { useInvalidate } from "./helpers/useInvalidate.js"
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
   peerStates: PeerPresenceStates<State>
   localState: LocalState<State>
   update: (channel: Channel, value: State[Channel]) => void
-}
-
-function useInvalidate() {
-  const [, setState] = useState(0)
-  const increment = useCallback(() => setState(value => value + 1), [setState])
-  return increment
 }
 
 export function usePresence<State, Channel extends keyof State>(
