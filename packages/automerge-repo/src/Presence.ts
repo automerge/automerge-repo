@@ -10,12 +10,14 @@ type PresenceMessageBase = {
   userId: UserId
 }
 
-type PeerState<State> = {
+export type PeerState<State> = {
   peerId: PeerId
   deviceId: DeviceId
   userId: UserId
   value: State
 }
+
+export type LocalState<State> = Omit<PeerState<State>, "peerId">
 
 export type PresenceMessageState<State = any> = PresenceMessageBase & {
   type: "state"
@@ -55,8 +57,8 @@ export class Presence<
   State,
   Channel extends keyof State
 > extends EventEmitter<PresenceEvents> {
-  private peerStates: PeerPresenceStates<State>
-  private localState: Omit<PeerState<State>, "peerId">
+  private peerStates: PeerPresences<State>
+  readonly localState: LocalState<State>
 
   private heartbeatInterval: ReturnType<typeof setInterval> | undefined
   private opts: PresenceOpts = {}
@@ -72,7 +74,7 @@ export class Presence<
     if (opts) {
       this.opts = opts
     }
-    this.peerStates = new PeerPresenceStates(opts?.peerTtlMs ?? PEER_TTL_MS)
+    this.peerStates = new PeerPresences(opts?.peerTtlMs ?? PEER_TTL_MS)
     this.localState = {
       userId,
       deviceId,
@@ -139,6 +141,7 @@ export class Presence<
     this.stopHeartbeats()
     this.handle.broadcast({
       userId: this.localState.userId,
+      deviceId: this.localState.deviceId,
       type: "goodbye",
     })
   }
@@ -146,6 +149,7 @@ export class Presence<
   private broadcastLocalState() {
     this.handle.broadcast({
       userId: this.localState.userId,
+      deviceId: this.localState.deviceId,
       type: "state",
       value: this.localState.value,
     })
@@ -159,6 +163,7 @@ export class Presence<
   private sendHeartbeat() {
     this.handle.broadcast({
       userId: this.localState.userId,
+      deviceId: this.localState.deviceId,
       type: "heartbeat",
     })
   }
@@ -175,7 +180,12 @@ export class Presence<
   }
 }
 
-export class PeerPresenceStates<State> extends EventEmitter<PresenceEvents> {
+export type PeerPresenceStates<State> = Omit<
+  PeerPresences<State>,
+  "markSeen" | "update" | "prunePeers" | "delete"
+>
+
+export class PeerPresences<State> extends EventEmitter<PresenceEvents> {
   private peersLastSeen = new Map<PeerId, number>()
   private peerStates = new Map<PeerId, PeerState<State>>()
   private userPeers = new Map<UserId, Set<PeerId>>()
