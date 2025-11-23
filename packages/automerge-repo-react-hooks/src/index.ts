@@ -38,3 +38,8 @@ export {
   type Heartbeats,
   type UseRemoteAwarenessProps,
 } from "./useRemoteAwareness.js"
+
+export {
+  usePresence,
+  type UsePresenceResult
+} from "./usePresence.js"
