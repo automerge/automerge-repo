@@ -52,6 +52,7 @@ export type PresenceEvents<State = any> = {
 export type PresenceOpts = {
   heartbeatMs?: number
   peerTtlMs?: number
+  skipAutoInit?: boolean
 }
 
 export const HEARTBEAT_INTERVAL_MS = 15000
@@ -65,7 +66,7 @@ export class Presence<
 > extends EventEmitter<PresenceEvents> {
   private peers: PresencePeers<State>
   private localState: LocalState<State>
-  private readonly handleEphemeralMessage: (e: DocHandleEphemeralMessagePayload<unknown>) => void
+  private handleEphemeralMessage: ((e: DocHandleEphemeralMessagePayload<unknown>) => void) | undefined
 
   private heartbeatInterval: ReturnType<typeof setInterval> | undefined
   private opts: PresenceOpts = {}
@@ -85,6 +86,7 @@ export class Presence<
   ) {
     super()
     this.name = `pres-${num++}`
+    console.log("constructing", this.name)
     if (opts) {
       this.opts = opts
     }
@@ -93,6 +95,17 @@ export class Presence<
       userId,
       deviceId,
       value: initialState,
+    }
+    if (opts?.skipAutoInit) {
+      return
+    }
+    this.initialize()
+  }
+
+  initialize() {
+    console.log("initializing", this.name)
+    if (this.handleEphemeralMessage && !this.disposed) {
+      return
     }
     // N.B.: We can't use a regular member function here since member functions
     // of two distinct objects are identical, and we need to be able to stop
