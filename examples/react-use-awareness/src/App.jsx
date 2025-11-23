@@ -86,8 +86,8 @@ export function App({ userId, deviceId, url }) {
 }
 
 function getAllPeerStates(peerStates) {
-  return Array.from(peerStates).reduce((acc, curr) => {
-    acc[curr.peerId] = curr
+  return peerStates.getPeers().reduce((acc, peerId) => {
+    acc[peerId] = peerStates.getPeerState(peerId)
     return acc;
   }, {})
 }
