@@ -4,6 +4,7 @@ import {
   Presence,
   PresenceMessageHeartbeat,
   HEARTBEAT_INTERVAL_MS,
+  PresenceEventHeartbeat,
 } from "../src/Presence.js"
 import { Repo } from "../src/Repo.js"
 import { PeerId } from "../src/types.js"
@@ -82,15 +83,13 @@ describe("Presence", () => {
         position: 456,
       })
 
-      let hbPeerId: PeerId
-      let hbPeerMsg: PresenceMessageHeartbeat
-      bobPresence.on("heartbeat", (peerId, msg) => {
-        hbPeerId = peerId
+      let hbPeerMsg: PresenceEventHeartbeat
+      bobPresence.on("heartbeat", (msg) => {
         hbPeerMsg = msg
       })
 
       await waitFor(() => {
-        expect(hbPeerId).toEqual(alice.peerId)
+        expect(hbPeerMsg.peerId).toEqual(alice.peerId)
         expect(hbPeerMsg.type).toEqual("heartbeat")
         expect(hbPeerMsg.userId).toEqual("alice")
       })

@@ -1,4 +1,4 @@
-import { DocHandle } from "./DocHandle.js"
+import { DocHandle, DocHandleEphemeralMessagePayload } from "./DocHandle.js"
 import { PeerId } from "./types.js"
 import { EventEmitter } from "eventemitter3"
 
@@ -39,10 +39,14 @@ export type PresenceMessage<State = any> =
 
 export type PresenceMessageType = PresenceMessage["type"]
 
+export type PresenceEventState<State> = PresenceMessageState<State> & { peerId: PeerId }
+export type PresenceEventHeartbeat = PresenceMessageHeartbeat & { peerId: PeerId }
+export type PresenceEventGoodbye = PresenceMessageGoodbye & { peerId: PeerId }
+
 export type PresenceEvents<State = any> = {
-  state: (peerId: PeerId, msg: PresenceMessageState<State>) => void
-  heartbeat: (peerId: PeerId, msg: PresenceMessageHeartbeat) => void
-  goodbye: (peerId: PeerId, msg: PresenceMessageGoodbye) => void
+  state: (msg: PresenceEventState<State>) => void
+  heartbeat: (msg: PresenceEventHeartbeat) => void
+  goodbye: (msg: PresenceEventGoodbye) => void
 }
 
 export type PresenceOpts = {
@@ -53,15 +57,24 @@ export type PresenceOpts = {
 export const HEARTBEAT_INTERVAL_MS = 15000
 export const PEER_TTL_MS = 1000 * 60 * 60 * 24
 
+let num = 0;
+
 export class Presence<
   State,
   Channel extends keyof State
 > extends EventEmitter<PresenceEvents> {
-  private peerStates: PeerPresences<State>
+  private peers: PresencePeers<State>
   private localState: LocalState<State>
+  private readonly handleEphemeralMessage: (e: DocHandleEphemeralMessagePayload<unknown>) => void
 
   private heartbeatInterval: ReturnType<typeof setInterval> | undefined
   private opts: PresenceOpts = {}
+  private hellos: ReturnType<typeof setTimeout>[] = []
+
+  //debugging
+  public seen: DocHandleEphemeralMessagePayload<unknown>[] = []
+  public disposed = false
+  public name: string;
 
   constructor(
     private handle: DocHandle<unknown>,
@@ -71,47 +84,54 @@ export class Presence<
     opts?: PresenceOpts
   ) {
     super()
+    this.name = `pres-${num++}`
     if (opts) {
       this.opts = opts
     }
-    this.peerStates = new PeerPresences(opts?.peerTtlMs ?? PEER_TTL_MS)
+    this.peers = new PresencePeers(opts?.peerTtlMs ?? PEER_TTL_MS)
     this.localState = {
       userId,
       deviceId,
       value: initialState,
     }
-
-    this.handle.on("ephemeral-message", e => {
+    // N.B.: We can't use a regular member function here since member functions
+    // of two distinct objects are identical, and we need to be able to stop
+    // listening to the handle for just this Presence instance in dispose()
+    this.handleEphemeralMessage = (e: DocHandleEphemeralMessagePayload<unknown>) => {
+      this.seen.push(e)
+      console.log(new Date().toISOString(), this.name, "handling ephemeral-message", (e.message as any).type, "from", e.senderId)
       const peerId = e.senderId
       const message = e.message as PresenceMessage<State>
       const { deviceId, userId } = message
 
-      if (!this.peerStates.has(peerId)) {
-        // introduce ourselves
-        this.broadcastLocalState()
+      if (!this.peers.has(peerId)) {
+        this.announce()
       }
 
       switch (message.type) {
         case "heartbeat":
-          this.peerStates.markSeen(peerId, deviceId, userId)
-          this.emit("heartbeat", peerId, {
+          this.peers.markSeen(peerId, deviceId, userId)
+          this.emit("heartbeat", {
+            peerId,
             type: "heartbeat",
-            deviceId: message.deviceId,
-            userId: message.userId,
+            deviceId,
+            userId,
           })
           break
         case "goodbye":
-          this.peerStates.delete(peerId)
-          this.emit("goodbye", peerId, {
+          this.peers.delete(peerId)
+          this.emit("goodbye", {
+            peerId,
             type: "goodbye",
-            deviceId: message.deviceId,
-            userId: message.userId,
+            deviceId,
+            userId,
           })
           break
         case "state":
           const { value } = message
-          this.peerStates.update(peerId, deviceId, userId, value)
-          this.emit("state", peerId, {
+          this.peers.update(peerId, deviceId, userId, value)
+          this.emit("state", {
+            peerId,
             type: "state",
             deviceId,
             userId,
@@ -119,13 +139,15 @@ export class Presence<
           })
           break
       }
-    })
+    }
+    this.handle.on("ephemeral-message", this.handleEphemeralMessage)
+
     this.broadcastLocalState()
   }
 
   getPeerStates() {
     // TODO: expose just a read-only view
-    return this.peerStates
+    return this.peers
   }
 
   getLocalState() {
@@ -142,22 +164,32 @@ export class Presence<
   }
 
   dispose() {
-    this.handle.off("ephemeral-message")
-    this.stopHeartbeats()
-    this.handle.broadcast({
-      userId: this.localState.userId,
-      deviceId: this.localState.deviceId,
-      type: "goodbye",
+    if (this.disposed) {
+      return
+    }
+    this.hellos.forEach((timeoutId) => {
+      clearTimeout(timeoutId)
     })
+    this.hellos = []
+    this.handle.off("ephemeral-message", this.handleEphemeralMessage)
+    this.stopHeartbeats()
+    this.doBroadcast("goodbye")
+    this.disposed = true
+  }
+
+  private announce() {
+    // Broadcast our current state whenever we see new peers
+    // TODO: We currently need to wait for the peer to be ready, but waiting
+    // some arbitrary amount of time is brittle
+    const helloId = setTimeout(() => {
+      this.broadcastLocalState()
+      this.hellos = this.hellos.filter((id) => id !== helloId)
+    }, 500)
+    this.hellos.push(helloId)
   }
 
   private broadcastLocalState() {
-    this.handle.broadcast({
-      userId: this.localState.userId,
-      deviceId: this.localState.deviceId,
-      type: "state",
-      value: this.localState.value,
-    })
+    this.doBroadcast("state", { value: this.localState.value })
     // Reset heartbeats every time we broadcast a message to avoid sending
     // unnecessary heartbeats when there is plenty of actual update activity
     // happening.
@@ -166,10 +198,17 @@ export class Presence<
   }
 
   private sendHeartbeat() {
+    this.doBroadcast("heartbeat")
+  }
+
+  private doBroadcast(type: PresenceMessageType, extra?: Record<string,unknown>) {
+    console.log(new Date().toISOString(), this.name, "broadcasting", type)
+    const { userId, deviceId } = this.localState
     this.handle.broadcast({
-      userId: this.localState.userId,
-      deviceId: this.localState.deviceId,
-      type: "heartbeat",
+      userId,
+      deviceId,
+      type,
+      ...extra
     })
   }
 
@@ -185,12 +224,12 @@ export class Presence<
   }
 }
 
-export type PeerPresenceStates<State> = Omit<
-  PeerPresences<State>,
+export type PresencePeerStates<State> = Omit<
+  PresencePeers<State>,
   "markSeen" | "update" | "prunePeers" | "delete"
 >
 
-export class PeerPresences<State> extends EventEmitter<PresenceEvents> {
+export class PresencePeers<State> extends EventEmitter<PresenceEvents> {
   private peersLastSeen = new Map<PeerId, number>()
   private peerStates = new Map<PeerId, PeerState<State>>()
   private userPeers = new Map<UserId, Set<PeerId>>()
@@ -215,7 +254,6 @@ export class PeerPresences<State> extends EventEmitter<PresenceEvents> {
     this.userPeers.set(userId, userPeers)
 
     this.peersLastSeen.set(peerId, Date.now())
-    this.prunePeers()
   }
 
   update(peerId: PeerId, deviceId: DeviceId, userId: UserId, value: State) {
@@ -226,6 +264,7 @@ export class PeerPresences<State> extends EventEmitter<PresenceEvents> {
       userId,
       value,
     })
+    this.prune()
   }
 
   delete(peerId: PeerId) {
@@ -250,7 +289,7 @@ export class PeerPresences<State> extends EventEmitter<PresenceEvents> {
     })
   }
 
-  prunePeers() {
+  prune() {
     const threshold = Date.now() - this.ttl
     const stalePeers = new Set(
       Array.from(this.peersLastSeen.entries())
@@ -259,13 +298,17 @@ export class PeerPresences<State> extends EventEmitter<PresenceEvents> {
         })
         .map(([peerId]) => peerId)
     )
+    if (stalePeers.size === 0) {
+      return
+    }
+    console.log("pruning stale peers", Array.from(stalePeers))
     stalePeers.forEach(stalePeer => {
       this.delete(stalePeer)
     })
   }
 
   has(peerId: PeerId) {
-    return this.peersLastSeen.has(peerId)
+    return this.peerStates.has(peerId)
   }
 
   getLastSeen(peerId: PeerId) {
@@ -273,17 +316,17 @@ export class PeerPresences<State> extends EventEmitter<PresenceEvents> {
   }
 
   getPeers() {
-    this.prunePeers()
-    return Array.from(this.peersLastSeen.keys())
+    this.prune()
+    return Array.from(this.peerStates.keys())
   }
 
   getUsers() {
-    this.prunePeers()
+    this.prune()
     return Array.from(this.userPeers.keys())
   }
 
   getDevices() {
-    this.prunePeers()
+    this.prune()
     return Array.from(this.devicePeers.keys())
   }
 

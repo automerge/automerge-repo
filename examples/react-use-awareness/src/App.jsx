@@ -1,24 +1,25 @@
+import { useEffect } from "react"
+
 import {
   useDocument,
-  useLocalAwareness,
-  useRemoteAwareness,
+  usePresence,
 } from "@automerge/react"
-
-export function App({ userId, url }) {
+let num = 0
+export function App({ userId, deviceId, url }) {
   const [doc, changeDoc] = useDocument(url)
 
-  const [localState, updateLocalState] = useLocalAwareness({
-    handle,
-    userId,
-    initialState: {},
-  })
+  useEffect(() => {
+    const name = `App-${num++}`
+    console.log("Mounted", name)
+    return () => console.log("Unmounted", name)
+  }, [userId])
+  const {
+    localState,
+    peerStates,
+    update,
+  } = usePresence(handle, userId, deviceId, { count: 0 });
 
-  const [peerStates, heartbeats] = useRemoteAwareness({
-    handle,
-    localUserId: userId,
-  })
-
-  const newCount = localState?.count
+  const newCount = localState?.value.count
   const count = doc?.count ?? 0
 
   return (
@@ -37,12 +38,7 @@ export function App({ userId, url }) {
           value={newCount ?? count}
           placeholder={count}
           style={{ color: newCount ? "red" : "black" }}
-          onChange={e =>
-            updateLocalState(state => ({
-              ...state,
-              count: e.target.value,
-            }))
-          }
+          onChange={e => update("count", e.target.value)}
         />
       </label>
       <div>
@@ -54,12 +50,12 @@ export function App({ userId, url }) {
       </div>
       <div>
         Peer states:
-        {Object.entries(peerStates).map(([peerId, { count } = {}]) => (
+        {peerStates.getPeers().map((peerId) => (
           <span
             key={peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
           >
-            {peerId}: {count ?? "🤷‍♀️"}
+            {peerId}: {peerStates.getPeerState(peerId, "count") ?? "🤷‍♀️"}
           </span>
         ))}
       </div>
@@ -69,7 +65,7 @@ export function App({ userId, url }) {
           changeDoc(doc => {
             if (newCount === undefined) return
             doc.count = newCount
-            updateLocalState(state => ({ ...state, count: undefined }))
+            update("count", undefined)
           })
         }
         disabled={newCount === undefined}
@@ -77,14 +73,21 @@ export function App({ userId, url }) {
       />
       <button
         onClick={() =>
-          updateLocalState(state => ({ ...state, count: undefined }))
+          update("count", undefined)
         }
         disabled={newCount === undefined}
         children="reset"
       />
       <pre data-testid="peer-states">
-        {JSON.stringify({ doc, localState, peerStates, heartbeats }, null, 2)}
+        {JSON.stringify({ doc, localState, peerStates: getAllPeerStates(peerStates) }, null, 2)}
       </pre>
     </div>
   )
+}
+
+function getAllPeerStates(peerStates) {
+  return Array.from(peerStates).reduce((acc, curr) => {
+    acc[curr.peerId] = curr
+    return acc;
+  }, {})
 }
