@@ -112,7 +112,7 @@ export class Presence<
     // listening to the handle for just this Presence instance in dispose()
     this.handleEphemeralMessage = (e: DocHandleEphemeralMessagePayload<unknown>) => {
       this.seen.push(e)
-      console.log(new Date().toISOString(), this.name, "handling ephemeral-message", (e.message as any).type, "from", e.senderId)
+      console.log(new Date().toISOString(), this.name, "handling", (e.message as any).type, "from", e.senderId)
       const peerId = e.senderId
       const message = e.message as PresenceMessage<State>
       const { deviceId, userId } = message

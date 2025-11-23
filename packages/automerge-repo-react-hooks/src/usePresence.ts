@@ -38,7 +38,6 @@ export function usePresence<State, Channel extends keyof State>(
     presence.on("goodbye", invalidate)
 
     return () => {
-      console.log("disposing", presence.name)
       presence.dispose()
     }
   }, [presence])
