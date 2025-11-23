@@ -20,55 +20,41 @@ export function usePresence<State, Channel extends keyof State>(
   userId: string,
   deviceId: string,
   initialState: State,
-  opts?: PresenceOpts
+  opts?: Omit<PresenceOpts, 'skipAutoInit'>
 ): UsePresenceResult<State, Channel> {
   const invalidate = useInvalidate();
   // Don't re-render based on changes to these: they are not expected to
   // change but may be passed in as object literals
   const firstOpts = useRef(opts)
   const firstInitialState = useRef(initialState)
-  const presence = useRef<Presence<State, Channel>>(undefined)
-  // If we have not yet initialized the ref, create a new Presence. The ref will
-  // be initialized with useEffect, but that runs *after* the render, so we want
-  // to make sure that there's a presence available *during* the first render,
-  // so we create it if the ref is undefined. We don't pass it directly as a
-  // `useRef` initializer, since that would run the constructor on every render.
-  if (!presence.current) {
-    presence.current ||= new Presence(handle, userId, deviceId, firstInitialState.current, firstOpts.current)
-    console.log("created presence", presence.current!.name)
-  }
-   
+  const presence = useMemo(() => {
+    return new Presence(handle, userId, deviceId, firstInitialState.current, { ...firstOpts.current, skipAutoInit: true })
+  }, [handle, userId, deviceId, firstInitialState, firstOpts])
 
   useEffect(() => {
-    if (presence.current!.disposed) {
-      const oldName = presence.current!.name
-      presence.current = new Presence(handle, userId, deviceId, firstInitialState.current, firstOpts.current)
-      console.log("replacing disposed", oldName, "with", presence.current!.name)
-    }
-    const p = presence.current!
-
-    p.on("heartbeat", invalidate)
-    p.on("state", invalidate)
-    p.on("goodbye", invalidate)
+    presence.initialize()
+    presence.on("heartbeat", invalidate)
+    presence.on("state", invalidate)
+    presence.on("goodbye", invalidate)
 
     return () => {
-      console.log("disposing", p.name)
-      p.dispose()
+      console.log("disposing", presence.name)
+      presence.dispose()
     }
-  }, [handle, userId, deviceId, firstInitialState, firstOpts, presence])
+  }, [presence])
 
 
   const updateLocalState = useCallback(
     (channel: Channel, msg: State[Channel]) => {
       invalidate()
-      presence.current!.broadcast(channel, msg)
+      presence.broadcast(channel, msg)
     },
     [presence]
   )
 
   return {
-    peerStates: presence.current.getPeerStates(),
-    localState: presence.current.getLocalState(),
+    peerStates: presence.getPeerStates(),
+    localState: presence.getLocalState(),
     update: updateLocalState,
   }
 }
