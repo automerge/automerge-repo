@@ -4,14 +4,13 @@ import {
   DocHandle,
   Presence,
   PeerPresenceView,
-  LocalState,
   PresenceOpts,
 } from "@automerge/automerge-repo/slim"
 import { useInvalidate } from "./helpers/useInvalidate.js"
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
   peerStates: PeerPresenceView<State>
-  localState: LocalState<State>
+  localState: State
   update: (channel: Channel, value: State[Channel]) => void
 }
 

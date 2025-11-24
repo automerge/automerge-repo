@@ -9,7 +9,7 @@ export function App({ userId, deviceId, url }) {
     { count: 0 }
   )
 
-  const newCount = localState?.value.count
+  const newCount = localState?.count
   const count = doc?.count ?? 0
 
   return (
