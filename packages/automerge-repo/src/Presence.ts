@@ -12,8 +12,6 @@ export type PeerState<State> = {
   value: State
 }
 
-export type LocalState<State> = Omit<PeerState<State>, "peerId">
-
 type PresenceMessageBase = {
   deviceId: DeviceId
   userId: UserId
@@ -84,7 +82,9 @@ export class Presence<
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<unknown>
   #peers: PeerPresenceInfo<State>
-  #localState: LocalState<State>
+  #userId: UserId
+  #deviceId: DeviceId
+  #localState: State
   #handleEphemeralMessage:
     | ((e: DocHandleEphemeralMessagePayload<unknown>) => void)
     | undefined
@@ -107,12 +107,12 @@ export class Presence<
       this.#opts = opts
     }
     this.#handle = handle
+    this.#userId = userId
+    this.#deviceId = deviceId
+
+    this.#localState = initialState
     this.#peers = new PeerPresenceInfo(opts?.peerTtlMs ?? DEFAULT_PEER_TTL_MS)
-    this.#localState = {
-      userId,
-      deviceId,
-      value: initialState,
-    }
+
     if (opts?.skipAutoInit) {
       return
     }
@@ -200,8 +200,8 @@ export class Presence<
    * @param msg
    */
   broadcast(channel: Channel, msg: State[Channel]) {
-    this.#localState.value = {
-      ...this.#localState.value,
+    this.#localState = {
+      ...this.#localState,
       [channel]: msg,
     }
     this.broadcastLocalState()
@@ -253,7 +253,7 @@ export class Presence<
   }
 
   private broadcastLocalState() {
-    this.doBroadcast("state", { value: this.#localState.value })
+    this.doBroadcast("state", { value: this.#localState })
     // Reset heartbeats every time we broadcast a message to avoid sending
     // unnecessary heartbeats when there is plenty of actual update activity
     // happening.
@@ -269,10 +269,9 @@ export class Presence<
     type: PresenceMessageType,
     extra?: Record<string, unknown>
   ) {
-    const { userId, deviceId } = this.#localState
     this.#handle.broadcast({
-      userId,
-      deviceId,
+      userId: this.#userId,
+      deviceId: this.#deviceId,
       type,
       ...extra,
     })
