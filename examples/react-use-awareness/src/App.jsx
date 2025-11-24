@@ -15,7 +15,7 @@ export function App({ userId, deviceId, url }) {
   return (
     <div>
       <p>
-        This is an example of useAwareness, which is used to share ephemeral
+        This is an example of usePresence, which is used to share ephemeral
         state that won't be saved to the document. It's most commonly used for
         showing which peers are online and their cursor positions, but you can
         use any serializable data you'd like.
