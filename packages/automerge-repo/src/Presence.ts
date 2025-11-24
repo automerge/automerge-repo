@@ -82,8 +82,6 @@ export class Presence<
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<unknown>
   #peers: PeerPresenceInfo<State>
-  #userId: UserId
-  #deviceId: DeviceId
   #localState: State
   #handleEphemeralMessage:
     | ((e: DocHandleEphemeralMessagePayload<unknown>) => void)
@@ -107,8 +105,6 @@ export class Presence<
       this.#opts = opts
     }
     this.#handle = handle
-    this.#userId = userId
-    this.#deviceId = deviceId
 
     this.#localState = initialState
     this.#peers = new PeerPresenceInfo(opts?.peerTtlMs ?? DEFAULT_PEER_TTL_MS)
@@ -270,8 +266,8 @@ export class Presence<
     extra?: Record<string, unknown>
   ) {
     this.#handle.broadcast({
-      userId: this.#userId,
-      deviceId: this.#deviceId,
+      userId: this.userId,
+      deviceId: this.deviceId,
       type,
       ...extra,
     })
