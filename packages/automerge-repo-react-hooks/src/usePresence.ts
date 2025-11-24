@@ -3,14 +3,14 @@ import { useCallback, useEffect, useRef, useState, useMemo } from "react"
 import {
   DocHandle,
   Presence,
-  PeerPresenceStates,
+  PeerPresenceView,
   LocalState,
   PresenceOpts,
 } from "@automerge/automerge-repo/slim"
 import { useInvalidate } from "./helpers/useInvalidate.js"
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
-  peerStates: PeerPresenceStates<State>
+  peerStates: PeerPresenceView<State>
   localState: LocalState<State>
   update: (channel: Channel, value: State[Channel]) => void
 }

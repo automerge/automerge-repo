@@ -170,13 +170,11 @@ export class Presence<
   }
 
   getPeerStates() {
-    // TODO: expose just a read-only view
-    return this.peers
+    return this.peers.view
   }
 
   getLocalState() {
-    // TODO: expose just a read-only view
-    return this.localState
+    return { ...this.localState }
   }
 
   broadcast(channel: Channel, msg: State[Channel]) {
