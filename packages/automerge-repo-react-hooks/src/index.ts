@@ -39,7 +39,4 @@ export {
   type UseRemoteAwarenessProps,
 } from "./useRemoteAwareness.js"
 
-export {
-  usePresence,
-  type UsePresenceResult
-} from "./usePresence.js"
+export { usePresence, type UsePresenceResult } from "./usePresence.js"

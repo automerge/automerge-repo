@@ -84,7 +84,7 @@ describe("Presence", () => {
       })
 
       let hbPeerMsg: PresenceEventHeartbeat
-      bobPresence.on("heartbeat", (msg) => {
+      bobPresence.on("heartbeat", msg => {
         hbPeerMsg = msg
       })
 
