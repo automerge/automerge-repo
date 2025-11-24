@@ -56,7 +56,7 @@ export type PresenceOpts = {
 }
 
 export const HEARTBEAT_INTERVAL_MS = 15000
-export const PEER_TTL_MS = 1000 * 60 * 60 * 24
+export const PEER_TTL_MS = 3 * HEARTBEAT_INTERVAL_MS
 
 let num = 0;
 
