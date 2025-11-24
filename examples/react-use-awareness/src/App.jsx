@@ -1,9 +1,6 @@
 import { useEffect } from "react"
 
-import {
-  useDocument,
-  usePresence,
-} from "@automerge/react"
+import { useDocument, usePresence } from "@automerge/react"
 let num = 0
 export function App({ userId, deviceId, url }) {
   const [doc, changeDoc] = useDocument(url)
@@ -13,11 +10,12 @@ export function App({ userId, deviceId, url }) {
     console.log("Mounted", name)
     return () => console.log("Unmounted", name)
   }, [userId])
-  const {
-    localState,
-    peerStates,
-    update,
-  } = usePresence(handle, userId, deviceId, { count: 0 });
+  const { localState, peerStates, update } = usePresence(
+    handle,
+    userId,
+    deviceId,
+    { count: 0 }
+  )
 
   const newCount = localState?.value.count
   const count = doc?.count ?? 0
@@ -50,7 +48,7 @@ export function App({ userId, deviceId, url }) {
       </div>
       <div>
         Peer states:
-        {peerStates.getPeers().map((peerId) => (
+        {peerStates.getPeers().map(peerId => (
           <span
             key={peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
@@ -72,14 +70,16 @@ export function App({ userId, deviceId, url }) {
         children="commit to doc"
       />
       <button
-        onClick={() =>
-          update("count", undefined)
-        }
+        onClick={() => update("count", undefined)}
         disabled={newCount === undefined}
         children="reset"
       />
       <pre data-testid="peer-states">
-        {JSON.stringify({ doc, localState, peerStates: getAllPeerStates(peerStates) }, null, 2)}
+        {JSON.stringify(
+          { doc, localState, peerStates: getAllPeerStates(peerStates) },
+          null,
+          2
+        )}
       </pre>
     </div>
   )
@@ -88,6 +88,6 @@ export function App({ userId, deviceId, url }) {
 function getAllPeerStates(peerStates) {
   return peerStates.getPeers().reduce((acc, peerId) => {
     acc[peerId] = peerStates.getPeerState(peerId)
-    return acc;
+    return acc
   }, {})
 }

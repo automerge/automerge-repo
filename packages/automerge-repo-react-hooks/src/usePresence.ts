@@ -20,15 +20,18 @@ export function usePresence<State, Channel extends keyof State>(
   userId: string,
   deviceId: string,
   initialState: State,
-  opts?: Omit<PresenceOpts, 'skipAutoInit'>
+  opts?: Omit<PresenceOpts, "skipAutoInit">
 ): UsePresenceResult<State, Channel> {
-  const invalidate = useInvalidate();
+  const invalidate = useInvalidate()
   // Don't re-render based on changes to these: they are not expected to
   // change but may be passed in as object literals
   const firstOpts = useRef(opts)
   const firstInitialState = useRef(initialState)
   const presence = useMemo(() => {
-    return new Presence(handle, userId, deviceId, firstInitialState.current, { ...firstOpts.current, skipAutoInit: true })
+    return new Presence(handle, userId, deviceId, firstInitialState.current, {
+      ...firstOpts.current,
+      skipAutoInit: true,
+    })
   }, [handle, userId, deviceId, firstInitialState, firstOpts])
 
   useEffect(() => {
@@ -41,7 +44,6 @@ export function usePresence<State, Channel extends keyof State>(
       presence.dispose()
     }
   }, [presence])
-
 
   const updateLocalState = useCallback(
     (channel: Channel, msg: State[Channel]) => {
@@ -57,4 +59,3 @@ export function usePresence<State, Channel extends keyof State>(
     update: updateLocalState,
   }
 }
-
