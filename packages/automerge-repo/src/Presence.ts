@@ -500,7 +500,7 @@ class PeerPresenceInfo<State> extends EventEmitter<PresenceEvents> {
    * @param ttl in milliseconds - peers with no activity within this timeframe
    * are forgotten when {@link prune} is called.
    */
-  constructor(private ttl: number) {
+  constructor(readonly ttl: number) {
     super()
     this.view = new PeerPresenceView(
       this.#peersLastSeen,
@@ -510,6 +510,13 @@ class PeerPresenceInfo<State> extends EventEmitter<PresenceEvents> {
     )
   }
 
+  /**
+   * Record that we've seen the given peer recently.
+   *
+   * @param peerId
+   * @param deviceId
+   * @param userId
+   */
   markSeen(peerId: PeerId, deviceId: DeviceId, userId: UserId) {
     let devicePeers = this.#devicePeers.get(deviceId) ?? new Set<PeerId>()
     devicePeers.add(peerId)
@@ -522,6 +529,14 @@ class PeerPresenceInfo<State> extends EventEmitter<PresenceEvents> {
     this.#peersLastSeen.set(peerId, Date.now())
   }
 
+  /**
+   * Record a state update for the given peer. It is also automatically updated with {@link markSeen}.
+   *
+   * @param peerId
+   * @param deviceId
+   * @param userId
+   * @param value
+   */
   update(peerId: PeerId, deviceId: DeviceId, userId: UserId, value: State) {
     this.markSeen(peerId, deviceId, userId)
     this.#peerStates.set(peerId, {
@@ -532,6 +547,11 @@ class PeerPresenceInfo<State> extends EventEmitter<PresenceEvents> {
     })
   }
 
+  /**
+   * Forget the given peer.
+   *
+   * @param peerId
+   */
   delete(peerId: PeerId) {
     this.#peersLastSeen.delete(peerId)
     this.#peerStates.delete(peerId)
@@ -554,6 +574,10 @@ class PeerPresenceInfo<State> extends EventEmitter<PresenceEvents> {
     })
   }
 
+  /**
+   * Prune all peers that have not been seen since the configured ttl has
+   * elapsed.
+   */
   prune() {
     const threshold = Date.now() - this.ttl
     const stalePeers = new Set(
