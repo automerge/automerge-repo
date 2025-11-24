@@ -1,7 +1,5 @@
-import { useEffect } from "react"
-
 import { useDocument, usePresence } from "@automerge/react"
-let num = 0
+
 export function App({ userId, deviceId, url }) {
   const [doc, changeDoc] = useDocument(url)
   const { localState, peerStates, update } = usePresence(
