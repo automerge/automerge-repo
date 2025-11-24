@@ -4,12 +4,6 @@ import { useDocument, usePresence } from "@automerge/react"
 let num = 0
 export function App({ userId, deviceId, url }) {
   const [doc, changeDoc] = useDocument(url)
-
-  useEffect(() => {
-    const name = `App-${num++}`
-    console.log("Mounted", name)
-    return () => console.log("Unmounted", name)
-  }, [userId])
   const { localState, peerStates, update } = usePresence(
     handle,
     userId,
