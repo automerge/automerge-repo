@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   Presence,
-  PresenceMessageHeartbeat,
-  HEARTBEAT_INTERVAL_MS,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
   PresenceEventHeartbeat,
 } from "../src/Presence.js"
 import { Repo } from "../src/Repo.js"
