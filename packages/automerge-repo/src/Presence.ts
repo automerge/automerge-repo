@@ -216,7 +216,14 @@ export class Presence<
 
   /**
    * Dispose of this Presence: broadcast a "goodbye" message (when received,
-   * other peers will immediately forget the sender), stop listening to the
+   * other peers will immediately forget the sender), stop sending heartbeats,
+   * and stop listening to ephemeral-messages broadcast from peers.
+   *
+   * This can be used with browser events like
+   * {@link https://developer.mozilla.org/en-US/docs/Web/API/Window/pagehide_event | "pagehide"}
+   * or
+   * {@link https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event | "visibilitychange"}
+   * to stop sending and receiving updates when not active.
    */
   dispose() {
     if (this.disposed) {
