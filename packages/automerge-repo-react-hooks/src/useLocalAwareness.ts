@@ -14,6 +14,8 @@ export interface UseLocalAwarenessProps {
   heartbeatTime?: number
 }
 /**
+ * @deprecated use the usePresence hook instead
+ *
  * This hook maintains state for the local client.
  * Like React.useState, it returns a [state, setState] array.
  * It is intended to be used alongside useRemoteAwareness.
