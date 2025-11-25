@@ -74,7 +74,12 @@ export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
 export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
 
 /**
- * Presence encapsulates ephemeral state communication for a specific doc handle.
+ * Presence encapsulates ephemeral state communication for a specific doc
+ * handle. It tracks caller-provided local state and broadcasts that state to
+ * all peers. It sends periodic heartbeats when there are no state updates.
+ *
+ * It also tracks ephemeral state broadcast by peers and emits events when
+ * peers send ephemeral state updates (see {@link PresenceEvents}).
  */
 export class Presence<
   State,
@@ -93,6 +98,16 @@ export class Presence<
 
   #disposed = false
 
+  /**
+   * Create a new Presence to share ephemeral state with peers.
+   *
+   * @param handle - doc handle to use
+   * @param userId - our user id (this is unverified; peers can send anything)
+   * @param deviceId - our device id (like userId, this is unverified)
+   * @param initialState - the full initial state to broadcast to peers
+   * @param opts - see {@link PresenceOpts}
+   * @returns
+   */
   constructor(
     handle: DocHandle<unknown>,
     readonly userId: UserId,
