@@ -13,6 +13,8 @@ export default defineConfig({
     process.env.VISUALIZE && visualizer(),
   ],
   build: {
+    minify: false,
+    sourcemap: true,
     lib: {
       entry: resolve(__dirname, "src/index.ts"),
       formats: ["es"],
