@@ -18,7 +18,7 @@ import * as CBOR from "cbor-x"
 import { once } from "events"
 import http from "http"
 import { getPortPromise as getAvailablePort } from "portfinder"
-import { describe, it } from "vitest"
+import { afterEach, describe, it, vi, expect } from "vitest"
 import WebSocket from "ws"
 import { WebSocketClientAdapter } from "../src/WebSocketClientAdapter.js"
 import { WebSocketServerAdapter } from "../src/WebSocketServerAdapter.js"
@@ -278,6 +278,115 @@ describe("Websocket adapters", () => {
       await browserRepo.networkSubsystem.whenReady()
 
       assert.deepStrictEqual(browserRepo.peers, ["server" as PeerId])
+    })
+
+    describe("exponential backoff", () => {
+      afterEach(() => vi.restoreAllMocks())
+
+      it("should calculate exponential backoff delays correctly", async () => {
+        const port = await getPort()
+        const retryInterval = 50
+
+        const browserAdapter = await setupClient({
+          port,
+          retryInterval,
+          exponentialBackoff: true,
+        })
+        const connectSpy = vi.spyOn(browserAdapter, "connect")
+
+        const browserRepo = new Repo({
+          network: [browserAdapter],
+          peerId: browserPeerId,
+        })
+
+        await pause(5)
+        expect(connectSpy).toHaveBeenCalledTimes(1)
+
+        // should have made the first retry
+        await pause(retryInterval)
+        expect(connectSpy).toHaveBeenCalledTimes(2)
+
+        // should not have made the second retry yet (only half of the new delay has passed)
+        await pause(retryInterval)
+        expect(connectSpy).toHaveBeenCalledTimes(2)
+
+        // should have made the second retry (full delay has passed)
+        await pause(retryInterval)
+        expect(connectSpy).toHaveBeenCalledTimes(3)
+
+        const { serverAdapter } = await setupServer({ port, retryInterval })
+        const serverRepo = new Repo({
+          network: [serverAdapter],
+          peerId: serverPeerId,
+        })
+
+        await eventPromise(browserAdapter, "peer-candidate")
+      })
+
+      it("should reset backoff delay on successful connection", async () => {
+        const port = await getPort()
+        const retryInterval = 50
+
+        const browserAdapter = await setupClient({
+          port,
+          retryInterval,
+          exponentialBackoff: true,
+        })
+        const connectSpy = vi.spyOn(browserAdapter, "connect")
+
+        const browserRepo = new Repo({
+          network: [browserAdapter],
+          peerId: browserPeerId,
+        })
+
+        // build up backoff
+        await pause(retryInterval + 20) // first retry, with buffer
+        await pause(retryInterval * 2) // second retry at double the interval
+
+        // initial + 2 retries
+        expect(connectSpy).toHaveBeenCalledTimes(3)
+
+        // start the server to allow successful connection
+        const { serverAdapter } = await setupServer({ port, retryInterval })
+        const serverRepo = new Repo({
+          network: [serverAdapter],
+          peerId: serverPeerId,
+        })
+
+        await eventPromise(browserAdapter, "peer-candidate")
+
+        // initial + 2 retries + successful connection
+        expect(connectSpy).toHaveBeenCalledTimes(4)
+
+        serverAdapter.disconnect()
+        await eventPromise(browserAdapter, "peer-disconnected")
+
+        // the next retry should happen at the base interval
+        await pause(retryInterval + 20)
+        expect(connectSpy.mock.calls.length).toBe(5)
+      })
+
+      it("should maintain backward compatibility with existing constructor", async () => {
+        const port = await getPort()
+        const retryInterval = 50
+        const browserAdapter = await setupClient({ port, retryInterval })
+        const connectSpy = vi.spyOn(browserAdapter, "connect")
+
+        const browserRepo = new Repo({
+          network: [browserAdapter],
+          peerId: browserPeerId,
+        })
+
+        // make sure we're using linear backoff by default
+        await pause(retryInterval + 20)
+        expect(connectSpy).toHaveBeenCalledTimes(2)
+
+        await pause(retryInterval)
+        expect(connectSpy).toHaveBeenCalledTimes(3)
+
+        await pause(retryInterval)
+        expect(connectSpy).toHaveBeenCalledTimes(4)
+      })
     })
   })
 
@@ -702,10 +811,17 @@ const setupClient = async (options: SetupOptions = {}) => {
   const {
     clientCount = 1,
     retryInterval = 1000,
+    exponentialBackoff,
+    maxRetryDelay,
     port = await getPort(),
   } = options
   const serverUrl = `ws://localhost:${port}`
-  return new WebSocketClientAdapter(serverUrl, retryInterval)
+  return new WebSocketClientAdapter(
+    serverUrl,
+    retryInterval,
+    exponentialBackoff,
+    maxRetryDelay
+  )
 }
 
 const pause = (t = 0) =>
@@ -721,5 +837,7 @@ const getPort = () => {
 type SetupOptions = {
   clientCount?: number
   retryInterval?: number
+  exponentialBackoff?: boolean
+  maxRetryDelay?: number
   port?: number
 }
