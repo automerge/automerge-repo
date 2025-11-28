@@ -77,8 +77,6 @@ export type PresenceConfig<State> = {
   heartbeatMs?: number
   /** How long to wait until forgetting peers with no activity  (default {@link DEFAULT_PEER_TTL_MS}) */
   peerTtlMs?: number
-  /** Whether to skip automatic initialization (if so, {@link Presence.start} must be called manually.) */
-  skipAutoInit?: boolean
 }
 
 /**
@@ -86,8 +84,11 @@ export type PresenceConfig<State> = {
  * handle. It tracks caller-provided local state and broadcasts that state to
  * all peers. It sends periodic heartbeats when there are no state updates.
  *
- * It also tracks ephemeral state broadcast by peers and emits events when
- * peers send ephemeral state updates (see {@link PresenceEvents}).
+ * It also tracks ephemeral state broadcast by peers and emits events when peers
+ * send ephemeral state updates (see {@link PresenceEvents}).
+ *
+ * Presence starts out in an inactive state. Call {@link start} and {@link stop}
+ * to activate and deactivate it.
  */
 export class Presence<State> extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<unknown>
@@ -119,7 +120,6 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
     initialState,
     heartbeatMs,
     peerTtlMs,
-    skipAutoInit,
   }: PresenceConfig<State>) {
     super()
     this.#userId = userId
@@ -128,11 +128,6 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
     this.#heartbeatMs = heartbeatMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
     this.#peers = new PeerPresenceInfo(peerTtlMs ?? DEFAULT_PEER_TTL_MS)
     this.#localState = initialState
-
-    if (skipAutoInit) {
-      return
-    }
-    this.start()
   }
 
   /**
