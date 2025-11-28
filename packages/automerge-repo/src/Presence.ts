@@ -66,7 +66,7 @@ export type PresenceOpts = {
   heartbeatMs?: number
   /** How long to wait until forgetting peers with no activity */
   peerTtlMs?: number
-  /** Whether to skip automatic initialization (if so, {@link Presence.initialize} must be called manually.) */
+  /** Whether to skip automatic initialization (if so, {@link Presence.start} must be called manually.) */
   skipAutoInit?: boolean
 }
 
@@ -96,7 +96,7 @@ export class Presence<
   #opts: PresenceOpts = {}
   #hellos: ReturnType<typeof setTimeout>[] = []
 
-  #disposed = false
+  #running = false
 
   /**
    * Create a new Presence to share ephemeral state with peers.
@@ -127,20 +127,20 @@ export class Presence<
     if (opts?.skipAutoInit) {
       return
     }
-    this.initialize()
+    this.start()
   }
 
   /**
    * Start listening to ephemeral messages on the handle, broadcast initial
-   * state, and start sending heartbeats. If {@link disposed}, re-initializes.
+   * state to peers, and start sending heartbeats.
    */
-  initialize() {
-    if (this.#handleEphemeralMessage && !this.disposed) {
+  start() {
+    if (this.#running) {
       return
     }
     // N.B.: We can't use a regular member function here since member functions
     // of two distinct objects are identical, and we need to be able to stop
-    // listening to the handle for just this Presence instance in dispose()
+    // listening to the handle for just this Presence instance in stop()
     this.#handleEphemeralMessage = (
       e: DocHandleEphemeralMessagePayload<unknown>
     ) => {
@@ -187,6 +187,7 @@ export class Presence<
     this.#handle.on("ephemeral-message", this.#handleEphemeralMessage)
 
     this.broadcastLocalState()
+    this.#running = true
   }
 
   /**
@@ -219,18 +220,17 @@ export class Presence<
   }
 
   /**
-   * True if {@link dispose} has been called on this Presence and it is no
-   * longer active. Note that a disposed Presence may be started again with
-   * {@link initialize}.
+   * Whether this Presence is currently active. See
+   * {@link start} and {@link stop}.
    */
-  get disposed() {
-    return this.#disposed
+  get running() {
+    return this.#running
   }
 
   /**
-   * Dispose of this Presence: broadcast a "goodbye" message (when received,
-   * other peers will immediately forget the sender), stop sending heartbeats,
-   * and stop listening to ephemeral-messages broadcast from peers.
+   * Stop this Presence: broadcast a "goodbye" message (when received, other
+   * peers will immediately forget the sender), stop sending heartbeats, and
+   * stop listening to ephemeral-messages broadcast from peers.
    *
    * This can be used with browser events like
    * {@link https://developer.mozilla.org/en-US/docs/Web/API/Window/pagehide_event | "pagehide"}
@@ -238,8 +238,8 @@ export class Presence<
    * {@link https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event | "visibilitychange"}
    * to stop sending and receiving updates when not active.
    */
-  dispose() {
-    if (this.disposed) {
+  stop() {
+    if (!this.#running) {
       return
     }
     this.#hellos.forEach(timeoutId => {
@@ -249,7 +249,7 @@ export class Presence<
     this.#handle.off("ephemeral-message", this.#handleEphemeralMessage)
     this.stopHeartbeats()
     this.doBroadcast("goodbye")
-    this.#disposed = true
+    this.#running = false
   }
 
   private announce() {
