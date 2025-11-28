@@ -103,6 +103,7 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
     | undefined
 
   #heartbeatInterval: ReturnType<typeof setInterval> | undefined
+  #pruningInterval: ReturnType<typeof setInterval> | undefined
   #hellos: ReturnType<typeof setTimeout>[] = []
 
   #running = false
@@ -186,7 +187,8 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
     }
     this.#handle.on("ephemeral-message", this.#handleEphemeralMessage)
 
-    this.broadcastLocalState()
+    this.broadcastLocalState() // also starts heartbeats
+    this.startPruningPeers()
     this.#running = true
   }
 
@@ -251,6 +253,7 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
     this.#hellos = []
     this.#handle.off("ephemeral-message", this.#handleEphemeralMessage)
     this.stopHeartbeats()
+    this.stopPruningPeers()
     this.doBroadcast("goodbye")
     this.#running = false
   }
@@ -292,15 +295,40 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
   }
 
   private startHeartbeats() {
-    const heartbeatMs = this.#heartbeatMs
+    if (this.#heartbeatInterval !== undefined) {
+      return
+    }
     this.#heartbeatInterval = setInterval(() => {
       this.sendHeartbeat()
-      this.#peers.prune()
-    }, heartbeatMs)
+    }, this.#heartbeatMs)
   }
 
   private stopHeartbeats() {
+    if (this.#heartbeatInterval === undefined) {
+      return
+    }
     clearInterval(this.#heartbeatInterval)
+    this.#heartbeatInterval = undefined
+  }
+
+  private startPruningPeers() {
+    if (this.#pruningInterval !== undefined) {
+      return
+    }
+    // Pruning happens at the heartbeat frequency, not on a peer ttl frequency,
+    // to minimize variance between peer expiration, since the heartbeat frequency
+    // is expected to be several times higher.
+    this.#pruningInterval = setInterval(() => {
+      this.#peers.prune()
+    }, this.#heartbeatMs)
+  }
+
+  private stopPruningPeers() {
+    if (this.#pruningInterval === undefined) {
+      return
+    }
+    clearInterval(this.#pruningInterval)
+    this.#pruningInterval = undefined
   }
 }
 
