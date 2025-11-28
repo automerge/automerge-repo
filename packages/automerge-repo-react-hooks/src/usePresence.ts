@@ -60,7 +60,6 @@ export function usePresence<State, Channel extends keyof State>({
       deviceId,
       initialState: firstInitialState.current,
       ...firstOpts.current,
-      skipAutoInit: true,
     })
   }, [handle, userId, deviceId, firstInitialState, firstOpts])
 

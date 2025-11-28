@@ -40,6 +40,7 @@ describe("Presence", () => {
           position: 123,
         },
       })
+      alicePresence.start()
 
       const bobHandle = await bob.find(aliceHandle.url)
       const bobPresence = new Presence({
@@ -50,6 +51,7 @@ describe("Presence", () => {
           position: 456,
         },
       })
+      bobPresence.start()
 
       await waitFor(() => {
         const bobPeerStates = bobPresence.getPeerStates()
@@ -84,6 +86,7 @@ describe("Presence", () => {
         },
         heartbeatMs: 10,
       })
+      alicePresence.start()
 
       const bobHandle = await bob.find(aliceHandle.url)
       const bobPresence = new Presence({
@@ -94,6 +97,7 @@ describe("Presence", () => {
           position: 456,
         },
       })
+      bobPresence.start()
 
       let hbPeerMsg: PresenceEventHeartbeat
       bobPresence.on("heartbeat", msg => {
@@ -124,6 +128,7 @@ describe("Presence", () => {
           position: 123,
         },
       })
+      alicePresence.start()
 
       const bobHandle = await bob.find(aliceHandle.url)
       const bobPresence = new Presence({
@@ -134,6 +139,7 @@ describe("Presence", () => {
           position: 456,
         },
       })
+      bobPresence.start()
 
       alicePresence.broadcast("position", 213)
 
