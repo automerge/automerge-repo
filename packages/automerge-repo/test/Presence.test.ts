@@ -32,13 +32,23 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence(aliceHandle, "alice", "phone", {
-        position: 123,
+      const alicePresence = new Presence({
+        handle: aliceHandle,
+        userId: "alice",
+        deviceId: "phone",
+        initialState: {
+          position: 123,
+        },
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence(bobHandle, "bob", "phone", {
-        position: 456,
+      const bobPresence = new Presence({
+        handle: bobHandle,
+        userId: "bob",
+        deviceId: "phone",
+        initialState: {
+          position: 456,
+        },
       })
 
       await waitFor(() => {
@@ -65,21 +75,24 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence(
-        aliceHandle,
-        "alice",
-        "phone",
-        {
+      const alicePresence = new Presence({
+        handle: aliceHandle,
+        userId: "alice",
+        deviceId: "phone",
+        initialState: {
           position: 123,
         },
-        {
-          heartbeatMs: 10,
-        }
-      )
+        heartbeatMs: 10,
+      })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence(bobHandle, "bob", "phone", {
-        position: 456,
+      const bobPresence = new Presence({
+        handle: bobHandle,
+        userId: "bob",
+        deviceId: "phone",
+        initialState: {
+          position: 456,
+        },
       })
 
       let hbPeerMsg: PresenceEventHeartbeat
@@ -103,13 +116,23 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence(aliceHandle, "alice", "phone", {
-        position: 123,
+      const alicePresence = new Presence({
+        handle: aliceHandle,
+        userId: "alice",
+        deviceId: "phone",
+        initialState: {
+          position: 123,
+        },
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence(bobHandle, "bob", "phone", {
-        position: 456,
+      const bobPresence = new Presence({
+        handle: bobHandle,
+        userId: "bob",
+        deviceId: "phone",
+        initialState: {
+          position: 456,
+        },
       })
 
       alicePresence.broadcast("position", 213)

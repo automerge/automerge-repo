@@ -61,17 +61,25 @@ export type PresenceEvents<State = any> = {
   goodbye: (msg: PresenceEventGoodbye) => void
 }
 
-export type PresenceOpts = {
-  /** How frequently to send heartbeats */
+export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
+export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
+
+export type PresenceConfig<State> = {
+  /** Doc handle to use */
+  handle: DocHandle<unknown>
+  /** Our user id (this is unverified; peers can send anything) */
+  userId: UserId
+  /** Our device id (like userId, this is unverified; peers can send anything) */
+  deviceId: DeviceId
+  /** The full initial state to broadcast to peers */
+  initialState: State
+  /** How frequently to send heartbeats (default {@link DEFAULT_HEARTBEAT_INTERVAL_MS}) */
   heartbeatMs?: number
-  /** How long to wait until forgetting peers with no activity */
+  /** How long to wait until forgetting peers with no activity  (default {@link DEFAULT_PEER_TTL_MS}) */
   peerTtlMs?: number
   /** Whether to skip automatic initialization (if so, {@link Presence.start} must be called manually.) */
   skipAutoInit?: boolean
 }
-
-export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
-export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
 
 /**
  * Presence encapsulates ephemeral state communication for a specific doc
@@ -81,18 +89,19 @@ export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
  * It also tracks ephemeral state broadcast by peers and emits events when
  * peers send ephemeral state updates (see {@link PresenceEvents}).
  */
-export class Presence<
-  State
-> extends EventEmitter<PresenceEvents> {
+export class Presence<State> extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<unknown>
+  #deviceId: DeviceId
+  #userId: UserId
   #peers: PeerPresenceInfo<State>
   #localState: State
+  #heartbeatMs: number
+
   #handleEphemeralMessage:
     | ((e: DocHandleEphemeralMessagePayload<unknown>) => void)
     | undefined
 
   #heartbeatInterval: ReturnType<typeof setInterval> | undefined
-  #opts: PresenceOpts = {}
   #hellos: ReturnType<typeof setTimeout>[] = []
 
   #running = false
@@ -100,30 +109,27 @@ export class Presence<
   /**
    * Create a new Presence to share ephemeral state with peers.
    *
-   * @param handle - doc handle to use
-   * @param userId - our user id (this is unverified; peers can send anything)
-   * @param deviceId - our device id (like userId, this is unverified)
-   * @param initialState - the full initial state to broadcast to peers
-   * @param opts - see {@link PresenceOpts}
+   * @param config see {@link PresenceConfig}
    * @returns
    */
-  constructor(
-    handle: DocHandle<unknown>,
-    readonly userId: UserId,
-    readonly deviceId: DeviceId,
-    initialState: State,
-    opts?: PresenceOpts
-  ) {
+  constructor({
+    handle,
+    userId,
+    deviceId,
+    initialState,
+    heartbeatMs,
+    peerTtlMs,
+    skipAutoInit,
+  }: PresenceConfig<State>) {
     super()
-    if (opts) {
-      this.#opts = opts
-    }
+    this.#userId = userId
+    this.#deviceId = deviceId
     this.#handle = handle
-
+    this.#heartbeatMs = heartbeatMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
+    this.#peers = new PeerPresenceInfo(peerTtlMs ?? DEFAULT_PEER_TTL_MS)
     this.#localState = initialState
-    this.#peers = new PeerPresenceInfo(opts?.peerTtlMs ?? DEFAULT_PEER_TTL_MS)
 
-    if (opts?.skipAutoInit) {
+    if (skipAutoInit) {
       return
     }
     this.start()
@@ -210,7 +216,10 @@ export class Presence<
    * @param channel
    * @param msg
    */
-  broadcast<Channel extends keyof State>(channel: Channel, msg: State[Channel]) {
+  broadcast<Channel extends keyof State>(
+    channel: Channel,
+    msg: State[Channel]
+  ) {
     this.#localState = {
       ...this.#localState,
       [channel]: msg,
@@ -280,15 +289,15 @@ export class Presence<
     extra?: Record<string, unknown>
   ) {
     this.#handle.broadcast({
-      userId: this.userId,
-      deviceId: this.deviceId,
+      userId: this.#userId,
+      deviceId: this.#deviceId,
       type,
       ...extra,
     })
   }
 
   private startHeartbeats() {
-    const heartbeatMs = this.#opts.heartbeatMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
+    const heartbeatMs = this.#heartbeatMs
     this.#heartbeatInterval = setInterval(() => {
       this.sendHeartbeat()
       this.#peers.prune()
