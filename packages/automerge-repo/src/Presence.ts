@@ -82,8 +82,7 @@ export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
  * peers send ephemeral state updates (see {@link PresenceEvents}).
  */
 export class Presence<
-  State,
-  Channel extends keyof State
+  State
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<unknown>
   #peers: PeerPresenceInfo<State>
@@ -211,7 +210,7 @@ export class Presence<
    * @param channel
    * @param msg
    */
-  broadcast(channel: Channel, msg: State[Channel]) {
+  broadcast<Channel extends keyof State>(channel: Channel, msg: State[Channel]) {
     this.#localState = {
       ...this.#localState,
       [channel]: msg,
