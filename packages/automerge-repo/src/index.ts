@@ -43,7 +43,7 @@ export {
   Presence,
   PeerPresenceView,
   PeerState,
-  PresenceOpts,
+  PresenceConfig,
 } from "./Presence.js"
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.js"

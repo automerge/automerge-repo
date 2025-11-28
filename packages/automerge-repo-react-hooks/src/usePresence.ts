@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react"
 
 import {
-  DocHandle,
   Presence,
   PeerPresenceView,
-  PresenceOpts,
+  PresenceConfig,
 } from "@automerge/automerge-repo/slim"
 import { useInvalidate } from "./helpers/useInvalidate.js"
 
-export type UsePresenceOpts = Omit<PresenceOpts, "skipAutoInit">
+export type UsePresenceConfig<State> = Omit<
+  PresenceConfig<State>,
+  "skipAutoInit"
+>
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
   peerStates: PeerPresenceView<State>
@@ -29,40 +31,47 @@ export type UsePresenceResult<State, Channel extends keyof State> = {
  *
  * It is implemented using {@link Presence}.
  *
- * @param handle - doc handle to use
- * @param userId - our user id (this is unverified; peers can send anything)
- * @param deviceId - our device id (like userId, this is unverified)
- * @param initialState - the full initial state to broadcast to peers (updates do not trigger a re-render of the hook)
- * @param opts - see {@link UsePresenceOpts} (updates do not trigger a re-render of the hook)
+ * @param config - see {@link UsePresenceConfig}. Note that initialState only
+ * determines the initial value. Updates to this param will not trigger a
+ * re-render of the hook.
+ *
  * @returns see {@link UsePresenceResult}
  */
-export function usePresence<State, Channel extends keyof State>(
-  handle: DocHandle<unknown>,
-  userId: string,
-  deviceId: string,
-  initialState: State,
-  opts?: UsePresenceOpts
-): UsePresenceResult<State, Channel> {
+export function usePresence<State, Channel extends keyof State>({
+  handle,
+  userId,
+  deviceId,
+  initialState,
+  heartbeatMs,
+  peerTtlMs,
+}: UsePresenceConfig<State>): UsePresenceResult<State, Channel> {
   const invalidate = useInvalidate()
   // Don't re-render based on changes to these: they are not expected to
   // change but may be passed in as object literals
-  const firstOpts = useRef(opts)
+  const firstOpts = useRef({
+    heartbeatMs,
+    peerTtlMs,
+  })
   const firstInitialState = useRef(initialState)
   const presence = useMemo(() => {
-    return new Presence(handle, userId, deviceId, firstInitialState.current, {
+    return new Presence({
+      handle,
+      userId,
+      deviceId,
+      initialState: firstInitialState.current,
       ...firstOpts.current,
       skipAutoInit: true,
     })
   }, [handle, userId, deviceId, firstInitialState, firstOpts])
 
   useEffect(() => {
-    presence.initialize()
+    presence.start()
     presence.on("heartbeat", invalidate)
     presence.on("state", invalidate)
     presence.on("goodbye", invalidate)
 
     return () => {
-      presence.dispose()
+      presence.stop()
     }
   }, [presence])
 
