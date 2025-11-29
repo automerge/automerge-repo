@@ -1,22 +1,13 @@
-import {
-  useDocument,
-  useLocalAwareness,
-  useRemoteAwareness,
-} from "@automerge/react"
+import { useDocument, usePresence } from "@automerge/react"
 
-export function App({ userId, url }) {
+export function App({ userId, deviceId, url }) {
   const [doc, changeDoc] = useDocument(url)
-
-  const [localState, updateLocalState] = useLocalAwareness({
+  const { localState, peerStates, update } = usePresence(
     handle,
     userId,
-    initialState: {},
-  })
-
-  const [peerStates, heartbeats] = useRemoteAwareness({
-    handle,
-    localUserId: userId,
-  })
+    deviceId,
+    { count: 0 }
+  )
 
   const newCount = localState?.count
   const count = doc?.count ?? 0
@@ -24,7 +15,7 @@ export function App({ userId, url }) {
   return (
     <div>
       <p>
-        This is an example of useAwareness, which is used to share ephemeral
+        This is an example of usePresence, which is used to share ephemeral
         state that won't be saved to the document. It's most commonly used for
         showing which peers are online and their cursor positions, but you can
         use any serializable data you'd like.
@@ -37,12 +28,7 @@ export function App({ userId, url }) {
           value={newCount ?? count}
           placeholder={count}
           style={{ color: newCount ? "red" : "black" }}
-          onChange={e =>
-            updateLocalState(state => ({
-              ...state,
-              count: e.target.value,
-            }))
-          }
+          onChange={e => update("count", e.target.value)}
         />
       </div>
       <div>
@@ -54,12 +40,12 @@ export function App({ userId, url }) {
       </div>
       <div>
         Peer states:
-        {Object.entries(peerStates).map(([peerId, { count } = {}]) => (
+        {peerStates.getPeers().map(peerId => (
           <span
             key={peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
           >
-            {peerId}: {count ?? "🤷‍♀️"}
+            {peerId}: {peerStates.getPeerState(peerId, "count") ?? "🤷‍♀️"}
           </span>
         ))}
       </div>
@@ -69,22 +55,31 @@ export function App({ userId, url }) {
           changeDoc(doc => {
             if (newCount === undefined) return
             doc.count = newCount
-            updateLocalState(state => ({ ...state, count: undefined }))
+            update("count", undefined)
           })
         }
         disabled={newCount === undefined}
         children="commit to doc"
       />
       <button
-        onClick={() =>
-          updateLocalState(state => ({ ...state, count: undefined }))
-        }
+        onClick={() => update("count", undefined)}
         disabled={newCount === undefined}
         children="reset"
       />
       <pre>
-        {JSON.stringify({ doc, localState, peerStates, heartbeats }, null, 2)}
+        {JSON.stringify(
+          { doc, localState, peerStates: getAllPeerStates(peerStates) },
+          null,
+          2
+        )}
       </pre>
     </div>
   )
+}
+
+function getAllPeerStates(peerStates) {
+  return peerStates.getPeers().reduce((acc, peerId) => {
+    acc[peerId] = peerStates.getPeerState(peerId)
+    return acc
+  }, {})
 }

@@ -17,6 +17,7 @@ import {
   AbortOptions,
   isAbortErrorLike,
 } from "./helpers/abortable.js"
+import { Presence } from "./Presence.js"
 
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
@@ -53,6 +54,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** Cache for view handles, keyed by the stringified heads */
   #viewCache: Map<string, DocHandle<T>> = new Map()
 
+  /** Presence for tracking ephemeral state */
+  #presence: Presence<unknown, T>
+
   /** @hidden */
   constructor(
     public documentId: DocumentId,
@@ -71,6 +75,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     const doc = A.init<T>()
 
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
+    this.#presence = new Presence<unknown, T>(this)
 
     const delay = this.#timeoutDelay
     const machine = setup({
@@ -359,6 +364,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return A.view(this.#doc, decodeHeads(this.#fixedHeads))
     }
     return this.#doc
+  }
+
+  /**
+   * Returns the Presence instance tracking ephemeral state related to this handle
+   */
+  presence<State>() {
+    if (!this.isReady()) throw new Error("DocHandle is not ready")
+    return this.#presence as Presence<State>
   }
 
   /**

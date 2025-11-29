@@ -19,7 +19,7 @@ const userId = v4()
 
 const rootDocUrl = `${document.location.hash.substring(1)}`
 const handle = isValidAutomergeUrl(rootDocUrl)
-  ? repo.find(rootDocUrl)
+  ? await repo.find(rootDocUrl)
   : repo.create()
 
 const docUrl = (document.location.hash = handle.url)
@@ -30,7 +30,7 @@ window.repo = repo
 ReactDOM.createRoot(document.getElementById("root")).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App userId={userId} url={docUrl} />
+      <App deviceId={`device-${Date.now()}`} userId={userId} url={docUrl} />
     </React.StrictMode>
   </RepoContext.Provider>
 )
