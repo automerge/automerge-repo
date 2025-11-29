@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "react"
+import { useCallback, useEffect, useRef } from "react"
 
 import {
   Presence,
   PeerPresenceView,
   PresenceConfig,
+  DocHandle,
 } from "@automerge/automerge-repo/slim"
 import { useInvalidate } from "./helpers/useInvalidate.js"
 
 export type UsePresenceConfig<State> = Omit<
   PresenceConfig<State>,
   "skipAutoInit"
->
+> & {
+  handle: DocHandle<unknown>
+}
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
   peerStates: PeerPresenceView<State>
@@ -53,18 +56,15 @@ export function usePresence<State, Channel extends keyof State>({
     peerTtlMs,
   })
   const firstInitialState = useRef(initialState)
-  const presence = useMemo(() => {
-    return new Presence({
-      handle,
+  const presence = handle.presence<State>()
+
+  useEffect(() => {
+    presence.start({
       userId,
       deviceId,
       initialState: firstInitialState.current,
       ...firstOpts.current,
     })
-  }, [handle, userId, deviceId, firstInitialState, firstOpts])
-
-  useEffect(() => {
-    presence.start()
     presence.on("heartbeat", invalidate)
     presence.on("state", invalidate)
     presence.on("goodbye", invalidate)
@@ -72,7 +72,7 @@ export function usePresence<State, Channel extends keyof State>({
     return () => {
       presence.stop()
     }
-  }, [presence])
+  }, [presence, userId, deviceId, firstInitialState, firstOpts])
 
   const updateLocalState = useCallback(
     (channel: Channel, msg: State[Channel]) => {

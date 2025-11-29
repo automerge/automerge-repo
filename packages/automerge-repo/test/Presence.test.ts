@@ -11,6 +11,8 @@ import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
 import { waitFor } from "./helpers/waitFor.js"
 
 describe("Presence", () => {
+  type PresenceState = { position: number }
+
   async function setup() {
     const alice = new Repo({ peerId: "alice" as PeerId })
     const bob = new Repo({ peerId: "bob" as PeerId })
@@ -32,26 +34,24 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence({
-        handle: aliceHandle,
+      const alicePresence = new Presence<PresenceState>(aliceHandle)
+      alicePresence.start({
         userId: "alice",
         deviceId: "phone",
         initialState: {
           position: 123,
         },
       })
-      alicePresence.start()
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence({
-        handle: bobHandle,
+      const bobPresence = new Presence<PresenceState>(bobHandle)
+      bobPresence.start({
         userId: "bob",
         deviceId: "phone",
         initialState: {
           position: 456,
         },
       })
-      bobPresence.start()
 
       await waitFor(() => {
         const bobPeerStates = bobPresence.getPeerStates()
@@ -77,8 +77,8 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence({
-        handle: aliceHandle,
+      const alicePresence = new Presence<PresenceState>(aliceHandle)
+      alicePresence.start({
         userId: "alice",
         deviceId: "phone",
         initialState: {
@@ -86,18 +86,16 @@ describe("Presence", () => {
         },
         heartbeatMs: 10,
       })
-      alicePresence.start()
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence({
-        handle: bobHandle,
+      const bobPresence = new Presence<PresenceState>(bobHandle)
+      bobPresence.start({
         userId: "bob",
         deviceId: "phone",
         initialState: {
           position: 456,
         },
       })
-      bobPresence.start()
 
       let hbPeerMsg: PresenceEventHeartbeat
       bobPresence.on("heartbeat", msg => {
@@ -120,26 +118,24 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence({
-        handle: aliceHandle,
+      const alicePresence = new Presence<PresenceState>(aliceHandle)
+      alicePresence.start({
         userId: "alice",
         deviceId: "phone",
         initialState: {
           position: 123,
         },
       })
-      alicePresence.start()
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence({
-        handle: bobHandle,
+      const bobPresence = new Presence<PresenceState>(bobHandle)
+      bobPresence.start({
         userId: "bob",
         deviceId: "phone",
         initialState: {
           position: 456,
         },
       })
-      bobPresence.start()
 
       alicePresence.broadcast("position", 213)
 

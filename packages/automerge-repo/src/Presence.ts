@@ -65,8 +65,6 @@ export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
 export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
 
 export type PresenceConfig<State> = {
-  /** Doc handle to use */
-  handle: DocHandle<unknown>
   /** Our user id (this is unverified; peers can send anything) */
   userId: UserId
   /** Our device id (like userId, this is unverified; peers can send anything) */
@@ -90,16 +88,19 @@ export type PresenceConfig<State> = {
  * Presence starts out in an inactive state. Call {@link start} and {@link stop}
  * to activate and deactivate it.
  */
-export class Presence<State> extends EventEmitter<PresenceEvents> {
-  #handle: DocHandle<unknown>
+export class Presence<
+  State,
+  DocType = unknown
+> extends EventEmitter<PresenceEvents> {
+  #handle: DocHandle<DocType>
   #deviceId: DeviceId
   #userId: UserId
-  #peers: PeerPresenceInfo<State>
-  #localState: State
-  #heartbeatMs: number
+  #peers?: PeerPresenceInfo<State>
+  #localState?: State
+  #heartbeatMs?: number
 
   #handleEphemeralMessage:
-    | ((e: DocHandleEphemeralMessagePayload<unknown>) => void)
+    | ((e: DocHandleEphemeralMessagePayload<DocType>) => void)
     | undefined
 
   #heartbeatInterval: ReturnType<typeof setInterval> | undefined
@@ -114,48 +115,49 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
    * @param config see {@link PresenceConfig}
    * @returns
    */
-  constructor({
-    handle,
-    userId,
-    deviceId,
-    initialState,
-    heartbeatMs,
-    peerTtlMs,
-  }: PresenceConfig<State>) {
+  constructor(handle: DocHandle<DocType>) {
     super()
-    this.#userId = userId
-    this.#deviceId = deviceId
     this.#handle = handle
-    this.#heartbeatMs = heartbeatMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
-    this.#peers = new PeerPresenceInfo(peerTtlMs ?? DEFAULT_PEER_TTL_MS)
-    this.#localState = initialState
   }
 
   /**
    * Start listening to ephemeral messages on the handle, broadcast initial
    * state to peers, and start sending heartbeats.
    */
-  start() {
+  start({
+    userId,
+    deviceId,
+    initialState,
+    heartbeatMs,
+    peerTtlMs,
+  }: PresenceConfig<State>) {
     if (this.#running) {
       return
     }
+
+    this.#userId = userId
+    this.#deviceId = deviceId
+    this.#heartbeatMs = heartbeatMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
+    this.#peers = new PeerPresenceInfo(peerTtlMs ?? DEFAULT_PEER_TTL_MS)
+    this.#localState = initialState
+
     // N.B.: We can't use a regular member function here since member functions
     // of two distinct objects are identical, and we need to be able to stop
     // listening to the handle for just this Presence instance in stop()
     this.#handleEphemeralMessage = (
-      e: DocHandleEphemeralMessagePayload<unknown>
+      e: DocHandleEphemeralMessagePayload<DocType>
     ) => {
       const peerId = e.senderId
       const message = e.message as PresenceMessage<State>
       const { deviceId, userId } = message
 
-      if (!this.#peers.view.has(peerId)) {
+      if (!this.#peers!.view.has(peerId)) {
         this.announce()
       }
 
       switch (message.type) {
         case "heartbeat":
-          this.#peers.markSeen(peerId, deviceId, userId)
+          this.#peers!.markSeen(peerId, deviceId, userId)
           this.emit("heartbeat", {
             peerId,
             type: "heartbeat",
@@ -164,7 +166,7 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
           })
           break
         case "goodbye":
-          this.#peers.delete(peerId)
+          this.#peers!.delete(peerId)
           this.emit("goodbye", {
             peerId,
             type: "goodbye",
@@ -174,7 +176,7 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
           break
         case "state":
           const { value } = message
-          this.#peers.update(peerId, deviceId, userId, value)
+          this.#peers!.update(peerId, deviceId, userId, value)
           this.emit("state", {
             peerId,
             type: "state",
@@ -196,14 +198,14 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
    * Return a view of current peer states.
    */
   getPeerStates() {
-    return this.#peers.view
+    return this.#peers!.view
   }
 
   /**
    * Return a view of current local state.
    */
   getLocalState() {
-    return { ...this.#localState }
+    return { ...this.#localState! }
   }
 
   /**
@@ -218,7 +220,7 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
     msg: State[Channel]
   ) {
     this.#localState = {
-      ...this.#localState,
+      ...this.#localState!,
       [channel]: msg,
     }
     this.broadcastLocalState()
@@ -319,7 +321,7 @@ export class Presence<State> extends EventEmitter<PresenceEvents> {
     // to minimize variance between peer expiration, since the heartbeat frequency
     // is expected to be several times higher.
     this.#pruningInterval = setInterval(() => {
-      this.#peers.prune()
+      this.#peers!.prune()
     }, this.#heartbeatMs)
   }
 
