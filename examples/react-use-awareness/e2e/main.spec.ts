@@ -1,13 +1,16 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from "@playwright/test"
 
-test.describe('react-use-awareness', () => {
-  test('clients can share ephemeral state', async ({ page: pageA, context }) => {
-    const pageB = await context.newPage();
+test.describe("react-use-awareness", () => {
+  test("clients can share ephemeral state", async ({
+    page: pageA,
+    context,
+  }) => {
+    const pageB = await context.newPage()
 
-    await pageA.goto('/');
+    await pageA.goto("/")
     await pageA.waitForURL("**#automerge:*")
 
-    await pageB.goto(pageA.url());
+    await pageB.goto(pageA.url())
 
     const inputA = pageA.getByLabel("Ephemeral state")
     inputA.fill("6")
