@@ -75,6 +75,7 @@ export default [
       "**/.eslintrc.cjs",
       "packages/create-vite-app/**/*",
       "testSetup.ts",
+      "playwright.base.ts",
     ],
   },
   {

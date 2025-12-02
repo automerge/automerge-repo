@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test"
 
-import { baseConfig } from "../../e2e/playwright.base"
+import { baseConfig } from "../../playwright.base"
 
 export default defineConfig({
   ...baseConfig,
