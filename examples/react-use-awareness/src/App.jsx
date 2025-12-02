@@ -30,7 +30,7 @@ export function App({ userId, url }) {
         use any serializable data you'd like.
       </p>
       <hr />
-      <div>
+      <label>
         Ephemeral state:
         <input
           type="number"
@@ -44,7 +44,7 @@ export function App({ userId, url }) {
             }))
           }
         />
-      </div>
+      </label>
       <div>
         Doc state:
         <span
@@ -82,7 +82,7 @@ export function App({ userId, url }) {
         disabled={newCount === undefined}
         children="reset"
       />
-      <pre>
+      <pre data-testid="peer-states">
         {JSON.stringify({ doc, localState, peerStates, heartbeats }, null, 2)}
       </pre>
     </div>
