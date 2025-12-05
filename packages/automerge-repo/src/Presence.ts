@@ -39,13 +39,15 @@ type PresenceMessageGoodbye = PresenceMessageBase & {
 }
 
 type PresenceMessage = {
-  [PRESENCE_MESSAGE_MARKER]: PresenceMessageUpdate
-  | PresenceMessageSnapshot
-  | PresenceMessageHeartbeat
-  | PresenceMessageGoodbye
+  [PRESENCE_MESSAGE_MARKER]:
+    | PresenceMessageUpdate
+    | PresenceMessageSnapshot
+    | PresenceMessageHeartbeat
+    | PresenceMessageGoodbye
 }
 
-type PresenceMessageType = PresenceMessage[typeof PRESENCE_MESSAGE_MARKER]["type"]
+type PresenceMessageType =
+  PresenceMessage[typeof PRESENCE_MESSAGE_MARKER]["type"]
 
 type WithPeerId = { peerId: PeerId }
 
@@ -100,7 +102,7 @@ export type PresenceConfig<State> = {
  * to activate and deactivate it.
  */
 export class Presence<
-  State extends Record<string,any>,
+  State extends Record<string, any>,
   DocType = unknown
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<DocType>
@@ -129,7 +131,7 @@ export class Presence<
   constructor({
     handle,
     deviceId,
-    userId
+    userId,
   }: {
     handle: DocHandle<DocType>
     /** Our device id (like userId, this is unverified; peers can send anything) */
@@ -148,11 +150,7 @@ export class Presence<
    * Start listening to ephemeral messages on the handle, broadcast initial
    * state to peers, and start sending heartbeats.
    */
-  start({
-    initialState,
-    heartbeatMs,
-    peerTtlMs,
-  }: PresenceConfig<State>) {
+  start({ initialState, heartbeatMs, peerTtlMs }: PresenceConfig<State>) {
     if (this.#running) {
       return
     }
@@ -203,7 +201,11 @@ export class Presence<
         case "update":
           const { channel, value } = message
           this.#peers.update({
-            peerId, deviceId, userId, channel: channel as keyof State, value
+            peerId,
+            deviceId,
+            userId,
+            channel: channel as keyof State,
+            value,
           })
           this.emit("update", {
             type: "update",
@@ -218,7 +220,11 @@ export class Presence<
           const state = message.state as State
           Object.entries(state).forEach(([channel, value]) => {
             this.#peers.update({
-              peerId, deviceId, userId, channel: channel as keyof State, value
+              peerId,
+              deviceId,
+              userId,
+              channel: channel as keyof State,
+              value,
             })
           })
           this.emit("snapshot", {
@@ -319,7 +325,10 @@ export class Presence<
     this.resetHeartbeats()
   }
 
-  private broadcastChannelState<Channel extends keyof State>(channel: Channel, value: State[Channel]) {
+  private broadcastChannelState<Channel extends keyof State>(
+    channel: Channel,
+    value: State[Channel]
+  ) {
     this.doBroadcast("snapshot", { channel, value })
     this.resetHeartbeats()
   }
@@ -329,7 +338,7 @@ export class Presence<
     // unnecessary heartbeats when there is plenty of actual update activity
     // happening.
     this.stopHeartbeats()
-    this.startHeartbeats()    
+    this.startHeartbeats()
   }
 
   private sendHeartbeat() {
@@ -346,7 +355,7 @@ export class Presence<
         deviceId: this.deviceId,
         type,
         ...extra,
-      }
+      },
     })
   }
 
@@ -635,9 +644,17 @@ class PeerPresenceInfo<State> extends EventEmitter<PresenceEvents> {
    * @param value
    */
   update<Channel extends keyof State>({
-    peerId, deviceId, userId, channel, value
+    peerId,
+    deviceId,
+    userId,
+    channel,
+    value,
   }: {
-    peerId: PeerId, deviceId?: DeviceId, userId?: UserId, channel: Channel, value: State[Channel]
+    peerId: PeerId
+    deviceId?: DeviceId
+    userId?: UserId
+    channel: Channel
+    value: State[Channel]
   }) {
     this.markSeen(peerId, deviceId, userId)
 
@@ -649,7 +666,7 @@ class PeerPresenceInfo<State> extends EventEmitter<PresenceEvents> {
       userId,
       value: {
         ...existingState,
-        [channel]: value
+        [channel]: value,
       },
     })
   }

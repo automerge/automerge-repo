@@ -5,7 +5,7 @@ export function App({ userId, url }) {
   const { localState, peerStates, update } = usePresence({
     handle,
     userId,
-    initialState: { count: 0 }
+    initialState: { count: 0 },
   })
 
   const newCount = localState?.count

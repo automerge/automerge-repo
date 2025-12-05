@@ -14,14 +14,14 @@ export type UsePresenceConfig<State> = Omit<
   PresenceConfig<State>,
   "skipAutoInit"
 > & {
-  handle: DocHandle<unknown>,
-  userId: UserId,
-  deviceId: DeviceId,
+  handle: DocHandle<unknown>
+  userId: UserId
+  deviceId: DeviceId
 }
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
   peerStates: PeerPresenceView<State>
-  localState: State | undefined,
+  localState: State | undefined
   update: (channel: Channel, value: State[Channel]) => void
 }
 
@@ -44,7 +44,10 @@ export type UsePresenceResult<State, Channel extends keyof State> = {
  *
  * @returns see {@link UsePresenceResult}
  */
-export function usePresence<State extends Record<string,any>, Channel extends keyof State>({
+export function usePresence<
+  State extends Record<string, any>,
+  Channel extends keyof State
+>({
   handle,
   userId,
   deviceId,
@@ -60,7 +63,9 @@ export function usePresence<State extends Record<string,any>, Channel extends ke
     peerTtlMs,
   })
   const firstInitialState = useRef(initialState)
-  const [presence] = useState(() => new Presence<State>({ handle, userId, deviceId }))
+  const [presence] = useState(
+    () => new Presence<State>({ handle, userId, deviceId })
+  )
 
   useEffect(() => {
     presence.start({
