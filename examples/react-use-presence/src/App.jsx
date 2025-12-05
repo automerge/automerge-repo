@@ -2,11 +2,11 @@ import { useDocument, usePresence } from "@automerge/react"
 
 export function App({ userId, url }) {
   const [doc, changeDoc] = useDocument(url)
-  const { localState, peerStates, update } = usePresence(
+  const { localState, peerStates, update } = usePresence({
     handle,
     userId,
-    { count: 0 }
-  )
+    initialState: { count: 0 }
+  })
 
   const newCount = localState?.count
   const count = doc?.count ?? 0

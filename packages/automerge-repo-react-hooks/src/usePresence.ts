@@ -21,7 +21,7 @@ export type UsePresenceConfig<State> = Omit<
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
   peerStates: PeerPresenceView<State>
-  localState: State
+  localState: State | undefined,
   update: (channel: Channel, value: State[Channel]) => void
 }
 
@@ -44,7 +44,7 @@ export type UsePresenceResult<State, Channel extends keyof State> = {
  *
  * @returns see {@link UsePresenceResult}
  */
-export function usePresence<State, Channel extends keyof State>({
+export function usePresence<State extends Record<string,any>, Channel extends keyof State>({
   handle,
   userId,
   deviceId,
@@ -68,7 +68,8 @@ export function usePresence<State, Channel extends keyof State>({
       ...firstOpts.current,
     })
     presence.on("heartbeat", invalidate)
-    presence.on("state", invalidate)
+    presence.on("snapshot", invalidate)
+    presence.on("update", invalidate)
     presence.on("goodbye", invalidate)
 
     return () => {

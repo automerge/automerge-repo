@@ -55,7 +55,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #viewCache: Map<string, DocHandle<T>> = new Map()
 
   /** Presence for tracking ephemeral state */
-  #presence?: Presence<unknown, T>
+  #presence?: Presence<Record<string,any>, T>
 
   /** @hidden */
   constructor(
@@ -368,7 +368,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /**
    * Returns the Presence instance tracking ephemeral state related to this handle
    */
-  presence<State>(config?: {
+  presence<State extends Record<string,any>>(config?: {
     userId?: UserId,
     deviceId?: DeviceId,
   }) {
