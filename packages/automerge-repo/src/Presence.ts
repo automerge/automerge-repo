@@ -199,26 +199,24 @@ export class Presence<
           })
           break
         case "update":
-          const { channel, value } = message
           this.#peers.update({
             peerId,
             deviceId,
             userId,
-            channel: channel as keyof State,
-            value,
+            channel: message.channel as keyof State,
+            value: message.value,
           })
           this.emit("update", {
             type: "update",
             peerId,
             deviceId,
             userId,
-            channel,
-            value,
+            channel: message.channel,
+            value: message.value,
           })
           break
         case "snapshot":
-          const state = message.state as State
-          Object.entries(state).forEach(([channel, value]) => {
+          Object.entries(message.state as State).forEach(([channel, value]) => {
             this.#peers.update({
               peerId,
               deviceId,
@@ -232,7 +230,7 @@ export class Presence<
             peerId,
             deviceId,
             userId,
-            state,
+            state: message.state,
           })
           break
       }
@@ -624,11 +622,11 @@ class PeerPresenceInfo<State> extends EventEmitter<PresenceEvents> {
    * @param userId
    */
   markSeen(peerId: PeerId, deviceId?: DeviceId, userId?: UserId) {
-    let devicePeers = this.#devicePeers.get(deviceId) ?? new Set<PeerId>()
+    const devicePeers = this.#devicePeers.get(deviceId) ?? new Set<PeerId>()
     devicePeers.add(peerId)
     this.#devicePeers.set(deviceId, devicePeers)
 
-    let userPeers = this.#userPeers.get(userId) ?? new Set<PeerId>()
+    const userPeers = this.#userPeers.get(userId) ?? new Set<PeerId>()
     userPeers.add(peerId)
     this.#userPeers.set(userId, userPeers)
 
