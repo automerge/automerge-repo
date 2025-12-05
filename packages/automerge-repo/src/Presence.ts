@@ -94,7 +94,7 @@ export class Presence<
   #handle: DocHandle<DocType>
   readonly deviceId?: DeviceId
   readonly userId?: UserId
-  #peers?: PeerPresenceInfo<State>
+  #peers: PeerPresenceInfo<State>
   #localState?: State
   #heartbeatMs?: number
 
@@ -127,6 +127,7 @@ export class Presence<
   }) {
     super()
     this.#handle = handle
+    this.#peers = new PeerPresenceInfo(DEFAULT_PEER_TTL_MS)
     this.userId = userId
     this.deviceId = deviceId
   }
@@ -218,7 +219,7 @@ export class Presence<
    * Return a view of current local state.
    */
   getLocalState() {
-    return { ...this.#localState! }
+    return this.#localState
   }
 
   /**
