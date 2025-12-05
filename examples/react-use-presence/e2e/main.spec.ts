@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 
-test.describe("react-use-awareness", () => {
+test.describe("react-use-presence", () => {
   test("clients can share ephemeral state", async ({
     page: pageA,
     context,
