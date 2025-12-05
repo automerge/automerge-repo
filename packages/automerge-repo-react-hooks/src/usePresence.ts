@@ -5,6 +5,8 @@ import {
   PeerPresenceView,
   PresenceConfig,
   DocHandle,
+  UserId,
+  DeviceId,
 } from "@automerge/automerge-repo/slim"
 import { useInvalidate } from "./helpers/useInvalidate.js"
 
@@ -12,7 +14,9 @@ export type UsePresenceConfig<State> = Omit<
   PresenceConfig<State>,
   "skipAutoInit"
 > & {
-  handle: DocHandle<unknown>
+  handle: DocHandle<unknown>,
+  userId: UserId,
+  deviceId: DeviceId,
 }
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
@@ -56,12 +60,10 @@ export function usePresence<State, Channel extends keyof State>({
     peerTtlMs,
   })
   const firstInitialState = useRef(initialState)
-  const presence = handle.presence<State>()
+  const presence = handle.presence<State>({ userId, deviceId })
 
   useEffect(() => {
     presence.start({
-      userId,
-      deviceId,
       initialState: firstInitialState.current,
       ...firstOpts.current,
     })
