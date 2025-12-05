@@ -68,10 +68,6 @@ export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
 export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
 
 export type PresenceConfig<State> = {
-  /** Our user id (this is unverified; peers can send anything) */
-  userId?: UserId
-  /** Our device id (like userId, this is unverified; peers can send anything) */
-  deviceId?: DeviceId
   /** The full initial state to broadcast to peers */
   initialState: State
   /** How frequently to send heartbeats (default {@link DEFAULT_HEARTBEAT_INTERVAL_MS}) */
@@ -124,7 +120,9 @@ export class Presence<
     userId
   }: {
     handle: DocHandle<DocType>
+    /** Our device id (like userId, this is unverified; peers can send anything) */
     deviceId?: DeviceId
+    /** Our user id (this is unverified; peers can send anything) */
     userId?: UserId
   }) {
     super()
