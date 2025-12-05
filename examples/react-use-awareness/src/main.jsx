@@ -30,7 +30,7 @@ window.repo = repo
 ReactDOM.createRoot(document.getElementById("root")).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App deviceId={`device-${Date.now()}`} userId={userId} url={docUrl} />
+      <App userId={userId} url={docUrl} />
     </React.StrictMode>
   </RepoContext.Provider>
 )

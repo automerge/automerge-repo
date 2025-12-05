@@ -7,14 +7,14 @@ type DeviceId = unknown
 
 export type PeerState<State> = {
   peerId: PeerId
-  deviceId: DeviceId
-  userId: UserId
+  deviceId?: DeviceId
+  userId?: UserId
   value: State
 }
 
 type PresenceMessageBase = {
-  deviceId: DeviceId
-  userId: UserId
+  deviceId?: DeviceId
+  userId?: UserId
 }
 
 type PresenceMessageState<State = any> = PresenceMessageBase & {
@@ -66,9 +66,9 @@ export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
 
 export type PresenceConfig<State> = {
   /** Our user id (this is unverified; peers can send anything) */
-  userId: UserId
+  userId?: UserId
   /** Our device id (like userId, this is unverified; peers can send anything) */
-  deviceId: DeviceId
+  deviceId?: DeviceId
   /** The full initial state to broadcast to peers */
   initialState: State
   /** How frequently to send heartbeats (default {@link DEFAULT_HEARTBEAT_INTERVAL_MS}) */
@@ -93,8 +93,8 @@ export class Presence<
   DocType = unknown
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<DocType>
-  #deviceId: DeviceId
-  #userId: UserId
+  #deviceId?: DeviceId
+  #userId?: UserId
   #peers?: PeerPresenceInfo<State>
   #localState?: State
   #heartbeatMs?: number

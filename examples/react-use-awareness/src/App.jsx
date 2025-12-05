@@ -1,11 +1,10 @@
 import { useDocument, usePresence } from "@automerge/react"
 
-export function App({ userId, deviceId, url }) {
+export function App({ userId, url }) {
   const [doc, changeDoc] = useDocument(url)
   const { localState, peerStates, update } = usePresence(
     handle,
     userId,
-    deviceId,
     { count: 0 }
   )
 
