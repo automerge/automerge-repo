@@ -48,8 +48,8 @@
     "@typescript-eslint/eslint-plugin": "^7.13.1",
     "@typescript-eslint/parser": "^7.13.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/coverage-v8": "^4.0.7",
-    "@vitest/ui": "^4.0.7",
+    "@vitest/coverage-v8": "^4.0.15",
+    "@vitest/ui": "^4.0.15",
     "c8": "^7.14.0",
     "cross-env": "^7.0.3",
     "dev-null-cli": "^2.0.0",
@@ -71,7 +71,7 @@
     "typescript": "^5.4.2",
     "vite": "^6.4.1",
     "vite-plugin-wasm": "^3.4.1",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.15"
   },
   "dependencies": {
     "happy-dom": "^20.0.10"
