@@ -1,8 +1,18 @@
-import { useDocument, usePresence } from "@automerge/react"
+import {
+  AutomergeUrl,
+  PeerId,
+  PeerPresenceView,
+  useDocHandle,
+  useDocument,
+  usePresence,
+} from "@automerge/react"
 
-export function App({ userId, url }) {
-  const [doc, changeDoc] = useDocument(url)
-  const { localState, peerStates, update } = usePresence({
+type State = { count: number | undefined }
+
+export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
+  const handle = useDocHandle(url, { suspense: true })
+  const [doc, changeDoc] = useDocument<State>(url)
+  const { localState, peerStates, update } = usePresence<State>({
     handle,
     userId,
     initialState: { count: 0 },
@@ -25,9 +35,9 @@ export function App({ userId, url }) {
         <input
           type="number"
           value={newCount ?? count}
-          placeholder={count}
+          placeholder={String(count)}
           style={{ color: newCount ? "red" : "black" }}
-          onChange={e => update("count", e.target.value)}
+          onChange={e => update("count", parseInt(e.target.value, 10))}
         />
       </label>
       <div>
@@ -44,7 +54,8 @@ export function App({ userId, url }) {
             key={peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
           >
-            {peerId}: {peerStates.getPeerState(peerId, "count") ?? "🤷‍♀️"}
+            {peerId}:{" "}
+            {JSON.stringify(peerStates.getPeerState(peerId, "count")) ?? "🤷‍♀️"}
           </span>
         ))}
       </div>
@@ -76,9 +87,9 @@ export function App({ userId, url }) {
   )
 }
 
-function getAllPeerStates(peerStates) {
+function getAllPeerStates<State>(peerStates: PeerPresenceView<State>) {
   return peerStates.getPeers().reduce((acc, peerId) => {
     acc[peerId] = peerStates.getPeerState(peerId)
     return acc
-  }, {})
+  }, {} as Record<PeerId, ReturnType<typeof peerStates.getPeerState>>)
 }

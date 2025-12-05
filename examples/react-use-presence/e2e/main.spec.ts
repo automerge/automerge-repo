@@ -21,7 +21,7 @@ test.describe("react-use-presence", () => {
     const peerStatesA = pageA.getByTestId("peer-states")
     const peerStatesB = pageB.getByTestId("peer-states")
 
-    await expect(peerStatesA).toContainText('"count": "7"')
-    await expect(peerStatesB).toContainText('"count": "6"')
+    await expect(peerStatesA).toContainText('"count": 7')
+    await expect(peerStatesB).toContainText('"count": 6')
   })
 })

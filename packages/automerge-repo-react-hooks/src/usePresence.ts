@@ -19,10 +19,13 @@ export type UsePresenceConfig<State> = Omit<
   deviceId?: DeviceId
 }
 
-export type UsePresenceResult<State, Channel extends keyof State> = {
+export type UsePresenceResult<State> = {
   peerStates: PeerPresenceView<State>
   localState: State | undefined
-  update: (channel: Channel, value: State[Channel]) => void
+  update: <Channel extends keyof State>(
+    channel: Channel,
+    value: State[Channel]
+  ) => void
 }
 
 /**
@@ -44,17 +47,14 @@ export type UsePresenceResult<State, Channel extends keyof State> = {
  *
  * @returns see {@link UsePresenceResult}
  */
-export function usePresence<
-  State extends Record<string, any>,
-  Channel extends keyof State
->({
+export function usePresence<State extends Record<string, any>>({
   handle,
   userId,
   deviceId,
   initialState,
   heartbeatMs,
   peerTtlMs,
-}: UsePresenceConfig<State>): UsePresenceResult<State, Channel> {
+}: UsePresenceConfig<State>): UsePresenceResult<State> {
   const invalidate = useInvalidate()
   // Don't re-render based on changes to these: they are not expected to
   // change but may be passed in as object literals
@@ -83,7 +83,7 @@ export function usePresence<
   }, [presence, userId, deviceId, firstInitialState, firstOpts])
 
   const updateLocalState = useCallback(
-    (channel: Channel, msg: State[Channel]) => {
+    <Channel extends keyof State>(channel: Channel, msg: State[Channel]) => {
       invalidate()
       presence.broadcast(channel, msg)
     },
