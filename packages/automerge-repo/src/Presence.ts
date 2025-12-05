@@ -5,6 +5,8 @@ import { EventEmitter } from "eventemitter3"
 export type UserId = unknown
 export type DeviceId = unknown
 
+export const PRESENCE_MESSAGE_MARKER = "__presence"
+
 export type PeerState<State> = {
   peerId: PeerId
   deviceId?: DeviceId
@@ -30,12 +32,13 @@ type PresenceMessageGoodbye = PresenceMessageBase & {
   type: "goodbye"
 }
 
-type PresenceMessage<State = any> =
-  | PresenceMessageState<State>
+type PresenceMessage<State = any> = {
+  [PRESENCE_MESSAGE_MARKER]: PresenceMessageState<State>
   | PresenceMessageHeartbeat
   | PresenceMessageGoodbye
+}
 
-type PresenceMessageType = PresenceMessage["type"]
+type PresenceMessageType = PresenceMessage[typeof PRESENCE_MESSAGE_MARKER]["type"]
 
 type WithPeerId = { peerId: PeerId }
 
@@ -154,7 +157,13 @@ export class Presence<
       e: DocHandleEphemeralMessagePayload<DocType>
     ) => {
       const peerId = e.senderId
-      const message = e.message as PresenceMessage<State>
+      const envelope = e.message as PresenceMessage<State>
+
+      if (!(PRESENCE_MESSAGE_MARKER in envelope)) {
+        return
+      }
+
+      const message = envelope[PRESENCE_MESSAGE_MARKER]
       const { deviceId, userId } = message
 
       if (!this.#peers!.view.has(peerId)) {
@@ -295,10 +304,12 @@ export class Presence<
     extra?: Record<string, unknown>
   ) {
     this.#handle.broadcast({
-      userId: this.userId,
-      deviceId: this.deviceId,
-      type,
-      ...extra,
+      [PRESENCE_MESSAGE_MARKER]: {
+        userId: this.userId,
+        deviceId: this.deviceId,
+        type,
+        ...extra,
+      }
     })
   }
 
