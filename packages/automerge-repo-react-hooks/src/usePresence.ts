@@ -15,8 +15,8 @@ export type UsePresenceConfig<State> = Omit<
   "skipAutoInit"
 > & {
   handle: DocHandle<unknown>
-  userId: UserId
-  deviceId: DeviceId
+  userId?: UserId
+  deviceId?: DeviceId
 }
 
 export type UsePresenceResult<State, Channel extends keyof State> = {
