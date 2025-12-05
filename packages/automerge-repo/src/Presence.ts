@@ -2,8 +2,8 @@ import { DocHandle, DocHandleEphemeralMessagePayload } from "./DocHandle.js"
 import { PeerId } from "./types.js"
 import { EventEmitter } from "eventemitter3"
 
-type UserId = unknown
-type DeviceId = unknown
+export type UserId = unknown
+export type DeviceId = unknown
 
 export type PeerState<State> = {
   peerId: PeerId
@@ -93,8 +93,8 @@ export class Presence<
   DocType = unknown
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<DocType>
-  #deviceId?: DeviceId
-  #userId?: UserId
+  readonly deviceId?: DeviceId
+  readonly userId?: UserId
   #peers?: PeerPresenceInfo<State>
   #localState?: State
   #heartbeatMs?: number
@@ -115,9 +115,19 @@ export class Presence<
    * @param config see {@link PresenceConfig}
    * @returns
    */
-  constructor(handle: DocHandle<DocType>) {
+  constructor({
+    handle,
+    deviceId,
+    userId
+  }: {
+    handle: DocHandle<DocType>
+    deviceId?: DeviceId
+    userId?: UserId
+  }) {
     super()
     this.#handle = handle
+    this.userId = userId
+    this.deviceId = deviceId
   }
 
   /**
@@ -125,8 +135,6 @@ export class Presence<
    * state to peers, and start sending heartbeats.
    */
   start({
-    userId,
-    deviceId,
     initialState,
     heartbeatMs,
     peerTtlMs,
@@ -135,8 +143,6 @@ export class Presence<
       return
     }
 
-    this.#userId = userId
-    this.#deviceId = deviceId
     this.#heartbeatMs = heartbeatMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
     this.#peers = new PeerPresenceInfo(peerTtlMs ?? DEFAULT_PEER_TTL_MS)
     this.#localState = initialState
@@ -289,8 +295,8 @@ export class Presence<
     extra?: Record<string, unknown>
   ) {
     this.#handle.broadcast({
-      userId: this.#userId,
-      deviceId: this.#deviceId,
+      userId: this.userId,
+      deviceId: this.deviceId,
       type,
       ...extra,
     })
