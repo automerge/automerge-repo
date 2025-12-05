@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   Presence,
@@ -60,7 +60,7 @@ export function usePresence<State extends Record<string,any>, Channel extends ke
     peerTtlMs,
   })
   const firstInitialState = useRef(initialState)
-  const presence = handle.presence<State>({ userId, deviceId })
+  const [presence] = useState(() => new Presence<State>({ handle, userId, deviceId }))
 
   useEffect(() => {
     presence.start({
