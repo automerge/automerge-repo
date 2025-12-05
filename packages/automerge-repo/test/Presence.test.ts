@@ -34,20 +34,24 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence<PresenceState>(aliceHandle)
-      alicePresence.start({
+      const alicePresence = new Presence<PresenceState>({
+        handle: aliceHandle,
         userId: "alice",
         deviceId: "phone",
+      })
+      alicePresence.start({
         initialState: {
           position: 123,
         },
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence<PresenceState>(bobHandle)
-      bobPresence.start({
+      const bobPresence = new Presence<PresenceState>({
+        handle: bobHandle,
         userId: "bob",
         deviceId: "phone",
+      })
+      bobPresence.start({
         initialState: {
           position: 456,
         },
@@ -77,10 +81,12 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence<PresenceState>(aliceHandle)
-      alicePresence.start({
+      const alicePresence = new Presence<PresenceState>({
+        handle: aliceHandle,
         userId: "alice",
         deviceId: "phone",
+      })
+      alicePresence.start({
         initialState: {
           position: 123,
         },
@@ -88,10 +94,12 @@ describe("Presence", () => {
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence<PresenceState>(bobHandle)
-      bobPresence.start({
+      const bobPresence = new Presence<PresenceState>({
+        handle: bobHandle,
         userId: "bob",
         deviceId: "phone",
+      })
+      bobPresence.start({
         initialState: {
           position: 456,
         },
@@ -118,20 +126,24 @@ describe("Presence", () => {
       const aliceHandle = alice.create({
         test: "doc",
       })
-      const alicePresence = new Presence<PresenceState>(aliceHandle)
-      alicePresence.start({
+      const alicePresence = new Presence<PresenceState>({
+        handle: aliceHandle,
         userId: "alice",
         deviceId: "phone",
+      })
+      alicePresence.start({
         initialState: {
           position: 123,
         },
       })
 
       const bobHandle = await bob.find(aliceHandle.url)
-      const bobPresence = new Presence<PresenceState>(bobHandle)
-      bobPresence.start({
+      const bobPresence = new Presence<PresenceState>({
+        handle: bobHandle,
         userId: "bob",
         deviceId: "phone",
+      })
+      bobPresence.start({
         initialState: {
           position: 456,
         },
