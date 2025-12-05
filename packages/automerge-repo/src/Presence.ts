@@ -103,7 +103,7 @@ export type PresenceConfig<State> = {
  */
 export class Presence<
   State extends Record<string, any>,
-  DocType = unknown
+  DocType = any
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<DocType>
   readonly deviceId?: DeviceId
