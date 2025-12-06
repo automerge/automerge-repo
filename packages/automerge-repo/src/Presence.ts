@@ -154,6 +154,7 @@ export class Presence<
     if (this.#running) {
       return
     }
+    this.#running = true
 
     this.#heartbeatMs = heartbeatMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
     this.#peers = new PeerPresenceInfo(peerTtlMs ?? DEFAULT_PEER_TTL_MS)
@@ -239,7 +240,6 @@ export class Presence<
 
     this.broadcastLocalState() // also starts heartbeats
     this.startPruningPeers()
-    this.#running = true
   }
 
   /**
@@ -347,6 +347,9 @@ export class Presence<
     type: PresenceMessageType,
     extra?: Record<string, unknown>
   ) {
+    if (!this.#running) {
+      return
+    }
     this.#handle.broadcast({
       [PRESENCE_MESSAGE_MARKER]: {
         userId: this.userId,
