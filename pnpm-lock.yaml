@@ -164,7 +164,7 @@ importers:
         specifier: ^3.2.4
         version: 3.4.17(ts-node@10.9.2(@swc/core@1.13.5)(@types/node@24.5.2)(typescript@5.9.2))
 
-  examples/react-use-awareness:
+  examples/react-use-presence:
     dependencies:
       '@automerge/react':
         specifier: workspace:*
