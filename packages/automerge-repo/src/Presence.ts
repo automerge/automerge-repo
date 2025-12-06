@@ -327,7 +327,7 @@ export class Presence<
     channel: Channel,
     value: State[Channel]
   ) {
-    this.doBroadcast("snapshot", { channel, value })
+    this.doBroadcast("update", { channel, value })
     this.resetHeartbeats()
   }
 

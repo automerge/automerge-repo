@@ -5,6 +5,7 @@ import { Repo } from "../src/Repo.js"
 import { PeerId } from "../src/types.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
 import { waitFor } from "./helpers/waitFor.js"
+import { wait } from "./helpers/wait.js"
 
 type PresenceState = { position: number }
 
@@ -73,12 +74,14 @@ describe("Presence", () => {
         const bobPeers = bobPeerStates.getPeers()
 
         expect(bobPeers.length).toBe(1)
+        expect(bobPeers[0]).toBe(alice.repo.peerId)
         expect(bobPeerStates.getPeerState(bobPeers[0], "position")).toBe(123)
 
         const alicePeerStates = alice.presence.getPeerStates()
         const alicePeers = alicePeerStates.getPeers()
 
         expect(alicePeers.length).toBe(1)
+        expect(alicePeers[0]).toBe(bob.repo.peerId)
         expect(alicePeerStates.getPeerState(alicePeers[0], "position")).toBe(
           456
         )
@@ -114,7 +117,37 @@ describe("Presence", () => {
       })
     })
 
-    it.skip("delays heartbeats when there is a state update")
+    it("delays heartbeats when there is a state update", async () => {
+      const { alice, bob } = await setup()
+      alice.presence.start({
+        initialState: {
+          position: 123,
+        },
+        heartbeatMs: 10,
+      })
+
+      bob.presence.start({
+        initialState: {
+          position: 456,
+        },
+      })
+
+      let hbPeerMsg: PresenceEventHeartbeat
+      bob.presence.on("heartbeat", msg => {
+        hbPeerMsg = msg
+      })
+
+      await wait(7)
+      alice.presence.broadcast("position", 789)
+      await wait(7)
+
+      expect(hbPeerMsg).toBeUndefined()
+
+      await wait(20)
+      expect(hbPeerMsg.peerId).toEqual(alice.repo.peerId)
+      expect(hbPeerMsg.type).toEqual("heartbeat")
+      expect(hbPeerMsg.userId).toEqual("alice")
+    })
   })
 
   describe("broadcast", () => {
