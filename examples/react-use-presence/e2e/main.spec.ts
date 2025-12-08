@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 
-test.describe("react-use-awareness", () => {
+test.describe("react-use-presence", () => {
   test("clients can share ephemeral state", async ({
     page: pageA,
     context,
@@ -21,7 +21,7 @@ test.describe("react-use-awareness", () => {
     const peerStatesA = pageA.getByTestId("peer-states")
     const peerStatesB = pageB.getByTestId("peer-states")
 
-    await expect(peerStatesA).toContainText('"count": "7"')
-    await expect(peerStatesB).toContainText('"count": "6"')
+    await expect(peerStatesA).toContainText('"count": 7')
+    await expect(peerStatesB).toContainText('"count": 6')
   })
 })

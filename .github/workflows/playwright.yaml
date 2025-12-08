@@ -38,8 +38,8 @@ jobs:
           pnpm build
       - name: Install Playwright Browsers
         run: pnpm exec playwright install --with-deps
-      - name: Playwright react-use-awareness tests
-        working-directory: ./examples/react-use-awareness
+      - name: Playwright react-use-presence tests
+        working-directory: ./examples/react-use-presence
         run: pnpm exec playwright test
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
