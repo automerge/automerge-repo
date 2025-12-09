@@ -8,7 +8,7 @@ export type DeviceId = unknown
 
 export const PRESENCE_MESSAGE_MARKER = "__presence"
 
-export type PeerState<State> = {
+export type PeerState<State extends Record<string, any>> = {
   peerId: PeerId
   lastSeen: number
   deviceId?: DeviceId
@@ -83,7 +83,7 @@ export type PresenceEvents = {
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
 export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
 
-export type PresenceConfig<State> = {
+export type PresenceConfig<State extends Record<string, any>> = {
   /** The full initial state to broadcast to peers */
   initialState: State
   /** How frequently to send heartbeats (default {@link DEFAULT_HEARTBEAT_INTERVAL_MS}) */
@@ -111,7 +111,7 @@ export class Presence<
   readonly deviceId?: DeviceId
   readonly userId?: UserId
   #peers: PeerPresenceInfo<State>
-  #localState?: State
+  #localState: State
   #heartbeatMs?: number
 
   #handleEphemeralMessage:
@@ -144,6 +144,7 @@ export class Presence<
     super()
     this.#handle = handle
     this.#peers = new PeerPresenceInfo(DEFAULT_PEER_TTL_MS)
+    this.#localState = {} as State
     this.userId = userId
     this.deviceId = deviceId
   }
@@ -400,7 +401,7 @@ export class Presence<
   }
 }
 
-class PeerPresenceInfo<State> {
+class PeerPresenceInfo<State extends Record<string, any>> {
   #peerStates: Record<PeerId, PeerState<State>> = {}
 
   /**

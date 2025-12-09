@@ -9,9 +9,8 @@ import {
   PeerId,
   PeerState,
 } from "@automerge/automerge-repo/slim"
-import { useInvalidate } from "./helpers/useInvalidate.js"
 
-export type UsePresenceConfig<State> = Omit<
+export type UsePresenceConfig<State extends Record<string, any>> = Omit<
   PresenceConfig<State>,
   "skipAutoInit"
 > & {
@@ -20,7 +19,7 @@ export type UsePresenceConfig<State> = Omit<
   deviceId?: DeviceId
 }
 
-export type UsePresenceResult<State> = {
+export type UsePresenceResult<State extends Record<string, any>> = {
   peerStates: Record<PeerId, PeerState<State>>
   localState: State | undefined
   update: <Channel extends keyof State>(
@@ -56,7 +55,8 @@ export function usePresence<State extends Record<string, any>>({
   heartbeatMs,
   peerTtlMs,
 }: UsePresenceConfig<State>): UsePresenceResult<State> {
-  const invalidate = useInvalidate()
+  const [localState, setLocalState] = useState<State>(initialState)
+  const [peerStates, setPeerStates] = useState({})
   // Don't re-render based on changes to these: they are not expected to
   // change but may be passed in as object literals
   const firstOpts = useRef({
@@ -73,27 +73,28 @@ export function usePresence<State extends Record<string, any>>({
       initialState: firstInitialState.current,
       ...firstOpts.current,
     })
-    presence.on("heartbeat", invalidate)
-    presence.on("snapshot", invalidate)
-    presence.on("update", invalidate)
-    presence.on("goodbye", invalidate)
+    presence.on("heartbeat", () => setPeerStates(presence.getPeerStates()))
+    presence.on("snapshot", () => setPeerStates(presence.getPeerStates()))
+    presence.on("update", () => setPeerStates(presence.getPeerStates()))
+    presence.on("goodbye", () => setPeerStates(presence.getPeerStates()))
 
     return () => {
       presence.stop()
     }
   }, [presence, userId, deviceId, firstInitialState, firstOpts])
 
-  const updateLocalState = useCallback(
+  const update = useCallback(
     <Channel extends keyof State>(channel: Channel, msg: State[Channel]) => {
-      invalidate()
       presence.broadcast(channel, msg)
+      const updated = presence.getLocalState()
+      setLocalState(updated)
     },
     [presence]
   )
 
   return {
-    peerStates: presence.getPeerStates(),
-    localState: presence.getLocalState(),
-    update: updateLocalState,
+    peerStates,
+    localState,
+    update,
   }
 }
