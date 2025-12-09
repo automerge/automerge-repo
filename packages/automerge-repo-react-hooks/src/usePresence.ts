@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   Presence,
-  PeerPresenceView,
   PresenceConfig,
   DocHandle,
   UserId,
   DeviceId,
+  PeerId,
+  PeerState,
 } from "@automerge/automerge-repo/slim"
 import { useInvalidate } from "./helpers/useInvalidate.js"
 
@@ -20,7 +21,7 @@ export type UsePresenceConfig<State> = Omit<
 }
 
 export type UsePresenceResult<State> = {
-  peerStates: PeerPresenceView<State>
+  peerStates: Record<PeerId, PeerState<State>>
   localState: State | undefined
   update: <Channel extends keyof State>(
     channel: Channel,

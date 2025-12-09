@@ -1,7 +1,7 @@
 import {
   AutomergeUrl,
   PeerId,
-  PeerPresenceView,
+  PeerState,
   useDocHandle,
   useDocument,
   usePresence,
@@ -49,13 +49,13 @@ export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
       </div>
       <div>
         Peer states:
-        {peerStates.getPeers().map(peerId => (
+        {Object.keys(peerStates).map(peerId => (
           <span
             key={peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
           >
             {peerId}:{" "}
-            {JSON.stringify(peerStates.getPeerState(peerId, "count")) ?? "🤷‍♀️"}
+            {JSON.stringify(peerStates[peerId as PeerId].value.count) ?? "🤷‍♀️"}
           </span>
         ))}
       </div>
@@ -87,9 +87,9 @@ export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
   )
 }
 
-function getAllPeerStates<State>(peerStates: PeerPresenceView<State>) {
-  return peerStates.getPeers().reduce((acc, peerId) => {
-    acc[peerId] = peerStates.getPeerState(peerId)
+function getAllPeerStates<State>(peerStates: Record<PeerId, PeerState<State>>) {
+  return Object.keys(peerStates).reduce((acc, peerId) => {
+    acc[peerId as PeerId] = peerStates[peerId as PeerId].value
     return acc
-  }, {} as Record<PeerId, ReturnType<typeof peerStates.getPeerState>>)
+  }, {} as Record<PeerId, PeerState<State>["value"]>)
 }
