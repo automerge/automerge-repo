@@ -81,14 +81,14 @@ describe("Presence", () => {
 
         expect(bobPeers.length).toBe(1)
         expect(bobPeers[0]).toBe(alice.repo.peerId)
-        expect(bobPeerStates[bobPeers[0]].state.value.position).toBe(123)
+        expect(bobPeerStates[bobPeers[0]].value.position).toBe(123)
 
         const alicePeerStates = alice.presence.getPeerStates()
         const alicePeers = Object.keys(alicePeerStates)
 
         expect(alicePeers.length).toBe(1)
         expect(alicePeers[0]).toBe(bob.repo.peerId)
-        expect(alicePeerStates[alicePeers[0]].state.value.position).toBe(456)
+        expect(alicePeerStates[alicePeers[0]].value.position).toBe(456)
       })
     })
 
@@ -135,7 +135,7 @@ describe("Presence", () => {
 
         expect(bobPeers.length).toBe(1)
         expect(bobPeers[0]).toBe(alice.repo.peerId)
-        expect(bobPeerStates[bobPeers[0]].state.value.position).toBe(123)
+        expect(bobPeerStates[bobPeers[0]].value.position).toBe(123)
       })
 
       alice.presence.stop()
