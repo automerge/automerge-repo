@@ -16,8 +16,8 @@ importers:
         version: 20.0.10
     devDependencies:
       '@automerge/automerge':
-        specifier: ^3.0.0
-        version: 3.0.0
+        specifier: ^3.2.0
+        version: 3.2.1
       '@automerge/automerge_subduction':
         specifier: file:../subduction/automerge_subduction_wasm
         version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
@@ -531,6 +531,9 @@ packages:
 
   '@automerge/automerge@3.0.0':
     resolution: {integrity: sha512-vp/LrAzOyS4J+YmEKRjnCjCUqN6itzz9nKvPEcSLJuapZXfPmY72TYg0F05DVnLCvGe+sLuVAoVntJT6K0qutQ==}
+
+  '@automerge/automerge@3.2.1':
+    resolution: {integrity: sha512-xsEZlZe8lWyVCbD7Z7roH4X6ZKlRxMmmumb0M5CuxJWptUEfYsf+1z9lFEJh4aDBbWTLAgxsXd+TBi6jKTj0+g==}
 
   '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm':
     resolution: {directory: ../subduction/automerge_subduction_wasm, type: directory}
@@ -7098,6 +7101,8 @@ snapshots:
   '@asamuzakjp/nwsapi@2.3.9': {}
 
   '@automerge/automerge@3.0.0': {}
+
+  '@automerge/automerge@3.2.1': {}
 
   '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm': {}
 
