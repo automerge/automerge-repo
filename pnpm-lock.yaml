@@ -18,6 +18,9 @@ importers:
       '@automerge/automerge':
         specifier: ^3.0.0
         version: 3.0.0
+      '@automerge/automerge_subduction':
+        specifier: file:../subduction/automerge_subduction_wasm
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       '@manypkg/cli':
         specifier: ^0.21.4
         version: 0.21.4
@@ -53,7 +56,7 @@ importers:
         version: 5.1.2(vite@7.3.0(@types/node@20.19.9)(jiti@2.5.1)(yaml@2.8.2))
       '@vitest/coverage-v8':
         specifier: ^4.0.15
-        version: 4.0.15(vitest@4.0.15)
+        version: 4.0.15(vitest@4.0.15(@opentelemetry/api@1.9.0)(@types/node@20.19.9)(@vitest/ui@4.0.15)(happy-dom@20.0.10)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(yaml@2.8.2))
       '@vitest/ui':
         specifier: ^4.0.15
         version: 4.0.15(vitest@4.0.15)
@@ -138,6 +141,9 @@ importers:
 
   examples/react-todo:
     dependencies:
+      '@automerge/automerge_subduction':
+        specifier: file:../../../subduction/automerge_subduction_wasm
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -287,6 +293,9 @@ importers:
       '@automerge/automerge':
         specifier: 2.2.8 - 3
         version: 3.0.0
+      '@automerge/automerge_subduction':
+        specifier: file:../../../subduction/automerge_subduction_wasm
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -522,6 +531,9 @@ packages:
 
   '@automerge/automerge@3.0.0':
     resolution: {integrity: sha512-vp/LrAzOyS4J+YmEKRjnCjCUqN6itzz9nKvPEcSLJuapZXfPmY72TYg0F05DVnLCvGe+sLuVAoVntJT6K0qutQ==}
+
+  '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm':
+    resolution: {directory: ../subduction/automerge_subduction_wasm, type: directory}
 
   '@babel/code-frame@7.27.1':
     resolution: {integrity: sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg==}
@@ -7087,6 +7099,8 @@ snapshots:
 
   '@automerge/automerge@3.0.0': {}
 
+  '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm': {}
+
   '@babel/code-frame@7.27.1':
     dependencies:
       '@babel/helper-validator-identifier': 7.27.1
@@ -9010,7 +9024,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitest/coverage-v8@4.0.15(vitest@4.0.15)':
+  '@vitest/coverage-v8@4.0.15(vitest@4.0.15(@opentelemetry/api@1.9.0)(@types/node@20.19.9)(@vitest/ui@4.0.15)(happy-dom@20.0.10)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(yaml@2.8.2))':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/utils': 4.0.15

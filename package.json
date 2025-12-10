@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@automerge/automerge": "^3.0.0",
+    "@automerge/automerge_subduction": "file:../subduction/automerge_subduction_wasm",
     "@manypkg/cli": "^0.21.4",
     "@playwright/test": "^1.57.0",
     "@types/debug": "^4.1.12",
