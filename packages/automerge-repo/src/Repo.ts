@@ -767,65 +767,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
-  /**
-   * Loads a document without waiting for ready state
-   */
-  async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      return this.#handleCache[documentId]
-    }
-
-    // If we don't already have the handle, make an empty one and try loading it
-    const handle = this.#getHandle<T>({ documentId })
-    const loadedDoc = await (this.storageSubsystem
-      ? this.storageSubsystem.loadDoc(handle.documentId)
-      : Promise.resolve(null))
-
-    if (loadedDoc) {
-      // We need to cast this to <T> because loadDoc operates in <unknowns>.
-      // This is really where we ought to be validating the input matches <T>.
-      handle.update(() => loadedDoc as Automerge.Doc<T>)
-      handle.doneLoading()
-    } else {
-      // Because the network subsystem might still be booting up, we wait
-      // here so that we don't immediately give up loading because we're still
-      // making our initial connection to a sync server.
-      await this.networkSubsystem.whenReady()
-      handle.request()
-    }
-
-    this.#registerHandleWithSubsystems(handle)
-    return handle
-  }
-
-  /**
-   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
-   * event to advertise interest in the document.
-   */
-  async findClassic<T>(
-    /** The url or documentId of the handle to retrieve */
-    id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
-  ): Promise<DocHandle<T>> {
-    const documentId = interpretAsDocumentId(id)
-    const { allowableStates, signal } = options
-
-    return abortable(
-      (async () => {
-        const handle = await this.#loadDocument<T>(documentId)
-        if (!allowableStates) {
-          await handle.whenReady([READY, UNAVAILABLE])
-          if (handle.state === UNAVAILABLE && !signal?.aborted) {
-            throw new Error(`Document ${id} is unavailable`)
-          }
-        }
-        return handle
-      })(),
-      signal
-    )
-  }
-
   delete(
     /** The url or documentId of the handle to delete */
     id: AnyDocumentId
