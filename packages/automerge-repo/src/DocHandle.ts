@@ -1,7 +1,6 @@
 import { next as A } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import { assertEvent, assign, createActor, setup, waitFor } from "xstate"
 import {
   decodeHeads,
   encodeHeads,
@@ -34,8 +33,17 @@ import {
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #log: debug.Debugger
 
-  /** The XState actor running our state machine.  */
-  #machine
+  /** Current state of the state machine */
+  #currentState: HandleState = IDLE
+
+  /** The current document */
+  #doc: A.Doc<T>
+
+  /** Timeout handle for state transitions */
+  #timeoutHandle?: ReturnType<typeof setTimeout>
+
+  /** Listeners for state changes (used by #statePromise) */
+  #stateListeners: Set<(state: HandleState) => void> = new Set()
 
   /** If set, this handle will only show the document at these heads */
   #fixedHeads?: UrlHeads
@@ -68,111 +76,131 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       this.#fixedHeads = options.heads
     }
 
-    const doc = A.init<T>()
+    this.#doc = A.init<T>()
 
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
-    const delay = this.#timeoutDelay
-    const machine = setup({
-      types: {
-        context: {} as DocHandleContext<T>,
-        events: {} as DocHandleEvent<T>,
-      },
-      actions: {
-        /** Update the doc using the given callback and put the modified doc in context */
-        onUpdate: assign(({ context, event }) => {
-          const oldDoc = context.doc
-          assertEvent(event, UPDATE)
-          const { callback } = event.payload
-          const doc = callback(oldDoc)
-          return { doc }
-        }),
-        onDelete: assign(() => {
-          this.emit("delete", { handle: this })
-          return { doc: A.init() }
-        }),
-        onUnavailable: assign(() => {
-          return { doc: A.init() }
-        }),
-        onUnload: assign(() => {
-          return { doc: A.init() }
-        }),
-      },
-    }).createMachine({
-      /** @xstate-layout N4IgpgJg5mDOIC5QAoC2BDAxgCwJYDswBKAYgFUAFAEQEEAVAUQG0AGAXUVAAcB7WXAC64e+TiAAeiAOwAOAKwA6ACxSAzKqks1ATjlTdAGhABPRAFolAJksKN2y1KtKAbFLla5AX09G0WPISkVAwAMgyMrBxIILz8QiJikggAjCzOijKqLEqqybJyLizaRqYIFpbJtro5Uo7J2o5S3r4YOATECrgQADZgJADCAEoM9MzsYrGCwqLRSeoyCtra8pa5adquySXmDjY5ac7JljLJeepKzSB+bYGdPX0AYgCSAHJUkRN8UwmziM7HCgqyVcUnqcmScmcMm2ZV2yiyzkOx1OalUFx8V1aAQ63R46AgBCgJGGAEUyAwAMp0D7RSbxGagJKHFgKOSWJTJGRSCosCpKaEmRCqbQKU5yXINeTaer6LwY67YogKXH4wkkKgAeX6AH1hjQqABNGncL70xKIJQ5RY5BHOJag6wwpRyEWImQVeT1aWrVSXBXtJUqgn4Ik0ADqNCedG1L3CYY1gwA0saYqbpuaEG4pKLksKpFDgcsCjDhTnxTKpTLdH6sQGFOgAO7oKYhl5gAQNngAJwA1iRY3R40ndSNDSm6enfpm5BkWAVkvy7bpuTCKq7ndZnfVeSwuTX-HWu2AAI4AVzgQhD6q12rILxoADVIyEaAAhMLjtM-RmIE4LVSQi4nLLDIGzOCWwLKA0cgyLBoFWNy+43B0R5nheaqajqepjuMtJfgyEh-FoixqMCoKqOyhzgYKCDOq6UIeuCSxHOoSGKgop74OgABuzbdOgABGvTXlho5GrhJpxJOP4pLulT6KoMhpJY2hzsWNF0QobqMV6LG+pc+A8BAcBiP6gSfFJ36EQgKksksKxrHamwwmY7gLKB85QjBzoAWxdZdL0FnfARST8ooLC7qoTnWBU4pyC5ViVMKBQaHUDQuM4fm3EGhJBWaU7-CysEAUp3LpEpWw0WYRw2LmqzgqciIsCxWUdI2zaXlAbYdt2PZ5dJ1n5jY2iJY1ikOIcMJHCyUWHC62hRZkUVNPKta3Kh56wJ1-VWUyzhFc64JWJCtQNBBzhQW4cHwbsrVKpxPF8YJgV4ZZIWIKkiKiiNSkqZYWjzCWaQ5hFh0AcCuR3QoR74qUknBRmzholpv3OkpRQNNRpTzaKTWKbIWR5FDxm9AIkA7e9skUYCWayLILBZGoLkUSKbIyIdpxHPoyTeN4QA */
-
-      // You can use the XState extension for VS Code to visualize this machine.
-      // Or, you can see this static visualization (last updated April 2024): https://stately.ai/registry/editor/d7af9b58-c518-44f1-9c36-92a238b04a7a?machineId=91c387e7-0f01-42c9-a21d-293e9bf95bb7
-
-      initial: "idle",
-      context: { documentId, doc },
-      on: {
-        UPDATE: { actions: "onUpdate" },
-        UNLOAD: ".unloaded",
-        DELETE: ".deleted",
-      },
-      states: {
-        idle: {
-          on: {
-            BEGIN: "loading",
-          },
-        },
-        loading: {
-          on: {
-            REQUEST: "requesting",
-            DOC_READY: "ready",
-          },
-          after: { [delay]: "unavailable" },
-        },
-        requesting: {
-          on: {
-            DOC_UNAVAILABLE: "unavailable",
-            DOC_READY: "ready",
-          },
-          after: { [delay]: "unavailable" },
-        },
-        unavailable: {
-          entry: "onUnavailable",
-          on: { DOC_READY: "ready" },
-        },
-        ready: {},
-        unloaded: {
-          entry: "onUnload",
-          on: {
-            RELOAD: "loading",
-          },
-        },
-        deleted: { entry: "onDelete", type: "final" },
-      },
-    })
-
-    // Instantiate the state machine
-    this.#machine = createActor(machine)
-
-    // Listen for state transitions
-    this.#machine.subscribe(state => {
-      const before = this.#prevDocState
-      const after = state.context.doc
-      this.#log(`→ ${state.value} %o`, after)
-      // if the document has changed, emit a change event
-      this.#checkForChanges(before, after)
-    })
-
     // Start the machine, and send a create or find event to get things going
-    this.#machine.start()
     this.begin()
   }
 
   // PRIVATE
 
-  /** Returns the current document, regardless of state */
-  get #doc() {
-    return this.#machine?.getSnapshot().context.doc
+  /**
+   * Transition to a new state with proper cleanup and entry actions
+   */
+  #transition(newState: HandleState) {
+    // Clear any pending timeout when transitioning
+    this.#clearTimeout()
+
+    this.#currentState = newState
+
+    // Log the state transition
+    this.#log(`→ ${newState} %o`, this.#doc)
+
+    // Entry actions for certain states
+    switch (newState) {
+      case UNAVAILABLE:
+        this.#doc = A.init()
+        this.#prevDocState = this.#doc as unknown as T
+        break
+      case UNLOADED:
+        this.#doc = A.init()
+        this.#prevDocState = this.#doc as unknown as T
+        break
+      case DELETED:
+        this.emit("delete", { handle: this })
+        this.#doc = A.init()
+        this.#prevDocState = this.#doc as unknown as T
+        break
+      case LOADING:
+      case REQUESTING:
+        // Set up timeout for loading/requesting states
+        this.#setupTimeout()
+        break
+    }
+
+    // Notify any state listeners
+    for (const listener of this.#stateListeners) {
+      listener(newState)
+    }
   }
 
-  /** Returns the docHandle's state (READY, etc.) */
-  get #state() {
-    return this.#machine?.getSnapshot().value
+  /**
+   * Set up a timeout that transitions to unavailable state
+   */
+  #setupTimeout() {
+    this.#timeoutHandle = setTimeout(() => {
+      if (this.#currentState === LOADING || this.#currentState === REQUESTING) {
+        this.#transition(UNAVAILABLE)
+      }
+    }, this.#timeoutDelay)
+  }
+
+  /**
+   * Clear the timeout if set
+   */
+  #clearTimeout() {
+    if (this.#timeoutHandle) {
+      clearTimeout(this.#timeoutHandle)
+      this.#timeoutHandle = undefined
+    }
+  }
+
+  /**
+   * Process an event and transition to a new state if appropriate
+   */
+  #send(event: DocHandleEventType) {
+    const before = this.#prevDocState
+    const current = this.#currentState
+
+    switch (event) {
+      case BEGIN:
+        if (current === IDLE) {
+          this.#transition(LOADING)
+        }
+        break
+
+      case REQUEST:
+        if (current === LOADING) {
+          this.#transition(REQUESTING)
+        }
+        break
+
+      case DOC_READY:
+        if (
+          current === LOADING ||
+          current === REQUESTING ||
+          current === UNAVAILABLE
+        ) {
+          this.#transition(READY)
+        }
+        break
+
+      case DOC_UNAVAILABLE:
+        if (current === REQUESTING) {
+          this.#transition(UNAVAILABLE)
+        }
+        break
+
+      case UNLOAD:
+        // Can unload from any state except deleted
+        if (current !== DELETED) {
+          this.#transition(UNLOADED)
+        }
+        break
+
+      case RELOAD:
+        if (current === UNLOADED) {
+          this.#transition(LOADING)
+        }
+        break
+
+      case DELETE:
+        // Can delete from any state
+        this.#transition(DELETED)
+        break
+    }
   }
 
   /**
@@ -184,45 +212,64 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #statePromise(
     awaitStates: HandleState | HandleState[],
     options?: AbortOptions
-  ) {
+  ): Promise<void> {
     const awaitStatesArray = Array.isArray(awaitStates)
       ? awaitStates
       : [awaitStates]
-    return waitFor(
-      this.#machine,
-      s => awaitStatesArray.some(state => s.matches(state)),
-      // use a longer delay here so as not to race with other delays
-      { timeout: this.#timeoutDelay * 2, ...options }
-    )
+
+    // If already in the desired state, resolve immediately
+    if (awaitStatesArray.includes(this.#currentState)) {
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.#stateListeners.delete(listener)
+        reject(new Error("Timeout waiting for state"))
+      }, this.#timeoutDelay * 2)
+
+      // Handle abort signal
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          clearTimeout(timeoutId)
+          reject(new AbortError())
+          return
+        }
+        options.signal.addEventListener("abort", () => {
+          clearTimeout(timeoutId)
+          this.#stateListeners.delete(listener)
+          reject(new AbortError())
+        })
+      }
+
+      const listener = (state: HandleState) => {
+        if (awaitStatesArray.includes(state)) {
+          clearTimeout(timeoutId)
+          this.#stateListeners.delete(listener)
+          resolve()
+        }
+      }
+
+      this.#stateListeners.add(listener)
+    })
   }
 
   /**
    * Update the document with whatever the result of callback is
-   *
-   * This is necessary instead of directly calling
-   * `this.#machine.send({ type: UPDATE, payload: { callback } })` because we
-   * want to catch any exceptions that the callback might throw, then rethrow
-   * them after the state machine has processed the update.
    */
   #sendUpdate(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    // This is kind of awkward. we have to pass the callback to xstate and wait for it to run it.
-    // We're relying here on the fact that xstate runs everything synchronously, so by the time
-    // `send` returns we know that the callback will have been run and so `thrownException`  will
-    // be set if the callback threw an error.
+    const before = this.#prevDocState
     let thrownException: null | Error = null
-    this.#machine.send({
-      type: UPDATE,
-      payload: {
-        callback: doc => {
-          try {
-            return callback(doc)
-          } catch (e) {
-            thrownException = e as Error
-            return doc
-          }
-        },
-      },
-    })
+
+    try {
+      this.#doc = callback(this.#doc)
+    } catch (e) {
+      thrownException = e as Error
+    }
+
+    // Check for changes after update
+    this.#checkForChanges(before, this.#doc)
+
     if (thrownException) {
       // If the callback threw an error, we throw it here so the caller can handle it
       throw thrownException
@@ -255,7 +302,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       }
 
       // If we didn't have the document yet, signal that we now do
-      if (!this.isReady()) this.#machine.send({ type: DOC_READY })
+      if (!this.isReady()) this.#send(DOC_READY)
     }
     this.#prevDocState = after
   }
@@ -305,12 +352,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /**
    * @returns true if the handle is in one of the given states.
    */
-  inState = (states: HandleState[]) =>
-    states.some(s => this.#machine.getSnapshot().matches(s))
+  inState = (states: HandleState[]) => states.includes(this.#currentState)
 
   /** @hidden */
   get state() {
-    return this.#machine.getSnapshot().value
+    return this.#currentState
   }
 
   /**
@@ -385,7 +431,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   begin() {
-    this.#machine.send({ type: BEGIN })
+    this.#send(BEGIN)
   }
 
   /**
@@ -543,7 +589,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * or that it was loaded from storage, or that it was received from a peer.
    */
   doneLoading() {
-    this.#machine.send({ type: DOC_READY })
+    this.#send(DOC_READY)
   }
 
   /**
@@ -680,7 +726,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    */
   unavailable() {
-    this.#machine.send({ type: DOC_UNAVAILABLE })
+    this.#send(DOC_UNAVAILABLE)
   }
 
   /**
@@ -688,22 +734,22 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    * */
   request() {
-    if (this.#state === "loading") this.#machine.send({ type: REQUEST })
+    if (this.#currentState === LOADING) this.#send(REQUEST)
   }
 
   /** Called by the repo to free memory used by the document. */
   unload() {
-    this.#machine.send({ type: UNLOAD })
+    this.#send(UNLOAD)
   }
 
   /** Called by the repo to reuse an unloaded handle. */
   reload() {
-    this.#machine.send({ type: RELOAD })
+    this.#send(RELOAD)
   }
 
   /** Called by the repo when the document is deleted. */
   delete() {
-    this.#machine.send({ type: DELETE })
+    this.#send(DELETE)
   }
 
   /**
@@ -850,36 +896,22 @@ export const {
   UNAVAILABLE,
 } = HandleState
 
-// context
-
-interface DocHandleContext<T> {
-  documentId: DocumentId
-  doc: A.Doc<T>
-}
-
 // events
 
-/** These are the (internal) events that can be sent to the state machine */
-type DocHandleEvent<T> =
-  | { type: typeof BEGIN }
-  | { type: typeof REQUEST }
-  | { type: typeof DOC_READY }
-  | {
-      type: typeof UPDATE
-      payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
-    }
-  | { type: typeof UNLOAD }
-  | { type: typeof RELOAD }
-  | { type: typeof DELETE }
-  | { type: typeof TIMEOUT }
-  | { type: typeof DOC_UNAVAILABLE }
+/** Internal event types that can be sent to the state machine */
+type DocHandleEventType =
+  | typeof BEGIN
+  | typeof REQUEST
+  | typeof DOC_READY
+  | typeof UNLOAD
+  | typeof RELOAD
+  | typeof DELETE
+  | typeof DOC_UNAVAILABLE
 
 const BEGIN = "BEGIN"
 const REQUEST = "REQUEST"
 const DOC_READY = "DOC_READY"
-const UPDATE = "UPDATE"
 const UNLOAD = "UNLOAD"
 const RELOAD = "RELOAD"
 const DELETE = "DELETE"
-const TIMEOUT = "TIMEOUT"
 const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"
