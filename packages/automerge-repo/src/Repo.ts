@@ -18,7 +18,11 @@ import {
     UNLOADED,
 } from "./DocHandle.js"
 import { HashRing } from "./helpers/HashRing.js"
-import { toSedimentreeId, toSubductionPeerId } from "./helpers/subduction.js"
+import {
+    toSedimentreeAutomerge,
+    toSedimentreeId,
+    toSubductionPeerId,
+} from "./helpers/subduction.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
@@ -539,6 +543,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
 
         handle.doneLoading()
+        toSedimentreeId(documentId).then(sid =>
+            this.#subduction.requestAllBatchSync(sid)
+        )
         return handle
     }
 
@@ -583,6 +590,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
 
         handle.doneLoading()
+        toSedimentreeId(documentId).then(sid =>
+            this.#subduction.requestAllBatchSync(sid)
+        )
         return handle
     }
     /** Create a new DocHandle by cloning the history of an existing DocHandle.
@@ -727,6 +737,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         },
         abortPromise: Promise<never>
     ) {
+        console.log("loadDocumentWithProgress", { id, documentId })
         try {
             progressSignal.notify({
                 state: "loading" as const,
@@ -749,10 +760,11 @@ export class Repo extends EventEmitter<RepoEvents> {
                     handle,
                 })
             } else {
-                await Promise.race([
-                    this.networkSubsystem.whenReady(),
-                    abortPromise,
-                ])
+                await this.#requestDocOverSubduction(handle)
+                // await Promise.race([
+                //     this.networkSubsystem.whenReady(),
+                //     abortPromise,
+                // ])
                 handle.request()
                 progressSignal.notify({
                     state: "loading" as const,
@@ -1088,7 +1100,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
         // Incremental sync
         this.#subduction.onCommit(
-            (
+            async (
                 id: SedimentreeId,
                 loose_commit: LooseCommit,
                 blob: Uint8Array
@@ -1097,15 +1109,43 @@ export class Repo extends EventEmitter<RepoEvents> {
                     id,
                     loose_commit,
                 })
-                const handle = this.#handlesBySedimentreeId.get(id.toString())
-                ;(window as any)["handle"] = handle // for debugging
+                const existingHandle = this.#handlesBySedimentreeId.get(
+                    id.toString()
+                )
 
-                if (handle !== undefined) {
+                if (existingHandle !== undefined) {
                     console.debug("blob", blob)
-                    handle.update(doc => Automerge.loadIncremental(doc, blob))
-                    handle.doneLoading()
+                    existingHandle.update(doc =>
+                        Automerge.loadIncremental(doc, blob)
+                    )
+                    existingHandle.doneLoading()
                 } else {
                     console.warn("no handle for sedimentree id", { id })
+                    // FIXME temporary hack  while docIDs are not [u8; 32]s
+                    const initialDoc: Automerge.Doc<any> =
+                        Automerge.emptyChange(Automerge.init())
+                    let { documentId } = parseAutomergeUrl(
+                        generateAutomergeUrl()
+                    )
+                    if (this.#idFactory) {
+                        const rawDocId = await this.#idFactory(
+                            Automerge.getHeads(initialDoc)
+                        )
+                        documentId = binaryToDocumentId(
+                            rawDocId as BinaryDocumentId
+                        )
+                    }
+                    const newHandle = this.#getHandle<any>({
+                        documentId,
+                    }) as DocHandle<any>
+
+                    newHandle.update(() => initialDoc)
+                    newHandle.update(doc =>
+                        Automerge.loadIncremental(doc, blob)
+                    )
+                    this.#registerHandleWithSubsystems(newHandle)
+                    newHandle.doneLoading()
+                    console.log({ newHandle })
                 }
             }
         )
@@ -1133,7 +1173,36 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
     }
 
+    async #requestDocOverSubduction(handle: DocHandle<any>) {
+        const sedimentreeId = await toSedimentreeId(handle.documentId)
+        this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
+        const peerResultMap = await this.#subduction.requestAllBatchSync(
+            sedimentreeId
+        )
+        console.log("subduction peerResultMap", {
+            peerResultMap,
+            entries: peerResultMap.entries(),
+        })
+        peerResultMap.entries().forEach(batchSyncResult => {
+            if (!batchSyncResult.success) {
+                console.warn("failed PeerBatchSyncResult")
+            }
+
+            for (const err in batchSyncResult.connErrors) {
+                console.error("PeerBatchSyncResult connError: ", err)
+            }
+
+            console.info("blobs len", batchSyncResult.blobs.length)
+            batchSyncResult.blobs.forEach(bundleBlob => {
+                console.log("progress bundleBlob", bundleBlob)
+                handle.update(doc => Automerge.loadIncremental(doc, bundleBlob))
+                handle.doneLoading()
+            })
+        })
+    }
+
     async #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
+        console.debug("telling subduction about new handle", { handle })
         const sid = await toSedimentreeId(handle.documentId)
         this.#handlesBySedimentreeId.set(sid.toString(), handle)
         this.#subduction.addSedimentree(sid, Sedimentree.empty())
@@ -1141,13 +1210,14 @@ export class Repo extends EventEmitter<RepoEvents> {
             documentId: handle.documentId,
         })
 
-        handle.on("heads-changed", ({ handle }) => {
+        handle.on("heads-changed", ({ doc }) => {
             console.warn("heads-changed event fired")
-            const doc = handle.doc()
             const currentHexHeads = Automerge.getHeads(doc)
             if (new Set(currentHexHeads) == this.#lastHeadsSent) {
                 console.debug("nothing new to send, skipping sync...")
                 return
+            } else {
+                console.debug("new data to sync, proceeding...")
             }
 
             Automerge.getChangesMetaSince(
@@ -1196,7 +1266,7 @@ export class Repo extends EventEmitter<RepoEvents> {
                                 maybeFragmentRequested
                             console.debug("commit needs fragment, creating...")
 
-                            const sam = new SedimentreeAutomerge(doc)
+                            const sam = toSedimentreeAutomerge(doc)
                             const fragmentState = sam.fragment(
                                 fragmentRequested.head,
                                 this.#fragmentStateStore,
@@ -1209,7 +1279,7 @@ export class Repo extends EventEmitter<RepoEvents> {
                                         b.toString(16).padStart(2, "0")
                                     ).join("")
                                 })
-                            // NOTE this is the main function that we need from AM v3.2.0
+                            // NOTE this is the only(?) function that we need from AM v3.2.0
                             const fragmentBlob = Automerge.saveBundle(
                                 doc,
                                 members
