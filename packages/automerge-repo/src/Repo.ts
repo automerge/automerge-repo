@@ -543,9 +543,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
 
         handle.doneLoading()
-        toSedimentreeId(documentId).then(sid =>
+        toSedimentreeId(documentId).then(sid => {
             this.#subduction.requestAllBatchSync(sid)
-        )
+        })
         return handle
     }
 
@@ -590,9 +590,10 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
 
         handle.doneLoading()
-        toSedimentreeId(documentId).then(sid =>
+        toSedimentreeId(documentId).then(sid => {
+            console.warn({ handle, sid })
             this.#subduction.requestAllBatchSync(sid)
-        )
+        })
         return handle
     }
     /** Create a new DocHandle by cloning the history of an existing DocHandle.
@@ -760,11 +761,10 @@ export class Repo extends EventEmitter<RepoEvents> {
                     handle,
                 })
             } else {
-                await this.#requestDocOverSubduction(handle)
-                // await Promise.race([
-                //     this.networkSubsystem.whenReady(),
-                //     abortPromise,
-                // ])
+                await Promise.race([
+                    this.#requestDocOverSubduction(handle),
+                    abortPromise,
+                ])
                 handle.request()
                 progressSignal.notify({
                     state: "loading" as const,
@@ -775,22 +775,22 @@ export class Repo extends EventEmitter<RepoEvents> {
 
             this.#registerHandleWithSubsystems(handle)
 
-            await Promise.race([
-                handle.whenReady([READY, UNAVAILABLE]),
-                abortPromise,
-            ])
+            // await Promise.race([
+            //     handle.whenReady([READY, UNAVAILABLE]),
+            //     abortPromise,
+            // ])
 
-            if (handle.state === UNAVAILABLE) {
-                const unavailableProgress = {
-                    state: "unavailable" as const,
-                    handle,
-                }
-                progressSignal.notify(unavailableProgress)
-                return
-            }
-            if (handle.state === DELETED) {
-                throw new Error(`Document ${id} was deleted`)
-            }
+            // if (handle.state === UNAVAILABLE) {
+            //     const unavailableProgress = {
+            //         state: "unavailable" as const,
+            //         handle,
+            //     }
+            //     progressSignal.notify(unavailableProgress)
+            //     return
+            // }
+            // if (handle.state === DELETED) {
+            //     throw new Error(`Document ${id} was deleted`)
+            // }
 
             progressSignal.notify({ state: "ready" as const, handle })
         } catch (error) {
@@ -1105,47 +1105,57 @@ export class Repo extends EventEmitter<RepoEvents> {
                 loose_commit: LooseCommit,
                 blob: Uint8Array
             ) => {
-                console.debug("subduction onCommit", {
-                    id,
-                    loose_commit,
-                })
-                const existingHandle = this.#handlesBySedimentreeId.get(
-                    id.toString()
-                )
+                try {
+                    console.debug("subduction onCommit", {
+                        id,
+                        loose_commit,
+                    })
+                    const existingHandle = this.#handlesBySedimentreeId.get(
+                        id.toString()
+                    )
 
-                if (existingHandle !== undefined) {
-                    console.debug("blob", blob)
-                    existingHandle.update(doc =>
-                        Automerge.loadIncremental(doc, blob)
-                    )
-                    existingHandle.doneLoading()
-                } else {
-                    console.warn("no handle for sedimentree id", { id })
-                    // FIXME temporary hack  while docIDs are not [u8; 32]s
-                    const initialDoc: Automerge.Doc<any> =
-                        Automerge.emptyChange(Automerge.init())
-                    let { documentId } = parseAutomergeUrl(
-                        generateAutomergeUrl()
-                    )
-                    if (this.#idFactory) {
-                        const rawDocId = await this.#idFactory(
-                            Automerge.getHeads(initialDoc)
+                    if (
+                        existingHandle !== undefined &&
+                        existingHandle !== null
+                    ) {
+                        console.debug("handling commit blob", {
+                            blob,
+                            existingHandle,
+                        })
+                        existingHandle.update(doc =>
+                            Automerge.loadIncremental(doc, blob)
                         )
-                        documentId = binaryToDocumentId(
-                            rawDocId as BinaryDocumentId
+                        existingHandle.doneLoading()
+                    } else {
+                        console.warn("no handle for sedimentree id", { id })
+                        // FIXME temporary hack  while docIDs are not [u8; 32]s
+                        const initialDoc: Automerge.Doc<any> =
+                            Automerge.emptyChange(Automerge.init())
+                        let { documentId } = parseAutomergeUrl(
+                            generateAutomergeUrl()
                         )
+                        if (this.#idFactory) {
+                            const rawDocId = await this.#idFactory(
+                                Automerge.getHeads(initialDoc)
+                            )
+                            documentId = binaryToDocumentId(
+                                rawDocId as BinaryDocumentId
+                            )
+                        }
+                        const newHandle = this.#getHandle<any>({
+                            documentId,
+                        }) as DocHandle<any>
+
+                        this.#registerHandleWithSubsystems(newHandle)
+                        newHandle.update(() => initialDoc)
+                        newHandle.update(doc =>
+                            Automerge.loadIncremental(doc, blob)
+                        )
+                        newHandle.doneLoading()
+                        console.log({ newHandle })
                     }
-                    const newHandle = this.#getHandle<any>({
-                        documentId,
-                    }) as DocHandle<any>
-
-                    newHandle.update(() => initialDoc)
-                    newHandle.update(doc =>
-                        Automerge.loadIncremental(doc, blob)
-                    )
-                    this.#registerHandleWithSubsystems(newHandle)
-                    newHandle.doneLoading()
-                    console.log({ newHandle })
+                } catch (err) {
+                    console.error("error handling subduction commit", { err })
                 }
             }
         )
@@ -1153,17 +1163,25 @@ export class Repo extends EventEmitter<RepoEvents> {
         // Incremental sync
         this.#subduction.onFragment(
             (id: SedimentreeId, fragment: Fragment, blob: Uint8Array) => {
-                console.debug("subduction onFragment", { id, fragment })
-                const handle = this.#handlesBySedimentreeId.get(id.toString())
-                if (handle !== undefined && handle !== null) {
-                    console.debug("blob", blob)
-                    handle.update(doc => Automerge.loadIncremental(doc, blob))
-                    handle.doneLoading()
-                } else {
-                    // FIXME error ahndling if no such handle and/or create one?
-                    console.warn("no handle for sedimentree id", {
-                        id: id.toString(),
-                    })
+                try {
+                    console.debug("subduction onFragment", { id, fragment })
+                    const handle = this.#handlesBySedimentreeId.get(
+                        id.toString()
+                    )
+                    if (handle !== undefined && handle !== null) {
+                        console.debug("blob", blob)
+                        handle.update(doc =>
+                            Automerge.loadIncremental(doc, blob)
+                        )
+                        handle.doneLoading()
+                    } else {
+                        // FIXME error ahndling if no such handle and/or create one?
+                        console.warn("no handle for sedimentree id", {
+                            id: id.toString(),
+                        })
+                    }
+                } catch (err) {
+                    console.error("error handling subduction fragment", { err })
                 }
             }
         )
