@@ -291,8 +291,8 @@ importers:
   packages/automerge-repo:
     dependencies:
       '@automerge/automerge':
-        specifier: 2.2.8 - 3
-        version: 3.0.0
+        specifier: ^3.2.0
+        version: 3.2.1
       '@automerge/automerge_subduction':
         specifier: file:../../../subduction/automerge_subduction_wasm
         version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'

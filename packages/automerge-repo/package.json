@@ -1,63 +1,56 @@
 {
-  "name": "@automerge/automerge-repo",
-  "version": "2.5.2-alpha.1",
-  "description": "A repository object to manage a collection of automerge documents",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo",
-  "author": "Peter van Hardenberg <pvh@pvh.ca>",
-  "license": "MIT",
-  "type": "module",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc",
-    "watch": "npm-watch build",
-    "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text pnpm test",
-    "test": "vitest",
-    "test:watch": "npm-watch test",
-    "fuzz": "ts-node --esm --experimentalSpecifierResolution=node fuzz/fuzz.ts"
-  },
-  "browser": {
-    "crypto": false
-  },
-  "devDependencies": {
-    "http-server": "^14.1.0",
-    "ts-node": "^10.9.2",
-    "vite": "^5.0.8"
-  },
-  "dependencies": {
-    "@automerge/automerge": "2.2.8 - 3",
-    "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm",
-    "bs58check": "^3.0.1",
-    "cbor-x": "^1.3.0",
-    "debug": "^4.3.4",
-    "eventemitter3": "^5.0.1",
-    "fast-sha256": "^1.3.0",
-    "uuid": "^9.0.0",
-    "xstate": "^5.9.1"
-  },
-  "exports": {
-    ".": "./dist/entrypoints/fullfat.js",
-    "./slim": "./dist/entrypoints/slim.js",
-    "./helpers/*.js": "./dist/helpers/*.js"
-  },
-  "watch": {
-    "build": {
-      "patterns": "./src/**/*",
-      "extensions": [
-        ".ts"
-      ]
+    "name": "@automerge/automerge-repo",
+    "version": "2.5.2-alpha.1",
+    "description": "A repository object to manage a collection of automerge documents",
+    "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo",
+    "author": "Peter van Hardenberg <pvh@pvh.ca>",
+    "license": "MIT",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc",
+        "watch": "npm-watch build",
+        "test:coverage": "c8 --reporter=lcov --reporter=html --reporter=text pnpm test",
+        "test": "vitest",
+        "test:watch": "npm-watch test",
+        "fuzz": "ts-node --esm --experimentalSpecifierResolution=node fuzz/fuzz.ts"
     },
-    "test": {
-      "quiet": true,
-      "patterns": [
-        "./src/**/*",
-        "./test/**/*"
-      ],
-      "extensions": [
-        ".ts"
-      ]
+    "browser": {
+        "crypto": false
+    },
+    "devDependencies": {
+        "http-server": "^14.1.0",
+        "ts-node": "^10.9.2",
+        "vite": "^5.0.8"
+    },
+    "dependencies": {
+        "@automerge/automerge": "^3.2.0",
+        "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm",
+        "bs58check": "^3.0.1",
+        "cbor-x": "^1.3.0",
+        "debug": "^4.3.4",
+        "eventemitter3": "^5.0.1",
+        "fast-sha256": "^1.3.0",
+        "uuid": "^9.0.0",
+        "xstate": "^5.9.1"
+    },
+    "exports": {
+        ".": "./dist/entrypoints/fullfat.js",
+        "./slim": "./dist/entrypoints/slim.js",
+        "./helpers/*.js": "./dist/helpers/*.js"
+    },
+    "watch": {
+        "build": {
+            "patterns": "./src/**/*",
+            "extensions": [".ts"]
+        },
+        "test": {
+            "quiet": true,
+            "patterns": ["./src/**/*", "./test/**/*"],
+            "extensions": [".ts"]
+        }
+    },
+    "publishConfig": {
+        "access": "public"
     }
-  },
-  "publishConfig": {
-    "access": "public"
-  }
 }

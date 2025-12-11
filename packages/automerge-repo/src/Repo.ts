@@ -1209,6 +1209,7 @@ export class Repo extends EventEmitter<RepoEvents> {
                                         b.toString(16).padStart(2, "0")
                                     ).join("")
                                 })
+                            // NOTE this is the main function that we need from AM v3.2.0
                             const fragmentBlob = Automerge.saveBundle(
                                 doc,
                                 members
