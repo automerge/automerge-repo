@@ -780,24 +780,24 @@ export class Repo extends EventEmitter<RepoEvents> {
 
             this.#registerHandleWithSubsystems(handle)
 
-            // await Promise.race([
-            //     handle.whenReady([READY, UNAVAILABLE]),
-            //     abortPromise,
-            // ])
+            await Promise.race([
+                handle.whenReady([READY, UNAVAILABLE]),
+                abortPromise,
+            ])
 
-            // if (handle.state === UNAVAILABLE) {
-            //     const unavailableProgress = {
-            //         state: "unavailable" as const,
-            //         handle,
-            //     }
-            //     progressSignal.notify(unavailableProgress)
-            //     return
-            // }
-            // if (handle.state === DELETED) {
-            //     throw new Error(`Document ${id} was deleted`)
-            // }
+            if (handle.state === UNAVAILABLE) {
+                const unavailableProgress = {
+                    state: "unavailable" as const,
+                    handle,
+                }
+                progressSignal.notify(unavailableProgress)
+                return
+            }
+            if (handle.state === DELETED) {
+                throw new Error(`Document ${id} was deleted`)
+            }
 
-            // progressSignal.notify({ state: "ready" as const, handle })
+            progressSignal.notify({ state: "ready" as const, handle })
         } catch (error) {
             progressSignal.notify({
                 state: "failed" as const,
