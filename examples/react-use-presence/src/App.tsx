@@ -50,15 +50,12 @@ export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
       </div>
       <div>
         Peer states:
-        {peerStates.peers.map(peerId => (
+        {peerStates.peers.map(state => (
           <span
-            key={peerId}
+            key={state.peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
           >
-            {peerId}:{" "}
-            {JSON.stringify(
-              peerStates.value[peerId as PeerId].value.count ?? "🤷‍♀️"
-            )}
+            {state.peerId}: {JSON.stringify(state.value.count ?? "🤷‍♀️")}
           </span>
         ))}
       </div>
@@ -81,18 +78,15 @@ export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
       />
       <pre data-testid="peer-states">
         {JSON.stringify(
-          { doc, localState, peerStates: getAllPeerStates(peerStates) },
+          {
+            doc,
+            localState,
+            peerStates: peerStates.peers.map(state => state.value),
+          },
           null,
           2
         )}
       </pre>
     </div>
   )
-}
-
-function getAllPeerStates(peerStates: PeerStateView<State>) {
-  return Object.keys(peerStates.value).reduce((acc, peerId) => {
-    acc[peerId as PeerId] = peerStates.value[peerId as PeerId].value
-    return acc
-  }, {} as Record<PeerId, PeerState<State>["value"]>)
 }
