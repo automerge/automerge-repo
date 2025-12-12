@@ -42,6 +42,8 @@ export { Repo } from "./Repo.js"
 export {
   Presence,
   PeerState,
+  PeerStateView,
+  PresenceState,
   PresenceConfig,
   UserId,
   DeviceId,

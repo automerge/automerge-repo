@@ -1,16 +1,24 @@
 import { DocHandle, DocHandleEphemeralMessagePayload } from "./DocHandle.js"
-import { unique } from "./helpers/array.js"
 import { PeerId } from "./types.js"
 import { EventEmitter } from "eventemitter3"
+import { unique } from "./helpers/array.js"
 
 export type UserId = unknown
 export type DeviceId = unknown
 
 export const PRESENCE_MESSAGE_MARKER = "__presence"
 
-export type PeerState<State extends Record<string, any>> = {
+export type PresenceState = Record<string, any>
+
+export type PeerStatesValue<State extends PresenceState> = Record<
+  PeerId,
+  PeerState<State>
+>
+
+export type PeerState<State extends PresenceState> = {
   peerId: PeerId
-  lastSeen: number
+  lastActiveAt: number
+  lastUpdateAt: number
   deviceId?: DeviceId
   userId?: UserId
   value: State
@@ -83,7 +91,7 @@ export type PresenceEvents = {
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
 export const DEFAULT_PEER_TTL_MS = 3 * DEFAULT_HEARTBEAT_INTERVAL_MS
 
-export type PresenceConfig<State extends Record<string, any>> = {
+export type PresenceConfig<State extends PresenceState> = {
   /** The full initial state to broadcast to peers */
   initialState: State
   /** How frequently to send heartbeats (default {@link DEFAULT_HEARTBEAT_INTERVAL_MS}) */
@@ -104,7 +112,7 @@ export type PresenceConfig<State extends Record<string, any>> = {
  * to activate and deactivate it.
  */
 export class Presence<
-  State extends Record<string, any>,
+  State extends PresenceState,
   DocType = any
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<DocType>
@@ -143,7 +151,7 @@ export class Presence<
   }) {
     super()
     this.#handle = handle
-    this.#peers = new PeerPresenceInfo(DEFAULT_PEER_TTL_MS)
+    this.#peers = new PeerPresenceInfo<State>(DEFAULT_PEER_TTL_MS)
     this.#localState = {} as State
     this.userId = userId
     this.deviceId = deviceId
@@ -160,7 +168,7 @@ export class Presence<
     this.#running = true
 
     this.#heartbeatMs = heartbeatMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
-    this.#peers = new PeerPresenceInfo(peerTtlMs ?? DEFAULT_PEER_TTL_MS)
+    this.#peers = new PeerPresenceInfo<State>(peerTtlMs ?? DEFAULT_PEER_TTL_MS)
     this.#localState = initialState
 
     // N.B.: We can't use a regular member function here since member functions
@@ -207,8 +215,7 @@ export class Presence<
             peerId,
             deviceId,
             userId,
-            channel: message.channel as keyof State,
-            value: message.value,
+            value: { [message.channel]: message.value } as Partial<State>,
           })
           this.emit("update", {
             type: "update",
@@ -220,14 +227,11 @@ export class Presence<
           })
           break
         case "snapshot":
-          Object.entries(message.state as State).forEach(([channel, value]) => {
-            this.#peers.update({
-              peerId,
-              deviceId,
-              userId,
-              channel: channel as keyof State,
-              value,
-            })
+          this.#peers.update({
+            peerId,
+            deviceId,
+            userId,
+            value: message.state as State,
           })
           this.emit("snapshot", {
             type: "snapshot",
@@ -249,7 +253,7 @@ export class Presence<
    * Return a view of current peer states.
    */
   getPeerStates() {
-    return this.#peers.snapshot
+    return this.#peers.states
   }
 
   /**
@@ -401,8 +405,8 @@ export class Presence<
   }
 }
 
-class PeerPresenceInfo<State extends Record<string, any>> {
-  #peerStates: Record<PeerId, PeerState<State>> = {}
+class PeerPresenceInfo<State extends PresenceState> {
+  #peerStates = new PeerStateView<State>({})
 
   /**
    * Build a new peer presence state.
@@ -413,7 +417,7 @@ class PeerPresenceInfo<State extends Record<string, any>> {
   constructor(readonly ttl: number) {}
 
   has(peerId: PeerId) {
-    return peerId in this.#peerStates
+    return peerId in this.#peerStates.value
   }
 
   /**
@@ -422,50 +426,50 @@ class PeerPresenceInfo<State extends Record<string, any>> {
    * @param peerId
    */
   markSeen(peerId: PeerId) {
-    this.#peerStates = {
-      ...this.#peerStates,
+    this.#peerStates = new PeerStateView<State>({
+      ...this.#peerStates.value,
       [peerId]: {
-        ...this.#peerStates[peerId],
+        ...this.#peerStates.value[peerId],
         lastSeen: Date.now(),
       },
-    }
+    })
   }
 
   /**
-   * Record a state update for the given peer. It is also automatically updated with {@link markSeen}.
+   * Record a state update for the given peer. Note that existing state is not
+   * overwritten.
    *
    * @param peerId
    * @param value
    */
-  update<Channel extends keyof State>({
+  update({
     peerId,
     deviceId,
     userId,
-    channel,
     value,
   }: {
     peerId: PeerId
     deviceId?: DeviceId
     userId?: UserId
-    channel: Channel
-    value: State[Channel]
+    value: Partial<State>
   }) {
-    this.markSeen(peerId)
-
-    const peerState = this.#peerStates[peerId]
+    const peerState = this.#peerStates.value[peerId]
     const existingState = peerState?.value ?? ({} as State)
-    this.#peerStates = {
-      ...this.#peerStates,
+    const now = Date.now()
+    this.#peerStates = new PeerStateView<State>({
+      ...this.#peerStates.value,
       [peerId]: {
         peerId,
         deviceId,
         userId,
+        lastActiveAt: now,
+        lastUpdateAt: now,
         value: {
           ...existingState,
-          [channel]: value,
+          ...value,
         },
       },
-    }
+    })
   }
 
   /**
@@ -474,10 +478,12 @@ class PeerPresenceInfo<State extends Record<string, any>> {
    * @param peerId
    */
   delete(peerId: PeerId) {
-    this.#peerStates = Object.fromEntries(
-      Object.entries(this.#peerStates).filter(([existingId]) => {
-        return existingId != peerId
-      })
+    this.#peerStates = new PeerStateView<State>(
+      Object.fromEntries(
+        Object.entries(this.#peerStates.value).filter(([existingId]) => {
+          return existingId != peerId
+        })
+      )
     )
   }
 
@@ -487,155 +493,186 @@ class PeerPresenceInfo<State extends Record<string, any>> {
    */
   prune() {
     const threshold = Date.now() - this.ttl
-    this.#peerStates = Object.fromEntries(
-      Object.entries(this.#peerStates).filter(([, state]) => {
-        return state.lastSeen >= threshold
-      })
+    this.#peerStates = new PeerStateView<State>(
+      Object.fromEntries(
+        Object.entries(this.#peerStates).filter(([, state]) => {
+          return state.lastActiveAt >= threshold
+        })
+      )
     )
   }
 
   /**
    * Get a snapshot of the current peer states
    */
-  get snapshot() {
+  get states() {
     return this.#peerStates
   }
 }
 
-type PeerPresenceSnapshot = PeerPresenceInfo<any>["snapshot"]
+export class PeerStateView<State extends PresenceState> {
+  readonly value
 
-/**
- * Check when the peer was last seen.
- *
- * @param peerId
- * @returns last seen UNIX timestamp, or undefined for unknown peers
- */
-export function getLastSeen(snapshot: PeerPresenceSnapshot, peerId: PeerId) {
-  return snapshot[peerId]?.lastSeen
-}
+  constructor(snapshot: PeerStatesValue<State>) {
+    this.value = snapshot
+  }
 
-/**
- * Get all users.
- *
- * @returns Array of user ids
- */
-export function getUsers(snapshot: PeerPresenceSnapshot) {
-  return unique(
-    Object.values(snapshot).map(peerState => {
-      return peerState.userId
-    })
-  )
-}
+  /**
+   * Check when the peer was last seen.
+   *
+   * @param peerId
+   * @returns last seen UNIX timestamp, or undefined for unknown peers
+   */
+  getLastSeen(peerId: PeerId) {
+    return this.value[peerId]?.lastActiveAt
+  }
 
-/**
- * Get all devices.
- *
- * @returns Array of device ids
- */
-export function getDevices(snapshot: PeerPresenceSnapshot) {
-  return unique(
-    Object.values(snapshot).map(peerState => {
-      return peerState.deviceId
-    })
-  )
-}
+  /**
+   * Check when the peer last sent an update.
+   *
+   * @param peerId
+   * @returns last update UNIX timestamp, or undefined for unknown peers
+   */
+  getLastUpdatedAt(peerId: PeerId) {
+    return this.value[peerId]?.lastUpdateAt
+  }
 
-/**
- * Get all peers for this user.
- *
- * @param userId
- * @returns Array of peer ids for this user
- */
-export function getUserPeers(snapshot: PeerPresenceSnapshot, userId: UserId) {
-  return Object.values(snapshot)
-    .filter(peerState => {
-      return peerState.userId === userId
-    })
-    .map(peerState => peerState.peerId)
-}
+  /**
+   * Get all users.
+   *
+   * @returns Array of user ids
+   */
+  get users() {
+    return unique(Object.values(this.value).map(peerState => peerState.userId))
+  }
 
-/**
- * Get all recently-seen peers for this device.
- *
- * @param deviceId
- * @returns Array of peer ids for this device
- */
-export function getDevicePeers(
-  snapshot: PeerPresenceSnapshot,
-  deviceId: DeviceId
-) {
-  return Object.values(snapshot)
-    .filter(peerState => {
-      return peerState.deviceId === deviceId
-    })
-    .map(peerState => peerState.peerId)
-}
+  /**
+   * Get all devices.
+   *
+   * @returns Array of device ids
+   */
+  get devices() {
+    return unique(
+      Object.values(this.value).map(peerState => peerState.deviceId)
+    )
+  }
 
-/**
- * Get most-recently-seen peer from this group.
- *
- * @param peers
- * @returns id of most recently seen peer
- */
-export function getFreshestPeer(
-  snapshot: PeerPresenceSnapshot,
-  peers: PeerId[]
-) {
-  let freshestLastSeen: number
-  return peers.reduce((freshest: PeerId | undefined, curr) => {
-    const lastSeen = snapshot[curr]?.lastSeen
-    if (!lastSeen) {
+  /**
+   * Get all peers
+   *
+   * @returns Array of peer ids
+   */
+  get peers() {
+    return Object.keys(this.value)
+  }
+
+  /**
+   * Get all peers for this user.
+   *
+   * @param userId
+   * @returns Array of peer ids for this user
+   */
+  getUserPeers(userId: UserId) {
+    return Object.values(this.value)
+      .filter(peerState => peerState.userId === userId)
+      .map(peerState => peerState.peerId)
+  }
+
+  /**
+   * Get all recently-seen peers for this device.
+   *
+   * @param deviceId
+   * @returns Array of peer ids for this device
+   */
+  getDevicePeers(deviceId: DeviceId) {
+    return Object.values(this.value)
+      .filter(peerState => peerState.deviceId === deviceId)
+      .map(peerState => peerState.peerId)
+  }
+
+  /**
+   * Return the most-recently-seen peer from this group.
+   *
+   * @param peers
+   * @returns id of most recently seen peer
+   */
+  getLatestSeenPeer(peers: PeerId[]) {
+    let freshestLastSeenAt: number
+    return peers.reduce((freshest: PeerId | undefined, curr) => {
+      const lastSeenAt = this.value[curr]?.lastActiveAt
+      if (!lastSeenAt) {
+        return freshest
+      }
+
+      if (!freshest || lastSeenAt > freshestLastSeenAt) {
+        freshestLastSeenAt = lastSeenAt
+        return curr
+      }
+
       return freshest
+    }, undefined)
+  }
+
+  /**
+   * Return the peer from this group that sent a state update most recently
+   *
+   * @param peers
+   * @returns id of most recently seen peer
+   */
+  getLatestActivePeer(peers: PeerId[]) {
+    let freshestLastActiveAt: number
+    return peers.reduce((freshest: PeerId | undefined, curr) => {
+      const lastActiveAt = this.value[curr]?.lastActiveAt
+      if (!lastActiveAt) {
+        return freshest
+      }
+
+      if (!freshest || lastActiveAt > freshestLastActiveAt) {
+        freshestLastActiveAt = lastActiveAt
+        return curr
+      }
+
+      return freshest
+    }, undefined)
+  }
+
+  /**
+   * Get current ephemeral state value for this user's most-recently-active
+   * peer.
+   *
+   * @param userId
+   * @returns
+   */
+  getUserState(userId: UserId) {
+    const peers = this.getUserPeers(userId)
+    if (!peers) {
+      return undefined
+    }
+    const peer = this.getLatestActivePeer(peers)
+    if (!peer) {
+      return undefined
     }
 
-    if (!freshest || lastSeen > freshestLastSeen) {
-      freshestLastSeen = lastSeen
-      return curr
+    return this.value[peer]
+  }
+
+  /**
+   * Get current ephemeral state value for this device's most-recently-active
+   * peer.
+   *
+   * @param deviceId
+   * @returns
+   */
+  getDeviceState(deviceId: DeviceId) {
+    const peers = this.getDevicePeers(deviceId)
+    if (!peers) {
+      return undefined
+    }
+    const peer = this.getLatestActivePeer(peers)
+    if (!peer) {
+      return undefined
     }
 
-    return freshest
-  }, undefined)
-}
-
-/**
- * Get current ephemeral state value for this user's most-recently-active
- * peer.
- *
- * @param userId
- * @returns
- */
-export function getUserState(snapshot: PeerPresenceSnapshot, userId: UserId) {
-  const peers = getUserPeers(snapshot, userId)
-  if (!peers) {
-    return undefined
+    return this.value[peer]
   }
-  const peer = getFreshestPeer(snapshot, peers)
-  if (!peer) {
-    return undefined
-  }
-
-  return snapshot[peer]
-}
-
-/**
- * Get current ephemeral state value for this device's most-recently-active
- * peer.
- *
- * @param deviceId
- * @returns
- */
-export function getDeviceState(
-  snapshot: PeerPresenceSnapshot,
-  deviceId: DeviceId
-) {
-  const peers = getDevicePeers(snapshot, deviceId)
-  if (!peers) {
-    return undefined
-  }
-  const peer = getFreshestPeer(snapshot, peers)
-  if (!peer) {
-    return undefined
-  }
-
-  return snapshot[peer]
 }

@@ -6,21 +6,19 @@ import {
   DocHandle,
   UserId,
   DeviceId,
-  PeerId,
-  PeerState,
+  PeerStateView,
+  PresenceState,
 } from "@automerge/automerge-repo/slim"
 
-export type UsePresenceConfig<State extends Record<string, any>> = Omit<
-  PresenceConfig<State>,
-  "skipAutoInit"
-> & {
-  handle: DocHandle<unknown>
-  userId?: UserId
-  deviceId?: DeviceId
-}
+export type UsePresenceConfig<State extends PresenceState> =
+  PresenceConfig<State> & {
+    handle: DocHandle<unknown>
+    userId?: UserId
+    deviceId?: DeviceId
+  }
 
-export type UsePresenceResult<State extends Record<string, any>> = {
-  peerStates: Record<PeerId, PeerState<State>>
+export type UsePresenceResult<State extends PresenceState> = {
+  peerStates: PeerStateView<State>
   localState: State | undefined
   update: <Channel extends keyof State>(
     channel: Channel,
@@ -47,7 +45,7 @@ export type UsePresenceResult<State extends Record<string, any>> = {
  *
  * @returns see {@link UsePresenceResult}
  */
-export function usePresence<State extends Record<string, any>>({
+export function usePresence<State extends PresenceState>({
   handle,
   userId,
   deviceId,
@@ -56,7 +54,7 @@ export function usePresence<State extends Record<string, any>>({
   peerTtlMs,
 }: UsePresenceConfig<State>): UsePresenceResult<State> {
   const [localState, setLocalState] = useState<State>(initialState)
-  const [peerStates, setPeerStates] = useState({})
+  const [peerStates, setPeerStates] = useState(new PeerStateView<State>({}))
   // Don't re-render based on changes to these: they are not expected to
   // change but may be passed in as object literals
   const firstOpts = useRef({
