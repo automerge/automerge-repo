@@ -25,7 +25,7 @@ declare global {
 
 ;(async () => {
     const db = await IndexedDbStorage.setup(indexedDB)
-    const subduction = new Subduction(db)
+    const subduction = await Subduction.hydrate(db)
 
     const oldDb = new IndexedDBStorageAdapter("automerge-repo-demo-todo")
     const repo = new Repo({
