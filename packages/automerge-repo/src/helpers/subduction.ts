@@ -3,10 +3,9 @@ import {
     SedimentreeId,
     PeerId as SubductionPeerId,
 } from "@automerge/automerge_subduction"
-import { AnyDocumentId, PeerId } from "../types.js"
+import { AnyDocumentId, DocumentId, PeerId } from "../types.js"
 import bs58check from "bs58check"
 import { Doc } from "@automerge/automerge"
-import { Automerge } from "../entrypoints/slim.js"
 
 export function toSubductionPeerId(peerId: PeerId): SubductionPeerId {
     const peerIdBytes = new TextEncoder().encode(peerId)
@@ -15,18 +14,17 @@ export function toSubductionPeerId(peerId: PeerId): SubductionPeerId {
     return new SubductionPeerId(bytes)
 }
 
-export async function toSedimentreeId(
-    id: AnyDocumentId
-): Promise<SedimentreeId> {
+export function toSedimentreeId(id: AnyDocumentId): SedimentreeId {
     const docIdBytes = toBinaryDocumentId(id)
-    console.warn({ docIdBytes, len: docIdBytes.length })
-    const stringBuffer = await crypto.subtle.digest(
-        "SHA-256",
-        docIdBytes as unknown as BufferSource
-    )
-    const rawSedimentreeId = new Uint8Array(stringBuffer)
-    console.warn({ rawSedimentreeId })
-    return SedimentreeId.fromBytes(rawSedimentreeId)
+    const out = new Uint8Array(32)
+    out.set(docIdBytes.subarray(0, 32))
+    return SedimentreeId.fromBytes(out)
+}
+
+export function toDocumentId(sedimentreeId: SedimentreeId): DocumentId {
+    const str = sedimentreeId.toString()
+    const sixteenBytesString = str.substring(0, 16 * 2) as DocumentId
+    return sixteenBytesString
 }
 
 function toBinaryDocumentId(id: AnyDocumentId): Uint8Array {
