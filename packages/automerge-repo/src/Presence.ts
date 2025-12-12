@@ -194,21 +194,11 @@ export class Presence<
       switch (message.type) {
         case "heartbeat":
           this.#peers.markSeen(peerId)
-          this.emit("heartbeat", {
-            type: "heartbeat",
-            peerId,
-            deviceId,
-            userId,
-          })
+          this.emit("heartbeat", { type: "heartbeat", peerId })
           break
         case "goodbye":
           this.#peers.delete(peerId)
-          this.emit("goodbye", {
-            type: "goodbye",
-            peerId,
-            deviceId,
-            userId,
-          })
+          this.emit("goodbye", { type: "goodbye", peerId })
           break
         case "update":
           this.#peers.update({
@@ -277,7 +267,7 @@ export class Presence<
     this.#localState = Object.assign({}, this.#localState, {
       [channel]: value,
     })
-    this.broadcastChannelState(channel, value)
+    this.broadcastChannelState(channel)
   }
 
   /**
@@ -310,7 +300,7 @@ export class Presence<
     this.#handle.off("ephemeral-message", this.#handleEphemeralMessage)
     this.stopHeartbeats()
     this.stopPruningPeers()
-    this.doBroadcast("goodbye")
+    this.send({ type: "goodbye" })
     this.#running = false
   }
 
@@ -330,10 +320,8 @@ export class Presence<
     this.resetHeartbeats()
   }
 
-  private broadcastChannelState<Channel extends keyof State>(
-    channel: Channel,
-    value: State[Channel]
-  ) {
+  private broadcastChannelState<Channel extends keyof State>(channel: Channel) {
+    const value = this.#localState[channel]
     this.doBroadcast("update", { channel, value })
     this.resetHeartbeats()
   }
@@ -346,24 +334,24 @@ export class Presence<
     this.startHeartbeats()
   }
 
-  private sendHeartbeat() {
-    this.doBroadcast("heartbeat")
-  }
-
   private doBroadcast(
     type: PresenceMessageType,
     extra?: Record<string, unknown>
   ) {
+    this.send({
+      userId: this.userId,
+      deviceId: this.deviceId,
+      type,
+      ...extra,
+    })
+  }
+
+  private send(message: Record<string, unknown>) {
     if (!this.#running) {
       return
     }
     this.#handle.broadcast({
-      [PRESENCE_MESSAGE_MARKER]: {
-        userId: this.userId,
-        deviceId: this.deviceId,
-        type,
-        ...extra,
-      },
+      [PRESENCE_MESSAGE_MARKER]: message,
     })
   }
 
@@ -372,7 +360,7 @@ export class Presence<
       return
     }
     this.#heartbeatInterval = setInterval(() => {
-      this.sendHeartbeat()
+      this.send({ type: "heartbeat" })
     }, this.#heartbeatMs)
   }
 
