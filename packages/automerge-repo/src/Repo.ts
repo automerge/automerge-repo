@@ -1228,19 +1228,17 @@ export class Repo extends EventEmitter<RepoEvents> {
         const sid = await toSedimentreeId(handle.documentId)
         this.#handlesBySedimentreeId.set(sid.toString(), handle)
 
-        this.#subduction.addSedimentree(sid, new Sedimentree([], []), [])
-
-        handle.update(doc => {
-            this.#updateSubduction(doc, sid)
-            return doc
-        })
-
         handle.on("heads-changed", ({ doc }) => {
             console.debug("heads-changed event for doc", { handle, doc })
             handle.update(doc => {
                 this.#updateSubduction(doc, sid)
                 return doc
             })
+        })
+
+        handle.update(doc => {
+            this.#updateSubduction(doc, sid)
+            return doc
         })
     }
 
