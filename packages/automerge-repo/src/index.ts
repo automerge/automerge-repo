@@ -39,15 +39,16 @@ export {
   decodeHeads,
 } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
-export {
-  Presence,
+export { Presence } from "./presence/Presence.js"
+export { PeerStateView } from "./presence/PeerStateView.js"
+export type {
   PeerState,
-  PeerStateView,
   PresenceState,
   PresenceConfig,
   UserId,
   DeviceId,
-} from "./Presence.js"
+} from "./presence/types.js"
+
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.js"
 export { isRepoMessage } from "./network/messages.js"

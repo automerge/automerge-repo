@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { Presence, PresenceEventHeartbeat } from "../src/Presence.js"
+import { Presence } from "../src/presence/Presence.js"
+import { PresenceEventHeartbeat } from "../src/presence/types.js"
 import { Repo } from "../src/Repo.js"
 import { PeerId } from "../src/types.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
