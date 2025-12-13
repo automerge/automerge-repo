@@ -2,25 +2,23 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   Presence,
-  PeerPresenceView,
   PresenceConfig,
   DocHandle,
   UserId,
   DeviceId,
+  PeerStateView,
+  PresenceState,
 } from "@automerge/automerge-repo/slim"
-import { useInvalidate } from "./helpers/useInvalidate.js"
 
-export type UsePresenceConfig<State> = Omit<
-  PresenceConfig<State>,
-  "skipAutoInit"
-> & {
-  handle: DocHandle<unknown>
-  userId?: UserId
-  deviceId?: DeviceId
-}
+export type UsePresenceConfig<State extends PresenceState> =
+  PresenceConfig<State> & {
+    handle: DocHandle<unknown>
+    userId?: UserId
+    deviceId?: DeviceId
+  }
 
-export type UsePresenceResult<State> = {
-  peerStates: PeerPresenceView<State>
+export type UsePresenceResult<State extends PresenceState> = {
+  peerStates: PeerStateView<State>
   localState: State | undefined
   update: <Channel extends keyof State>(
     channel: Channel,
@@ -47,7 +45,7 @@ export type UsePresenceResult<State> = {
  *
  * @returns see {@link UsePresenceResult}
  */
-export function usePresence<State extends Record<string, any>>({
+export function usePresence<State extends PresenceState>({
   handle,
   userId,
   deviceId,
@@ -55,7 +53,8 @@ export function usePresence<State extends Record<string, any>>({
   heartbeatMs,
   peerTtlMs,
 }: UsePresenceConfig<State>): UsePresenceResult<State> {
-  const invalidate = useInvalidate()
+  const [localState, setLocalState] = useState<State>(initialState)
+  const [peerStates, setPeerStates] = useState(new PeerStateView<State>({}))
   // Don't re-render based on changes to these: they are not expected to
   // change but may be passed in as object literals
   const firstOpts = useRef({
@@ -72,27 +71,28 @@ export function usePresence<State extends Record<string, any>>({
       initialState: firstInitialState.current,
       ...firstOpts.current,
     })
-    presence.on("heartbeat", invalidate)
-    presence.on("snapshot", invalidate)
-    presence.on("update", invalidate)
-    presence.on("goodbye", invalidate)
+    presence.on("heartbeat", () => setPeerStates(presence.getPeerStates()))
+    presence.on("snapshot", () => setPeerStates(presence.getPeerStates()))
+    presence.on("update", () => setPeerStates(presence.getPeerStates()))
+    presence.on("goodbye", () => setPeerStates(presence.getPeerStates()))
 
     return () => {
       presence.stop()
     }
   }, [presence, userId, deviceId, firstInitialState, firstOpts])
 
-  const updateLocalState = useCallback(
+  const update = useCallback(
     <Channel extends keyof State>(channel: Channel, msg: State[Channel]) => {
-      invalidate()
       presence.broadcast(channel, msg)
+      const updated = presence.getLocalState()
+      setLocalState(updated)
     },
     [presence]
   )
 
   return {
-    peerStates: presence.getPeerStates(),
-    localState: presence.getLocalState(),
-    update: updateLocalState,
+    peerStates,
+    localState,
+    update,
   }
 }
