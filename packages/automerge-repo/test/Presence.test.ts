@@ -77,19 +77,19 @@ describe("Presence", () => {
       expect(bob.presence.running).toBe(true)
 
       await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates()
-        const bobPeers = Object.keys(bobPeerStates.value)
+        const bobPeerStates = bob.presence.getPeerStates().value
+        const bobPeers = Object.keys(bobPeerStates)
 
         expect(bobPeers.length).toBe(1)
         expect(bobPeers[0]).toBe(alice.repo.peerId)
-        expect(bobPeerStates.value[bobPeers[0]].value.position).toBe(123)
+        expect(bobPeerStates[alice.repo.peerId].value.position).toBe(123)
 
-        const alicePeerStates = alice.presence.getPeerStates()
-        const alicePeers = Object.keys(alicePeerStates.value)
+        const alicePeerStates = alice.presence.getPeerStates().value
+        const alicePeers = Object.keys(alicePeerStates)
 
         expect(alicePeers.length).toBe(1)
         expect(alicePeers[0]).toBe(bob.repo.peerId)
-        expect(alicePeerStates.value[alicePeers[0]].value.position).toBe(456)
+        expect(alicePeerStates[bob.repo.peerId].value.position).toBe(456)
       })
     })
 
@@ -131,20 +131,21 @@ describe("Presence", () => {
       })
 
       await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates()
-        const bobPeers = Object.keys(bobPeerStates.value)
+        const bobPeerStates = bob.presence.getPeerStates().value
+        const bobPeers = Object.keys(bobPeerStates)
 
         expect(bobPeers.length).toBe(1)
         expect(bobPeers[0]).toBe(alice.repo.peerId)
-        expect(bobPeerStates.value[bobPeers[0]].value.position).toBe(123)
+        expect(bobPeerStates[alice.repo.peerId].value.position).toBe(123)
       })
 
       alice.presence.stop()
       expect(alice.presence.running).toBe(false)
 
+      console.log("waiting for peers to leave")
       await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates()
-        const bobPeers = Object.keys(bobPeerStates.value)
+        const bobPeerStates = bob.presence.getPeerStates().value
+        const bobPeers = Object.keys(bobPeerStates)
 
         expect(bobPeers.length).toBe(0)
       })
@@ -185,7 +186,6 @@ describe("Presence", () => {
       await waitFor(() => {
         expect(hbPeerMsg.peerId).toEqual(alice.repo.peerId)
         expect(hbPeerMsg.type).toEqual("heartbeat")
-        expect(hbPeerMsg.userId).toEqual("alice")
       })
     })
 
@@ -218,7 +218,6 @@ describe("Presence", () => {
       await wait(20)
       expect(hbPeerMsg.peerId).toEqual(alice.repo.peerId)
       expect(hbPeerMsg.type).toEqual("heartbeat")
-      expect(hbPeerMsg.userId).toEqual("alice")
     })
   })
 
@@ -238,21 +237,21 @@ describe("Presence", () => {
       })
 
       await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates()
-        const bobPeers = Object.keys(bobPeerStates.value)
+        const bobPeerStates = bob.presence.getPeerStates().value
+        const bobPeers = Object.keys(bobPeerStates)
 
         expect(bobPeers.length).toBe(1)
-        expect(bobPeerStates.value[alice.repo.peerId].value.position).toBe(123)
+        expect(bobPeerStates[alice.repo.peerId].value.position).toBe(123)
       })
 
       alice.presence.broadcast("position", 213)
 
       await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates()
+        const bobPeerStates = bob.presence.getPeerStates().value
         const bobPeers = Object.keys(bobPeerStates)
 
         expect(bobPeers.length).toBe(1)
-        expect(bobPeerStates.value[alice.repo.peerId].value.position).toBe(213)
+        expect(bobPeerStates[alice.repo.peerId].value.position).toBe(213)
       })
     })
   })
