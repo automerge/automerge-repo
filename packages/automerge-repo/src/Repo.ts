@@ -287,7 +287,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     this.synchronizer.on("sync-state", message => {
-      this.#saveSyncState(message)
+      // this.#saveSyncState(message)
 
       const handle = this.#handleCache[message.documentId]
 
@@ -407,40 +407,40 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
-  #throttledSaveSyncStateHandlers: Record<
-    StorageId,
-    (payload: SyncStatePayload) => void
-  > = {}
+  // #throttledSaveSyncStateHandlers: Record<
+  //   StorageId,
+  //   (payload: SyncStatePayload) => void
+  // > = {}
 
-  /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
-  #saveSyncState(payload: SyncStatePayload) {
-    if (!this.storageSubsystem) {
-      return
-    }
+  // /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
+  // #saveSyncState(payload: SyncStatePayload) {
+  //   if (!this.storageSubsystem) {
+  //     return
+  //   }
 
-    const { storageId, isEphemeral } =
-      this.peerMetadataByPeerId[payload.peerId] || {}
+  //   const { storageId, isEphemeral } =
+  //     this.peerMetadataByPeerId[payload.peerId] || {}
 
-    if (!storageId || isEphemeral) {
-      return
-    }
+  //   if (!storageId || isEphemeral) {
+  //     return
+  //   }
 
-    let handler = this.#throttledSaveSyncStateHandlers[storageId]
-    if (!handler) {
-      handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
-        ({ documentId, syncState }: SyncStatePayload) => {
-          void this.storageSubsystem!.saveSyncState(
-            documentId,
-            storageId,
-            syncState
-          )
-        },
-        this.#saveDebounceRate
-      )
-    }
+  //   let handler = this.#throttledSaveSyncStateHandlers[storageId]
+  //   if (!handler) {
+  //     handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
+  //       ({ documentId, syncState }: SyncStatePayload) => {
+  //         void this.storageSubsystem!.saveSyncState(
+  //           documentId,
+  //           storageId,
+  //           syncState
+  //         )
+  //       },
+  //       this.#saveDebounceRate
+  //     )
+  //   }
 
-    handler(payload)
-  }
+  //   handler(payload)
+  // }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
   #getHandle<T>({
@@ -701,7 +701,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     },
     abortPromise: Promise<never>
   ) {
-    console.debug("loadDocumentWithProgress", { id, documentId })
     try {
       progressSignal.notify({
         state: "loading" as const,
@@ -709,7 +708,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         handle,
       })
 
-      const sedimentreeId = await toSedimentreeId(handle.documentId)
+      const sedimentreeId = toSedimentreeId(handle.documentId)
       const loadedBlobs = await Promise.race([
         this.#subduction.getLocalBlobs(sedimentreeId),
         abortPromise,
@@ -779,7 +778,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
-    console.debug("find")
     const { allowableStates = ["ready"], signal } = options
 
     // Check if already aborted
@@ -832,21 +830,22 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // If we don't already have the handle, make an empty one and try loading it
     const handle = this.#getHandle<T>({ documentId })
-    const loadedDoc = await (this.storageSubsystem
-      ? this.storageSubsystem.loadDoc(handle.documentId)
-      : Promise.resolve(null))
-
-    if (loadedDoc) {
-      // We need to cast this to <T> because loadDoc operates in <unknowns>.
-      // This is really where we ought to be validating the input matches <T>.
-      handle.update(() => loadedDoc as Automerge.Doc<T>)
+    const sedimentreeId = toSedimentreeId(handle.documentId)
+    const blobs = await this.#subduction.getLocalBlobs(sedimentreeId)
+    if (blobs.length > 0) {
+      handle.update(initialDoc => {
+        let doc = initialDoc
+        blobs.forEach((blob: Uint8Array) => {
+          doc = Automerge.loadIncremental(doc, blob)
+        })
+        return doc
+      })
       handle.doneLoading()
     } else {
       // Because the network subsystem might still be booting up, we wait
       // here so that we don't immediately give up loading because we're still
       // making our initial connection to a sync server.
-      // await this.networkSubsystem.whenReady()
-      handle.request()
+      await this.#requestDocOverSubduction(handle)
     }
 
     this.#registerHandleWithSubsystems(handle)
@@ -972,15 +971,17 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @returns Promise<void>
    */
   async flush(documents?: DocumentId[]): Promise<void> {
-    if (!this.storageSubsystem) {
-      return
-    }
     const handles = documents
-      ? documents.map(id => this.#handleCache[id])
+      ? documents
+          .map(id => this.#handleCache[id])
+          .filter(handle => handle.isReady())
       : Object.values(this.#handleCache)
     await Promise.all(
       handles.map(async handle => {
-        return this.storageSubsystem!.saveDoc(handle.documentId, handle.doc())
+        const sid = toSedimentreeId(handle.documentId)
+        if (handle.isReady()) {
+          await this.#tellSubductionPeers(handle.doc(), sid)
+        }
       })
     )
   }
@@ -1010,6 +1011,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
         )
       }
+      await this.#subduction.removeSedimentree(toSedimentreeId(documentId))
       delete this.#handleCache[documentId]
       delete this.#progressCache[documentId]
       delete this.#saveFns[documentId]
@@ -1021,11 +1023,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
-  shutdown(): Promise<void> {
-    this.networkSubsystem.adapters.forEach(adapter => {
-      adapter.disconnect()
-    })
-    return this.flush()
+  async shutdown() {
+    await this.#subduction.disconnectAll()
+    await this.flush()
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -1064,7 +1064,6 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
     await this.#subduction.attach(wsAdapter)
-    console.debug("Subduction attached to WebSocket")
 
     // Incremental sync
     this.#subduction.onCommit(
@@ -1073,38 +1072,26 @@ export class Repo extends EventEmitter<RepoEvents> {
         loose_commit: LooseCommit,
         blob: Uint8Array
       ) => {
-        try {
-          console.debug("subduction onCommit", {
+        const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
+
+        if (existingHandle !== undefined && existingHandle !== null) {
+          existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
+          existingHandle.doneLoading()
+        } else {
+          console.warn("onCommit: no handle for sedimentree id", {
             id,
-            loose_commit,
           })
-          const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
+          const initialDoc: Automerge.Doc<any> = Automerge.emptyChange(
+            Automerge.init()
+          )
+          const documentId = toDocumentId(id)
+          const newHandle = this.#getHandle<any>({
+            documentId,
+          }) as DocHandle<any>
 
-          if (existingHandle !== undefined && existingHandle !== null) {
-            console.debug("handling commit blob", {
-              blob,
-              existingHandle,
-            })
-            existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
-            existingHandle.doneLoading()
-          } else {
-            console.warn("onCommit: no handle for sedimentree id", {
-              id,
-            })
-            const initialDoc: Automerge.Doc<any> = Automerge.emptyChange(
-              Automerge.init()
-            )
-            const documentId = toDocumentId(id)
-            const newHandle = this.#getHandle<any>({
-              documentId,
-            }) as DocHandle<any>
-
-            newHandle.update(() => Automerge.loadIncremental(initialDoc, blob))
-            this.#registerHandleWithSubsystems(newHandle)
-            newHandle.doneLoading()
-          }
-        } catch (err) {
-          console.error("error handling subduction commit", { err })
+          newHandle.update(() => Automerge.loadIncremental(initialDoc, blob))
+          this.#registerHandleWithSubsystems(newHandle)
+          newHandle.doneLoading()
         }
       }
     )
@@ -1113,10 +1100,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#subduction.onFragment(
       async (id: SedimentreeId, fragment: Fragment, blob: Uint8Array) => {
         try {
-          console.debug("subduction onFragment", { id, fragment })
           const handle = this.#handlesBySedimentreeId.get(id.toString())
           if (handle !== undefined) {
-            console.debug("blob", blob)
             handle.update(doc => Automerge.loadIncremental(doc, blob))
             handle.doneLoading()
           } else {
@@ -1139,23 +1124,14 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
       }
     )
-
-    this.#subduction.onBlob((_blob: Uint8Array) => {
-      console.log("subduction onBlob")
-    })
   }
 
   async #requestDocOverSubduction(handle: DocHandle<any>) {
-    const sedimentreeId = await toSedimentreeId(handle.documentId)
+    const sedimentreeId = toSedimentreeId(handle.documentId)
     this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
     const peerResultMap = await this.#subduction.requestAllBatchSync(
       sedimentreeId
     )
-    console.debug("subduction peerResultMap", {
-      peerResultMap,
-      entries: peerResultMap.entries(),
-    })
-
     peerResultMap.entries().forEach(batchSyncResult => {
       if (!batchSyncResult.success) {
         console.warn("failed PeerBatchSyncResult")
@@ -1165,9 +1141,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         console.warn("PeerBatchSyncResult connError: ", err)
       }
 
-      console.info("blobs len", batchSyncResult.blobs.length)
       batchSyncResult.blobs.forEach((bundleBlob: Uint8Array) => {
-        console.log("progress bundleBlob", bundleBlob)
         handle.update(doc => Automerge.loadIncremental(doc, bundleBlob))
         handle.doneLoading()
       })
@@ -1175,12 +1149,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
-    console.debug("telling subduction about new handle", { handle })
     const sid = toSedimentreeId(handle.documentId)
     this.#handlesBySedimentreeId.set(sid.toString(), handle)
 
     handle.on("heads-changed", ({ doc }) => {
-      console.debug("heads-changed event for doc", { handle, doc })
       handle.update(doc => {
         this.#tellSubductionPeers(doc, sid)
         return doc
@@ -1232,8 +1204,6 @@ export class Repo extends EventEmitter<RepoEvents> {
           if (maybeFragmentRequested === undefined) return
 
           const fragmentRequested = maybeFragmentRequested
-          console.debug("commit needs fragment, creating...")
-
           const sam = toSedimentreeAutomerge(doc)
           const fragmentState = sam.fragment(
             fragmentRequested.head,
@@ -1246,7 +1216,6 @@ export class Repo extends EventEmitter<RepoEvents> {
 
           // NOTE this is the only(?) function that we need from AM v3.2.0
           const fragmentBlob = Automerge.saveBundle(doc, members)
-          console.info("fragmentBlob created")
           const fragmentBlobMeta = new BlobMeta(fragmentBlob)
           const fragment = fragmentState.intoFragment(fragmentBlobMeta)
 
