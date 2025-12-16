@@ -18,8 +18,8 @@ import {
   UNLOADED,
 } from "./DocHandle.js"
 import { HashRing } from "./helpers/HashRing.js"
-import { uint8ArrayFromHexString } from "./helpers/bufferFromHex.js"
 import {
+  automergeMeta,
   toDocumentId,
   toSedimentreeAutomerge,
   toSedimentreeId,
@@ -99,8 +99,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   #subduction: Subduction
   #handlesBySedimentreeId: Map<string, DocHandle<any>> // NOTE until doc IDs are [u8; 32]s
   #fragmentStateStore: FragmentStateStore
-  #recentlySeenHeads: HashRing
   #lastHeadsSent: Map<string, Set<string>> // TODO move to subduction.wasm
+  #recentlySeenHeads: Map<string, HashRing>
+  #recentHeadsCacheSize: number
 
   /** @hidden */
   networkSubsystem: NetworkSubsystem
@@ -148,6 +149,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     saveDebounceRate = 100,
     idFactory,
     subduction,
+    recentHeadsCacheSize = 256,
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
@@ -358,7 +360,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!subduction) throw new Error("Subduction instance is required")
     this.#subduction = subduction
     this.#fragmentStateStore = new FragmentStateStore()
-    this.#recentlySeenHeads = new HashRing(256)
+    this.#recentHeadsCacheSize = recentHeadsCacheSize
+    this.#recentlySeenHeads = new Map()
     this.#lastHeadsSent = new Map()
     this.#handlesBySedimentreeId = new Map()
     this.setupSubductionSyncServer(peerId)
@@ -715,7 +718,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (!!loadedBlobs && loadedBlobs.length > 0) {
         handle.update(doc => {
           let newDoc = doc
-          loadedBlobs.forEach(blob => {
+          loadedBlobs.forEach((blob: Uint8Array) => {
             newDoc = Automerge.loadIncremental(newDoc, blob)
           })
           return newDoc
@@ -740,7 +743,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
 
       await this.#requestDocOverSubduction(handle)
-      await this.#registerHandleWithSubsystems(handle)
+      this.#registerHandleWithSubsystems(handle)
 
       await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
 
@@ -1088,7 +1091,6 @@ export class Repo extends EventEmitter<RepoEvents> {
             console.warn("onCommit: no handle for sedimentree id", {
               id,
             })
-            // FIXME temporary hack  while docIDs are not [u8; 32]s
             const initialDoc: Automerge.Doc<any> = Automerge.emptyChange(
               Automerge.init()
             )
@@ -1113,7 +1115,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         try {
           console.debug("subduction onFragment", { id, fragment })
           const handle = this.#handlesBySedimentreeId.get(id.toString())
-          if (handle !== undefined && handle !== null) {
+          if (handle !== undefined) {
             console.debug("blob", blob)
             handle.update(doc => Automerge.loadIncremental(doc, blob))
             handle.doneLoading()
@@ -1164,7 +1166,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
 
       console.info("blobs len", batchSyncResult.blobs.length)
-      batchSyncResult.blobs.forEach(bundleBlob => {
+      batchSyncResult.blobs.forEach((bundleBlob: Uint8Array) => {
         console.log("progress bundleBlob", bundleBlob)
         handle.update(doc => Automerge.loadIncremental(doc, bundleBlob))
         handle.doneLoading()
@@ -1172,100 +1174,92 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
   }
 
-  async #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
+  #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
     console.debug("telling subduction about new handle", { handle })
-    const sid = await toSedimentreeId(handle.documentId)
+    const sid = toSedimentreeId(handle.documentId)
     this.#handlesBySedimentreeId.set(sid.toString(), handle)
 
     handle.on("heads-changed", ({ doc }) => {
       console.debug("heads-changed event for doc", { handle, doc })
       handle.update(doc => {
-        this.#updateSubduction(doc, sid)
+        this.#tellSubductionPeers(doc, sid)
         return doc
       })
     })
 
     handle.update(doc => {
-      this.#updateSubduction(doc, sid)
+      this.#tellSubductionPeers(doc, sid)
       return doc
     })
   }
 
-  #updateSubduction<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
-    try {
-      const currentHexHeads = Automerge.getHeads(doc)
-      const mostRecentHeads: Set<string> =
-        this.#lastHeadsSent.get(sedimentreeId.toString()) || new Set()
-      if (new Set(currentHexHeads) == mostRecentHeads) {
-        console.debug("nothing new to send, skipping sync...")
-        return
-      } else {
-        console.debug("new data to sync, proceeding...")
-      }
+  async #tellSubductionPeers<T>(
+    doc: Automerge.Doc<T>,
+    sedimentreeId: SedimentreeId
+  ) {
+    const currentHexHeads = Automerge.getHeads(doc)
+    const id = sedimentreeId.toString()
+    const mostRecentHeads: Set<string> =
+      this.#lastHeadsSent.get(id) || new Set()
+    if (new Set(currentHexHeads) == mostRecentHeads) return
 
-      Automerge.getChangesMetaSince(doc, Array.from(mostRecentHeads)).forEach(
-        meta => {
+    await Promise.all(
+      Automerge.getChangesMetaSince(doc, Array.from(mostRecentHeads)).map(
+        async meta => {
+          const cache =
+            this.#recentlySeenHeads.get(id) ||
+            new HashRing(this.#recentHeadsCacheSize)
+
           const hexHash = meta.hash
-          if (!this.#recentlySeenHeads.add(hexHash)) {
-            console.debug(`already recently seen ${hexHash}, skipping sync...`)
-          }
-          // HACK: the horror!  👹
-          const sym = Object.getOwnPropertySymbols(doc).find(
-            s => s.description === "_am_meta"
-          )!
-          const innerDoc = (doc as any)[sym].handle
-          const commitBytes = innerDoc.getChangeByHash(hexHash)
+          if (!cache.add(hexHash)) return
 
-          const digest = new Digest(uint8ArrayFromHexString(hexHash))
-          const parents = meta.deps.map(depHexHash => {
-            return new Digest(uint8ArrayFromHexString(depHexHash))
-          })
+          this.#recentlySeenHeads.set(id, cache)
+
+          const commitBytes = automergeMeta(doc).getChangeByHash(hexHash)
+          const digest = Digest.fromHexString(hexHash)
+          const parents = meta.deps.map(depHexHash =>
+            Digest.fromHexString(depHexHash)
+          )
           const blobMeta = new BlobMeta(commitBytes)
           const looseCommit = new LooseCommit(digest, parents, blobMeta)
 
-          this.#subduction
-            .addCommit(sedimentreeId, looseCommit, commitBytes)
-            .then(maybeFragmentRequested => {
-              if (
-                maybeFragmentRequested !== null &&
-                maybeFragmentRequested !== undefined
-              ) {
-                const fragmentRequested: FragmentRequested =
-                  maybeFragmentRequested
-                console.debug("commit needs fragment, creating...")
+          const maybeFragmentRequested = await this.#subduction.addCommit(
+            sedimentreeId,
+            looseCommit,
+            commitBytes
+          )
 
-                const sam = toSedimentreeAutomerge(doc)
-                const fragmentState = sam.fragment(
-                  fragmentRequested.head,
-                  this.#fragmentStateStore,
-                  hashMetric
-                )
-                const members = fragmentState.members().map(digest => {
-                  return Array.from(digest.toBytes(), b =>
-                    b.toString(16).padStart(2, "0")
-                  ).join("")
-                })
-                // NOTE this is the only(?) function that we need from AM v3.2.0
-                const fragmentBlob = Automerge.saveBundle(doc, members)
-                console.info("fragmentBlob created")
-                const blobMeta = new BlobMeta(fragmentBlob)
-                const fragment = fragmentState.intoFragment(blobMeta)
+          if (maybeFragmentRequested === undefined) return
 
-                this.#subduction
-                  .addFragment(sedimentreeId, fragment, fragmentBlob)
-                  .catch(console.error)
-              }
-            })
+          const fragmentRequested = maybeFragmentRequested
+          console.debug("commit needs fragment, creating...")
 
-          this.#lastHeadsSent.set(
-            sedimentreeId.toString(),
-            new Set(currentHexHeads)
+          const sam = toSedimentreeAutomerge(doc)
+          const fragmentState = sam.fragment(
+            fragmentRequested.head,
+            this.#fragmentStateStore,
+            hashMetric
+          )
+          const members = fragmentState
+            .members()
+            .map((digest: Digest): string => digest.toHexString())
+
+          // NOTE this is the only(?) function that we need from AM v3.2.0
+          const fragmentBlob = Automerge.saveBundle(doc, members)
+          console.info("fragmentBlob created")
+          const fragmentBlobMeta = new BlobMeta(fragmentBlob)
+          const fragment = fragmentState.intoFragment(fragmentBlobMeta)
+
+          await this.#subduction.addFragment(
+            sedimentreeId,
+            fragment,
+            fragmentBlob
           )
         }
       )
-    } catch (err) {
-      console.error("error in heads-changed handler", { err })
-    }
+    )
+
+    this.#lastHeadsSent.set(sedimentreeId.toString(), new Set(currentHexHeads))
   }
 }
 
@@ -1328,6 +1322,11 @@ export interface RepoConfig {
    * The subduction sync engine
    */
   subduction?: Subduction
+
+  /**
+   * The size of the cache for recently seen heads per document to avoid resending them
+   */
+  recentHeadsCacheSize?: number
 }
 
 /** A function that determines whether we should share a document with a peer

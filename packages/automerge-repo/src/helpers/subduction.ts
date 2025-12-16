@@ -52,11 +52,16 @@ function toBinaryDocumentId(id: AnyDocumentId): Uint8Array {
   throw new TypeError("Unsupported document ID format")
 }
 
-export function toSedimentreeAutomerge(doc: Doc<any>): SedimentreeAutomerge {
+export function automergeMeta(doc: Doc<any>): any {
   // HACK: the horror!  👹
-  const sym = Object.getOwnPropertySymbols(doc).find(
+  // TODO: get this exposed upstream with exported types
+  const am_meta = Object.getOwnPropertySymbols(doc).find(
     s => s.description === "_am_meta"
   )!
-  const innerDoc = (doc as any)[sym].handle
+  return (doc as any)[am_meta].handle
+}
+
+export function toSedimentreeAutomerge(doc: Doc<any>): SedimentreeAutomerge {
+  const innerDoc = automergeMeta(doc)
   return new SedimentreeAutomerge(innerDoc)
 }
