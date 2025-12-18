@@ -7,13 +7,14 @@
   import {
     Counter as AutomergeCounter,
     isValidAutomergeUrl,
+    Repo,
     type AutomergeUrl
   } from "@automerge/automerge-repo"
   
-  import { repo } from "./lib/repo"
   import { setContextRepo } from "@automerge/automerge-repo-svelte-store"
-  
+
   // Set the repo in context for components to access
+   const { repo } = $props<{ repo: Repo }>();
   setContextRepo(repo)
   
   // Handle document initialization
