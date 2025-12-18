@@ -474,7 +474,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     handle.update(() => {
       return initialDoc
-    })
+    }, "from")
 
     handle.doneLoading()
     return handle
@@ -516,7 +516,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     handle.update(() => {
       return initialDoc
-    })
+    }, "from")
 
     handle.doneLoading()
     return handle
@@ -548,7 +548,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.update(() => {
       // we replace the document with the new cloned one
       return Automerge.clone(sourceDoc)
-    })
+    }, "from")
 
     return handle
   }
@@ -673,7 +673,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       const loadedDoc = await Promise.race([loadingPromise, abortPromise])
 
       if (loadedDoc) {
-        handle.update(() => loadedDoc as Automerge.Doc<T>)
+        handle.update(() => loadedDoc as Automerge.Doc<T>, "loadIncremental")
         handle.doneLoading()
         progressSignal.notify({
           state: "loading" as const,
@@ -785,7 +785,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (loadedDoc) {
       // We need to cast this to <T> because loadDoc operates in <unknowns>.
       // This is really where we ought to be validating the input matches <T>.
-      handle.update(() => loadedDoc as Automerge.Doc<T>)
+      handle.update(() => loadedDoc as Automerge.Doc<T>, "loadIncremental")
       handle.doneLoading()
     } else {
       // Because the network subsystem might still be booting up, we wait
@@ -878,7 +878,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       const handle = this.#getHandle<T>({ documentId: docId })
       handle.update(doc => {
         return Automerge.loadIncremental(doc, binary)
-      })
+      }, "loadIncremental")
       this.#registerHandleWithSubsystems(handle)
       return handle
     } else {
@@ -886,7 +886,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       const handle = this.create<T>()
       handle.update(() => {
         return Automerge.clone(doc)
-      })
+      }, "from")
 
       return handle
     }

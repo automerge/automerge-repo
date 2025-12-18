@@ -401,7 +401,7 @@ export class DocSynchronizer extends Synchronizer {
         // respond to just this peer (as required)
         this.#sendSyncMessage(message.senderId, doc)
         return newDoc
-      })
+      }, "receiveSyncMessage")
 
       this.#checkDocUnavailable()
     })
