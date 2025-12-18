@@ -20,7 +20,7 @@ importers:
         version: 3.2.1
       '@automerge/automerge_subduction':
         specifier: file:../subduction/automerge_subduction_wasm
-        version: '@automerge/automerge_sedimentree_wasm@file:../subduction/automerge_subduction_wasm'
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       '@manypkg/cli':
         specifier: ^0.21.4
         version: 0.21.4
@@ -129,6 +129,18 @@ importers:
 
   examples/react-counter:
     dependencies:
+      '@automerge/automerge-repo':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo
+      '@automerge/automerge-repo-network-messagechannel':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-network-messagechannel
+      '@automerge/automerge-repo-network-websocket':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-network-websocket
+      '@automerge/automerge-repo-storage-indexeddb':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-storage-indexeddb
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -143,7 +155,7 @@ importers:
     dependencies:
       '@automerge/automerge_subduction':
         specifier: file:../../../subduction/automerge_subduction_wasm
-        version: '@automerge/automerge_sedimentree_wasm@file:../subduction/automerge_subduction_wasm'
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -295,7 +307,7 @@ importers:
         version: 3.2.1
       '@automerge/automerge_subduction':
         specifier: file:../../../subduction/automerge_subduction_wasm
-        version: '@automerge/automerge_sedimentree_wasm@file:../subduction/automerge_subduction_wasm'
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -535,7 +547,7 @@ packages:
   '@automerge/automerge@3.2.1':
     resolution: {integrity: sha512-xsEZlZe8lWyVCbD7Z7roH4X6ZKlRxMmmumb0M5CuxJWptUEfYsf+1z9lFEJh4aDBbWTLAgxsXd+TBi6jKTj0+g==}
 
-  '@automerge/automerge_sedimentree_wasm@file:../subduction/automerge_subduction_wasm':
+  '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm':
     resolution: {directory: ../subduction/automerge_subduction_wasm, type: directory}
 
   '@babel/code-frame@7.27.1':
@@ -7104,7 +7116,7 @@ snapshots:
 
   '@automerge/automerge@3.2.1': {}
 
-  '@automerge/automerge_sedimentree_wasm@file:../subduction/automerge_subduction_wasm': {}
+  '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm': {}
 
   '@babel/code-frame@7.27.1':
     dependencies:

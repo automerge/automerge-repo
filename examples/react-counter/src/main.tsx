@@ -39,7 +39,10 @@ declare global {
   }
 }
 
+console.log("Starting up app...")
+
 ;(async () => {
+    console.log("ASYNC")
   const db = await IndexedDbStorage.setup(indexedDB)
   const repo = new Repo({
     network: [],
@@ -66,4 +69,4 @@ declare global {
             </React.StrictMode>
             </RepoContext.Provider>
     )
-})
+})()
