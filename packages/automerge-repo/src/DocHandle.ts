@@ -53,6 +53,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** Cache for view handles, keyed by the stringified heads */
   #viewCache: Map<string, DocHandle<T>> = new Map()
 
+  /** The source of the pending update (set before sending UPDATE to the state machine) */
+  #pendingSource: A.PatchSource = "change"
+
   /** @hidden */
   constructor(
     public documentId: DocumentId,
@@ -203,8 +206,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * `this.#machine.send({ type: UPDATE, payload: { callback } })` because we
    * want to catch any exceptions that the callback might throw, then rethrow
    * them after the state machine has processed the update.
+   *
+   * @param callback - A function that takes the current document and returns the new document
+   * @param source - The source of the update, used for patch callbacks
    */
-  #sendUpdate(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+  #sendUpdate(callback: (doc: A.Doc<T>) => A.Doc<T>, source: A.PatchSource) {
+    this.#pendingSource = source
     // This is kind of awkward. we have to pass the callback to xstate and wait for it to run it.
     // We're relying here on the fact that xstate runs everything synchronously, so by the time
     // `send` returns we know that the callback will have been run and so `thrownException`  will
@@ -249,8 +256,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           handle: this,
           doc: after,
           patches,
-          // TODO: pass along the source (load/change/network)
-          patchInfo: { before, after, source: "change" },
+          patchInfo: { before, after, source: this.#pendingSource },
         })
       }
 
@@ -445,7 +451,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       heads,
       timeoutDelay: this.#timeoutDelay,
     })
-    handle.update(() => A.clone(this.#doc))
+    handle.update(() => A.clone(this.#doc), "from")
     handle.doneLoading()
 
     // Store in cache
@@ -532,9 +538,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * from a local change, a remote change, or a new document from storage.
    * Does not cause state changes.
    * @hidden
+   * @param callback - A function that takes the current document and returns the new document
+   * @param source - The source of the update, used for patch callbacks
    */
-  update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    this.#sendUpdate(callback)
+  update(callback: (doc: A.Doc<T>) => A.Doc<T>, source: A.PatchSource) {
+    this.#sendUpdate(callback, source)
   }
 
   /**
@@ -600,7 +608,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       )
     }
 
-    this.#sendUpdate(doc => A.change(doc, options, callback))
+    this.#sendUpdate(doc => A.change(doc, options, callback), "change")
   }
   /**
    * Makes a change as if the document were at `heads`.
@@ -628,7 +636,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       const result = A.changeAt(doc, decodeHeads(heads), options, callback)
       resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
       return result.newDoc
-    })
+    }, "changeAt")
 
     // the callback above will always run before we get here, so this should always contain the new heads
     return resultHeads
@@ -672,7 +680,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
     this.update(doc => {
       return A.merge(doc, mergingDoc)
-    })
+    }, "merge")
   }
 
   /**
