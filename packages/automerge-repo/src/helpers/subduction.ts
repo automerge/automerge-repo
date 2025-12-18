@@ -7,6 +7,7 @@ import { AnyDocumentId, DocumentId, PeerId } from "../types.js"
 import bs58check from "bs58check"
 import { Doc } from "@automerge/automerge"
 
+// NOTE temporary until we have [u8; 32] peer IDs
 export function toSubductionPeerId(peerId: PeerId): SubductionPeerId {
   const peerIdBytes = new TextEncoder().encode(peerId)
   const bytes = new Uint8Array(32)
@@ -14,6 +15,7 @@ export function toSubductionPeerId(peerId: PeerId): SubductionPeerId {
   return new SubductionPeerId(bytes)
 }
 
+// NOTE temporary until we have [u8; 32] peer IDs
 export function toSedimentreeId(id: AnyDocumentId): SedimentreeId {
   const docIdBytes = toBinaryDocumentId(id)
   const out = new Uint8Array(32)
@@ -21,12 +23,14 @@ export function toSedimentreeId(id: AnyDocumentId): SedimentreeId {
   return SedimentreeId.fromBytes(out)
 }
 
+// NOTE temporary until we have [u8; 32] peer IDs
 export function toDocumentId(sedimentreeId: SedimentreeId): DocumentId {
   const str = sedimentreeId.toString()
   const sixteenBytesString = str.substring(0, 16 * 2) as DocumentId
   return sixteenBytesString
 }
 
+// NOTE temporary until we have [u8; 32] peer IDs
 function toBinaryDocumentId(id: AnyDocumentId): Uint8Array {
   if (id instanceof Uint8Array) {
     return id
@@ -52,16 +56,11 @@ function toBinaryDocumentId(id: AnyDocumentId): Uint8Array {
   throw new TypeError("Unsupported document ID format")
 }
 
+// TODO: get this exposed upstream with exported types
 export function automergeMeta(doc: Doc<any>): any {
   // HACK: the horror!  👹
-  // TODO: get this exposed upstream with exported types
   const am_meta = Object.getOwnPropertySymbols(doc).find(
     s => s.description === "_am_meta"
   )!
   return (doc as any)[am_meta].handle
-}
-
-export function toSedimentreeAutomerge(doc: Doc<any>): SedimentreeAutomerge {
-  const innerDoc = automergeMeta(doc)
-  return new SedimentreeAutomerge(innerDoc)
 }
