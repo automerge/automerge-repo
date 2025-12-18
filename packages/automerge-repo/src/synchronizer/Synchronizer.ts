@@ -1,3 +1,5 @@
+// FIXME still needed?
+
 import { EventEmitter } from "eventemitter3"
 import {
   MessageContents,

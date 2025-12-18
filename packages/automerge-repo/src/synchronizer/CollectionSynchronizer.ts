@@ -21,7 +21,7 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Used to determine if the document is know to the Collection and a synchronizer exists or is being set up */
   #docSetUp: Record<DocumentId, boolean> = {}
 
-  #denylist: DocumentId[]
+  #denylist: DocumentId[] // FIXME use case?
   #hasRequested: Map<DocumentId, Set<PeerId>> = new Map()
 
   constructor(private repo: Repo, denylist: AutomergeUrl[] = []) {

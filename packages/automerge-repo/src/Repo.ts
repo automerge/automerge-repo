@@ -21,7 +21,6 @@ import { HashRing } from "./helpers/HashRing.js"
 import {
   automergeMeta,
   toDocumentId,
-  toSedimentreeAutomerge,
   toSedimentreeId,
   toSubductionPeerId,
 } from "./helpers/subduction.js"
@@ -171,33 +170,34 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.on("delete-document", ({ documentId }) => {
-      this.synchronizer.removeDocument(documentId)
+      this.#subduction.removeSedimentree(toSedimentreeId(documentId))
+      //   this.synchronizer.removeDocument(documentId)
 
-      if (storageSubsystem) {
-        storageSubsystem.removeDoc(documentId).catch(err => {
-          this.#log("error deleting document", { documentId, err })
-        })
-      }
+      //   if (storageSubsystem) {
+      //     storageSubsystem.removeDoc(documentId).catch(err => {
+      //       this.#log("error deleting document", { documentId, err })
+      //     })
+      //   }
     })
 
-    // SYNCHRONIZER
-    // The synchronizer uses the network subsystem to keep documents in sync with peers.
+    // // SYNCHRONIZER
+    // // The synchronizer uses the network subsystem to keep documents in sync with peers.
     this.synchronizer = new CollectionSynchronizer(this, denylist)
 
-    // When the synchronizer emits messages, send them to peers
-    this.synchronizer.on("message", message => {
-      this.#log(`sending ${message.type} message to ${message.targetId}`)
-      networkSubsystem.send(message)
-    })
+    // // When the synchronizer emits messages, send them to peers
+    // this.synchronizer.on("message", message => {
+    //   this.#log(`sending ${message.type} message to ${message.targetId}`)
+    //   networkSubsystem.send(message)
+    // })
 
-    // Forward metrics from doc synchronizers
-    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
+    // // Forward metrics from doc synchronizers
+    // this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
 
-    if (this.#remoteHeadsGossipingEnabled) {
-      this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
-        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-      })
-    }
+    // if (this.#remoteHeadsGossipingEnabled) {
+    //   this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
+    //     this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
+    //   })
+    // }
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
@@ -277,7 +277,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
       this.synchronizer.removePeer(peerId)
-      this.#disconnectSubductionPeer(peerId)
+      this.#disconnectFromPeer(peerId)
       this.#remoteHeadsSubscriptions.removePeer(peerId)
     })
 
@@ -364,7 +364,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#recentlySeenHeads = new Map()
     this.#lastHeadsSent = new Map()
     this.#handlesBySedimentreeId = new Map()
-    this.setupSubductionSyncServer(peerId)
   }
 
   // The `document` event is fired by the DocCollection any time we create a new document or look
@@ -382,7 +381,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#tellSubductionAboutNewHandle(handle)
 
     // Register the document with the synchronizer. This advertises our interest in the document.
-    this.synchronizer.addDocument(handle)
+    // this.synchronizer.addDocument(handle)
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -401,9 +400,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "request":
       case "ephemeral":
       case "doc-unavailable":
-        this.synchronizer.receiveMessage(message).catch(err => {
-          console.log("error receiving message", { err, message })
-        })
+      // this.synchronizer.receiveMessage(message).catch(err => {
+      //   console.log("error receiving message", { err, message })
+      // })
     }
   }
 
@@ -464,14 +463,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     return this.#handleCache
   }
 
-  /** Returns a list of all connected peer ids */
-  get peers(): PeerId[] {
-    return this.synchronizer.peers
-  }
+  //  /** Returns a list of all connected peer ids */
+  //  get peers(): PeerId[] {
+  //    return this.synchronizer.peers
+  //  }
 
-  get peerId(): PeerId {
-    return this.networkSubsystem.peerId
-  }
+  //  get peerId(): PeerId {
+  //    return this.networkSubsystem.peerId
+  //  }
 
   /** @hidden */
   get sharePolicy(): SharePolicy {
@@ -980,7 +979,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       handles.map(async handle => {
         const sid = toSedimentreeId(handle.documentId)
         if (handle.isReady()) {
-          await this.#tellSubductionPeers(handle.doc(), sid)
+          await this.#broadcast(handle.doc(), sid)
         }
       })
     )
@@ -1015,7 +1014,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       delete this.#handleCache[documentId]
       delete this.#progressCache[documentId]
       delete this.#saveFns[documentId]
-      this.synchronizer.removeDocument(documentId)
+      // this.synchronizer.removeDocument(documentId)
     } else {
       this.#log(
         `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
@@ -1028,44 +1027,30 @@ export class Repo extends EventEmitter<RepoEvents> {
     await this.flush()
   }
 
-  metrics(): { documents: { [key: string]: any } } {
-    return { documents: this.synchronizer.metrics() }
+  // metrics(): { documents: { [key: string]: any } } {
+  //   return { documents: this.synchronizer.metrics() }
+  // }
+
+  // shareConfigChanged() {
+  //   void this.synchronizer.reevaluateDocumentShare()
+  // }
+
+  #disconnectFromPeer(peerId: PeerId) {
+    const subductionPeerId = toSubductionPeerId(peerId)
+    this.#subduction.disconnect(subductionPeerId)
   }
 
-  shareConfigChanged() {
-    void this.synchronizer.reevaluateDocumentShare()
-  }
-
-  #disconnectSubductionPeer(peerId: PeerId) {
-    // TODO BZ
-    //
-    // const peerIdBytes = new TextEncoder().encode(peerId)
-    // const out = new Uint8Array(32)
-    // out.set(peerIdBytes.slice(0, 32))
-    // const subPeerId = new Wasm.PeerId(out)
-    // this.#subduction.disconnect(subPeerId)
-  }
-
-  async setupSubductionSyncServer(
-    peerId: PeerId,
-    syncServerAddress: string = "//127.0.0.1:8080"
-  ) {
+  async connectToWebSocketPeer(peerId: PeerId, syncServerAddress: string) {
     const subPeerId = toSubductionPeerId(peerId)
     const ws = new WebSocket(syncServerAddress)
 
     ws.addEventListener("close", ev => {
-      console.debug(
-        "socket closed",
-        ev.code, // close code (e.g. 1000, 1006…)
-        ev.reason, // optional reason string
-        ev.wasClean // whether a proper close frame was seen
-      )
+      console.debug("socket closed", ev.code, ev.reason, ev.wasClean)
     })
 
     const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
     await this.#subduction.attach(wsAdapter)
 
-    // Incremental sync
     this.#subduction.onCommit(
       async (
         id: SedimentreeId,
@@ -1073,54 +1058,19 @@ export class Repo extends EventEmitter<RepoEvents> {
         blob: Uint8Array
       ) => {
         const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
-
-        if (existingHandle !== undefined && existingHandle !== null) {
+        if (existingHandle !== undefined) {
           existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
           existingHandle.doneLoading()
-        } else {
-          console.warn("onCommit: no handle for sedimentree id", {
-            id,
-          })
-          const initialDoc: Automerge.Doc<any> = Automerge.emptyChange(
-            Automerge.init()
-          )
-          const documentId = toDocumentId(id)
-          const newHandle = this.#getHandle<any>({
-            documentId,
-          }) as DocHandle<any>
-
-          newHandle.update(() => Automerge.loadIncremental(initialDoc, blob))
-          this.#registerHandleWithSubsystems(newHandle)
-          newHandle.doneLoading()
         }
       }
     )
 
-    // Incremental sync
     this.#subduction.onFragment(
       async (id: SedimentreeId, fragment: Fragment, blob: Uint8Array) => {
-        try {
-          const handle = this.#handlesBySedimentreeId.get(id.toString())
-          if (handle !== undefined) {
-            handle.update(doc => Automerge.loadIncremental(doc, blob))
-            handle.doneLoading()
-          } else {
-            console.warn("onFragment: no handle for sedimentree id", { id })
-            // FIXME temporary hack  while docIDs are not [u8; 32]s
-            const initialDoc: Automerge.Doc<any> = Automerge.emptyChange(
-              Automerge.init()
-            )
-            const documentId = toDocumentId(id)
-            const newHandle = this.#getHandle<any>({
-              documentId,
-            }) as DocHandle<any>
-
-            newHandle.update(() => Automerge.loadIncremental(initialDoc, blob))
-            this.#registerHandleWithSubsystems(newHandle)
-            newHandle.doneLoading()
-          }
-        } catch (err) {
-          console.error("error handling subduction fragment", { err })
+        const handle = this.#handlesBySedimentreeId.get(id.toString())
+        if (handle !== undefined) {
+          handle.update(doc => Automerge.loadIncremental(doc, blob))
+          handle.doneLoading()
         }
       }
     )
@@ -1152,20 +1102,21 @@ export class Repo extends EventEmitter<RepoEvents> {
     const sid = toSedimentreeId(handle.documentId)
     this.#handlesBySedimentreeId.set(sid.toString(), handle)
 
-    handle.on("heads-changed", ({ doc }) => {
+    const throttledBroadcast = throttle(() => {
       handle.update(doc => {
-        this.#tellSubductionPeers(doc, sid)
+        this.#broadcast(doc, sid)
         return doc
       })
+    }, 100)
+
+    handle.on("heads-changed", () => {
+      throttledBroadcast()
     })
 
-    handle.update(doc => {
-      this.#tellSubductionPeers(doc, sid)
-      return doc
-    })
+    throttledBroadcast()
   }
 
-  async #tellSubductionPeers<T>(
+  async #broadcast<T>(
     doc: Automerge.Doc<T>,
     sedimentreeId: SedimentreeId
   ) {
@@ -1204,7 +1155,8 @@ export class Repo extends EventEmitter<RepoEvents> {
           if (maybeFragmentRequested === undefined) return
 
           const fragmentRequested = maybeFragmentRequested
-          const sam = toSedimentreeAutomerge(doc)
+          const innerDoc = automergeMeta(doc)
+          const sam = new SedimentreeAutomerge(innerDoc)
           const fragmentState = sam.fragment(
             fragmentRequested.head,
             this.#fragmentStateStore,

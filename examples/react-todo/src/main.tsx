@@ -25,13 +25,11 @@ declare global {
 
 ;(async () => {
   const db = await IndexedDbStorage.setup(indexedDB)
-  const amStorage = new IndexedDBStorageAdapter("automerge-repo-demo-todo")
   const repo = new Repo({
     network: [],
     subduction: await Subduction.hydrate(db),
-    storage: amStorage,
   })
-  await repo.setupSubductionSyncServer(repo.peerId)
+  await repo.connectToWebSocketPeer(repo.peerId, "//127.0.0.1:8080")
 
   const rootDocUrl = `${document.location.hash.substring(1)}`
   let handle

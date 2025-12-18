@@ -9,6 +9,7 @@ import {
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
+import { IndexedDbStorage, Subduction } from "@automerge/automerge_subduction"
 
 // We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
 // This means we only ever create one websocket connection to the sync server, we only do our writes in one place
@@ -25,12 +26,11 @@ const sharedWorker = new SharedWorker(
   }
 )
 
-/* Create a repo and share any documents we create with our local in-browser storage worker. */
-const repo = new Repo({
-  network: [new MessageChannelNetworkAdapter(sharedWorker.port)],
-  storage: new IndexedDBStorageAdapter("automerge-repo-demo-counter"),
-  sharePolicy: async peerId => peerId.includes("shared-worker"),
-})
+// /* Create a repo and share any documents we create with our local in-browser storage worker. */
+// const repo = new Repo({
+//   network: [new MessageChannelNetworkAdapter(sharedWorker.port)],
+//   storage: new IndexedDBStorageAdapter("automerge-repo-demo-counter"),
+// })
 
 declare global {
   interface Window {
@@ -39,21 +39,31 @@ declare global {
   }
 }
 
-const rootDocUrl = `${document.location.hash.substring(1)}`
-let handle
-if (isValidAutomergeUrl(rootDocUrl)) {
-  handle = await repo.find(rootDocUrl)
-} else {
-  handle = repo.create<{ count: number }>({ count: 0 })
-}
-const docUrl = (document.location.hash = handle.url)
-window.handle = handle // we'll use this later for experimentation
-window.repo = repo
+;(async () => {
+  const db = await IndexedDbStorage.setup(indexedDB)
+  const repo = new Repo({
+    network: [],
+    subduction: await Subduction.hydrate(db),
+      sharePolicy: async peerId => peerId.includes("shared-worker"),
+  })
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <RepoContext.Provider value={repo}>
-    <React.StrictMode>
-      <App url={docUrl} />
-    </React.StrictMode>
-  </RepoContext.Provider>
-)
+  await repo.connectToWebSocketPeer(repo.peerId, "//127.0.0.1:8080")
+    const rootDocUrl = `${document.location.hash.substring(1)}`
+    let handle
+    if (isValidAutomergeUrl(rootDocUrl)) {
+        handle = await repo.find(rootDocUrl)
+    } else {
+        handle = repo.create<{ count: number }>({ count: 0 })
+    }
+    const docUrl = (document.location.hash = handle.url)
+    window.handle = handle // we'll use this later for experimentation
+    window.repo = repo
+
+    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+        <RepoContext.Provider value={repo}>
+            <React.StrictMode>
+            <App url={docUrl} />
+            </React.StrictMode>
+            </RepoContext.Provider>
+    )
+})
