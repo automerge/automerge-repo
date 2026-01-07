@@ -6,6 +6,7 @@ import { Repo } from "@automerge/automerge-repo"
 import { WebSocketServerAdapter } from "@automerge/automerge-repo-network-websocket"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import { default as Prometheus } from "prom-client"
+import { IndexedDbStorage, Subduction } from "@automerge/automerge_subduction"
 import os from "os"
 
 const registry = new Prometheus.Registry()
@@ -61,50 +62,58 @@ export class Server {
     const app = express()
     app.use(express.static("public"))
 
-    const config = {
-      network: [new WebSocketServerAdapter(this.#socket)],
-      storage: new NodeFSStorageAdapter(dir),
-      /** @ts-ignore @type {(import("@automerge/automerge-repo").PeerId)}  */
-      peerId: `storage-server-${hostname}`,
-      // Since this is a server, we don't share generously — meaning we only sync documents they already
-      // know about and can ask for by ID.
-      sharePolicy: async () => false,
-    }
-    const serverRepo = new Repo(config)
-
-    // Observe metrics for prometheus and also log the events so log aggregators like loki can pick them up
-    serverRepo.on("doc-metrics", (event) => {
-      console.log(JSON.stringify(event))
-      metrics.numOps.observe(event.numOps)
-      if (event.type === "doc-loaded") {
-        metrics.docLoaded.observe(event.durationMillis)
-      } else if (event.type === "receive-sync-message") {
-        metrics.receiveSyncMessage.observe(event.durationMillis)
+      const config = {
+          network: [new WebSocketServerAdapter(this.#socket)],
+          storage: new NodeFSStorageAdapter(dir),
+          /** @ts-ignore @type {(import("@automerge/automerge-repo").PeerId)}  */
+          peerId: `storage-server-${hostname}`,
+          // Since this is a server, we don't share generously — meaning we only sync documents they already
+          // know about and can ask for by ID.
+          sharePolicy: async () => false,
       }
-    })
 
-    app.get("/", (req, res) => {
-      res.send(`👍 @automerge/example-sync-server is running`)
-    })
+      IndexedDbStorage.setup(indexedDB).then(db => {
+          Subduction.hydrate(db).then(subduction => {
+              const repo = new Repo({
+                  network: [],
+                  subduction
+              })
+              repo.connectToWebSocketPeer(repo.peerId, "//127.0.0.1:8080").then(() => {
+                  // Observe metrics for prometheus and also log the events so log aggregators like loki can pick them up
+                  serverRepo.on("doc-metrics", (event) => {
+                      console.log(JSON.stringify(event))
+                      metrics.numOps.observe(event.numOps)
+                      if (event.type === "doc-loaded") {
+                          metrics.docLoaded.observe(event.durationMillis)
+                      } else if (event.type === "receive-sync-message") {
+                          metrics.receiveSyncMessage.observe(event.durationMillis)
+                      }
+                  })
 
-    // In a real server this endpoint would be authenticated or not event part of the same express app
-    app.get("/prometheus_metrics", async (req, res) => {
-      res.set("Content-Type", registry.contentType)
-      res.end(await registry.metrics())
-    })
+                  app.get("/", (req, res) => {
+                      res.send(`👍 @automerge/example-sync-server is running`)
+                  })
 
-    this.#server = app.listen(PORT, () => {
-      console.log(`Listening on port ${PORT}`)
-      this.#isReady = true
-      this.#readyResolvers.forEach((resolve) => resolve(true))
-    })
+                  // In a real server this endpoint would be authenticated or not event part of the same express app
+                  app.get("/prometheus_metrics", async (req, res) => {
+                      res.set("Content-Type", registry.contentType)
+                      res.end(await registry.metrics())
+                  })
 
-    this.#server.on("upgrade", (request, socket, head) => {
-      this.#socket.handleUpgrade(request, socket, head, (socket) => {
-        this.#socket.emit("connection", socket, request)
-      })
-    })
-  }
+                  this.#server = app.listen(PORT, () => {
+                      console.log(`Listening on port ${PORT}`)
+                      this.#isReady = true
+                      this.#readyResolvers.forEach((resolve) => resolve(true))
+                  })
+
+                  this.#server.on("upgrade", (request, socket, head) => {
+                      this.#socket.handleUpgrade(request, socket, head, (socket) => {
+                          this.#socket.emit("connection", socket, request)
+                      })
+                  })
+              })
+          })
+      }
 
   async ready() {
     if (this.#isReady) {
