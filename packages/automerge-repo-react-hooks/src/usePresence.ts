@@ -18,12 +18,36 @@ export type UsePresenceConfig<State extends PresenceState> =
   }
 
 export type UsePresenceResult<State extends PresenceState> = {
+  /**
+   * Presence view of our peers.
+   */
   peerStates: PeerStateView<State>
+  /**
+   * Our own presence state, as last set by `update` or the initial value.
+   */
   localState: State | undefined
+  /**
+   * Update our presence state for the given channel and broadcast
+   * it to our peers.
+   *
+   * @param channel
+   * @param value
+   */
   update: <Channel extends keyof State>(
     channel: Channel,
     value: State[Channel]
   ) => void
+  /**
+   * Resume presence broadcasting and listening to peer presence.
+   *
+   * Note that this only needs to be called after `stop` has been called:
+   * usePresence starts running immediately.
+   */
+  start: () => void
+  /**
+   * Stop broadcasting presence state and listening to peer presence.
+   */
+  stop: () => void
 }
 
 /**
@@ -81,6 +105,17 @@ export function usePresence<State extends PresenceState>({
     }
   }, [presence, userId, deviceId, firstInitialState, firstOpts])
 
+  const start = useCallback(() => {
+    // For now, restart with the same state and opts
+    presence.start({
+      initialState: presence.getLocalState(),
+      ...firstOpts.current,
+    })
+  }, [presence, firstOpts])
+  const stop = useCallback(() => {
+    presence.stop()
+  }, [presence])
+
   const update = useCallback(
     <Channel extends keyof State>(channel: Channel, msg: State[Channel]) => {
       presence.broadcast(channel, msg)
@@ -94,5 +129,7 @@ export function usePresence<State extends PresenceState>({
     peerStates,
     localState,
     update,
+    start,
+    stop,
   }
 }
