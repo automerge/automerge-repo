@@ -14,11 +14,11 @@ import { IndexedDbStorage, Subduction } from "@automerge/automerge_subduction"
 // })
 
 export async function setupRepo() {
-  const db = await IndexedDbStorage.setup(indexedDB);
+  const db = await IndexedDbStorage.setup(indexedDB)
   const repo = new Repo({
     network: [],
     subduction: await Subduction.hydrate(db),
-  });
-  await repo.connectToWebSocketPeer(repo.peerId, "//127.0.0.1:8080");
-  return repo;
+  })
+  await repo.connectToWebSocketPeer(repo.peerId, "//127.0.0.1:8080")
+  return repo
 }

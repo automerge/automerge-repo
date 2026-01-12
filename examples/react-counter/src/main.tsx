@@ -40,33 +40,32 @@ declare global {
 }
 
 console.log("Starting up app...")
-
 ;(async () => {
-    console.log("ASYNC")
+  console.log("ASYNC")
   const db = await IndexedDbStorage.setup(indexedDB)
   const repo = new Repo({
     network: [],
     subduction: await Subduction.hydrate(db),
-      sharePolicy: async peerId => peerId.includes("shared-worker"),
+    sharePolicy: async peerId => peerId.includes("shared-worker"),
   })
 
   await repo.connectToWebSocketPeer(repo.peerId, "//127.0.0.1:8080")
-    const rootDocUrl = `${document.location.hash.substring(1)}`
-    let handle
-    if (isValidAutomergeUrl(rootDocUrl)) {
-        handle = await repo.find(rootDocUrl)
-    } else {
-        handle = repo.create<{ count: number }>({ count: 0 })
-    }
-    const docUrl = (document.location.hash = handle.url)
-    window.handle = handle // we'll use this later for experimentation
-    window.repo = repo
+  const rootDocUrl = `${document.location.hash.substring(1)}`
+  let handle
+  if (isValidAutomergeUrl(rootDocUrl)) {
+    handle = await repo.find(rootDocUrl)
+  } else {
+    handle = repo.create<{ count: number }>({ count: 0 })
+  }
+  const docUrl = (document.location.hash = handle.url)
+  window.handle = handle // we'll use this later for experimentation
+  window.repo = repo
 
-    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-        <RepoContext.Provider value={repo}>
-            <React.StrictMode>
-            <App url={docUrl} />
-            </React.StrictMode>
-            </RepoContext.Provider>
-    )
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <RepoContext.Provider value={repo}>
+      <React.StrictMode>
+        <App url={docUrl} />
+      </React.StrictMode>
+    </RepoContext.Provider>
+  )
 })()

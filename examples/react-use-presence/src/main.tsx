@@ -10,7 +10,6 @@ import {
 } from "@automerge/react"
 import { IndexedDbStorage, Subduction } from "@automerge/automerge_subduction"
 import { v4 } from "uuid"
-
 ;(async () => {
   const db = await IndexedDbStorage.setup(indexedDB)
   const repo = new Repo({
