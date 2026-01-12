@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge";
 import type { Prop } from "@automerge/automerge";
-import type { MutableText as IMutableText } from "./types";
+import type { MutableText as IMutableText } from "./types.js";
 
 /**
  * Create a MutableText wrapper that provides Automerge string mutations.

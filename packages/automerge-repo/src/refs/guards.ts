@@ -1,6 +1,6 @@
-import type { Segment, Pattern, CursorMarker, RefUrl } from "./types";
-import { CURSOR_MARKER, KIND } from "./types";
-import { parseRefUrl } from "./parser";
+import type { Segment, Pattern, CursorMarker, RefUrl } from "./types.js";
+import { CURSOR_MARKER, KIND } from "./types.js";
+import { parseRefUrl } from "./parser.js";
 
 function isObject(val: unknown): val is object {
   return val !== null && typeof val === "object" && !Array.isArray(val);

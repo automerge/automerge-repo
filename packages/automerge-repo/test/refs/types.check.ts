@@ -5,8 +5,8 @@
  */
 
 import type { DocHandle } from "@automerge/automerge-repo";
-import { ref } from "../factory";
-import type { MutableText } from "../types";
+import { ref } from "../../src/refs/factory.js";
+import type { MutableText } from "../../src/refs/types.js";
 
 type TestDoc = {
   title: string;
@@ -181,8 +181,8 @@ const deepValue = deepRef.value();
 // Hover over deepValue - should be: string | undefined
 
 // === String Path Type Inference Tests ===
-import { fromString } from "../utils";
-import type { SegmentsFromString, InferRefTypeFromString } from "../types";
+import { fromString } from "../../src/refs/utils.js";
+import type { SegmentsFromString, InferRefTypeFromString } from "../../src/refs/types.js";
 
 // Test PathFromString parsing
 type TestSplit1 = SegmentsFromString<"todos/0/title">;

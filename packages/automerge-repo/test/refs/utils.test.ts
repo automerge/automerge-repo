@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { Repo } from "@automerge/automerge-repo";
 import type { DocHandle } from "@automerge/automerge-repo";
 import * as Automerge from "@automerge/automerge";
-import { cursor } from "../utils";
-import { ref, findRef, RefUrl } from "../index";
-import { Ref } from "../ref";
-import { CURSOR_MARKER } from "../types";
+import { cursor } from "../../src/refs/utils.js";
+import { ref, findRef, RefUrl } from "../../src/refs/index.js";
+import { Ref } from "../../src/refs/ref.js";
+import { CURSOR_MARKER } from "../../src/refs/types.js";
 
 describe("utils", () => {
   describe("cursor", () => {

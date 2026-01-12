@@ -1,6 +1,6 @@
 import { DocHandle } from "@automerge/automerge-repo";
-import { Ref } from "./ref";
-import type { PathInput } from "./types";
+import { Ref } from "./ref.js";
+import type { PathInput } from "./types.js";
 
 /**
  * Cache for ref instances, keyed by document handle and path.

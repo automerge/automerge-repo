@@ -1,10 +1,10 @@
 import * as Automerge from "@automerge/automerge";
 import { Repo, splice, type DocHandle } from "@automerge/automerge-repo";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ref } from "../factory";
-import { Ref } from "../ref";
-import { KIND } from "../types";
-import { cursor, fromUrl } from "../utils";
+import { ref } from "../../src/refs/factory.js";
+import { Ref } from "../../src/refs/ref.js";
+import { KIND } from "../../src/refs/types.js";
+import { cursor, fromUrl } from "../../src/refs/utils.js";
 
 describe("Ref", () => {
   let repo: Repo;

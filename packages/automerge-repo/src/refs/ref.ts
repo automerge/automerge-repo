@@ -14,14 +14,14 @@ import type {
   InferRefType,
   ChangeFn,
   RefUrl,
-} from "./types";
-import { KIND } from "./types";
-import { isSegment, isPattern } from "./guards";
-import { matchesPattern } from "./utils";
-import { isCursorMarker } from "./guards";
-import type { CursorMarker } from "./types";
-import { stringifyRefUrl } from "./parser";
-import { MutableText } from "./mutable-text";
+} from "./types.js";
+import { KIND } from "./types.js";
+import { isSegment, isPattern } from "./guards.js";
+import { matchesPattern } from "./utils.js";
+import { isCursorMarker } from "./guards.js";
+import type { CursorMarker } from "./types.js";
+import { stringifyRefUrl } from "./parser.js";
+import { MutableText } from "./mutable-text.js";
 
 /**
  * FinalizationRegistry for automatic cleanup of Ref instances.

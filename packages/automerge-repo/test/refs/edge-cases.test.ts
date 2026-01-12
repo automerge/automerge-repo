@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Repo, splice, type DocHandle } from "@automerge/automerge-repo";
-import { Ref } from "../ref";
-import { cursor } from "../utils";
+import { Ref } from "../../src/refs/ref.js";
+import { cursor } from "../../src/refs/utils.js";
 import {
   parsePath,
   parseSegment,
   serializeSegment,
   parseRefUrl,
-} from "../parser";
-import { isValidRefUrl } from "../guards";
-import { KIND, RefUrl } from "../types";
+} from "../../src/refs/parser.js";
+import { isValidRefUrl } from "../../src/refs/guards.js";
+import { KIND, RefUrl } from "../../src/refs/types.js";
 
 describe("Edge Cases", () => {
   let repo: Repo;

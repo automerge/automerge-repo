@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge";
-import type { RefUrl, Segment, SegmentCodec } from "./types";
-import { KIND } from "./types";
+import type { RefUrl, Segment, SegmentCodec } from "./types.js";
+import { KIND } from "./types.js";
 import { DocumentId } from "@automerge/automerge-repo";
 
 /**

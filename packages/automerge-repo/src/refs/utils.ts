@@ -5,10 +5,10 @@ import type {
   RefUrl,
   AnyPathInput,
   SegmentsFromString,
-} from "./types";
-import { CURSOR_MARKER } from "./types";
-import { Ref } from "./ref";
-import { parseRefUrl } from "./parser";
+} from "./types.js";
+import { CURSOR_MARKER } from "./types.js";
+import { Ref } from "./ref.js";
+import { parseRefUrl } from "./parser.js";
 
 /**
  * Create a cursor-based range segment for stable text selection.

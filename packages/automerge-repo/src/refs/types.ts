@@ -1,5 +1,5 @@
 import type { Cursor, Heads } from "@automerge/automerge-repo";
-import { Ref } from "./ref";
+import { Ref } from "./ref.js";
 
 /**
  * Symbol used as discriminator for segments to avoid collision with user data.
