@@ -5,6 +5,7 @@ import {
   Repo,
   isValidAutomergeUrl,
   BroadcastChannelNetworkAdapter,
+  WebSocketClientAdapter,
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
@@ -13,10 +14,9 @@ import { v4 } from "uuid"
 ;(async () => {
   const db = await IndexedDbStorage.setup(indexedDB)
   const repo = new Repo({
-    network: [],
+    network: [new WebSocketClientAdapter("ws://127.0.0.1:8080", 5000, { subductionMode: true })],
     subduction: await Subduction.hydrate(db),
   })
-  await repo.connectToWebSocketPeer(repo.peerId, "//127.0.0.1:8080")
 
   const userId = v4()
 

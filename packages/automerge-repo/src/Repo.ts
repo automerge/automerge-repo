@@ -258,8 +258,12 @@ export class Repo extends EventEmitter<RepoEvents> {
             isEphemeral,
         }))()
 
+        // Separate adapters into subduction and non-subduction
+        const subductionAdapters = network.filter(a => a.getWebSocket !== undefined)
+        const nonSubductionAdapters = network.filter(a => a.getWebSocket === undefined)
+
         const networkSubsystem = new NetworkSubsystem(
-            network,
+            nonSubductionAdapters,
             peerId,
             myPeerMetadata
         )
@@ -384,6 +388,12 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#recentlySeenHeads = new Map()
         this.#lastHeadsSent = new Map()
         this.#handlesBySedimentreeId = new Map()
+
+        // Connect subduction adapters and attach their WebSockets to Subduction
+        // This must happen in the constructor synchronously to prevent race conditions
+        if (subductionAdapters.length > 0) {
+            void this.#attachNetworkAdaptersToSubduction(subductionAdapters, peerId, myPeerMetadata)
+        }
     }
 
     // The `document` event is fired by the DocCollection any time we create a new document or look
@@ -1073,17 +1083,40 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#subduction.disconnect(subductionPeerId)
     }
 
-    async connectToWebSocketPeer(peerId: PeerId, syncServerAddress: string) {
+    async #attachNetworkAdaptersToSubduction(
+        adapters: NetworkAdapterInterface[],
+        peerId: PeerId,
+        peerMetadata: Promise<PeerMetadata>
+    ) {
         const subPeerId = toSubductionPeerId(peerId)
-        const ws = new WebSocket(syncServerAddress)
 
-        ws.addEventListener("close", ev => {
-            console.debug("socket closed", ev.code, ev.reason, ev.wasClean)
-        })
+        // Wait for peer metadata and connect each adapter
+        const metadata = await peerMetadata
 
-        const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
-        await this.#subduction.attach(wsAdapter)
+        for (const adapter of adapters) {
+            // Connect the adapter ourselves (since it's not in NetworkSubsystem)
+            adapter.connect(peerId, metadata)
 
+            // Wait for the adapter to be ready (WebSocket connected)
+            await adapter.whenReady?.()
+
+            const ws = adapter.getWebSocket?.()
+            if (ws) {
+                try {
+                    const wsAdapter = await SubductionWebSocket.setup(
+                        subPeerId,
+                        ws,
+                        5000
+                    )
+                    await this.#subduction.attach(wsAdapter)
+                    this.#log("Attached WebSocket from adapter to Subduction")
+                } catch (err) {
+                    this.#log("Failed to attach WebSocket to Subduction:", err)
+                }
+            }
+        }
+
+        // Set up Subduction event handlers
         this.#subduction.onCommit(
             async (
                 id: SedimentreeId,
@@ -1111,6 +1144,18 @@ export class Repo extends EventEmitter<RepoEvents> {
                 }
             }
         )
+    }
+
+    async connectToWebSocketPeer(peerId: PeerId, syncServerAddress: string) {
+        const subPeerId = toSubductionPeerId(peerId)
+        const ws = new WebSocket(syncServerAddress)
+
+        ws.addEventListener("close", ev => {
+            console.debug("socket closed", ev.code, ev.reason, ev.wasClean)
+        })
+
+        const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
+        await this.#subduction.attach(wsAdapter)
     }
 
     async #requestDocOverSubduction(handle: DocHandle<any>) {
