@@ -10,7 +10,8 @@ import {
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
-import { IndexedDbStorage, Subduction } from "@automerge/automerge_subduction"
+import { StorageAdapterStorage } from "@automerge/automerge-repo-storage-subduction"
+import { Subduction } from "subduction_wasm"
 
 // We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
 // This means we only ever create one websocket connection to the sync server, we only do our writes in one place
@@ -43,10 +44,11 @@ declare global {
 console.log("Starting up app...")
 ;(async () => {
   console.log("ASYNC")
-  const db = await IndexedDbStorage.setup(indexedDB)
+  const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-counter")
+  const storage = new StorageAdapterStorage(storageAdapter)
   const repo = new Repo({
     network: [new WebSocketClientAdapter("ws://127.0.0.1:8080", 5000, { subductionMode: true })],
-    subduction: await Subduction.hydrate(db),
+    subduction: await Subduction.hydrate(storage),
     sharePolicy: async peerId => peerId.includes("shared-worker"),
   })
   const rootDocUrl = `${document.location.hash.substring(1)}`

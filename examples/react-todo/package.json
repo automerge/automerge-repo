@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
-    "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-repo-storage-subduction": "workspace:*",
+    "subduction_wasm": "workspace:*",
     "autoprefixer": "^10.4.13",
     "classnames": "^2.3.2",
     "postcss": "^8.4.21",

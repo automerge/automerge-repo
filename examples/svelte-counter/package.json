@@ -13,7 +13,9 @@
     "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-repo-storage-subduction": "workspace:*",
     "@automerge/automerge-repo-svelte-store": "workspace:*",
+    "subduction_wasm": "workspace:*",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

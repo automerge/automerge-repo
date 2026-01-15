@@ -12,8 +12,10 @@
     "@automerge/react": "workspace:*",
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-repo-storage-subduction": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-network-messagechannel": "workspace:*",
+    "subduction_wasm": "workspace:*",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   }
