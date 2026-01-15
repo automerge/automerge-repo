@@ -20,6 +20,7 @@ import {
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 import { throttle } from "../helpers/throttle.js"
+import { HashRing } from "../helpers/HashRing.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
@@ -64,6 +65,9 @@ export class DocSynchronizer extends Synchronizer {
 
   #handle: DocHandle<unknown>
   #onLoadSyncState: (peerId: PeerId) => Promise<A.SyncState | undefined>
+
+  // Track recently seen ephemeral messages to prevent rebroadcast loops
+  #seenEphemeralMessages = new HashRing(1000)
 
   constructor({ handle, peerId, onLoadSyncState }: DocSynchronizerConfig) {
     super()
@@ -333,7 +337,13 @@ export class DocSynchronizer extends Synchronizer {
     if (message.documentId !== this.#handle.documentId)
       throw new Error(`channelId doesn't match documentId`)
 
-    const { senderId, data } = message
+    const { senderId, sessionId, count, data } = message
+
+    // Create unique message ID for deduplication
+    const messageId = `${senderId}:${sessionId}:${count}`
+
+    // Check if we've already seen and rebroadcast this message
+    const isNewMessage = this.#seenEphemeralMessages.add(messageId)
 
     const contents = decode(new Uint8Array(data))
 
@@ -343,13 +353,16 @@ export class DocSynchronizer extends Synchronizer {
       message: contents,
     })
 
-    this.#peers.forEach(peerId => {
-      if (peerId === senderId) return
-      this.emit("message", {
-        ...message,
-        targetId: peerId,
+    // Only rebroadcast if this is the first time seeing this message
+    if (isNewMessage) {
+      this.#peers.forEach(peerId => {
+        if (peerId === senderId) return
+        this.emit("message", {
+          ...message,
+          targetId: peerId,
+        })
       })
-    })
+    }
   }
 
   receiveSyncMessage(message: SyncMessage | RequestMessage) {

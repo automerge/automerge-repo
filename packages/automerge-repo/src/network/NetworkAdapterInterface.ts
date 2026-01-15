@@ -62,6 +62,17 @@ export interface NetworkAdapterInterface
    * @returns The WebSocket instance, or undefined if this adapter doesn't use WebSockets
    */
   getWebSocket?(): WebSocket | undefined
+
+  /** Optional: Returns whether this adapter is in subduction mode
+   *
+   * @remarks
+   * When an adapter is in subduction mode, it only manages WebSocket lifecycle
+   * (connect, reconnect, disconnect) but doesn't send/receive protocol messages.
+   * This allows Subduction to use the WebSocket directly.
+   *
+   * @returns true if the adapter is in subduction mode, false otherwise
+   */
+  isSubductionMode?(): boolean
 }
 
 // events & payloads

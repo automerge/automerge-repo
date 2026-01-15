@@ -38,6 +38,10 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
     return this.#readyPromise
   }
 
+  isSubductionMode(): boolean {
+    return this.#subductionMode
+  }
+
   #forceReady() {
     if (!this.#ready) {
       this.#ready = true

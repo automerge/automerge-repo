@@ -55,7 +55,7 @@ export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
             key={state.peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
           >
-            {state.peerId}: {JSON.stringify(state.value.count ?? "🤷‍♀️")}
+            {state.peerId}: {JSON.stringify(state.value?.count ?? "🤷‍♀️")}
           </span>
         ))}
       </div>

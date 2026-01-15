@@ -187,11 +187,11 @@ export class Repo extends EventEmitter<RepoEvents> {
         // // The synchronizer uses the network subsystem to keep documents in sync with peers.
         this.synchronizer = new CollectionSynchronizer(this, denylist)
 
-        // // When the synchronizer emits messages, send them to peers
-        // this.synchronizer.on("message", message => {
-        //   this.#log(`sending ${message.type} message to ${message.targetId}`)
-        //   networkSubsystem.send(message)
-        // })
+        // When the synchronizer emits messages, send them to peers
+        this.synchronizer.on("message", message => {
+          this.#log(`sending ${message.type} message to ${message.targetId}`)
+          networkSubsystem.send(message)
+        })
 
         // // Forward metrics from doc synchronizers
         // this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
@@ -260,8 +260,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         }))()
 
         // Separate adapters into subduction and non-subduction
-        const subductionAdapters = network.filter(a => a.getWebSocket !== undefined)
-        const nonSubductionAdapters = network.filter(a => a.getWebSocket === undefined)
+        // Subduction adapters have both getWebSocket() and isSubductionMode() returning true
+        const subductionAdapters = network.filter(a => a.isSubductionMode?.() === true)
+        const nonSubductionAdapters = network.filter(a => !a.isSubductionMode?.())
 
         const networkSubsystem = new NetworkSubsystem(
             nonSubductionAdapters,
@@ -416,7 +417,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#tellSubductionAboutNewHandle(handle)
 
         // Register the document with the synchronizer. This advertises our interest in the document.
-        // this.synchronizer.addDocument(handle)
+        this.synchronizer.addDocument(handle)
     }
 
     #receiveMessage(message: RepoMessage) {
@@ -435,9 +436,10 @@ export class Repo extends EventEmitter<RepoEvents> {
             case "request":
             case "ephemeral":
             case "doc-unavailable":
-            // this.synchronizer.receiveMessage(message).catch(err => {
-            //   console.log("error receiving message", { err, message })
-            // })
+                this.synchronizer.receiveMessage(message).catch(err => {
+                  console.log("error receiving message", { err, message })
+                })
+                break
         }
     }
 
