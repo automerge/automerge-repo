@@ -1,0 +1,29 @@
+{
+  "name": "@automerge/automerge-repo-storage-subduction",
+  "version": "2.5.2-alpha.1",
+  "description": "Adapter to use automerge-repo StorageAdapters with subduction's Storage interface",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-storage-subduction",
+  "author": "Brooklyn Zelenka <hello@brooklynzelenka.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "npm-watch build"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "subduction_wasm": "workspace:*"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
