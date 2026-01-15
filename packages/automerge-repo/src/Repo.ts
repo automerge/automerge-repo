@@ -101,6 +101,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     #lastHeadsSent: Map<string, Set<string>> // TODO move to subduction.wasm
     #recentlySeenHeads: Map<string, HashRing>
     #recentHeadsCacheSize: number
+    #subductionAdaptersReady: Promise<void>
 
     /** @hidden */
     networkSubsystem: NetworkSubsystem
@@ -390,9 +391,11 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#handlesBySedimentreeId = new Map()
 
         // Connect subduction adapters and attach their WebSockets to Subduction
-        // This must happen in the constructor synchronously to prevent race conditions
+        // Store the promise so we can wait for it in document operations
         if (subductionAdapters.length > 0) {
-            void this.#attachNetworkAdaptersToSubduction(subductionAdapters, peerId, myPeerMetadata)
+            this.#subductionAdaptersReady = this.#attachNetworkAdaptersToSubduction(subductionAdapters, peerId, myPeerMetadata)
+        } else {
+            this.#subductionAdaptersReady = Promise.resolve()
         }
     }
 
@@ -1161,16 +1164,20 @@ export class Repo extends EventEmitter<RepoEvents> {
     async #requestDocOverSubduction(handle: DocHandle<any>) {
         const sedimentreeId = toSedimentreeId(handle.documentId)
         this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
+
+        // Wait for subduction adapters to be ready before making sync requests
+        await this.#subductionAdaptersReady
+
         const peerResultMap = await this.#subduction.requestAllBatchSync(
             sedimentreeId
         )
         peerResultMap.entries().forEach(batchSyncResult => {
             if (!batchSyncResult.success) {
-                console.warn("failed PeerBatchSyncResult")
+                this.#log("failed PeerBatchSyncResult")
             }
 
             for (const err in batchSyncResult.connErrors) {
-                console.warn("PeerBatchSyncResult connError: ", err)
+                this.#log("PeerBatchSyncResult connError: ", err)
             }
 
             batchSyncResult.blobs.forEach((bundleBlob: Uint8Array) => {
@@ -1199,6 +1206,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     async #broadcast<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
+        // Wait for subduction adapters to be ready before broadcasting
+        await this.#subductionAdaptersReady
+
         const currentHexHeads = Automerge.getHeads(doc)
         const id = sedimentreeId.toString()
         const mostRecentHeads: Set<string> =
