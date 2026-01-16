@@ -9,7 +9,7 @@ import {
 } from "@automerge/react"
 
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import init, { Subduction } from "subduction_wasm"
+import { Subduction } from "@automerge/automerge_subduction"
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"
 import ReactDOM from "react-dom/client"
@@ -25,7 +25,6 @@ declare global {
 }
 
 ;(async () => {
-    await init()
     const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-todo")
     const storage = new SubductionStorageBridge(storageAdapter)
     const repo = new Repo({

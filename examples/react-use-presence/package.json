@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
+    "@automerge/automerge-repo-subduction-bridge": "workspace:*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm",
     "eventemitter3": "^5.0.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

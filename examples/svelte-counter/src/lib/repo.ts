@@ -3,7 +3,7 @@ import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-networ
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import init, { Subduction } from "subduction_wasm"
+import { Subduction } from "@automerge/automerge_subduction"
 
 // // Initialize once as a singleton
 // export const repo = new Repo({
@@ -15,7 +15,6 @@ import init, { Subduction } from "subduction_wasm"
 // })
 
 export async function setupRepo() {
-  await init()
   const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-svelte-counter")
   const storage = new SubductionStorageBridge(storageAdapter)
   const repo = new Repo({

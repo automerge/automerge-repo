@@ -144,6 +144,9 @@ importers:
       '@automerge/automerge-repo-subduction-bridge':
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction-bridge
+      '@automerge/automerge_subduction':
+        specifier: file:../../../subduction/automerge_subduction_wasm
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -153,9 +156,6 @@ importers:
       react-dom:
         specifier: ^18.3.0
         version: 18.3.1(react@18.3.1)
-      subduction_wasm:
-        specifier: file:../../../subduction/subduction_wasm/pkg-slim
-        version: file:../subduction/subduction_wasm/pkg-slim
 
   examples/react-todo:
     dependencies:
@@ -165,6 +165,9 @@ importers:
       '@automerge/automerge-repo-subduction-bridge':
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction-bridge
+      '@automerge/automerge_subduction':
+        specifier: file:../../../subduction/automerge_subduction_wasm
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -186,9 +189,6 @@ importers:
       react-error-boundary:
         specifier: ^5.0.0
         version: 5.0.0(react@18.3.1)
-      subduction_wasm:
-        specifier: file:../../../subduction/subduction_wasm/pkg-slim
-        version: file:../subduction/subduction_wasm/pkg-slim
     devDependencies:
       tailwindcss:
         specifier: ^3.2.4
@@ -196,6 +196,15 @@ importers:
 
   examples/react-use-presence:
     dependencies:
+      '@automerge/automerge-repo-storage-indexeddb':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-storage-indexeddb
+      '@automerge/automerge-repo-subduction-bridge':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-subduction-bridge
+      '@automerge/automerge_subduction':
+        specifier: file:../../../subduction/automerge_subduction_wasm
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -239,9 +248,9 @@ importers:
       '@automerge/automerge-repo-svelte-store':
         specifier: workspace:*
         version: link:../../packages/automerge-repo-svelte-store
-      subduction_wasm:
-        specifier: file:../../../subduction/subduction_wasm/pkg-slim
-        version: file:../subduction/subduction_wasm/pkg-slim
+      '@automerge/automerge_subduction':
+        specifier: file:../../../subduction/automerge_subduction_wasm
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
       svelte:
         specifier: ^5.0.0
         version: 5.37.3
@@ -493,9 +502,9 @@ importers:
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
-      subduction_wasm:
-        specifier: file:../../../subduction/subduction_wasm/pkg-slim
-        version: file:../subduction/subduction_wasm/pkg-slim
+      '@automerge/automerge_subduction':
+        specifier: file:../../../subduction/automerge_subduction_wasm
+        version: '@automerge/sediment_automerge_wasm@file:../subduction/automerge_subduction_wasm'
 
   packages/automerge-repo-svelte-store:
     dependencies:
@@ -6212,9 +6221,6 @@ packages:
 
   strip-literal@3.0.0:
     resolution: {integrity: sha512-TcccoMhJOM3OebGhSBEmp3UZ2SfDMZUEBdRA/9ynfLi8yYajyWX3JiXArcJt4Umh4vISpspkQIY8ZZoCqjbviA==}
-
-  subduction_wasm@file:../subduction/subduction_wasm/pkg-slim:
-    resolution: {directory: ../subduction/subduction_wasm/pkg-slim, type: directory}
 
   sucrase@3.35.0:
     resolution: {integrity: sha512-8EbVDiu9iN/nESwxeSxDKe0dunta1GOlHufmSSXxMD2z2/tMZpDMpvXQGsc+ajGo8y2uYUmixaSRUc/QPoQ0GA==}
@@ -13437,8 +13443,6 @@ snapshots:
   strip-literal@3.0.0:
     dependencies:
       js-tokens: 9.0.1
-
-  subduction_wasm@file:../subduction/subduction_wasm/pkg-slim: {}
 
   sucrase@3.35.0:
     dependencies:

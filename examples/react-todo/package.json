@@ -12,7 +12,7 @@
     "@automerge/react": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "@automerge/automerge-repo-subduction-bridge": "workspace:*",
-    "subduction_wasm": "file:../../../subduction/subduction_wasm/pkg-slim",
+    "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm",
     "autoprefixer": "^10.4.13",
     "classnames": "^2.3.2",
     "postcss": "^8.4.21",

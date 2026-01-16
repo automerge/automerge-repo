@@ -9,10 +9,12 @@ import {
     IndexedDBStorageAdapter,
     RepoContext,
 } from "@automerge/react"
-import { IndexedDbStorage, Subduction } from "@automerge/automerge_subduction"
+import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
+import { Subduction } from "@automerge/automerge_subduction"
 import { v4 } from "uuid"
 ;(async () => {
-    const db = await IndexedDbStorage.setup(indexedDB)
+    const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-use-presence")
+    const storage = new SubductionStorageBridge(storageAdapter)
     const repo = new Repo({
         network: [
             new BroadcastChannelNetworkAdapter(), // For same-browser tab communication
@@ -21,7 +23,7 @@ import { v4 } from "uuid"
             }), // Document sync via Subduction
             new WebSocketClientAdapter("ws://127.0.0.1:8081"), // Ephemeral messages (presence) via relay server
         ],
-        subduction: await Subduction.hydrate(db),
+        subduction: await Subduction.hydrate(storage),
     })
 
     const userId = v4()
