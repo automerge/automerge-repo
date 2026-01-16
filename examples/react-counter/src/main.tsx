@@ -10,8 +10,8 @@ import {
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
-import { SubductionStorageBridge } from "@automerge/automerge-repo-storage-subduction"
-import { Subduction } from "subduction_wasm"
+import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
+import { Subduction } from "@automerge/automerge_subduction"
 
 // We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
 // This means we only ever create one websocket connection to the sync server, we only do our writes in one place
@@ -43,7 +43,6 @@ declare global {
 
 console.log("Starting up app...")
 ;(async () => {
-  console.log("ASYNC")
   const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-counter")
   const storage = new SubductionStorageBridge(storageAdapter)
   const repo = new Repo({

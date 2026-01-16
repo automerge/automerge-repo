@@ -12,10 +12,10 @@
     "@automerge/react": "workspace:*",
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
-    "@automerge/automerge-repo-storage-subduction": "workspace:*",
+    "@automerge/automerge-repo-subduction-bridge": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-network-messagechannel": "workspace:*",
-    "subduction_wasm": "file:../../../subduction/subduction_wasm/pkg-slim",
+    "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   }

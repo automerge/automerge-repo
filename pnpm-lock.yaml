@@ -141,9 +141,9 @@ importers:
       '@automerge/automerge-repo-storage-indexeddb':
         specifier: workspace:*
         version: link:../../packages/automerge-repo-storage-indexeddb
-      '@automerge/automerge-repo-storage-subduction':
+      '@automerge/automerge-repo-subduction-bridge':
         specifier: workspace:*
-        version: link:../../packages/automerge-repo-storage-subduction
+        version: link:../../packages/automerge-repo-subduction-bridge
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -162,9 +162,9 @@ importers:
       '@automerge/automerge-repo-storage-indexeddb':
         specifier: workspace:*
         version: link:../../packages/automerge-repo-storage-indexeddb
-      '@automerge/automerge-repo-storage-subduction':
+      '@automerge/automerge-repo-subduction-bridge':
         specifier: workspace:*
-        version: link:../../packages/automerge-repo-storage-subduction
+        version: link:../../packages/automerge-repo-subduction-bridge
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -233,9 +233,9 @@ importers:
       '@automerge/automerge-repo-storage-indexeddb':
         specifier: workspace:*
         version: link:../../packages/automerge-repo-storage-indexeddb
-      '@automerge/automerge-repo-storage-subduction':
+      '@automerge/automerge-repo-subduction-bridge':
         specifier: workspace:*
-        version: link:../../packages/automerge-repo-storage-subduction
+        version: link:../../packages/automerge-repo-subduction-bridge
       '@automerge/automerge-repo-svelte-store':
         specifier: workspace:*
         version: link:../../packages/automerge-repo-svelte-store
@@ -488,7 +488,7 @@ importers:
         specifier: ^5.0.1
         version: 5.0.10
 
-  packages/automerge-repo-storage-subduction:
+  packages/automerge-repo-subduction-bridge:
     dependencies:
       '@automerge/automerge-repo':
         specifier: workspace:*

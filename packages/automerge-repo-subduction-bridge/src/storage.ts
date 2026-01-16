@@ -1,18 +1,15 @@
 /**
- * A bidge that acts as an adapter _to other adapters_ allowing them to work with Subduction.
- *
- * This allows Subduction to use any existing automerge-repo storage adapter (IndexedDB, NodeFS, etc.)
- * as its backing store.
+ * Bridge that allows Subduction to use automerge-repo storage adapters.
  *
  * @example
  * ```ts
  * import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
- * import { Subduction } from "@automerge/subduction"
- * import { SubductionStorageBridge } from "@automerge/automerge-repo-storage-subduction"
+ * import { Subduction } from "subduction_wasm"
+ * import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
  *
  * const storageAdapter = new IndexedDBStorageAdapter()
  * const storage = new SubductionStorageBridge(storageAdapter)
- * const subduction = new Subduction(storage)
+ * const subduction = await Subduction.hydrate(storage)
  * ```
  */
 
@@ -24,7 +21,7 @@ import {
     Fragment,
     Digest,
     BlobMeta,
-} from "subduction_wasm"
+} from "@automerge/automerge_subduction"
 
 /** Key prefix for all subduction data */
 const PREFIX = "subduction"
@@ -64,8 +61,11 @@ interface SerializedFragment {
 }
 
 /**
- * Adapter that wraps an automerge-repo StorageAdapterInterface to implement
- * subduction's Storage interface.
+ * Bridge that wraps an automerge-repo StorageAdapterInterface to implement
+ * Subduction's Storage interface.
+ *
+ * This allows Subduction to use any existing automerge-repo storage adapter
+ * (IndexedDB, NodeFS, etc.) as its backing store.
  */
 export class SubductionStorageBridge implements Storage {
     private adapter: StorageAdapterInterface

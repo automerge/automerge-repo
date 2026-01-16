@@ -1,8 +1,8 @@
 {
-  "name": "@automerge/automerge-repo-storage-subduction",
+  "name": "@automerge/automerge-repo-subduction-bridge",
   "version": "2.5.2-alpha.1",
-  "description": "Adapter to use automerge-repo StorageAdapters with subduction's Storage interface",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-storage-subduction",
+  "description": "Bridges to use automerge-repo storage and network adapters with Subduction",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-subduction-bridge",
   "author": "Brooklyn Zelenka <hello@brooklynzelenka.com>",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "subduction_wasm": "file:../../../subduction/subduction_wasm/pkg-slim"
+    "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm"
   },
   "watch": {
     "build": {

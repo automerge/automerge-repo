@@ -51,6 +51,12 @@ This is a monorepo containing the following packages:
   Likely only useful for experimentation, but allows simple (inefficient) tab-to-tab data
   synchronization.
 
+#### Subduction bridges
+
+- [automerge-repo-subduction-bridge](/packages/automerge-repo-subduction-bridge/): Bridges that
+  allow [Subduction](https://github.com/inkandswitch/subduction) to reuse automerge-repo storage
+  and network adapters.
+
 Please note that a reference sync-server peer which demonstrates the use of
 [automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/)
 is available at [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server) (this is different from [sync-server](/examples/sync-server)).

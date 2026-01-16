@@ -11,4 +11,7 @@ export default defineConfig({
     format: "es",
     plugins: () => [wasm()],
   },
+  optimizeDeps: {
+    exclude: ["subduction_wasm"],
+  },
 })
