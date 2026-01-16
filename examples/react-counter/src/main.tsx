@@ -10,7 +10,7 @@ import {
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
-import { StorageAdapterStorage } from "@automerge/automerge-repo-storage-subduction"
+import { SubductionStorageBridge } from "@automerge/automerge-repo-storage-subduction"
 import { Subduction } from "subduction_wasm"
 
 // We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
@@ -45,7 +45,7 @@ console.log("Starting up app...")
 ;(async () => {
   console.log("ASYNC")
   const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-counter")
-  const storage = new StorageAdapterStorage(storageAdapter)
+  const storage = new SubductionStorageBridge(storageAdapter)
   const repo = new Repo({
     network: [new WebSocketClientAdapter("ws://127.0.0.1:8080", 5000, { subductionMode: true })],
     subduction: await Subduction.hydrate(storage),

@@ -1,17 +1,17 @@
 /**
- * Adapter that implements subduction's Storage interface using an automerge-repo StorageAdapterInterface.
+ * A bidge that acts as an adapter _to other adapters_ allowing them to work with Subduction.
  *
- * This allows subduction to use any existing automerge-repo storage adapter (IndexedDB, NodeFS, etc.)
+ * This allows Subduction to use any existing automerge-repo storage adapter (IndexedDB, NodeFS, etc.)
  * as its backing store.
  *
  * @example
  * ```ts
  * import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
  * import { Subduction } from "@automerge/subduction"
- * import { StorageAdapterStorage } from "@automerge/automerge-repo-storage-subduction"
+ * import { SubductionStorageBridge } from "@automerge/automerge-repo-storage-subduction"
  *
  * const storageAdapter = new IndexedDBStorageAdapter()
- * const storage = new StorageAdapterStorage(storageAdapter)
+ * const storage = new SubductionStorageBridge(storageAdapter)
  * const subduction = new Subduction(storage)
  * ```
  */
@@ -67,7 +67,7 @@ interface SerializedFragment {
  * Adapter that wraps an automerge-repo StorageAdapterInterface to implement
  * subduction's Storage interface.
  */
-export class StorageAdapterStorage implements Storage {
+export class SubductionStorageBridge implements Storage {
     private adapter: StorageAdapterInterface
 
     constructor(adapter: StorageAdapterInterface) {
@@ -89,10 +89,8 @@ export class StorageAdapterStorage implements Storage {
         const ids: SedimentreeId[] = []
 
         for (const chunk of chunks) {
-            // Key format: [PREFIX, IDS_PREFIX, sedimentreeIdHex]
             if (chunk.key.length === 3 && chunk.data) {
                 const idHex = chunk.key[2]
-                // SedimentreeId is 32 bytes, stored as hex string
                 const bytes = hexToBytes(idHex)
                 ids.push(SedimentreeId.fromBytes(bytes))
             }
@@ -142,9 +140,11 @@ export class StorageAdapterStorage implements Storage {
 
             const digest = Digest.fromHexString(serialized.digest)
             const parents = serialized.parents.map(p => Digest.fromHexString(p))
+
             const blobMetaDigest = Digest.fromHexString(
                 serialized.blobMeta.digest
             )
+
             const blobMeta = BlobMeta.fromDigestSize(
                 blobMetaDigest,
                 BigInt(serialized.blobMeta.sizeBytes)
@@ -203,15 +203,19 @@ export class StorageAdapterStorage implements Storage {
             const serialized: SerializedFragment = JSON.parse(json)
 
             const head = Digest.fromHexString(serialized.head)
+
             const boundary = serialized.boundary.map(b =>
                 Digest.fromHexString(b)
             )
+
             const checkpoints = serialized.checkpoints.map(c =>
                 Digest.fromHexString(c)
             )
+
             const blobMetaDigest = Digest.fromHexString(
                 serialized.blobMeta.digest
             )
+
             const blobMeta = BlobMeta.fromDigestSize(
                 blobMetaDigest,
                 BigInt(serialized.blobMeta.sizeBytes)

@@ -8,7 +8,7 @@ import {
     RepoContext,
 } from "@automerge/react"
 
-import { StorageAdapterStorage } from "@automerge/automerge-repo-storage-subduction"
+import { SubductionStorageBridge } from "@automerge/automerge-repo-storage-subduction"
 import { Subduction } from "subduction_wasm"
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"
@@ -26,7 +26,7 @@ declare global {
 
 ;(async () => {
     const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-todo")
-    const storage = new StorageAdapterStorage(storageAdapter)
+    const storage = new SubductionStorageBridge(storageAdapter)
     const repo = new Repo({
         network: [new WebSocketClientAdapter("ws://127.0.0.1:8080", 5000, { subductionMode: true })],
         subduction: await Subduction.hydrate(storage),

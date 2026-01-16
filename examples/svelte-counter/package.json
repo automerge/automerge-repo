@@ -15,7 +15,7 @@
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "@automerge/automerge-repo-storage-subduction": "workspace:*",
     "@automerge/automerge-repo-svelte-store": "workspace:*",
-    "subduction_wasm": "workspace:*",
+    "subduction_wasm": "file:../../../subduction/subduction_wasm/pkg-slim",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

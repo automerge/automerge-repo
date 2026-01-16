@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "subduction_wasm": "workspace:*"
+    "subduction_wasm": "file:../../../subduction/subduction_wasm/pkg-slim"
   },
   "watch": {
     "build": {
