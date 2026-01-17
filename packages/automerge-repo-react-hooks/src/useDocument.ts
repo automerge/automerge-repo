@@ -61,54 +61,23 @@ export function useDocument<T>(
 
   // Reinitialize doc when handle changes
   useEffect(() => {
-    // Only update doc if handle is ready - otherwise keep current state
-    // and wait for the change listener to update when handle becomes ready
-    if (handle?.isReady()) {
-      console.log(`[useDocument ${handle.documentId.slice(0, 8)}] handle ready, setting doc`)
-      setDoc(handle.doc())
-    } else if (handle) {
-      console.log(`[useDocument ${handle.documentId.slice(0, 8)}] handle not ready (state: ${handle.state}), waiting for change event`)
-    }
+    setDoc(handle?.doc())
   }, [handle])
 
   useEffect(() => {
     if (!handle) {
       return
     }
-    const onChange = () => {
-      const newDoc = handle.doc()
-      const isSameRef = newDoc === doc
-      console.log(`[useDocument ${handle.documentId.slice(0, 8)}] onChange callback fired, calling setDoc. isSameRef=${isSameRef}, doc keys:`, newDoc ? Object.keys(newDoc) : 'undefined')
-      setDoc(newDoc)
-    }
-    const onHeadsChanged = () => {
-      // Also listen for heads-changed in case the document becomes ready
-      // but with patches.length=0 (which doesn't emit "change")
-      if (handle.isReady()) {
-        console.log(`[useDocument ${handle.documentId.slice(0, 8)}] onHeadsChanged: handle is ready, syncing doc`)
-        setDoc(handle.doc())
-      }
-    }
+    const onChange = () => setDoc(handle.doc())
     const onDelete = () => {
       setDeleteError(new Error(`Document ${id} was deleted`))
     }
 
-    console.log(`[useDocument ${handle.documentId.slice(0, 8)}] registering change listener`)
     handle.on("change", onChange)
-    handle.on("heads-changed", onHeadsChanged)
     handle.on("delete", onDelete)
 
-    // If handle is already ready when we set up the listener, sync the doc now
-    // This handles the race where handle became ready before effect ran
-    if (handle.isReady()) {
-      console.log(`[useDocument ${handle.documentId.slice(0, 8)}] handle already ready on listener setup, syncing doc`)
-      setDoc(handle.doc())
-    }
-
     return () => {
-      console.log(`[useDocument ${handle.documentId?.slice(0, 8)}] removing change listener`)
       handle.removeListener("change", onChange)
-      handle.removeListener("heads-changed", onHeadsChanged)
       handle.removeListener("delete", onDelete)
     }
   }, [handle, id])

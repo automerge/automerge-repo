@@ -844,7 +844,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         id: AnyDocumentId,
         options: RepoFindOptions & AbortOptions = {}
     ): Promise<DocHandle<T>> {
-        const { allowableStates = ["ready"], signal } = options
+        const { allowableStates = [READY], signal } = options
 
         // Check if already aborted
         if (signal?.aborted) {
@@ -855,28 +855,59 @@ export class Repo extends EventEmitter<RepoEvents> {
 
         if ("subscribe" in progress) {
             this.#registerHandleWithSubsystems(progress.handle)
+            const targetDocumentId = progress.handle.documentId
+
             return new Promise((resolve, reject) => {
+                let resolved = false
+
+                const cleanup = () => {
+                    if (!resolved) {
+                        resolved = true
+                        unsubscribe()
+                        this.off("document", onDocument)
+                    }
+                }
+
+                // Listen for the document event - this fires when a document becomes
+                // available via async sync (e.g., Subduction)
+                const onDocument = ({
+                    handle,
+                }: {
+                    handle: DocHandle<unknown>
+                }) => {
+                    if (
+                        handle.documentId === targetDocumentId &&
+                        allowableStates.includes(handle.state)
+                    ) {
+                        cleanup()
+                        resolve(handle as DocHandle<T>)
+                    }
+                }
+
                 const unsubscribe = progress.subscribe(state => {
                     if (allowableStates.includes(state.handle.state)) {
-                        unsubscribe()
+                        cleanup()
                         resolve(state.handle)
                     } else if (state.state === "unavailable") {
-                        unsubscribe()
-                        reject(new Error(`Document ${id} is unavailable`))
+                        // Don't reject on unavailable - the document may become available
+                        // via async sync (e.g., Subduction). Keep listening for the
+                        // "document" event which will fire when the data arrives.
                     } else if (state.state === "failed") {
-                        unsubscribe()
+                        cleanup()
                         reject(state.error)
                     }
                 })
+
+                this.on("document", onDocument)
             })
         } else {
-            if (progress.handle.state === READY) {
+            if (allowableStates.includes(progress.handle.state)) {
                 return progress.handle
             }
             // If the handle isn't ready, wait for it and then return it
             await progress.handle.whenReady([READY, UNAVAILABLE])
             if (
-                progress.handle.state === "unavailable" &&
+                progress.handle.state === UNAVAILABLE &&
                 !allowableStates.includes(UNAVAILABLE)
             ) {
                 throw new Error(`Document ${id} is unavailable`)
