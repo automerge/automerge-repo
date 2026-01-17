@@ -25,9 +25,11 @@ export function toSedimentreeId(id: AnyDocumentId): SedimentreeId {
 
 // NOTE temporary until we have [u8; 32] peer IDs
 export function toDocumentId(sedimentreeId: SedimentreeId): DocumentId {
-  const str = sedimentreeId.toString()
-  const sixteenBytesString = str.substring(0, 16 * 2) as DocumentId
-  return sixteenBytesString
+  // Get the raw bytes and take the first 16 (DocumentId is 16 bytes)
+  const bytes = sedimentreeId.toBytes()
+  const docIdBytes = bytes.slice(0, 16)
+  // Encode as base58check to match automerge-repo's DocumentId format
+  return bs58check.encode(docIdBytes) as DocumentId
 }
 
 // NOTE temporary until we have [u8; 32] peer IDs

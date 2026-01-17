@@ -25,5 +25,5 @@
  * ```
  */
 
-export { SubductionStorageBridge } from "./storage.js"
+export { SubductionStorageBridge, type StorageBridgeEvents } from "./storage.js"
 export { SubductionNetworkBridge, type WebSocketNetworkAdapter } from "./network.js"

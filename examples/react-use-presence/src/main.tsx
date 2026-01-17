@@ -24,6 +24,7 @@ import { v4 } from "uuid"
             new WebSocketClientAdapter("ws://127.0.0.1:8081"), // Ephemeral messages (presence) via relay server
         ],
         subduction: await Subduction.hydrate(storage),
+        subductionStorage: storage,
     })
 
     const userId = v4()

@@ -187,6 +187,16 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 // ============================================================================
+// Storage Bridge Events
+// ============================================================================
+
+export interface StorageBridgeEvents {
+    "commit-saved": (sedimentreeId: SedimentreeId, commit: LooseCommit, blob: Uint8Array) => void
+    "fragment-saved": (sedimentreeId: SedimentreeId, fragment: Fragment, blob: Uint8Array) => void
+    "blob-saved": (digest: Digest, blob: Uint8Array) => void
+}
+
+// ============================================================================
 // Storage Bridge
 // ============================================================================
 
@@ -196,12 +206,52 @@ function bytesToHex(bytes: Uint8Array): string {
  *
  * This allows Subduction to use any existing automerge-repo storage adapter
  * (IndexedDB, NodeFS, etc.) as its backing store.
+ *
+ * Supports event callbacks via `on()` for commit-saved, fragment-saved, and blob-saved events.
  */
 export class SubductionStorageBridge implements Storage {
     private adapter: StorageAdapterInterface
+    private listeners: {
+        [K in keyof StorageBridgeEvents]?: StorageBridgeEvents[K][]
+    } = {}
 
     constructor(adapter: StorageAdapterInterface) {
         this.adapter = adapter
+    }
+
+    /**
+     * Register an event listener.
+     */
+    on<K extends keyof StorageBridgeEvents>(event: K, callback: StorageBridgeEvents[K]): void {
+        if (!this.listeners[event]) {
+            this.listeners[event] = []
+        }
+        this.listeners[event]!.push(callback)
+    }
+
+    /**
+     * Remove an event listener.
+     */
+    off<K extends keyof StorageBridgeEvents>(event: K, callback: StorageBridgeEvents[K]): void {
+        const listeners = this.listeners[event]
+        if (listeners) {
+            const index = listeners.indexOf(callback)
+            if (index !== -1) {
+                listeners.splice(index, 1)
+            }
+        }
+    }
+
+    private emit<K extends keyof StorageBridgeEvents>(
+        event: K,
+        ...args: Parameters<StorageBridgeEvents[K]>
+    ): void {
+        const listeners = this.listeners[event]
+        if (listeners) {
+            for (const listener of listeners) {
+                (listener as (...args: Parameters<StorageBridgeEvents[K]>) => void)(...args)
+            }
+        }
     }
 
     async saveSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
@@ -233,13 +283,42 @@ export class SubductionStorageBridge implements Storage {
         sedimentreeId: SedimentreeId,
         commit: LooseCommit
     ): Promise<void> {
+        const startTime = Date.now()
         const key = [
             PREFIX,
             COMMITS_PREFIX,
             sedimentreeId.toString(),
             bytesToHex(commit.digest.toBytes()),
         ]
+        console.log(`[${startTime}] Storage bridge: saveLooseCommit START, sedimentreeId: ${sedimentreeId.toString()}`)
         await this.adapter.save(key, serializeLooseCommit(commit))
+        const afterSaveTime = Date.now()
+        console.log(`[${afterSaveTime}] Storage bridge: saveLooseCommit saved metadata, took ${afterSaveTime - startTime}ms`)
+
+        // Emit event after save - load blob to include in event
+        if (this.listeners["commit-saved"]?.length) {
+            const blobDigest = commit.blobMeta.digest()
+            const expectedDigestHex = bytesToHex(blobDigest.toBytes())
+            console.log(`[${Date.now()}] Storage bridge: commit saved, attempting to load blob with digest: ${expectedDigestHex}`)
+
+            // DEBUG: Try microtask delay to see if IndexedDB needs time to flush
+            await new Promise(resolve => setTimeout(resolve, 0))
+            const afterDelayTime = Date.now()
+            console.log(`[${afterDelayTime}] Storage bridge: after microtask delay, now loading blob`)
+
+            const blob = await this.loadBlob(blobDigest)
+            const afterLoadTime = Date.now()
+
+            if (blob) {
+                console.log(`[${afterLoadTime}] Storage bridge: blob FOUND, size: ${blob.length}, emitting commit-saved event`)
+                this.emit("commit-saved", sedimentreeId, commit, blob)
+            } else {
+                console.log(`[${afterLoadTime}] Storage bridge: blob NOT FOUND for digest ${expectedDigestHex}!`)
+                console.log(`[${afterLoadTime}] Storage bridge: This indicates a digest mismatch or IndexedDB timing issue`)
+            }
+        } else {
+            console.log(`[${Date.now()}] Storage bridge: no commit-saved listeners registered`)
+        }
     }
 
     async loadLooseCommits(
@@ -272,13 +351,40 @@ export class SubductionStorageBridge implements Storage {
         sedimentreeId: SedimentreeId,
         fragment: Fragment
     ): Promise<void> {
+        const startTime = Date.now()
         const key = [
             PREFIX,
             FRAGMENTS_PREFIX,
             sedimentreeId.toString(),
             bytesToHex(fragment.head.toBytes()),
         ]
+        console.log(`[${startTime}] Storage bridge: saveFragment START, sedimentreeId: ${sedimentreeId.toString()}`)
         await this.adapter.save(key, serializeFragment(fragment))
+        const afterSaveTime = Date.now()
+        console.log(`[${afterSaveTime}] Storage bridge: saveFragment saved metadata, took ${afterSaveTime - startTime}ms`)
+
+        // Emit event after save - load blob to include in event
+        if (this.listeners["fragment-saved"]?.length) {
+            const blobDigest = fragment.blobMeta.digest()
+            const expectedDigestHex = bytesToHex(blobDigest.toBytes())
+            console.log(`[${Date.now()}] Storage bridge: fragment saved, attempting to load blob with digest: ${expectedDigestHex}`)
+
+            // DEBUG: Try microtask delay to see if IndexedDB needs time to flush
+            await new Promise(resolve => setTimeout(resolve, 0))
+            console.log(`[${Date.now()}] Storage bridge: after microtask delay, now loading blob for fragment`)
+
+            const blob = await this.loadBlob(blobDigest)
+            const afterLoadTime = Date.now()
+
+            if (blob) {
+                console.log(`[${afterLoadTime}] Storage bridge: fragment blob FOUND, size: ${blob.length}, emitting fragment-saved event`)
+                this.emit("fragment-saved", sedimentreeId, fragment, blob)
+            } else {
+                console.log(`[${afterLoadTime}] Storage bridge: fragment blob NOT FOUND for digest ${expectedDigestHex}!`)
+            }
+        } else {
+            console.log(`[${Date.now()}] Storage bridge: no fragment-saved listeners registered`)
+        }
     }
 
     async loadFragments(sedimentreeId: SedimentreeId): Promise<Fragment[]> {
@@ -306,15 +412,29 @@ export class SubductionStorageBridge implements Storage {
     }
 
     async saveBlob(data: Uint8Array): Promise<Digest> {
+        const startTime = Date.now()
         const digest = Digest.hash(data)
-        const key = [PREFIX, BLOBS_PREFIX, bytesToHex(digest.toBytes())]
+        const digestHex = bytesToHex(digest.toBytes())
+        console.log(`[${startTime}] Storage bridge: saveBlob START, digest: ${digestHex}, size: ${data.length}`)
+        const key = [PREFIX, BLOBS_PREFIX, digestHex]
         await this.adapter.save(key, data)
+        const endTime = Date.now()
+        console.log(`[${endTime}] Storage bridge: saveBlob END, digest: ${digestHex}, took ${endTime - startTime}ms`)
+
+        // Emit event after save
+        if (this.listeners["blob-saved"]?.length) {
+            this.emit("blob-saved", digest, data)
+        }
+
         return digest
     }
 
     async loadBlob(digest: Digest): Promise<Uint8Array | null> {
-        const key = [PREFIX, BLOBS_PREFIX, bytesToHex(digest.toBytes())]
+        const digestHex = bytesToHex(digest.toBytes())
+        const key = [PREFIX, BLOBS_PREFIX, digestHex]
+        console.log(`[${Date.now()}] Storage bridge: loadBlob called for digest: ${digestHex}`)
         const data = await this.adapter.load(key)
+        console.log(`[${Date.now()}] Storage bridge: loadBlob result for ${digestHex}: ${data ? `FOUND (${data.length} bytes)` : 'NOT FOUND'}`)
         return data ?? null
     }
 

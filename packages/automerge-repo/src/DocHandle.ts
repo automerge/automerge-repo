@@ -240,11 +240,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       encodeHeads(afterHeads),
       encodeHeads(beforeHeads)
     )
+    console.log(`[DocHandle ${this.documentId.slice(0, 8)}] #checkForChanges: docChanged=${docChanged}, beforeHeads=${beforeHeads.length}, afterHeads=${afterHeads.length}`)
     if (docChanged) {
       this.emit("heads-changed", { handle: this, doc: after })
 
       const patches = A.diff(after, beforeHeads, afterHeads)
+      console.log(`[DocHandle ${this.documentId.slice(0, 8)}] #checkForChanges: patches.length=${patches.length}`)
       if (patches.length > 0) {
+        console.log(`[DocHandle ${this.documentId.slice(0, 8)}] #checkForChanges: EMITTING change event`)
         this.emit("change", {
           handle: this,
           doc: after,
@@ -252,6 +255,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           // TODO: pass along the source (load/change/network)
           patchInfo: { before, after, source: "change" },
         })
+      } else {
+        console.log(`[DocHandle ${this.documentId.slice(0, 8)}] #checkForChanges: NO patches, not emitting change event`)
       }
 
       // If we didn't have the document yet, signal that we now do

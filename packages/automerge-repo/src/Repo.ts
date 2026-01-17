@@ -65,6 +65,16 @@ import {
     SubductionWebSocket,
 } from "@automerge/automerge_subduction"
 
+/**
+ * Interface for storage bridges that support event callbacks.
+ * This allows Repo to register callbacks without depending on the concrete bridge implementation.
+ */
+export interface SubductionStorageWithCallbacks {
+    on(event: "commit-saved", callback: (sedimentreeId: SedimentreeId, commit: LooseCommit, blob: Uint8Array) => void): void
+    on(event: "fragment-saved", callback: (sedimentreeId: SedimentreeId, fragment: Fragment, blob: Uint8Array) => void): void
+    on(event: "blob-saved", callback: (digest: Digest, blob: Uint8Array) => void): void
+}
+
 export type FindProgressWithMethods<T> = FindProgress<T> & {
     untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
     peek: () => FindProgress<T>
@@ -149,6 +159,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         saveDebounceRate = 100,
         idFactory,
         subduction,
+        subductionStorage,
         recentHeadsCacheSize = 256,
     }: RepoConfig = {}) {
         super()
@@ -390,6 +401,16 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#recentlySeenHeads = new Map()
         this.#lastHeadsSent = new Map()
         this.#handlesBySedimentreeId = new Map()
+
+        // Register storage callbacks if storage bridge is provided
+        if (subductionStorage) {
+            subductionStorage.on("commit-saved", (id, commit, blob) => {
+                this.#handleCommitSaved(id, commit, blob)
+            })
+            subductionStorage.on("fragment-saved", (id, fragment, blob) => {
+                this.#handleFragmentSaved(id, fragment, blob)
+            })
+        }
 
         // Connect subduction adapters and attach their WebSockets to Subduction
         // Store the promise so we can wait for it in document operations
@@ -1120,35 +1141,6 @@ export class Repo extends EventEmitter<RepoEvents> {
                 }
             }
         }
-
-        // Set up Subduction event handlers
-        this.#subduction.onCommit(
-            async (
-                id: SedimentreeId,
-                loose_commit: LooseCommit,
-                blob: Uint8Array
-            ) => {
-                const existingHandle = this.#handlesBySedimentreeId.get(
-                    id.toString()
-                )
-                if (existingHandle !== undefined) {
-                    existingHandle.update(doc =>
-                        Automerge.loadIncremental(doc, blob)
-                    )
-                    existingHandle.doneLoading()
-                }
-            }
-        )
-
-        this.#subduction.onFragment(
-            async (id: SedimentreeId, fragment: Fragment, blob: Uint8Array) => {
-                const handle = this.#handlesBySedimentreeId.get(id.toString())
-                if (handle !== undefined) {
-                    handle.update(doc => Automerge.loadIncremental(doc, blob))
-                    handle.doneLoading()
-                }
-            }
-        )
     }
 
     async connectToWebSocketPeer(peerId: PeerId, syncServerAddress: string) {
@@ -1165,6 +1157,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     async #requestDocOverSubduction(handle: DocHandle<any>) {
         const sedimentreeId = toSedimentreeId(handle.documentId)
+        console.log("#requestDocOverSubduction: registering handle for", sedimentreeId.toString(), "state:", handle.state)
         this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
 
         // Wait for subduction adapters to be ready before making sync requests
@@ -1182,15 +1175,18 @@ export class Repo extends EventEmitter<RepoEvents> {
                 this.#log("PeerBatchSyncResult connError: ", err)
             }
 
-            batchSyncResult.blobs.forEach((bundleBlob: Uint8Array) => {
-                handle.update(doc => Automerge.loadIncremental(doc, bundleBlob))
-                handle.doneLoading()
-            })
+            // NOTE: Don't update handle or call doneLoading() here!
+            // The storage callback (#handleCommitSaved) will handle updating the handle
+            // when the data is persisted. This ensures the "document" event is properly
+            // emitted for newly discovered remote documents.
+            // The batch sync request triggers the Rust side to fetch and save the data,
+            // which in turn triggers the storage callbacks.
         })
     }
 
     #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
         const sid = toSedimentreeId(handle.documentId)
+        console.log("#tellSubductionAboutNewHandle: registering handle for", sid.toString(), "state:", handle.state)
         this.#handlesBySedimentreeId.set(sid.toString(), handle)
 
         const throttledBroadcast = throttle(() => {
@@ -1283,6 +1279,73 @@ export class Repo extends EventEmitter<RepoEvents> {
             new Set(currentHexHeads)
         )
     }
+
+    /**
+     * Handle a commit being saved to storage.
+     * Called via storage bridge callback after data is persisted.
+     */
+    #handleCommitSaved(id: SedimentreeId, commit: LooseCommit, blob: Uint8Array) {
+        console.log("Storage callback: #handleCommitSaved for", id.toString(), "blob size:", blob.length)
+        const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
+        if (existingHandle !== undefined) {
+            const wasNotReady = existingHandle.state !== READY
+            const headsBefore = existingHandle.isReady() ? Automerge.getHeads(existingHandle.doc()) : []
+            console.log("Storage callback: updating existing handle, state:", existingHandle.state, "wasNotReady:", wasNotReady, "headsBefore:", headsBefore)
+            existingHandle.update(doc => {
+                const result = Automerge.loadIncremental(doc, blob)
+                const headsAfter = Automerge.getHeads(result)
+                console.log("Storage callback: loadIncremental result, headsAfter:", headsAfter)
+                return result
+            })
+            existingHandle.doneLoading()
+            console.log("Storage callback: after update, state:", existingHandle.state)
+            // Emit document event when a handle transitions to ready from any non-ready state
+            // This notifies the app about newly synced documents (covers loading, requesting, unavailable)
+            if (wasNotReady && existingHandle.isReady()) {
+                console.log("Storage callback: emitting document event for newly ready handle")
+                this.emit("document", { handle: existingHandle })
+            }
+        } else {
+            // New sedimentree we haven't seen before - create a handle for it
+            const documentId = toDocumentId(id)
+            console.log("Storage callback: creating NEW handle for", documentId, "from sedimentree", id.toString())
+            const handle = this.#getHandle({ documentId })
+            this.#handlesBySedimentreeId.set(id.toString(), handle)
+            console.log("Storage callback: handle state before update:", handle.state)
+            handle.update(doc => Automerge.loadIncremental(doc, blob))
+            handle.doneLoading()
+            console.log("Storage callback: handle state after update:", handle.state)
+            this.#registerHandleWithSubsystems(handle)
+            this.emit("document", { handle })
+            console.log("Storage callback: registered new handle and emitted document event")
+        }
+    }
+
+    /**
+     * Handle a fragment being saved to storage.
+     * Called via storage bridge callback after data is persisted.
+     */
+    #handleFragmentSaved(id: SedimentreeId, fragment: Fragment, blob: Uint8Array) {
+        const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
+        if (existingHandle !== undefined) {
+            const wasNotReady = existingHandle.state !== READY
+            existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
+            existingHandle.doneLoading()
+            // Emit document event when a handle transitions to ready from any non-ready state
+            if (wasNotReady && existingHandle.isReady()) {
+                this.emit("document", { handle: existingHandle })
+            }
+        } else {
+            // New sedimentree we haven't seen before - create a handle for it
+            const documentId = toDocumentId(id)
+            const handle = this.#getHandle({ documentId })
+            this.#handlesBySedimentreeId.set(id.toString(), handle)
+            handle.update(doc => Automerge.loadIncremental(doc, blob))
+            handle.doneLoading()
+            this.#registerHandleWithSubsystems(handle)
+            this.emit("document", { handle })
+        }
+    }
 }
 
 export interface RepoConfig {
@@ -1344,6 +1407,11 @@ export interface RepoConfig {
      * The subduction sync engine
      */
     subduction?: Subduction
+
+    /**
+     * The subduction storage bridge (for registering save callbacks)
+     */
+    subductionStorage?: SubductionStorageWithCallbacks
 
     /**
      * The size of the cache for recently seen heads per document to avoid resending them
