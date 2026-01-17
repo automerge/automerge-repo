@@ -127,3 +127,9 @@ useRepo(): Repo
 ```ts
 const repo = useRepo()
 ```
+
+### `usePresence`
+
+This [hook](./src/usePresence.ts) allows temporary state to be shared, such as cursor positions or peer online/offline status.
+
+Ephemeral messages are replicated between peers, but not saved to the Automerge doc, and are used for temporary updates that will be discarded.
