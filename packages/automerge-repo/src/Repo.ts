@@ -1316,39 +1316,25 @@ export class Repo extends EventEmitter<RepoEvents> {
      * Called via storage bridge callback after data is persisted.
      */
     #handleCommitSaved(id: SedimentreeId, commit: LooseCommit, blob: Uint8Array) {
-        console.log("Storage callback: #handleCommitSaved for", id.toString(), "blob size:", blob.length)
         const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
         if (existingHandle !== undefined) {
             const wasNotReady = existingHandle.state !== READY
-            const headsBefore = existingHandle.isReady() ? Automerge.getHeads(existingHandle.doc()) : []
-            console.log("Storage callback: updating existing handle, state:", existingHandle.state, "wasNotReady:", wasNotReady, "headsBefore:", headsBefore)
-            existingHandle.update(doc => {
-                const result = Automerge.loadIncremental(doc, blob)
-                const headsAfter = Automerge.getHeads(result)
-                console.log("Storage callback: loadIncremental result, headsAfter:", headsAfter)
-                return result
-            })
+            existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
             existingHandle.doneLoading()
-            console.log("Storage callback: after update, state:", existingHandle.state)
             // Emit document event when a handle transitions to ready from any non-ready state
             // This notifies the app about newly synced documents (covers loading, requesting, unavailable)
             if (wasNotReady && existingHandle.isReady()) {
-                console.log("Storage callback: emitting document event for newly ready handle")
                 this.emit("document", { handle: existingHandle })
             }
         } else {
             // New sedimentree we haven't seen before - create a handle for it
             const documentId = toDocumentId(id)
-            console.log("Storage callback: creating NEW handle for", documentId, "from sedimentree", id.toString())
             const handle = this.#getHandle({ documentId })
             this.#handlesBySedimentreeId.set(id.toString(), handle)
-            console.log("Storage callback: handle state before update:", handle.state)
             handle.update(doc => Automerge.loadIncremental(doc, blob))
             handle.doneLoading()
-            console.log("Storage callback: handle state after update:", handle.state)
             this.#registerHandleWithSubsystems(handle)
             this.emit("document", { handle })
-            console.log("Storage callback: registered new handle and emitted document event")
         }
     }
 
