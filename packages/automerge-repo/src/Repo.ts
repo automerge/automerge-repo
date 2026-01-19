@@ -62,6 +62,7 @@ import {
     SedimentreeAutomerge,
     SedimentreeId,
     Subduction,
+    SubductionStorage,
     SubductionWebSocket,
 } from "@automerge/automerge_subduction"
 
@@ -69,10 +70,27 @@ import {
  * Interface for storage bridges that support event callbacks.
  * This allows Repo to register callbacks without depending on the concrete bridge implementation.
  */
-export interface SubductionStorageWithCallbacks {
-    on(event: "commit-saved", callback: (sedimentreeId: SedimentreeId, commit: LooseCommit, blob: Uint8Array) => void): void
-    on(event: "fragment-saved", callback: (sedimentreeId: SedimentreeId, fragment: Fragment, blob: Uint8Array) => void): void
-    on(event: "blob-saved", callback: (digest: Digest, blob: Uint8Array) => void): void
+export interface SubductionStorageWithCallbacks extends SubductionStorage {
+    on(
+        event: "commit-saved",
+        callback: (
+            sedimentreeId: SedimentreeId,
+            commit: LooseCommit,
+            blob: Uint8Array
+        ) => void
+    ): void
+    on(
+        event: "fragment-saved",
+        callback: (
+            sedimentreeId: SedimentreeId,
+            fragment: Fragment,
+            blob: Uint8Array
+        ) => void
+    ): void
+    on(
+        event: "blob-saved",
+        callback: (digest: Digest, blob: Uint8Array) => void
+    ): void
 }
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
@@ -159,7 +177,6 @@ export class Repo extends EventEmitter<RepoEvents> {
         saveDebounceRate = 100,
         idFactory,
         subduction,
-        subductionStorage,
         recentHeadsCacheSize = 256,
     }: RepoConfig = {}) {
         super()
@@ -200,8 +217,8 @@ export class Repo extends EventEmitter<RepoEvents> {
 
         // When the synchronizer emits messages, send them to peers
         this.synchronizer.on("message", message => {
-          this.#log(`sending ${message.type} message to ${message.targetId}`)
-          networkSubsystem.send(message)
+            this.#log(`sending ${message.type} message to ${message.targetId}`)
+            networkSubsystem.send(message)
         })
 
         // // Forward metrics from doc synchronizers
@@ -272,8 +289,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
         // Separate adapters into subduction and non-subduction
         // Subduction adapters have both getWebSocket() and isSubductionMode() returning true
-        const subductionAdapters = network.filter(a => a.isSubductionMode?.() === true)
-        const nonSubductionAdapters = network.filter(a => !a.isSubductionMode?.())
+        const subductionAdapters = network.filter(
+            a => a.isSubductionMode?.() === true
+        )
+        const nonSubductionAdapters = network.filter(
+            a => !a.isSubductionMode?.()
+        )
 
         const networkSubsystem = new NetworkSubsystem(
             nonSubductionAdapters,
@@ -402,11 +423,13 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#lastHeadsSent = new Map()
         this.#handlesBySedimentreeId = new Map()
 
-        // Register storage callbacks if storage bridge is provided
-        if (subductionStorage) {
+        if (hasCallbacks(subduction.storage)) {
+            const subductionStorage = subduction.storage
+
             subductionStorage.on("commit-saved", (id, commit, blob) => {
                 this.#handleCommitSaved(id, commit, blob)
             })
+
             subductionStorage.on("fragment-saved", (id, fragment, blob) => {
                 this.#handleFragmentSaved(id, fragment, blob)
             })
@@ -415,7 +438,12 @@ export class Repo extends EventEmitter<RepoEvents> {
         // Connect subduction adapters and attach their WebSockets to Subduction
         // Store the promise so we can wait for it in document operations
         if (subductionAdapters.length > 0) {
-            this.#subductionAdaptersReady = this.#attachNetworkAdaptersToSubduction(subductionAdapters, peerId, myPeerMetadata)
+            this.#subductionAdaptersReady =
+                this.#attachNetworkAdaptersToSubduction(
+                    subductionAdapters,
+                    peerId,
+                    myPeerMetadata
+                )
         } else {
             this.#subductionAdaptersReady = Promise.resolve()
         }
@@ -458,7 +486,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             case "ephemeral":
             case "doc-unavailable":
                 this.synchronizer.receiveMessage(message).catch(err => {
-                  console.log("error receiving message", { err, message })
+                    console.log("error receiving message", { err, message })
                 })
                 break
         }
@@ -1188,7 +1216,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     async #requestDocOverSubduction(handle: DocHandle<any>) {
         const sedimentreeId = toSedimentreeId(handle.documentId)
-        console.log("#requestDocOverSubduction: registering handle for", sedimentreeId.toString(), "state:", handle.state)
+        console.log(
+            "#requestDocOverSubduction: registering handle for",
+            sedimentreeId.toString(),
+            "state:",
+            handle.state
+        )
         this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
 
         // Wait for subduction adapters to be ready before making sync requests
@@ -1217,7 +1250,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
         const sid = toSedimentreeId(handle.documentId)
-        console.log("#tellSubductionAboutNewHandle: registering handle for", sid.toString(), "state:", handle.state)
+        console.log(
+            "#tellSubductionAboutNewHandle: registering handle for",
+            sid.toString(),
+            "state:",
+            handle.state
+        )
         this.#handlesBySedimentreeId.set(sid.toString(), handle)
 
         const throttledBroadcast = throttle(() => {
@@ -1315,7 +1353,11 @@ export class Repo extends EventEmitter<RepoEvents> {
      * Handle a commit being saved to storage.
      * Called via storage bridge callback after data is persisted.
      */
-    #handleCommitSaved(id: SedimentreeId, commit: LooseCommit, blob: Uint8Array) {
+    #handleCommitSaved(
+        id: SedimentreeId,
+        commit: LooseCommit,
+        blob: Uint8Array
+    ) {
         const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
         if (existingHandle !== undefined) {
             const wasNotReady = existingHandle.state !== READY
@@ -1342,7 +1384,11 @@ export class Repo extends EventEmitter<RepoEvents> {
      * Handle a fragment being saved to storage.
      * Called via storage bridge callback after data is persisted.
      */
-    #handleFragmentSaved(id: SedimentreeId, fragment: Fragment, blob: Uint8Array) {
+    #handleFragmentSaved(
+        id: SedimentreeId,
+        fragment: Fragment,
+        blob: Uint8Array
+    ) {
         const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
         if (existingHandle !== undefined) {
             const wasNotReady = existingHandle.state !== READY
@@ -1424,11 +1470,6 @@ export interface RepoConfig {
      * The subduction sync engine
      */
     subduction?: Subduction
-
-    /**
-     * The subduction storage bridge (for registering save callbacks)
-     */
-    subductionStorage?: SubductionStorageWithCallbacks
 
     /**
      * The size of the cache for recently seen heads per document to avoid resending them
@@ -1517,3 +1558,9 @@ export type DocMetrics =
           type: "doc-denied"
           documentId: DocumentId
       }
+
+function hasCallbacks(
+    s: SubductionStorage | undefined
+): s is SubductionStorageWithCallbacks {
+    return !!s && typeof (s as any).on === "function"
+}

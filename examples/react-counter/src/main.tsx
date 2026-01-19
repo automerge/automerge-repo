@@ -48,7 +48,6 @@ console.log("Starting up app...")
   const repo = new Repo({
     network: [new WebSocketClientAdapter("ws://127.0.0.1:8080", 5000, { subductionMode: true })],
     subduction: await Subduction.hydrate(storage),
-    subductionStorage: storage,
     sharePolicy: async peerId => peerId.includes("shared-worker"),
   })
   const rootDocUrl = `${document.location.hash.substring(1)}`

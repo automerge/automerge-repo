@@ -15,7 +15,7 @@
 
 import type { StorageAdapterInterface } from "@automerge/automerge-repo"
 import {
-    type Storage,
+    type SubductionStorage,
     SedimentreeId,
     LooseCommit,
     Fragment,
@@ -23,13 +23,8 @@ import {
     BlobMeta,
 } from "@automerge/automerge_subduction"
 
-/** Digest size in bytes */
-const DIGEST_SIZE = 32
-
-/** Key prefix for all subduction data */
+const DIGEST_SIZE_BYTES = 32
 const PREFIX = "subduction"
-
-/** Sub-prefixes for different data types */
 const IDS_PREFIX = "ids"
 const COMMITS_PREFIX = "commits"
 const FRAGMENTS_PREFIX = "fragments"
@@ -38,32 +33,33 @@ const BLOBS_PREFIX = "blobs"
 /** Marker value for sedimentree ID existence */
 const ID_MARKER = new Uint8Array([1])
 
-// ============================================================================
-// Binary Serialization
-// ============================================================================
-
 /**
  * Serialize a LooseCommit to binary format.
  * Format: [32 digest][1 num_parents][32*n parents][32 blob_digest][8 size]
  */
 function serializeLooseCommit(commit: LooseCommit): Uint8Array {
     const numParents = commit.parents.length
-    const size = DIGEST_SIZE + 1 + (numParents * DIGEST_SIZE) + DIGEST_SIZE + 8
+    const size =
+        DIGEST_SIZE_BYTES +
+        1 +
+        numParents * DIGEST_SIZE_BYTES +
+        DIGEST_SIZE_BYTES +
+        8
     const buffer = new Uint8Array(size)
     const view = new DataView(buffer.buffer)
     let offset = 0
 
     buffer.set(commit.digest.toBytes(), offset)
-    offset += DIGEST_SIZE
+    offset += DIGEST_SIZE_BYTES
 
     buffer[offset++] = numParents
     for (const parent of commit.parents) {
         buffer.set(parent.toBytes(), offset)
-        offset += DIGEST_SIZE
+        offset += DIGEST_SIZE_BYTES
     }
 
     buffer.set(commit.blobMeta.digest().toBytes(), offset)
-    offset += DIGEST_SIZE
+    offset += DIGEST_SIZE_BYTES
 
     view.setBigUint64(offset, commit.blobMeta.sizeBytes)
 
@@ -74,21 +70,31 @@ function serializeLooseCommit(commit: LooseCommit): Uint8Array {
  * Deserialize a LooseCommit from binary format.
  */
 function deserializeLooseCommit(buffer: Uint8Array): LooseCommit {
-    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    const view = new DataView(
+        buffer.buffer,
+        buffer.byteOffset,
+        buffer.byteLength
+    )
     let offset = 0
 
-    const digest = Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE))
-    offset += DIGEST_SIZE
+    const digest = Digest.fromBytes(
+        buffer.slice(offset, offset + DIGEST_SIZE_BYTES)
+    )
+    offset += DIGEST_SIZE_BYTES
 
     const numParents = buffer[offset++]
     const parents: Digest[] = []
     for (let i = 0; i < numParents; i++) {
-        parents.push(Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE)))
-        offset += DIGEST_SIZE
+        parents.push(
+            Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE_BYTES))
+        )
+        offset += DIGEST_SIZE_BYTES
     }
 
-    const blobDigest = Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE))
-    offset += DIGEST_SIZE
+    const blobDigest = Digest.fromBytes(
+        buffer.slice(offset, offset + DIGEST_SIZE_BYTES)
+    )
+    offset += DIGEST_SIZE_BYTES
 
     const sizeBytes = view.getBigUint64(offset)
 
@@ -103,28 +109,35 @@ function deserializeLooseCommit(buffer: Uint8Array): LooseCommit {
 function serializeFragment(fragment: Fragment): Uint8Array {
     const numBoundary = fragment.boundary.length
     const numCheckpoints = fragment.checkpoints.length
-    const size = DIGEST_SIZE + 1 + (numBoundary * DIGEST_SIZE) + 1 + (numCheckpoints * DIGEST_SIZE) + DIGEST_SIZE + 8
+    const size =
+        DIGEST_SIZE_BYTES +
+        1 +
+        numBoundary * DIGEST_SIZE_BYTES +
+        1 +
+        numCheckpoints * DIGEST_SIZE_BYTES +
+        DIGEST_SIZE_BYTES +
+        8
     const buffer = new Uint8Array(size)
     const view = new DataView(buffer.buffer)
     let offset = 0
 
     buffer.set(fragment.head.toBytes(), offset)
-    offset += DIGEST_SIZE
+    offset += DIGEST_SIZE_BYTES
 
     buffer[offset++] = numBoundary
     for (const b of fragment.boundary) {
         buffer.set(b.toBytes(), offset)
-        offset += DIGEST_SIZE
+        offset += DIGEST_SIZE_BYTES
     }
 
     buffer[offset++] = numCheckpoints
     for (const c of fragment.checkpoints) {
         buffer.set(c.toBytes(), offset)
-        offset += DIGEST_SIZE
+        offset += DIGEST_SIZE_BYTES
     }
 
     buffer.set(fragment.blobMeta.digest().toBytes(), offset)
-    offset += DIGEST_SIZE
+    offset += DIGEST_SIZE_BYTES
 
     view.setBigUint64(offset, fragment.blobMeta.sizeBytes)
 
@@ -135,28 +148,40 @@ function serializeFragment(fragment: Fragment): Uint8Array {
  * Deserialize a Fragment from binary format.
  */
 function deserializeFragment(buffer: Uint8Array): Fragment {
-    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    const view = new DataView(
+        buffer.buffer,
+        buffer.byteOffset,
+        buffer.byteLength
+    )
     let offset = 0
 
-    const head = Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE))
-    offset += DIGEST_SIZE
+    const head = Digest.fromBytes(
+        buffer.slice(offset, offset + DIGEST_SIZE_BYTES)
+    )
+    offset += DIGEST_SIZE_BYTES
 
     const numBoundary = buffer[offset++]
     const boundary: Digest[] = []
     for (let i = 0; i < numBoundary; i++) {
-        boundary.push(Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE)))
-        offset += DIGEST_SIZE
+        boundary.push(
+            Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE_BYTES))
+        )
+        offset += DIGEST_SIZE_BYTES
     }
 
     const numCheckpoints = buffer[offset++]
     const checkpoints: Digest[] = []
     for (let i = 0; i < numCheckpoints; i++) {
-        checkpoints.push(Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE)))
-        offset += DIGEST_SIZE
+        checkpoints.push(
+            Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE_BYTES))
+        )
+        offset += DIGEST_SIZE_BYTES
     }
 
-    const blobDigest = Digest.fromBytes(buffer.slice(offset, offset + DIGEST_SIZE))
-    offset += DIGEST_SIZE
+    const blobDigest = Digest.fromBytes(
+        buffer.slice(offset, offset + DIGEST_SIZE_BYTES)
+    )
+    offset += DIGEST_SIZE_BYTES
 
     const sizeBytes = view.getBigUint64(offset)
 
@@ -186,19 +211,21 @@ function bytesToHex(bytes: Uint8Array): string {
     return hex
 }
 
-// ============================================================================
-// Storage Bridge Events
-// ============================================================================
-
 export interface StorageBridgeEvents {
-    "commit-saved": (sedimentreeId: SedimentreeId, commit: LooseCommit, blob: Uint8Array) => void
-    "fragment-saved": (sedimentreeId: SedimentreeId, fragment: Fragment, blob: Uint8Array) => void
+    "commit-saved": (
+        sedimentreeId: SedimentreeId,
+        commit: LooseCommit,
+        blob: Uint8Array
+    ) => void
+
+    "fragment-saved": (
+        sedimentreeId: SedimentreeId,
+        fragment: Fragment,
+        blob: Uint8Array
+    ) => void
+
     "blob-saved": (digest: Digest, blob: Uint8Array) => void
 }
-
-// ============================================================================
-// Storage Bridge
-// ============================================================================
 
 /**
  * Bridge that wraps an automerge-repo StorageAdapterInterface to implement
@@ -209,7 +236,7 @@ export interface StorageBridgeEvents {
  *
  * Supports event callbacks via `on()` for commit-saved, fragment-saved, and blob-saved events.
  */
-export class SubductionStorageBridge implements Storage {
+export class SubductionStorageBridge implements SubductionStorage {
     private adapter: StorageAdapterInterface
     private listeners: {
         [K in keyof StorageBridgeEvents]?: StorageBridgeEvents[K][]
@@ -222,7 +249,10 @@ export class SubductionStorageBridge implements Storage {
     /**
      * Register an event listener.
      */
-    on<K extends keyof StorageBridgeEvents>(event: K, callback: StorageBridgeEvents[K]): void {
+    on<K extends keyof StorageBridgeEvents>(
+        event: K,
+        callback: StorageBridgeEvents[K]
+    ): void {
         if (!this.listeners[event]) {
             this.listeners[event] = []
         }
@@ -232,7 +262,10 @@ export class SubductionStorageBridge implements Storage {
     /**
      * Remove an event listener.
      */
-    off<K extends keyof StorageBridgeEvents>(event: K, callback: StorageBridgeEvents[K]): void {
+    off<K extends keyof StorageBridgeEvents>(
+        event: K,
+        callback: StorageBridgeEvents[K]
+    ): void {
         const listeners = this.listeners[event]
         if (listeners) {
             const index = listeners.indexOf(callback)
@@ -249,7 +282,11 @@ export class SubductionStorageBridge implements Storage {
         const listeners = this.listeners[event]
         if (listeners) {
             for (const listener of listeners) {
-                (listener as (...args: Parameters<StorageBridgeEvents[K]>) => void)(...args)
+                ;(
+                    listener as (
+                        ...args: Parameters<StorageBridgeEvents[K]>
+                    ) => void
+                )(...args)
             }
         }
     }
