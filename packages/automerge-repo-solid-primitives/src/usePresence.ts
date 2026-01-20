@@ -23,7 +23,7 @@ export type UsePresenceResult<State extends PresenceState> = {
     channel: Channel,
     value: State[Channel]
   ) => void
-  start: () => void
+  start: (config?: Partial<PresenceConfig<State>>) => void
   stop: () => void
 }
 
@@ -40,6 +40,7 @@ export function usePresence<State extends PresenceState>({
   const [presence] = createSignal(
     new Presence<State>({ handle, userId, deviceId })
   )
+  const firstInitialState = initialState
 
   onMount(() => {
     const presenceHandle = presence()
@@ -76,11 +77,12 @@ export function usePresence<State extends PresenceState>({
     setLocalState(() => updated)
   }
 
-  const start = () => {
+  const start = (config?: Partial<PresenceConfig<State>>) => {
+    const initialState = config?.initialState ?? presence().getLocalState()
     presence().start({
-      initialState: presence().getLocalState(),
-      heartbeatMs,
-      peerTtlMs,
+      ...firstInitialState,
+      ...config,
+      initialState,
     })
   }
 
