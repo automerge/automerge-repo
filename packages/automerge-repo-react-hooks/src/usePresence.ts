@@ -107,13 +107,13 @@ export function usePresence<State extends PresenceState>({
 
   const start = useCallback(
     (config?: Partial<PresenceConfig<State>>) => {
+      // Fall back to the last state if not provided when restarting
       const initialState = config?.initialState ?? presence.getLocalState()
       const opts = {
         ...firstOpts.current,
         ...config,
         initialState,
       }
-      // For now, restart with the same state and opts
       presence.start(opts)
     },
     [presence, firstOpts]
