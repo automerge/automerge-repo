@@ -23,6 +23,8 @@ export type UsePresenceResult<State extends PresenceState> = {
     channel: Channel,
     value: State[Channel]
   ) => void
+  start: () => void
+  stop: () => void
 }
 
 export function usePresence<State extends PresenceState>({
@@ -74,9 +76,23 @@ export function usePresence<State extends PresenceState>({
     setLocalState(() => updated)
   }
 
+  const start = () => {
+    presence().start({
+      initialState: presence().getLocalState(),
+      heartbeatMs,
+      peerTtlMs,
+    })
+  }
+
+  const stop = () => {
+    presence().stop()
+  }
+
   return {
     localState,
     peerStates,
     update,
+    start,
+    stop,
   }
 }
