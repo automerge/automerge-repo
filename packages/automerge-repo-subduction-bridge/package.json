@@ -9,11 +9,16 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch build"
+    "watch": "npm-watch build",
+    "test": "vitest"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm"
+    "@automerge/automerge_subduction": "file:../../../subduction/automerge_subduction_wasm",
+    "debug": "^4.3.4"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
   },
   "watch": {
     "build": {

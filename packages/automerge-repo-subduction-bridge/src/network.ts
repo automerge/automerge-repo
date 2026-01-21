@@ -7,7 +7,6 @@ import type {
     NetworkAdapterInterface,
     Message as RepoMessage,
 } from "@automerge/automerge-repo"
-import { cbor } from "@automerge/automerge-repo/slim"
 import {
     Nonce,
     RequestId,
@@ -91,7 +90,7 @@ export class NetworkAdapterConnection implements Connection {
 
         let subductionMsg: SubductionMessage
         try {
-            subductionMsg = cbor.decode(msg.data) as SubductionMessage
+            subductionMsg = Message.fromCborBytes(msg.data)
         } catch {
             console.error("Failed to decode Subduction message:", msg.data)
             return
@@ -174,7 +173,7 @@ export class NetworkAdapterConnection implements Connection {
             throw new Error("Connection is disconnected")
         }
 
-        const encoded = cbor.encode(message)
+        const encoded = message.toCborBytes()
 
         this.#adapter.send({
             type: SUBDUCTION_MESSAGE_TYPE,
