@@ -18,6 +18,7 @@
     "debug": "^4.3.4"
   },
   "devDependencies": {
+    "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
     "vitest": "^2.0.0"
   },
   "watch": {

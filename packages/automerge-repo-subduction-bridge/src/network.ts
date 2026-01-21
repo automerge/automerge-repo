@@ -18,9 +18,6 @@ import {
     type PeerId,
 } from "@automerge/automerge_subduction"
 
-const SUBDUCTION_MESSAGE_TYPE = "subduction-connection"
-const log = debug("automerge-repo:subduction-bridge:network")
-
 /**
  * A connection that wraps an `automerge-repo` `NetworkAdapter` to implement
  * Subduction's `Connection` interface.
@@ -74,7 +71,11 @@ export class NetworkAdapterConnection implements Connection {
 
     #handleMessage = (msg: RepoMessage) => {
         if (msg.senderId !== this.#remotePeerId.toString()) {
-            log("ignoring message from %s, expected %s", msg.senderId, this.#remotePeerId)
+            log(
+                "ignoring message from %s, expected %s",
+                msg.senderId,
+                this.#remotePeerId
+            )
             return
         }
 
@@ -124,11 +125,11 @@ export class NetworkAdapterConnection implements Connection {
     #handlePeerDisconnected = ({ peerId }: { peerId: string }) => {
         if (peerId === this.#remotePeerId.toString()) {
             this.#disconnected = true
-            for (const [key, pending] of this.#pendingCalls) {
+            this.#pendingCalls.forEach(pending => {
                 if (pending.timeoutId) clearTimeout(pending.timeoutId)
                 pending.reject(new Error("Peer disconnected"))
-                this.#pendingCalls.delete(key)
-            }
+            })
+            this.#pendingCalls.clear()
         }
     }
 
@@ -158,11 +159,11 @@ export class NetworkAdapterConnection implements Connection {
         this.#adapter.off("message", this.#handleMessage)
         this.#adapter.off("peer-disconnected", this.#handlePeerDisconnected)
 
-        for (const [key, pending] of this.#pendingCalls) {
+        this.#pendingCalls.forEach(pending => {
             if (pending.timeoutId) clearTimeout(pending.timeoutId)
             pending.reject(new Error("Disconnected"))
-            this.#pendingCalls.delete(key)
-        }
+        })
+        this.#pendingCalls.clear()
     }
 
     /**
@@ -251,3 +252,6 @@ export class NetworkAdapterConnection implements Connection {
         })
     }
 }
+
+const SUBDUCTION_MESSAGE_TYPE = "subduction-connection"
+const log = debug("automerge-repo:subduction-bridge:network")
