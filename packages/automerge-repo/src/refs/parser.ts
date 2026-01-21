@@ -79,14 +79,12 @@ const indexCodec: SegmentCodec<"index"> = {
 
 const matchCodec: SegmentCodec<"match"> = {
   kind: "match",
-  // Match both raw JSON (backward compat) and URL-encoded JSON
+  // Match both raw JSON and URL-encoded JSON
   match: (s) => s.startsWith("{") || s.startsWith("%7B"),
   parse: (s) => {
     try {
       // Decode URL encoding first, then parse JSON
-      // This handles both:
-      // - New format with URL-encoded JSON (e.g., %7B%22id%22%3A%22test%22%7D)
-      // - Old format with raw JSON (e.g., {"id":"test"})
+      // This handles both URL-encoded and raw JSON formats
       const decoded = decodeURIComponent(s)
       const parsed = JSON.parse(decoded)
       if (
