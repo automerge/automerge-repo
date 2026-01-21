@@ -5,9 +5,7 @@ export type {
   InferRefType,
   Pattern,
   RefUrl,
-  RefOfType,
+  Ref,
 } from "./types.js"
 
-export { type Ref } from "./ref.js"
-export { ref } from "./factory.js"
-export { cursor, findRef, fromUrl, fromString } from "./utils.js"
+export { cursor, findRef, refFromUrl, refFromString } from "./utils.js"

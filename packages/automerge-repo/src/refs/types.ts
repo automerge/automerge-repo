@@ -1,5 +1,5 @@
-import type { Cursor, Heads } from "@automerge/automerge-repo/slim"
-import { Ref } from "./ref.js"
+import type { Cursor, Heads, Doc } from "@automerge/automerge/slim"
+import type { DocHandle, DocHandleChangePayload } from "../DocHandle.js"
 
 /**
  * Symbol used as discriminator for segments to avoid collision with user data.
@@ -15,6 +15,8 @@ export const CURSOR_MARKER = "AUTOMERGE_REF_CURSOR_MARKER"
 /**
  * Pattern used to match objects in arrays by their properties.
  * Only primitive values are allowed for reliable serialization and comparison.
+ *
+ * @experimental This API is experimental and may change in future versions.
  */
 export type Pattern = Record<string, string | number | boolean | null>;
 
@@ -54,7 +56,11 @@ export interface SegmentCodec<K extends Segment[typeof KIND]> {
   serialize(seg: Extract<Segment, { [KIND]: K }>): string;
 }
 
-/** Input types that users can provide to create refs */
+/**
+ * Input types that users can provide to create refs.
+ *
+ * @experimental This API is experimental and may change in future versions.
+ */
 export type PathInput = string | number | Pattern | CursorMarker;
 
 /** Internal: PathInput extended with Segment for URL parsing and internal use */
@@ -70,6 +76,8 @@ export interface RefOptions {
  *
  * Behaves like a string with two additional mutation methods.
  * Uses String (object type) because we proxy all string methods at runtime.
+ *
+ * @experimental This API is experimental and may change in future versions.
  */
 // eslint-disable-next-line @typescript-eslint/ban-types
 export interface MutableText extends String {
@@ -85,6 +93,8 @@ export interface MutableText extends String {
  *
  * Note: Objects and arrays should be mutated in place (not returned).
  * Returning non-primitives will trigger a runtime warning.
+ *
+ * @experimental This API is experimental and may change in future versions.
  */
 export type ChangeFn<T> = (val: T extends string ? MutableText : T) => T | void;
 
@@ -204,19 +214,133 @@ export type InferRefTypeFromString<
 /**
  * Branded type for ref URLs.
  * A string in the format: `automerge:documentId/path#heads`
+ *
+ * @experimental This API is experimental and may change in future versions.
  */
 export type RefUrl = string & { readonly __brand: "RefUrl" };
 
 /**
- * Type utility to describe a Ref whose value is of type T.
- * Useful for function signatures that accept any ref pointing to a specific type.
+ * A reference to a location in an Automerge document.
+ *
+ * @experimental This API is experimental and may change in future versions.
+ *
+ * @typeParam TValue - The type of value this ref points to (defaults to unknown)
  *
  * @example
  * ```ts
- * function addComment(thread: RefOfType<Thread>) { ... }
+ * // Create a ref via DocHandle
+ * const titleRef = handle.ref('todos', 0, 'title');
+ * titleRef.value();           // string | undefined
+ * titleRef.change(s => s.toUpperCase());
+ * titleRef.onChange(() => console.log('changed!'));
+ *
+ * // Use in function signatures
+ * function doubleIt(ref: Ref<number>) {
+ *   ref.change(n => n * 2);
+ * }
  * ```
  */
-export type RefOfType<T> = Omit<Ref, "value" | "change"> & {
-  value(): T | undefined;
-  change(fnOrValue: ChangeFn<T> | T): void;
-};
+export interface Ref<TValue = unknown> {
+  /** The document handle this ref belongs to */
+  readonly docHandle: DocHandle<any>;
+
+  /** The resolved path segments */
+  readonly path: PathSegment[];
+
+  /** The cursor range, if this ref points to a text range */
+  readonly range?: CursorRange;
+
+  /** Options including heads for time-travel */
+  readonly options: RefOptions;
+
+  /** The heads this ref is pinned to, if any */
+  readonly heads: Heads | undefined;
+
+  /** The numeric positions of the range, if this is a range ref */
+  readonly rangePositions: [number, number] | undefined;
+
+  /** The URL representation of this ref */
+  readonly url: RefUrl;
+
+  /**
+   * Create a new ref viewing the document at specific heads (time-travel).
+   * Returns a new Ref instance with the same path but different heads.
+   */
+  viewAt(heads: Heads | undefined): Ref<TValue>;
+
+  /** Get the current value, or undefined if path can't be resolved */
+  value(): TValue | undefined;
+
+  /** Get the document at the ref's heads (or current if no heads pinned) */
+  doc(): Doc<any>;
+
+  /**
+   * Update the value.
+   *
+   * For primitives, you can pass either:
+   * - A function that receives the current value and returns the new value
+   * - A direct value (shorthand for primitives)
+   */
+  change(fnOrValue: ChangeFn<TValue> | TValue): void;
+
+  /**
+   * Remove the value this ref points to from its parent container.
+   *
+   * - For object properties: deletes the key from the object
+   * - For array elements: removes the item from the array
+   * - For text ranges: deletes the text within the range
+   */
+  remove(): void;
+
+  /**
+   * Subscribe to changes that affect this ref's value.
+   * Returns an unsubscribe function.
+   */
+  onChange(
+    callback: (
+      value: TValue | undefined,
+      payload: DocHandleChangePayload<any>
+    ) => void
+  ): () => void;
+
+  /** Check if this ref is equal to another ref (same document, path, and heads). */
+  equals(other: Ref<unknown>): boolean;
+
+  /**
+   * Check if this ref contains another ref (other is a descendant of this).
+   */
+  contains(other: Ref<unknown>): boolean;
+
+  /**
+   * Check if this ref is a child of another ref.
+   */
+  isChildOf(parent: Ref<unknown>): boolean;
+
+  /**
+   * Check if this ref overlaps with another ref (for text/range refs).
+   */
+  overlaps(other: Ref<unknown>): boolean;
+
+  /**
+   * Check if this ref is equivalent to another ref.
+   * Two refs are equivalent if they point to the same value in the document,
+   * even if they use different addressing schemes (e.g., index vs pattern).
+   *
+   * Short-circuits for fast rejection when refs are obviously different.
+   *
+   * @example
+   * ```ts
+   * const byIndex = ref(handle, 'todos', 0);
+   * const byId = ref(handle, 'todos', { id: 'abc' });
+   * // If todos[0].id === 'abc', these are equivalent
+   * byIndex.isEquivalent(byId); // true
+   * ```
+   */
+  isEquivalent(other: Ref<unknown>): boolean;
+
+  /** Returns the ref URL */
+  valueOf(): string;
+
+  /** Returns the ref URL */
+  toString(): string;
+}

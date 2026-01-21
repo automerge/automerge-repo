@@ -4,9 +4,8 @@
  * This file is not executed - it's purely for type checking.
  */
 
-import type { DocHandle } from "@automerge/automerge-repo";
-import { ref } from "../../src/refs/factory.js";
-import type { MutableText } from "../../src/refs/types.js";
+import type { DocHandle } from "../../src/DocHandle.js";
+import type { Ref, MutableText } from "../../src/refs/types.js";
 
 type TestDoc = {
   title: string;
@@ -21,7 +20,7 @@ type TestDoc = {
 declare const handle: DocHandle<TestDoc>;
 
 // String refs should receive MutableText
-const titleRef = ref(handle, "title");
+const titleRef = handle.ref("title");
 titleRef.change((text) => {
   // text should be MutableText
   text.splice(0, 5, "Hello");
@@ -31,7 +30,7 @@ titleRef.change((text) => {
 });
 
 // Number refs should receive number
-const countRef = ref(handle, "count");
+const countRef = handle.ref("count");
 countRef.change((count) => {
   // count should be number
   const _n: typeof count = 0; // Should pass
@@ -39,7 +38,7 @@ countRef.change((count) => {
 });
 
 // Object refs should receive the object
-const userRef = ref(handle, "user");
+const userRef = handle.ref("user");
 userRef.change((user) => {
   // user should be { name: string; email: string }
   user.name = "Alice";
@@ -48,7 +47,7 @@ userRef.change((user) => {
 });
 
 // Nested string refs should receive MutableText
-const nameRef = ref(handle, "user", "name");
+const nameRef = handle.ref("user", "name");
 nameRef.change((name) => {
   // name should be MutableText
   name.splice(0, 0, "Dr. ");
@@ -56,7 +55,7 @@ nameRef.change((name) => {
 });
 
 // Array element refs
-const todoRef = ref(handle, "todos", 0);
+const todoRef = handle.ref("todos", 0);
 todoRef.change((todo) => {
   // todo should be { title: string; done: boolean }
   todo.done = true;
@@ -64,7 +63,7 @@ todoRef.change((todo) => {
 });
 
 // Array element string field refs should receive MutableText
-const todoTitleRef = ref(handle, "todos", 0, "title");
+const todoTitleRef = handle.ref("todos", 0, "title");
 todoTitleRef.change((title) => {
   // title should be MutableText
   title.toUpperCase();
@@ -87,7 +86,7 @@ const _uv: typeof userValue = { name: "", email: "" } as
   | undefined;
 
 // Root document ref
-const rootRef = ref(handle);
+const rootRef = handle.ref();
 rootRef.change((doc) => {
   // doc should be TestDoc
   doc.title = "New Title";
@@ -96,7 +95,7 @@ rootRef.change((doc) => {
 });
 
 // Runtime warning: returning objects/arrays (no type error, just warning)
-const objectRef = ref(handle, "user");
+const objectRef = handle.ref("user");
 
 // ✅ Correct: mutate in place
 objectRef.change((user) => {
@@ -108,7 +107,7 @@ objectRef.change((user) => {
   return { name: "Bob", email: "bob@example.com" }; // Warning logged
 });
 
-const todosRef = ref(handle, "todos");
+const todosRef = handle.ref("todos");
 
 // ✅ Correct: mutate in place
 todosRef.change((todos) => {
@@ -121,12 +120,12 @@ todosRef.change((todos) => {
 });
 
 // ✅ Can return primitives
-const countRef2 = ref(handle, "count");
+const countRef2 = handle.ref("count");
 countRef2.change((count) => {
   return count + 1; // ✅ Works fine
 });
 
-const titleRef2 = ref(handle, "title");
+const titleRef2 = handle.ref("title");
 titleRef2.change((title) => {
   return title.toUpperCase(); // ✅ Works fine (MutableText is treated as primitive-like)
 });
@@ -135,17 +134,17 @@ titleRef2.change((title) => {
 // Test where type inference should work vs fail
 
 // ✅ SHOULD WORK: Direct string key access
-const directKeyRef = ref(handle, "user", "name");
+const directKeyRef = handle.ref("user", "name");
 const directKeyValue = directKeyRef.value();
 // Hover over directKeyValue - should be: string | undefined
 
 // ✅ SHOULD WORK: Numeric index on array
-const numericIndexRef = ref(handle, "todos", 0, "title");
+const numericIndexRef = handle.ref("todos", 0, "title");
 const numericIndexValue = numericIndexRef.value();
 // Hover over numericIndexValue - should be: string | undefined
 
 // ❓ TEST: ID pattern lookup - does this infer correctly?
-const idPatternRef = ref(handle, "todos", { done: true }, "title");
+const idPatternRef = handle.ref("todos", { done: true }, "title");
 const idPatternValue = idPatternRef.value();
 // Hover over idPatternValue - is this string | undefined or unknown?
 
@@ -160,8 +159,7 @@ type NestedDoc = {
 };
 declare const nestedHandle: DocHandle<NestedDoc>;
 
-const nestedIdPatternRef = ref(
-  nestedHandle,
+const nestedIdPatternRef = nestedHandle.ref(
   "users",
   { id: "123" },
   "profile",
@@ -172,16 +170,16 @@ const nestedIdPatternValue = nestedIdPatternRef.value();
 
 // ✅ TEST: Deep nesting with literal keys (should work)
 type DeepDoc = {
-  a: { b: { c: { d: { e: string } } } };
+  a: { b: { c: { d: { e: number } } } };
 };
 declare const deepHandle: DocHandle<DeepDoc>;
 
-const deepRef = ref(deepHandle, "a", "b", "c", "d", "e");
-const deepValue = deepRef.value();
-// Hover over deepValue - should be: string | undefined
+const deepNumberRef = deepHandle.ref("a", "b", "c", "d", "e");
+const deepNumberValue = deepNumberRef.value();
+// Hover over deepNumberValue - should be: number | undefined
 
 // === String Path Type Inference Tests ===
-import { fromString } from "../../src/refs/utils.js";
+import { refFromString } from "../../src/refs/utils.js";
 import type { SegmentsFromString, InferRefTypeFromString } from "../../src/refs/types.js";
 
 // Test PathFromString parsing
@@ -211,17 +209,23 @@ type Test2 = InferRefTypeFromString<DocForStringTest, "todos/0/title">;
 type Test3 = InferRefTypeFromString<DocForStringTest, "count">;
 // Should be: number
 
-// Test fromString function with type inference
+// Test refFromString function with type inference
 declare const stringTestHandle: DocHandle<DocForStringTest>;
 
-const stringTitleRef = fromString(stringTestHandle, "title");
+const stringTitleRef = refFromString(stringTestHandle, "title");
 const stringTitleValue = stringTitleRef.value();
 // Hover over stringTitleValue - should be: string | undefined
 
-const stringTodoTitleRef = fromString(stringTestHandle, "todos/0/title");
+const stringTodoTitleRef = refFromString(stringTestHandle, "todos/0/title");
 const stringTodoTitleValue = stringTodoTitleRef.value();
 // Hover over stringTodoTitleValue - should be: string | undefined
 
-const stringCountRef = fromString(stringTestHandle, "count");
+const stringCountRef = refFromString(stringTestHandle, "count");
 const stringCountValue = stringCountRef.value();
 // Hover over stringCountValue - should be: number | undefined
+
+function doubleIt(ref: Ref<number>) {
+  ref.change(n => n * 2);
+}
+
+doubleIt(deepNumberRef); // Should pass

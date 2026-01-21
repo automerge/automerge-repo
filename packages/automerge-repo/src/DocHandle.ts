@@ -17,6 +17,8 @@ import {
   AbortOptions,
   isAbortErrorLike,
 } from "./helpers/abortable.js"
+import { RefImpl } from "./refs/ref.js"
+import type { PathInput, InferRefType, Ref } from "./refs/types.js"
 
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
@@ -52,6 +54,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Cache for view handles, keyed by the stringified heads */
   #viewCache: Map<string, DocHandle<T>> = new Map()
+
+  /** Cache for ref instances, keyed by serialized path */
+  #refCache: Map<string, WeakRef<Ref<any>>> = new Map()
 
   /** @hidden */
   constructor(
@@ -722,6 +727,58 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   metrics(): { numOps: number; numChanges: number } {
     return A.stats(this.#doc)
+  }
+
+  /**
+   * Create a ref to a location in this document.
+   *
+   * Returns the same ref instance for the same path, ensuring referential equality.
+   *
+   * @experimental This API is experimental and may change in future versions.
+   *
+   * @example
+   * ```ts
+   * const titleRef = handle.ref('todos', 0, 'title');
+   * titleRef.value(); // string | undefined
+   *
+   * // Same ref instance is returned for same path
+   * const sameRef = handle.ref('todos', 0, 'title');
+   * titleRef === sameRef; // true
+   * ```
+   */
+  ref<TPath extends readonly PathInput[]>(
+    ...segments: [...TPath]
+  ): Ref<InferRefType<T, TPath>> {
+    const cacheKey = this.#pathToCacheKey(segments)
+    const existingRef = this.#refCache.get(cacheKey)?.deref()
+
+    if (existingRef) {
+      return existingRef as Ref<InferRefType<T, TPath>>
+    }
+
+    // Create new ref and cache it
+    const newRef = new RefImpl<T, TPath>(this, segments as [...TPath])
+    this.#refCache.set(cacheKey, new WeakRef(newRef))
+
+    return newRef as Ref<InferRefType<T, TPath>>
+  }
+
+  /**
+   * Create a stable cache key from path segments.
+   * Serializes the path to a string for comparison.
+   */
+  #pathToCacheKey(segments: readonly PathInput[]): string {
+    return segments
+      .map(seg => {
+        if (typeof seg === "string") return `s:${seg}`
+        if (typeof seg === "number") return `n:${seg}`
+        if (typeof seg === "object" && seg !== null) {
+          // Pattern or CursorMarker
+          return `o:${JSON.stringify(seg)}`
+        }
+        return `?:${String(seg)}`
+      })
+      .join("/")
   }
 }
 

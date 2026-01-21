@@ -1,10 +1,11 @@
 import * as Automerge from "@automerge/automerge";
-import { Repo, splice, type DocHandle } from "@automerge/automerge-repo";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ref } from "../../src/refs/factory.js";
+import { Repo } from "../../src/Repo.js";
+import type { DocHandle } from "../../src/DocHandle.js";
 import { Ref } from "../../src/refs/ref.js";
 import { KIND } from "../../src/refs/types.js";
-import { cursor, fromUrl } from "../../src/refs/utils.js";
+import { cursor, refFromUrl } from "../../src/refs/utils.js";
+import { splice } from "../../src/index.js";
 
 describe("Ref", () => {
   let repo: Repo;
@@ -598,7 +599,7 @@ describe("Ref", () => {
       const url = ref1.url;
 
       // Parse URL and create new ref
-      const ref2 = fromUrl(handle, url);
+      const ref2 = refFromUrl(handle, url);
 
       // Both refs should have identical URLs
       expect(ref2.url).toBe(ref1.url);
@@ -617,7 +618,7 @@ describe("Ref", () => {
       const url = ref1.url;
 
       // Parse from URL
-      const ref2 = fromUrl(handle, url);
+      const ref2 = refFromUrl(handle, url);
 
       // Should have same cursor range
       expect(ref2.url).toBe(ref1.url);
@@ -633,7 +634,7 @@ describe("Ref", () => {
       expect(ref2.value()).toBe("Hello");
     });
 
-    it("should handle multiple fromUrl round-trips without drift", () => {
+    it("should handle multiple refFromUrl round-trips without drift", () => {
       handle.change((d) => {
         d.data = [{ value: 42 }];
       });
@@ -642,15 +643,15 @@ describe("Ref", () => {
 
       // Round-trip 1
       const url1 = ref1.url;
-      const ref2 = fromUrl(handle, url1);
+      const ref2 = refFromUrl(handle, url1);
 
       // Round-trip 2
       const url2 = ref2.url;
-      const ref3 = fromUrl(handle, url2);
+      const ref3 = refFromUrl(handle, url2);
 
       // Round-trip 3
       const url3 = ref3.url;
-      const ref4 = fromUrl(handle, url3);
+      const ref4 = refFromUrl(handle, url3);
 
       // All URLs should be identical (this is the key invariant)
       expect(url1).toBe(url2);
@@ -676,8 +677,8 @@ describe("Ref", () => {
       const ref1 = new Ref(handle, ["value"]);
       const url = ref1.url;
 
-      // Trying to use fromUrl with a different handle should throw
-      expect(() => fromUrl(handle2, url)).toThrow(
+      // Trying to use refFromUrl with a different handle should throw
+      expect(() => refFromUrl(handle2, url)).toThrow(
         /URL documentId .* does not match handle's documentId/
       );
     });
@@ -1619,7 +1620,7 @@ describe("Ref", () => {
         d.value = 2;
       });
 
-      const currentRef = ref(handle, "value");
+      const currentRef = handle.ref("value");
       expect(currentRef.value()).toBe(2);
 
       const pastRef = currentRef.viewAt(heads1);
@@ -1639,7 +1640,7 @@ describe("Ref", () => {
         d.user.name = "Bob";
       });
 
-      const currentRef = ref(handle, "user", "name");
+      const currentRef = handle.ref("user", "name");
       expect(currentRef.value()).toBe("Bob");
 
       const pastRef = currentRef.viewAt(heads1);
@@ -1647,7 +1648,7 @@ describe("Ref", () => {
     });
 
     it("should return new Ref instance", () => {
-      const currentRef = ref(handle, "value");
+      const currentRef = handle.ref("value");
       const pastRef = currentRef.viewAt(["head1"]);
 
       expect(pastRef).not.toBe(currentRef);
@@ -1659,7 +1660,7 @@ describe("Ref", () => {
         d.nested = { deep: { value: 42 } };
       });
 
-      const originalRef = ref(handle, "nested", "deep", "value");
+      const originalRef = handle.ref("nested", "deep", "value");
       const viewRef = originalRef.viewAt(["head1"]);
 
       expect(viewRef.path).toEqual(originalRef.path);
@@ -1671,7 +1672,7 @@ describe("Ref", () => {
       });
       const heads1 = handle.heads();
 
-      const pastRef = ref(handle, "value").viewAt(heads1);
+      const pastRef = handle.ref("value").viewAt(heads1);
 
       expect(() => {
         pastRef.change(() => 2);
@@ -1685,8 +1686,8 @@ describe("Ref", () => {
         d.todos = [{ title: "Task", done: false }];
       });
 
-      const todoRef = ref(handle, "todos", 0);
-      const titleRef = ref(handle, "todos", 0, "title");
+      const todoRef = handle.ref("todos", 0);
+      const titleRef = handle.ref("todos", 0, "title");
 
       expect(todoRef.contains(titleRef)).toBe(true);
     });
@@ -1696,8 +1697,8 @@ describe("Ref", () => {
         d.todos = [{ title: "Task", done: false }];
       });
 
-      const titleRef = ref(handle, "todos", 0, "title");
-      const todoRef = ref(handle, "todos", 0);
+      const titleRef = handle.ref("todos", 0, "title");
+      const todoRef = handle.ref("todos", 0);
 
       expect(titleRef.contains(todoRef)).toBe(false);
     });
@@ -1707,8 +1708,8 @@ describe("Ref", () => {
         d.user = { name: "Alice", email: "alice@example.com" };
       });
 
-      const nameRef = ref(handle, "user", "name");
-      const emailRef = ref(handle, "user", "email");
+      const nameRef = handle.ref("user", "name");
+      const emailRef = handle.ref("user", "email");
 
       expect(nameRef.contains(emailRef)).toBe(false);
       expect(emailRef.contains(nameRef)).toBe(false);
@@ -1723,8 +1724,8 @@ describe("Ref", () => {
         d.value = 1;
       });
 
-      const ref1 = ref(handle, "value");
-      const ref2 = ref(handle2, "value");
+      const ref1 = handle.ref("value");
+      const ref2 = handle2.ref("value");
 
       expect(ref1.contains(ref2)).toBe(false);
     });
@@ -1740,8 +1741,8 @@ describe("Ref", () => {
       });
       const heads2 = handle.heads();
 
-      const ref1 = ref(handle, "value").viewAt(heads1);
-      const ref2 = ref(handle, "value").viewAt(heads2);
+      const ref1 = handle.ref("value").viewAt(heads1);
+      const ref2 = handle.ref("value").viewAt(heads2);
 
       expect(ref1.contains(ref2)).toBe(false);
     });
@@ -1751,8 +1752,8 @@ describe("Ref", () => {
         d.items = [{ value: 1 }, { value: 2 }];
       });
 
-      const itemRef = ref(handle, "items", 0); // Will stabilize
-      const valueRef = ref(handle, "items", 0, "value");
+      const itemRef = handle.ref("items", 0); // Will stabilize
+      const valueRef = handle.ref("items", 0, "value");
 
       expect(itemRef.contains(valueRef)).toBe(true);
     });
@@ -1762,8 +1763,8 @@ describe("Ref", () => {
         d.users = [{ id: "alice", name: "Alice" }];
       });
 
-      const userRef = ref(handle, "users", { id: "alice" });
-      const nameRef = ref(handle, "users", { id: "alice" }, "name");
+      const userRef = handle.ref("users", { id: "alice" });
+      const nameRef = handle.ref("users", { id: "alice" }, "name");
 
       expect(userRef.contains(nameRef)).toBe(true);
     });
@@ -1773,8 +1774,8 @@ describe("Ref", () => {
         d.nested = { deep: { value: 42 } };
       });
 
-      const rootRef = ref(handle);
-      const deepRef = ref(handle, "nested", "deep", "value");
+      const rootRef = handle.ref();
+      const deepRef = handle.ref("nested", "deep", "value");
 
       expect(rootRef.contains(deepRef)).toBe(true);
     });
@@ -1786,8 +1787,8 @@ describe("Ref", () => {
         d.text = "Hello World";
       });
 
-      const range1 = ref(handle, "text", cursor(0, 5));
-      const range2 = ref(handle, "text", cursor(3, 8));
+      const range1 = handle.ref("text", cursor(0, 5));
+      const range2 = handle.ref("text", cursor(3, 8));
 
       expect(range1.overlaps(range2)).toBe(true);
       expect(range2.overlaps(range1)).toBe(true);
@@ -1798,8 +1799,8 @@ describe("Ref", () => {
         d.text = "Hello World";
       });
 
-      const range1 = ref(handle, "text", cursor(0, 5));
-      const range2 = ref(handle, "text", cursor(6, 11));
+      const range1 = handle.ref("text", cursor(0, 5));
+      const range2 = handle.ref("text", cursor(6, 11));
 
       expect(range1.overlaps(range2)).toBe(false);
       expect(range2.overlaps(range1)).toBe(false);
@@ -1810,8 +1811,8 @@ describe("Ref", () => {
         d.text = "Hello World";
       });
 
-      const range1 = ref(handle, "text", cursor(0, 5));
-      const range2 = ref(handle, "text", cursor(5, 10));
+      const range1 = handle.ref("text", cursor(0, 5));
+      const range2 = handle.ref("text", cursor(5, 10));
 
       expect(range1.overlaps(range2)).toBe(false);
     });
@@ -1821,8 +1822,8 @@ describe("Ref", () => {
         d.text = "Hello World";
       });
 
-      const range1 = ref(handle, "text", cursor(0, 10));
-      const range2 = ref(handle, "text", cursor(3, 7));
+      const range1 = handle.ref("text", cursor(0, 10));
+      const range2 = handle.ref("text", cursor(3, 7));
 
       expect(range1.overlaps(range2)).toBe(true);
       expect(range2.overlaps(range1)).toBe(true);
@@ -1833,8 +1834,8 @@ describe("Ref", () => {
         d.text = "Hello World";
       });
 
-      const ref1 = ref(handle, "text");
-      const ref2 = ref(handle, "text");
+      const ref1 = handle.ref("text");
+      const ref2 = handle.ref("text");
 
       expect(ref1.overlaps(ref2)).toBe(false);
     });
@@ -1844,8 +1845,8 @@ describe("Ref", () => {
         d.text = "Hello World";
       });
 
-      const textRef = ref(handle, "text");
-      const rangeRef = ref(handle, "text", cursor(0, 5));
+      const textRef = handle.ref("text");
+      const rangeRef = handle.ref("text", cursor(0, 5));
 
       expect(textRef.overlaps(rangeRef)).toBe(false);
       expect(rangeRef.overlaps(textRef)).toBe(false);
@@ -1857,8 +1858,8 @@ describe("Ref", () => {
         d.text2 = "World";
       });
 
-      const range1 = ref(handle, "text1", cursor(0, 5));
-      const range2 = ref(handle, "text2", cursor(0, 5));
+      const range1 = handle.ref("text1", cursor(0, 5));
+      const range2 = handle.ref("text2", cursor(0, 5));
 
       expect(range1.overlaps(range2)).toBe(false);
     });
@@ -1872,8 +1873,8 @@ describe("Ref", () => {
         d.text = "World";
       });
 
-      const range1 = ref(handle, "text", cursor(0, 5));
-      const range2 = ref(handle2, "text", cursor(0, 5));
+      const range1 = handle.ref("text", cursor(0, 5));
+      const range2 = handle2.ref("text", cursor(0, 5));
 
       expect(range1.overlaps(range2)).toBe(false);
     });
@@ -1884,8 +1885,8 @@ describe("Ref", () => {
       });
 
       // Create cursor-based ranges
-      const range1 = ref(handle, "text", cursor(0, 5));
-      const range2 = ref(handle, "text", cursor(3, 8));
+      const range1 = handle.ref("text", cursor(0, 5));
+      const range2 = handle.ref("text", cursor(3, 8));
 
       expect(range1.overlaps(range2)).toBe(true);
     });
@@ -1895,8 +1896,8 @@ describe("Ref", () => {
         d.text = "Hello";
       });
 
-      const range1 = ref(handle, "text", cursor(0, 2));
-      const range2 = ref(handle, "text", cursor(3, 5));
+      const range1 = handle.ref("text", cursor(0, 2));
+      const range2 = handle.ref("text", cursor(3, 5));
 
       expect(range1.overlaps(range2)).toBe(false);
     });
@@ -2083,7 +2084,7 @@ describe("Ref", () => {
         d.theme = "light";
       });
 
-      const themeRef = ref(handle, "theme");
+      const themeRef = handle.ref("theme");
       themeRef.change("dark");
       expect(themeRef.value()).toBe("dark");
     });
@@ -2093,7 +2094,7 @@ describe("Ref", () => {
         d.counter = 0;
       });
 
-      const counterRef = ref(handle, "counter");
+      const counterRef = handle.ref("counter");
       counterRef.change(42);
       expect(counterRef.value()).toBe(42);
     });
@@ -2103,7 +2104,7 @@ describe("Ref", () => {
         d.enabled = false;
       });
 
-      const enabledRef = ref(handle, "enabled");
+      const enabledRef = handle.ref("enabled");
       enabledRef.change(true);
       expect(enabledRef.value()).toBe(true);
     });
@@ -2113,7 +2114,7 @@ describe("Ref", () => {
         d.counter = 10;
       });
 
-      const counterRef = ref(handle, "counter");
+      const counterRef = handle.ref("counter");
       counterRef.change((n: any) => n * 2);
       expect(counterRef.value()).toBe(20);
     });
@@ -2125,8 +2126,8 @@ describe("Ref", () => {
         d.value = 42;
       });
 
-      const ref1 = ref(handle, "value");
-      const ref2 = ref(handle, "value");
+      const ref1 = handle.ref("value");
+      const ref2 = handle.ref("value");
 
       expect(ref1).toBe(ref2);
     });
@@ -2137,8 +2138,8 @@ describe("Ref", () => {
         d.b = 2;
       });
 
-      const refA = ref(handle, "a");
-      const refB = ref(handle, "b");
+      const refA = handle.ref("a");
+      const refB = handle.ref("b");
 
       expect(refA).not.toBe(refB);
     });
@@ -2152,8 +2153,8 @@ describe("Ref", () => {
         d.value = 2;
       });
 
-      const ref1 = ref(handle, "value");
-      const ref2 = ref(handle2, "value");
+      const ref1 = handle.ref("value");
+      const ref2 = handle2.ref("value");
 
       expect(ref1).not.toBe(ref2);
     });
@@ -2163,8 +2164,8 @@ describe("Ref", () => {
         d.user = { profile: { name: "Alice" } };
       });
 
-      const ref1 = ref(handle, "user", "profile", "name");
-      const ref2 = ref(handle, "user", "profile", "name");
+      const ref1 = handle.ref("user", "profile", "name");
+      const ref2 = handle.ref("user", "profile", "name");
 
       expect(ref1).toBe(ref2);
     });
@@ -2174,8 +2175,8 @@ describe("Ref", () => {
         d.items = ["a", "b", "c"];
       });
 
-      const ref1 = ref(handle, "items", 1);
-      const ref2 = ref(handle, "items", 1);
+      const ref1 = handle.ref("items", 1);
+      const ref2 = handle.ref("items", 1);
 
       expect(ref1).toBe(ref2);
     });
@@ -2185,8 +2186,8 @@ describe("Ref", () => {
         d.users = [{ id: "alice", name: "Alice" }];
       });
 
-      const ref1 = ref(handle, "users", { id: "alice" });
-      const ref2 = ref(handle, "users", { id: "alice" });
+      const ref1 = handle.ref("users", { id: "alice" });
+      const ref2 = handle.ref("users", { id: "alice" });
 
       expect(ref1).toBe(ref2);
     });

@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Repo } from "@automerge/automerge-repo";
-import type { DocHandle } from "@automerge/automerge-repo";
 import * as Automerge from "@automerge/automerge";
-import { cursor } from "../../src/refs/utils.js";
-import { ref, findRef, RefUrl } from "../../src/refs/index.js";
+import { Repo } from "../../src/Repo.js";
+import type { DocHandle } from "../../src/DocHandle.js";
+import { cursor, findRef } from "../../src/refs/utils.js";
 import { Ref } from "../../src/refs/ref.js";
+import type { RefUrl } from "../../src/refs/types.js";
 import { CURSOR_MARKER } from "../../src/refs/types.js";
 
 describe("utils", () => {
@@ -24,7 +24,7 @@ describe("utils", () => {
     });
   });
 
-  describe("ref", () => {
+  describe("handle.ref", () => {
     let repo: Repo;
     let handle: DocHandle<any>;
 
@@ -38,7 +38,7 @@ describe("utils", () => {
         d.user = { name: "Alice" };
       });
 
-      const nameRef = ref(handle, "user", "name");
+      const nameRef = handle.ref("user", "name");
       expect(nameRef.value()).toBe("Alice");
     });
 
@@ -47,7 +47,7 @@ describe("utils", () => {
         d.items = ["a", "b", "c"];
       });
 
-      const itemRef = ref(handle, "items", 1);
+      const itemRef = handle.ref("items", 1);
       expect(itemRef.value()).toBe("b");
     });
 
@@ -59,16 +59,16 @@ describe("utils", () => {
         ];
       });
 
-      const todoRef = ref(handle, "todos", { id: "b" }, "title");
+      const todoRef = handle.ref("todos", { id: "b" }, "title");
       expect(todoRef.value()).toBe("Second");
     });
 
-    it("should work with numeric indices", () => {
+    it("should work with numeric indices in nested paths", () => {
       handle.change((d) => {
         d.items = [{ name: "A" }, { name: "B" }];
       });
 
-      const indexRef = ref(handle, "items", 0, "name");
+      const indexRef = handle.ref("items", 0, "name");
       expect(indexRef.value()).toBe("A");
     });
 
@@ -83,7 +83,7 @@ describe("utils", () => {
         };
       });
 
-      const colorRef = ref(handle, "app", "settings", "theme", "color");
+      const colorRef = handle.ref("app", "settings", "theme", "color");
       expect(colorRef.value()).toBe("blue");
     });
   });
@@ -102,7 +102,7 @@ describe("utils", () => {
         d.user = { name: "Alice", age: 30 };
       });
 
-      const nameRef = ref(handle, "user", "name");
+      const nameRef = handle.ref("user", "name");
       const url = nameRef.url;
 
       const foundRef = await findRef(repo, url);
@@ -119,7 +119,7 @@ describe("utils", () => {
         };
       });
 
-      const colorRef = ref(handle, "app", "settings", "theme", "color");
+      const colorRef = handle.ref("app", "settings", "theme", "color");
       const url = colorRef.url;
 
       const foundRef = await findRef(repo, url);
@@ -134,7 +134,7 @@ describe("utils", () => {
         ];
       });
 
-      const titleRef = ref(handle, "todos", 0, "title");
+      const titleRef = handle.ref("todos", 0, "title");
       const url = titleRef.url;
 
       // Reorder array
@@ -155,7 +155,7 @@ describe("utils", () => {
         ];
       });
 
-      const aliceRef = ref(handle, "users", { id: "user1" }, "name");
+      const aliceRef = handle.ref("users", { id: "user1" }, "name");
       const url = aliceRef.url;
 
       const foundRef = await findRef(repo, url);
@@ -167,7 +167,7 @@ describe("utils", () => {
         d.text = "hello world";
       });
 
-      const rangeRef = ref(handle, "text", cursor(0, 5));
+      const rangeRef = handle.ref("text", cursor(0, 5));
       const url = rangeRef.url;
 
       const foundRef = await findRef(repo, url);
@@ -212,7 +212,7 @@ describe("utils", () => {
         d.value = 42;
       });
 
-      const rootRef = ref(handle);
+      const rootRef = handle.ref();
       const url = rootRef.url;
 
       const foundRef = await findRef(repo, url);

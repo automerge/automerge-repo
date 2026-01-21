@@ -1,9 +1,6 @@
 import * as Automerge from "@automerge/automerge/slim"
 import type { Doc, Prop } from "@automerge/automerge/slim"
-import type {
-  DocHandle,
-  DocHandleChangePayload,
-} from "@automerge/automerge-repo/slim"
+import type { DocHandle, DocHandleChangePayload } from "../DocHandle.js"
 import type {
   Segment,
   PathSegment,
@@ -14,6 +11,7 @@ import type {
   InferRefType,
   ChangeFn,
   RefUrl,
+  Ref,
 } from "./types.js"
 import { KIND } from "./types.js"
 import { isSegment, isPattern } from "./guards.js"
@@ -33,24 +31,18 @@ const refCleanupRegistry = new FinalizationRegistry<() => void>((cleanup) =>
 )
 
 /**
- * A reference to a location in an Automerge document.
+ * Internal implementation of the Ref interface.
  *
  * Refs are stable by default - they track objects by ID, not position.
  *
  * Cleanup: Refs automatically clean up their subscriptions when garbage collected.
  *
- * @example
- * ```ts
- * const titleRef = ref(handle, 'todos', 0, 'title');
- * titleRef.value();           // string | undefined
- * titleRef.change(s => s.toUpperCase());
- * titleRef.onChange(() => console.log('changed!'));
- * ```
+ * @internal Use DocHandle.ref() to create refs, not this class directly.
  */
-export class Ref<
+export class RefImpl<
   TDoc = any,
   TPath extends readonly AnyPathInput[] = AnyPathInput[],
-> {
+> implements Ref<InferRefType<TDoc, TPath>> {
   readonly docHandle: DocHandle<TDoc>
   readonly path: PathSegment[]
   readonly range?: CursorRange
@@ -111,8 +103,8 @@ export class Ref<
    * Create a new ref viewing the document at specific heads (time-travel).
    * Returns a new Ref instance with the same path but different heads.
    */
-  viewAt(heads: string[] | undefined): Ref<TDoc, TPath> {
-    return new Ref(this.docHandle, this.path as any, {
+  viewAt(heads: string[] | undefined): Ref<InferRefType<TDoc, TPath>> {
+    return new RefImpl(this.docHandle, this.path as any, {
       ...this.options,
       heads,
     })
@@ -337,7 +329,7 @@ export class Ref<
   /**
    * Check if this ref is equal to another ref (same document, path, and heads).
    */
-  equals(other: Ref<any>): boolean {
+  equals(other: Ref<unknown>): boolean {
     return this.url === other.url
   }
 
@@ -346,13 +338,13 @@ export class Ref<
    *
    * @example
    * ```ts
-   * const todoRef = ref(handle, 'todos', 0);
-   * const titleRef = ref(handle, 'todos', 0, 'title');
+   * const todoRef = handle.ref('todos', 0);
+   * const titleRef = handle.ref('todos', 0, 'title');
    * todoRef.contains(titleRef); // true
    * titleRef.contains(todoRef); // false
    * ```
    */
-  contains(other: Ref<any>): boolean {
+  contains(other: Ref<unknown>): boolean {
     // Must be same document
     if (this.docHandle.documentId !== other.docHandle.documentId) {
       return false
@@ -392,17 +384,17 @@ export class Ref<
    * @example
    * ```ts
    * // Array children
-   * const arrayRef = ref(handle, 'items');
-   * const itemRef = ref(handle, 'items', 0);
+   * const arrayRef = handle.ref('items');
+   * const itemRef = handle.ref('items', 0);
    * itemRef.isChildOf(arrayRef); // true
    *
    * // Text range children
-   * const textRef = ref(handle, 'content');
-   * const rangeRef = ref(handle, 'content', [0, 10]);
+   * const textRef = handle.ref('content');
+   * const rangeRef = handle.ref('content', cursor(0, 10));
    * rangeRef.isChildOf(textRef); // true
    * ```
    */
-  isChildOf(parent: Ref<any>): boolean {
+  isChildOf(parent: Ref<unknown>): boolean {
     // Must be same document
     if (this.docHandle.documentId !== parent.docHandle.documentId) {
       return false
@@ -448,12 +440,12 @@ export class Ref<
    *
    * @example
    * ```ts
-   * const range1 = ref(handle, 'content', [0, 10]);
-   * const range2 = ref(handle, 'content', [5, 15]);
+   * const range1 = handle.ref('content', cursor(0, 10));
+   * const range2 = handle.ref('content', cursor(5, 15));
    * range1.overlaps(range2); // true
    * ```
    */
-  overlaps(other: Ref<any>): boolean {
+  overlaps(other: Ref<unknown>): boolean {
     // Must be same document
     if (this.docHandle.documentId !== other.docHandle.documentId) {
       return false
@@ -500,12 +492,129 @@ export class Ref<
     return thisStart < otherEnd && otherStart < thisEnd
   }
 
+  /**
+   * Check if this ref is equivalent to another ref.
+   * Two refs are equivalent if they point to the same value in the document,
+   * even if they use different addressing schemes (e.g., index vs pattern).
+   *
+   * Short-circuits for fast rejection when refs are obviously different.
+   *
+   * @example
+   * ```ts
+   * const byIndex = ref(handle, 'todos', 0);
+   * const byId = ref(handle, 'todos', { id: 'abc' });
+   * // If todos[0].id === 'abc', these are equivalent
+   * byIndex.isEquivalent(byId); // true
+   * ```
+   */
+  isEquivalent(other: Ref<unknown>): boolean {
+    // Fast path: identity check
+    if (this === other) {
+      return true
+    }
+
+    // Different documents can't be equivalent
+    if (this.docHandle.documentId !== other.docHandle.documentId) {
+      return false
+    }
+
+    // Check heads equivalence
+    // undefined heads means "current document state"
+    // If one has undefined and other has explicit heads, check if they match current
+    if (!this.#headsEquivalent(other)) {
+      return false
+    }
+
+    // Different path lengths can't be equivalent
+    if (this.path.length !== other.path.length) {
+      return false
+    }
+
+    // Check range presence mismatch
+    if ((this.range === undefined) !== (other.range === undefined)) {
+      return false
+    }
+
+    // Fast path: if segments are structurally equal, they're equivalent
+    let segmentsEqual = true
+    for (let i = 0; i < this.path.length; i++) {
+      if (!this.#segmentsEqual(this.path[i], other.path[i])) {
+        segmentsEqual = false
+        break
+      }
+    }
+
+    if (segmentsEqual) {
+      // Same path structure, now check ranges
+      if (!this.range && !other.range) {
+        return true
+      }
+      // Both have ranges (checked above), compare them
+      return (
+        this.range!.start === other.range!.start &&
+        this.range!.end === other.range!.end
+      )
+    }
+
+    // Segments differ structurally - check if they resolve to the same prop path
+    // Note: we access other.path[i].prop directly (public) instead of calling
+    // private methods on other, since other may be from a different bundle
+    for (let i = 0; i < this.path.length; i++) {
+      const thisProp = this.path[i].prop
+      const otherProp = other.path[i].prop
+
+      // If either can't be resolved, they're not equivalent
+      if (thisProp === undefined || otherProp === undefined) {
+        return false
+      }
+
+      if (thisProp !== otherProp) {
+        return false
+      }
+    }
+
+    // Prop paths match, now check ranges
+    if (!this.range && !other.range) {
+      return true
+    }
+
+    // Both have ranges - compare cursor values
+    return (
+      this.range!.start === other.range!.start &&
+      this.range!.end === other.range!.end
+    )
+  }
+
   valueOf(): string {
     return this.url
   }
 
   toString(): string {
     return this.url
+  }
+
+  /**
+   * Check if this ref's heads are equivalent to another ref's heads.
+   * undefined heads means "current document state", so a ref with undefined heads
+   * is equivalent to a ref with explicit heads matching the current document.
+   */
+  #headsEquivalent(other: Ref<unknown>): boolean {
+    const thisHeads = this.heads
+    const otherHeads = other.heads
+
+    // Both undefined or both have same explicit heads
+    if (thisHeads?.join(",") === otherHeads?.join(",")) {
+      return true
+    }
+
+    // One has undefined heads (current), check if other matches current doc heads
+    const currentHeads = Automerge.getHeads(this.docHandle.doc())
+    const currentHeadsStr = currentHeads.join(",")
+
+    const thisHeadsStr = thisHeads?.join(",") ?? currentHeadsStr
+    const otherHeadsStr = otherHeads?.join(",") ?? currentHeadsStr
+
+    return thisHeadsStr === otherHeadsStr
   }
 
   /**
@@ -802,3 +911,4 @@ export class Ref<
       .every((prop, i) => prop === refPropPath[i])
   }
 }
+

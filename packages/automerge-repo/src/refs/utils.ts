@@ -1,13 +1,15 @@
-import { DocHandle, Repo } from "@automerge/automerge-repo/slim"
+import type { DocHandle } from "../DocHandle.js"
+import type { Repo } from "../Repo.js"
 import type {
   Pattern,
   CursorMarker,
   RefUrl,
-  AnyPathInput,
   SegmentsFromString,
+  Ref,
+  InferRefTypeFromString,
 } from "./types.js"
 import { CURSOR_MARKER } from "./types.js"
-import { Ref } from "./ref.js"
+import { RefImpl } from "./ref.js"
 import { parseRefUrl } from "./parser.js"
 
 /**
@@ -16,9 +18,11 @@ import { parseRefUrl } from "./parser.js"
  * Must be used as the last argument in a ref path.
  * Creates stable cursors that track text positions through edits.
  *
+ * @experimental This API is experimental and may change in future versions.
+ *
  * @example
  * ```ts
- * ref(handle, 'note', cursor(0, 5))  // Cursor-based range on text
+ * handle.ref('note', cursor(0, 5))  // Cursor-based range on text
  * ```
  */
 export function cursor(start: number, end?: number): CursorMarker {
@@ -31,17 +35,24 @@ export function cursor(start: number, end?: number): CursorMarker {
  * The URL's documentId must match the provided handle's documentId.
  * Use `findRef` instead if you don't have the handle and need to look it up.
  *
+ * @experimental This API is experimental and may change in future versions.
+ *
+ * @typeParam TValue - The expected type of the value this ref points to (defaults to unknown)
+ *
  * @param handle - The document handle to use (must match URL's documentId)
  * @param url - Full ref URL like "automerge:documentId/path#heads"
  * @throws Error if URL's documentId doesn't match handle's documentId
  *
  * @example
- * fromUrl(handle, "automerge:abc/todos/0#head1|head2" as RefUrl)
+ * ```ts
+ * const ref = refFromUrl<string>(handle, "automerge:abc/todos/0/title" as RefUrl);
+ * ref.value(); // string | undefined
+ * ```
  */
-export function fromUrl<TDoc = any>(
-  handle: DocHandle<TDoc>,
+export function refFromUrl<TValue = unknown>(
+  handle: DocHandle<any>,
   url: RefUrl
-): Ref<TDoc, AnyPathInput[]> {
+): Ref<TValue> {
   const { documentId, segments, heads } = parseRefUrl(url)
 
   if (documentId !== handle.documentId) {
@@ -51,29 +62,31 @@ export function fromUrl<TDoc = any>(
   }
 
   const options = heads ? { heads } : {}
-  return new Ref<TDoc, AnyPathInput[]>(handle, segments, options)
+  return new RefImpl(handle, segments, options) as Ref<TValue>
 }
 
 /**
- * Create a ref from a path string
+ * Create a ref from a path string.
+ *
+ * @experimental This API is experimental and may change in future versions.
  *
  * @example
  * ```ts
  * type Doc = { todos: Array<{ title: string }> };
- * const titleRef = fromString<Doc>(handle, "todos/0/title");
- * // titleRef.value() is inferred as string | undefined
+ * const titleRef = refFromString(handle, "todos/0/title");
+ * titleRef.value(); // string | undefined
  * ```
  */
-export function fromString<TDoc, TPath extends string>(
+export function refFromString<TDoc, TPath extends string>(
   docHandle: DocHandle<TDoc>,
   path: TPath
-): Ref<TDoc, SegmentsFromString<TPath>> {
+): Ref<InferRefTypeFromString<TDoc, TPath>> {
   const url = docHandle.url
   const { segments } = parseRefUrl(`${url}/${path}` as RefUrl)
-  return new Ref<TDoc, SegmentsFromString<TPath>>(
+  return new RefImpl(
     docHandle,
     segments as unknown as [...SegmentsFromString<TPath>]
-  )
+  ) as Ref<InferRefTypeFromString<TDoc, TPath>>
 }
 
 /**
@@ -81,20 +94,25 @@ export function fromString<TDoc, TPath extends string>(
  *
  * URL format: `automerge:{documentId}/{path}#{heads}`
  *
+ * @experimental This API is experimental and may change in future versions.
+ *
+ * @typeParam TValue - The expected type of the value this ref points to (defaults to unknown)
+ *
  * @example
  * ```ts
- * const ref = await findRef(repo, "automerge:abc123/todos/$xyz/title" as RefUrl);
+ * const ref = await findRef<string>(repo, "automerge:abc123/todos/0/title" as RefUrl);
+ * ref.value(); // string | undefined
  * ```
  */
-export async function findRef<T = any>(
+export async function findRef<TValue = unknown>(
   repo: Repo,
   url: RefUrl
-): Promise<Ref<T>> {
+): Promise<Ref<TValue>> {
   const { documentId } = parseRefUrl(url)
   const handle = await repo.find(documentId as any)
   await handle.whenReady()
 
-  return fromUrl(handle as DocHandle<T>, url)
+  return refFromUrl<TValue>(handle, url)
 }
 
 /**

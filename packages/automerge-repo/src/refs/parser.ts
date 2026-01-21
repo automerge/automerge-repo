@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge/slim"
 import type { RefUrl, Segment, SegmentCodec } from "./types.js"
 import { KIND } from "./types.js"
-import { DocumentId } from "@automerge/automerge-repo/slim"
+import type { DocumentId } from "../types.js"
 
 /**
  * # Path Segment Encoding Scheme

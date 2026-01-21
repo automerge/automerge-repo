@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Repo, splice, type DocHandle } from "@automerge/automerge-repo";
+import { Repo } from "../../src/Repo.js";
+import type { DocHandle } from "../../src/DocHandle.js";
 import { Ref } from "../../src/refs/ref.js";
 import { cursor } from "../../src/refs/utils.js";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../../src/refs/parser.js";
 import { isValidRefUrl } from "../../src/refs/guards.js";
 import { KIND, RefUrl } from "../../src/refs/types.js";
+import { splice } from "../../src/index.js";
 
 describe("Edge Cases", () => {
   let repo: Repo;
