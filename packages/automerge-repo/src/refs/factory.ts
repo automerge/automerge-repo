@@ -1,6 +1,6 @@
-import { DocHandle } from "@automerge/automerge-repo";
-import { Ref } from "./ref.js";
-import type { PathInput } from "./types.js";
+import { DocHandle } from "@automerge/automerge-repo/slim"
+import { Ref } from "./ref.js"
+import type { PathInput } from "./types.js"
 
 /**
  * Cache for ref instances, keyed by document handle and path.
@@ -8,10 +8,10 @@ import type { PathInput } from "./types.js";
  *
  * We store the cache in the globalThis object so multiple library instances can share the same cache.
  */
-let refCache = (globalThis as any).__automerge_ref_cache__;
+let refCache = (globalThis as any).__automerge_ref_cache__
 if (!refCache) {
   refCache = new WeakMap<DocHandle<any>, Map<string, WeakRef<Ref<any>>>>();
-  (globalThis as any).__automerge_ref_cache__ = refCache;
+  (globalThis as any).__automerge_ref_cache__ = refCache
 }
 
 /**
@@ -22,15 +22,15 @@ if (!refCache) {
 function pathToCacheKey(segments: readonly PathInput[]): string {
   return segments
     .map((seg) => {
-      if (typeof seg === "string") return `s:${seg}`;
-      if (typeof seg === "number") return `n:${seg}`;
+      if (typeof seg === "string") return `s:${seg}`
+      if (typeof seg === "number") return `n:${seg}`
       if (typeof seg === "object" && seg !== null) {
         // Pattern or CursorMarker
-        return `o:${JSON.stringify(seg)}`;
+        return `o:${JSON.stringify(seg)}`
       }
-      return `?:${String(seg)}`;
+      return `?:${String(seg)}`
     })
-    .join("/");
+    .join("/")
 }
 
 /**
@@ -54,23 +54,23 @@ export function ref<TDoc, TPath extends readonly PathInput[]>(
   ...segments: [...TPath]
 ): Ref<TDoc, TPath> {
   // Get or create cache for this document handle
-  let handleCache = refCache.get(docHandle);
+  let handleCache = refCache.get(docHandle)
   if (!handleCache) {
-    handleCache = new Map();
-    refCache.set(docHandle, handleCache);
+    handleCache = new Map()
+    refCache.set(docHandle, handleCache)
   }
 
   // Check if we have a cached ref for this path
-  const cacheKey = pathToCacheKey(segments);
-  const existingRef = handleCache.get(cacheKey)?.deref();
+  const cacheKey = pathToCacheKey(segments)
+  const existingRef = handleCache.get(cacheKey)?.deref()
 
   if (existingRef) {
-    return existingRef as Ref<TDoc, TPath>;
+    return existingRef as Ref<TDoc, TPath>
   }
 
   // Create new ref and cache it
-  const newRef = new Ref<TDoc, TPath>(docHandle, segments as [...TPath]);
-  handleCache.set(cacheKey, new WeakRef(newRef));
+  const newRef = new Ref<TDoc, TPath>(docHandle, segments as [...TPath])
+  handleCache.set(cacheKey, new WeakRef(newRef))
 
-  return newRef;
+  return newRef
 }

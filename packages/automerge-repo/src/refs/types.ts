@@ -1,16 +1,16 @@
-import type { Cursor, Heads } from "@automerge/automerge-repo";
-import { Ref } from "./ref.js";
+import type { Cursor, Heads } from "@automerge/automerge-repo/slim"
+import { Ref } from "./ref.js"
 
 /**
  * Symbol used as discriminator for segments to avoid collision with user data.
  * Users might have objects with a 'kind' property in id patterns.
  */
-export const KIND = "AUTOMERGE_REF_KIND";
+export const KIND = "AUTOMERGE_REF_KIND"
 
 /**
  * Symbol to mark a cursor request for stabilization during ref creation.
  */
-export const CURSOR_MARKER = "AUTOMERGE_REF_CURSOR_MARKER";
+export const CURSOR_MARKER = "AUTOMERGE_REF_CURSOR_MARKER"
 
 /**
  * Pattern used to match objects in arrays by their properties.
@@ -71,7 +71,7 @@ export interface RefOptions {
  * Behaves like a string with two additional mutation methods.
  * Uses String (object type) because we proxy all string methods at runtime.
  */
-// eslint-disable-next-line @typescript-eslint/no-wrapper-object-types
+// eslint-disable-next-line @typescript-eslint/ban-types
 export interface MutableText extends String {
   /** Splice text at a position - uses Automerge.splice for CRDT-safe mutation */
   splice(index: number, deleteCount: number, insert?: string): void;

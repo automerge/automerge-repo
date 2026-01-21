@@ -6,8 +6,8 @@ export type {
   Pattern,
   RefUrl,
   RefOfType,
-} from "./types.js";
+} from "./types.js"
 
-export { type Ref } from "./ref.js";
-export { ref } from "./factory.js";
-export { cursor, findRef, fromUrl, fromString } from "./utils.js";
+export { type Ref } from "./ref.js"
+export { ref } from "./factory.js"
+export { cursor, findRef, fromUrl, fromString } from "./utils.js"

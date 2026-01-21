@@ -1,14 +1,14 @@
-import { DocHandle, Repo } from "@automerge/automerge-repo";
+import { DocHandle, Repo } from "@automerge/automerge-repo/slim"
 import type {
   Pattern,
   CursorMarker,
   RefUrl,
   AnyPathInput,
   SegmentsFromString,
-} from "./types.js";
-import { CURSOR_MARKER } from "./types.js";
-import { Ref } from "./ref.js";
-import { parseRefUrl } from "./parser.js";
+} from "./types.js"
+import { CURSOR_MARKER } from "./types.js"
+import { Ref } from "./ref.js"
+import { parseRefUrl } from "./parser.js"
 
 /**
  * Create a cursor-based range segment for stable text selection.
@@ -22,7 +22,7 @@ import { parseRefUrl } from "./parser.js";
  * ```
  */
 export function cursor(start: number, end?: number): CursorMarker {
-  return { [CURSOR_MARKER]: true, start, end: end ?? start };
+  return { [CURSOR_MARKER]: true, start, end: end ?? start }
 }
 
 /**
@@ -42,16 +42,16 @@ export function fromUrl<TDoc = any>(
   handle: DocHandle<TDoc>,
   url: RefUrl
 ): Ref<TDoc, AnyPathInput[]> {
-  const { documentId, segments, heads } = parseRefUrl(url);
+  const { documentId, segments, heads } = parseRefUrl(url)
 
   if (documentId !== handle.documentId) {
     throw new Error(
       `URL documentId "${documentId}" does not match handle's documentId "${handle.documentId}"`
-    );
+    )
   }
 
-  const options = heads ? { heads } : {};
-  return new Ref<TDoc, AnyPathInput[]>(handle, segments, options);
+  const options = heads ? { heads } : {}
+  return new Ref<TDoc, AnyPathInput[]>(handle, segments, options)
 }
 
 /**
@@ -68,12 +68,12 @@ export function fromString<TDoc, TPath extends string>(
   docHandle: DocHandle<TDoc>,
   path: TPath
 ): Ref<TDoc, SegmentsFromString<TPath>> {
-  const url = docHandle.url;
-  const { segments } = parseRefUrl(`${url}/${path}` as RefUrl);
+  const url = docHandle.url
+  const { segments } = parseRefUrl(`${url}/${path}` as RefUrl)
   return new Ref<TDoc, SegmentsFromString<TPath>>(
     docHandle,
     segments as unknown as [...SegmentsFromString<TPath>]
-  );
+  )
 }
 
 /**
@@ -90,11 +90,11 @@ export async function findRef<T = any>(
   repo: Repo,
   url: RefUrl
 ): Promise<Ref<T>> {
-  const { documentId } = parseRefUrl(url);
-  const handle = await repo.find(documentId as any);
-  await handle.whenReady();
+  const { documentId } = parseRefUrl(url)
+  const handle = await repo.find(documentId as any)
+  await handle.whenReady()
 
-  return fromUrl(handle as DocHandle<T>, url);
+  return fromUrl(handle as DocHandle<T>, url)
 }
 
 /**
@@ -106,5 +106,5 @@ export async function findRef<T = any>(
  * @internal
  */
 export function matchesPattern(item: any, pattern: Pattern): boolean {
-  return Object.entries(pattern).every(([key, value]) => item[key] === value);
+  return Object.entries(pattern).every(([key, value]) => item[key] === value)
 }
