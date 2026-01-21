@@ -1,15 +1,11 @@
 import {
-    DocHandle,
     Repo,
     isValidAutomergeUrl,
-    BroadcastChannelNetworkAdapter,
-    WebSocketClientAdapter,
     IndexedDBStorageAdapter,
     RepoContext,
 } from "@automerge/react"
-
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import { Subduction } from "@automerge/automerge_subduction"
+import { Subduction, SubductionWebSocket, PeerId } from "@automerge/automerge_subduction"
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"
 import ReactDOM from "react-dom/client"
@@ -17,19 +13,29 @@ import { App } from "./App.js"
 import { State } from "./types.js"
 import "./index.css"
 
-declare global {
-    interface Window {
-        handle: DocHandle<unknown>
-        repo: Repo
-    }
-}
-
 ;(async () => {
     const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-todo")
     const storage = new SubductionStorageBridge(storageAdapter)
+    const subduction = await Subduction.hydrate(storage)
+
+    // Connect to Subduction server directly
+    try {
+        const peerIdBytes = new Uint8Array(32)
+        crypto.getRandomValues(peerIdBytes)
+        const wsConn = await SubductionWebSocket.connect(
+            new URL("ws://localhost:8080"),
+            new PeerId(peerIdBytes),
+            5000
+        )
+        await subduction.attach(wsConn)
+        console.log("Connected to Subduction server")
+    } catch (err) {
+        console.warn("Failed to connect to Subduction server:", err)
+    }
+
     const repo = new Repo({
-        network: [new WebSocketClientAdapter("ws://127.0.0.1:8080", 5000, { subductionMode: true })],
-        subduction: await Subduction.hydrate(storage),
+        network: [],
+        subduction,
     })
 
     const rootDocUrl = `${document.location.hash.substring(1)}`

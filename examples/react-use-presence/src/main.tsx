@@ -10,20 +10,35 @@ import {
     RepoContext,
 } from "@automerge/react"
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import { Subduction } from "@automerge/automerge_subduction"
+import { Subduction, SubductionWebSocket, PeerId } from "@automerge/automerge_subduction"
 import { v4 } from "uuid"
+
 ;(async () => {
     const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-use-presence")
     const storage = new SubductionStorageBridge(storageAdapter)
+    const subduction = await Subduction.hydrate(storage)
+
+    // Connect to Subduction server directly
+    try {
+        const peerIdBytes = new Uint8Array(32)
+        crypto.getRandomValues(peerIdBytes)
+        const wsConn = await SubductionWebSocket.connect(
+            new URL("ws://127.0.0.1:8080"),
+            new PeerId(peerIdBytes),
+            5000
+        )
+        await subduction.attach(wsConn)
+        console.log("Connected to Subduction server")
+    } catch (err) {
+        console.warn("Failed to connect to Subduction server:", err)
+    }
+
     const repo = new Repo({
         network: [
             new BroadcastChannelNetworkAdapter(), // For same-browser tab communication
-            new WebSocketClientAdapter("ws://127.0.0.1:8080", 5000, {
-                subductionMode: true,
-            }), // Document sync via Subduction
             new WebSocketClientAdapter("ws://127.0.0.1:8081"), // Ephemeral messages (presence) via relay server
         ],
-        subduction: await Subduction.hydrate(storage),
+        subduction,
     })
 
     const userId = v4()
@@ -34,9 +49,6 @@ import { v4 } from "uuid"
         : repo.create()
 
     const docUrl = (document.location.hash = handle.url)
-
-    window.handle = handle // we'll use this later for experimentation
-    window.repo = repo
 
     ReactDOM.createRoot(document.getElementById("root")).render(
         <RepoContext.Provider value={repo}>

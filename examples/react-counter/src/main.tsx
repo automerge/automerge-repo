@@ -2,54 +2,40 @@ import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
 import {
-  DocHandle,
   Repo,
   isValidAutomergeUrl,
-  MessageChannelNetworkAdapter,
-  WebSocketClientAdapter,
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import { Subduction } from "@automerge/automerge_subduction"
+import { Subduction, SubductionWebSocket, PeerId } from "@automerge/automerge_subduction"
 
-// We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
-// This means we only ever create one websocket connection to the sync server, we only do our writes in one place
-// (no race conditions) and we get local real-time sync without the overhead of broadcast channel.
-// The downside is that to debug any problems with the sync server you'll need to find the shared-worker and inspect it.
-// In Chrome-derived browsers the URL is chrome://inspect/#workers. In Firefox it's about:debugging#workers.
-// In Safari it's Develop > Show Web Inspector > Storage > IndexedDB > automerge-repo-demo-counter.
-
-const sharedWorker = new SharedWorker(
-  new URL("./shared-worker.ts", import.meta.url),
-  {
-    type: "module",
-    name: "automerge-repo-shared-worker",
-  }
-)
-
-// /* Create a repo and share any documents we create with our local in-browser storage worker. */
-// const repo = new Repo({
-//   network: [new MessageChannelNetworkAdapter(sharedWorker.port)],
-//   storage: new IndexedDBStorageAdapter("automerge-repo-demo-counter"),
-// })
-
-declare global {
-  interface Window {
-    handle: DocHandle<unknown>
-    repo: Repo
-  }
-}
-
-console.log("Starting up app...")
 ;(async () => {
   const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-counter")
   const storage = new SubductionStorageBridge(storageAdapter)
+  const subduction = await Subduction.hydrate(storage)
+
+  // Connect to Subduction server directly
+  try {
+    const peerIdBytes = new Uint8Array(32)
+    crypto.getRandomValues(peerIdBytes)
+    const wsConn = await SubductionWebSocket.connect(
+      new URL("ws://127.0.0.1:8080"),
+      new PeerId(peerIdBytes),
+      5000
+    )
+    await subduction.attach(wsConn)
+    console.log("Connected to Subduction server")
+  } catch (err) {
+    console.warn("Failed to connect to Subduction server:", err)
+  }
+
   const repo = new Repo({
-    network: [new WebSocketClientAdapter("ws://127.0.0.1:8080", 5000, { subductionMode: true })],
-    subduction: await Subduction.hydrate(storage),
+    network: [],
+    subduction,
     sharePolicy: async peerId => peerId.includes("shared-worker"),
   })
+
   const rootDocUrl = `${document.location.hash.substring(1)}`
   let handle
   if (isValidAutomergeUrl(rootDocUrl)) {
@@ -58,8 +44,6 @@ console.log("Starting up app...")
     handle = repo.create<{ count: number }>({ count: 0 })
   }
   const docUrl = (document.location.hash = handle.url)
-  window.handle = handle // we'll use this later for experimentation
-  window.repo = repo
 
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <RepoContext.Provider value={repo}>

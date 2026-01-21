@@ -1,128 +1,254 @@
 /**
- * Bridge that allows Subduction to use automerge-repo network adapters.
- *
- * @example
- * ```ts
- * import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
- * import { Subduction } from "subduction_wasm"
- * import { SubductionNetworkBridge } from "@automerge/automerge-repo-subduction-bridge"
- *
- * const adapter = new WebSocketClientAdapter("ws://localhost:8080")
- * const bridge = new SubductionNetworkBridge(adapter)
- *
- * // Connect the adapter first (this establishes the WebSocket)
- * adapter.connect(repoPeerId)
- * await adapter.whenReady()
- *
- * // Then create a Subduction connection
- * const conn = await bridge.connect(subductionPeerId, 5000)
- * await subduction.attach(conn)
- * ```
+ * Bridge that allows Subduction to use `automerge-repo` network adapters.
  */
 
-import type { NetworkAdapterInterface } from "@automerge/automerge-repo"
-import { SubductionWebSocket, PeerId } from "@automerge/automerge_subduction"
+import debug from "debug"
+import type {
+    NetworkAdapterInterface,
+    Message as RepoMessage,
+} from "@automerge/automerge-repo"
+import { cbor } from "@automerge/automerge-repo/slim"
+import {
+    Nonce,
+    RequestId,
+    Message,
+    type Connection,
+    type Message as SubductionMessage,
+    type BatchSyncRequest,
+    type BatchSyncResponse,
+    type PeerId,
+} from "@automerge/automerge_subduction"
+
+const SUBDUCTION_MESSAGE_TYPE = "subduction-connection"
+const log = debug("automerge-repo:subduction-bridge:network")
 
 /**
- * A network adapter that exposes a WebSocket for Subduction to use.
- */
-export interface WebSocketNetworkAdapter extends NetworkAdapterInterface {
-    getWebSocket(): WebSocket | undefined
-}
-
-/**
- * Bridge that allows Subduction to use automerge-repo network adapters.
+ * A connection that wraps an `automerge-repo` `NetworkAdapter` to implement
+ * Subduction's `Connection` interface.
  *
- * This extracts the underlying WebSocket from a network adapter and wraps it
- * for use with Subduction's protocol. The adapter handles connection lifecycle
- * (connect, reconnect, disconnect) while Subduction handles the protocol.
+ * This allows Subduction to communicate over any automerge-repo network adapter
+ * (`BroadcastChannel`, `MessageChannel`, etc.) by encoding Subduction messages
+ * within the adapter's message format, and decoding this on the other end.
+ *
+ * Note that both ends of the connection must be able to understand the transport.
  */
-export class SubductionNetworkBridge {
-    private adapter: WebSocketNetworkAdapter
+export class NetworkAdapterConnection implements Connection {
+    #adapter: NetworkAdapterInterface
+    #localPeerId: PeerId
+    #remotePeerId: PeerId
 
-    constructor(adapter: WebSocketNetworkAdapter) {
-        if (!adapter.getWebSocket) {
-            throw new Error(
-                "Network adapter must implement getWebSocket() to be used with SubductionNetworkBridge"
-            )
+    // For pull-based recv()
+    #messageQueue: SubductionMessage[] = []
+    #waitingReceivers: Array<(msg: SubductionMessage) => void> = []
+
+    // For call() request/response correlation
+    #pendingCalls = new Map<
+        string,
+        {
+            resolve: (resp: BatchSyncResponse) => void
+            reject: (err: Error) => void
+            timeoutId?: ReturnType<typeof setTimeout>
         }
-        this.adapter = adapter
-    }
+    >()
+
+    #disconnected = false
 
     /**
-     * Get the underlying network adapter.
+     * Create a new NetworkAdapterConnection.
+     *
+     * @param adapter - The automerge-repo network adapter to wrap
+     * @param localPeerId - The local Subduction PeerId
+     * @param remotePeerId - The remote peer's PeerId to communicate with
      */
-    getAdapter(): WebSocketNetworkAdapter {
-        return this.adapter
+    constructor(
+        adapter: NetworkAdapterInterface,
+        localPeerId: PeerId,
+        remotePeerId: PeerId
+    ) {
+        this.#adapter = adapter
+        this.#localPeerId = localPeerId
+        this.#remotePeerId = remotePeerId
+
+        adapter.on("message", this.#handleMessage)
+        adapter.on("peer-disconnected", this.#handlePeerDisconnected)
     }
 
-    /**
-     * Create a SubductionWebSocket connection using the adapter's WebSocket.
-     *
-     * The adapter must already be connected and have an open WebSocket.
-     *
-     * @param peerId - The Subduction PeerId for this connection
-     * @param timeoutMs - Connection timeout in milliseconds
-     * @returns A SubductionWebSocket ready to be attached to a Subduction instance
-     * @throws Error if the adapter doesn't have a WebSocket available
-     */
-    async connect(peerId: PeerId, timeoutMs: number): Promise<SubductionWebSocket> {
-        const ws = this.adapter.getWebSocket()
-        if (!ws) {
-            throw new Error(
-                "WebSocket not available. Make sure the adapter is connected first."
-            )
+    #handleMessage = (msg: RepoMessage) => {
+        if (msg.senderId !== this.#remotePeerId.toString()) {
+            log("ignoring message from %s, expected %s", msg.senderId, this.#remotePeerId)
+            return
         }
 
-        return SubductionWebSocket.setup(peerId, ws, timeoutMs)
+        if (msg.type !== SUBDUCTION_MESSAGE_TYPE) {
+            log("ignoring non-subduction message type: %s", msg.type)
+            return
+        }
+
+        if (!msg.data) {
+            log("ignoring message with no data")
+            return
+        }
+
+        let subductionMsg: SubductionMessage
+        try {
+            subductionMsg = cbor.decode(msg.data) as SubductionMessage
+        } catch {
+            console.error("Failed to decode Subduction message:", msg.data)
+            return
+        }
+
+        // Check if this is a BatchSyncResponse for a pending call()
+        if (subductionMsg.type === "BatchSyncResponse") {
+            const resp = subductionMsg.response
+            if (resp) {
+                const key = this.#requestIdKey(resp.request_id())
+                const pending = this.#pendingCalls.get(key)
+
+                if (pending) {
+                    if (pending.timeoutId) clearTimeout(pending.timeoutId)
+                    this.#pendingCalls.delete(key)
+                    pending.resolve(resp)
+                    return
+                }
+            }
+        }
+
+        // Otherwise queue for recv()
+        const receiver = this.#waitingReceivers.shift()
+        if (receiver) {
+            receiver(subductionMsg)
+        } else {
+            this.#messageQueue.push(subductionMsg)
+        }
+    }
+
+    #handlePeerDisconnected = ({ peerId }: { peerId: string }) => {
+        if (peerId === this.#remotePeerId.toString()) {
+            this.#disconnected = true
+            for (const [key, pending] of this.#pendingCalls) {
+                if (pending.timeoutId) clearTimeout(pending.timeoutId)
+                pending.reject(new Error("Peer disconnected"))
+                this.#pendingCalls.delete(key)
+            }
+        }
+    }
+
+    #requestIdKey(reqId: RequestId): string {
+        const nonceBytes: Uint8Array = reqId.nonce.bytes
+        const nonceHex = Array.from(nonceBytes)
+            .map((b: number) => b.toString(16).padStart(2, "0"))
+            .join("")
+        return `${reqId.requestor}:${nonceHex}`
     }
 
     /**
-     * Wait for the adapter to be ready and then create a SubductionWebSocket connection.
-     *
-     * This is a convenience method that waits for the adapter's WebSocket to be
-     * available before creating the Subduction connection.
-     *
-     * @param peerId - The Subduction PeerId for this connection
-     * @param timeoutMs - Connection timeout in milliseconds
-     * @returns A SubductionWebSocket ready to be attached to a Subduction instance
+     * Get the peer ID of the remote peer.
      */
-    async connectWhenReady(
-        peerId: PeerId,
-        timeoutMs: number
-    ): Promise<SubductionWebSocket> {
-        await this.adapter.whenReady()
-
-        const ws = await this.waitForWebSocket(timeoutMs)
-
-        return SubductionWebSocket.setup(peerId, ws, timeoutMs)
+    peerId(): PeerId {
+        return this.#remotePeerId
     }
 
     /**
-     * Wait for the WebSocket to become available and open.
+     * Disconnect from the peer.
+     *
+     * Note: This doesn't close the underlying adapter since it may be shared
+     * with other connections. It just stops listening for this peer's messages.
      */
-    private waitForWebSocket(timeoutMs: number): Promise<WebSocket> {
+    async disconnect(): Promise<void> {
+        this.#disconnected = true
+        this.#adapter.off("message", this.#handleMessage)
+        this.#adapter.off("peer-disconnected", this.#handlePeerDisconnected)
+
+        for (const [key, pending] of this.#pendingCalls) {
+            if (pending.timeoutId) clearTimeout(pending.timeoutId)
+            pending.reject(new Error("Disconnected"))
+            this.#pendingCalls.delete(key)
+        }
+    }
+
+    /**
+     * Send a Subduction message to the remote peer.
+     */
+    async send(message: SubductionMessage): Promise<void> {
+        if (this.#disconnected) {
+            throw new Error("Connection is disconnected")
+        }
+
+        const encoded = cbor.encode(message)
+
+        this.#adapter.send({
+            type: SUBDUCTION_MESSAGE_TYPE,
+            senderId: this.#localPeerId.toString() as RepoMessage["senderId"],
+            targetId: this.#remotePeerId.toString() as RepoMessage["targetId"],
+            data: encoded,
+        })
+    }
+
+    /**
+     * Receive the next Subduction message from the remote peer.
+     *
+     * This returns a Promise that resolves when a message is available.
+     */
+    async recv(): Promise<SubductionMessage> {
+        if (this.#disconnected) {
+            throw new Error("Connection is disconnected")
+        }
+
+        const queued = this.#messageQueue.shift()
+        if (queued) return queued
+
         return new Promise((resolve, reject) => {
-            const startTime = Date.now()
+            if (this.#disconnected) {
+                reject(new Error("Connection is disconnected"))
+                return
+            }
+            this.#waitingReceivers.push(resolve)
+        })
+    }
 
-            const check = () => {
-                const ws = this.adapter.getWebSocket()
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    resolve(ws)
-                    return
-                }
+    /**
+     * Get the next request ID for making calls.
+     */
+    async nextRequestId(): Promise<RequestId> {
+        const nonce = Nonce.random()
+        return new RequestId(this.#localPeerId, nonce)
+    }
 
-                if (Date.now() - startTime > timeoutMs) {
-                    reject(
-                        new Error("Timeout waiting for WebSocket to be available")
-                    )
-                    return
-                }
+    /**
+     * Make a request/response call to the remote peer.
+     *
+     * @param request - The BatchSyncRequest to send
+     * @param timeoutMs - Timeout in milliseconds (null for no timeout)
+     * @returns The BatchSyncResponse from the peer
+     */
+    async call(
+        request: BatchSyncRequest,
+        timeoutMs: number | null
+    ): Promise<BatchSyncResponse> {
+        if (this.#disconnected) {
+            throw new Error("Connection is disconnected")
+        }
 
-                setTimeout(check, 50)
+        const key = this.#requestIdKey(request.request_id())
+
+        return new Promise((resolve, reject) => {
+            let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+            if (timeoutMs !== null) {
+                timeoutId = setTimeout(() => {
+                    this.#pendingCalls.delete(key)
+                    reject(new Error("Call timed out"))
+                }, timeoutMs)
             }
 
-            check()
+            this.#pendingCalls.set(key, { resolve, reject, timeoutId })
+
+            const message = Message.batchSyncRequest(request)
+            this.send(message).catch(err => {
+                if (timeoutId) clearTimeout(timeoutId)
+                this.#pendingCalls.delete(key)
+                reject(err)
+            })
         })
     }
 }

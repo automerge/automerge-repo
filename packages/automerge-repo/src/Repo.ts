@@ -109,7 +109,14 @@ function randomPeerId() {
     return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
 }
 
-const hashMetric = new HashMetric(null)
+// Lazy-initialize HashMetric to avoid accessing WASM before it's loaded
+let _hashMetric: HashMetric | null = null
+function getHashMetric(): HashMetric {
+    if (_hashMetric === null) {
+        _hashMetric = new HashMetric(null)
+    }
+    return _hashMetric
+}
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -1319,26 +1326,31 @@ export class Repo extends EventEmitter<RepoEvents> {
                     const fragmentRequested = maybeFragmentRequested
                     const innerDoc = automergeMeta(doc)
                     const sam = new SedimentreeAutomerge(innerDoc)
-                    const fragmentState = sam.fragment(
-                        fragmentRequested.head,
+
+                    // Build all missing fragments recursively, not just the top one
+                    const fragmentStates = sam.buildFragmentStore(
+                        [fragmentRequested.head],
                         this.#fragmentStateStore,
-                        hashMetric
+                        getHashMetric()
                     )
-                    const members = fragmentState
-                        .members()
-                        .map((digest: Digest): string => digest.toHexString())
 
-                    // NOTE this is the only(?) function that we need from AM v3.2.0
-                    const fragmentBlob = Automerge.saveBundle(doc, members)
-                    const fragmentBlobMeta = new BlobMeta(fragmentBlob)
-                    const fragment =
-                        fragmentState.intoFragment(fragmentBlobMeta)
+                    for (const fragmentState of fragmentStates) {
+                        const members = fragmentState
+                            .members()
+                            .map((digest: Digest): string => digest.toHexString())
 
-                    await this.#subduction.addFragment(
-                        sedimentreeId,
-                        fragment,
-                        fragmentBlob
-                    )
+                        // NOTE this is the only(?) function that we need from AM v3.2.0
+                        const fragmentBlob = Automerge.saveBundle(doc, members)
+                        const fragmentBlobMeta = new BlobMeta(fragmentBlob)
+                        const fragment =
+                            fragmentState.intoFragment(fragmentBlobMeta)
+
+                        await this.#subduction.addFragment(
+                            sedimentreeId,
+                            fragment,
+                            fragmentBlob
+                        )
+                    }
                 }
             )
         )
