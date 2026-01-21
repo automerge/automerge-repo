@@ -1,13 +1,13 @@
 import * as Automerge from "@automerge/automerge/slim"
-import type { Doc, Prop } from "@automerge/automerge/slim"
+import type { Doc, Prop, Heads } from "@automerge/automerge/slim"
 import type { DocHandle, DocHandleChangePayload } from "../DocHandle.js"
+import { encodeHeads, decodeHeads } from "../AutomergeUrl.js"
 import type {
   Segment,
   PathSegment,
   CursorRange,
   AnyPathInput,
   Pattern,
-  RefOptions,
   InferRefType,
   ChangeFn,
   RefUrl,
@@ -46,7 +46,6 @@ export class RefImpl<
   readonly docHandle: DocHandle<TDoc>
   readonly path: PathSegment[]
   readonly range?: CursorRange
-  readonly options: RefOptions
 
   #onChangeCallbacks = new Set<
     (payload: DocHandleChangePayload<any>) => void
@@ -55,11 +54,9 @@ export class RefImpl<
 
   constructor(
     docHandle: DocHandle<TDoc>,
-    segments: readonly [...TPath],
-    options: RefOptions = {}
+    segments: readonly [...TPath]
   ) {
     this.docHandle = docHandle
-    this.options = options
 
     const doc = docHandle.doc()
     const { path, range } = this.#normalizePath(
@@ -87,10 +84,6 @@ export class RefImpl<
     this.#onChangeCallbacks.clear()
   }
 
-  get heads(): string[] | undefined {
-    return this.options.heads
-  }
-
   get rangePositions(): [number, number] | undefined {
     if (!this.range) return undefined
     const propPath = this.#getPropPath()
@@ -99,18 +92,13 @@ export class RefImpl<
     return this.#getRangePositions(doc, propPath, this.range)
   }
 
-  /**
-   * Create a new ref viewing the document at specific heads (time-travel).
-   * Returns a new Ref instance with the same path but different heads.
-   */
-  viewAt(heads: string[] | undefined): Ref<InferRefType<TDoc, TPath>> {
-    return new RefImpl(this.docHandle, this.path as any, {
-      ...this.options,
-      heads,
-    })
+  viewAt(heads: Heads): Ref<InferRefType<TDoc, TPath>> {
+    const viewHandle = this.docHandle.view(encodeHeads(heads))
+    return viewHandle.ref(...(this.path as any)) as Ref<
+      InferRefType<TDoc, TPath>
+    >
   }
 
-  /** Get the current value, or undefined if path can't be resolved */
   value(): InferRefType<TDoc, TPath> | undefined {
     const doc = this.doc()
     const propPath = this.#getPropPath()
@@ -124,36 +112,14 @@ export class RefImpl<
   }
 
   doc(): Doc<TDoc> {
-    const doc = this.docHandle.doc()
-    return this.options.heads ? Automerge.view(doc, this.options.heads) : doc
+    return this.docHandle.doc()
   }
 
-  /**
-   * Update the value.
-   *
-   * For primitives, you can pass either:
-   * - A function that receives the current value and returns the new value
-   * - A direct value (shorthand for primitives)
-   *
-   * @example
-   * ```ts
-   * // Function form (works for all types)
-   * counterRef.change(n => n + 1);
-   * themeRef.change(t => t === 'dark' ? 'light' : 'dark');
-   *
-   * // Shorthand for primitives
-   * themeRef.change('dark');
-   * counterRef.change(42);
-   *
-   * // Objects/arrays: mutate in place (same semantics as automerge-repo)
-   * todoRef.change(todo => { todo.done = true; });
-   * ```
-   */
   change(
     fnOrValue: ChangeFn<InferRefType<TDoc, TPath>> | InferRefType<TDoc, TPath>
   ): void {
-    if (this.options.heads) {
-      throw new Error("Cannot change a Ref pinned to specific heads")
+    if (this.docHandle.isReadOnly()) {
+      throw new Error("Cannot change a Ref on a read-only handle")
     }
 
     // Convert direct value to function form
@@ -216,35 +182,9 @@ export class RefImpl<
     })
   }
 
-  /**
-   * Remove the value this ref points to from its parent container.
-   *
-   * - For object properties: deletes the key from the object
-   * - For array elements: removes the item from the array
-   * - For text ranges: deletes the text within the range
-   *
-   * @throws Error if the ref points to the root document
-   * @throws Error if the ref is pinned to specific heads
-   * @throws Error if the path cannot be resolved
-   *
-   * @example
-   * ```ts
-   * // Remove a property from an object
-   * const nameRef = ref(handle, 'user', 'name');
-   * nameRef.remove(); // deletes handle.doc().user.name
-   *
-   * // Remove an item from an array
-   * const todoRef = ref(handle, 'todos', 0);
-   * todoRef.remove(); // removes first todo from array
-   *
-   * // Remove text within a range
-   * const rangeRef = ref(handle, 'text', cursor(0, 5));
-   * rangeRef.remove(); // deletes first 5 characters
-   * ```
-   */
   remove(): void {
-    if (this.options.heads) {
-      throw new Error("Cannot remove from a Ref pinned to specific heads")
+    if (this.docHandle.isReadOnly()) {
+      throw new Error("Cannot remove from a Ref on a read-only handle")
     }
 
     if (this.path.length === 0 && !this.range) {
@@ -283,11 +223,6 @@ export class RefImpl<
     })
   }
 
-  /**
-   * Subscribe to changes that affect this ref's value.
-   *
-   * Returns an unsubscribe function you can call
-   */
   onChange(
     callback: (
       value: InferRefType<TDoc, TPath> | undefined,
@@ -319,41 +254,26 @@ export class RefImpl<
       ? [...this.path, this.range]
       : this.path
 
-    return stringifyRefUrl(
-      this.docHandle.documentId,
-      allSegments,
-      this.options.heads
-    )
+    // Include heads in URL only for read-only (time-traveled) handles
+    const heads = this.docHandle.isReadOnly()
+      ? decodeHeads(this.docHandle.heads())
+      : undefined
+
+    return stringifyRefUrl(this.docHandle.documentId, allSegments, heads)
   }
 
-  /**
-   * Check if this ref is equal to another ref (same document, path, and heads).
-   */
   equals(other: Ref<unknown>): boolean {
     return this.url === other.url
   }
 
-  /**
-   * Check if this ref contains another ref (other is a descendant of this).
-   *
-   * @example
-   * ```ts
-   * const todoRef = handle.ref('todos', 0);
-   * const titleRef = handle.ref('todos', 0, 'title');
-   * todoRef.contains(titleRef); // true
-   * titleRef.contains(todoRef); // false
-   * ```
-   */
   contains(other: Ref<unknown>): boolean {
     // Must be same document
     if (this.docHandle.documentId !== other.docHandle.documentId) {
       return false
     }
 
-    // Must have same or undefined heads
-    const thisHeads = this.heads?.join()
-    const otherHeads = other.heads?.join()
-    if (thisHeads !== otherHeads) {
+    // Must have same heads (compare handle URLs which include heads for read-only handles)
+    if (this.docHandle.url !== other.docHandle.url) {
       return false
     }
 
@@ -372,38 +292,14 @@ export class RefImpl<
     return true
   }
 
-  /**
-   * Check if this ref is a child of another ref.
-   *
-   * For arrays: only direct array elements are considered children
-   * (path must be exactly one segment longer).
-   *
-   * For text: sub-ranges within the text are considered children
-   * (same path with a range, or one segment deeper).
-   *
-   * @example
-   * ```ts
-   * // Array children
-   * const arrayRef = handle.ref('items');
-   * const itemRef = handle.ref('items', 0);
-   * itemRef.isChildOf(arrayRef); // true
-   *
-   * // Text range children
-   * const textRef = handle.ref('content');
-   * const rangeRef = handle.ref('content', cursor(0, 10));
-   * rangeRef.isChildOf(textRef); // true
-   * ```
-   */
   isChildOf(parent: Ref<unknown>): boolean {
     // Must be same document
     if (this.docHandle.documentId !== parent.docHandle.documentId) {
       return false
     }
 
-    // Must have same heads
-    const thisHeads = this.heads?.join(",")
-    const parentHeads = parent.heads?.join(",")
-    if (thisHeads !== parentHeads) {
+    // Must have same heads (compare handle URLs which include heads for read-only handles)
+    if (this.docHandle.url !== parent.docHandle.url) {
       return false
     }
 
@@ -434,27 +330,14 @@ export class RefImpl<
     return false
   }
 
-  /**
-   * Check if this ref overlaps with another ref (for text/range refs).
-   * Two refs overlap if they refer to the same parent location and their ranges overlap.
-   *
-   * @example
-   * ```ts
-   * const range1 = handle.ref('content', cursor(0, 10));
-   * const range2 = handle.ref('content', cursor(5, 15));
-   * range1.overlaps(range2); // true
-   * ```
-   */
   overlaps(other: Ref<unknown>): boolean {
     // Must be same document
     if (this.docHandle.documentId !== other.docHandle.documentId) {
       return false
     }
 
-    // Must have same heads
-    const thisHeads = this.heads?.join()
-    const otherHeads = other.heads?.join()
-    if (thisHeads !== otherHeads) {
+    // Must have same heads (compare handle URLs which include heads for read-only handles)
+    if (this.docHandle.url !== other.docHandle.url) {
       return false
     }
 
@@ -492,21 +375,6 @@ export class RefImpl<
     return thisStart < otherEnd && otherStart < thisEnd
   }
 
-  /**
-   * Check if this ref is equivalent to another ref.
-   * Two refs are equivalent if they point to the same value in the document,
-   * even if they use different addressing schemes (e.g., index vs pattern).
-   *
-   * Short-circuits for fast rejection when refs are obviously different.
-   *
-   * @example
-   * ```ts
-   * const byIndex = ref(handle, 'todos', 0);
-   * const byId = ref(handle, 'todos', { id: 'abc' });
-   * // If todos[0].id === 'abc', these are equivalent
-   * byIndex.isEquivalent(byId); // true
-   * ```
-   */
   isEquivalent(other: Ref<unknown>): boolean {
     // Fast path: identity check
     if (this === other) {
@@ -595,24 +463,18 @@ export class RefImpl<
 
   /**
    * Check if this ref's heads are equivalent to another ref's heads.
-   * undefined heads means "current document state", so a ref with undefined heads
-   * is equivalent to a ref with explicit heads matching the current document.
+   * A ref on a non-read-only handle represents "current document state",
+   * so it's equivalent to a ref on a read-only handle with heads matching the current document.
    */
   #headsEquivalent(other: Ref<unknown>): boolean {
-    const thisHeads = this.heads
-    const otherHeads = other.heads
-
-    // Both undefined or both have same explicit heads
-    if (thisHeads?.join(",") === otherHeads?.join(",")) {
+    // If both handles have the same URL (including heads for read-only handles), they're equivalent
+    if (this.docHandle.url === other.docHandle.url) {
       return true
     }
 
-    // One has undefined heads (current), check if other matches current doc heads
-    const currentHeads = Automerge.getHeads(this.docHandle.doc())
-    const currentHeadsStr = currentHeads.join(",")
-
-    const thisHeadsStr = thisHeads?.join(",") ?? currentHeadsStr
-    const otherHeadsStr = otherHeads?.join(",") ?? currentHeadsStr
+    // Get effective heads for each - use handle's heads (which is current for non-read-only)
+    const thisHeadsStr = this.docHandle.heads().join(",")
+    const otherHeadsStr = other.docHandle.heads().join(",")
 
     return thisHeadsStr === otherHeadsStr
   }

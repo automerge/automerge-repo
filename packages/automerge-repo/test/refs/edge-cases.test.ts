@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import * as Automerge from "@automerge/automerge";
 import { Repo } from "../../src/Repo.js";
 import type { DocHandle } from "../../src/DocHandle.js";
-import { Ref } from "../../src/refs/ref.js";
 import { cursor } from "../../src/refs/utils.js";
 import {
   parsePath,
@@ -38,19 +38,19 @@ describe("Edge Cases", () => {
       });
 
       // Zero-width cursor range
-      expect(new Ref(handle, ["text", cursor(2, 2)]).value()).toBe("");
+      expect(handle.ref("text", cursor(2, 2)).value()).toBe("");
 
       // Empty string allows cursor at 0
-      expect(new Ref(handle, ["empty", cursor(0, 0)]).value()).toBe("");
+      expect(handle.ref("empty", cursor(0, 0)).value()).toBe("");
 
       // Negative positions clamped to 0
-      expect(new Ref(handle, ["text", cursor(-5, 3)]).value()).toBe("Hel");
+      expect(handle.ref("text", cursor(-5, 3)).value()).toBe("Hel");
 
       // Out-of-bounds positions clamped to string length
-      expect(new Ref(handle, ["text", cursor(0, 100)]).value()).toBe("Hello");
+      expect(handle.ref("text", cursor(0, 100)).value()).toBe("Hello");
 
       // Inverted range (start > end) returns empty string
-      expect(new Ref(handle, ["text", cursor(4, 2)]).value()).toBe("");
+      expect(handle.ref("text", cursor(4, 2)).value()).toBe("");
     });
 
     it("should track cursors when text around them changes", () => {
@@ -58,7 +58,7 @@ describe("Edge Cases", () => {
         d.text = "Hello World";
       });
 
-      const ref = new Ref(handle, ["text", cursor(6, 11)]); // "World"
+      const ref = handle.ref("text", cursor(6, 11)); // "World"
       expect(ref.value()).toBe("World");
 
       // Delete "Hello " - cursors track the content
@@ -81,7 +81,7 @@ describe("Edge Cases", () => {
 
       // cursor() must be the last segment - segments after it are an error
       expect(() => {
-        new Ref(handle, ["text", cursor(0, 5), "invalid"]);
+        handle.ref("text", cursor(0, 5), "invalid");
       }).toThrow("cursor() must be the last segment");
     });
   });
@@ -106,7 +106,7 @@ describe("Edge Cases", () => {
       });
 
       // Ref creation works - stores as key segment
-      const ref = new Ref(handle, ["123"]);
+      const ref = handle.ref("123");
       expect(ref.path[0][KIND]).toBe("key");
       expect((ref.path[0] as any).key).toBe("123");
       expect(ref.value()).toBe("value at string key '123'");
@@ -126,7 +126,7 @@ describe("Edge Cases", () => {
         d["my-key"] = "value";
       });
 
-      const ref = new Ref(handle, ["my-key"]);
+      const ref = handle.ref("my-key");
       const url = ref.url;
 
       // Dash is fine in keys (only [cursor-cursor] is special)
@@ -140,7 +140,7 @@ describe("Edge Cases", () => {
         d[":special"] = "value";
       });
 
-      const ref = new Ref(handle, [":special"]);
+      const ref = handle.ref(":special");
       const url = ref.url;
 
       // Colons are fine in keys now
@@ -155,7 +155,7 @@ describe("Edge Cases", () => {
       });
 
       // Ref creation works
-      const ref = new Ref(handle, ["{notjson"]);
+      const ref = handle.ref("{notjson");
       expect(ref.value()).toBe("value");
 
       // URL should have backslash escape prefix (%5C is URL-encoded \)
@@ -174,7 +174,7 @@ describe("Edge Cases", () => {
       });
 
       // Ref creation works
-      const ref = new Ref(handle, ["path/with/slashes"]);
+      const ref = handle.ref("path/with/slashes");
       expect(ref.value()).toBe("value");
 
       // Slashes are URL-encoded, not split
@@ -193,7 +193,7 @@ describe("Edge Cases", () => {
       });
 
       // Ref creation works
-      const ref = new Ref(handle, [""]);
+      const ref = handle.ref("");
       expect(ref.value()).toBe("empty key value");
     });
 
@@ -202,7 +202,7 @@ describe("Edge Cases", () => {
         d["@mention"] = "value";
       });
 
-      const ref = new Ref(handle, ["@mention"]);
+      const ref = handle.ref("@mention");
       const url = ref.url;
 
       // Should be escaped with backslash (%5C is URL-encoded \)
@@ -219,7 +219,7 @@ describe("Edge Cases", () => {
         d["[array]"] = "value";
       });
 
-      const ref = new Ref(handle, ["[array]"]);
+      const ref = handle.ref("[array]");
       const url = ref.url;
 
       // Should be escaped with backslash (%5C is URL-encoded \)
@@ -236,7 +236,7 @@ describe("Edge Cases", () => {
         d["\\backslash"] = "value";
       });
 
-      const ref = new Ref(handle, ["\\backslash"]);
+      const ref = handle.ref("\\backslash");
       const url = ref.url;
 
       // Should be double-escaped: \\ becomes %5C%5C (two URL-encoded backslashes)
@@ -253,7 +253,7 @@ describe("Edge Cases", () => {
         d["~tilde"] = "value";
       });
 
-      const ref = new Ref(handle, ["~tilde"]);
+      const ref = handle.ref("~tilde");
       const url = ref.url;
 
       // Tilde is no longer special - just URL-encoded as-is
@@ -335,7 +335,7 @@ describe("Edge Cases", () => {
       });
 
       // Empty pattern {} should match any object
-      const ref = new Ref(handle, ["items", {}]);
+      const ref = handle.ref("items", {});
       expect(ref.value()).toEqual({ a: 1 }); // First item
     });
 
@@ -344,7 +344,7 @@ describe("Edge Cases", () => {
         d.items = [{ status: null }, { status: "active" }];
       });
 
-      const ref = new Ref(handle, ["items", { status: null }]);
+      const ref = handle.ref("items", { status: null });
       expect(ref.value()).toEqual({ status: null });
     });
 
@@ -353,10 +353,10 @@ describe("Edge Cases", () => {
         d.items = [{ done: false }, { done: true }];
       });
 
-      const trueRef = new Ref(handle, ["items", { done: true }]);
+      const trueRef = handle.ref("items", { done: true });
       expect(trueRef.value()).toEqual({ done: true });
 
-      const falseRef = new Ref(handle, ["items", { done: false }]);
+      const falseRef = handle.ref("items", { done: false });
       expect(falseRef.value()).toEqual({ done: false });
     });
 
@@ -388,7 +388,7 @@ describe("Edge Cases", () => {
       });
 
       // Negative indices don't make sense in Automerge
-      const ref = new Ref(handle, ["items", -1]);
+      const ref = handle.ref("items", -1);
       expect(ref.value()).toBeUndefined();
     });
 
@@ -398,7 +398,7 @@ describe("Edge Cases", () => {
       });
 
       // 1.5 will be used as-is, which JS will truncate to 1 when indexing
-      const ref = new Ref(handle, ["items", 1.5]);
+      const ref = handle.ref("items", 1.5);
       // JavaScript arrays coerce 1.5 to "1.5" as a key, not index 1
       expect(ref.value()).toBeUndefined();
     });
@@ -408,7 +408,7 @@ describe("Edge Cases", () => {
         d.items = ["a", "b", "c"];
       });
 
-      const ref = new Ref(handle, ["items", NaN]);
+      const ref = handle.ref("items", NaN);
       expect(ref.value()).toBeUndefined();
     });
 
@@ -417,7 +417,7 @@ describe("Edge Cases", () => {
         d.items = ["a", "b", "c"];
       });
 
-      const ref = new Ref(handle, ["items", Infinity]);
+      const ref = handle.ref("items", Infinity);
       expect(ref.value()).toBeUndefined();
     });
 
@@ -426,7 +426,7 @@ describe("Edge Cases", () => {
         d.items = ["a"];
       });
 
-      const ref = new Ref(handle, ["items", Number.MAX_SAFE_INTEGER]);
+      const ref = handle.ref("items", Number.MAX_SAFE_INTEGER);
       expect(ref.value()).toBeUndefined();
     });
 
@@ -436,7 +436,7 @@ describe("Edge Cases", () => {
         d.count = 42;
       });
 
-      const rootRef = new Ref(handle, []);
+      const rootRef = handle.ref();
       const value = rootRef.value();
       expect(value).toHaveProperty("title", "Test");
       expect(value).toHaveProperty("count", 42);
@@ -477,7 +477,7 @@ describe("Edge Cases", () => {
 
       // The URL format uses numbers for indices, so "0" as a key
       // will be indistinguishable from index 0 after parsing
-      const stringKeyRef = new Ref(handle, ["0"]);
+      const stringKeyRef = handle.ref("0");
       const url = stringKeyRef.url;
 
       // This is a known limitation: URL parsing treats "0" as index, not key
@@ -492,7 +492,7 @@ describe("Edge Cases", () => {
         d.text = "World";
       });
 
-      const ref = new Ref(handle, ["text"]);
+      const ref = handle.ref("text");
       ref.change((text: any) => {
         text.splice(0, 0, "Hello ");
       });
@@ -505,7 +505,7 @@ describe("Edge Cases", () => {
         d.text = "Hello";
       });
 
-      const ref = new Ref(handle, ["text"]);
+      const ref = handle.ref("text");
       ref.change((text: any) => {
         text.splice(5, 0, " World");
       });
@@ -518,7 +518,7 @@ describe("Edge Cases", () => {
         d.text = "Hello World";
       });
 
-      const ref = new Ref(handle, ["text"]);
+      const ref = handle.ref("text");
       ref.change((text: any) => {
         text.splice(0, 11, "");
       });
@@ -531,7 +531,7 @@ describe("Edge Cases", () => {
         d.text = "Hello";
       });
 
-      const ref = new Ref(handle, ["text"]);
+      const ref = handle.ref("text");
       ref.change((text: any) => {
         text.updateText("");
       });
@@ -544,7 +544,7 @@ describe("Edge Cases", () => {
         d.text = "";
       });
 
-      const ref = new Ref(handle, ["text"]);
+      const ref = handle.ref("text");
       ref.change((text: any) => {
         text.updateText("New content");
       });
@@ -559,7 +559,7 @@ describe("Edge Cases", () => {
         d.nested = { deep: { value: 42 } };
       });
 
-      const ref = new Ref(handle, ["nested", "deep", "value"]);
+      const ref = handle.ref("nested", "deep", "value");
       expect(ref.value()).toBe(42);
 
       // Delete the intermediate object
@@ -575,7 +575,7 @@ describe("Edge Cases", () => {
         d.items = ["a", "b", "c"];
       });
 
-      const ref = new Ref(handle, ["items", 1]);
+      const ref = handle.ref("items", 1);
       expect(ref.value()).toBe("b");
 
       // Replace entire array
@@ -595,7 +595,7 @@ describe("Edge Cases", () => {
         ];
       });
 
-      const ref = new Ref(handle, ["items", { id: "b" }, "value"]);
+      const ref = handle.ref("items", { id: "b" }, "value");
       expect(ref.value()).toBe(2);
 
       // Delete the matched item using Automerge's deleteAt
@@ -612,8 +612,8 @@ describe("Edge Cases", () => {
         d.counter = 0;
       });
 
-      const ref1 = new Ref(handle, ["counter"]);
-      const ref2 = new Ref(handle, ["counter"]);
+      const ref1 = handle.ref("counter");
+      const ref2 = handle.ref("counter");
 
       // Both refs see the same value
       expect(ref1.value()).toBe(0);
@@ -634,7 +634,7 @@ describe("Edge Cases", () => {
         d.items = [{ type: "task", status: "done", priority: 1 }];
       });
 
-      const ref = new Ref(handle, ["items", { type: "task", status: "done" }]);
+      const ref = handle.ref("items", { type: "task", status: "done" });
       const url = ref.url;
 
       const parsed = parseRefUrl(url);
@@ -651,7 +651,7 @@ describe("Edge Cases", () => {
         d.text = "Hello World";
       });
 
-      const ref = new Ref(handle, ["text", cursor(0, 5)]);
+      const ref = handle.ref("text", cursor(0, 5));
       const url = ref.url;
 
       // Parse and verify new bracket format: [cursor-cursor]
@@ -679,7 +679,7 @@ describe("Edge Cases", () => {
         d.title = "Hello";
       });
 
-      const ref = new Ref(handle, ["title"]);
+      const ref = handle.ref("title");
       const originalUrl = ref.url;
 
       // Simulate putting URL in browser address bar (gets encoded)
@@ -701,7 +701,7 @@ describe("Edge Cases", () => {
         d["path/with/slashes"] = "value";
       });
 
-      const ref = new Ref(handle, ["path/with/slashes"]);
+      const ref = handle.ref("path/with/slashes");
       const originalUrl = ref.url;
 
       // Original URL should have %2F for slashes
@@ -727,7 +727,7 @@ describe("Edge Cases", () => {
         d["@mention"] = "value";
       });
 
-      const ref = new Ref(handle, ["@mention"]);
+      const ref = handle.ref("@mention");
       const originalUrl = ref.url;
 
       // Should have backslash escape prefix (%5C) and URL-encoded @
@@ -747,7 +747,7 @@ describe("Edge Cases", () => {
         d.items = [{ id: "test/path", value: 1 }];
       });
 
-      const ref = new Ref(handle, ["items", { id: "test/path" }]);
+      const ref = handle.ref("items", { id: "test/path" });
       const originalUrl = ref.url;
 
       // Match pattern is URL-encoded to protect slashes from being path separators
@@ -769,7 +769,7 @@ describe("Edge Cases", () => {
         d.text = "Hello World";
       });
 
-      const ref = new Ref(handle, ["text", cursor(0, 5)]);
+      const ref = handle.ref("text", cursor(0, 5));
       const originalUrl = ref.url;
 
       // Cursor format uses @ which might be encoded
@@ -791,11 +791,7 @@ describe("Edge Cases", () => {
         };
       });
 
-      const ref = new Ref(handle, [
-        "root/path",
-        "items",
-        { "@id": "test~value" },
-      ]);
+      const ref = handle.ref("root/path", "items", { "@id": "test~value" });
       const originalUrl = ref.url;
 
       const recovered = decodeURIComponent(encodeURIComponent(originalUrl));
@@ -815,14 +811,17 @@ describe("Edge Cases", () => {
         d.counter = 1;
       });
 
-      // Get heads in hex format
-      const heads = ["abc123def456", "789xyz012345"];
+      // Get actual heads in hex format
+      const heads = Automerge.getHeads(handle.doc());
 
-      const ref = new Ref(handle, ["counter"], { heads });
+      // Create a view handle with these heads
+      const viewHandle = handle.view(handle.heads());
+      const ref = viewHandle.ref("counter");
       const originalUrl = ref.url;
 
       // Should have heads section with pipe separator
-      expect(originalUrl).toContain("#abc123def456|789xyz012345");
+      expect(originalUrl).toContain("#");
+      expect(originalUrl).toContain(heads[0]);
 
       const recovered = decodeURIComponent(encodeURIComponent(originalUrl));
 
@@ -837,7 +836,7 @@ describe("Edge Cases", () => {
         d["special&chars=here"] = "value";
       });
 
-      const ref = new Ref(handle, ["special&chars=here"]);
+      const ref = handle.ref("special&chars=here");
       const originalUrl = ref.url;
 
       // Simulate being used as a query param value
@@ -858,7 +857,7 @@ describe("Edge Cases", () => {
         d["key%with%percent"] = "value";
       });
 
-      const ref = new Ref(handle, ["key%with%percent"]);
+      const ref = handle.ref("key%with%percent");
       const originalUrl = ref.url;
 
       // The % should be encoded as %25 in the URL
@@ -885,10 +884,10 @@ describe("Edge Cases", () => {
         d["emoji🎉key"] = "other";
       });
 
-      const ref1 = new Ref(handle, ["日本語キー"]);
+      const ref1 = handle.ref("日本語キー");
       const originalUrl1 = ref1.url;
 
-      const ref2 = new Ref(handle, ["emoji🎉key"]);
+      const ref2 = handle.ref("emoji🎉key");
       const originalUrl2 = ref2.url;
 
       // Simulate browser encoding/decoding
@@ -910,23 +909,25 @@ describe("Edge Cases", () => {
         d.value = 1;
       });
 
-      // Create a ref with heads (which uses # as separator)
-      const ref = new Ref(handle, ["value"], { heads: ["abc123"] });
+      // Get actual heads and create a view handle
+      const heads = Automerge.getHeads(handle.doc());
+      const viewHandle = handle.view(handle.heads());
+      const ref = viewHandle.ref("value");
       const originalUrl = ref.url;
 
       // The # is part of the ref URL format
-      expect(originalUrl).toContain("#abc123");
+      expect(originalUrl).toContain("#");
 
       // In a real browser, # has special meaning (fragment identifier)
       // encodeURIComponent encodes # as %23
       const encoded = encodeURIComponent(originalUrl);
-      expect(encoded).toContain("%23abc123");
+      expect(encoded).toContain("%23");
 
       const recovered = decodeURIComponent(encoded);
       expect(recovered).toBe(originalUrl);
 
       const parsed = parseRefUrl(recovered as any);
-      expect(parsed.heads).toEqual(["abc123"]);
+      expect(parsed.heads).toEqual(heads);
     });
   });
 });

@@ -1,5 +1,7 @@
 import type { DocHandle } from "../DocHandle.js"
 import type { Repo } from "../Repo.js"
+import { encodeHeads } from "../AutomergeUrl.js"
+import type { Heads } from "@automerge/automerge/slim"
 import type {
   Pattern,
   CursorMarker,
@@ -61,8 +63,12 @@ export function refFromUrl<TValue = unknown>(
     )
   }
 
-  const options = heads ? { heads } : {}
-  return new RefImpl(handle, segments, options) as Ref<TValue>
+  // If URL has heads, get a time-traveled handle
+  const targetHandle = heads
+    ? handle.view(encodeHeads(heads as Heads))
+    : handle
+
+  return new RefImpl(targetHandle, segments) as Ref<TValue>
 }
 
 /**

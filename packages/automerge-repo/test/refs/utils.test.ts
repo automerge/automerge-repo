@@ -3,7 +3,7 @@ import * as Automerge from "@automerge/automerge";
 import { Repo } from "../../src/Repo.js";
 import type { DocHandle } from "../../src/DocHandle.js";
 import { cursor, findRef } from "../../src/refs/utils.js";
-import { Ref } from "../../src/refs/ref.js";
+import { encodeHeads } from "../../src/AutomergeUrl.js";
 import type { RefUrl } from "../../src/refs/types.js";
 import { CURSOR_MARKER } from "../../src/refs/types.js";
 
@@ -179,14 +179,17 @@ describe("utils", () => {
         d.counter = 1;
       });
 
-      // Get heads using Automerge.getHeads (hex format) not handle.heads() (base58)
+      // Get heads using Automerge.getHeads (hex format) and encode to base58
       const heads1 = Automerge.getHeads(handle.doc());
+      const encodedHeads1 = encodeHeads(heads1);
 
       handle.change((d: any) => {
         d.counter = 2;
       });
 
-      const counterRef = new Ref(handle, ["counter"], { heads: heads1 });
+      // Create a view handle at the old heads and get a ref from it
+      const viewHandle = handle.view(encodedHeads1);
+      const counterRef = viewHandle.ref("counter");
       const url = counterRef.url;
 
       // Verify URL format: automerge:docId/path#head1,head2

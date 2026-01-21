@@ -66,10 +66,6 @@ export type PathInput = string | number | Pattern | CursorMarker;
 /** Internal: PathInput extended with Segment for URL parsing and internal use */
 export type AnyPathInput = PathInput | Segment;
 
-export interface RefOptions {
-  heads?: Heads;
-}
-
 /**
  * Mutable text wrapper that provides Automerge text operations.
  * Passed to change callbacks when the ref points to a string value.
@@ -250,12 +246,6 @@ export interface Ref<TValue = unknown> {
   /** The cursor range, if this ref points to a text range */
   readonly range?: CursorRange;
 
-  /** Options including heads for time-travel */
-  readonly options: RefOptions;
-
-  /** The heads this ref is pinned to, if any */
-  readonly heads: Heads | undefined;
-
   /** The numeric positions of the range, if this is a range ref */
   readonly rangePositions: [number, number] | undefined;
 
@@ -264,22 +254,72 @@ export interface Ref<TValue = unknown> {
 
   /**
    * Create a new ref viewing the document at specific heads (time-travel).
-   * Returns a new Ref instance with the same path but different heads.
+   * Returns a new Ref instance on a read-only view handle at the specified heads.
+   *
+   * @param heads - The document heads to view (hex-encoded, from Automerge.getHeads)
+   * @returns A new Ref instance pointing to the same path but at the specified heads
+   *
+   * @example
+   * ```ts
+   * // Get current heads before making changes
+   * const heads = Automerge.getHeads(handle.doc());
+   *
+   * // Make changes
+   * handle.change(d => { d.value = 'new' });
+   *
+   * // View the old state
+   * const pastRef = handle.ref('value').viewAt(heads);
+   * pastRef.value(); // returns old value
+   * ```
    */
-  viewAt(heads: Heads | undefined): Ref<TValue>;
+  viewAt(heads: Heads): Ref<TValue>;
 
-  /** Get the current value, or undefined if path can't be resolved */
+  /**
+   * Get the current value at this ref's path.
+   *
+   * @returns The value, or undefined if the path can't be resolved
+   *
+   * @example
+   * ```ts
+   * const titleRef = handle.ref('todos', 0, 'title');
+   * titleRef.value(); // "Buy milk" or undefined
+   * ```
+   */
   value(): TValue | undefined;
 
-  /** Get the document at the ref's heads (or current if no heads pinned) */
+  /**
+   * Get the underlying Automerge document.
+   * For refs on read-only view handles, returns the document at those heads.
+   */
   doc(): Doc<any>;
 
   /**
-   * Update the value.
+   * Update the value at this ref's path.
    *
    * For primitives, you can pass either:
    * - A function that receives the current value and returns the new value
    * - A direct value (shorthand for primitives)
+   *
+   * For objects and arrays, mutate them in place within the function
+   * (same semantics as Automerge). Returning new object/array instances
+   * will trigger a warning as it loses granular change tracking.
+   *
+   * @throws Error if the ref is on a read-only handle (time-traveled view)
+   * @throws Error if the path cannot be resolved
+   *
+   * @example
+   * ```ts
+   * // Function form (works for all types)
+   * counterRef.change(n => n + 1);
+   * themeRef.change(t => t === 'dark' ? 'light' : 'dark');
+   *
+   * // Shorthand for primitives
+   * themeRef.change('dark');
+   * counterRef.change(42);
+   *
+   * // Objects/arrays: mutate in place
+   * todoRef.change(todo => { todo.done = true; });
+   * ```
    */
   change(fnOrValue: ChangeFn<TValue> | TValue): void;
 
@@ -287,14 +327,47 @@ export interface Ref<TValue = unknown> {
    * Remove the value this ref points to from its parent container.
    *
    * - For object properties: deletes the key from the object
-   * - For array elements: removes the item from the array
+   * - For array elements: removes the item from the array (splice)
    * - For text ranges: deletes the text within the range
+   *
+   * @throws Error if the ref points to the root document
+   * @throws Error if the ref is on a read-only handle
+   * @throws Error if the path cannot be resolved
+   *
+   * @example
+   * ```ts
+   * // Remove a property from an object
+   * const nameRef = handle.ref('user', 'name');
+   * nameRef.remove(); // deletes handle.doc().user.name
+   *
+   * // Remove an item from an array
+   * const todoRef = handle.ref('todos', 0);
+   * todoRef.remove(); // removes first todo from array
+   *
+   * // Remove text within a range
+   * const rangeRef = handle.ref('text', cursor(0, 5));
+   * rangeRef.remove(); // deletes first 5 characters
+   * ```
    */
   remove(): void;
 
   /**
    * Subscribe to changes that affect this ref's value.
-   * Returns an unsubscribe function.
+   *
+   * The callback is invoked whenever a change affects the value at this
+   * ref's path. It receives the new value and the change payload.
+   *
+   * @returns An unsubscribe function to stop listening
+   *
+   * @example
+   * ```ts
+   * const unsubscribe = titleRef.onChange((value, payload) => {
+   *   console.log('Title changed to:', value);
+   * });
+   *
+   * // Later, stop listening
+   * unsubscribe();
+   * ```
    */
   onChange(
     callback: (
@@ -303,21 +376,60 @@ export interface Ref<TValue = unknown> {
     ) => void
   ): () => void;
 
-  /** Check if this ref is equal to another ref (same document, path, and heads). */
+  /**
+   * Check if this ref is equal to another ref.
+   * Two refs are equal if they have the same URL (document, path, and heads).
+   */
   equals(other: Ref<unknown>): boolean;
 
   /**
    * Check if this ref contains another ref (other is a descendant of this).
+   *
+   * @example
+   * ```ts
+   * const todoRef = handle.ref('todos', 0);
+   * const titleRef = handle.ref('todos', 0, 'title');
+   * todoRef.contains(titleRef); // true
+   * titleRef.contains(todoRef); // false
+   * ```
    */
   contains(other: Ref<unknown>): boolean;
 
   /**
    * Check if this ref is a child of another ref.
+   *
+   * For arrays: only direct array elements are considered children
+   * (path must be exactly one segment longer).
+   *
+   * For text: sub-ranges within the text are considered children
+   * (same path with a range, or one segment deeper).
+   *
+   * @example
+   * ```ts
+   * // Array children
+   * const arrayRef = handle.ref('items');
+   * const itemRef = handle.ref('items', 0);
+   * itemRef.isChildOf(arrayRef); // true
+   *
+   * // Text range children
+   * const textRef = handle.ref('content');
+   * const rangeRef = handle.ref('content', cursor(0, 10));
+   * rangeRef.isChildOf(textRef); // true
+   * ```
    */
   isChildOf(parent: Ref<unknown>): boolean;
 
   /**
    * Check if this ref overlaps with another ref (for text/range refs).
+   * Two refs overlap if they refer to the same parent location and their
+   * cursor ranges overlap.
+   *
+   * @example
+   * ```ts
+   * const range1 = handle.ref('content', cursor(0, 10));
+   * const range2 = handle.ref('content', cursor(5, 15));
+   * range1.overlaps(range2); // true (overlap at positions 5-10)
+   * ```
    */
   overlaps(other: Ref<unknown>): boolean;
 
@@ -326,12 +438,16 @@ export interface Ref<TValue = unknown> {
    * Two refs are equivalent if they point to the same value in the document,
    * even if they use different addressing schemes (e.g., index vs pattern).
    *
+   * This is useful when you have refs created with different path types
+   * (e.g., by array index vs by object pattern match) and need to check
+   * if they resolve to the same location.
+   *
    * Short-circuits for fast rejection when refs are obviously different.
    *
    * @example
    * ```ts
-   * const byIndex = ref(handle, 'todos', 0);
-   * const byId = ref(handle, 'todos', { id: 'abc' });
+   * const byIndex = handle.ref('todos', 0);
+   * const byId = handle.ref('todos', { id: 'abc' });
    * // If todos[0].id === 'abc', these are equivalent
    * byIndex.isEquivalent(byId); // true
    * ```
