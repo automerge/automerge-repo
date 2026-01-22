@@ -26,7 +26,7 @@ import { MutableText } from "./mutable-text.js"
  * This ensures subscriptions are cleaned up when Refs are garbage collected,
  * even if dispose() is never called.
  */
-const refCleanupRegistry = new FinalizationRegistry<() => void>((cleanup) =>
+const refCleanupRegistry = new FinalizationRegistry<() => void>(cleanup =>
   cleanup()
 )
 
@@ -41,21 +41,17 @@ const refCleanupRegistry = new FinalizationRegistry<() => void>((cleanup) =>
  */
 export class RefImpl<
   TDoc = any,
-  TPath extends readonly AnyPathInput[] = AnyPathInput[],
-> implements Ref<InferRefType<TDoc, TPath>> {
+  TPath extends readonly AnyPathInput[] = AnyPathInput[]
+> implements Ref<InferRefType<TDoc, TPath>>
+{
   readonly docHandle: DocHandle<TDoc>
   readonly path: PathSegment[]
   readonly range?: CursorRange
 
-  #onChangeCallbacks = new Set<
-    (payload: DocHandleChangePayload<any>) => void
-  >()
+  #onChangeCallbacks = new Set<(payload: DocHandleChangePayload<any>) => void>()
   #updateHandler: () => void
 
-  constructor(
-    docHandle: DocHandle<TDoc>,
-    segments: readonly [...TPath]
-  ) {
+  constructor(docHandle: DocHandle<TDoc>, segments: readonly [...TPath]) {
     this.docHandle = docHandle
 
     const doc = docHandle.doc()
@@ -563,7 +559,7 @@ export class RefImpl<
 
       case "match": {
         if (!Array.isArray(container)) return undefined
-        const matchIndex = container.findIndex((item) =>
+        const matchIndex = container.findIndex(item =>
           matchesPattern(item, segment.match)
         )
         return matchIndex !== -1 ? matchIndex : undefined
@@ -613,9 +609,7 @@ export class RefImpl<
         const aKeys = Object.keys(a.match)
         const bKeys = Object.keys((b as typeof a).match)
         if (aKeys.length !== bKeys.length) return false
-        return aKeys.every(
-          (key) => a.match[key] === (b as typeof a).match[key]
-        )
+        return aKeys.every(key => a.match[key] === (b as typeof a).match[key])
       }
       default:
         a satisfies never
@@ -637,7 +631,7 @@ export class RefImpl<
         return { [KIND]: "match", match: input, prop: undefined }
       }
 
-      const index = container.findIndex((obj) => matchesPattern(obj, input))
+      const index = container.findIndex(obj => matchesPattern(obj, input))
       return {
         [KIND]: "match",
         match: input,
@@ -760,7 +754,7 @@ export class RefImpl<
     // If we couldn't resolve any part, ref was never valid - don't fire
     if (refPropPath.length === 0) return false
 
-    return patches.some((patch) => this.#pathsOverlap(patch.path, refPropPath))
+    return patches.some(patch => this.#pathsOverlap(patch.path, refPropPath))
   }
 
   #pathsOverlap(
@@ -773,4 +767,3 @@ export class RefImpl<
       .every((prop, i) => prop === refPropPath[i])
   }
 }
-
