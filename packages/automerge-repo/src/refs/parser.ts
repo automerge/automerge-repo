@@ -44,20 +44,20 @@ const INDEX_PATTERN = /^@(\d+)$/
 
 const indexCodec: SegmentCodec<"index"> = {
   kind: "index",
-  match: (s) => INDEX_PATTERN.test(s),
-  parse: (s) => {
+  match: s => INDEX_PATTERN.test(s),
+  parse: s => {
     const m = s.match(INDEX_PATTERN)
     if (!m) throw new Error(`Invalid index: ${s}`)
     return { [KIND]: "index", index: parseInt(m[1], 10) }
   },
-  serialize: (seg) => `${INDEX_PREFIX}${seg.index}`,
+  serialize: seg => `${INDEX_PREFIX}${seg.index}`,
 }
 
 const matchCodec: SegmentCodec<"match"> = {
   kind: "match",
   // Match both raw JSON and URL-encoded JSON
-  match: (s) => s.startsWith("{") || s.startsWith("%7B"),
-  parse: (s) => {
+  match: s => s.startsWith("{") || s.startsWith("%7B"),
+  parse: s => {
     try {
       // Decode URL encoding first, then parse JSON
       // This handles both URL-encoded and raw JSON formats
@@ -79,13 +79,13 @@ const matchCodec: SegmentCodec<"match"> = {
   },
   // URL-encode the JSON to protect slashes and other special characters
   // from being interpreted as path separators
-  serialize: (seg) => encodeURIComponent(JSON.stringify(seg.match)),
+  serialize: seg => encodeURIComponent(JSON.stringify(seg.match)),
 }
 
 const cursorsCodec: SegmentCodec<"cursors"> = {
   kind: "cursors",
-  match: (s) => s.startsWith(CURSOR_OPEN) && s.endsWith(CURSOR_CLOSE),
-  parse: (s) => {
+  match: s => s.startsWith(CURSOR_OPEN) && s.endsWith(CURSOR_CLOSE),
+  parse: s => {
     const inner = s.slice(1, -1)
     if (!inner) {
       throw new Error("Invalid cursor range: empty brackets")
@@ -108,7 +108,7 @@ const cursorsCodec: SegmentCodec<"cursors"> = {
 
     return { [KIND]: "cursors", start, end }
   },
-  serialize: (seg) => {
+  serialize: seg => {
     if (seg.start === seg.end) {
       return `${CURSOR_OPEN}${seg.start}${CURSOR_CLOSE}`
     }
@@ -118,7 +118,7 @@ const cursorsCodec: SegmentCodec<"cursors"> = {
 
 const keyCodec: SegmentCodec<"key"> = {
   kind: "key",
-  match: (s) => {
+  match: s => {
     // Escaped keys start with backslash (URL-encoded as %5C)
     if (s.startsWith(ESCAPE_PREFIX) || s.startsWith(ESCAPE_CHAR)) {
       return true
@@ -126,11 +126,9 @@ const keyCodec: SegmentCodec<"key"> = {
     // Regular keys don't start with special prefixes
     // We need to check both raw and URL-decoded forms
     const decoded = safeDecodeURIComponent(s)
-    return !ESCAPE_TRIGGERS.some(
-      (p) => s.startsWith(p) || decoded.startsWith(p)
-    )
+    return !ESCAPE_TRIGGERS.some(p => s.startsWith(p) || decoded.startsWith(p))
   },
-  parse: (s) => {
+  parse: s => {
     // Check for URL-encoded escape prefix (%5C) or literal backslash
     if (s.startsWith(ESCAPE_PREFIX)) {
       return {
@@ -146,9 +144,9 @@ const keyCodec: SegmentCodec<"key"> = {
     }
     return { [KIND]: "key", key: decodeURIComponent(s) }
   },
-  serialize: (seg) => {
+  serialize: seg => {
     // Check if key starts with any character that needs escaping
-    const needsEscape = ESCAPE_TRIGGERS.some((p) => seg.key.startsWith(p))
+    const needsEscape = ESCAPE_TRIGGERS.some(p => seg.key.startsWith(p))
     const encoded = encodeURIComponent(seg.key)
     // Prefix with URL-encoded backslash (%5C) if escape needed
     return needsEscape ? `${ESCAPE_PREFIX}${encoded}` : encoded
@@ -168,12 +166,7 @@ function safeDecodeURIComponent(s: string): string {
  * Codecs in priority order. First matching codec wins for parsing.
  * Order: index → match → cursors → key (key is catch-all, must be last)
  */
-const SEGMENT_CODECS = [
-  indexCodec,
-  matchCodec,
-  cursorsCodec,
-  keyCodec,
-] as const
+const SEGMENT_CODECS = [indexCodec, matchCodec, cursorsCodec, keyCodec] as const
 
 export function parseSegment(segment: string): Segment {
   for (const codec of SEGMENT_CODECS) {
@@ -223,9 +216,9 @@ export function serializeHeads(heads: string[]): string {
 }
 
 export function parseRefUrl(url: RefUrl): {
-  documentId: DocumentId;
-  segments: Segment[];
-  heads?: string[];
+  documentId: DocumentId
+  segments: Segment[]
+  heads?: string[]
 } {
   const [baseUrl, headsSection, ...rest] = url.split("#")
   if (rest.length > 0) {

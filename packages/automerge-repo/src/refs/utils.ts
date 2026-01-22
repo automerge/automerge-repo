@@ -64,9 +64,7 @@ export function refFromUrl<TValue = unknown>(
   }
 
   // If URL has heads, get a time-traveled handle
-  const targetHandle = heads
-    ? handle.view(encodeHeads(heads as Heads))
-    : handle
+  const targetHandle = heads ? handle.view(encodeHeads(heads as Heads)) : handle
 
   return new RefImpl(targetHandle, segments) as Ref<TValue>
 }
