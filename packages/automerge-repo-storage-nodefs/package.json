@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-storage-nodefs",
-  "version": "2.5.2-alpha.2",
+  "version": "2.5.2-alpha.3",
   "description": "Simple Node filesystem storage adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-storage-nodefs",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
