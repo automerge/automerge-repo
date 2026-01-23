@@ -8,14 +8,11 @@ import {
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
-import { v4 } from "uuid"
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter("use-awareness-example"),
   network: [new BroadcastChannelNetworkAdapter()],
 })
-
-const userId = v4()
 
 const rootDocUrl = `${document.location.hash.substring(1)}`
 const handle = isValidAutomergeUrl(rootDocUrl)
@@ -30,7 +27,7 @@ window.repo = repo
 ReactDOM.createRoot(document.getElementById("root")).render(
   <RepoContext.Provider value={repo}>
     <React.StrictMode>
-      <App userId={userId} url={docUrl} />
+      <App url={docUrl} />
     </React.StrictMode>
   </RepoContext.Provider>
 )
