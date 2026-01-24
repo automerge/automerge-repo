@@ -43,7 +43,7 @@ export type UsePresenceResult<State extends PresenceState> = {
    * Note that this only needs to be called after `stop` has been called:
    * usePresence starts running immediately.
    */
-  start: () => void
+  start: (config?: Partial<PresenceConfig<State>>) => void
   /**
    * Stop broadcasting presence state and listening to peer presence.
    */
@@ -105,13 +105,19 @@ export function usePresence<State extends PresenceState>({
     }
   }, [presence, userId, deviceId, firstInitialState, firstOpts])
 
-  const start = useCallback(() => {
-    // For now, restart with the same state and opts
-    presence.start({
-      initialState: presence.getLocalState(),
-      ...firstOpts.current,
-    })
-  }, [presence, firstOpts])
+  const start = useCallback(
+    (config?: Partial<PresenceConfig<State>>) => {
+      // Fall back to the last state if not provided when restarting
+      const initialState = config?.initialState ?? presence.getLocalState()
+      const opts = {
+        ...firstOpts.current,
+        ...config,
+        initialState,
+      }
+      presence.start(opts)
+    },
+    [presence, firstOpts]
+  )
   const stop = useCallback(() => {
     presence.stop()
   }, [presence])
