@@ -14,7 +14,7 @@ export type PeerStatesValue<State extends PresenceState> = Record<
 export type PeerState<State extends PresenceState> = {
   peerId: PeerId
   lastActiveAt: number
-  lastUpdateAt: number
+  lastSeenAt: number
   deviceId?: DeviceId
   userId?: UserId
   value: State

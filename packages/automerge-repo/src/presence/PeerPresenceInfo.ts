@@ -27,7 +27,8 @@ export class PeerPresenceInfo<State extends PresenceState> {
       ...this.#peerStates.value,
       [peerId]: {
         ...this.#peerStates.value[peerId],
-        lastSeen: Date.now(),
+        peerId,
+        lastSeenAt: Date.now(),
       },
     })
   }
@@ -60,7 +61,7 @@ export class PeerPresenceInfo<State extends PresenceState> {
         deviceId,
         userId,
         lastActiveAt: now,
-        lastUpdateAt: now,
+        lastSeenAt: now,
         value: {
           ...existingState,
           ...value,
@@ -92,8 +93,8 @@ export class PeerPresenceInfo<State extends PresenceState> {
     const threshold = Date.now() - this.ttl
     this.#peerStates = new PeerStateView<State>(
       Object.fromEntries(
-        Object.entries(this.#peerStates).filter(([, state]) => {
-          return state.lastActiveAt >= threshold
+        Object.entries(this.#peerStates.value).filter(([, state]) => {
+          return state.lastSeenAt >= threshold
         })
       )
     )
