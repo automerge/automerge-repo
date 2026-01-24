@@ -75,7 +75,7 @@ export class PeerStateView<State extends PresenceState> {
   getLastSeenPeer(peers: PeerId[]) {
     let freshestLastSeenAt: number
     return peers.reduce((freshest: PeerId | undefined, curr) => {
-      const lastSeenAt = this.value[curr]?.lastActiveAt
+      const lastSeenAt = this.value[curr]?.lastSeenAt
       if (!lastSeenAt) {
         return freshest
       }
