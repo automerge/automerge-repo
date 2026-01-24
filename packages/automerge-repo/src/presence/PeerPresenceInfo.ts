@@ -23,11 +23,14 @@ export class PeerPresenceInfo<State extends PresenceState> {
    * @param peerId
    */
   markSeen(peerId: PeerId) {
+    if (!(peerId in this.#peerStates.value)) {
+      // Ignore heartbeats from peers we have not seen before: they will send a snapshot
+      return
+    }
     this.#peerStates = new PeerStateView<State>({
       ...this.#peerStates.value,
       [peerId]: {
         ...this.#peerStates.value[peerId],
-        peerId,
         lastSeenAt: Date.now(),
       },
     })
@@ -91,13 +94,19 @@ export class PeerPresenceInfo<State extends PresenceState> {
    */
   prune() {
     const threshold = Date.now() - this.ttl
+    const pruned: PeerId[] = []
     this.#peerStates = new PeerStateView<State>(
       Object.fromEntries(
-        Object.entries(this.#peerStates.value).filter(([, state]) => {
-          return state.lastSeenAt >= threshold
+        Object.entries(this.#peerStates.value).filter(([id, state]) => {
+          const keep = state.lastSeenAt >= threshold
+          if (!keep) {
+            pruned.push(id as PeerId)
+          }
+          return keep
         })
       )
     )
+    return pruned
   }
 
   /**

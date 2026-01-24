@@ -297,7 +297,10 @@ export class Presence<
     // to minimize variance between peer expiration, since the heartbeat frequency
     // is expected to be several times higher.
     this.#pruningInterval = setInterval(() => {
-      this.#peers.prune()
+      const pruned = this.#peers.prune()
+      if (pruned.length > 0) {
+        this.emit("pruning", { pruned })
+      }
     }, this.#heartbeatMs)
   }
 
