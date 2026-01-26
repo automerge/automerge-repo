@@ -15,7 +15,7 @@
 
 import type { StorageAdapterInterface } from "@automerge/automerge-repo"
 import {
-    type SubductionStorage,
+    type SedimentreeStorage,
     SedimentreeId,
     LooseCommit,
     Fragment,
@@ -48,7 +48,7 @@ export interface StorageBridgeEvents {
  *
  * Supports event callbacks via `on()` for commit-saved, fragment-saved, and blob-saved events.
  */
-export class SubductionStorageBridge implements SubductionStorage {
+export class SubductionStorageBridge implements SedimentreeStorage {
     private adapter: StorageAdapterInterface
     private listeners: {
         [K in keyof StorageBridgeEvents]?: StorageBridgeEvents[K][]

@@ -1,5 +1,6 @@
 // @ts-check
 import fs from "fs"
+import crypto from "crypto"
 import express from "express"
 import { WebSocketServer } from "ws"
 import { Repo } from "@automerge/automerge-repo"
@@ -8,6 +9,42 @@ import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import { default as Prometheus } from "prom-client"
 import { MemoryStorage, Subduction } from "@automerge/automerge_subduction"
 import os from "os"
+
+/**
+ * Simple Ed25519 signer for Node.js using the crypto module.
+ * Generates a new key pair on creation (no persistence).
+ */
+class NodeSigner {
+  #privateKey
+  #publicKey
+
+  constructor() {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519")
+    this.#privateKey = privateKey
+    this.#publicKey = publicKey
+  }
+
+  /**
+   * Sign a message and return the 64-byte Ed25519 signature.
+   * @param {Uint8Array} message
+   * @returns {Uint8Array}
+   */
+  sign(message) {
+    const signature = crypto.sign(null, Buffer.from(message), this.#privateKey)
+    return new Uint8Array(signature)
+  }
+
+  /**
+   * Get the 32-byte Ed25519 verifying (public) key.
+   * @returns {Uint8Array}
+   */
+  verifyingKey() {
+    // Export the public key in raw format (32 bytes for Ed25519)
+    const exported = this.#publicKey.export({ type: "spki", format: "der" })
+    // Ed25519 SPKI format has 12 bytes of header, then 32 bytes of key
+    return new Uint8Array(exported.slice(-32))
+  }
+}
 
 const registry = new Prometheus.Registry()
 Prometheus.collectDefaultMetrics({ register: registry })
@@ -72,8 +109,9 @@ export class Server {
       sharePolicy: async () => false,
     }
 
+    const signer = new NodeSigner()
     const db = new MemoryStorage()
-    Subduction.hydrate(db).then((subduction) => {
+    Subduction.hydrate(signer, db).then((subduction) => {
       const serverRepo = new Repo({
         network: [],
         subduction,

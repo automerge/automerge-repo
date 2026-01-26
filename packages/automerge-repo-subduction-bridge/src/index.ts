@@ -16,7 +16,8 @@
  * const subduction = await Subduction.hydrate(storage)
  *
  * // For WebSocket connections to a Subduction server, use SubductionWebSocket directly:
- * const wsConn = await SubductionWebSocket.connect(new URL("ws://localhost:8080"), myPeerId, 5000)
+ * const signer = await WebCryptoSigner.setup()
+ * const wsConn = await SubductionWebSocket.connectWithHandshake(new URL("ws://localhost:8080"), signer, serverPeerId, 5000)
  * await subduction.attach(wsConn)
  *
  * // For local peer-to-peer (BroadcastChannel, MessageChannel), use NetworkAdapterConnection:

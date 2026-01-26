@@ -10,33 +10,28 @@ import {
     RepoContext,
 } from "@automerge/react"
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import { Subduction, SubductionWebSocket, PeerId } from "@automerge/automerge_subduction"
+import { Subduction, SubductionWebSocket, WebCryptoSigner } from "@automerge/automerge_subduction"
 import { v4 } from "uuid"
 
 ;(async () => {
+    const signer = await WebCryptoSigner.setup()
     const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-use-presence")
     const storage = new SubductionStorageBridge(storageAdapter)
-    const subduction = await Subduction.hydrate(storage)
+    const subduction = await Subduction.hydrate(signer, storage)
 
-    // Connect to Subduction server directly
-    try {
-        const peerIdBytes = new Uint8Array(32)
-        crypto.getRandomValues(peerIdBytes)
-        const wsConn = await SubductionWebSocket.connect(
-            new URL("ws://127.0.0.1:8080"),
-            new PeerId(peerIdBytes),
-            5000
-        )
-        await subduction.attach(wsConn)
-        console.log("Connected to Subduction server")
-    } catch (err) {
-        console.warn("Failed to connect to Subduction server:", err)
-    }
+    // Connect to Subduction server via discovery
+    const conn = await SubductionWebSocket.tryDiscover(
+        new URL("ws://localhost:8080"),
+        signer,
+        "0.0.0.0:8080", // Service name (server's default is its socket address)
+        5000
+    )
+    await subduction.attach(conn)
 
     const repo = new Repo({
         network: [
             new BroadcastChannelNetworkAdapter(), // For same-browser tab communication
-            new WebSocketClientAdapter("ws://127.0.0.1:8081"), // Ephemeral messages (presence) via relay server
+            new WebSocketClientAdapter("ws://localhost:8081"), // Ephemeral messages (presence) via relay server
         ],
         subduction,
     })

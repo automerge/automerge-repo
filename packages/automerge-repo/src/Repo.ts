@@ -61,8 +61,8 @@ import {
     Sedimentree,
     SedimentreeAutomerge,
     SedimentreeId,
+    SedimentreeStorage,
     Subduction,
-    SubductionStorage,
     SubductionWebSocket,
 } from "@automerge/automerge_subduction"
 
@@ -70,7 +70,7 @@ import {
  * Interface for storage bridges that support event callbacks.
  * This allows Repo to register callbacks without depending on the concrete bridge implementation.
  */
-export interface SubductionStorageWithCallbacks extends SubductionStorage {
+export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
     on(
         event: "commit-saved",
         callback: (
@@ -654,7 +654,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         handle.doneLoading()
 
         const sid = toSedimentreeId(documentId)
-        this.#subduction.requestAllBatchSync(sid)
+        this.#subduction.syncAll(sid, true)
         return handle
     }
     /** Create a new DocHandle by cloning the history of an existing DocHandle.
@@ -808,7 +808,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
             const sedimentreeId = toSedimentreeId(handle.documentId)
             const loadedBlobs = await Promise.race([
-                this.#subduction.getLocalBlobs(sedimentreeId),
+                this.#subduction.getBlobs(sedimentreeId),
                 abortPromise,
             ])
 
@@ -963,7 +963,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         // If we don't already have the handle, make an empty one and try loading it
         const handle = this.#getHandle<T>({ documentId })
         const sedimentreeId = toSedimentreeId(handle.documentId)
-        const blobs = await this.#subduction.getLocalBlobs(sedimentreeId)
+        const blobs = await this.#subduction.getBlobs(sedimentreeId)
         if (blobs.length > 0) {
             handle.update(initialDoc => {
                 let doc = initialDoc
@@ -1172,7 +1172,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     #disconnectFromPeer(peerId: PeerId) {
         const subductionPeerId = toSubductionPeerId(peerId)
-        this.#subduction.disconnect(subductionPeerId)
+        this.#subduction.disconnectFromPeer(subductionPeerId)
     }
 
     async #attachNetworkAdaptersToSubduction(
@@ -1234,8 +1234,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         // Wait for subduction adapters to be ready before making sync requests
         await this.#subductionAdaptersReady
 
-        const peerResultMap = await this.#subduction.requestAllBatchSync(
-            sedimentreeId
+        const peerResultMap = await this.#subduction.syncAll(
+            sedimentreeId,
+            true
         )
         peerResultMap.entries().forEach(batchSyncResult => {
             if (!batchSyncResult.success) {
@@ -1572,7 +1573,7 @@ export type DocMetrics =
       }
 
 function hasCallbacks(
-    s: SubductionStorage | undefined
+    s: SedimentreeStorage | undefined
 ): s is SubductionStorageWithCallbacks {
     return !!s && typeof (s as any).on === "function"
 }
