@@ -1,6 +1,6 @@
 import { PeerId } from "../types.js"
 import { PeerStateView } from "./PeerStateView.js"
-import { DeviceId, PresenceState, UserId } from "./types.js"
+import { PresenceState } from "./types.js"
 
 export class PeerPresenceInfo<State extends PresenceState> {
   #peerStates = new PeerStateView<State>({})
@@ -43,17 +43,7 @@ export class PeerPresenceInfo<State extends PresenceState> {
    * @param peerId
    * @param value
    */
-  update({
-    peerId,
-    deviceId,
-    userId,
-    value,
-  }: {
-    peerId: PeerId
-    deviceId?: DeviceId
-    userId?: UserId
-    value: Partial<State>
-  }) {
+  update({ peerId, value }: { peerId: PeerId; value: Partial<State> }) {
     const peerState = this.#peerStates.value[peerId]
     const existingState = peerState?.value ?? ({} as State)
     const now = Date.now()
@@ -61,10 +51,8 @@ export class PeerPresenceInfo<State extends PresenceState> {
       ...this.#peerStates.value,
       [peerId]: {
         peerId,
-        deviceId,
-        userId,
-        lastActiveAt: now,
         lastSeenAt: now,
+        lastActiveAt: now,
         value: {
           ...existingState,
           ...value,

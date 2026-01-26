@@ -1,9 +1,6 @@
 import { PeerId } from "../types.js"
 import { PRESENCE_MESSAGE_MARKER } from "./constants.js"
 
-export type UserId = unknown
-export type DeviceId = unknown
-
 export type PresenceState = Record<string, any>
 
 export type PeerStatesValue<State extends PresenceState> = Record<
@@ -15,32 +12,25 @@ export type PeerState<State extends PresenceState> = {
   peerId: PeerId
   lastActiveAt: number
   lastSeenAt: number
-  deviceId?: DeviceId
-  userId?: UserId
   value: State
 }
 
-type PresenceMessageBase = {
-  deviceId?: DeviceId
-  userId?: UserId
-}
-
-type PresenceMessageUpdate = PresenceMessageBase & {
+type PresenceMessageUpdate = {
   type: "update"
   channel: string
   value: any
 }
 
-type PresenceMessageSnapshot = PresenceMessageBase & {
+type PresenceMessageSnapshot = {
   type: "snapshot"
   state: any
 }
 
-type PresenceMessageHeartbeat = PresenceMessageBase & {
+type PresenceMessageHeartbeat = {
   type: "heartbeat"
 }
 
-type PresenceMessageGoodbye = PresenceMessageBase & {
+type PresenceMessageGoodbye = {
   type: "goodbye"
 }
 
