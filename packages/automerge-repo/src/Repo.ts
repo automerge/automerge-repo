@@ -851,7 +851,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle({ documentId })
+    const handle = await this.find(documentId)
     const doc = handle.doc()
     return Automerge.save(doc)
   }
