@@ -75,7 +75,7 @@ export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
         event: "commit-saved",
         callback: (
             sedimentreeId: SedimentreeId,
-            commit: LooseCommit,
+            digest: Digest,
             blob: Uint8Array
         ) => void
     ): void
@@ -83,7 +83,7 @@ export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
         event: "fragment-saved",
         callback: (
             sedimentreeId: SedimentreeId,
-            fragment: Fragment,
+            digest: Digest,
             blob: Uint8Array
         ) => void
     ): void
@@ -433,12 +433,12 @@ export class Repo extends EventEmitter<RepoEvents> {
         if (hasCallbacks(subduction.storage)) {
             const subductionStorage = subduction.storage
 
-            subductionStorage.on("commit-saved", (id, commit, blob) => {
-                this.#handleCommitSaved(id, commit, blob)
+            subductionStorage.on("commit-saved", (id, digest, blob) => {
+                this.#handleCommitSaved(id, digest, blob)
             })
 
-            subductionStorage.on("fragment-saved", (id, fragment, blob) => {
-                this.#handleFragmentSaved(id, fragment, blob)
+            subductionStorage.on("fragment-saved", (id, digest, blob) => {
+                this.#handleFragmentSaved(id, digest, blob)
             })
         }
 
@@ -612,6 +612,12 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#registerHandleWithSubsystems(handle)
 
         handle.doneLoading()
+
+        // Sync the new document to peers (fire-and-forget since create is sync)
+        // This ensures peers receive the initial data and establishes subscriptions
+        const sid = toSedimentreeId(documentId)
+        void this.#subduction.syncAll(sid, true)
+
         return handle
     }
 
@@ -1368,7 +1374,7 @@ export class Repo extends EventEmitter<RepoEvents> {
      */
     #handleCommitSaved(
         id: SedimentreeId,
-        commit: LooseCommit,
+        _digest: Digest,
         blob: Uint8Array
     ) {
         const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
@@ -1399,7 +1405,7 @@ export class Repo extends EventEmitter<RepoEvents> {
      */
     #handleFragmentSaved(
         id: SedimentreeId,
-        fragment: Fragment,
+        _digest: Digest,
         blob: Uint8Array
     ) {
         const existingHandle = this.#handlesBySedimentreeId.get(id.toString())

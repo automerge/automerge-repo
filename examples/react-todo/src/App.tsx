@@ -42,7 +42,7 @@ export function App({ url }: { url: AutomergeUrl }) {
     }
   }
 
-  if (!state) return null
+  if (!state || !state.todos) return null
 
   return (
     <>

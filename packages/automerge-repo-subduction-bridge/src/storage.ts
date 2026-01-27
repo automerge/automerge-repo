@@ -17,22 +17,27 @@ import type { StorageAdapterInterface } from "@automerge/automerge-repo"
 import {
     type SedimentreeStorage,
     SedimentreeId,
-    LooseCommit,
-    Fragment,
     Digest,
-    BlobMeta,
 } from "@automerge/automerge_subduction"
 
 export interface StorageBridgeEvents {
+    /**
+     * Emitted when a commit is saved.
+     * The blob is the Automerge change data (loaded via the digest).
+     */
     "commit-saved": (
         sedimentreeId: SedimentreeId,
-        commit: LooseCommit,
+        digest: Digest,
         blob: Uint8Array
     ) => void
 
+    /**
+     * Emitted when a fragment is saved.
+     * The blob is the Automerge bundle data (loaded via the fragment's blob digest).
+     */
     "fragment-saved": (
         sedimentreeId: SedimentreeId,
-        fragment: Fragment,
+        digest: Digest,
         blob: Uint8Array
     ) => void
 
@@ -45,6 +50,13 @@ export interface StorageBridgeEvents {
  *
  * This allows Subduction to use any existing automerge-repo storage adapter
  * (IndexedDB, NodeFS, etc.) as its backing store.
+ *
+ * ## Storage Format
+ *
+ * Commits and fragments are stored as CBOR-encoded `Signed<T>` bytes:
+ * - The WASM layer handles encoding/decoding
+ * - The bridge stores opaque `Uint8Array` blobs keyed by digest
+ * - Content-addressed storage (CAS) pattern for all data types
  *
  * Supports event callbacks via `on()` for commit-saved, fragment-saved, and blob-saved events.
  */
@@ -98,6 +110,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         )
     }
 
+    // ==================== Sedimentree IDs ====================
+
     async saveSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
         const key = [PREFIX, IDS_PREFIX, sedimentreeId.toString()]
         await this.adapter.save(key, ID_MARKER)
@@ -115,42 +129,86 @@ export class SubductionStorageBridge implements SedimentreeStorage {
             .map(chunk => SedimentreeId.fromBytes(hexToBytes(chunk.key[2])))
     }
 
-    async saveLooseCommit(
+    // ==================== Commits (CAS) ====================
+
+    async saveCommit(
         sedimentreeId: SedimentreeId,
-        commit: LooseCommit
+        digest: Digest,
+        signedCommit: Uint8Array,
+        blobDigest: Digest
     ): Promise<void> {
         const key = [
             PREFIX,
             COMMITS_PREFIX,
             sedimentreeId.toString(),
-            bytesToHex(commit.digest.toBytes()),
+            bytesToHex(digest.toBytes()),
         ]
-        await this.adapter.save(key, serializeLooseCommit(commit))
+        await this.adapter.save(key, signedCommit)
 
         // Emit event after save - load blob to include in event
         if (this.listeners["commit-saved"]?.length) {
-            const blobDigest = commit.blobMeta.digest()
             const blob = await this.loadBlob(blobDigest)
             if (blob) {
-                this.emit("commit-saved", sedimentreeId, commit, blob)
+                this.emit("commit-saved", sedimentreeId, digest, blob)
             }
         }
     }
 
-    async loadLooseCommits(
-        sedimentreeId: SedimentreeId
-    ): Promise<LooseCommit[]> {
+    async loadCommit(
+        sedimentreeId: SedimentreeId,
+        digest: Digest
+    ): Promise<Uint8Array | null> {
+        const key = [
+            PREFIX,
+            COMMITS_PREFIX,
+            sedimentreeId.toString(),
+            bytesToHex(digest.toBytes()),
+        ]
+        const data = await this.adapter.load(key)
+        return data ?? null
+    }
+
+    async listCommitDigests(sedimentreeId: SedimentreeId): Promise<Digest[]> {
         const chunks = await this.adapter.loadRange([
             PREFIX,
             COMMITS_PREFIX,
             sedimentreeId.toString(),
         ])
         return chunks
-            .filter(chunk => chunk.data)
-            .map(chunk => deserializeLooseCommit(chunk.data!))
+            .filter(chunk => chunk.key.length === 4 && chunk.data)
+            .map(chunk => Digest.fromBytes(hexToBytes(chunk.key[3])))
     }
 
-    async deleteLooseCommits(sedimentreeId: SedimentreeId): Promise<void> {
+    async loadAllCommits(
+        sedimentreeId: SedimentreeId
+    ): Promise<Array<{ digest: Digest; signed: Uint8Array }>> {
+        const chunks = await this.adapter.loadRange([
+            PREFIX,
+            COMMITS_PREFIX,
+            sedimentreeId.toString(),
+        ])
+        return chunks
+            .filter(chunk => chunk.key.length === 4 && chunk.data)
+            .map(chunk => ({
+                digest: Digest.fromBytes(hexToBytes(chunk.key[3])),
+                signed: chunk.data!,
+            }))
+    }
+
+    async deleteCommit(
+        sedimentreeId: SedimentreeId,
+        digest: Digest
+    ): Promise<void> {
+        const key = [
+            PREFIX,
+            COMMITS_PREFIX,
+            sedimentreeId.toString(),
+            bytesToHex(digest.toBytes()),
+        ]
+        await this.adapter.remove(key)
+    }
+
+    async deleteAllCommits(sedimentreeId: SedimentreeId): Promise<void> {
         await this.adapter.removeRange([
             PREFIX,
             COMMITS_PREFIX,
@@ -158,46 +216,94 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         ])
     }
 
+    // ==================== Fragments (CAS) ====================
+
     async saveFragment(
         sedimentreeId: SedimentreeId,
-        fragment: Fragment
+        digest: Digest,
+        signedFragment: Uint8Array,
+        blobDigest: Digest
     ): Promise<void> {
         const key = [
             PREFIX,
             FRAGMENTS_PREFIX,
             sedimentreeId.toString(),
-            bytesToHex(fragment.head.toBytes()),
+            bytesToHex(digest.toBytes()),
         ]
-        await this.adapter.save(key, serializeFragment(fragment))
+        await this.adapter.save(key, signedFragment)
 
         // Emit event after save - load blob to include in event
         if (this.listeners["fragment-saved"]?.length) {
-            const blobDigest = fragment.blobMeta.digest()
             const blob = await this.loadBlob(blobDigest)
             if (blob) {
-                this.emit("fragment-saved", sedimentreeId, fragment, blob)
+                this.emit("fragment-saved", sedimentreeId, digest, blob)
             }
         }
     }
 
-    async loadFragments(sedimentreeId: SedimentreeId): Promise<Fragment[]> {
+    async loadFragment(
+        sedimentreeId: SedimentreeId,
+        digest: Digest
+    ): Promise<Uint8Array | null> {
+        const key = [
+            PREFIX,
+            FRAGMENTS_PREFIX,
+            sedimentreeId.toString(),
+            bytesToHex(digest.toBytes()),
+        ]
+        const data = await this.adapter.load(key)
+        return data ?? null
+    }
+
+    async listFragmentDigests(sedimentreeId: SedimentreeId): Promise<Digest[]> {
         const chunks = await this.adapter.loadRange([
             PREFIX,
             FRAGMENTS_PREFIX,
             sedimentreeId.toString(),
         ])
         return chunks
-            .filter(chunk => chunk.data)
-            .map(chunk => deserializeFragment(chunk.data!))
+            .filter(chunk => chunk.key.length === 4 && chunk.data)
+            .map(chunk => Digest.fromBytes(hexToBytes(chunk.key[3])))
     }
 
-    async deleteFragments(sedimentreeId: SedimentreeId): Promise<void> {
+    async loadAllFragments(
+        sedimentreeId: SedimentreeId
+    ): Promise<Array<{ digest: Digest; signed: Uint8Array }>> {
+        const chunks = await this.adapter.loadRange([
+            PREFIX,
+            FRAGMENTS_PREFIX,
+            sedimentreeId.toString(),
+        ])
+        return chunks
+            .filter(chunk => chunk.key.length === 4 && chunk.data)
+            .map(chunk => ({
+                digest: Digest.fromBytes(hexToBytes(chunk.key[3])),
+                signed: chunk.data!,
+            }))
+    }
+
+    async deleteFragment(
+        sedimentreeId: SedimentreeId,
+        digest: Digest
+    ): Promise<void> {
+        const key = [
+            PREFIX,
+            FRAGMENTS_PREFIX,
+            sedimentreeId.toString(),
+            bytesToHex(digest.toBytes()),
+        ]
+        await this.adapter.remove(key)
+    }
+
+    async deleteAllFragments(sedimentreeId: SedimentreeId): Promise<void> {
         await this.adapter.removeRange([
             PREFIX,
             FRAGMENTS_PREFIX,
             sedimentreeId.toString(),
         ])
     }
+
+    // ==================== Blobs (CAS) ====================
 
     async saveBlob(data: Uint8Array): Promise<Digest> {
         const digest = Digest.hash(data)
@@ -226,7 +332,6 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     }
 }
 
-const DIGEST_SIZE_BYTES = 32
 const PREFIX = "subduction"
 const IDS_PREFIX = "ids"
 const COMMITS_PREFIX = "commits"
@@ -235,141 +340,6 @@ const BLOBS_PREFIX = "blobs"
 
 /** Marker value for sedimentree ID existence */
 const ID_MARKER = new Uint8Array([1])
-
-const concatBytes = (...arrays: Uint8Array[]): Uint8Array => {
-    const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0)
-    const result = new Uint8Array(totalLength)
-    arrays.reduce(
-        (offset, arr) => (result.set(arr, offset), offset + arr.length),
-        0
-    )
-    return result
-}
-
-const toUint8Array = (n: number): Uint8Array => new Uint8Array([n])
-
-const bigUint64Bytes = (n: bigint): Uint8Array => {
-    const buffer = new Uint8Array(8)
-    new DataView(buffer.buffer).setBigUint64(0, n)
-    return buffer
-}
-
-/**
- * Serialize a LooseCommit to binary format.
- * Format: [8 size][32 digest][1 num_parents][32*n parents][32 blob_digest]
- */
-const serializeLooseCommit = (commit: LooseCommit): Uint8Array =>
-    concatBytes(
-        bigUint64Bytes(commit.blobMeta.sizeBytes),
-        commit.digest.toBytes(),
-        toUint8Array(commit.parents.length),
-        ...commit.parents.map(p => p.toBytes()),
-        commit.blobMeta.digest().toBytes()
-    )
-
-/**
- * Deserialize a LooseCommit from binary format.
- */
-const deserializeLooseCommit = (buffer: Uint8Array): LooseCommit => {
-    const view = new DataView(
-        buffer.buffer,
-        buffer.byteOffset,
-        buffer.byteLength
-    )
-
-    const sizeBytes = view.getBigUint64(0)
-    const digestOffset = 8
-    const digest = Digest.fromBytes(
-        buffer.slice(digestOffset, digestOffset + DIGEST_SIZE_BYTES)
-    )
-    const numParents = buffer[digestOffset + DIGEST_SIZE_BYTES]
-    const parentsOffset = digestOffset + DIGEST_SIZE_BYTES + 1
-
-    const parents = Array.from({ length: numParents }, (_, i) =>
-        Digest.fromBytes(
-            buffer.slice(
-                parentsOffset + i * DIGEST_SIZE_BYTES,
-                parentsOffset + (i + 1) * DIGEST_SIZE_BYTES
-            )
-        )
-    )
-
-    const blobDigestOffset = parentsOffset + numParents * DIGEST_SIZE_BYTES
-    const blobDigest = Digest.fromBytes(
-        buffer.slice(blobDigestOffset, blobDigestOffset + DIGEST_SIZE_BYTES)
-    )
-
-    const blobMeta = BlobMeta.fromDigestSize(blobDigest, sizeBytes)
-
-    return new LooseCommit(digest, parents, blobMeta)
-}
-
-/**
- * Serialize a Fragment to binary format.
- * Format: [8 size][32 head][1 num_boundary][32*n boundary][1 num_checkpoints][32*m checkpoints][32 blob_digest]
- */
-const serializeFragment = (fragment: Fragment): Uint8Array =>
-    concatBytes(
-        bigUint64Bytes(fragment.blobMeta.sizeBytes),
-        fragment.head.toBytes(),
-        toUint8Array(fragment.boundary.length),
-        ...fragment.boundary.map(b => b.toBytes()),
-        toUint8Array(fragment.checkpoints.length),
-        ...fragment.checkpoints.map(c => c.toBytes()),
-        fragment.blobMeta.digest().toBytes()
-    )
-
-/**
- * Deserialize a Fragment from binary format.
- */
-const deserializeFragment = (buffer: Uint8Array): Fragment => {
-    const view = new DataView(
-        buffer.buffer,
-        buffer.byteOffset,
-        buffer.byteLength
-    )
-
-    const sizeBytes = view.getBigUint64(0)
-    const headOffset = 8
-    const head = Digest.fromBytes(
-        buffer.slice(headOffset, headOffset + DIGEST_SIZE_BYTES)
-    )
-    const numBoundary = buffer[headOffset + DIGEST_SIZE_BYTES]
-    const boundaryOffset = headOffset + DIGEST_SIZE_BYTES + 1
-
-    const boundary = Array.from({ length: numBoundary }, (_, i) =>
-        Digest.fromBytes(
-            buffer.slice(
-                boundaryOffset + i * DIGEST_SIZE_BYTES,
-                boundaryOffset + (i + 1) * DIGEST_SIZE_BYTES
-            )
-        )
-    )
-
-    const numCheckpointsOffset =
-        boundaryOffset + numBoundary * DIGEST_SIZE_BYTES
-    const numCheckpoints = buffer[numCheckpointsOffset]
-    const checkpointsOffset = numCheckpointsOffset + 1
-
-    const checkpoints = Array.from({ length: numCheckpoints }, (_, i) =>
-        Digest.fromBytes(
-            buffer.slice(
-                checkpointsOffset + i * DIGEST_SIZE_BYTES,
-                checkpointsOffset + (i + 1) * DIGEST_SIZE_BYTES
-            )
-        )
-    )
-
-    const blobDigestOffset =
-        checkpointsOffset + numCheckpoints * DIGEST_SIZE_BYTES
-    const blobDigest = Digest.fromBytes(
-        buffer.slice(blobDigestOffset, blobDigestOffset + DIGEST_SIZE_BYTES)
-    )
-
-    const blobMeta = BlobMeta.fromDigestSize(blobDigest, sizeBytes)
-
-    return new Fragment(head, boundary, checkpoints, blobMeta)
-}
 
 /**
  * Convert a hex string to Uint8Array.

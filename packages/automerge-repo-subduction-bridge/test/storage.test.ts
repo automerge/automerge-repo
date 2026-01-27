@@ -1,13 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { DummyStorageAdapter } from "../../automerge-repo/src/helpers/DummyStorageAdapter.js"
 import { SubductionStorageBridge } from "../src/storage.js"
-import {
-    SedimentreeId,
-    LooseCommit,
-    Fragment,
-    Digest,
-    BlobMeta,
-} from "@automerge/automerge_subduction"
+import { SedimentreeId, Digest } from "@automerge/automerge_subduction"
 
 describe("SubductionStorageBridge", () => {
     let adapter: DummyStorageAdapter
@@ -20,41 +14,6 @@ describe("SubductionStorageBridge", () => {
 
     const randomBytes = (length: number): Uint8Array =>
         Uint8Array.from({ length }, () => Math.floor(Math.random() * 256))
-
-    const createLooseCommit = ({
-        data,
-        numParents,
-    }: {
-        data: Uint8Array
-        numParents: number
-    }): LooseCommit =>
-        new LooseCommit(
-            Digest.hash(data),
-            Array.from({ length: numParents }, () =>
-                Digest.hash(randomBytes(64))
-            ),
-            new BlobMeta(data)
-        )
-
-    const createFragment = ({
-        data,
-        numBoundary,
-        numCheckpoints,
-    }: {
-        data: Uint8Array
-        numBoundary: number
-        numCheckpoints: number
-    }): Fragment =>
-        new Fragment(
-            Digest.hash(data),
-            Array.from({ length: numBoundary }, () =>
-                Digest.hash(randomBytes(64))
-            ),
-            Array.from({ length: numCheckpoints }, () =>
-                Digest.hash(randomBytes(64))
-            ),
-            new BlobMeta(data)
-        )
 
     describe("SedimentreeId operations", () => {
         it("saves and loads sedimentree IDs", async () => {
@@ -91,171 +50,267 @@ describe("SubductionStorageBridge", () => {
         })
     })
 
-    describe("LooseCommit operations", () => {
-        it("saves and loads loose commits", async () => {
+    describe("Commit operations (CAS)", () => {
+        it("saves and loads commits by digest", async () => {
             const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-            const data = randomBytes(100)
-            const commit = createLooseCommit({ data, numParents: 2 })
+            const signedCommit = randomBytes(200) // Opaque CBOR bytes
+            const digest = Digest.hash(signedCommit)
+            // For commits, blobDigest is the same as digest
+            const blobDigest = digest
 
-            await bridge.saveLooseCommit(sedimentreeId, commit)
+            await bridge.saveCommit(sedimentreeId, digest, signedCommit, blobDigest)
 
-            const loaded = await bridge.loadLooseCommits(sedimentreeId)
-            expect(loaded.length).toBe(1)
-
-            const loadedCommit = loaded[0]
-            expect(loadedCommit.digest.toHexString()).toBe(
-                commit.digest.toHexString()
-            )
-            expect(loadedCommit.parents.length).toBe(2)
-            expect(loadedCommit.blobMeta.sizeBytes).toBe(
-                commit.blobMeta.sizeBytes
-            )
+            const loaded = await bridge.loadCommit(sedimentreeId, digest)
+            expect(loaded).not.toBeNull()
+            expect(loaded).toEqual(signedCommit)
         })
 
-        it("saves multiple commits for same sedimentree", async () => {
+        it("returns null for non-existent commit", async () => {
             const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-            const commit1 = createLooseCommit({
-                data: randomBytes(50),
-                numParents: 1,
-            })
-            const commit2 = createLooseCommit({
-                data: randomBytes(60),
-                numParents: 0,
-            })
-            const commit3 = createLooseCommit({
-                data: randomBytes(70),
-                numParents: 3,
-            })
+            const digest = Digest.hash(randomBytes(64))
 
-            await bridge.saveLooseCommit(sedimentreeId, commit1)
-            await bridge.saveLooseCommit(sedimentreeId, commit2)
-            await bridge.saveLooseCommit(sedimentreeId, commit3)
+            const loaded = await bridge.loadCommit(sedimentreeId, digest)
+            expect(loaded).toBeNull()
+        })
 
-            const loaded = await bridge.loadLooseCommits(sedimentreeId)
-            expect(loaded.length).toBe(3)
+        it("lists commit digests", async () => {
+            const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
+            const commit1 = randomBytes(100)
+            const commit2 = randomBytes(150)
+            const digest1 = Digest.hash(commit1)
+            const digest2 = Digest.hash(commit2)
+
+            await bridge.saveCommit(sedimentreeId, digest1, commit1, digest1)
+            await bridge.saveCommit(sedimentreeId, digest2, commit2, digest2)
+
+            const digests = await bridge.listCommitDigests(sedimentreeId)
+            expect(digests.length).toBe(2)
+
+            const digestStrings = digests.map(d => d.toHexString())
+            expect(digestStrings).toContain(digest1.toHexString())
+            expect(digestStrings).toContain(digest2.toHexString())
+        })
+
+        it("loads all commits with digests", async () => {
+            const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
+            const commit1 = randomBytes(100)
+            const commit2 = randomBytes(150)
+            const digest1 = Digest.hash(commit1)
+            const digest2 = Digest.hash(commit2)
+
+            await bridge.saveCommit(sedimentreeId, digest1, commit1, digest1)
+            await bridge.saveCommit(sedimentreeId, digest2, commit2, digest2)
+
+            const loaded = await bridge.loadAllCommits(sedimentreeId)
+            expect(loaded.length).toBe(2)
+
+            const found1 = loaded.find(
+                c => c.digest.toHexString() === digest1.toHexString()
+            )
+            const found2 = loaded.find(
+                c => c.digest.toHexString() === digest2.toHexString()
+            )
+
+            expect(found1).toBeDefined()
+            expect(found1!.signed).toEqual(commit1)
+            expect(found2).toBeDefined()
+            expect(found2!.signed).toEqual(commit2)
+        })
+
+        it("deletes single commit by digest", async () => {
+            const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
+            const commit1 = randomBytes(100)
+            const commit2 = randomBytes(150)
+            const digest1 = Digest.hash(commit1)
+            const digest2 = Digest.hash(commit2)
+
+            await bridge.saveCommit(sedimentreeId, digest1, commit1, digest1)
+            await bridge.saveCommit(sedimentreeId, digest2, commit2, digest2)
+
+            await bridge.deleteCommit(sedimentreeId, digest1)
+
+            const loaded1 = await bridge.loadCommit(sedimentreeId, digest1)
+            const loaded2 = await bridge.loadCommit(sedimentreeId, digest2)
+
+            expect(loaded1).toBeNull()
+            expect(loaded2).toEqual(commit2)
+        })
+
+        it("deletes all commits for a sedimentree", async () => {
+            const id1 = SedimentreeId.fromBytes(randomBytes(32))
+            const id2 = SedimentreeId.fromBytes(randomBytes(32))
+            const commit1 = randomBytes(100)
+            const commit2 = randomBytes(150)
+            const digest1 = Digest.hash(commit1)
+            const digest2 = Digest.hash(commit2)
+
+            await bridge.saveCommit(id1, digest1, commit1, digest1)
+            await bridge.saveCommit(id2, digest2, commit2, digest2)
+
+            await bridge.deleteAllCommits(id1)
+
+            const loaded1 = await bridge.loadAllCommits(id1)
+            const loaded2 = await bridge.loadAllCommits(id2)
+
+            expect(loaded1.length).toBe(0)
+            expect(loaded2.length).toBe(1)
         })
 
         it("isolates commits between different sedimentrees", async () => {
             const id1 = SedimentreeId.fromBytes(randomBytes(32))
             const id2 = SedimentreeId.fromBytes(randomBytes(32))
-            const commit1 = createLooseCommit({
-                data: randomBytes(50),
-                numParents: 0,
-            })
-            const commit2 = createLooseCommit({
-                data: randomBytes(60),
-                numParents: 0,
-            })
+            const commit1 = randomBytes(100)
+            const commit2 = randomBytes(150)
+            const digest1 = Digest.hash(commit1)
+            const digest2 = Digest.hash(commit2)
 
-            await bridge.saveLooseCommit(id1, commit1)
-            await bridge.saveLooseCommit(id2, commit2)
+            await bridge.saveCommit(id1, digest1, commit1, digest1)
+            await bridge.saveCommit(id2, digest2, commit2, digest2)
 
-            const loaded1 = await bridge.loadLooseCommits(id1)
-            const loaded2 = await bridge.loadLooseCommits(id2)
+            const loaded1 = await bridge.loadAllCommits(id1)
+            const loaded2 = await bridge.loadAllCommits(id2)
 
             expect(loaded1.length).toBe(1)
             expect(loaded2.length).toBe(1)
-            expect(loaded1[0].digest.toHexString()).toBe(
-                commit1.digest.toHexString()
-            )
-            expect(loaded2[0].digest.toHexString()).toBe(
-                commit2.digest.toHexString()
-            )
-        })
-
-        it("deletes loose commits for a sedimentree", async () => {
-            const id1 = SedimentreeId.fromBytes(randomBytes(32))
-            const id2 = SedimentreeId.fromBytes(randomBytes(32))
-            const commit1 = createLooseCommit({
-                data: randomBytes(50),
-                numParents: 0,
-            })
-            const commit2 = createLooseCommit({
-                data: randomBytes(60),
-                numParents: 0,
-            })
-
-            await bridge.saveLooseCommit(id1, commit1)
-            await bridge.saveLooseCommit(id2, commit2)
-            await bridge.deleteLooseCommits(id1)
-
-            const loaded1 = await bridge.loadLooseCommits(id1)
-            const loaded2 = await bridge.loadLooseCommits(id2)
-
-            expect(loaded1.length).toBe(0)
-            expect(loaded2.length).toBe(1)
+            expect(loaded1[0].signed).toEqual(commit1)
+            expect(loaded2[0].signed).toEqual(commit2)
         })
     })
 
-    describe("Fragment operations", () => {
-        it("saves and loads fragments", async () => {
+    describe("Fragment operations (CAS)", () => {
+        it("saves and loads fragments by digest", async () => {
             const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-            const data = randomBytes(100)
-            const fragment = createFragment({
-                data,
-                numBoundary: 2,
-                numCheckpoints: 3,
-            })
+            const signedFragment = randomBytes(300) // Opaque CBOR bytes
+            const digest = Digest.hash(signedFragment)
+            // For fragments, blobDigest is separate (the bundle's digest)
+            const blobDigest = Digest.hash(randomBytes(500))
 
-            await bridge.saveFragment(sedimentreeId, fragment)
+            await bridge.saveFragment(sedimentreeId, digest, signedFragment, blobDigest)
 
-            const loaded = await bridge.loadFragments(sedimentreeId)
-            expect(loaded.length).toBe(1)
-
-            const loadedFragment = loaded[0]
-            expect(loadedFragment.head.toHexString()).toBe(
-                fragment.head.toHexString()
-            )
-            expect(loadedFragment.boundary.length).toBe(2)
-            expect(loadedFragment.checkpoints.length).toBe(3)
-            expect(loadedFragment.blobMeta.sizeBytes).toBe(
-                fragment.blobMeta.sizeBytes
-            )
+            const loaded = await bridge.loadFragment(sedimentreeId, digest)
+            expect(loaded).not.toBeNull()
+            expect(loaded).toEqual(signedFragment)
         })
 
-        it("saves multiple fragments for same sedimentree", async () => {
+        it("returns null for non-existent fragment", async () => {
             const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-            const fragment1 = createFragment({
-                data: randomBytes(50),
-                numBoundary: 1,
-                numCheckpoints: 1,
-            })
-            const fragment2 = createFragment({
-                data: randomBytes(60),
-                numBoundary: 2,
-                numCheckpoints: 2,
-            })
+            const digest = Digest.hash(randomBytes(64))
 
-            await bridge.saveFragment(sedimentreeId, fragment1)
-            await bridge.saveFragment(sedimentreeId, fragment2)
+            const loaded = await bridge.loadFragment(sedimentreeId, digest)
+            expect(loaded).toBeNull()
+        })
 
-            const loaded = await bridge.loadFragments(sedimentreeId)
+        it("lists fragment digests", async () => {
+            const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
+            const fragment1 = randomBytes(200)
+            const fragment2 = randomBytes(250)
+            const digest1 = Digest.hash(fragment1)
+            const digest2 = Digest.hash(fragment2)
+            const blobDigest1 = Digest.hash(randomBytes(500))
+            const blobDigest2 = Digest.hash(randomBytes(600))
+
+            await bridge.saveFragment(sedimentreeId, digest1, fragment1, blobDigest1)
+            await bridge.saveFragment(sedimentreeId, digest2, fragment2, blobDigest2)
+
+            const digests = await bridge.listFragmentDigests(sedimentreeId)
+            expect(digests.length).toBe(2)
+
+            const digestStrings = digests.map(d => d.toHexString())
+            expect(digestStrings).toContain(digest1.toHexString())
+            expect(digestStrings).toContain(digest2.toHexString())
+        })
+
+        it("loads all fragments with digests", async () => {
+            const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
+            const fragment1 = randomBytes(200)
+            const fragment2 = randomBytes(250)
+            const digest1 = Digest.hash(fragment1)
+            const digest2 = Digest.hash(fragment2)
+            const blobDigest1 = Digest.hash(randomBytes(500))
+            const blobDigest2 = Digest.hash(randomBytes(600))
+
+            await bridge.saveFragment(sedimentreeId, digest1, fragment1, blobDigest1)
+            await bridge.saveFragment(sedimentreeId, digest2, fragment2, blobDigest2)
+
+            const loaded = await bridge.loadAllFragments(sedimentreeId)
             expect(loaded.length).toBe(2)
+
+            const found1 = loaded.find(
+                f => f.digest.toHexString() === digest1.toHexString()
+            )
+            const found2 = loaded.find(
+                f => f.digest.toHexString() === digest2.toHexString()
+            )
+
+            expect(found1).toBeDefined()
+            expect(found1!.signed).toEqual(fragment1)
+            expect(found2).toBeDefined()
+            expect(found2!.signed).toEqual(fragment2)
         })
 
-        it("deletes fragments for a sedimentree", async () => {
+        it("deletes single fragment by digest", async () => {
+            const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
+            const fragment1 = randomBytes(200)
+            const fragment2 = randomBytes(250)
+            const digest1 = Digest.hash(fragment1)
+            const digest2 = Digest.hash(fragment2)
+            const blobDigest1 = Digest.hash(randomBytes(500))
+            const blobDigest2 = Digest.hash(randomBytes(600))
+
+            await bridge.saveFragment(sedimentreeId, digest1, fragment1, blobDigest1)
+            await bridge.saveFragment(sedimentreeId, digest2, fragment2, blobDigest2)
+
+            await bridge.deleteFragment(sedimentreeId, digest1)
+
+            const loaded1 = await bridge.loadFragment(sedimentreeId, digest1)
+            const loaded2 = await bridge.loadFragment(sedimentreeId, digest2)
+
+            expect(loaded1).toBeNull()
+            expect(loaded2).toEqual(fragment2)
+        })
+
+        it("deletes all fragments for a sedimentree", async () => {
             const id1 = SedimentreeId.fromBytes(randomBytes(32))
             const id2 = SedimentreeId.fromBytes(randomBytes(32))
-            const fragment1 = createFragment({
-                data: randomBytes(50),
-                numBoundary: 0,
-                numCheckpoints: 0,
-            })
-            const fragment2 = createFragment({
-                data: randomBytes(60),
-                numBoundary: 0,
-                numCheckpoints: 0,
-            })
+            const fragment1 = randomBytes(200)
+            const fragment2 = randomBytes(250)
+            const digest1 = Digest.hash(fragment1)
+            const digest2 = Digest.hash(fragment2)
+            const blobDigest1 = Digest.hash(randomBytes(500))
+            const blobDigest2 = Digest.hash(randomBytes(600))
 
-            await bridge.saveFragment(id1, fragment1)
-            await bridge.saveFragment(id2, fragment2)
-            await bridge.deleteFragments(id1)
+            await bridge.saveFragment(id1, digest1, fragment1, blobDigest1)
+            await bridge.saveFragment(id2, digest2, fragment2, blobDigest2)
 
-            const loaded1 = await bridge.loadFragments(id1)
-            const loaded2 = await bridge.loadFragments(id2)
+            await bridge.deleteAllFragments(id1)
+
+            const loaded1 = await bridge.loadAllFragments(id1)
+            const loaded2 = await bridge.loadAllFragments(id2)
 
             expect(loaded1.length).toBe(0)
             expect(loaded2.length).toBe(1)
+        })
+
+        it("isolates fragments between different sedimentrees", async () => {
+            const id1 = SedimentreeId.fromBytes(randomBytes(32))
+            const id2 = SedimentreeId.fromBytes(randomBytes(32))
+            const fragment1 = randomBytes(200)
+            const fragment2 = randomBytes(250)
+            const digest1 = Digest.hash(fragment1)
+            const digest2 = Digest.hash(fragment2)
+            const blobDigest1 = Digest.hash(randomBytes(500))
+            const blobDigest2 = Digest.hash(randomBytes(600))
+
+            await bridge.saveFragment(id1, digest1, fragment1, blobDigest1)
+            await bridge.saveFragment(id2, digest2, fragment2, blobDigest2)
+
+            const loaded1 = await bridge.loadAllFragments(id1)
+            const loaded2 = await bridge.loadAllFragments(id2)
+
+            expect(loaded1.length).toBe(1)
+            expect(loaded2.length).toBe(1)
+            expect(loaded1[0].signed).toEqual(fragment1)
+            expect(loaded2[0].signed).toEqual(fragment2)
         })
     })
 
@@ -316,38 +371,46 @@ describe("SubductionStorageBridge", () => {
             expect(callback).toHaveBeenCalledWith(expect.any(Digest), data)
         })
 
-        it("emits commit-saved event when blob exists", async () => {
+        it("emits commit-saved event", async () => {
             const callback = vi.fn()
             bridge.on("commit-saved", callback)
 
             const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-            const data = randomBytes(64)
+            const signedCommit = randomBytes(200)
+            const digest = Digest.hash(signedCommit)
+            // Save the blob first (for commits, blobDigest = digest)
+            const blobData = randomBytes(150)
+            const blobDigest = await bridge.saveBlob(blobData)
 
-            await bridge.saveBlob(data)
-
-            const commit = createLooseCommit({ data, numParents: 0 })
-            await bridge.saveLooseCommit(sedimentreeId, commit)
+            await bridge.saveCommit(sedimentreeId, digest, signedCommit, blobDigest)
 
             expect(callback).toHaveBeenCalledTimes(1)
+            expect(callback).toHaveBeenCalledWith(
+                sedimentreeId,
+                digest,
+                blobData
+            )
         })
 
-        it("emits fragment-saved event when blob exists", async () => {
+        it("emits fragment-saved event", async () => {
             const callback = vi.fn()
             bridge.on("fragment-saved", callback)
 
             const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-            const data = randomBytes(64)
+            const signedFragment = randomBytes(300)
+            const digest = Digest.hash(signedFragment)
+            // Save the blob first (for fragments, blobDigest is the bundle digest)
+            const blobData = randomBytes(500)
+            const blobDigest = await bridge.saveBlob(blobData)
 
-            await bridge.saveBlob(data)
-
-            const fragment = createFragment({
-                data,
-                numBoundary: 0,
-                numCheckpoints: 0,
-            })
-            await bridge.saveFragment(sedimentreeId, fragment)
+            await bridge.saveFragment(sedimentreeId, digest, signedFragment, blobDigest)
 
             expect(callback).toHaveBeenCalledTimes(1)
+            expect(callback).toHaveBeenCalledWith(
+                sedimentreeId,
+                digest,
+                blobData
+            )
         })
 
         it("removes event listeners with off()", async () => {
