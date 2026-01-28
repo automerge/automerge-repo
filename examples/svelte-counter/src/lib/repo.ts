@@ -13,9 +13,7 @@ export async function setupRepo() {
   // Connect to Subduction server via discovery
   const conn = await SubductionWebSocket.tryDiscover(
     new URL("ws://localhost:8080"),
-    signer,
-    "0.0.0.0:8080", // Service name (server's default is its socket address)
-    5000
+    signer
   )
   await subduction.attach(conn)
 

@@ -5,33 +5,32 @@ import {
     RepoContext,
 } from "@automerge/react"
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import { Subduction, SubductionWebSocket, WebCryptoSigner } from "@automerge/automerge_subduction"
+import {
+    Subduction,
+    SubductionWebSocket,
+    WebCryptoSigner,
+} from "@automerge/automerge_subduction"
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
 import { State } from "./types.js"
 import "./index.css"
-
 ;(async () => {
     const signer = await WebCryptoSigner.setup()
-    const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-todo")
+    const storageAdapter = new IndexedDBStorageAdapter(
+        "automerge-repo-demo-todo"
+    )
     const storage = new SubductionStorageBridge(storageAdapter)
     const subduction = await Subduction.hydrate(signer, storage)
 
     // Connect to Subduction server via discovery
     const conn = await SubductionWebSocket.tryDiscover(
-        new URL("ws://localhost:8080"),
-        signer,
-        "0.0.0.0:8080", // Service name (server's default is its socket address)
-        5000
+        new URL("wss://pdx.subduction.keyhive.org"),
+        signer
     )
     await subduction.attach(conn)
-
-    const repo = new Repo({
-        network: [],
-        subduction,
-    })
+    const repo = new Repo({ subduction })
 
     const rootDocUrl = `${document.location.hash.substring(1)}`
     let handle
