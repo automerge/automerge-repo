@@ -26,7 +26,7 @@ import {
 } from "./helpers/subduction.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
-import { throttle } from "./helpers/throttle.js"
+import { throttle, ThrottledFunction } from "./helpers/throttle.js"
 import {
     NetworkAdapterInterface,
     type PeerMetadata,
@@ -91,6 +91,10 @@ export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
         event: "blob-saved",
         callback: (digest: Digest, blob: Uint8Array) => void
     ): void
+    /**
+     * Wait for all pending save operations to complete.
+     */
+    awaitSettled(): Promise<void>
 }
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
@@ -131,12 +135,18 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     /** Subduction */
     #subduction: Subduction
+    #subductionStorage: SubductionStorageWithCallbacks | null = null
     #handlesBySedimentreeId: Map<string, DocHandle<any>> // NOTE until doc IDs are [u8; 32]s
     #fragmentStateStore: FragmentStateStore
     #lastHeadsSent: Map<string, Set<string>> // TODO move to subduction.wasm
     #recentlySeenHeads: Map<string, HashRing>
     #recentHeadsCacheSize: number
     #subductionAdaptersReady: Promise<void>
+
+    /** Tracks pending outbound operations for awaitOutbound() */
+    #pendingOutbound: number = 0
+    #outboundResolvers: (() => void)[] = []
+    #throttledBroadcasts: ThrottledFunction<() => void>[] = []
 
     /** @hidden */
     networkSubsystem: NetworkSubsystem
@@ -432,6 +442,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
         if (hasCallbacks(subduction.storage)) {
             const subductionStorage = subduction.storage
+            this.#subductionStorage = subductionStorage
 
             subductionStorage.on("commit-saved", (id, digest, blob) => {
                 this.#handleCommitSaved(id, digest, blob)
@@ -837,7 +848,11 @@ export class Repo extends EventEmitter<RepoEvents> {
                     this.#requestDocOverSubduction(handle),
                     abortPromise,
                 ])
-                handle.request()
+                // Only call request() if Subduction didn't already load the data
+                // The storage callback may have called doneLoading() during requestDocOverSubduction
+                if (!handle.isReady()) {
+                    handle.request()
+                }
                 progressSignal.notify({
                     state: "loading" as const,
                     progress: 75,
@@ -1163,9 +1178,46 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
     }
 
+    /**
+     * Wait for all pending outbound operations to complete.
+     * Call this before shutdown() to ensure all changes have been sent to the network.
+     */
+    async awaitOutbound(): Promise<void> {
+        // Flush any pending throttled broadcasts first
+        for (const throttled of this.#throttledBroadcasts) {
+            throttled.flush()
+        }
+
+        // Yield to let flushed broadcasts start executing
+        await Promise.resolve()
+
+        if (this.#pendingOutbound === 0) return
+        return new Promise(resolve => this.#outboundResolvers.push(resolve))
+    }
+
     async shutdown() {
+        await this.awaitOutbound()
         await this.#subduction.disconnectAll()
         await this.flush()
+    }
+
+    /**
+     * Sync all known documents with the server.
+     * Call this before change detection to ensure all remote commits are received.
+     */
+    async syncAllDocuments(): Promise<void> {
+        await this.#subductionAdaptersReady
+
+        // Get all known sedimentree IDs
+        const sedimentreeIds = Array.from(this.#handlesBySedimentreeId.keys())
+
+        // Sync each sequentially to avoid overwhelming the server
+        for (const sidStr of sedimentreeIds) {
+            const handle = this.#handlesBySedimentreeId.get(sidStr)
+            if (handle) {
+                await this.#requestDocOverSubduction(handle)
+            }
+        }
     }
 
     metrics(): { documents: { [key: string]: any } } {
@@ -1229,47 +1281,71 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     async #requestDocOverSubduction(handle: DocHandle<any>) {
         const sedimentreeId = toSedimentreeId(handle.documentId)
-        console.log(
-            "#requestDocOverSubduction: registering handle for",
-            sedimentreeId.toString(),
-            "state:",
-            handle.state
-        )
         this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
 
         // Wait for subduction adapters to be ready before making sync requests
         await this.#subductionAdaptersReady
 
-        const peerResultMap = await this.#subduction.syncAll(
-            sedimentreeId,
-            true
-        )
-        peerResultMap.entries().forEach(batchSyncResult => {
-            if (!batchSyncResult.success) {
-                this.#log("failed PeerBatchSyncResult")
+        // Workaround: Server may send one commit per syncAll instead of all missing.
+        // Loop until heads stabilize (no new commits arriving).
+        const MAX_ITERATIONS = 20
+        let lastHeadsStr: string | null = null  // null means "first iteration"
+
+        console.log(`[SyncLoop] Starting for ${sedimentreeId.toString().slice(0,8)}...`)
+        for (let i = 0; i < MAX_ITERATIONS; i++) {
+            console.log(`[SyncLoop] Iteration ${i + 1}`)
+            const peerResultMap = await this.#subduction.syncAll(sedimentreeId, true)
+            console.log(`[SyncLoop] Iteration ${i + 1}: syncAll returned`)
+
+            // Log any failures or connection errors
+            for (const batchSyncResult of peerResultMap.entries()) {
+                if (!batchSyncResult.success) {
+                    this.#log("failed PeerBatchSyncResult")
+                }
+                for (const err of batchSyncResult.connErrors || []) {
+                    this.#log("PeerBatchSyncResult connError: ", err)
+                }
             }
 
-            for (const err in batchSyncResult.connErrors) {
-                this.#log("PeerBatchSyncResult connError: ", err)
+            // Wait for storage callbacks to complete
+            console.log(`[SyncLoop] Iteration ${i + 1}: waiting for storage...`)
+            if (this.#subductionStorage) {
+                await this.#subductionStorage.awaitSettled()
             }
+            console.log(`[SyncLoop] Iteration ${i + 1}: storage settled`)
 
-            // NOTE: Don't update handle or call doneLoading() here!
-            // The storage callback (#handleCommitSaved) will handle updating the handle
-            // when the data is persisted. This ensures the "document" event is properly
-            // emitted for newly discovered remote documents.
-            // The batch sync request triggers the Rust side to fetch and save the data,
-            // which in turn triggers the storage callbacks.
-        })
+            // Check if heads changed - if not, we have all commits
+            const currentHeads = handle.heads()
+            const currentHeadsStr = currentHeads.sort().join(",")
+            console.log(`[SyncLoop] Iteration ${i + 1}: heads=${currentHeadsStr.slice(0,20) || "(empty)"}, lastHeads=${lastHeadsStr?.slice(0,20) || "(null)"}`)
+
+            // Skip comparison on first 2 iterations to allow time for data to arrive
+            if (i >= 2 && lastHeadsStr !== null && currentHeadsStr === lastHeadsStr) {
+                // No new commits arrived, we're done
+                console.log(`[SyncLoop] Breaking - heads unchanged after ${i + 1} iterations`)
+                break
+            }
+            lastHeadsStr = currentHeadsStr
+
+            // Small delay before next iteration to allow network responses
+            if (i < MAX_ITERATIONS - 1) {
+                await new Promise(r => setTimeout(r, 200))
+            }
+        }
+
+        // Now that all blobs have been loaded, transition the handle to READY state.
+        // This must happen AFTER awaitSettled so all data is available before ready.
+        const wasNotReady = !handle.isReady()
+        handle.doneLoading()
+
+        // Emit document event if this handle just transitioned to ready
+        if (wasNotReady && handle.isReady()) {
+            this.emit("document", { handle })
+        }
     }
 
     #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
         const sid = toSedimentreeId(handle.documentId)
-        console.log(
-            "#tellSubductionAboutNewHandle: registering handle for",
-            sid.toString(),
-            "state:",
-            handle.state
-        )
         this.#handlesBySedimentreeId.set(sid.toString(), handle)
 
         const throttledBroadcast = throttle(() => {
@@ -1279,6 +1355,9 @@ export class Repo extends EventEmitter<RepoEvents> {
             })
         }, 100)
 
+        // Track for flushing in awaitOutbound()
+        this.#throttledBroadcasts.push(throttledBroadcast)
+
         handle.on("heads-changed", () => {
             throttledBroadcast()
         })
@@ -1287,14 +1366,29 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     async #broadcast<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
+        console.log(`[Broadcast] Starting for ${sedimentreeId.toString().slice(0,8)}...`)
+        // Track this broadcast for awaitOutbound() BEFORE any awaits
+        this.#pendingOutbound++
+
+        try {
         // Wait for subduction adapters to be ready before broadcasting
         await this.#subductionAdaptersReady
+        console.log(`[Broadcast] Adapters ready`)
 
         const currentHexHeads = Automerge.getHeads(doc)
         const id = sedimentreeId.toString()
         const mostRecentHeads: Set<string> =
             this.#lastHeadsSent.get(id) || new Set()
-        if (new Set(currentHexHeads) == mostRecentHeads) return
+
+        // Properly compare set contents (not identity)
+        const currentSet = new Set(currentHexHeads)
+        const headsAlreadySent = currentSet.size === mostRecentHeads.size &&
+            [...currentSet].every(h => mostRecentHeads.has(h))
+        if (headsAlreadySent) {
+            console.log(`[Broadcast] Skipping - heads already sent`)
+            return
+        }
+        console.log(`[Broadcast] Have ${currentHexHeads.length} heads, most recent has ${mostRecentHeads.size} heads`)
 
         await Promise.all(
             Automerge.getChangesMetaSince(doc, Array.from(mostRecentHeads)).map(
@@ -1321,12 +1415,14 @@ export class Repo extends EventEmitter<RepoEvents> {
                         blobMeta
                     )
 
+                    console.log(`[Broadcast] Calling addCommit for ${sedimentreeId.toString().slice(0,8)}..., digest=${hexHash.slice(0,8)}...`)
                     const maybeFragmentRequested =
                         await this.#subduction.addCommit(
                             sedimentreeId,
                             looseCommit,
                             commitBytes
                         )
+                    console.log(`[Broadcast] addCommit returned ${maybeFragmentRequested !== undefined ? 'fragment requested' : 'done'}`)
 
                     if (maybeFragmentRequested === undefined) return
 
@@ -1364,8 +1460,15 @@ export class Repo extends EventEmitter<RepoEvents> {
 
         this.#lastHeadsSent.set(
             sedimentreeId.toString(),
-            new Set(currentHexHeads)
+            currentSet
         )
+        } finally {
+            this.#pendingOutbound--
+            if (this.#pendingOutbound === 0) {
+                this.#outboundResolvers.forEach(r => r())
+                this.#outboundResolvers = []
+            }
+        }
     }
 
     /**
@@ -1379,23 +1482,19 @@ export class Repo extends EventEmitter<RepoEvents> {
     ) {
         const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
         if (existingHandle !== undefined) {
-            const wasNotReady = existingHandle.state !== READY
+            // Only update the document - don't call doneLoading() here.
+            // During batch sync, multiple blobs arrive asynchronously.
+            // Calling doneLoading() on each blob would transition to READY too early.
+            // Instead, #requestDocOverSubduction calls doneLoading() after syncAll + awaitSettled.
             existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
-            existingHandle.doneLoading()
-            // Emit document event when a handle transitions to ready from any non-ready state
-            // This notifies the app about newly synced documents (covers loading, requesting, unavailable)
-            if (wasNotReady && existingHandle.isReady()) {
-                this.emit("document", { handle: existingHandle })
-            }
         } else {
             // New sedimentree we haven't seen before - create a handle for it
             const documentId = toDocumentId(id)
             const handle = this.#getHandle({ documentId })
             this.#handlesBySedimentreeId.set(id.toString(), handle)
             handle.update(doc => Automerge.loadIncremental(doc, blob))
-            handle.doneLoading()
-            this.#registerHandleWithSubsystems(handle)
-            this.emit("document", { handle })
+            // Don't call doneLoading() or emit document event here.
+            // This will be done by #requestDocOverSubduction after batch sync completes.
         }
     }
 
@@ -1410,22 +1509,17 @@ export class Repo extends EventEmitter<RepoEvents> {
     ) {
         const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
         if (existingHandle !== undefined) {
-            const wasNotReady = existingHandle.state !== READY
+            // Only update the document - don't call doneLoading() here.
+            // See comment in #handleCommitSaved for rationale.
             existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
-            existingHandle.doneLoading()
-            // Emit document event when a handle transitions to ready from any non-ready state
-            if (wasNotReady && existingHandle.isReady()) {
-                this.emit("document", { handle: existingHandle })
-            }
         } else {
             // New sedimentree we haven't seen before - create a handle for it
             const documentId = toDocumentId(id)
             const handle = this.#getHandle({ documentId })
             this.#handlesBySedimentreeId.set(id.toString(), handle)
             handle.update(doc => Automerge.loadIncremental(doc, blob))
-            handle.doneLoading()
-            this.#registerHandleWithSubsystems(handle)
-            this.emit("document", { handle })
+            // Don't call doneLoading() or emit document event here.
+            // This will be done by #requestDocOverSubduction after batch sync completes.
         }
     }
 }

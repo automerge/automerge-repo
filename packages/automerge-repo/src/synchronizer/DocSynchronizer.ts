@@ -422,8 +422,12 @@ export class DocSynchronizer extends Synchronizer {
 
   #checkDocUnavailable() {
     // if we know none of the peers have the document, tell all our peers that we don't either
+    // Note: we require peers.length > 0 to avoid marking docs unavailable when using
+    // Subduction-only mode (no WebSocket peers). Without this check, [].every() returns
+    // true and incorrectly marks documents as unavailable.
     if (
       this.#syncStarted &&
+      this.#peers.length > 0 &&
       this.#handle.inState([REQUESTING, UNAVAILABLE]) &&
       this.#peers.every(
         peerId =>

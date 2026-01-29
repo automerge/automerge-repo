@@ -65,9 +65,28 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     private listeners: {
         [K in keyof StorageBridgeEvents]?: StorageBridgeEvents[K][]
     } = {}
+    private pendingSaves = 0
+    private settleResolvers: (() => void)[] = []
 
     constructor(adapter: StorageAdapterInterface) {
         this.adapter = adapter
+    }
+
+    /**
+     * Wait for all pending save operations to complete.
+     * Useful for ensuring sync operations have fully persisted.
+     */
+    async awaitSettled(): Promise<void> {
+        if (this.pendingSaves === 0) return
+        return new Promise(r => this.settleResolvers.push(r))
+    }
+
+    private decrementPending(): void {
+        this.pendingSaves--
+        if (this.pendingSaves === 0) {
+            this.settleResolvers.forEach(r => r())
+            this.settleResolvers = []
+        }
     }
 
     /**
@@ -137,20 +156,25 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         signedCommit: Uint8Array,
         blobDigest: Digest
     ): Promise<void> {
-        const key = [
-            PREFIX,
-            COMMITS_PREFIX,
-            sedimentreeId.toString(),
-            bytesToHex(digest.toBytes()),
-        ]
-        await this.adapter.save(key, signedCommit)
+        this.pendingSaves++
+        try {
+            const key = [
+                PREFIX,
+                COMMITS_PREFIX,
+                sedimentreeId.toString(),
+                bytesToHex(digest.toBytes()),
+            ]
+            await this.adapter.save(key, signedCommit)
 
-        // Emit event after save - load blob to include in event
-        if (this.listeners["commit-saved"]?.length) {
-            const blob = await this.loadBlob(blobDigest)
-            if (blob) {
-                this.emit("commit-saved", sedimentreeId, digest, blob)
+            // Emit event after save - load blob to include in event
+            if (this.listeners["commit-saved"]?.length) {
+                const blob = await this.loadBlob(blobDigest)
+                if (blob) {
+                    this.emit("commit-saved", sedimentreeId, digest, blob)
+                }
             }
+        } finally {
+            this.decrementPending()
         }
     }
 
@@ -224,20 +248,25 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         signedFragment: Uint8Array,
         blobDigest: Digest
     ): Promise<void> {
-        const key = [
-            PREFIX,
-            FRAGMENTS_PREFIX,
-            sedimentreeId.toString(),
-            bytesToHex(digest.toBytes()),
-        ]
-        await this.adapter.save(key, signedFragment)
+        this.pendingSaves++
+        try {
+            const key = [
+                PREFIX,
+                FRAGMENTS_PREFIX,
+                sedimentreeId.toString(),
+                bytesToHex(digest.toBytes()),
+            ]
+            await this.adapter.save(key, signedFragment)
 
-        // Emit event after save - load blob to include in event
-        if (this.listeners["fragment-saved"]?.length) {
-            const blob = await this.loadBlob(blobDigest)
-            if (blob) {
-                this.emit("fragment-saved", sedimentreeId, digest, blob)
+            // Emit event after save - load blob to include in event
+            if (this.listeners["fragment-saved"]?.length) {
+                const blob = await this.loadBlob(blobDigest)
+                if (blob) {
+                    this.emit("fragment-saved", sedimentreeId, digest, blob)
+                }
             }
+        } finally {
+            this.decrementPending()
         }
     }
 
