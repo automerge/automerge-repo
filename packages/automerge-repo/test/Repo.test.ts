@@ -441,6 +441,24 @@ describe("Repo", () => {
       assert.deepEqual(doc, loaded)
     })
 
+    it("exports a document that is available from peers but has not yet been loaded", async () => {
+      const [aliceToBob, bobToAlice] = DummyNetworkAdapter.createConnectedPair()
+      const alice = new Repo({
+        peerId: "alice" as PeerId,
+        network: [aliceToBob],
+      })
+      const bob = new Repo({ peerId: "bob" as PeerId, network: [bobToAlice] })
+      aliceToBob.peerCandidate("bob" as PeerId)
+      bobToAlice.peerCandidate("alice" as PeerId)
+
+      const handle = alice.create({ foo: "bar" })
+
+      const exported = await bob.export(handle.documentId)
+      const loaded = A.load(exported)
+      const doc = handle.doc()
+      assert.deepEqual(doc, loaded)
+    })
+
     it("rejects when exporting a document that does not exist", async () => {
       const { repo } = setup()
       assert.rejects(async () => {
