@@ -45,8 +45,6 @@ export type {
   PeerState,
   PresenceState,
   PresenceConfig,
-  UserId,
-  DeviceId,
 } from "./presence/types.js"
 
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
