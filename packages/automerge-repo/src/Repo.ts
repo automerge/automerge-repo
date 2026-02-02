@@ -2,34 +2,34 @@ import { next as Automerge, Heads } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
-    binaryToDocumentId,
-    encodeHeads,
-    generateAutomergeUrl,
-    interpretAsDocumentId,
-    isValidAutomergeUrl,
-    parseAutomergeUrl,
+  binaryToDocumentId,
+  encodeHeads,
+  generateAutomergeUrl,
+  interpretAsDocumentId,
+  isValidAutomergeUrl,
+  parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import {
-    DELETED,
-    DocHandle,
-    DocHandleEncodedChangePayload,
-    READY,
-    UNAVAILABLE,
-    UNLOADED,
+  DELETED,
+  DocHandle,
+  DocHandleEncodedChangePayload,
+  READY,
+  UNAVAILABLE,
+  UNLOADED,
 } from "./DocHandle.js"
 import { HashRing } from "./helpers/HashRing.js"
 import {
-    automergeMeta,
-    toDocumentId,
-    toSedimentreeId,
-    toSubductionPeerId,
+  automergeMeta,
+  toDocumentId,
+  toSedimentreeId,
+  toSubductionPeerId,
 } from "./helpers/subduction.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle, ThrottledFunction } from "./helpers/throttle.js"
 import {
-    NetworkAdapterInterface,
-    type PeerMetadata,
+  NetworkAdapterInterface,
+  type PeerMetadata,
 } from "./network/NetworkAdapterInterface.js"
 import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
 import { RepoMessage } from "./network/messages.js"
@@ -38,32 +38,34 @@ import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
 import {
-    DocSyncMetrics,
-    SyncStatePayload,
+  DocSyncMetrics,
+  SyncStatePayload,
 } from "./synchronizer/Synchronizer.js"
 import type {
-    AnyDocumentId,
-    AutomergeUrl,
-    BinaryDocumentId,
-    DocumentId,
-    PeerId,
+  AnyDocumentId,
+  AutomergeUrl,
+  BinaryDocumentId,
+  DocumentId,
+  PeerId,
 } from "./types.js"
 import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
 import {
-    BlobMeta,
-    Digest,
-    Fragment,
-    FragmentRequested,
-    FragmentStateStore,
-    HashMetric,
-    LooseCommit,
-    Sedimentree,
-    SedimentreeAutomerge,
-    SedimentreeId,
-    SedimentreeStorage,
-    Subduction,
-    SubductionWebSocket,
+  BlobMeta,
+  Digest,
+  Fragment,
+  FragmentRequested,
+  FragmentStateStore,
+  HashMetric,
+  LooseCommit,
+  PeerBatchSyncResult,
+  Sedimentree,
+  SedimentreeAutomerge,
+  SedimentreeId,
+  SedimentreeStorage,
+  Subduction,
+  SubductionWebSocket,
+  SyncStats,
 } from "@automerge/automerge_subduction"
 
 /**
@@ -71,55 +73,55 @@ import {
  * This allows Repo to register callbacks without depending on the concrete bridge implementation.
  */
 export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
-    on(
-        event: "commit-saved",
-        callback: (
-            sedimentreeId: SedimentreeId,
-            digest: Digest,
-            blob: Uint8Array
-        ) => void
-    ): void
-    on(
-        event: "fragment-saved",
-        callback: (
-            sedimentreeId: SedimentreeId,
-            digest: Digest,
-            blob: Uint8Array
-        ) => void
-    ): void
-    on(
-        event: "blob-saved",
-        callback: (digest: Digest, blob: Uint8Array) => void
-    ): void
-    /**
-     * Wait for all pending save operations to complete.
-     */
-    awaitSettled(): Promise<void>
+  on(
+    event: "commit-saved",
+    callback: (
+      sedimentreeId: SedimentreeId,
+      digest: Digest,
+      blob: Uint8Array
+    ) => void
+  ): void
+  on(
+    event: "fragment-saved",
+    callback: (
+      sedimentreeId: SedimentreeId,
+      digest: Digest,
+      blob: Uint8Array
+    ) => void
+  ): void
+  on(
+    event: "blob-saved",
+    callback: (digest: Digest, blob: Uint8Array) => void
+  ): void
+  /**
+   * Wait for all pending save operations to complete.
+   */
+  awaitSettled(): Promise<void>
 }
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
-    untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
-    peek: () => FindProgress<T>
-    subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
+  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+  peek: () => FindProgress<T>
+  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
 }
 
 export type ProgressSignal<T> = {
-    peek: () => FindProgress<T>
-    subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
-    untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+  peek: () => FindProgress<T>
+  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
+  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
 }
 
 function randomPeerId() {
-    return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
+  return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
 }
 
 // Lazy-initialize HashMetric to avoid accessing WASM before it's loaded
 let _hashMetric: HashMetric | null = null
 function getHashMetric(): HashMetric {
-    if (_hashMetric === null) {
-        _hashMetric = new HashMetric(null)
-    }
-    return _hashMetric
+  if (_hashMetric === null) {
+    _hashMetric = new HashMetric(null)
+  }
+  return _hashMetric
 }
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
@@ -131,1463 +133,1378 @@ function getHashMetric(): HashMetric {
  * obtain {@link DocHandle}s.
  */
 export class Repo extends EventEmitter<RepoEvents> {
-    #log: debug.Debugger
+  #log: debug.Debugger
 
-    /** Subduction */
-    #subduction: Subduction
-    #subductionStorage: SubductionStorageWithCallbacks | null = null
-    #handlesBySedimentreeId: Map<string, DocHandle<any>> // NOTE until doc IDs are [u8; 32]s
-    #fragmentStateStore: FragmentStateStore
-    #lastHeadsSent: Map<string, Set<string>> // TODO move to subduction.wasm
-    #recentlySeenHeads: Map<string, HashRing>
-    #recentHeadsCacheSize: number
-    #subductionAdaptersReady: Promise<void>
+  /** Subduction */
+  #subduction: Subduction
+  #subductionStorage: SubductionStorageWithCallbacks | null = null
+  #handlesBySedimentreeId: Map<string, DocHandle<any>> // NOTE until doc IDs are [u8; 32]s
+  #fragmentStateStore: FragmentStateStore
+  #lastHeadsSent: Map<string, Set<string>> // TODO move to subduction.wasm
+  #recentlySeenHeads: Map<string, HashRing>
+  #recentHeadsCacheSize: number
+  #subductionAdaptersReady: Promise<void>
 
-    /** Tracks pending outbound operations for awaitOutbound() */
-    #pendingOutbound: number = 0
-    #outboundResolvers: (() => void)[] = []
-    #throttledBroadcasts: ThrottledFunction<() => void>[] = []
+  /** Tracks pending outbound operations for awaitOutbound() */
+  #pendingOutbound: number = 0
+  #outboundResolvers: (() => void)[] = []
+  #throttledBroadcasts: ThrottledFunction<() => void>[] = []
 
-    /** @hidden */
-    networkSubsystem: NetworkSubsystem
-    /** @hidden */
-    storageSubsystem?: StorageSubsystem
+  /** @hidden */
+  networkSubsystem: NetworkSubsystem
+  /** @hidden */
+  storageSubsystem?: StorageSubsystem
 
-    /** @hidden */
-    #saveDebounceRate: number
+  /** @hidden */
+  #saveDebounceRate: number
 
-    /** @hidden */
-    #saveFn: (payload: DocHandleEncodedChangePayload<any>) => void
+  /** @hidden */
+  #saveFn: (payload: DocHandleEncodedChangePayload<any>) => void
 
-    #handleCache: Record<DocumentId, DocHandle<any>> = {}
+  #handleCache: Record<DocumentId, DocHandle<any>> = {}
 
-    /** @hidden */
-    synchronizer: CollectionSynchronizer
+  /** @hidden */
+  synchronizer: CollectionSynchronizer
 
-    #shareConfig: ShareConfig = {
-        announce: async () => true,
+  #shareConfig: ShareConfig = {
+    announce: async () => true,
+    access: async () => true,
+  }
+
+  /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
+  /** @hidden */
+  peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
+
+  #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
+  #remoteHeadsGossipingEnabled = false
+  #progressCache: Record<DocumentId, FindProgress<any>> = {}
+  #saveFns: Record<
+    DocumentId,
+    (payload: DocHandleEncodedChangePayload<any>) => void
+  > = {}
+  #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
+
+  constructor({
+    storage,
+    network = [],
+    peerId = randomPeerId(),
+    sharePolicy,
+    shareConfig,
+    isEphemeral = storage === undefined,
+    enableRemoteHeadsGossiping = false,
+    denylist = [],
+    saveDebounceRate = 100,
+    idFactory,
+    subduction,
+    recentHeadsCacheSize = 256,
+  }: RepoConfig = {}) {
+    super()
+    this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
+    this.#log = debug(`automerge-repo:repo`)
+
+    this.#idFactory = idFactory || null
+    // Handle legacy sharePolicy
+    if (sharePolicy != null && shareConfig != null) {
+      throw new Error("cannot provide both sharePolicy and shareConfig at once")
+    }
+    if (sharePolicy) {
+      this.#shareConfig = {
+        announce: sharePolicy,
         access: async () => true,
+      }
+    }
+    if (shareConfig) {
+      this.#shareConfig = shareConfig
     }
 
-    /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
-    /** @hidden */
-    peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
+    this.on("delete-document", ({ documentId }) => {
+      this.#subduction.removeSedimentree(toSedimentreeId(documentId))
+      //   this.synchronizer.removeDocument(documentId)
 
-    #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
-    #remoteHeadsGossipingEnabled = false
-    #progressCache: Record<DocumentId, FindProgress<any>> = {}
-    #saveFns: Record<
-        DocumentId,
-        (payload: DocHandleEncodedChangePayload<any>) => void
-    > = {}
-    #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
+      //   if (storageSubsystem) {
+      //     storageSubsystem.removeDoc(documentId).catch(err => {
+      //       this.#log("error deleting document", { documentId, err })
+      //     })
+      //   }
+    })
 
-    constructor({
-        storage,
-        network = [],
-        peerId = randomPeerId(),
-        sharePolicy,
-        shareConfig,
-        isEphemeral = storage === undefined,
-        enableRemoteHeadsGossiping = false,
-        denylist = [],
-        saveDebounceRate = 100,
-        idFactory,
-        subduction,
-        recentHeadsCacheSize = 256,
-    }: RepoConfig = {}) {
-        super()
-        this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
-        this.#log = debug(`automerge-repo:repo`)
+    // // SYNCHRONIZER
+    // // The synchronizer uses the network subsystem to keep documents in sync with peers.
+    this.synchronizer = new CollectionSynchronizer(this, denylist)
 
-        this.#idFactory = idFactory || null
-        // Handle legacy sharePolicy
-        if (sharePolicy != null && shareConfig != null) {
-            throw new Error(
-                "cannot provide both sharePolicy and shareConfig at once"
-            )
-        }
-        if (sharePolicy) {
-            this.#shareConfig = {
-                announce: sharePolicy,
-                access: async () => true,
-            }
-        }
-        if (shareConfig) {
-            this.#shareConfig = shareConfig
-        }
+    // When the synchronizer emits messages, send them to peers
+    this.synchronizer.on("message", message => {
+      this.#log(`sending ${message.type} message to ${message.targetId}`)
+      networkSubsystem.send(message)
+    })
 
-        this.on("delete-document", ({ documentId }) => {
-            this.#subduction.removeSedimentree(toSedimentreeId(documentId))
-            //   this.synchronizer.removeDocument(documentId)
+    // // Forward metrics from doc synchronizers
+    // this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
 
-            //   if (storageSubsystem) {
-            //     storageSubsystem.removeDoc(documentId).catch(err => {
-            //       this.#log("error deleting document", { documentId, err })
-            //     })
-            //   }
-        })
-
-        // // SYNCHRONIZER
-        // // The synchronizer uses the network subsystem to keep documents in sync with peers.
-        this.synchronizer = new CollectionSynchronizer(this, denylist)
-
-        // When the synchronizer emits messages, send them to peers
-        this.synchronizer.on("message", message => {
-            this.#log(`sending ${message.type} message to ${message.targetId}`)
-            networkSubsystem.send(message)
-        })
-
-        // // Forward metrics from doc synchronizers
-        // this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
-
-        // if (this.#remoteHeadsGossipingEnabled) {
-        //   this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
-        //     this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-        //   })
-        // }
-
-        // STORAGE
-        // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
-        const storageSubsystem = storage
-            ? new StorageSubsystem(storage)
-            : undefined
-        if (storageSubsystem) {
-            storageSubsystem.on("document-loaded", event =>
-                this.emit("doc-metrics", { type: "doc-loaded", ...event })
-            )
-            storageSubsystem.on("doc-compacted", event =>
-                this.emit("doc-metrics", { type: "doc-compacted", ...event })
-            )
-            storageSubsystem.on("doc-saved", event =>
-                this.emit("doc-metrics", { type: "doc-saved", ...event })
-            )
-        }
-
-        this.storageSubsystem = storageSubsystem
-
-        this.#saveDebounceRate = saveDebounceRate
-
-        if (this.storageSubsystem) {
-            // Save no more often than saveDebounceRate.
-            this.#saveFn = ({
-                handle,
-                doc,
-            }: DocHandleEncodedChangePayload<any>) => {
-                let fn = this.#saveFns[handle.documentId]
-                if (!fn) {
-                    fn = throttle(
-                        ({
-                            doc,
-                            handle,
-                        }: DocHandleEncodedChangePayload<any>) => {
-                            void this.storageSubsystem!.saveDoc(
-                                handle.documentId,
-                                doc
-                            )
-                        },
-                        this.#saveDebounceRate
-                    )
-                    this.#saveFns[handle.documentId] = fn
-                }
-                fn({ handle, doc })
-            }
-        } else {
-            this.#saveFn = () => {}
-        }
-
-        // NETWORK
-        // The network subsystem deals with sending and receiving messages to and from peers.
-
-        const myPeerMetadata: Promise<PeerMetadata> = (async () => ({
-            storageId: await storageSubsystem?.id(),
-            isEphemeral,
-        }))()
-
-        // Separate adapters into subduction and non-subduction
-        // Subduction adapters have both getWebSocket() and isSubductionMode() returning true
-        const subductionAdapters = network.filter(
-            a => a.isSubductionMode?.() === true
-        )
-        const nonSubductionAdapters = network.filter(
-            a => !a.isSubductionMode?.()
-        )
-
-        const networkSubsystem = new NetworkSubsystem(
-            nonSubductionAdapters,
-            peerId,
-            myPeerMetadata
-        )
-        this.networkSubsystem = networkSubsystem
-
-        // When we get a new peer, register it with the synchronizer
-        networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
-            this.#log("peer connected", { peerId })
-
-            if (peerMetadata) {
-                this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
-            }
-
-            this.#shareConfig
-                .announce(peerId)
-                .then(shouldShare => {
-                    if (shouldShare && this.#remoteHeadsGossipingEnabled) {
-                        this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
-                    }
-                })
-                .catch(err => {
-                    console.log("error in share policy", { err })
-                })
-
-            this.synchronizer.addPeer(peerId)
-        })
-
-        // When a peer disconnects, remove it from the synchronizer
-        networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-            this.synchronizer.removePeer(peerId)
-            this.#disconnectFromPeer(peerId)
-            this.#remoteHeadsSubscriptions.removePeer(peerId)
-        })
-
-        // Handle incoming messages
-        networkSubsystem.on("message", async msg => {
-            this.#receiveMessage(msg)
-        })
-
-        this.synchronizer.on("sync-state", message => {
-            // this.#saveSyncState(message)
-
-            const handle = this.#handleCache[message.documentId]
-
-            const { storageId } =
-                this.peerMetadataByPeerId[message.peerId] || {}
-            if (!storageId) {
-                return
-            }
-
-            const heads = handle.getSyncInfo(storageId)?.lastHeads
-            const haveHeadsChanged =
-                message.syncState.theirHeads &&
-                (!heads ||
-                    !headsAreSame(
-                        heads,
-                        encodeHeads(message.syncState.theirHeads)
-                    ))
-
-            if (haveHeadsChanged && message.syncState.theirHeads) {
-                handle.setSyncInfo(storageId, {
-                    lastHeads: encodeHeads(message.syncState.theirHeads),
-                    lastSyncTimestamp: Date.now(),
-                })
-
-                if (storageId && this.#remoteHeadsGossipingEnabled) {
-                    this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-                        message.documentId,
-                        storageId,
-                        encodeHeads(message.syncState.theirHeads)
-                    )
-                }
-            }
-        })
-
-        if (this.#remoteHeadsGossipingEnabled) {
-            this.#remoteHeadsSubscriptions.on(
-                "notify-remote-heads",
-                message => {
-                    this.networkSubsystem.send({
-                        type: "remote-heads-changed",
-                        targetId: message.targetId,
-                        documentId: message.documentId,
-                        newHeads: {
-                            [message.storageId]: {
-                                heads: message.heads,
-                                timestamp: message.timestamp,
-                            },
-                        },
-                    })
-                }
-            )
-
-            this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
-                this.#log("change-remote-subs", message)
-                for (const peer of message.peers) {
-                    this.networkSubsystem.send({
-                        type: "remote-subscription-change",
-                        targetId: peer,
-                        add: message.add,
-                        remove: message.remove,
-                    })
-                }
-            })
-
-            this.#remoteHeadsSubscriptions.on(
-                "remote-heads-changed",
-                ({ documentId, storageId, remoteHeads, timestamp }) => {
-                    const handle = this.#handleCache[documentId]
-                    handle.setSyncInfo(storageId, {
-                        lastHeads: remoteHeads,
-                        lastSyncTimestamp: timestamp,
-                    })
-                }
-            )
-        }
-
-        if (!subduction) throw new Error("Subduction instance is required")
-        this.#subduction = subduction
-        this.#fragmentStateStore = new FragmentStateStore()
-        this.#recentHeadsCacheSize = recentHeadsCacheSize
-        this.#recentlySeenHeads = new Map()
-        this.#lastHeadsSent = new Map()
-        this.#handlesBySedimentreeId = new Map()
-
-        if (hasCallbacks(subduction.storage)) {
-            const subductionStorage = subduction.storage
-            this.#subductionStorage = subductionStorage
-
-            subductionStorage.on("commit-saved", (id, digest, blob) => {
-                this.#handleCommitSaved(id, digest, blob)
-            })
-
-            subductionStorage.on("fragment-saved", (id, digest, blob) => {
-                this.#handleFragmentSaved(id, digest, blob)
-            })
-        }
-
-        // Connect subduction adapters and attach their WebSockets to Subduction
-        // Store the promise so we can wait for it in document operations
-        if (subductionAdapters.length > 0) {
-            this.#subductionAdaptersReady =
-                this.#attachNetworkAdaptersToSubduction(
-                    subductionAdapters,
-                    peerId,
-                    myPeerMetadata
-                )
-        } else {
-            this.#subductionAdaptersReady = Promise.resolve()
-        }
-    }
-
-    // The `document` event is fired by the DocCollection any time we create a new document or look
-    // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-    #registerHandleWithSubsystems(handle: DocHandle<any>) {
-        if (this.storageSubsystem) {
-            // Add save function as a listener if it's not already registered
-            const existingListeners = handle.listeners("heads-changed")
-            if (
-                !existingListeners.some(listener => listener === this.#saveFn)
-            ) {
-                // Save when the document changes
-                handle.on("heads-changed", this.#saveFn)
-            }
-        }
-
-        this.#tellSubductionAboutNewHandle(handle)
-
-        // Register the document with the synchronizer. This advertises our interest in the document.
-        this.synchronizer.addDocument(handle)
-    }
-
-    #receiveMessage(message: RepoMessage) {
-        switch (message.type) {
-            case "remote-subscription-change":
-                if (this.#remoteHeadsGossipingEnabled) {
-                    this.#remoteHeadsSubscriptions.handleControlMessage(message)
-                }
-                break
-            case "remote-heads-changed":
-                if (this.#remoteHeadsGossipingEnabled) {
-                    this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
-                }
-                break
-            case "sync":
-            case "request":
-            case "ephemeral":
-            case "doc-unavailable":
-                this.synchronizer.receiveMessage(message).catch(err => {
-                    console.log("error receiving message", { err, message })
-                })
-                break
-        }
-    }
-
-    // #throttledSaveSyncStateHandlers: Record<
-    //   StorageId,
-    //   (payload: SyncStatePayload) => void
-    // > = {}
-
-    // /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
-    // #saveSyncState(payload: SyncStatePayload) {
-    //   if (!this.storageSubsystem) {
-    //     return
-    //   }
-
-    //   const { storageId, isEphemeral } =
-    //     this.peerMetadataByPeerId[payload.peerId] || {}
-
-    //   if (!storageId || isEphemeral) {
-    //     return
-    //   }
-
-    //   let handler = this.#throttledSaveSyncStateHandlers[storageId]
-    //   if (!handler) {
-    //     handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
-    //       ({ documentId, syncState }: SyncStatePayload) => {
-    //         void this.storageSubsystem!.saveSyncState(
-    //           documentId,
-    //           storageId,
-    //           syncState
-    //         )
-    //       },
-    //       this.#saveDebounceRate
-    //     )
-    //   }
-
-    //   handler(payload)
+    // if (this.#remoteHeadsGossipingEnabled) {
+    //   this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
+    //     this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
+    //   })
     // }
 
-    /** Returns an existing handle if we have it; creates one otherwise. */
-    #getHandle<T>({
-        documentId,
-    }: {
-        /** The documentId of the handle to look up or create */
-        documentId: DocumentId /** If we know we're creating a new document, specify this so we can have access to it immediately */
-    }): DocHandle<T> {
-        // If we have the handle cached, return it
-        if (this.#handleCache[documentId]) return this.#handleCache[documentId]
-
-        // If not, create a new handle, cache it, and return it
-        if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
-        const handle = new DocHandle<T>(documentId)
-        this.#handleCache[documentId] = handle
-        return handle
+    // STORAGE
+    // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
+    const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
+    if (storageSubsystem) {
+      storageSubsystem.on("document-loaded", event =>
+        this.emit("doc-metrics", { type: "doc-loaded", ...event })
+      )
+      storageSubsystem.on("doc-compacted", event =>
+        this.emit("doc-metrics", { type: "doc-compacted", ...event })
+      )
+      storageSubsystem.on("doc-saved", event =>
+        this.emit("doc-metrics", { type: "doc-saved", ...event })
+      )
     }
 
-    /** Returns all the handles we have cached. */
-    get handles() {
-        return this.#handleCache
-    }
+    this.storageSubsystem = storageSubsystem
 
-    //  /** Returns a list of all connected peer ids */
-    //  get peers(): PeerId[] {
-    //    return this.synchronizer.peers
-    //  }
+    this.#saveDebounceRate = saveDebounceRate
 
-    //  get peerId(): PeerId {
-    //    return this.networkSubsystem.peerId
-    //  }
-
-    /** @hidden */
-    get sharePolicy(): SharePolicy {
-        return this.#shareConfig.announce
-    }
-
-    /** @hidden */
-    set sharePolicy(policy: SharePolicy) {
-        this.#shareConfig.announce = policy
-    }
-
-    /** @hidden */
-    get shareConfig(): ShareConfig {
-        return this.#shareConfig
-    }
-
-    /** @hidden */
-    set shareConfig(config: ShareConfig) {
-        this.#shareConfig = config
-    }
-
-    getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
-        return this.peerMetadataByPeerId[peerId]?.storageId
-    }
-
-    /**
-     * Creates a new document and returns a handle to it. The initial value of the document is an
-     * empty object `{}` unless an initial value is provided. Its documentId is generated by the
-     * system. we emit a `document` event to advertise interest in the document.
-     */
-    create<T>(initialValue?: T): DocHandle<T> {
-        let initialDoc: Automerge.Doc<T>
-        if (initialValue) {
-            initialDoc = Automerge.from(initialValue)
-        } else {
-            initialDoc = Automerge.emptyChange(Automerge.init())
+    if (this.storageSubsystem) {
+      // Save no more often than saveDebounceRate.
+      this.#saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
+        let fn = this.#saveFns[handle.documentId]
+        if (!fn) {
+          fn = throttle(
+            ({ doc, handle }: DocHandleEncodedChangePayload<any>) => {
+              void this.storageSubsystem!.saveDoc(handle.documentId, doc)
+            },
+            this.#saveDebounceRate
+          )
+          this.#saveFns[handle.documentId] = fn
         }
-
-        // Generate a new UUID and store it in the buffer
-        const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-        const handle = this.#getHandle<T>({
-            documentId,
-        }) as DocHandle<T>
-
-        handle.update(() => initialDoc)
-        this.#registerHandleWithSubsystems(handle)
-
-        handle.doneLoading()
-
-        // Sync the new document to peers (fire-and-forget since create is sync)
-        // This ensures peers receive the initial data and establishes subscriptions
-        const sid = toSedimentreeId(documentId)
-        void this.#subduction.syncAll(sid, true)
-
-        return handle
+        fn({ handle, doc })
+      }
+    } else {
+      this.#saveFn = () => {}
     }
 
-    /**
-     * Creates a new document and returns a handle to it. The initial value of the
-     * document is an empty object `{}` unless an initial value is provided. The
-     * main difference between this and Repo.create is that if an `idGenerator`
-     * was provided at repo construction, that idGenerator will be used to
-     * generate the document ID of the document returned by this method.
-     *
-     * This is a hidden, experimental API which is subject to change or removal without notice.
-     * @hidden
-     * @experimental
-     */
-    async create2<T>(initialValue?: T): Promise<DocHandle<T>> {
-        // Note that the reason this method is hidden and experimental is because it is async,
-        // and it is async because we want to be able to call the #idGenerator, which is async.
-        // This is all really in service of wiring up keyhive and we probably need to find a
-        // nicer way to achieve this.
-        let initialDoc: Automerge.Doc<T>
-        if (initialValue) {
-            initialDoc = Automerge.from(initialValue)
-        } else {
-            initialDoc = Automerge.emptyChange(Automerge.init())
-        }
+    // NETWORK
+    // The network subsystem deals with sending and receiving messages to and from peers.
 
-        let { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-        if (this.#idFactory) {
-            const rawDocId = await this.#idFactory(
-                Automerge.getHeads(initialDoc)
-            )
-            documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
-        }
-        const handle = this.#getHandle<T>({
-            documentId,
-        }) as DocHandle<T>
+    const myPeerMetadata: Promise<PeerMetadata> = (async () => ({
+      storageId: await storageSubsystem?.id(),
+      isEphemeral,
+    }))()
 
-        handle.update(() => initialDoc)
-        this.#registerHandleWithSubsystems(handle)
-        handle.doneLoading()
+    // Separate adapters into subduction and non-subduction
+    // Subduction adapters have both getWebSocket() and isSubductionMode() returning true
+    const subductionAdapters = network.filter(
+      a => a.isSubductionMode?.() === true
+    )
+    const nonSubductionAdapters = network.filter(a => !a.isSubductionMode?.())
 
-        const sid = toSedimentreeId(documentId)
-        this.#subduction.syncAll(sid, true)
-        return handle
-    }
-    /** Create a new DocHandle by cloning the history of an existing DocHandle.
-     *
-     * @param clonedHandle - The handle to clone
-     *
-     * @remarks This is a wrapper around the `clone` function in the Automerge library.
-     * The new `DocHandle` will have a new URL but will share history with the original,
-     * which means that changes made to the cloned handle can be sensibly merged back
-     * into the original.
-     *
-     * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
-     * be notified of the newly created DocHandle.
-     *
-     */
-    clone<T>(clonedHandle: DocHandle<T>) {
-        if (!clonedHandle.isReady()) {
-            throw new Error(
-                `Cloned handle is not yet in ready state.
-        (Try await handle.whenReady() first.)`
-            )
-        }
+    const networkSubsystem = new NetworkSubsystem(
+      nonSubductionAdapters,
+      peerId,
+      myPeerMetadata
+    )
+    this.networkSubsystem = networkSubsystem
 
-        const sourceDoc = clonedHandle.doc()
-        const handle = this.create<T>()
+    // When we get a new peer, register it with the synchronizer
+    networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
+      this.#log("peer connected", { peerId })
 
-        handle.update(() => {
-            // we replace the document with the new cloned one
-            return Automerge.clone(sourceDoc)
+      if (peerMetadata) {
+        this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
+      }
+
+      this.#shareConfig
+        .announce(peerId)
+        .then(shouldShare => {
+          if (shouldShare && this.#remoteHeadsGossipingEnabled) {
+            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
+          }
+        })
+        .catch(err => {
+          console.log("error in share policy", { err })
         })
 
-        return handle
-    }
+      this.synchronizer.addPeer(peerId)
+    })
 
-    findWithProgress<T>(
-        id: AnyDocumentId,
-        options: AbortOptions = {}
-    ): FindProgressWithMethods<T> | FindProgress<T> {
-        const { signal } = options
-        const { documentId, heads } = isValidAutomergeUrl(id)
-            ? parseAutomergeUrl(id)
-            : { documentId: interpretAsDocumentId(id), heads: undefined }
+    // When a peer disconnects, remove it from the synchronizer
+    networkSubsystem.on("peer-disconnected", ({ peerId }) => {
+      this.synchronizer.removePeer(peerId)
+      this.#disconnectFromPeer(peerId)
+      this.#remoteHeadsSubscriptions.removePeer(peerId)
+    })
 
-        // Check handle cache first - return plain FindStep for terminal states
-        if (this.#handleCache[documentId]) {
-            const handle = this.#handleCache[documentId]
-            if (handle.state === UNAVAILABLE) {
-                const result = {
-                    state: "unavailable" as const,
-                    error: new Error(`Document ${id} is unavailable`),
-                    handle,
-                }
-                return result
-            }
-            if (handle.state === DELETED) {
-                const result = {
-                    state: "failed" as const,
-                    error: new Error(`Document ${id} was deleted`),
-                    handle,
-                }
-                return result
-            }
-            if (handle.state === READY) {
-                const result = {
-                    state: "ready" as const,
-                    handle: heads ? handle.view(heads) : handle,
-                }
-                return result
-            }
+    // Handle incoming messages
+    networkSubsystem.on("message", async msg => {
+      this.#receiveMessage(msg)
+    })
+
+    this.synchronizer.on("sync-state", message => {
+      // this.#saveSyncState(message)
+
+      const handle = this.#handleCache[message.documentId]
+
+      const { storageId } = this.peerMetadataByPeerId[message.peerId] || {}
+      if (!storageId) {
+        return
+      }
+
+      const heads = handle.getSyncInfo(storageId)?.lastHeads
+      const haveHeadsChanged =
+        message.syncState.theirHeads &&
+        (!heads ||
+          !headsAreSame(heads, encodeHeads(message.syncState.theirHeads)))
+
+      if (haveHeadsChanged && message.syncState.theirHeads) {
+        handle.setSyncInfo(storageId, {
+          lastHeads: encodeHeads(message.syncState.theirHeads),
+          lastSyncTimestamp: Date.now(),
+        })
+
+        if (storageId && this.#remoteHeadsGossipingEnabled) {
+          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+            message.documentId,
+            storageId,
+            encodeHeads(message.syncState.theirHeads)
+          )
         }
+      }
+    })
 
-        // Check progress cache for any existing signal
-        const cachedProgress = this.#progressCache[documentId]
-        if (cachedProgress) {
-            const handle = this.#handleCache[documentId]
-            // Return cached progress if we have a handle and it's either in a terminal state or loading
-            if (
-                handle &&
-                (handle.state === READY ||
-                    handle.state === UNAVAILABLE ||
-                    handle.state === DELETED ||
-                    handle.state === "loading")
-            ) {
-                return cachedProgress as FindProgressWithMethods<T>
-            }
-        }
-
-        const handle = this.#getHandle<T>({ documentId })
-        const initial = {
-            state: "loading" as const,
-            progress: 0,
-            handle,
-        }
-
-        // Create a new progress signal
-        const progressSignal = {
-            subscribers: new Set<(progress: FindProgress<T>) => void>(),
-            currentProgress: undefined as FindProgress<T> | undefined,
-            notify: (progress: FindProgress<T>) => {
-                progressSignal.currentProgress = progress
-                progressSignal.subscribers.forEach(callback =>
-                    callback(progress)
-                )
-                // Cache all states, not just terminal ones
-                this.#progressCache[documentId] = progress
+    if (this.#remoteHeadsGossipingEnabled) {
+      this.#remoteHeadsSubscriptions.on("notify-remote-heads", message => {
+        this.networkSubsystem.send({
+          type: "remote-heads-changed",
+          targetId: message.targetId,
+          documentId: message.documentId,
+          newHeads: {
+            [message.storageId]: {
+              heads: message.heads,
+              timestamp: message.timestamp,
             },
-            peek: () => progressSignal.currentProgress || initial,
-            subscribe: (callback: (progress: FindProgress<T>) => void) => {
-                progressSignal.subscribers.add(callback)
-                return () => progressSignal.subscribers.delete(callback)
-            },
+          },
+        })
+      })
+
+      this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
+        this.#log("change-remote-subs", message)
+        for (const peer of message.peers) {
+          this.networkSubsystem.send({
+            type: "remote-subscription-change",
+            targetId: peer,
+            add: message.add,
+            remove: message.remove,
+          })
         }
+      })
 
-        progressSignal.notify(initial)
-
-        // Start the loading process
-        void this.#loadDocumentWithProgress(
-            id,
-            documentId,
-            handle,
-            progressSignal,
-            signal
-                ? abortable(new Promise(() => {}), signal)
-                : new Promise(() => {})
-        )
-
-        const result = {
-            ...initial,
-            peek: progressSignal.peek,
-            subscribe: progressSignal.subscribe,
+      this.#remoteHeadsSubscriptions.on(
+        "remote-heads-changed",
+        ({ documentId, storageId, remoteHeads, timestamp }) => {
+          const handle = this.#handleCache[documentId]
+          handle.setSyncInfo(storageId, {
+            lastHeads: remoteHeads,
+            lastSyncTimestamp: timestamp,
+          })
         }
-        this.#progressCache[documentId] = result
-        return result
+      )
     }
 
-    async #loadDocumentWithProgress<T>(
-        id: AnyDocumentId,
-        documentId: DocumentId,
-        handle: DocHandle<T>,
-        progressSignal: {
-            notify: (progress: FindProgress<T>) => void
-        },
-        abortPromise: Promise<never>
-    ) {
-        try {
-            progressSignal.notify({
-                state: "loading" as const,
-                progress: 25,
-                handle,
-            })
+    if (!subduction) throw new Error("Subduction instance is required")
+    this.#subduction = subduction
+    this.#fragmentStateStore = new FragmentStateStore()
+    this.#recentHeadsCacheSize = recentHeadsCacheSize
+    this.#recentlySeenHeads = new Map()
+    this.#lastHeadsSent = new Map()
+    this.#handlesBySedimentreeId = new Map()
 
-            const sedimentreeId = toSedimentreeId(handle.documentId)
-            const loadedBlobs = await Promise.race([
-                this.#subduction.getBlobs(sedimentreeId),
-                abortPromise,
-            ])
+    if (hasCallbacks(subduction.storage)) {
+      const subductionStorage = subduction.storage
+      this.#subductionStorage = subductionStorage
 
-            if (!!loadedBlobs && loadedBlobs.length > 0) {
-                handle.update(doc => {
-                    let newDoc = doc
-                    loadedBlobs.forEach((blob: Uint8Array) => {
-                        newDoc = Automerge.loadIncremental(newDoc, blob)
-                    })
-                    return newDoc
-                })
-                handle.doneLoading()
-                progressSignal.notify({
-                    state: "loading" as const,
-                    progress: 50,
-                    handle,
-                })
-            } else {
-                await Promise.race([
-                    this.#requestDocOverSubduction(handle),
-                    abortPromise,
-                ])
-                // Only call request() if Subduction didn't already load the data
-                // The storage callback may have called doneLoading() during requestDocOverSubduction
-                if (!handle.isReady()) {
-                    handle.request()
-                }
-                progressSignal.notify({
-                    state: "loading" as const,
-                    progress: 75,
-                    handle,
-                })
-            }
+      subductionStorage.on("commit-saved", (id, digest, blob) => {
+        this.#handleCommitSaved(id, digest, blob)
+      })
 
-            await this.#requestDocOverSubduction(handle)
-            this.#registerHandleWithSubsystems(handle)
-
-            await Promise.race([
-                handle.whenReady([READY, UNAVAILABLE]),
-                abortPromise,
-            ])
-
-            if (handle.state === UNAVAILABLE) {
-                const unavailableProgress = {
-                    state: "unavailable" as const,
-                    handle,
-                }
-                progressSignal.notify(unavailableProgress)
-                return
-            }
-            if (handle.state === DELETED) {
-                throw new Error(`Document ${id} was deleted`)
-            }
-
-            progressSignal.notify({ state: "ready" as const, handle })
-        } catch (error) {
-            progressSignal.notify({
-                state: "failed" as const,
-                error:
-                    // In most JS environments DOMException extends Error, but not always, in some environments it's a separate type.
-                    // Some Node.js DOM polyfills do not always extend the Error
-                    // Jsdom polyfill doesn't extend Error, whereas happy-dom does.
-                    error instanceof Error || error instanceof DOMException
-                        ? error
-                        : new Error(String(error)),
-                handle: this.#getHandle<T>({ documentId }),
-            })
-        }
+      subductionStorage.on("fragment-saved", (id, digest, blob) => {
+        this.#handleFragmentSaved(id, digest, blob)
+      })
     }
 
-    async find<T>(
-        id: AnyDocumentId,
-        options: RepoFindOptions & AbortOptions = {}
-    ): Promise<DocHandle<T>> {
-        const { allowableStates = [READY], signal } = options
+    // Connect subduction adapters and attach their WebSockets to Subduction
+    // Store the promise so we can wait for it in document operations
+    if (subductionAdapters.length > 0) {
+      this.#subductionAdaptersReady = this.#attachNetworkAdaptersToSubduction(
+        subductionAdapters,
+        peerId,
+        myPeerMetadata
+      )
+    } else {
+      this.#subductionAdaptersReady = Promise.resolve()
+    }
+  }
 
-        // Check if already aborted
-        if (signal?.aborted) {
-            throw new AbortError()
-        }
-
-        const progress = this.findWithProgress<T>(id, { signal })
-
-        if ("subscribe" in progress) {
-            this.#registerHandleWithSubsystems(progress.handle)
-            const targetDocumentId = progress.handle.documentId
-
-            return new Promise((resolve, reject) => {
-                let resolved = false
-
-                const cleanup = () => {
-                    if (!resolved) {
-                        resolved = true
-                        unsubscribe()
-                        this.off("document", onDocument)
-                    }
-                }
-
-                // Listen for the document event - this fires when a document becomes
-                // available via async sync (e.g., Subduction)
-                const onDocument = ({
-                    handle,
-                }: {
-                    handle: DocHandle<unknown>
-                }) => {
-                    if (
-                        handle.documentId === targetDocumentId &&
-                        allowableStates.includes(handle.state)
-                    ) {
-                        cleanup()
-                        resolve(handle as DocHandle<T>)
-                    }
-                }
-
-                const unsubscribe = progress.subscribe(state => {
-                    if (allowableStates.includes(state.handle.state)) {
-                        cleanup()
-                        resolve(state.handle)
-                    } else if (state.state === "unavailable") {
-                        // Don't reject on unavailable - the document may become available
-                        // via async sync (e.g., Subduction). Keep listening for the
-                        // "document" event which will fire when the data arrives.
-                    } else if (state.state === "failed") {
-                        cleanup()
-                        reject(state.error)
-                    }
-                })
-
-                this.on("document", onDocument)
-            })
-        } else {
-            if (allowableStates.includes(progress.handle.state)) {
-                return progress.handle
-            }
-            // If the handle isn't ready, wait for it and then return it
-            await progress.handle.whenReady([READY, UNAVAILABLE])
-            if (
-                progress.handle.state === UNAVAILABLE &&
-                !allowableStates.includes(UNAVAILABLE)
-            ) {
-                throw new Error(`Document ${id} is unavailable`)
-            }
-            return progress.handle
-        }
+  // The `document` event is fired by the DocCollection any time we create a new document or look
+  // up a document by ID. We listen for it in order to wire up storage and network synchronization.
+  #registerHandleWithSubsystems(handle: DocHandle<any>) {
+    if (this.storageSubsystem) {
+      // Add save function as a listener if it's not already registered
+      const existingListeners = handle.listeners("heads-changed")
+      if (!existingListeners.some(listener => listener === this.#saveFn)) {
+        // Save when the document changes
+        handle.on("heads-changed", this.#saveFn)
+      }
     }
 
-    /**
-     * Loads a document without waiting for ready state
-     */
-    async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
-        // If we have the handle cached, return it
-        if (this.#handleCache[documentId]) {
-            return this.#handleCache[documentId]
-        }
+    this.#tellSubductionAboutNewHandle(handle)
 
-        // If we don't already have the handle, make an empty one and try loading it
-        const handle = this.#getHandle<T>({ documentId })
-        const sedimentreeId = toSedimentreeId(handle.documentId)
-        const blobs = await this.#subduction.getBlobs(sedimentreeId)
-        if (blobs.length > 0) {
-            handle.update(initialDoc => {
-                let doc = initialDoc
-                blobs.forEach((blob: Uint8Array) => {
-                    doc = Automerge.loadIncremental(doc, blob)
-                })
-                return doc
-            })
-            handle.doneLoading()
-        } else {
-            // Because the network subsystem might still be booting up, we wait
-            // here so that we don't immediately give up loading because we're still
-            // making our initial connection to a sync server.
-            await this.#requestDocOverSubduction(handle)
-        }
+    // Register the document with the synchronizer. This advertises our interest in the document.
+    this.synchronizer.addDocument(handle)
+  }
 
-        this.#registerHandleWithSubsystems(handle)
-        return handle
-    }
-
-    /**
-     * Retrieves a document by id. It gets data from the local system, but also emits a `document`
-     * event to advertise interest in the document.
-     */
-    async findClassic<T>(
-        /** The url or documentId of the handle to retrieve */
-        id: AnyDocumentId,
-        options: RepoFindOptions & AbortOptions = {}
-    ): Promise<DocHandle<T>> {
-        const documentId = interpretAsDocumentId(id)
-        const { allowableStates, signal } = options
-
-        return abortable(
-            (async () => {
-                const handle = await this.#loadDocument<T>(documentId)
-                if (!allowableStates) {
-                    await handle.whenReady([READY, UNAVAILABLE])
-                    if (handle.state === UNAVAILABLE && !signal?.aborted) {
-                        throw new Error(`Document ${id} is unavailable`)
-                    }
-                }
-                return handle
-            })(),
-            signal
-        )
-    }
-
-    delete(
-        /** The url or documentId of the handle to delete */
-        id: AnyDocumentId
-    ) {
-        const documentId = interpretAsDocumentId(id)
-
-        const handle = this.#getHandle({ documentId })
-        handle.delete()
-
-        delete this.#handleCache[documentId]
-        delete this.#progressCache[documentId]
-        delete this.#saveFns[documentId]
-        this.emit("delete-document", { documentId })
-    }
-
-    /**
-     * Exports a document to a binary format.
-     * @param id - The url or documentId of the handle to export
-     *
-     * @returns Promise<Uint8Array | undefined> - A Promise containing the binary document,
-     * or undefined if the document is unavailable.
-     */
-    async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
-        const documentId = interpretAsDocumentId(id)
-
-        const handle = this.#getHandle({ documentId })
-        const doc = handle.doc()
-        return Automerge.save(doc)
-    }
-
-    /**
-     * Imports document binary into the repo.
-     * @param binary - The binary to import
-     * @param args - Optional argument specifying what document ID to import into,
-     *              if at all possible avoid using this, see the remarks below
-     *
-     * @remarks
-     * If no document ID is provided, a new document will be created. When
-     * specifying the document ID it is important to ensure that two documents using
-     * the same ID share the same history - i.e. don't create a document with the
-     * same ID on unrelated processes that have never communicated with each
-     * other. If you need to ship around a bunch of documents with their IDs
-     * consider using the `automerge-repo-bundles` package which provides a
-     * serialization format for documents and IDs and handles the boilerplate of
-     * importing and exporting these bundles.
-     */
-    import<T>(binary: Uint8Array, args?: { docId?: DocumentId }): DocHandle<T> {
-        const docId = args?.docId
-        if (docId != null) {
-            const handle = this.#getHandle<T>({ documentId: docId })
-            handle.update(doc => {
-                return Automerge.loadIncremental(doc, binary)
-            })
-            this.#registerHandleWithSubsystems(handle)
-            return handle
-        } else {
-            const doc = Automerge.load<T>(binary)
-            const handle = this.create<T>()
-            handle.update(() => {
-                return Automerge.clone(doc)
-            })
-
-            return handle
-        }
-    }
-
-    subscribeToRemotes = (remotes: StorageId[]) => {
+  #receiveMessage(message: RepoMessage) {
+    switch (message.type) {
+      case "remote-subscription-change":
         if (this.#remoteHeadsGossipingEnabled) {
-            this.#log("subscribeToRemotes", { remotes })
-            this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
-        } else {
-            this.#log(
-                "WARN: subscribeToRemotes called but remote heads gossiping is not enabled"
-            )
+          this.#remoteHeadsSubscriptions.handleControlMessage(message)
         }
-    }
-
-    storageId = async (): Promise<StorageId | undefined> => {
-        if (!this.storageSubsystem) {
-            return undefined
-        } else {
-            return this.storageSubsystem.id()
+        break
+      case "remote-heads-changed":
+        if (this.#remoteHeadsGossipingEnabled) {
+          this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
         }
-    }
-
-    /**
-     * Writes Documents to a disk.
-     * @hidden this API is experimental and may change.
-     * @param documents - if provided, only writes the specified documents.
-     * @returns Promise<void>
-     */
-    async flush(documents?: DocumentId[]): Promise<void> {
-        const handles = documents
-            ? documents
-                  .map(id => this.#handleCache[id])
-                  .filter(handle => handle.isReady())
-            : Object.values(this.#handleCache)
-        await Promise.all(
-            handles.map(async handle => {
-                const sid = toSedimentreeId(handle.documentId)
-                if (handle.isReady()) {
-                    await this.#broadcast(handle.doc(), sid)
-                }
-            })
-        )
-    }
-
-    /**
-     * Removes a DocHandle from the handleCache.
-     * @hidden this API is experimental and may change.
-     * @param documentId - documentId of the DocHandle to remove from handleCache, if present in cache.
-     * @returns Promise<void>
-     */
-    async removeFromCache(documentId: DocumentId) {
-        if (!this.#handleCache[documentId]) {
-            this.#log(
-                `WARN: removeFromCache called but handle not found in handleCache for documentId: ${documentId}`
-            )
-            return
-        }
-        const handle = this.#getHandle({ documentId })
-        await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
-        const doc = handle.doc()
-        // because this is an internal-ish function, we'll be extra careful about undefined docs here
-        if (doc) {
-            if (handle.isReady()) {
-                handle.unload()
-            } else {
-                this.#log(
-                    `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
-                )
-            }
-            await this.#subduction.removeSedimentree(
-                toSedimentreeId(documentId)
-            )
-            delete this.#handleCache[documentId]
-            delete this.#progressCache[documentId]
-            delete this.#saveFns[documentId]
-            // this.synchronizer.removeDocument(documentId)
-        } else {
-            this.#log(
-                `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
-            )
-        }
-    }
-
-    /**
-     * Wait for all pending outbound operations to complete.
-     * Call this before shutdown() to ensure all changes have been sent to the network.
-     */
-    async awaitOutbound(): Promise<void> {
-        // Flush any pending throttled broadcasts first
-        for (const throttled of this.#throttledBroadcasts) {
-            throttled.flush()
-        }
-
-        // Yield to let flushed broadcasts start executing
-        await Promise.resolve()
-
-        if (this.#pendingOutbound === 0) return
-        return new Promise(resolve => this.#outboundResolvers.push(resolve))
-    }
-
-    async shutdown() {
-        await this.awaitOutbound()
-        await this.#subduction.disconnectAll()
-        await this.flush()
-    }
-
-    /**
-     * Sync all known documents with the server.
-     * Call this before change detection to ensure all remote commits are received.
-     */
-    async syncAllDocuments(): Promise<void> {
-        await this.#subductionAdaptersReady
-
-        // Get all known sedimentree IDs
-        const sedimentreeIds = Array.from(this.#handlesBySedimentreeId.keys())
-
-        // Sync each sequentially to avoid overwhelming the server
-        for (const sidStr of sedimentreeIds) {
-            const handle = this.#handlesBySedimentreeId.get(sidStr)
-            if (handle) {
-                await this.#requestDocOverSubduction(handle)
-            }
-        }
-    }
-
-    metrics(): { documents: { [key: string]: any } } {
-        return { documents: this.synchronizer.metrics() }
-    }
-
-    shareConfigChanged() {
-        void this.synchronizer.reevaluateDocumentShare()
-    }
-
-    #disconnectFromPeer(peerId: PeerId) {
-        const subductionPeerId = toSubductionPeerId(peerId)
-        this.#subduction.disconnectFromPeer(subductionPeerId)
-    }
-
-    async #attachNetworkAdaptersToSubduction(
-        adapters: NetworkAdapterInterface[],
-        peerId: PeerId,
-        peerMetadata: Promise<PeerMetadata>
-    ) {
-        const subPeerId = toSubductionPeerId(peerId)
-
-        // Wait for peer metadata and connect each adapter
-        const metadata = await peerMetadata
-
-        for (const adapter of adapters) {
-            // Connect the adapter ourselves (since it's not in NetworkSubsystem)
-            adapter.connect(peerId, metadata)
-
-            // Wait for the adapter to be ready (WebSocket connected)
-            await adapter.whenReady?.()
-
-            const ws = adapter.getWebSocket?.()
-            if (ws) {
-                try {
-                    const wsAdapter = await SubductionWebSocket.setup(
-                        subPeerId,
-                        ws,
-                        5000
-                    )
-                    await this.#subduction.attach(wsAdapter)
-                    this.#log("Attached WebSocket from adapter to Subduction")
-                } catch (err) {
-                    this.#log("Failed to attach WebSocket to Subduction:", err)
-                }
-            }
-        }
-    }
-
-    async connectToWebSocketPeer(peerId: PeerId, syncServerAddress: string) {
-        const subPeerId = toSubductionPeerId(peerId)
-        const ws = new WebSocket(syncServerAddress)
-
-        ws.addEventListener("close", ev => {
-            console.debug("socket closed", ev.code, ev.reason, ev.wasClean)
+        break
+      case "sync":
+      case "request":
+      case "ephemeral":
+      case "doc-unavailable":
+        this.synchronizer.receiveMessage(message).catch(err => {
+          console.log("error receiving message", { err, message })
         })
+        break
+    }
+  }
 
-        const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
-        await this.#subduction.attach(wsAdapter)
+  // #throttledSaveSyncStateHandlers: Record<
+  //   StorageId,
+  //   (payload: SyncStatePayload) => void
+  // > = {}
+
+  // /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
+  // #saveSyncState(payload: SyncStatePayload) {
+  //   if (!this.storageSubsystem) {
+  //     return
+  //   }
+
+  //   const { storageId, isEphemeral } =
+  //     this.peerMetadataByPeerId[payload.peerId] || {}
+
+  //   if (!storageId || isEphemeral) {
+  //     return
+  //   }
+
+  //   let handler = this.#throttledSaveSyncStateHandlers[storageId]
+  //   if (!handler) {
+  //     handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
+  //       ({ documentId, syncState }: SyncStatePayload) => {
+  //         void this.storageSubsystem!.saveSyncState(
+  //           documentId,
+  //           storageId,
+  //           syncState
+  //         )
+  //       },
+  //       this.#saveDebounceRate
+  //     )
+  //   }
+
+  //   handler(payload)
+  // }
+
+  /** Returns an existing handle if we have it; creates one otherwise. */
+  #getHandle<T>({
+    documentId,
+  }: {
+    /** The documentId of the handle to look up or create */
+    documentId: DocumentId /** If we know we're creating a new document, specify this so we can have access to it immediately */
+  }): DocHandle<T> {
+    // If we have the handle cached, return it
+    if (this.#handleCache[documentId]) return this.#handleCache[documentId]
+
+    // If not, create a new handle, cache it, and return it
+    if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
+    const handle = new DocHandle<T>(documentId)
+    this.#handleCache[documentId] = handle
+    return handle
+  }
+
+  /** Returns all the handles we have cached. */
+  get handles() {
+    return this.#handleCache
+  }
+
+  //  /** Returns a list of all connected peer ids */
+  //  get peers(): PeerId[] {
+  //    return this.synchronizer.peers
+  //  }
+
+  //  get peerId(): PeerId {
+  //    return this.networkSubsystem.peerId
+  //  }
+
+  /** @hidden */
+  get sharePolicy(): SharePolicy {
+    return this.#shareConfig.announce
+  }
+
+  /** @hidden */
+  set sharePolicy(policy: SharePolicy) {
+    this.#shareConfig.announce = policy
+  }
+
+  /** @hidden */
+  get shareConfig(): ShareConfig {
+    return this.#shareConfig
+  }
+
+  /** @hidden */
+  set shareConfig(config: ShareConfig) {
+    this.#shareConfig = config
+  }
+
+  getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
+    return this.peerMetadataByPeerId[peerId]?.storageId
+  }
+
+  /**
+   * Creates a new document and returns a handle to it. The initial value of the document is an
+   * empty object `{}` unless an initial value is provided. Its documentId is generated by the
+   * system. we emit a `document` event to advertise interest in the document.
+   */
+  create<T>(initialValue?: T): DocHandle<T> {
+    let initialDoc: Automerge.Doc<T>
+    if (initialValue) {
+      initialDoc = Automerge.from(initialValue)
+    } else {
+      initialDoc = Automerge.emptyChange(Automerge.init())
     }
 
-    async #requestDocOverSubduction(handle: DocHandle<any>) {
-        const sedimentreeId = toSedimentreeId(handle.documentId)
-        this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
+    // Generate a new UUID and store it in the buffer
+    const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    const handle = this.#getHandle<T>({
+      documentId,
+    }) as DocHandle<T>
 
-        // Wait for subduction adapters to be ready before making sync requests
-        await this.#subductionAdaptersReady
+    handle.update(() => initialDoc)
+    this.#registerHandleWithSubsystems(handle)
 
-        // Workaround: Server may send one commit per syncAll instead of all missing.
-        // Loop until heads stabilize (no new commits arriving).
-        const MAX_ITERATIONS = 20
-        let lastHeadsStr: string | null = null  // null means "first iteration"
+    handle.doneLoading()
 
-        console.log(`[SyncLoop] Starting for ${sedimentreeId.toString().slice(0,8)}...`)
-        for (let i = 0; i < MAX_ITERATIONS; i++) {
-            console.log(`[SyncLoop] Iteration ${i + 1}`)
-            const peerResultMap = await this.#subduction.syncAll(sedimentreeId, true)
-            console.log(`[SyncLoop] Iteration ${i + 1}: syncAll returned`)
+    // Sync the new document to peers (fire-and-forget since create is sync)
+    // This ensures peers receive the initial data and establishes subscriptions
+    const sid = toSedimentreeId(documentId)
+    void this.#subduction.syncAll(sid, true)
 
-            // Log any failures or connection errors
-            for (const batchSyncResult of peerResultMap.entries()) {
-                if (!batchSyncResult.success) {
-                    this.#log("failed PeerBatchSyncResult")
-                }
-                for (const err of batchSyncResult.connErrors || []) {
-                    this.#log("PeerBatchSyncResult connError: ", err)
-                }
-            }
+    return handle
+  }
 
-            // Wait for storage callbacks to complete
-            console.log(`[SyncLoop] Iteration ${i + 1}: waiting for storage...`)
-            if (this.#subductionStorage) {
-                await this.#subductionStorage.awaitSettled()
-            }
-            console.log(`[SyncLoop] Iteration ${i + 1}: storage settled`)
+  /**
+   * Creates a new document and returns a handle to it. The initial value of the
+   * document is an empty object `{}` unless an initial value is provided. The
+   * main difference between this and Repo.create is that if an `idGenerator`
+   * was provided at repo construction, that idGenerator will be used to
+   * generate the document ID of the document returned by this method.
+   *
+   * This is a hidden, experimental API which is subject to change or removal without notice.
+   * @hidden
+   * @experimental
+   */
+  async create2<T>(initialValue?: T): Promise<DocHandle<T>> {
+    // Note that the reason this method is hidden and experimental is because it is async,
+    // and it is async because we want to be able to call the #idGenerator, which is async.
+    // This is all really in service of wiring up keyhive and we probably need to find a
+    // nicer way to achieve this.
+    let initialDoc: Automerge.Doc<T>
+    if (initialValue) {
+      initialDoc = Automerge.from(initialValue)
+    } else {
+      initialDoc = Automerge.emptyChange(Automerge.init())
+    }
 
-            // Check if heads changed - if not, we have all commits
-            const currentHeads = handle.heads()
-            const currentHeadsStr = currentHeads.sort().join(",")
-            console.log(`[SyncLoop] Iteration ${i + 1}: heads=${currentHeadsStr.slice(0,20) || "(empty)"}, lastHeads=${lastHeadsStr?.slice(0,20) || "(null)"}`)
+    let { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    if (this.#idFactory) {
+      const rawDocId = await this.#idFactory(Automerge.getHeads(initialDoc))
+      documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
+    }
+    const handle = this.#getHandle<T>({
+      documentId,
+    }) as DocHandle<T>
 
-            // Skip comparison on first 2 iterations to allow time for data to arrive
-            if (i >= 2 && lastHeadsStr !== null && currentHeadsStr === lastHeadsStr) {
-                // No new commits arrived, we're done
-                console.log(`[SyncLoop] Breaking - heads unchanged after ${i + 1} iterations`)
-                break
-            }
-            lastHeadsStr = currentHeadsStr
+    handle.update(() => initialDoc)
+    this.#registerHandleWithSubsystems(handle)
+    handle.doneLoading()
 
-            // Small delay before next iteration to allow network responses
-            if (i < MAX_ITERATIONS - 1) {
-                await new Promise(r => setTimeout(r, 200))
-            }
+    const sid = toSedimentreeId(documentId)
+    this.#subduction.syncAll(sid, true)
+    return handle
+  }
+  /** Create a new DocHandle by cloning the history of an existing DocHandle.
+   *
+   * @param clonedHandle - The handle to clone
+   *
+   * @remarks This is a wrapper around the `clone` function in the Automerge library.
+   * The new `DocHandle` will have a new URL but will share history with the original,
+   * which means that changes made to the cloned handle can be sensibly merged back
+   * into the original.
+   *
+   * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
+   * be notified of the newly created DocHandle.
+   *
+   */
+  clone<T>(clonedHandle: DocHandle<T>) {
+    if (!clonedHandle.isReady()) {
+      throw new Error(
+        `Cloned handle is not yet in ready state.
+        (Try await handle.whenReady() first.)`
+      )
+    }
+
+    const sourceDoc = clonedHandle.doc()
+    const handle = this.create<T>()
+
+    handle.update(() => {
+      // we replace the document with the new cloned one
+      return Automerge.clone(sourceDoc)
+    })
+
+    return handle
+  }
+
+  findWithProgress<T>(
+    id: AnyDocumentId,
+    options: AbortOptions = {}
+  ): FindProgressWithMethods<T> | FindProgress<T> {
+    const { signal } = options
+    const { documentId, heads } = isValidAutomergeUrl(id)
+      ? parseAutomergeUrl(id)
+      : { documentId: interpretAsDocumentId(id), heads: undefined }
+
+    // Check handle cache first - return plain FindStep for terminal states
+    if (this.#handleCache[documentId]) {
+      const handle = this.#handleCache[documentId]
+      if (handle.state === UNAVAILABLE) {
+        const result = {
+          state: "unavailable" as const,
+          error: new Error(`Document ${id} is unavailable`),
+          handle,
         }
+        return result
+      }
+      if (handle.state === DELETED) {
+        const result = {
+          state: "failed" as const,
+          error: new Error(`Document ${id} was deleted`),
+          handle,
+        }
+        return result
+      }
+      if (handle.state === READY) {
+        const result = {
+          state: "ready" as const,
+          handle: heads ? handle.view(heads) : handle,
+        }
+        return result
+      }
+    }
 
-        // Now that all blobs have been loaded, transition the handle to READY state.
-        // This must happen AFTER awaitSettled so all data is available before ready.
-        const wasNotReady = !handle.isReady()
+    // Check progress cache for any existing signal
+    const cachedProgress = this.#progressCache[documentId]
+    if (cachedProgress) {
+      const handle = this.#handleCache[documentId]
+      // Return cached progress if we have a handle and it's either in a terminal state or loading
+      if (
+        handle &&
+        (handle.state === READY ||
+          handle.state === UNAVAILABLE ||
+          handle.state === DELETED ||
+          handle.state === "loading")
+      ) {
+        return cachedProgress as FindProgressWithMethods<T>
+      }
+    }
+
+    const handle = this.#getHandle<T>({ documentId })
+    const initial = {
+      state: "loading" as const,
+      progress: 0,
+      handle,
+    }
+
+    // Create a new progress signal
+    const progressSignal = {
+      subscribers: new Set<(progress: FindProgress<T>) => void>(),
+      currentProgress: undefined as FindProgress<T> | undefined,
+      notify: (progress: FindProgress<T>) => {
+        progressSignal.currentProgress = progress
+        progressSignal.subscribers.forEach(callback => callback(progress))
+        // Cache all states, not just terminal ones
+        this.#progressCache[documentId] = progress
+      },
+      peek: () => progressSignal.currentProgress || initial,
+      subscribe: (callback: (progress: FindProgress<T>) => void) => {
+        progressSignal.subscribers.add(callback)
+        return () => progressSignal.subscribers.delete(callback)
+      },
+    }
+
+    progressSignal.notify(initial)
+
+    // Start the loading process
+    void this.#loadDocumentWithProgress(
+      id,
+      documentId,
+      handle,
+      progressSignal,
+      signal ? abortable(new Promise(() => {}), signal) : new Promise(() => {})
+    )
+
+    const result = {
+      ...initial,
+      peek: progressSignal.peek,
+      subscribe: progressSignal.subscribe,
+    }
+    this.#progressCache[documentId] = result
+    return result
+  }
+
+  async #loadDocumentWithProgress<T>(
+    id: AnyDocumentId,
+    documentId: DocumentId,
+    handle: DocHandle<T>,
+    progressSignal: {
+      notify: (progress: FindProgress<T>) => void
+    },
+    abortPromise: Promise<never>
+  ) {
+    try {
+      progressSignal.notify({
+        state: "loading" as const,
+        progress: 25,
+        handle,
+      })
+
+      const sedimentreeId = toSedimentreeId(handle.documentId)
+      const loadedBlobs = await Promise.race([
+        this.#subduction.getBlobs(sedimentreeId),
+        abortPromise,
+      ])
+
+      if (!!loadedBlobs && loadedBlobs.length > 0) {
+        handle.update(doc => {
+          let newDoc = doc
+          loadedBlobs.forEach((blob: Uint8Array) => {
+            newDoc = Automerge.loadIncremental(newDoc, blob)
+          })
+          return newDoc
+        })
         handle.doneLoading()
-
-        // Emit document event if this handle just transitioned to ready
-        if (wasNotReady && handle.isReady()) {
-            this.emit("document", { handle })
+        progressSignal.notify({
+          state: "loading" as const,
+          progress: 50,
+          handle,
+        })
+      } else {
+        await Promise.race([
+          this.#requestDocOverSubduction(handle),
+          abortPromise,
+        ])
+        // Only call request() if Subduction didn't already load the data
+        // The storage callback may have called doneLoading() during requestDocOverSubduction
+        if (!handle.isReady()) {
+          handle.request()
         }
+        progressSignal.notify({
+          state: "loading" as const,
+          progress: 75,
+          handle,
+        })
+      }
+
+      await this.#requestDocOverSubduction(handle)
+      this.#registerHandleWithSubsystems(handle)
+
+      await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
+
+      if (handle.state === UNAVAILABLE) {
+        const unavailableProgress = {
+          state: "unavailable" as const,
+          handle,
+        }
+        progressSignal.notify(unavailableProgress)
+        return
+      }
+      if (handle.state === DELETED) {
+        throw new Error(`Document ${id} was deleted`)
+      }
+
+      progressSignal.notify({ state: "ready" as const, handle })
+    } catch (error) {
+      progressSignal.notify({
+        state: "failed" as const,
+        error:
+          // In most JS environments DOMException extends Error, but not always, in some environments it's a separate type.
+          // Some Node.js DOM polyfills do not always extend the Error
+          // Jsdom polyfill doesn't extend Error, whereas happy-dom does.
+          error instanceof Error || error instanceof DOMException
+            ? error
+            : new Error(String(error)),
+        handle: this.#getHandle<T>({ documentId }),
+      })
+    }
+  }
+
+  async find<T>(
+    id: AnyDocumentId,
+    options: RepoFindOptions & AbortOptions = {}
+  ): Promise<DocHandle<T>> {
+    const { allowableStates = [READY], signal } = options
+
+    // Check if already aborted
+    if (signal?.aborted) {
+      throw new AbortError()
     }
 
-    #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
-        const sid = toSedimentreeId(handle.documentId)
-        this.#handlesBySedimentreeId.set(sid.toString(), handle)
+    const progress = this.findWithProgress<T>(id, { signal })
 
-        const throttledBroadcast = throttle(() => {
-            handle.update(doc => {
-                this.#broadcast(doc, sid)
-                return doc
-            })
-        }, 100)
+    if ("subscribe" in progress) {
+      this.#registerHandleWithSubsystems(progress.handle)
+      const targetDocumentId = progress.handle.documentId
 
-        // Track for flushing in awaitOutbound()
-        this.#throttledBroadcasts.push(throttledBroadcast)
+      return new Promise((resolve, reject) => {
+        let resolved = false
 
-        handle.on("heads-changed", () => {
-            throttledBroadcast()
+        const cleanup = () => {
+          if (!resolved) {
+            resolved = true
+            unsubscribe()
+            this.off("document", onDocument)
+          }
+        }
+
+        // Listen for the document event - this fires when a document becomes
+        // available via async sync (e.g., Subduction)
+        const onDocument = ({ handle }: { handle: DocHandle<unknown> }) => {
+          if (
+            handle.documentId === targetDocumentId &&
+            allowableStates.includes(handle.state)
+          ) {
+            cleanup()
+            resolve(handle as DocHandle<T>)
+          }
+        }
+
+        const unsubscribe = progress.subscribe(state => {
+          if (allowableStates.includes(state.handle.state)) {
+            cleanup()
+            resolve(state.handle)
+          } else if (state.state === "unavailable") {
+            // Don't reject on unavailable - the document may become available
+            // via async sync (e.g., Subduction). Keep listening for the
+            // "document" event which will fire when the data arrives.
+          } else if (state.state === "failed") {
+            cleanup()
+            reject(state.error)
+          }
         })
 
-        throttledBroadcast()
+        this.on("document", onDocument)
+      })
+    } else {
+      if (allowableStates.includes(progress.handle.state)) {
+        return progress.handle
+      }
+      // If the handle isn't ready, wait for it and then return it
+      await progress.handle.whenReady([READY, UNAVAILABLE])
+      if (
+        progress.handle.state === UNAVAILABLE &&
+        !allowableStates.includes(UNAVAILABLE)
+      ) {
+        throw new Error(`Document ${id} is unavailable`)
+      }
+      return progress.handle
+    }
+  }
+
+  /**
+   * Loads a document without waiting for ready state
+   */
+  async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
+    // If we have the handle cached, return it
+    if (this.#handleCache[documentId]) {
+      return this.#handleCache[documentId]
     }
 
-    async #broadcast<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
-        console.log(`[Broadcast] Starting for ${sedimentreeId.toString().slice(0,8)}...`)
-        // Track this broadcast for awaitOutbound() BEFORE any awaits
-        this.#pendingOutbound++
+    // If we don't already have the handle, make an empty one and try loading it
+    const handle = this.#getHandle<T>({ documentId })
+    const sedimentreeId = toSedimentreeId(handle.documentId)
+    const blobs = await this.#subduction.getBlobs(sedimentreeId)
+    if (blobs.length > 0) {
+      handle.update(initialDoc => {
+        let doc = initialDoc
+        blobs.forEach((blob: Uint8Array) => {
+          doc = Automerge.loadIncremental(doc, blob)
+        })
+        return doc
+      })
+      handle.doneLoading()
+    } else {
+      // Because the network subsystem might still be booting up, we wait
+      // here so that we don't immediately give up loading because we're still
+      // making our initial connection to a sync server.
+      await this.#requestDocOverSubduction(handle)
+    }
 
+    this.#registerHandleWithSubsystems(handle)
+    return handle
+  }
+
+  /**
+   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
+   * event to advertise interest in the document.
+   */
+  async findClassic<T>(
+    /** The url or documentId of the handle to retrieve */
+    id: AnyDocumentId,
+    options: RepoFindOptions & AbortOptions = {}
+  ): Promise<DocHandle<T>> {
+    const documentId = interpretAsDocumentId(id)
+    const { allowableStates, signal } = options
+
+    return abortable(
+      (async () => {
+        const handle = await this.#loadDocument<T>(documentId)
+        if (!allowableStates) {
+          await handle.whenReady([READY, UNAVAILABLE])
+          if (handle.state === UNAVAILABLE && !signal?.aborted) {
+            throw new Error(`Document ${id} is unavailable`)
+          }
+        }
+        return handle
+      })(),
+      signal
+    )
+  }
+
+  delete(
+    /** The url or documentId of the handle to delete */
+    id: AnyDocumentId
+  ) {
+    const documentId = interpretAsDocumentId(id)
+
+    const handle = this.#getHandle({ documentId })
+    handle.delete()
+
+    delete this.#handleCache[documentId]
+    delete this.#progressCache[documentId]
+    delete this.#saveFns[documentId]
+    this.emit("delete-document", { documentId })
+  }
+
+  /**
+   * Exports a document to a binary format.
+   * @param id - The url or documentId of the handle to export
+   *
+   * @returns Promise<Uint8Array | undefined> - A Promise containing the binary document,
+   * or undefined if the document is unavailable.
+   */
+  async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
+    const documentId = interpretAsDocumentId(id)
+
+    const handle = this.#getHandle({ documentId })
+    const doc = handle.doc()
+    return Automerge.save(doc)
+  }
+
+  /**
+   * Imports document binary into the repo.
+   * @param binary - The binary to import
+   * @param args - Optional argument specifying what document ID to import into,
+   *              if at all possible avoid using this, see the remarks below
+   *
+   * @remarks
+   * If no document ID is provided, a new document will be created. When
+   * specifying the document ID it is important to ensure that two documents using
+   * the same ID share the same history - i.e. don't create a document with the
+   * same ID on unrelated processes that have never communicated with each
+   * other. If you need to ship around a bunch of documents with their IDs
+   * consider using the `automerge-repo-bundles` package which provides a
+   * serialization format for documents and IDs and handles the boilerplate of
+   * importing and exporting these bundles.
+   */
+  import<T>(binary: Uint8Array, args?: { docId?: DocumentId }): DocHandle<T> {
+    const docId = args?.docId
+    if (docId != null) {
+      const handle = this.#getHandle<T>({ documentId: docId })
+      handle.update(doc => {
+        return Automerge.loadIncremental(doc, binary)
+      })
+      this.#registerHandleWithSubsystems(handle)
+      return handle
+    } else {
+      const doc = Automerge.load<T>(binary)
+      const handle = this.create<T>()
+      handle.update(() => {
+        return Automerge.clone(doc)
+      })
+
+      return handle
+    }
+  }
+
+  subscribeToRemotes = (remotes: StorageId[]) => {
+    if (this.#remoteHeadsGossipingEnabled) {
+      this.#log("subscribeToRemotes", { remotes })
+      this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
+    } else {
+      this.#log(
+        "WARN: subscribeToRemotes called but remote heads gossiping is not enabled"
+      )
+    }
+  }
+
+  storageId = async (): Promise<StorageId | undefined> => {
+    if (!this.storageSubsystem) {
+      return undefined
+    } else {
+      return this.storageSubsystem.id()
+    }
+  }
+
+  /**
+   * Writes Documents to a disk.
+   * @hidden this API is experimental and may change.
+   * @param documents - if provided, only writes the specified documents.
+   * @returns Promise<void>
+   */
+  async flush(documents?: DocumentId[]): Promise<void> {
+    const handles = documents
+      ? documents
+          .map(id => this.#handleCache[id])
+          .filter(handle => handle.isReady())
+      : Object.values(this.#handleCache)
+    await Promise.all(
+      handles.map(async handle => {
+        const sid = toSedimentreeId(handle.documentId)
+        if (handle.isReady()) {
+          await this.#broadcast(handle.doc(), sid)
+        }
+      })
+    )
+  }
+
+  /**
+   * Removes a DocHandle from the handleCache.
+   * @hidden this API is experimental and may change.
+   * @param documentId - documentId of the DocHandle to remove from handleCache, if present in cache.
+   * @returns Promise<void>
+   */
+  async removeFromCache(documentId: DocumentId) {
+    if (!this.#handleCache[documentId]) {
+      this.#log(
+        `WARN: removeFromCache called but handle not found in handleCache for documentId: ${documentId}`
+      )
+      return
+    }
+    const handle = this.#getHandle({ documentId })
+    await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
+    const doc = handle.doc()
+    // because this is an internal-ish function, we'll be extra careful about undefined docs here
+    if (doc) {
+      if (handle.isReady()) {
+        handle.unload()
+      } else {
+        this.#log(
+          `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
+        )
+      }
+      await this.#subduction.removeSedimentree(toSedimentreeId(documentId))
+      delete this.#handleCache[documentId]
+      delete this.#progressCache[documentId]
+      delete this.#saveFns[documentId]
+      // this.synchronizer.removeDocument(documentId)
+    } else {
+      this.#log(
+        `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
+      )
+    }
+  }
+
+  /**
+   * Wait for all pending outbound operations to complete.
+   * Call this before shutdown() to ensure all changes have been sent to the network.
+   */
+  async awaitOutbound(): Promise<void> {
+    // Flush any pending throttled broadcasts first
+    for (const throttled of this.#throttledBroadcasts) {
+      throttled.flush()
+    }
+
+    // Yield to let flushed broadcasts start executing
+    await Promise.resolve()
+
+    if (this.#pendingOutbound === 0) return
+    return new Promise(resolve => this.#outboundResolvers.push(resolve))
+  }
+
+  async shutdown() {
+    await this.awaitOutbound()
+    await this.#subduction.disconnectAll()
+    await this.flush()
+  }
+
+  /**
+   * Sync all known documents with the server.
+   * Call this before change detection to ensure all remote commits are received.
+   */
+  async syncAllDocuments(): Promise<void> {
+    await this.#subductionAdaptersReady
+
+    // Get all known sedimentree IDs
+    const sedimentreeIds = Array.from(this.#handlesBySedimentreeId.keys())
+
+    // Sync each sequentially to avoid overwhelming the server
+    for (const sidStr of sedimentreeIds) {
+      const handle = this.#handlesBySedimentreeId.get(sidStr)
+      if (handle) {
+        await this.#requestDocOverSubduction(handle)
+      }
+    }
+  }
+
+  metrics(): { documents: { [key: string]: any } } {
+    return { documents: this.synchronizer.metrics() }
+  }
+
+  shareConfigChanged() {
+    void this.synchronizer.reevaluateDocumentShare()
+  }
+
+  #disconnectFromPeer(peerId: PeerId) {
+    const subductionPeerId = toSubductionPeerId(peerId)
+    this.#subduction.disconnectFromPeer(subductionPeerId)
+  }
+
+  async #attachNetworkAdaptersToSubduction(
+    adapters: NetworkAdapterInterface[],
+    peerId: PeerId,
+    peerMetadata: Promise<PeerMetadata>
+  ) {
+    const subPeerId = toSubductionPeerId(peerId)
+
+    // Wait for peer metadata and connect each adapter
+    const metadata = await peerMetadata
+
+    for (const adapter of adapters) {
+      // Connect the adapter ourselves (since it's not in NetworkSubsystem)
+      adapter.connect(peerId, metadata)
+
+      // Wait for the adapter to be ready (WebSocket connected)
+      await adapter.whenReady?.()
+
+      const ws = adapter.getWebSocket?.()
+      if (ws) {
         try {
-        // Wait for subduction adapters to be ready before broadcasting
-        await this.#subductionAdaptersReady
-        console.log(`[Broadcast] Adapters ready`)
-
-        const currentHexHeads = Automerge.getHeads(doc)
-        const id = sedimentreeId.toString()
-        const mostRecentHeads: Set<string> =
-            this.#lastHeadsSent.get(id) || new Set()
-
-        // Properly compare set contents (not identity)
-        const currentSet = new Set(currentHexHeads)
-        const headsAlreadySent = currentSet.size === mostRecentHeads.size &&
-            [...currentSet].every(h => mostRecentHeads.has(h))
-        if (headsAlreadySent) {
-            console.log(`[Broadcast] Skipping - heads already sent`)
-            return
+          const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
+          await this.#subduction.attach(wsAdapter)
+          this.#log("Attached WebSocket from adapter to Subduction")
+        } catch (err) {
+          this.#log("Failed to attach WebSocket to Subduction:", err)
         }
-        console.log(`[Broadcast] Have ${currentHexHeads.length} heads, most recent has ${mostRecentHeads.size} heads`)
+      }
+    }
+  }
 
-        await Promise.all(
-            Automerge.getChangesMetaSince(doc, Array.from(mostRecentHeads)).map(
-                async meta => {
-                    const cache =
-                        this.#recentlySeenHeads.get(id) ||
-                        new HashRing(this.#recentHeadsCacheSize)
+  async connectToWebSocketPeer(peerId: PeerId, syncServerAddress: string) {
+    const subPeerId = toSubductionPeerId(peerId)
+    const ws = new WebSocket(syncServerAddress)
 
-                    const hexHash = meta.hash
-                    if (!cache.add(hexHash)) return
+    ws.addEventListener("close", ev => {
+      console.debug("socket closed", ev.code, ev.reason, ev.wasClean)
+    })
 
-                    this.#recentlySeenHeads.set(id, cache)
+    const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
+    await this.#subduction.attach(wsAdapter)
+  }
 
-                    const commitBytes =
-                        automergeMeta(doc).getChangeByHash(hexHash)
-                    const digest = Digest.fromHexString(hexHash)
-                    const parents = meta.deps.map(depHexHash =>
-                        Digest.fromHexString(depHexHash)
-                    )
-                    const blobMeta = new BlobMeta(commitBytes)
-                    const looseCommit = new LooseCommit(
-                        digest,
-                        parents,
-                        blobMeta
-                    )
+  async #requestDocOverSubduction(handle: DocHandle<any>) {
+    const sedimentreeId = toSedimentreeId(handle.documentId)
+    this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
 
-                    console.log(`[Broadcast] Calling addCommit for ${sedimentreeId.toString().slice(0,8)}..., digest=${hexHash.slice(0,8)}...`)
-                    const maybeFragmentRequested =
-                        await this.#subduction.addCommit(
-                            sedimentreeId,
-                            looseCommit,
-                            commitBytes
-                        )
-                    console.log(`[Broadcast] addCommit returned ${maybeFragmentRequested !== undefined ? 'fragment requested' : 'done'}`)
+    // Wait for subduction adapters to be ready before making sync requests
+    await this.#subductionAdaptersReady
 
-                    if (maybeFragmentRequested === undefined) return
+    // With the 1.5RTT protocol, syncAll performs bidirectional sync in a single call:
+    // 1. We send our summary to peers
+    // 2. Peers respond with data we're missing AND tell us what they need
+    // 3. We send back what they requested (handled internally by Subduction)
+    this.#log(`syncing sedimentree ${sedimentreeId.toString().slice(0, 8)}...`)
+    const peerResultMap = await this.#subduction.syncAll(sedimentreeId, true)
 
-                    const fragmentRequested = maybeFragmentRequested
-                    const innerDoc = automergeMeta(doc)
-                    const sam = new SedimentreeAutomerge(innerDoc)
+    // Log sync statistics and any errors
+    for (const result of peerResultMap.entries()) {
+      const stats = result.stats
+      if (stats && !stats.isEmpty) {
+        this.#log(
+          `sync stats: received ${stats.commitsReceived} commits, ${stats.fragmentsReceived} fragments; ` +
+            `sent ${stats.commitsSent} commits, ${stats.fragmentsSent} fragments`
+        )
+      }
+      if (!result.success) {
+        this.#log("sync failed for peer")
+      }
+      for (const errPair of result.connErrors || []) {
+        this.#log("sync connection error:", errPair.err)
+      }
+    }
 
-                    // Build all missing fragments recursively, not just the top one
-                    const fragmentStates = sam.buildFragmentStore(
-                        [fragmentRequested.head],
-                        this.#fragmentStateStore,
-                        getHashMetric()
-                    )
+    // Wait for storage callbacks to complete before transitioning to ready
+    if (this.#subductionStorage) {
+      await this.#subductionStorage.awaitSettled()
+    }
 
-                    for (const fragmentState of fragmentStates) {
-                        const members = fragmentState
-                            .members()
-                            .map((digest: Digest): string => digest.toHexString())
+    // Now that all blobs have been loaded, transition the handle to READY state.
+    // This must happen AFTER awaitSettled so all data is available before ready.
+    const wasNotReady = !handle.isReady()
+    handle.doneLoading()
 
-                        // NOTE this is the only(?) function that we need from AM v3.2.0
-                        const fragmentBlob = Automerge.saveBundle(doc, members)
-                        const fragmentBlobMeta = new BlobMeta(fragmentBlob)
-                        const fragment =
-                            fragmentState.intoFragment(fragmentBlobMeta)
+    // Emit document event if this handle just transitioned to ready
+    if (wasNotReady && handle.isReady()) {
+      this.emit("document", { handle })
+    }
+  }
 
-                        await this.#subduction.addFragment(
-                            sedimentreeId,
-                            fragment,
-                            fragmentBlob
-                        )
-                    }
-                }
+  #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
+    const sid = toSedimentreeId(handle.documentId)
+    this.#handlesBySedimentreeId.set(sid.toString(), handle)
+
+    const throttledBroadcast = throttle(() => {
+      handle.update(doc => {
+        this.#broadcast(doc, sid)
+        return doc
+      })
+    }, 100)
+
+    // Track for flushing in awaitOutbound()
+    this.#throttledBroadcasts.push(throttledBroadcast)
+
+    handle.on("heads-changed", () => {
+      throttledBroadcast()
+    })
+
+    throttledBroadcast()
+  }
+
+  async #broadcast<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
+    // Track this broadcast for awaitOutbound() BEFORE any awaits
+    this.#pendingOutbound++
+
+    try {
+      // Wait for subduction adapters to be ready before broadcasting
+      await this.#subductionAdaptersReady
+
+      const currentHexHeads = Automerge.getHeads(doc)
+      const id = sedimentreeId.toString()
+      const mostRecentHeads: Set<string> =
+        this.#lastHeadsSent.get(id) || new Set()
+
+      // Properly compare set contents (not identity)
+      const currentSet = new Set(currentHexHeads)
+      const headsAlreadySent =
+        currentSet.size === mostRecentHeads.size &&
+        [...currentSet].every(h => mostRecentHeads.has(h))
+      if (headsAlreadySent) {
+        return
+      }
+
+      await Promise.all(
+        Automerge.getChangesMetaSince(doc, Array.from(mostRecentHeads)).map(
+          async meta => {
+            const cache =
+              this.#recentlySeenHeads.get(id) ||
+              new HashRing(this.#recentHeadsCacheSize)
+
+            const hexHash = meta.hash
+            if (!cache.add(hexHash)) return
+
+            this.#recentlySeenHeads.set(id, cache)
+
+            const commitBytes = automergeMeta(doc).getChangeByHash(hexHash)
+            const digest = Digest.fromHexString(hexHash)
+            const parents = meta.deps.map(depHexHash =>
+              Digest.fromHexString(depHexHash)
             )
-        )
+            const blobMeta = new BlobMeta(commitBytes)
+            const looseCommit = new LooseCommit(digest, parents, blobMeta)
 
-        this.#lastHeadsSent.set(
-            sedimentreeId.toString(),
-            currentSet
-        )
-        } finally {
-            this.#pendingOutbound--
-            if (this.#pendingOutbound === 0) {
-                this.#outboundResolvers.forEach(r => r())
-                this.#outboundResolvers = []
+            const maybeFragmentRequested = await this.#subduction.addCommit(
+              sedimentreeId,
+              looseCommit,
+              commitBytes
+            )
+
+            if (maybeFragmentRequested === undefined) return
+
+            const fragmentRequested = maybeFragmentRequested
+            const innerDoc = automergeMeta(doc)
+            const sam = new SedimentreeAutomerge(innerDoc)
+
+            // Build all missing fragments recursively, not just the top one
+            const fragmentStates = sam.buildFragmentStore(
+              [fragmentRequested.head],
+              this.#fragmentStateStore,
+              getHashMetric()
+            )
+
+            for (const fragmentState of fragmentStates) {
+              const members = fragmentState
+                .members()
+                .map((digest: Digest): string => digest.toHexString())
+
+              // NOTE this is the only(?) function that we need from AM v3.2.0
+              const fragmentBlob = Automerge.saveBundle(doc, members)
+              const fragmentBlobMeta = new BlobMeta(fragmentBlob)
+              const fragment = fragmentState.intoFragment(fragmentBlobMeta)
+
+              await this.#subduction.addFragment(
+                sedimentreeId,
+                fragment,
+                fragmentBlob
+              )
             }
-        }
-    }
+          }
+        )
+      )
 
-    /**
-     * Handle a commit being saved to storage.
-     * Called via storage bridge callback after data is persisted.
-     */
-    #handleCommitSaved(
-        id: SedimentreeId,
-        _digest: Digest,
-        blob: Uint8Array
-    ) {
-        const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
-        if (existingHandle !== undefined) {
-            // Only update the document - don't call doneLoading() here.
-            // During batch sync, multiple blobs arrive asynchronously.
-            // Calling doneLoading() on each blob would transition to READY too early.
-            // Instead, #requestDocOverSubduction calls doneLoading() after syncAll + awaitSettled.
-            existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
-        } else {
-            // New sedimentree we haven't seen before - create a handle for it
-            const documentId = toDocumentId(id)
-            const handle = this.#getHandle({ documentId })
-            this.#handlesBySedimentreeId.set(id.toString(), handle)
-            handle.update(doc => Automerge.loadIncremental(doc, blob))
-            // Don't call doneLoading() or emit document event here.
-            // This will be done by #requestDocOverSubduction after batch sync completes.
-        }
+      this.#lastHeadsSent.set(sedimentreeId.toString(), currentSet)
+    } finally {
+      this.#pendingOutbound--
+      if (this.#pendingOutbound === 0) {
+        this.#outboundResolvers.forEach(r => r())
+        this.#outboundResolvers = []
+      }
     }
+  }
 
-    /**
-     * Handle a fragment being saved to storage.
-     * Called via storage bridge callback after data is persisted.
-     */
-    #handleFragmentSaved(
-        id: SedimentreeId,
-        _digest: Digest,
-        blob: Uint8Array
-    ) {
-        const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
-        if (existingHandle !== undefined) {
-            // Only update the document - don't call doneLoading() here.
-            // See comment in #handleCommitSaved for rationale.
-            existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
-        } else {
-            // New sedimentree we haven't seen before - create a handle for it
-            const documentId = toDocumentId(id)
-            const handle = this.#getHandle({ documentId })
-            this.#handlesBySedimentreeId.set(id.toString(), handle)
-            handle.update(doc => Automerge.loadIncremental(doc, blob))
-            // Don't call doneLoading() or emit document event here.
-            // This will be done by #requestDocOverSubduction after batch sync completes.
-        }
+  /**
+   * Handle a commit being saved to storage.
+   * Called via storage bridge callback after data is persisted.
+   */
+  #handleCommitSaved(id: SedimentreeId, _digest: Digest, blob: Uint8Array) {
+    const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
+    if (existingHandle !== undefined) {
+      // Only update the document - don't call doneLoading() here.
+      // During batch sync, multiple blobs arrive asynchronously.
+      // Calling doneLoading() on each blob would transition to READY too early.
+      // Instead, #requestDocOverSubduction calls doneLoading() after syncAll + awaitSettled.
+      existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
+    } else {
+      // New sedimentree we haven't seen before - create a handle for it
+      const documentId = toDocumentId(id)
+      const handle = this.#getHandle({ documentId })
+      this.#handlesBySedimentreeId.set(id.toString(), handle)
+      handle.update(doc => Automerge.loadIncremental(doc, blob))
+      // Don't call doneLoading() or emit document event here.
+      // This will be done by #requestDocOverSubduction after batch sync completes.
     }
+  }
+
+  /**
+   * Handle a fragment being saved to storage.
+   * Called via storage bridge callback after data is persisted.
+   */
+  #handleFragmentSaved(id: SedimentreeId, _digest: Digest, blob: Uint8Array) {
+    const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
+    if (existingHandle !== undefined) {
+      // Only update the document - don't call doneLoading() here.
+      // See comment in #handleCommitSaved for rationale.
+      existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
+    } else {
+      // New sedimentree we haven't seen before - create a handle for it
+      const documentId = toDocumentId(id)
+      const handle = this.#getHandle({ documentId })
+      this.#handlesBySedimentreeId.set(id.toString(), handle)
+      handle.update(doc => Automerge.loadIncremental(doc, blob))
+      // Don't call doneLoading() or emit document event here.
+      // This will be done by #requestDocOverSubduction after batch sync completes.
+    }
+  }
 }
 
 export interface RepoConfig {
-    /** Our unique identifier */
-    peerId?: PeerId
+  /** Our unique identifier */
+  peerId?: PeerId
 
-    /** Indicates whether other peers should persist the sync state of this peer.
-     * Sync state is only persisted for non-ephemeral peers */
-    isEphemeral?: boolean
+  /** Indicates whether other peers should persist the sync state of this peer.
+   * Sync state is only persisted for non-ephemeral peers */
+  isEphemeral?: boolean
 
-    /** A storage adapter can be provided, or not */
-    storage?: StorageAdapterInterface
+  /** A storage adapter can be provided, or not */
+  storage?: StorageAdapterInterface
 
-    /** A list of network adapters (more can be added at runtime). */
-    network?: NetworkAdapterInterface[]
+  /** A list of network adapters (more can be added at runtime). */
+  network?: NetworkAdapterInterface[]
 
-    /**
-     * Normal peers typically share generously with everyone (meaning we sync all our documents with
-     * all peers). A server only syncs documents that a peer explicitly requests by ID.
-     */
-    sharePolicy?: SharePolicy
+  /**
+   * Normal peers typically share generously with everyone (meaning we sync all our documents with
+   * all peers). A server only syncs documents that a peer explicitly requests by ID.
+   */
+  sharePolicy?: SharePolicy
 
-    /**
-     * Whether to share documents with other peers. By default we announce new
-     * documents to everyone and allow everyone access to documents, see the
-     * documentation for {@link ShareConfig} to override this
-     *
-     * Note that this is currently an experimental API and will very likely change
-     * without a major release.
-     * @experimental
-     */
-    shareConfig?: ShareConfig
+  /**
+   * Whether to share documents with other peers. By default we announce new
+   * documents to everyone and allow everyone access to documents, see the
+   * documentation for {@link ShareConfig} to override this
+   *
+   * Note that this is currently an experimental API and will very likely change
+   * without a major release.
+   * @experimental
+   */
+  shareConfig?: ShareConfig
 
-    /**
-     * Whether to enable the experimental remote heads gossiping feature
-     */
-    enableRemoteHeadsGossiping?: boolean
+  /**
+   * Whether to enable the experimental remote heads gossiping feature
+   */
+  enableRemoteHeadsGossiping?: boolean
 
-    /**
-     * A list of automerge URLs which should never be loaded regardless of what
-     * messages are received or what the share policy is. This is useful to avoid
-     * loading documents that are known to be too resource intensive.
-     */
-    denylist?: AutomergeUrl[]
+  /**
+   * A list of automerge URLs which should never be loaded regardless of what
+   * messages are received or what the share policy is. This is useful to avoid
+   * loading documents that are known to be too resource intensive.
+   */
+  denylist?: AutomergeUrl[]
 
-    /**
-     * The debounce rate in milliseconds for saving documents. Defaults to 100ms.
-     */
-    saveDebounceRate?: number
+  /**
+   * The debounce rate in milliseconds for saving documents. Defaults to 100ms.
+   */
+  saveDebounceRate?: number
 
-    // This is hidden for now because it's an experimental API, mostly here in order
-    // for keyhive to be able to control the ID generation
-    /**
-     * @hidden
-     */
-    idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
+  // This is hidden for now because it's an experimental API, mostly here in order
+  // for keyhive to be able to control the ID generation
+  /**
+   * @hidden
+   */
+  idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
 
-    /**
-     * The subduction sync engine
-     */
-    subduction?: Subduction
+  /**
+   * The subduction sync engine
+   */
+  subduction?: Subduction
 
-    /**
-     * The size of the cache for recently seen heads per document to avoid resending them
-     */
-    recentHeadsCacheSize?: number
+  /**
+   * The size of the cache for recently seen heads per document to avoid resending them
+   */
+  recentHeadsCacheSize?: number
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -1599,15 +1516,15 @@ export interface RepoConfig {
  * document with the peer given by `peerId`.
  * */
 export type SharePolicy = (
-    peerId: PeerId,
-    documentId?: DocumentId
+  peerId: PeerId,
+  documentId?: DocumentId
 ) => Promise<boolean>
 
 /**
  * A type which determines whether we should share a document with a peer
  * */
 export type ShareConfig = {
-    /**
+  /**
    * Whether we should actively announce a document to a peer
 
    * @remarks
@@ -1617,63 +1534,63 @@ export type ShareConfig = {
    * sync server, but the sync server would not want to announce every document
    * to every connected peer
    */
-    announce: SharePolicy
-    /**
-     * Whether a peer should have access to the document
-     */
-    access: (peer: PeerId, doc: DocumentId) => Promise<boolean>
+  announce: SharePolicy
+  /**
+   * Whether a peer should have access to the document
+   */
+  access: (peer: PeerId, doc: DocumentId) => Promise<boolean>
 }
 
 // events & payloads
 export interface RepoEvents {
-    /** A new document was created or discovered */
-    document: (arg: DocumentPayload) => void
-    /** A document was deleted */
-    "delete-document": (arg: DeleteDocumentPayload) => void
-    /** A document was marked as unavailable (we don't have it and none of our peers have it) */
-    "unavailable-document": (arg: DeleteDocumentPayload) => void
-    "doc-metrics": (arg: DocMetrics) => void
+  /** A new document was created or discovered */
+  document: (arg: DocumentPayload) => void
+  /** A document was deleted */
+  "delete-document": (arg: DeleteDocumentPayload) => void
+  /** A document was marked as unavailable (we don't have it and none of our peers have it) */
+  "unavailable-document": (arg: DeleteDocumentPayload) => void
+  "doc-metrics": (arg: DocMetrics) => void
 }
 
 export interface RepoFindOptions {
-    allowableStates?: string[]
+  allowableStates?: string[]
 }
 
 export interface DocumentPayload {
-    handle: DocHandle<any>
+  handle: DocHandle<any>
 }
 
 export interface DeleteDocumentPayload {
-    documentId: DocumentId
+  documentId: DocumentId
 }
 
 export type DocMetrics =
-    | DocSyncMetrics
-    | {
-          type: "doc-compacted"
-          documentId: DocumentId
-          durationMillis: number
-      }
-    | {
-          type: "doc-saved"
-          documentId: DocumentId
-          durationMillis: number
-          sinceHeads: Array<string>
-      }
-    | {
-          type: "doc-loaded"
-          documentId: DocumentId
-          durationMillis: number
-          numOps: number
-          numChanges: number
-      }
-    | {
-          type: "doc-denied"
-          documentId: DocumentId
-      }
+  | DocSyncMetrics
+  | {
+      type: "doc-compacted"
+      documentId: DocumentId
+      durationMillis: number
+    }
+  | {
+      type: "doc-saved"
+      documentId: DocumentId
+      durationMillis: number
+      sinceHeads: Array<string>
+    }
+  | {
+      type: "doc-loaded"
+      documentId: DocumentId
+      durationMillis: number
+      numOps: number
+      numChanges: number
+    }
+  | {
+      type: "doc-denied"
+      documentId: DocumentId
+    }
 
 function hasCallbacks(
-    s: SedimentreeStorage | undefined
+  s: SedimentreeStorage | undefined
 ): s is SubductionStorageWithCallbacks {
-    return !!s && typeof (s as any).on === "function"
+  return !!s && typeof (s as any).on === "function"
 }
