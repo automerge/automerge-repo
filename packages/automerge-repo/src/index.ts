@@ -60,7 +60,11 @@ import { next as Automerge, type ObjID } from "@automerge/automerge/slim"
 export * as cbor from "./helpers/cbor.js"
 
 // Subduction helpers
-export { toSubductionPeerId, toSedimentreeId, toDocumentId } from "./helpers/subduction.js"
+export {
+  toSubductionPeerId,
+  toSedimentreeId,
+  toDocumentId,
+} from "./helpers/subduction.js"
 
 // types
 

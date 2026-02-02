@@ -8,11 +8,16 @@ import {
   RepoContext,
 } from "@automerge/react"
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import { Subduction, SubductionWebSocket, WebCryptoSigner } from "@automerge/automerge_subduction"
-
+import {
+  Subduction,
+  SubductionWebSocket,
+  WebCryptoSigner,
+} from "@automerge/automerge_subduction"
 ;(async () => {
   const signer = await WebCryptoSigner.setup()
-  const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-demo-counter")
+  const storageAdapter = new IndexedDBStorageAdapter(
+    "automerge-repo-demo-counter"
+  )
   const storage = new SubductionStorageBridge(storageAdapter)
   const subduction = await Subduction.hydrate(signer, storage)
 

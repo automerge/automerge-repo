@@ -2,11 +2,17 @@ import { Repo } from "@automerge/automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import { Subduction, SubductionWebSocket, WebCryptoSigner } from "@automerge/automerge_subduction"
+import {
+  Subduction,
+  SubductionWebSocket,
+  WebCryptoSigner,
+} from "@automerge/automerge_subduction"
 
 export async function setupRepo() {
   const signer = await WebCryptoSigner.setup()
-  const storageAdapter = new IndexedDBStorageAdapter("automerge-repo-svelte-counter")
+  const storageAdapter = new IndexedDBStorageAdapter(
+    "automerge-repo-svelte-counter"
+  )
   const storage = new SubductionStorageBridge(storageAdapter)
   const subduction = await Subduction.hydrate(signer, storage)
 
