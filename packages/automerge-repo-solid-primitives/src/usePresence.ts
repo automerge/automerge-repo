@@ -41,14 +41,10 @@ export function usePresence<State extends PresenceState>({
     new Presence<State>({ handle, userId, deviceId })
   )
   const firstInitialState = initialState
+  let currentTiming = { heartbeatMs, peerTtlMs }
 
-  onMount(() => {
+  const setupPresenceHandlers = () => {
     const presenceHandle = presence()
-    presenceHandle.start({
-      initialState,
-      heartbeatMs,
-      peerTtlMs,
-    })
 
     presenceHandle.on("heartbeat", () =>
       setPeerStates(presenceHandle.getPeerStates())
@@ -62,6 +58,15 @@ export function usePresence<State extends PresenceState>({
     presenceHandle.on("goodbye", () =>
       setPeerStates(presenceHandle.getPeerStates())
     )
+  }
+
+  onMount(() => {
+    const presenceHandle = presence()
+    presenceHandle.start({
+      initialState: firstInitialState,
+      ...currentTiming,
+    })
+    setupPresenceHandlers()
   })
 
   onCleanup(() => {
@@ -79,11 +84,15 @@ export function usePresence<State extends PresenceState>({
 
   const start = (config?: Partial<PresenceConfig<State>>) => {
     const initialState = config?.initialState ?? presence().getLocalState()
+    currentTiming = {
+      heartbeatMs: config?.heartbeatMs ?? currentTiming.heartbeatMs,
+      peerTtlMs: config?.peerTtlMs ?? currentTiming.peerTtlMs,
+    }
     presence().start({
-      ...firstInitialState,
-      ...config,
       initialState,
+      ...currentTiming,
     })
+    setupPresenceHandlers()
   }
 
   const stop = () => {
