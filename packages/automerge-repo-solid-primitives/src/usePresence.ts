@@ -7,7 +7,7 @@ import {
   type PresenceState,
   type UserId,
 } from "@automerge/automerge-repo/slim"
-import { onCleanup, onMount } from "solid-js"
+import { onCleanup } from "solid-js"
 import { createStore, reconcile, type Store } from "solid-js/store"
 
 export type UsePresenceConfig<State extends PresenceState> =
@@ -59,14 +59,11 @@ export function usePresence<State extends PresenceState>({
     )
   }
 
-  onMount(() => {
-    const presenceHandle = presence
-    presenceHandle.start({
-      initialState: firstInitialState,
-      ...currentTiming,
-    })
-    setupPresenceHandlers()
+  presence.start({
+    initialState: firstInitialState,
+    ...currentTiming,
   })
+  setupPresenceHandlers()
 
   onCleanup(() => {
     presence.stop()
