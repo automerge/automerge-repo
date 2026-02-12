@@ -7,7 +7,8 @@ import {
   type PresenceState,
   type UserId,
 } from "@automerge/automerge-repo/slim"
-import { type Accessor, createSignal, onCleanup, onMount } from "solid-js"
+import { onCleanup, onMount } from "solid-js"
+import { createStore, reconcile, type Store } from "solid-js/store"
 
 export type UsePresenceConfig<State extends PresenceState> =
   PresenceConfig<State> & {
@@ -17,8 +18,8 @@ export type UsePresenceConfig<State extends PresenceState> =
   }
 
 export type UsePresenceResult<State extends PresenceState> = {
-  peerStates: Accessor<PeerStateView<State>>
-  localState: Accessor<State> | undefined
+  peerStates: Store<PeerStateView<State>>
+  localState: Store<State> | undefined
   update: <Channel extends keyof State>(
     channel: Channel,
     value: State[Channel]
@@ -35,33 +36,31 @@ export function usePresence<State extends PresenceState>({
   heartbeatMs,
   peerTtlMs,
 }: UsePresenceConfig<State>): UsePresenceResult<State> {
-  const [localState, setLocalState] = createSignal<State>(initialState)
-  const [peerStates, setPeerStates] = createSignal(new PeerStateView<State>({}))
-  const [presence] = createSignal(
-    new Presence<State>({ handle, userId, deviceId })
-  )
+  const [localState, setLocalState] = createStore<State>(initialState)
+  const [peerStates, setPeerStates] = createStore(new PeerStateView<State>({}))
+  const presence = new Presence<State>({ handle, userId, deviceId })
   const firstInitialState = initialState
   let currentTiming = { heartbeatMs, peerTtlMs }
 
   const setupPresenceHandlers = () => {
-    const presenceHandle = presence()
+    const presenceHandle = presence
 
     presenceHandle.on("heartbeat", () =>
-      setPeerStates(presenceHandle.getPeerStates())
+      setPeerStates(reconcile(presenceHandle.getPeerStates()))
     )
     presenceHandle.on("snapshot", () =>
-      setPeerStates(presenceHandle.getPeerStates())
+      setPeerStates(reconcile(presenceHandle.getPeerStates()))
     )
     presenceHandle.on("update", () =>
-      setPeerStates(presenceHandle.getPeerStates())
+      setPeerStates(reconcile(presenceHandle.getPeerStates()))
     )
     presenceHandle.on("goodbye", () =>
-      setPeerStates(presenceHandle.getPeerStates())
+      setPeerStates(reconcile(presenceHandle.getPeerStates()))
     )
   }
 
   onMount(() => {
-    const presenceHandle = presence()
+    const presenceHandle = presence
     presenceHandle.start({
       initialState: firstInitialState,
       ...currentTiming,
@@ -70,25 +69,25 @@ export function usePresence<State extends PresenceState>({
   })
 
   onCleanup(() => {
-    presence().stop()
+    presence.stop()
   })
 
   const update = <Channel extends keyof State>(
     channel: Channel,
     msg: State[Channel]
   ) => {
-    presence().broadcast(channel, msg)
-    const updated = presence().getLocalState()
-    setLocalState(() => updated)
+    presence.broadcast(channel, msg)
+    const updated = presence.getLocalState()
+    setLocalState(reconcile(updated))
   }
 
   const start = (config?: Partial<PresenceConfig<State>>) => {
-    const initialState = config?.initialState ?? presence().getLocalState()
+    const initialState = config?.initialState ?? presence.getLocalState()
     currentTiming = {
       heartbeatMs: config?.heartbeatMs ?? currentTiming.heartbeatMs,
       peerTtlMs: config?.peerTtlMs ?? currentTiming.peerTtlMs,
     }
-    presence().start({
+    presence.start({
       initialState,
       ...currentTiming,
     })
@@ -96,7 +95,7 @@ export function usePresence<State extends PresenceState>({
   }
 
   const stop = () => {
-    presence().stop()
+    presence.stop()
   }
 
   return {
