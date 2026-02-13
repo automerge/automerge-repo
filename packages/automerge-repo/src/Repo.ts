@@ -722,7 +722,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
-  async find<T>(
+  async find<T = unknown>(
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
