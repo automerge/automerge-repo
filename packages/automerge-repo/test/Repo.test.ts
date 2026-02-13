@@ -11,12 +11,7 @@ import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
-import {
-  DocMetrics,
-  FindProgressWithMethods,
-  Repo,
-  ShareConfig,
-} from "../src/Repo.js"
+import { DocMetrics, Repo } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
@@ -35,14 +30,11 @@ import {
   LargeObject,
   generateLargeObject,
 } from "./helpers/generate-large-object.js"
-import twoPeers from "./helpers/twoPeers.js"
 import connectRepos from "./helpers/connectRepos.js"
-import awaitState from "./helpers/awaitState.js"
 import withTimeout from "./helpers/withTimeout.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
-import { FindProgress } from "../src/FindProgress.js"
 import { AbortError } from "../src/helpers/abortable.js"
 
 describe("Repo", () => {
