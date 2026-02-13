@@ -1,25 +1,31 @@
 import { PeerState, PeerStatesValue, PresenceState } from "./types.js"
 
-export type GetCohortOpts<State extends PresenceState, SummaryState> = {
+export type GetStatesOpts<State extends PresenceState, SummaryState> = {
   /**
-   * Function to derive a key from a peer state. This can be used to group peers
-   * and consider presence activity by user or device rather than by peer (when
-   * a user has multiple devices, or multiple peers on a single device.)
+   * Function to derive a grouping key from a peer state. This can be used to
+   * group peers and consider presence activity by an arbitrary attribute of the
+   * presence state (e.g., user or device) rather than by peer.
+   *
+   * This is useful when a user has multiple devices, or multiple peers (e.g.,
+   * tabs) on a single device.
    *
    * @param state state of a peer
    * @returns key that should be used to consolidate activity from that peer
    */
-  keyFn?: (state: PeerState<State>) => PropertyKey
+  groupingFn?: (state: PeerState<State>) => PropertyKey
   /**
    * Function to summarize the presence activity from several different peers in
-   * a cohort.
+   * a group.
    *
-   * @param states states of all peers in a cohort, as grouped by {@param keyFn}
-   * @returns a value summarizing presence for this cohort
+   * @param states states of all peers in a group, as grouped by {@param keyFn}
+   * @returns a value summarizing presence for this group
    */
   summaryFn?: (states: PeerState<State>[]) => SummaryState
 }
 
+/**
+ * A grouped view of peer states.
+ */
 export class PeerStateView<State extends PresenceState> {
   readonly value
 
@@ -28,48 +34,52 @@ export class PeerStateView<State extends PresenceState> {
   }
 
   /**
-   * Get the presence state of all peers, grouped by cohort. By default, each
-   * peer is its own cohort, but presence activity can be aggregated by user or
-   * device instead.
+   * Get the presence state of all peers. By default, each peer is its own
+   * group, but presence activity can be aggregated by arbitrary criteria.
    *
    * @param opts
-   * @returns presence state for all cohorts
+   * @returns presence state for all groups
    */
-  getCohortStates<SummaryState = PeerState<State>>(
-    opts?: GetCohortOpts<State, SummaryState>
+  getStates<SummaryState = PeerState<State>>(
+    opts?: GetStatesOpts<State, SummaryState>
   ) {
-    const keyFn = opts?.keyFn ?? peerIdentity
+    const groupingFn = opts?.groupingFn ?? peerIdentity
     const summaryFn =
       opts?.summaryFn ??
       (getLastActivePeer as (states: PeerState<State>[]) => SummaryState)
-    const statesByCohortKey = Object.values(this.value).reduce(
-      (byKey, curr) => {
-        const key = keyFn(curr)
-        if (!(key in byKey)) {
-          byKey[key] = []
-        }
-        byKey[key].push(curr)
+    const statesByKey = Object.values(this.value).reduce((byKey, curr) => {
+      const key = groupingFn(curr)
+      if (!(key in byKey)) {
+        byKey[key] = []
+      }
+      byKey[key].push(curr)
 
-        return byKey
-      },
-      {} as Record<PropertyKey, PeerState<State>[]>
-    )
-    return Object.entries(statesByCohortKey).reduce((result, [key, states]) => {
+      return byKey
+    }, {} as Record<PropertyKey, PeerState<State>[]>)
+    return Object.entries(statesByKey).reduce((result, [key, states]) => {
       result[key] = summaryFn(states)
       return result
     }, {} as Record<PropertyKey, SummaryState>)
   }
 }
 
-export const peerIdentity = <State extends PresenceState>(
+/**
+ * Get the peerId of this peer.
+ *
+ * @param peer
+ * @returns peer id
+ */
+export function peerIdentity<State extends PresenceState>(
   peer: PeerState<State>
-) => peer.peerId
+) {
+  return peer.peerId
+}
 
 /**
- * Return the peer from this group that sent a state update most recently
+ * Find the peer that most recently sent a state update.
  *
  * @param peers
- * @returns id of most recently seen peer
+ * @returns id of most recently active peer
  */
 export function getLastActivePeer<State extends PresenceState>(
   peers: PeerState<State>[]
@@ -91,7 +101,7 @@ export function getLastActivePeer<State extends PresenceState>(
 }
 
 /**
- * Return the most-recently-seen peer from this group.
+ * Find the peer that most recently sent a heartbeat.
  *
  * @param peers
  * @returns id of most recently seen peer

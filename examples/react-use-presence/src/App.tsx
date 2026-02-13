@@ -18,7 +18,7 @@ export function App({ url }: { url: AutomergeUrl }) {
   const newCount = localState?.count
   const count = doc?.count ?? 0
 
-  const peers = peerStates.getCohortStates()
+  const peers = peerStates.getStates()
 
   return (
     <div>
