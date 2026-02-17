@@ -64,7 +64,6 @@ import {
   SedimentreeId,
   SedimentreeStorage,
   Subduction,
-  SubductionWebSocket,
   SyncStats,
 } from "@automerge/automerge_subduction"
 
@@ -143,7 +142,6 @@ export class Repo extends EventEmitter<RepoEvents> {
   #lastHeadsSent: Map<string, Set<string>> // TODO move to subduction.wasm
   #recentlySeenHeads: Map<string, HashRing>
   #recentHeadsCacheSize: number
-  #subductionAdaptersReady: Promise<void>
 
   /** Tracks pending outbound operations for awaitOutbound() */
   #pendingOutbound: number = 0
@@ -293,15 +291,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       isEphemeral,
     }))()
 
-    // Separate adapters into subduction and non-subduction
-    // Subduction adapters have both getWebSocket() and isSubductionMode() returning true
-    const subductionAdapters = network.filter(
-      a => a.isSubductionMode?.() === true
-    )
-    const nonSubductionAdapters = network.filter(a => !a.isSubductionMode?.())
-
     const networkSubsystem = new NetworkSubsystem(
-      nonSubductionAdapters,
+      network,
       peerId,
       myPeerMetadata
     )
@@ -431,18 +422,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       subductionStorage.on("fragment-saved", (id, digest, blob) => {
         this.#handleFragmentSaved(id, digest, blob)
       })
-    }
-
-    // Connect subduction adapters and attach their WebSockets to Subduction
-    // Store the promise so we can wait for it in document operations
-    if (subductionAdapters.length > 0) {
-      this.#subductionAdaptersReady = this.#attachNetworkAdaptersToSubduction(
-        subductionAdapters,
-        peerId,
-        myPeerMetadata
-      )
-    } else {
-      this.#subductionAdaptersReady = Promise.resolve()
     }
   }
 
@@ -1168,8 +1147,6 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Call this before change detection to ensure all remote commits are received.
    */
   async syncAllDocuments(): Promise<void> {
-    await this.#subductionAdaptersReady
-
     // Get all known sedimentree IDs
     const sedimentreeIds = Array.from(this.#handlesBySedimentreeId.keys())
 
@@ -1195,54 +1172,11 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#subduction.disconnectFromPeer(subductionPeerId)
   }
 
-  async #attachNetworkAdaptersToSubduction(
-    adapters: NetworkAdapterInterface[],
-    peerId: PeerId,
-    peerMetadata: Promise<PeerMetadata>
-  ) {
-    const subPeerId = toSubductionPeerId(peerId)
 
-    // Wait for peer metadata and connect each adapter
-    const metadata = await peerMetadata
-
-    for (const adapter of adapters) {
-      // Connect the adapter ourselves (since it's not in NetworkSubsystem)
-      adapter.connect(peerId, metadata)
-
-      // Wait for the adapter to be ready (WebSocket connected)
-      await adapter.whenReady?.()
-
-      const ws = adapter.getWebSocket?.()
-      if (ws) {
-        try {
-          const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
-          await this.#subduction.attach(wsAdapter)
-          this.#log("Attached WebSocket from adapter to Subduction")
-        } catch (err) {
-          this.#log("Failed to attach WebSocket to Subduction:", err)
-        }
-      }
-    }
-  }
-
-  async connectToWebSocketPeer(peerId: PeerId, syncServerAddress: string) {
-    const subPeerId = toSubductionPeerId(peerId)
-    const ws = new WebSocket(syncServerAddress)
-
-    ws.addEventListener("close", ev => {
-      console.debug("socket closed", ev.code, ev.reason, ev.wasClean)
-    })
-
-    const wsAdapter = await SubductionWebSocket.setup(subPeerId, ws, 5000)
-    await this.#subduction.attach(wsAdapter)
-  }
 
   async #requestDocOverSubduction(handle: DocHandle<any>) {
     const sedimentreeId = toSedimentreeId(handle.documentId)
     this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
-
-    // Wait for subduction adapters to be ready before making sync requests
-    await this.#subductionAdaptersReady
 
     // With the 1.5RTT protocol, syncAll performs bidirectional sync in a single call:
     // 1. We send our summary to peers
@@ -1310,9 +1244,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#pendingOutbound++
 
     try {
-      // Wait for subduction adapters to be ready before broadcasting
-      await this.#subductionAdaptersReady
-
       const currentHexHeads = Automerge.getHeads(doc)
       const id = sedimentreeId.toString()
       const mostRecentHeads: Set<string> =

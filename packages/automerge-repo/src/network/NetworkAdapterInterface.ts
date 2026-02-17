@@ -51,28 +51,6 @@ export interface NetworkAdapterInterface
 
   /** Called by the {@link Repo} to disconnect from the network */
   disconnect(): void
-
-  /** Optional: Returns the underlying WebSocket if this adapter uses one
-   *
-   * @remarks
-   * This allows Subduction to use the WebSocket transport directly while
-   * the adapter continues to manage connection lifecycle, authentication,
-   * and reconnection logic.
-   *
-   * @returns The WebSocket instance, or undefined if this adapter doesn't use WebSockets
-   */
-  getWebSocket?(): WebSocket | undefined
-
-  /** Optional: Returns whether this adapter is in subduction mode
-   *
-   * @remarks
-   * When an adapter is in subduction mode, it only manages WebSocket lifecycle
-   * (connect, reconnect, disconnect) but doesn't send/receive protocol messages.
-   * This allows Subduction to use the WebSocket directly.
-   *
-   * @returns true if the adapter is in subduction mode, false otherwise
-   */
-  isSubductionMode?(): boolean
 }
 
 // events & payloads

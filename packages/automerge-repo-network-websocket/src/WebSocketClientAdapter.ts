@@ -38,10 +38,6 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
     return this.#readyPromise
   }
 
-  isSubductionMode(): boolean {
-    return this.#subductionMode
-  }
-
   #forceReady() {
     if (!this.#ready) {
       this.#ready = true
@@ -54,21 +50,12 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
 
   remotePeerId?: PeerId // this adapter only connects to one remote client at a time
 
-  /**
-   * When true, the adapter only manages WebSocket lifecycle (connect, reconnect, disconnect)
-   * but doesn't send/receive protocol messages. This allows external systems like Subduction
-   * to use the WebSocket directly.
-   */
-  #subductionMode: boolean = false
-
   constructor(
     public readonly url: string,
-    public readonly retryInterval = 5000,
-    options: { subductionMode?: boolean } = {}
+    public readonly retryInterval = 5000
   ) {
     super()
     this.#log = this.#log.extend(url)
-    this.#subductionMode = options.subductionMode ?? false
   }
 
   connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
@@ -83,9 +70,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
       // Remove the old event listeners before creating a new connection.
       this.socket.removeEventListener("open", this.onOpen)
       this.socket.removeEventListener("close", this.onClose)
-      if (!this.#subductionMode) {
-        this.socket.removeEventListener("message", this.onMessage)
-      }
+      this.socket.removeEventListener("message", this.onMessage)
       this.socket.removeEventListener("error", this.onError)
     }
     // Wire up retries
@@ -100,10 +85,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
 
     this.socket.addEventListener("open", this.onOpen)
     this.socket.addEventListener("close", this.onClose)
-    if (!this.#subductionMode) {
-      // In subduction mode, don't listen to messages - Subduction handles them
-      this.socket.addEventListener("message", this.onMessage)
-    }
+    this.socket.addEventListener("message", this.onMessage)
     this.socket.addEventListener("error", this.onError)
 
     // Mark this adapter as ready if we haven't received an ack in 1 second.
@@ -111,22 +93,14 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
     // hold up marking things as unavailable for any longer
     setTimeout(() => this.#forceReady(), 1000)
 
-    if (!this.#subductionMode) {
-      this.join()
-    }
+    this.join()
   }
 
   onOpen = () => {
     this.#log("open")
     clearInterval(this.#retryIntervalId)
     this.#retryIntervalId = undefined
-
-    if (this.#subductionMode) {
-      // In subduction mode, just mark as ready - don't send join message
-      this.#forceReady()
-    } else {
-      this.join()
-    }
+    this.join()
   }
 
   // When a socket closes, or disconnects, remove it from the array.
@@ -144,7 +118,6 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   onMessage = (event: WebSocket.MessageEvent) => {
-    // Note: In subduction mode, this handler is never registered
     this.receiveMessage(event.data as Uint8Array)
   }
 
@@ -170,10 +143,6 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   join() {
-    if (this.#subductionMode) {
-      // Don't send join messages in subduction mode
-      return
-    }
     assert(this.peerId)
     assert(this.socket)
     if (this.socket.readyState === WebSocket.OPEN) {
@@ -190,9 +159,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
     if (socket) {
       socket.removeEventListener("open", this.onOpen)
       socket.removeEventListener("close", this.onClose)
-      if (!this.#subductionMode) {
-        socket.removeEventListener("message", this.onMessage)
-      }
+      socket.removeEventListener("message", this.onMessage)
       socket.removeEventListener("error", this.onError)
       socket.close()
     }
@@ -202,17 +169,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
     this.socket = undefined
   }
 
-  getWebSocket(): WebSocket | undefined {
-    return this.socket
-  }
-
   send(message: FromClientMessage) {
-    if (this.#subductionMode) {
-      // In subduction mode, messages are sent by Subduction directly
-      this.#log("Ignoring send in subduction mode")
-      return
-    }
-
     if ("data" in message && message.data?.byteLength === 0)
       throw new Error("Tried to send a zero-length message")
     assert(this.peerId)
