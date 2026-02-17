@@ -156,6 +156,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     signedCommit: Uint8Array,
     blobDigest: Digest
   ): Promise<void> {
+    // Copy bytes from WASM memory view BEFORE any WASM calls that may reallocate memory
+    const commitCopy = new Uint8Array(signedCommit)
     this.pendingSaves++
     try {
       const key = [
@@ -164,11 +166,11 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         sedimentreeId.toString(),
         bytesToHex(digest.toBytes()),
       ]
-      await this.adapter.save(key, signedCommit)
+      await this.adapter.save(key, commitCopy)
 
       // Emit event after save - load blob to include in event
       if (this.listeners["commit-saved"]?.length) {
-        const blob = await this.loadBlob(blobDigest)
+        const blob = await this.loadBlob(sedimentreeId, blobDigest)
         if (blob) {
           this.emit("commit-saved", sedimentreeId, digest, blob)
         }
@@ -248,6 +250,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     signedFragment: Uint8Array,
     blobDigest: Digest
   ): Promise<void> {
+    // Copy bytes from WASM memory view BEFORE any WASM calls that may reallocate memory
+    const fragmentCopy = new Uint8Array(signedFragment)
     this.pendingSaves++
     try {
       const key = [
@@ -256,11 +260,11 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         sedimentreeId.toString(),
         bytesToHex(digest.toBytes()),
       ]
-      await this.adapter.save(key, signedFragment)
+      await this.adapter.save(key, fragmentCopy)
 
       // Emit event after save - load blob to include in event
       if (this.listeners["fragment-saved"]?.length) {
-        const blob = await this.loadBlob(blobDigest)
+        const blob = await this.loadBlob(sedimentreeId, blobDigest)
         if (blob) {
           this.emit("fragment-saved", sedimentreeId, digest, blob)
         }
@@ -332,31 +336,44 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     ])
   }
 
-  // ==================== Blobs (CAS) ====================
+  // ==================== Blobs (keyed by sedimentree + digest) ====================
 
-  async saveBlob(data: Uint8Array): Promise<Digest> {
-    const digest = Digest.hash(data)
+  async saveBlob(
+    sedimentreeId: SedimentreeId,
+    data: Uint8Array
+  ): Promise<Digest> {
+    // Copy bytes from WASM memory view BEFORE any WASM calls that may reallocate memory
+    const dataCopy = new Uint8Array(data)
+    const digest = Digest.hash(dataCopy)
     const digestHex = bytesToHex(digest.toBytes())
-    const key = [PREFIX, BLOBS_PREFIX, digestHex]
-    await this.adapter.save(key, data)
+    const key = [PREFIX, BLOBS_PREFIX, sedimentreeId.toString(), digestHex]
+    await this.adapter.save(key, dataCopy)
 
     // Emit event after save
     if (this.listeners["blob-saved"]?.length) {
-      this.emit("blob-saved", digest, data)
+      this.emit("blob-saved", digest, dataCopy)
     }
 
     return digest
   }
 
-  async loadBlob(digest: Digest): Promise<Uint8Array | null> {
+  async loadBlob(
+    sedimentreeId: SedimentreeId,
+    digest: Digest
+  ): Promise<Uint8Array | null> {
     const digestHex = bytesToHex(digest.toBytes())
-    const key = [PREFIX, BLOBS_PREFIX, digestHex]
+    const key = [PREFIX, BLOBS_PREFIX, sedimentreeId.toString(), digestHex]
     const data = await this.adapter.load(key)
     return data ?? null
   }
 
-  async deleteBlob(digest: Digest): Promise<void> {
-    const key = [PREFIX, BLOBS_PREFIX, bytesToHex(digest.toBytes())]
+  async deleteBlob(sedimentreeId: SedimentreeId, digest: Digest): Promise<void> {
+    const key = [
+      PREFIX,
+      BLOBS_PREFIX,
+      sedimentreeId.toString(),
+      bytesToHex(digest.toBytes()),
+    ]
     await this.adapter.remove(key)
   }
 }

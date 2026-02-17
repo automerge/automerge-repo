@@ -26,7 +26,8 @@ import "./index.css"
 
     // Connect to Subduction server via discovery
     const conn = await SubductionWebSocket.tryDiscover(
-        new URL("wss://hel.subduction.keyhive.org"),
+        new URL("ws://localhost:8080"),
+        // new URL("wss://hel.subduction.keyhive.org"),
         signer
     )
     await subduction.attach(conn)
