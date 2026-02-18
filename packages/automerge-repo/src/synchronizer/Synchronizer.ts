@@ -6,6 +6,7 @@ import {
 } from "../network/messages.js"
 import { SyncState } from "@automerge/automerge/slim"
 import { PeerId, DocumentId } from "../types.js"
+import { DocSyncStatus } from "../SyncStatus.js"
 
 export abstract class Synchronizer extends EventEmitter<SynchronizerEvents> {
   abstract receiveMessage(message: RepoMessage): void
@@ -16,6 +17,7 @@ export interface SynchronizerEvents {
   "sync-state": (payload: SyncStatePayload) => void
   "open-doc": (arg: OpenDocMessage) => void
   metrics: (arg: DocSyncMetrics) => void
+  "sync-status-change": (arg: { documentId: DocumentId }) => void
 }
 
 /** Notify the repo that the sync state has changed  */

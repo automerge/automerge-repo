@@ -43,6 +43,7 @@ import type {
 } from "./types.js"
 import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
+import { ConnectionStatus, DocSyncStatus } from "./SyncStatus.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
@@ -244,6 +245,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
       this.synchronizer.removePeer(peerId)
       this.#remoteHeadsSubscriptions.removePeer(peerId)
+    })
+
+    networkSubsystem.on("peer-status-change", event => {
+      this.emit("peer-status-change", event)
     })
 
     // Handle incoming messages
@@ -981,6 +986,40 @@ export class Repo extends EventEmitter<RepoEvents> {
   shareConfigChanged() {
     void this.synchronizer.reevaluateDocumentShare()
   }
+
+  syncStatus(doc: AnyDocumentId): DocSyncStatus {
+    const docId = interpretAsDocumentId(doc)
+    return this.synchronizer.syncStatus(docId) ?? { docId, connections: [] }
+  }
+
+  /** Subscribe to sync status changes for a specific document.
+   *  Immediately invokes callback with current status, then on every state transition.
+   *  Returns an unsubscribe function. */
+  onSyncStatusChange(
+    doc: AnyDocumentId,
+    callback: (status: DocSyncStatus) => void
+  ): () => void {
+    const docId = interpretAsDocumentId(doc)
+
+    // Immediately invoke with current status
+    callback(this.syncStatus(docId))
+
+    // Listen for changes
+    const handler = (event: { documentId: DocumentId }) => {
+      if (event.documentId === docId) {
+        callback(this.syncStatus(docId))
+      }
+    }
+    this.synchronizer.on("sync-status-change", handler)
+
+    return () => {
+      this.synchronizer.off("sync-status-change", handler)
+    }
+  }
+
+  peerStatuses(): Record<PeerId, ConnectionStatus> {
+    return this.networkSubsystem.peerStatuses()
+  }
 }
 
 export interface RepoConfig {
@@ -1082,6 +1121,8 @@ export interface RepoEvents {
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (arg: DeleteDocumentPayload) => void
   "doc-metrics": (arg: DocMetrics) => void
+  /** A peer's connection status changed */
+  "peer-status-change": (arg: { peerId: PeerId; status: ConnectionStatus }) => void
 }
 
 export interface RepoFindOptions {

@@ -3,9 +3,10 @@ import { DocHandle } from "../DocHandle.js"
 import { parseAutomergeUrl } from "../AutomergeUrl.js"
 import { Repo } from "../Repo.js"
 import { DocMessage } from "../network/messages.js"
-import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
+import { AnyDocumentId, AutomergeUrl, DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
 import { Synchronizer } from "./Synchronizer.js"
+import { DocConnectionStatus, DocSyncStatus } from "../SyncStatus.js"
 
 const log = debug("automerge-repo:collectionsync")
 
@@ -43,6 +44,7 @@ export class CollectionSynchronizer extends Synchronizer {
     const docSynchronizer = new DocSynchronizer({
       handle,
       peerId: this.repo.networkSubsystem.peerId,
+      getAdapterForPeer: this.repo.networkSubsystem.getAdapterForPeer,
       onLoadSyncState: async peerId => {
         if (!this.repo.storageSubsystem) {
           return
@@ -64,6 +66,9 @@ export class CollectionSynchronizer extends Synchronizer {
     docSynchronizer.on("open-doc", event => this.emit("open-doc", event))
     docSynchronizer.on("sync-state", event => this.emit("sync-state", event))
     docSynchronizer.on("metrics", event => this.emit("metrics", event))
+    docSynchronizer.on("sync-status-change", event => {
+      this.emit("sync-status-change", event)
+    })
     return docSynchronizer
   }
 
@@ -276,5 +281,13 @@ export class CollectionSynchronizer extends Synchronizer {
     const hasRequested =
       this.#hasRequested.get(documentId)?.has(peerId) ?? false
     return announce || (access && hasRequested)
+  }
+
+  syncStatus(docId: DocumentId): DocSyncStatus | null {
+    const docSynchronizer = this.docSynchronizers[docId]
+    if (!docSynchronizer) {
+      return null
+    }
+    return docSynchronizer.syncStatus()
   }
 }

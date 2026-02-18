@@ -17,9 +17,12 @@ import {
   SyncMessage,
   isRequestMessage,
 } from "../network/messages.js"
+import { NetworkAdapterInterface } from "../network/NetworkAdapterInterface.js"
 import { PeerId } from "../types.js"
 import { Synchronizer } from "./Synchronizer.js"
 import { throttle } from "../helpers/throttle.js"
+import { DocSyncStatus } from "../SyncStatus.js"
+import { DocSyncStatusTracker } from "./DocSyncStatusTracker.js"
 
 type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
@@ -32,6 +35,7 @@ interface DocSynchronizerConfig {
   handle: DocHandle<unknown>
   peerId: PeerId
   onLoadSyncState?: (peerId: PeerId) => Promise<A.SyncState | undefined>
+  getAdapterForPeer?: (peerId: PeerId) => NetworkAdapterInterface | undefined
 }
 
 /**
@@ -65,12 +69,22 @@ export class DocSynchronizer extends Synchronizer {
   #handle: DocHandle<unknown>
   #onLoadSyncState: (peerId: PeerId) => Promise<A.SyncState | undefined>
 
-  constructor({ handle, peerId, onLoadSyncState }: DocSynchronizerConfig) {
+  #statusTracker: DocSyncStatusTracker
+
+  constructor({ handle, peerId, onLoadSyncState, getAdapterForPeer }: DocSynchronizerConfig) {
     super()
     this.#peerId = peerId
     this.#handle = handle
     this.#onLoadSyncState =
       onLoadSyncState ?? (() => Promise.resolve(undefined))
+
+    this.#statusTracker = new DocSyncStatusTracker(
+      handle.documentId,
+      getAdapterForPeer
+    )
+    this.#statusTracker.on("sync-status-change", event =>
+      this.emit("sync-status-change", event)
+    )
 
     const docId = handle.documentId.slice(0, 5)
     this.#log = debug(`automerge-repo:docsync:${docId}`)
@@ -161,6 +175,7 @@ export class DocSynchronizer extends Synchronizer {
     if (!this.#peers.includes(peerId)) {
       this.#peers.push(peerId)
       this.emit("open-doc", { documentId: this.documentId, peerId })
+      this.#statusTracker.peerAdded()
     }
   }
 
@@ -185,6 +200,7 @@ export class DocSynchronizer extends Synchronizer {
       syncState,
       documentId: this.#handle.documentId,
     })
+    this.#statusTracker.syncStateChanged()
   }
 
   #sendSyncMessage(peerId: PeerId, doc: A.Doc<unknown>) {
@@ -227,6 +243,8 @@ export class DocSynchronizer extends Synchronizer {
             documentId: this.#handle.documentId,
           } as SyncMessage)
         }
+
+        this.#statusTracker.messageSent(peerId, message)
 
         // if we have sent heads, then the peer now has or will have the document
         if (!isNew) {
@@ -308,6 +326,7 @@ export class DocSynchronizer extends Synchronizer {
     this.#log(`removing peer ${peerId}`)
     this.#peers = this.#peers.filter(p => p !== peerId)
     delete this.#peerDocumentStatuses[peerId]
+    this.#statusTracker.peerRemoved(peerId)
     this.#checkDocUnavailable()
   }
 
@@ -321,6 +340,7 @@ export class DocSynchronizer extends Synchronizer {
         this.receiveEphemeralMessage(message)
         break
       case "doc-unavailable":
+        this.#statusTracker.docUnavailableReceived(message.senderId)
         this.#peerDocumentStatuses[message.senderId] = "unavailable"
         this.#checkDocUnavailable()
         break
@@ -367,6 +387,8 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #processSyncMessage(message: SyncMessage | RequestMessage) {
+    this.#statusTracker.syncMessageReceived(message.senderId, message.data)
+
     if (isRequestMessage(message)) {
       this.#peerDocumentStatuses[message.senderId] = "wants"
     }
@@ -432,6 +454,7 @@ export class DocSynchronizer extends Synchronizer {
           this.emit("message", message)
         })
 
+      this.#statusTracker.statusBecameUnavailable()
       this.#handle.unavailable()
     }
   }
@@ -449,5 +472,13 @@ export class DocSynchronizer extends Synchronizer {
       peers: this.#peers,
       size: this.#handle.metrics(),
     }
+  }
+
+  syncStatus(): DocSyncStatus {
+    return this.#statusTracker.syncStatus(
+      this.#peers,
+      this.#peerDocumentStatuses,
+      this.#syncStates
+    )
   }
 }

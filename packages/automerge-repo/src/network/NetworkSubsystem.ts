@@ -13,6 +13,8 @@ import {
   isEphemeralMessage,
   isRepoMessage,
 } from "./messages.js"
+import { ConnectionStatus } from "../SyncStatus.js"
+import { PeerStatusTracker } from "./PeerStatusTracker.js"
 
 type EphemeralMessageSource = `${PeerId}:${SessionId}`
 
@@ -28,6 +30,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   #ephemeralSessionCounts: Record<EphemeralMessageSource, number> = {}
   adapters: NetworkAdapterInterface[] = []
 
+  #statusTracker = new PeerStatusTracker()
+
   constructor(
     adapters: NetworkAdapterInterface[],
     public peerId: PeerId,
@@ -35,6 +39,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   ) {
     super()
     this.#log = debug(`automerge-repo:network:${this.peerId}`)
+    this.#statusTracker.on("peer-status-change", event =>
+      this.emit("peer-status-change", event)
+    )
     adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
@@ -62,11 +69,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         this.#adaptersByPeer[peerId] = networkAdapter
       }
 
+      this.#statusTracker.peerConnected(peerId, networkAdapter)
+
       this.emit("peer", { peerId, peerMetadata })
     })
 
     networkAdapter.on("peer-disconnected", ({ peerId }) => {
       this.#log(`peer disconnected: ${peerId} `)
+      this.#statusTracker.peerDisconnected(peerId)
       delete this.#adaptersByPeer[peerId]
       this.emit("peer-disconnected", { peerId })
     })
@@ -78,6 +88,8 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       }
 
       this.#log(`message from ${msg.senderId}`)
+
+      this.#statusTracker.messageReceived(msg)
 
       if (isEphemeralMessage(msg)) {
         const source = getEphemeralMessageSource(msg)
@@ -157,6 +169,16 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     const outbound = prepareMessage(message)
     this.#log("sending message %o", outbound)
     peer.send(outbound as RepoMessage)
+
+    this.#statusTracker.messageSent(message.targetId, message as any)
+  }
+
+  peerStatuses(): Record<PeerId, ConnectionStatus> {
+    return this.#statusTracker.peerStatuses()
+  }
+
+  getAdapterForPeer = (peerId: PeerId): NetworkAdapterInterface | undefined => {
+    return this.#adaptersByPeer[peerId]
   }
 
   isReady = () => {
@@ -174,6 +196,7 @@ export interface NetworkSubsystemEvents {
   peer: (payload: PeerPayload) => void
   "peer-disconnected": (payload: PeerDisconnectedPayload) => void
   message: (payload: RepoMessage) => void
+  "peer-status-change": (payload: { peerId: PeerId; status: ConnectionStatus }) => void
 }
 
 export interface PeerPayload {
