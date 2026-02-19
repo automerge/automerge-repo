@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { assert, describe, expect, it, vi } from "vitest"
 import { Repo } from "../src/Repo.js"
 import { PeerId } from "../src/types.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
@@ -7,6 +7,7 @@ import connectRepos from "./helpers/connectRepos.js"
 import pause from "./helpers/pause.js"
 import { waitFor } from "./helpers/waitFor.js"
 import { TestDoc } from "./types.js"
+import { isRepoMessage } from "../src/index.js"
 
 describe("Observability", () => {
   // -- Helpers --
@@ -106,6 +107,34 @@ describe("Observability", () => {
       // Events should have timestamps
       for (const event of bobConn!.events) {
         expect(event.timestamp).toBeInstanceOf(Date)
+      }
+    })
+
+    it("should emit decoded messages", async () => {
+      const { alice, bob } = await setupTwoPeers()
+
+      const handle = alice.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+
+      const bobHandle = await bob.find<TestDoc>(handle.url)
+
+      const status = alice.syncStatus(handle.url)
+      const bobConn = status.connections.find(
+        c => c.peerId === ("bob" as PeerId)
+      )
+      expect(bobConn).toBeDefined()
+      expect(bobConn!.events.length).toBeGreaterThan(0)
+
+      const expected_message_types = ["message_sent", "message_received"]
+      for (const event of bobConn!.events) {
+        if (event.type == "message_sent") {
+          assert.equal(event.message.targetId, "bob")
+        } else if (event.type == "message_received") {
+          assert.equal(event.senderId, "bob")
+        }
+        assert(isRepoMessage(event.message))
       }
     })
   })
@@ -288,8 +317,7 @@ describe("Observability", () => {
       await connectRepos(alice, bob)
 
       const connectedEvents = events.filter(
-        e =>
-          e.peerId === ("bob" as PeerId) && e.status.state === "connected"
+        e => e.peerId === ("bob" as PeerId) && e.status.state === "connected"
       )
       expect(connectedEvents.length).toBeGreaterThanOrEqual(1)
     })
@@ -321,9 +349,7 @@ describe("Observability", () => {
       })
 
       const disconnectedEvents = events.filter(
-        e =>
-          e.peerId === ("bob" as PeerId) &&
-          e.status.state === "disconnected"
+        e => e.peerId === ("bob" as PeerId) && e.status.state === "disconnected"
       )
       expect(disconnectedEvents.length).toBe(1)
     })

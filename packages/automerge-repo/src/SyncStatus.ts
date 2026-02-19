@@ -1,6 +1,7 @@
 import { Heads } from "@automerge/automerge"
 import { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.js"
 import { DocumentId, PeerId } from "./types.js"
+import { MessageContents, RepoMessage } from "./network/messages.js"
 
 export type ConnectionStatus = {
   peerId: PeerId
@@ -47,11 +48,11 @@ export type DocConnectionEvent =
   | {
       type: "message_sent"
       timestamp: Date
-      message: any
+      message: MessageContents
     }
   | {
       type: "message_received"
-      from: PeerId
+      senderId: PeerId
       timestamp: Date
-      message: any
+      message: RepoMessage
     }

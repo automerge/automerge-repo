@@ -4,6 +4,7 @@ import { EventEmitter } from "eventemitter3"
 import { DocumentId, PeerId } from "../types.js"
 import { DocConnectionEvent, DocSyncStatus } from "../SyncStatus.js"
 import type { NetworkAdapterInterface } from "../network/NetworkAdapterInterface.js"
+import { MessageContents, RepoMessage } from "../network/messages.js"
 
 const MAX_EVENTS_PER_PEER = 100
 
@@ -75,33 +76,22 @@ export class DocSyncStatusTracker extends EventEmitter<DocSyncStatusTrackerEvent
     this.#emitChange()
   }
 
-  messageSent(peerId: PeerId, data: Uint8Array) {
-    this.#append(peerId, {
+  messageSent(message: MessageContents) {
+    this.#append(message.targetId, {
       type: "message_sent",
       timestamp: new Date(),
-      message: this.#tryDecodeCbor(data),
+      message,
     })
   }
 
-  syncMessageReceived(senderId: PeerId, data: Uint8Array) {
-    this.#append(senderId, {
+  messageReceived(message: RepoMessage) {
+    this.#append(message.senderId, {
       type: "message_received",
-      from: senderId,
+      senderId: message.senderId,
       timestamp: new Date(),
-      message: this.#tryDecodeCbor(data),
+      message,
     })
   }
-
-  docUnavailableReceived(senderId: PeerId) {
-    this.#append(senderId, {
-      type: "message_received",
-      from: senderId,
-      timestamp: new Date(),
-      message: { type: "doc-unavailable" },
-    })
-  }
-
-  // -- Query --
 
   syncStatus(
     peers: PeerId[],

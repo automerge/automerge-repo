@@ -71,7 +71,12 @@ export class DocSynchronizer extends Synchronizer {
 
   #statusTracker: DocSyncStatusTracker
 
-  constructor({ handle, peerId, onLoadSyncState, getAdapterForPeer }: DocSynchronizerConfig) {
+  constructor({
+    handle,
+    peerId,
+    onLoadSyncState,
+    getAdapterForPeer,
+  }: DocSynchronizerConfig) {
     super()
     this.#peerId = peerId
     this.#handle = handle
@@ -102,6 +107,10 @@ export class DocSynchronizer extends Synchronizer {
     void (async () => {
       this.#processAllPendingSyncMessages()
     })()
+
+    this.on("message", msg => {
+      this.#statusTracker.messageSent(msg)
+    })
   }
 
   get peerStates() {
@@ -244,8 +253,6 @@ export class DocSynchronizer extends Synchronizer {
           } as SyncMessage)
         }
 
-        this.#statusTracker.messageSent(peerId, message)
-
         // if we have sent heads, then the peer now has or will have the document
         if (!isNew) {
           this.#peerDocumentStatuses[peerId] = "has"
@@ -331,6 +338,7 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   receiveMessage(message: RepoMessage) {
+    this.#statusTracker.messageReceived(message)
     switch (message.type) {
       case "sync":
       case "request":
@@ -340,7 +348,6 @@ export class DocSynchronizer extends Synchronizer {
         this.receiveEphemeralMessage(message)
         break
       case "doc-unavailable":
-        this.#statusTracker.docUnavailableReceived(message.senderId)
         this.#peerDocumentStatuses[message.senderId] = "unavailable"
         this.#checkDocUnavailable()
         break
@@ -387,8 +394,6 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #processSyncMessage(message: SyncMessage | RequestMessage) {
-    this.#statusTracker.syncMessageReceived(message.senderId, message.data)
-
     if (isRequestMessage(message)) {
       this.#peerDocumentStatuses[message.senderId] = "wants"
     }
