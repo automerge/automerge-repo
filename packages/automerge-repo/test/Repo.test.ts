@@ -1247,6 +1247,98 @@ describe("Repo", () => {
       assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
     })
 
+    it("sync messages (not just requests) are recorded as peer interest for later share policy changes", async () => {
+      // This test covers a scenario where two peers sync via a sync server.
+      // Initially the sync server allows peerA but denies peerB. PeerB already
+      // has the document (obtained directly from peerA), so when it connects to
+      // the server it sends a "sync" message (not a "request"). The server
+      // denies access. Later the server's share policy changes to allow peerB.
+      // The server should then start pushing updates to peerB. Before the fix
+      // in CollectionSynchronizer, only "request" messages were recorded as
+      // expressing peer interest in a document. So when the share policy
+      // changed, the server had no record that peerB wanted the document and
+      // would not begin syncing — peerB would only receive updates after it
+      // sent another sync message of its own (i.e. after making a write).
+
+      // Track whether peerB is allowed to sync with the server
+      let peerBAllowed = false
+
+      const peerA = new Repo({
+        peerId: "peerA" as PeerId,
+        shareConfig: {
+          announce: async () => true,
+          access: async () => true,
+        },
+      })
+
+      const syncServer = new Repo({
+        peerId: "syncServer" as PeerId,
+        shareConfig: {
+          // Server mode: never proactively announces docs to peers
+          announce: async () => false,
+          // Initially only peerA is allowed; peerB is denied
+          access: async peerId => peerId === "peerA" || peerBAllowed,
+        },
+      })
+
+      const peerB = new Repo({
+        peerId: "peerB" as PeerId,
+        shareConfig: {
+          announce: async () => true,
+          access: async () => true,
+        },
+      })
+
+      // Connect peerA to syncServer so the server gets the document
+      await connectRepos(peerA, syncServer)
+
+      // Create the document on peerA and sync it to the server
+      const handle = peerA.create<TestDoc>({ foo: "bar" })
+      await pause(50) // allow sync to propagate to server
+
+      // Connect peerA to peerB directly so peerB can obtain the document
+      const peerABConnection = await connectRepos(peerA, peerB)
+      const peerBHandle = await withTimeout(
+        peerB.find<TestDoc>(handle.url),
+        500
+      )
+      assert.ok(
+        peerBHandle,
+        "peerB should have obtained the document from peerA"
+      )
+      assert.deepStrictEqual(peerBHandle!.doc(), { foo: "bar" })
+
+      // Connect peerB to the server. PeerB already has the document so it sends
+      // a "sync" message (not a "request"). The server denies access and —
+      // without the fix — does NOT record peerB's interest.
+      await connectRepos(peerB, syncServer)
+
+      // Sever the direct peerA <-> peerB connection so the only path between
+      // them is through the sync server
+      peerABConnection.disconnect()
+      await pause(10)
+
+      // Now allow peerB on the server and notify it of the policy change
+      peerBAllowed = true
+      syncServer.shareConfigChanged()
+      await pause(50) // allow reevaluateDocumentShare to run
+
+      // peerA makes a new change
+      handle.change(d => {
+        d.foo = "baz"
+      })
+      await pause(150) // allow time for the change to flow peerA → server → peerB
+
+      // With the fix: the server recorded peerB's sync message as expressing
+      // interest, so reevaluateDocumentShare started syncing with peerB, and
+      // peerA's new change flows through the server to peerB.
+      assert.deepStrictEqual(
+        peerBHandle!.doc(),
+        { foo: "baz" },
+        "peerB should have received peerA's change via the sync server after the share policy changed"
+      )
+    })
+
     it("a previously unavailable document becomes available if the network adapter initially has no peers", async () => {
       // It is possible for a network adapter to be ready without any peer
       // being announced (e.g. the BroadcastChannelNetworkAdapter). In this

@@ -112,7 +112,7 @@ export class CollectionSynchronizer extends Synchronizer {
     // Record the request so that even if access is denied now, we know that the
     // peer requested the document so that if the share policy changes we know
     // to begin syncing with this peer
-    if (message.type === "request") {
+    if (message.type === "request" || message.type === "sync") {
       if (!this.#hasRequested.has(documentId)) {
         this.#hasRequested.set(documentId, new Set())
       }
