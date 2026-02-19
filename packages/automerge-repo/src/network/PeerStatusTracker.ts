@@ -1,11 +1,11 @@
 import { decode } from "cbor-x"
 import { EventEmitter } from "eventemitter3"
-import { PeerId } from "../types.js"
+import { DocumentId, PeerId } from "../types.js"
 import { ConnectionEvent, ConnectionStatus } from "../SyncStatus.js"
 import type { NetworkAdapterInterface } from "./NetworkAdapterInterface.js"
 import type { RepoMessage } from "./messages.js"
 
-const MAX_EVENTS_PER_PEER = 100
+const MAX_EVENTS_PER_PEER = 500
 
 export interface PeerStatusTrackerEvents {
   "peer-status-change": (payload: {
@@ -68,7 +68,10 @@ export class PeerStatusTracker extends EventEmitter<PeerStatusTrackerEvents> {
     }
   }
 
-  messageSent(targetId: PeerId, message: { data?: Uint8Array; type: string }) {
+  messageSent(
+    targetId: PeerId,
+    message: { data?: Uint8Array; type: string; documentId?: DocumentId }
+  ) {
     if (this.#statuses[targetId]) {
       const messageData = message.data
         ? this.#tryDecodeCbor(message.data)
@@ -76,6 +79,7 @@ export class PeerStatusTracker extends EventEmitter<PeerStatusTrackerEvents> {
       this.#append(targetId, {
         type: "message_sent",
         timestamp: new Date(),
+        ...(message.documentId && { documentId: message.documentId }),
         message: messageData,
       })
     }
@@ -87,10 +91,13 @@ export class PeerStatusTracker extends EventEmitter<PeerStatusTrackerEvents> {
         "data" in msg
           ? this.#tryDecodeCbor(msg.data as Uint8Array)
           : { type: (msg as RepoMessage).type }
+      const documentId =
+        "documentId" in msg ? (msg as { documentId: DocumentId }).documentId : undefined
       this.#append(msg.senderId, {
         type: "message_received",
         from: msg.senderId,
         timestamp: new Date(),
+        ...(documentId && { documentId }),
         message: messageData,
       })
     }

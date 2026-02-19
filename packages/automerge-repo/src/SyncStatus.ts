@@ -17,12 +17,14 @@ export type ConnectionEvent =
   | {
       type: "message_sent"
       timestamp: Date
+      documentId?: DocumentId
       message: any
     }
   | {
       type: "message_received"
       from: PeerId
       timestamp: Date
+      documentId?: DocumentId
       message: any
     }
 
