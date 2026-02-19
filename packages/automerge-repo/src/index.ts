@@ -45,8 +45,6 @@ export type {
   PeerState,
   PresenceState,
   PresenceConfig,
-  UserId,
-  DeviceId,
 } from "./presence/types.js"
 
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
@@ -113,6 +111,18 @@ export type {
 } from "./storage/types.js"
 
 export * from "./types.js"
+
+// Refs - experimental API for referencing locations within documents
+export type {
+  Ref,
+  PathInput,
+  MutableText,
+  InferRefType,
+  Pattern,
+  RefUrl,
+  ChangeFn as RefChangeFn,
+} from "./refs/types.js"
+export { cursor, findRef, refFromUrl, refFromString } from "./refs/utils.js"
 
 // Automerge re-exports
 //

@@ -1,6 +1,6 @@
 import { PeerId } from "../types.js"
 import { PeerStateView } from "./PeerStateView.js"
-import { DeviceId, PresenceState, UserId } from "./types.js"
+import { PresenceState } from "./types.js"
 
 export class PeerPresenceInfo<State extends PresenceState> {
   #peerStates = new PeerStateView<State>({})
@@ -23,11 +23,15 @@ export class PeerPresenceInfo<State extends PresenceState> {
    * @param peerId
    */
   markSeen(peerId: PeerId) {
+    if (!(peerId in this.#peerStates.value)) {
+      // Ignore heartbeats from peers we have not seen before: they will send a snapshot
+      return
+    }
     this.#peerStates = new PeerStateView<State>({
       ...this.#peerStates.value,
       [peerId]: {
         ...this.#peerStates.value[peerId],
-        lastSeen: Date.now(),
+        lastSeenAt: Date.now(),
       },
     })
   }
@@ -39,17 +43,7 @@ export class PeerPresenceInfo<State extends PresenceState> {
    * @param peerId
    * @param value
    */
-  update({
-    peerId,
-    deviceId,
-    userId,
-    value,
-  }: {
-    peerId: PeerId
-    deviceId?: DeviceId
-    userId?: UserId
-    value: Partial<State>
-  }) {
+  update({ peerId, value }: { peerId: PeerId; value: Partial<State> }) {
     const peerState = this.#peerStates.value[peerId]
     const existingState = peerState?.value ?? ({} as State)
     const now = Date.now()
@@ -57,10 +51,8 @@ export class PeerPresenceInfo<State extends PresenceState> {
       ...this.#peerStates.value,
       [peerId]: {
         peerId,
-        deviceId,
-        userId,
+        lastSeenAt: now,
         lastActiveAt: now,
-        lastUpdateAt: now,
         value: {
           ...existingState,
           ...value,
@@ -90,13 +82,19 @@ export class PeerPresenceInfo<State extends PresenceState> {
    */
   prune() {
     const threshold = Date.now() - this.ttl
+    const pruned: PeerId[] = []
     this.#peerStates = new PeerStateView<State>(
       Object.fromEntries(
-        Object.entries(this.#peerStates).filter(([, state]) => {
-          return state.lastActiveAt >= threshold
+        Object.entries(this.#peerStates.value).filter(([id, state]) => {
+          const keep = state.lastSeenAt >= threshold
+          if (!keep) {
+            pruned.push(id as PeerId)
+          }
+          return keep
         })
       )
     )
+    return pruned
   }
 
   /**
