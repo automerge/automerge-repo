@@ -1,8 +1,5 @@
 import {
   AutomergeUrl,
-  PeerId,
-  PeerState,
-  PeerStateView,
   useDocHandle,
   useDocument,
   usePresence,
@@ -10,17 +7,18 @@ import {
 
 type State = { count: number | undefined }
 
-export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
+export function App({ url }: { url: AutomergeUrl }) {
   const handle = useDocHandle(url, { suspense: true })
   const [doc, changeDoc] = useDocument<State>(url)
   const { localState, peerStates, update } = usePresence<State>({
     handle,
-    userId,
     initialState: { count: 0 },
   })
 
   const newCount = localState?.count
   const count = doc?.count ?? 0
+
+  const peers = peerStates.getStates()
 
   return (
     <div>
@@ -50,7 +48,7 @@ export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
       </div>
       <div>
         Peer states:
-        {peerStates.peers.map(state => (
+        {Object.values(peers).map(state => (
           <span
             key={state.peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
@@ -81,7 +79,7 @@ export function App({ userId, url }: { userId: string; url: AutomergeUrl }) {
           {
             doc,
             localState,
-            peerStates: peerStates.peers.map(state => state.value),
+            peerStates: Object.values(peers),
           },
           null,
           2

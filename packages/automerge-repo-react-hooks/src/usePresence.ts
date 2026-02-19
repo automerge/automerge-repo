@@ -4,8 +4,6 @@ import {
   Presence,
   PresenceConfig,
   DocHandle,
-  UserId,
-  DeviceId,
   PeerStateView,
   PresenceState,
 } from "@automerge/automerge-repo/slim"
@@ -13,8 +11,6 @@ import {
 export type UsePresenceConfig<State extends PresenceState> =
   PresenceConfig<State> & {
     handle: DocHandle<unknown>
-    userId?: UserId
-    deviceId?: DeviceId
   }
 
 export type UsePresenceResult<State extends PresenceState> = {
@@ -71,8 +67,6 @@ export type UsePresenceResult<State extends PresenceState> = {
  */
 export function usePresence<State extends PresenceState>({
   handle,
-  userId,
-  deviceId,
   initialState,
   heartbeatMs,
   peerTtlMs,
@@ -86,9 +80,7 @@ export function usePresence<State extends PresenceState>({
     peerTtlMs,
   })
   const firstInitialState = useRef(initialState)
-  const [presence] = useState(
-    () => new Presence<State>({ handle, userId, deviceId })
-  )
+  const [presence] = useState(() => new Presence<State>({ handle }))
 
   useEffect(() => {
     presence.start({
@@ -104,7 +96,7 @@ export function usePresence<State extends PresenceState>({
     return () => {
       presence.stop()
     }
-  }, [presence, userId, deviceId, firstInitialState, firstOpts])
+  }, [presence, firstInitialState, firstOpts])
 
   const start = useCallback(
     (config?: Partial<PresenceConfig<State>>) => {
