@@ -90,6 +90,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           assertEvent(event, UPDATE)
           const { callback } = event.payload
           const doc = callback(oldDoc)
+          this.#viewCache.clear()
           return { doc }
         }),
         onDelete: assign(() => {
