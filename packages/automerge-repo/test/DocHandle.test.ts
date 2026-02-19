@@ -521,6 +521,32 @@ describe("DocHandle", () => {
     })
   })
 
+  it("should invalidate cached views when the document changes", () => {
+    const handle = setup()
+    handle.change(d => {
+      d.foo = "v1"
+    })
+
+    // Fork external changes
+    const v1 = handle.doc()!
+    const v2 = A.change(A.clone(v1), d => {
+      d.foo = "v2"
+    })
+    const v2Heads = encodeHeads(A.getHeads(v2))
+    const changes = A.getChanges(v1, v2)
+
+    // Request view BEFORE changes arrive
+    const viewBefore = handle.view(v2Heads)
+    expect(viewBefore.doc()?.foo).toBeUndefined() // v2 changes not here yet
+
+    // Apply the changes
+    handle.update(doc => A.applyChanges(doc, changes)[0])
+
+    // Request same view AFTER changes arrive
+    const viewAfter = handle.view(v2Heads)
+    expect(viewAfter.doc()?.foo).toBe("v2")
+  })
+
   it("should cache view handles based on heads", async () => {
     // Create and setup a document with some data
     const handle = setup()
