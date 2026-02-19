@@ -34,8 +34,16 @@ describe("DocHandle", () => {
     const handle = new DocHandle<TestDoc>(TEST_ID)
     assert.equal(handle.isReady(), false)
 
+    const states = []
+
+    handle.on("change", ({ handle }) => {
+      states.push(handle.state)
+    })
+
     // simulate loading from storage
     handle.update(doc => docFromMockStorage(doc))
+
+    assert.deepEqual(states, ["ready"])
 
     assert.equal(handle.isReady(), true)
     const doc = handle.doc()
@@ -347,12 +355,13 @@ describe("DocHandle", () => {
       })
     }))
 
-  it("should update the internal doc prior to emitting the change message", async () => {
+  it("should update the internal doc and state prior to emitting the change message", async () => {
     const handle = setup()
 
     const p = new Promise<void>(resolve =>
       handle.once("change", ({ handle, doc }) => {
         assert.equal(handle.doc()?.foo, doc.foo)
+        assert.equal(handle.state, "ready")
 
         resolve()
       })
