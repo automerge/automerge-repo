@@ -22,22 +22,20 @@ import {
 } from "@automerge/automerge-repo/slim"
 
 export type BroadcastChannelNetworkAdapterOptions = {
-  /** BroadcastChannel name to use */
   channelName: string
-  /** How long to wait for peers to arrive before declaring this adapter is ready */
-  peerWaitMs?: number
 }
 
 export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel
   #disconnected = false
-  #ready = false
-  // reassigned in constructor, but keeps TS from complaining
-  #markReady = () => {}
-  #readyPromise: Promise<void>
 
   #options: BroadcastChannelNetworkAdapterOptions
 
+  #ready = false
+  #readyResolver?: () => void
+  #readyPromise: Promise<void> = new Promise<void>(resolve => {
+    this.#readyResolver = resolve
+  })
   #connectedPeers: PeerId[] = []
 
   isReady() {
@@ -48,21 +46,17 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     return this.#readyPromise
   }
 
+  #forceReady() {
+    if (!this.#ready) {
+      this.#ready = true
+      this.#readyResolver?.()
+    }
+  }
+
   constructor(options?: BroadcastChannelNetworkAdapterOptions) {
     super()
-    this.#options = {
-      channelName: "broadcast",
-      peerWaitMs: 1000,
-      ...(options ?? {}),
-    }
+    this.#options = { channelName: "broadcast", ...(options ?? {}) }
     this.#broadcastChannel = new BroadcastChannel(this.#options.channelName)
-    this.#readyPromise = new Promise<void>(resolve => {
-      this.#markReady = () => {
-        this.#ready = true
-        resolve()
-      }
-      setTimeout(() => this.#markReady(), this.#options.peerWaitMs)
-    })
   }
 
   connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
@@ -137,7 +131,7 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   #announceConnection(peerId: PeerId, peerMetadata: PeerMetadata) {
-    this.#markReady()
+    this.#forceReady()
     this.#connectedPeers.push(peerId)
     this.emit("peer-candidate", { peerId, peerMetadata })
   }

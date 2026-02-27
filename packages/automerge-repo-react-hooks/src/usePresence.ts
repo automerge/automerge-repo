@@ -4,6 +4,8 @@ import {
   Presence,
   PresenceConfig,
   DocHandle,
+  UserId,
+  DeviceId,
   PeerStateView,
   PresenceState,
 } from "@automerge/automerge-repo/slim"
@@ -11,39 +13,17 @@ import {
 export type UsePresenceConfig<State extends PresenceState> =
   PresenceConfig<State> & {
     handle: DocHandle<unknown>
+    userId?: UserId
+    deviceId?: DeviceId
   }
 
 export type UsePresenceResult<State extends PresenceState> = {
-  /**
-   * Presence view of our peers.
-   */
   peerStates: PeerStateView<State>
-  /**
-   * Our own presence state, as last set by `update` or the initial value.
-   */
   localState: State | undefined
-  /**
-   * Update our presence state for the given channel and broadcast
-   * it to our peers.
-   *
-   * @param channel
-   * @param value
-   */
   update: <Channel extends keyof State>(
     channel: Channel,
     value: State[Channel]
   ) => void
-  /**
-   * Resume presence broadcasting and listening to peer presence.
-   *
-   * Note that this only needs to be called after `stop` has been called:
-   * usePresence starts running immediately.
-   */
-  start: (config?: Partial<PresenceConfig<State>>) => void
-  /**
-   * Stop broadcasting presence state and listening to peer presence.
-   */
-  stop: () => void
 }
 
 /**
@@ -67,6 +47,8 @@ export type UsePresenceResult<State extends PresenceState> = {
  */
 export function usePresence<State extends PresenceState>({
   handle,
+  userId,
+  deviceId,
   initialState,
   heartbeatMs,
   peerTtlMs,
@@ -80,7 +62,9 @@ export function usePresence<State extends PresenceState>({
     peerTtlMs,
   })
   const firstInitialState = useRef(initialState)
-  const [presence] = useState(() => new Presence<State>({ handle }))
+  const [presence] = useState(
+    () => new Presence<State>({ handle, userId, deviceId })
+  )
 
   useEffect(() => {
     presence.start({
@@ -91,29 +75,11 @@ export function usePresence<State extends PresenceState>({
     presence.on("snapshot", () => setPeerStates(presence.getPeerStates()))
     presence.on("update", () => setPeerStates(presence.getPeerStates()))
     presence.on("goodbye", () => setPeerStates(presence.getPeerStates()))
-    presence.on("pruning", () => setPeerStates(presence.getPeerStates()))
 
     return () => {
       presence.stop()
     }
-  }, [presence, firstInitialState, firstOpts])
-
-  const start = useCallback(
-    (config?: Partial<PresenceConfig<State>>) => {
-      // Fall back to the last state if not provided when restarting
-      const initialState = config?.initialState ?? presence.getLocalState()
-      const opts = {
-        ...firstOpts.current,
-        ...config,
-        initialState,
-      }
-      presence.start(opts)
-    },
-    [presence, firstOpts]
-  )
-  const stop = useCallback(() => {
-    presence.stop()
-  }, [presence])
+  }, [presence, userId, deviceId, firstInitialState, firstOpts])
 
   const update = useCallback(
     <Channel extends keyof State>(channel: Channel, msg: State[Channel]) => {
@@ -128,7 +94,5 @@ export function usePresence<State extends PresenceState>({
     peerStates,
     localState,
     update,
-    start,
-    stop,
   }
 }

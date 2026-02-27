@@ -92,6 +92,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
     // We might hear back from the other end at some point but we shouldn't
     // hold up marking things as unavailable for any longer
     setTimeout(() => this.#forceReady(), 1000)
+
     this.join()
   }
 

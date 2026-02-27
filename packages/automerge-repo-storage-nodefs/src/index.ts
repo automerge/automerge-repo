@@ -25,13 +25,39 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
   async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
     const key = getKey(keyArray)
-    if (this.cache[key]) return this.cache[key]
+    if (this.cache[key]) {
+      const cached = this.cache[key]
+      const firstBytes = Array.from(cached.slice(0, 8))
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join(" ")
+      console.log(
+        "NodeFS load (from cache):",
+        key,
+        "size:",
+        cached.length,
+        "first 8:",
+        firstBytes
+      )
+      return cached
+    }
 
     const filePath = this.getFilePath(keyArray)
 
     try {
       const fileContent = await fs.promises.readFile(filePath)
-      return new Uint8Array(fileContent)
+      const data = new Uint8Array(fileContent)
+      const firstBytes = Array.from(data.slice(0, 8))
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join(" ")
+      console.log(
+        "NodeFS load (from disk):",
+        key,
+        "size:",
+        data.length,
+        "first 8:",
+        firstBytes
+      )
+      return data
     } catch (error: any) {
       // don't throw if file not found
       if (error.code === "ENOENT") return undefined
@@ -41,7 +67,19 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
   async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
     const key = getKey(keyArray)
-    this.cache[key] = binary
+    const firstBytes = Array.from(binary.slice(0, 8))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join(" ")
+    console.log(
+      "NodeFS save:",
+      key,
+      "size:",
+      binary.length,
+      "first 8:",
+      firstBytes
+    )
+    // Copy the bytes to avoid shared buffer mutation after caching
+    this.cache[key] = new Uint8Array(binary)
 
     const filePath = this.getFilePath(keyArray)
 
