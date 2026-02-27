@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-monorepo",
-  "version": "2.5.3",
+  "version": "2.5.2-alpha.1",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
   "repository": "https://github.com/automerge/automerge-repo",
@@ -36,7 +36,8 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "^3.0.0",
+    "@automerge/automerge": "^3.2.0",
+    "@automerge/automerge-subduction": "0.2.2-alpha.0",
     "@manypkg/cli": "^0.21.4",
     "@playwright/test": "^1.57.0",
     "@types/debug": "^4.1.12",
@@ -61,7 +62,7 @@
     "eslint-plugin-react": "^7.34.1",
     "eslint-plugin-react-hooks": "^4.6.0",
     "globals": "^15.6.0",
-    "lerna": "^9.0.4",
+    "lerna": "^9.0.3",
     "npm-run-all": "^4.1.5",
     "npm-watch": "^0.11.0",
     "portfinder": "^1.0.32",

@@ -101,6 +101,10 @@ export class WebSocketServerAdapter extends NetworkAdapter {
     })
   }
 
+  // Note: getWebSocket() is not implemented for server adapters because
+  // they manage multiple WebSocket connections (one per client).
+  // Server-side Subduction integration may require a different pattern.
+
   send(message: FromServerMessage) {
     assert("targetId" in message && message.targetId !== undefined)
     if ("data" in message && message.data?.byteLength === 0)
