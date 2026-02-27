@@ -1,0 +1,45 @@
+{
+  "name": "@automerge/automerge-repo-subduction-bridge",
+  "version": "2.5.2-alpha.1",
+  "description": "Bridges to use automerge-repo storage and network adapters with Subduction",
+  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-subduction-bridge",
+  "author": "Brooklyn Zelenka <hello@brooklynzelenka.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "npm-watch build",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-subduction": "0.2.2-alpha.0",
+    "debug": "^4.3.4"
+  },
+  "devDependencies": {
+    "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
+    "vitest": "^4.0.15"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
