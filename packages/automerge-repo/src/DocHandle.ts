@@ -337,7 +337,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       if (isAbortErrorLike(error)) {
         throw new AbortError() //throw new error for stack trace
       }
-      console.log(
+      this.#log(
         `error waiting for ${
           this.documentId
         } to be in one of states: ${awaitStates.join(", ")}`

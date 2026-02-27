@@ -18,7 +18,8 @@
     "test": "node test.js"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "subduction"
   },
   "devDependencies": {
     "execa": "^8.0.1"

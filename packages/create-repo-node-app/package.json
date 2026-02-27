@@ -12,6 +12,7 @@
     "postbuild": "node postbuild.js"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "subduction"
   }
 }

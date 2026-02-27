@@ -110,7 +110,7 @@ export class DocSynchronizer extends Synchronizer {
       const doc = this.#handle.doc() // XXX THIS ONE IS WEIRD
       this.#peers.forEach(peerId => this.#sendSyncMessage(peerId, doc))
     } catch (e) {
-      console.log("sync with peers threw an exception")
+      this.#log("sync with peers threw an exception: %o", e)
     }
   }
 
@@ -254,7 +254,7 @@ export class DocSynchronizer extends Synchronizer {
         this.#checkDocUnavailable()
       })
       .catch(e => {
-        console.log("caught whenready", e)
+        this.#log("caught whenReady error: %o", e)
         this.#syncStarted = true
         this.#checkDocUnavailable()
       })
