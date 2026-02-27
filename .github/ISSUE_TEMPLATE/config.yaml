@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation issues
+    url: https://github.com/automerge/automerge.github.io/issues/new
+    about: Open an issue in the website repository
+  - name: Core automerge issues
+    url: https://github.com/automerge/automerge/issues/new
+    about: Open an issue in the automerge repository
+  - name: Feature requests
+    url: https://github.com/biomejs/automerge/automerge-repo/discussions/new
+    about: Please start a new Github discussion to propose ideas for feature requests
+  - name: Chat
+    url: https://discord.gg/zKGe4DCfgR
+    about: Come by to discuss problems you may have run into, discuss feature requests, meet other automerge users, or just to show us what you've built
