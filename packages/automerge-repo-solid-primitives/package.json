@@ -34,8 +34,7 @@
   "homepage": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-solid-primitives",
   "publishConfig": {
     "access": "public",
-    "tag": "subduction",
-    "publishBranch": "subductionjs"
+    "tag": "subduction"
   },
   "watch": {
     "build": {
