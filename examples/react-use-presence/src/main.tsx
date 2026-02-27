@@ -5,29 +5,54 @@ import {
   Repo,
   isValidAutomergeUrl,
   BroadcastChannelNetworkAdapter,
+  WebSocketClientAdapter,
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
+import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
+import {
+  Subduction,
+  SubductionWebSocket,
+  WebCryptoSigner,
+} from "@automerge/automerge-subduction"
+import { v4 } from "uuid"
+;(async () => {
+  const signer = await WebCryptoSigner.setup()
+  const storageAdapter = new IndexedDBStorageAdapter(
+    "automerge-repo-use-presence"
+  )
+  const storage = new SubductionStorageBridge(storageAdapter)
+  const subduction = await Subduction.hydrate(signer, storage)
 
-const repo = new Repo({
-  storage: new IndexedDBStorageAdapter("use-awareness-example"),
-  network: [new BroadcastChannelNetworkAdapter()],
-})
+  // Connect to Subduction server via discovery
+  const conn = await SubductionWebSocket.tryDiscover(
+    new URL("ws://localhost:8080"),
+    signer
+  )
+  await subduction.attach(conn)
 
-const rootDocUrl = `${document.location.hash.substring(1)}`
-const handle = isValidAutomergeUrl(rootDocUrl)
-  ? await repo.find(rootDocUrl)
-  : repo.create()
+  const repo = new Repo({
+    network: [
+      new BroadcastChannelNetworkAdapter(), // For same-browser tab communication
+      new WebSocketClientAdapter("ws://localhost:8081"), // Ephemeral messages (presence) via relay server
+    ],
+    subduction,
+  })
 
-const docUrl = (document.location.hash = handle.url)
+  const userId = v4()
 
-window.handle = handle // we'll use this later for experimentation
-window.repo = repo
+  const rootDocUrl = `${document.location.hash.substring(1)}`
+  const handle = isValidAutomergeUrl(rootDocUrl)
+    ? await repo.find(rootDocUrl)
+    : repo.create()
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <RepoContext.Provider value={repo}>
-    <React.StrictMode>
-      <App url={docUrl} />
-    </React.StrictMode>
-  </RepoContext.Provider>
-)
+  const docUrl = (document.location.hash = handle.url)
+
+  ReactDOM.createRoot(document.getElementById("root")).render(
+    <RepoContext.Provider value={repo}>
+      <React.StrictMode>
+        <App userId={userId} url={docUrl} />
+      </React.StrictMode>
+    </RepoContext.Provider>
+  )
+})()

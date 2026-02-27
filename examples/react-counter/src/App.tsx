@@ -14,7 +14,7 @@ export function App({ url }: { url: AutomergeUrl }) {
   return (
     <button
       onClick={() => {
-        changeDoc((d: any) => {
+        changeDoc(d => {
           d.count = (d.count || 0) + 1
         })
       }}

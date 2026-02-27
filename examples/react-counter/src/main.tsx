@@ -2,58 +2,58 @@ import React from "react"
 import ReactDOM from "react-dom/client"
 import { App } from "./App.js"
 import {
-  DocHandle,
   Repo,
   isValidAutomergeUrl,
-  MessageChannelNetworkAdapter,
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
+import {
+  SubductionStorageBridge,
+  initSubductionModule,
+} from "@automerge/automerge-repo-subduction-bridge"
+import * as subductionModule from "@automerge/automerge-subduction"
+import {
+  Subduction,
+  SubductionWebSocket,
+  WebCryptoSigner,
+} from "@automerge/automerge-subduction"
 
-// We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
-// This means we only ever create one websocket connection to the sync server, we only do our writes in one place
-// (no race conditions) and we get local real-time sync without the overhead of broadcast channel.
-// The downside is that to debug any problems with the sync server you'll need to find the shared-worker and inspect it.
-// In Chrome-derived browsers the URL is chrome://inspect/#workers. In Firefox it's about:debugging#workers.
-// In Safari it's Develop > Show Web Inspector > Storage > IndexedDB > automerge-repo-demo-counter.
+initSubductionModule(subductionModule)
+;(async () => {
+  const signer = await WebCryptoSigner.setup()
+  const storageAdapter = new IndexedDBStorageAdapter(
+    "automerge-repo-demo-counter"
+  )
+  const storage = new SubductionStorageBridge(storageAdapter)
+  const subduction = await Subduction.hydrate(signer, storage)
 
-const sharedWorker = new SharedWorker(
-  new URL("./shared-worker.ts", import.meta.url),
-  {
-    type: "module",
-    name: "automerge-repo-shared-worker",
+  // Connect to Subduction server via discovery
+  const conn = await SubductionWebSocket.tryDiscover(
+    new URL("ws://localhost:8080"),
+    signer
+  )
+  await subduction.attach(conn)
+
+  const repo = new Repo({
+    network: [],
+    subduction,
+    sharePolicy: async peerId => peerId.includes("shared-worker"),
+  })
+
+  const rootDocUrl = `${document.location.hash.substring(1)}`
+  let handle
+  if (isValidAutomergeUrl(rootDocUrl)) {
+    handle = await repo.find(rootDocUrl)
+  } else {
+    handle = repo.create<{ count: number }>({ count: 0 })
   }
-)
+  const docUrl = (document.location.hash = handle.url)
 
-/* Create a repo and share any documents we create with our local in-browser storage worker. */
-const repo = new Repo({
-  network: [new MessageChannelNetworkAdapter(sharedWorker.port)],
-  storage: new IndexedDBStorageAdapter("automerge-repo-demo-counter"),
-  sharePolicy: async peerId => peerId.includes("shared-worker"),
-})
-
-declare global {
-  interface Window {
-    handle: DocHandle<unknown>
-    repo: Repo
-  }
-}
-
-const rootDocUrl = `${document.location.hash.substring(1)}`
-let handle
-if (isValidAutomergeUrl(rootDocUrl)) {
-  handle = await repo.find(rootDocUrl)
-} else {
-  handle = repo.create<{ count: number }>({ count: 0 })
-}
-const docUrl = (document.location.hash = handle.url)
-window.handle = handle // we'll use this later for experimentation
-window.repo = repo
-
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <RepoContext.Provider value={repo}>
-    <React.StrictMode>
-      <App url={docUrl} />
-    </React.StrictMode>
-  </RepoContext.Provider>
-)
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <RepoContext.Provider value={repo}>
+      <React.StrictMode>
+        <App url={docUrl} />
+      </React.StrictMode>
+    </RepoContext.Provider>
+  )
+})()
