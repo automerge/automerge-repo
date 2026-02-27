@@ -244,9 +244,7 @@ export class CollectionSynchronizer extends Synchronizer {
             }
           }
         })().catch(e => {
-          console.log(
-            `error reevaluating document share for ${documentId}: ${e}`
-          )
+          log(`error reevaluating document share for ${documentId}: %o`, e)
         })
       )
     }

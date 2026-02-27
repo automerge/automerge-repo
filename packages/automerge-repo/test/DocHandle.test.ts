@@ -208,17 +208,6 @@ describe("DocHandle", () => {
     ])
   })
 
-  // TODO: alexg -- should i remove this test? should this fail or no?
-  it.skip("should fail diffing against unrelated handles", async () => {
-    const handle1 = setup()
-    const handle2 = setup()
-
-    handle1.change(d => (d.foo = "zero"))
-    handle2.change(d => (d.foo = "one"))
-
-    assert.throws(() => handle1.diff(handle2))
-  })
-
   it("should allow direct access to decoded changes", async () => {
     const handle = setup()
     const time = Date.now()

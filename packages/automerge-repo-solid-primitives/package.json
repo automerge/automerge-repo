@@ -33,7 +33,8 @@
   },
   "homepage": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-solid-primitives",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "subduction"
   },
   "watch": {
     "build": {

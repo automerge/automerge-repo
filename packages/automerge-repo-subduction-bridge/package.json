@@ -2,7 +2,14 @@
   "name": "@automerge/automerge-repo-subduction-bridge",
   "version": "2.6.0-subduction.0",
   "description": "Bridges to use automerge-repo storage and network adapters with Subduction",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-subduction-bridge",
+  "repository": "https://github.com/automerge/automerge-repo/tree/subductionjs/packages/automerge-repo-subduction-bridge",
+  "keywords": [
+    "automerge",
+    "crdt",
+    "local-first",
+    "subduction",
+    "sync"
+  ],
   "author": "Brooklyn Zelenka <hello@brooklynzelenka.com>",
   "license": "MIT",
   "type": "module",
@@ -40,6 +47,7 @@
     }
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "subduction"
   }
 }
