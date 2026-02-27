@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-demo-counter-svelte",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/svelte-counter",
   "private": true,
-  "version": "2.5.3",
+  "version": "2.5.2-alpha.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,9 @@
     "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-repo-subduction-bridge": "workspace:*",
     "@automerge/automerge-repo-svelte-store": "workspace:*",
+    "@automerge/automerge-subduction": "0.2.2-alpha.0",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

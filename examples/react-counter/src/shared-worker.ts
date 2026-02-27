@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import type { PeerId } from "@automerge/automerge-repo"
 declare const self: SharedWorkerGlobalScope
 export {}
 
@@ -22,7 +23,7 @@ const repoPromise = (async () => {
   return new Repo({
     storage: new IndexedDBStorageAdapter(),
     network: [new WebSocketClientAdapter("ws://sync.automerge.org")],
-    peerId: ("shared-worker-" + Math.round(Math.random() * 10000)) as any,
+    peerId: ("shared-worker-" + Math.round(Math.random() * 10000)) as PeerId,
     sharePolicy: async peerId => peerId.includes("storage-server"),
   })
 })()

@@ -2,13 +2,16 @@
   "name": "@automerge/automerge-repo-demo-todo",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-todo",
   "private": true,
-  "version": "2.5.3",
+  "version": "2.5.2-alpha.1",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-repo-subduction-bridge": "workspace:*",
+    "@automerge/automerge-subduction": "0.2.2-alpha.0",
     "@automerge/react": "workspace:*",
     "autoprefixer": "^10.4.13",
     "classnames": "^2.3.2",
@@ -18,6 +21,7 @@
     "react-error-boundary": "^5.0.0"
   },
   "devDependencies": {
-    "tailwindcss": "^3.2.4"
+    "tailwindcss": "^3.2.4",
+    "vite-plugin-top-level-await": "^1.6.0"
   }
 }

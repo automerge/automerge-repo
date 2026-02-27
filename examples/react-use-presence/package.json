@@ -1,6 +1,6 @@
 {
   "name": "automerge-use-awareness-example-project",
-  "version": "2.5.3",
+  "version": "2.5.2-alpha.1",
   "private": true,
   "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-use-presence",
   "type": "module",
@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
+    "@automerge/automerge-repo-subduction-bridge": "workspace:*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-subduction": "0.2.2-alpha.0",
     "eventemitter3": "^5.0.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

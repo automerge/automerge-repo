@@ -15,10 +15,8 @@ export function App({ url }: { url: AutomergeUrl }) {
 
   const destroy = (url: AutomergeUrl) => {
     changeState(s => {
-      console.log(s)
       const todos = s.todos as ExtendedArray<AutomergeUrl>
       const index = todos.findIndex(_ => _ === url)
-      console.log(index)
       todos.deleteAt(index)
     })
   }
@@ -42,7 +40,7 @@ export function App({ url }: { url: AutomergeUrl }) {
     }
   }
 
-  if (!state) return null
+  if (!state || !state.todos) return null
 
   return (
     <>
