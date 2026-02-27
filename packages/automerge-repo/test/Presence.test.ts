@@ -31,11 +31,15 @@ describe("Presence", () => {
     })
     const alicePresence = new Presence<PresenceState>({
       handle: aliceHandle,
+      userId: "alice",
+      deviceId: "phone",
     })
 
     const bobHandle = await bob.find(aliceHandle.url)
     const bobPresence = new Presence<PresenceState>({
       handle: bobHandle,
+      userId: "bob",
+      deviceId: "phone",
     })
 
     return {

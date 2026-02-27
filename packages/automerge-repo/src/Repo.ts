@@ -17,9 +17,17 @@ import {
   UNAVAILABLE,
   UNLOADED,
 } from "./DocHandle.js"
+import { HashRing } from "./helpers/HashRing.js"
+import {
+  automergeMeta,
+  toDocumentId,
+  toSedimentreeId,
+  toSubductionPeerId,
+  _setSubductionModuleForHelpers,
+} from "./helpers/subduction.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
-import { throttle } from "./helpers/throttle.js"
+import { throttle, ThrottledFunction } from "./helpers/throttle.js"
 import {
   NetworkAdapterInterface,
   type PeerMetadata,
@@ -30,10 +38,7 @@ import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import {
-  DocSyncMetrics,
-  SyncStatePayload,
-} from "./synchronizer/Synchronizer.js"
+import { DocSyncMetrics } from "./synchronizer/Synchronizer.js"
 import type {
   AnyDocumentId,
   AutomergeUrl,
@@ -42,22 +47,133 @@ import type {
   PeerId,
 } from "./types.js"
 import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
-import { FindProgress } from "./FindProgress.js"
+import { FindProgress, type FindProgressWithMethods } from "./FindProgress.js"
+// Type-only imports (don't trigger Wasm access)
+import type {
+  Digest as DigestType,
+  FragmentStateStore as FragmentStateStoreType,
+  HashMetric as HashMetricType,
+  SedimentreeAutomerge as SedimentreeAutomergeType,
+  SedimentreeId,
+  SedimentreeStorage,
+  Subduction,
+} from "@automerge/automerge-subduction"
 
-export type FindProgressWithMethods<T> = FindProgress<T> & {
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
-  peek: () => FindProgress<T>
-  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
+// Runtime constructors are lazy-loaded to avoid accessing Wasm before initialization
+// The module reference is set by setSubductionModule() before Repo construction
+let _subductionModule: typeof import("@automerge/automerge-subduction") | null =
+  null
+
+/**
+ * Set the subduction module reference. Must be called after Wasm initialization
+ * but before constructing a Repo.
+ *
+ * @example
+ * ```ts
+ * import { initSync } from "@automerge/automerge-subduction"
+ * import * as subductionModule from "@automerge/automerge-subduction"
+ * import { setSubductionModule } from "@automerge/automerge-repo"
+ *
+ * await initSync()
+ * setSubductionModule(subductionModule)
+ * // Now you can construct a Repo
+ * ```
+ */
+export function setSubductionModule(
+  module: typeof import("@automerge/automerge-subduction")
+): void {
+  _subductionModule = module
+  _setSubductionModuleForHelpers(module)
 }
 
-export type ProgressSignal<T> = {
-  peek: () => FindProgress<T>
-  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
+function getSubductionModule(): typeof import("@automerge/automerge-subduction") {
+  if (_subductionModule === null) {
+    throw new Error(
+      "Subduction module not set. Call setSubductionModule() after Wasm initialization."
+    )
+  }
+  return _subductionModule
+}
+
+// Convenience getters for commonly used constructors
+function getDigest(): typeof DigestType {
+  return getSubductionModule().Digest as unknown as typeof DigestType
+}
+
+function getHashMetricClass(): new (arg: null) => HashMetricType {
+  return getSubductionModule().HashMetric as unknown as new (
+    arg: null
+  ) => HashMetricType
+}
+
+function getFragmentStateStoreClass(): new () => FragmentStateStoreType {
+  return getSubductionModule()
+    .FragmentStateStore as unknown as new () => FragmentStateStoreType
+}
+
+function getSedimentreeAutomergeClass(): new (
+  doc: any
+) => SedimentreeAutomergeType {
+  return getSubductionModule().SedimentreeAutomerge as unknown as new (
+    doc: any
+  ) => SedimentreeAutomergeType
+}
+
+/**
+ * Interface for storage bridges that support event callbacks.
+ * This allows Repo to register callbacks without depending on the concrete bridge implementation.
+ */
+export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
+  on(
+    event: "commit-saved",
+    callback: (
+      sedimentreeId: SedimentreeId,
+      digest: DigestType,
+      blob: Uint8Array
+    ) => void
+  ): void
+  on(
+    event: "fragment-saved",
+    callback: (
+      sedimentreeId: SedimentreeId,
+      digest: DigestType,
+      blob: Uint8Array
+    ) => void
+  ): void
+  off(
+    event: "commit-saved",
+    callback: (
+      sedimentreeId: SedimentreeId,
+      digest: DigestType,
+      blob: Uint8Array
+    ) => void
+  ): void
+  off(
+    event: "fragment-saved",
+    callback: (
+      sedimentreeId: SedimentreeId,
+      digest: DigestType,
+      blob: Uint8Array
+    ) => void
+  ): void
+  /**
+   * Wait for all pending save operations to complete.
+   */
+  awaitSettled(): Promise<void>
 }
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
+}
+
+// Lazy-initialize HashMetric to avoid accessing WASM before it's loaded
+let _hashMetric: HashMetricType | null = null
+function getHashMetric(): HashMetricType {
+  if (_hashMetric === null) {
+    const HashMetricCtor = getHashMetricClass()
+    _hashMetric = new HashMetricCtor(null)
+  }
+  return _hashMetric
 }
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
@@ -70,6 +186,20 @@ function randomPeerId() {
  */
 export class Repo extends EventEmitter<RepoEvents> {
   #log: debug.Debugger
+
+  /** Subduction */
+  #subduction: Subduction
+  #subductionStorage: SubductionStorageWithCallbacks | null = null
+  #handlesBySedimentreeId: Map<string, DocHandle<any>> // NOTE until doc IDs are [u8; 32]s
+  #fragmentStateStore: FragmentStateStoreType
+  #lastHeadsSent: Map<string, Set<string>> // TODO move to subduction.wasm
+  #recentlySeenHeads: Map<string, HashRing>
+  #recentHeadsCacheSize: number
+
+  /** Tracks pending outbound operations for awaitOutbound() */
+  #pendingOutbound: number = 0
+  #outboundResolvers: (() => void)[] = []
+  #throttledBroadcasts: ThrottledFunction<() => void>[] = []
 
   /** @hidden */
   networkSubsystem: NetworkSubsystem
@@ -116,7 +246,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     idFactory,
-  }: RepoConfig = {}) {
+    subduction,
+    recentHeadsCacheSize = 256,
+  }: RepoConfig) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
@@ -137,17 +269,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.on("delete-document", ({ documentId }) => {
-      this.synchronizer.removeDocument(documentId)
-
-      if (storageSubsystem) {
-        storageSubsystem.removeDoc(documentId).catch(err => {
-          this.#log("error deleting document", { documentId, err })
-        })
-      }
+      this.#subduction.removeSedimentree(toSedimentreeId(documentId))
     })
 
-    // SYNCHRONIZER
-    // The synchronizer uses the network subsystem to keep documents in sync with peers.
     this.synchronizer = new CollectionSynchronizer(this, denylist)
 
     // When the synchronizer emits messages, send them to peers
@@ -155,15 +279,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#log(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
     })
-
-    // Forward metrics from doc synchronizers
-    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
-
-    if (this.#remoteHeadsGossipingEnabled) {
-      this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
-        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-      })
-    }
 
     // STORAGE
     // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
@@ -234,7 +349,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           }
         })
         .catch(err => {
-          console.log("error in share policy", { err })
+          this.#log("error in share policy", { err })
         })
 
       this.synchronizer.addPeer(peerId)
@@ -243,6 +358,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
       this.synchronizer.removePeer(peerId)
+      this.#disconnectFromPeer(peerId)
       this.#remoteHeadsSubscriptions.removePeer(peerId)
     })
 
@@ -252,8 +368,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     this.synchronizer.on("sync-state", message => {
-      this.#saveSyncState(message)
-
       const handle = this.#handleCache[message.documentId]
 
       const { storageId } = this.peerMetadataByPeerId[message.peerId] || {}
@@ -321,6 +435,27 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
       )
     }
+
+    this.#subduction = subduction
+    const FragmentStateStoreCtor = getFragmentStateStoreClass()
+    this.#fragmentStateStore = new FragmentStateStoreCtor()
+    this.#recentHeadsCacheSize = recentHeadsCacheSize
+    this.#recentlySeenHeads = new Map()
+    this.#lastHeadsSent = new Map()
+    this.#handlesBySedimentreeId = new Map()
+
+    if (hasCallbacks(subduction.storage)) {
+      const subductionStorage = subduction.storage
+      this.#subductionStorage = subductionStorage
+
+      subductionStorage.on("commit-saved", (id, digest, blob) => {
+        this.#handleCommitSaved(id, digest, blob)
+      })
+
+      subductionStorage.on("fragment-saved", (id, digest, blob) => {
+        this.#handleFragmentSaved(id, digest, blob)
+      })
+    }
   }
 
   // The `document` event is fired by the DocCollection any time we create a new document or look
@@ -334,6 +469,8 @@ export class Repo extends EventEmitter<RepoEvents> {
         handle.on("heads-changed", this.#saveFn)
       }
     }
+
+    this.#tellSubductionAboutNewHandle(handle)
 
     // Register the document with the synchronizer. This advertises our interest in the document.
     this.synchronizer.addDocument(handle)
@@ -356,44 +493,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "ephemeral":
       case "doc-unavailable":
         this.synchronizer.receiveMessage(message).catch(err => {
-          console.log("error receiving message", { err, message })
+          this.#log("error receiving message", { err, message })
         })
+        break
     }
-  }
-
-  #throttledSaveSyncStateHandlers: Record<
-    StorageId,
-    (payload: SyncStatePayload) => void
-  > = {}
-
-  /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
-  #saveSyncState(payload: SyncStatePayload) {
-    if (!this.storageSubsystem) {
-      return
-    }
-
-    const { storageId, isEphemeral } =
-      this.peerMetadataByPeerId[payload.peerId] || {}
-
-    if (!storageId || isEphemeral) {
-      return
-    }
-
-    let handler = this.#throttledSaveSyncStateHandlers[storageId]
-    if (!handler) {
-      handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
-        ({ documentId, syncState }: SyncStatePayload) => {
-          void this.storageSubsystem!.saveSyncState(
-            documentId,
-            storageId,
-            syncState
-          )
-        },
-        this.#saveDebounceRate
-      )
-    }
-
-    handler(payload)
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
@@ -402,7 +505,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }: {
     /** The documentId of the handle to look up or create */
     documentId: DocumentId /** If we know we're creating a new document, specify this so we can have access to it immediately */
-  }) {
+  }): DocHandle<T> {
     // If we have the handle cached, return it
     if (this.#handleCache[documentId]) return this.#handleCache[documentId]
 
@@ -423,6 +526,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     return this.synchronizer.peers
   }
 
+  /** Returns the local peer id */
   get peerId(): PeerId {
     return this.networkSubsystem.peerId
   }
@@ -470,13 +574,16 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
     }) as DocHandle<T>
 
+    handle.update(() => initialDoc)
     this.#registerHandleWithSubsystems(handle)
 
-    handle.update(() => {
-      return initialDoc
-    })
-
     handle.doneLoading()
+
+    // Sync the new document to peers (fire-and-forget since create is sync)
+    // This ensures peers receive the initial data and establishes subscriptions
+    const sid = toSedimentreeId(documentId)
+    void this.#subduction.syncAll(sid, true)
+
     return handle
   }
 
@@ -512,13 +619,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
     }) as DocHandle<T>
 
+    handle.update(() => initialDoc)
     this.#registerHandleWithSubsystems(handle)
-
-    handle.update(() => {
-      return initialDoc
-    })
-
     handle.doneLoading()
+
+    const sid = toSedimentreeId(documentId)
+    this.#subduction.syncAll(sid, true)
     return handle
   }
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
@@ -666,14 +772,20 @@ export class Repo extends EventEmitter<RepoEvents> {
         handle,
       })
 
-      const loadingPromise = await (this.storageSubsystem
-        ? this.storageSubsystem.loadDoc(handle.documentId)
-        : Promise.resolve(null))
+      const sedimentreeId = toSedimentreeId(handle.documentId)
+      const loadedBlobs = await Promise.race([
+        this.#subduction.getBlobs(sedimentreeId),
+        abortPromise,
+      ])
 
-      const loadedDoc = await Promise.race([loadingPromise, abortPromise])
-
-      if (loadedDoc) {
-        handle.update(() => loadedDoc as Automerge.Doc<T>)
+      if (!!loadedBlobs && loadedBlobs.length > 0) {
+        handle.update(doc => {
+          let newDoc = doc
+          loadedBlobs.forEach((blob: Uint8Array) => {
+            newDoc = Automerge.loadIncremental(newDoc, blob)
+          })
+          return newDoc
+        })
         handle.doneLoading()
         progressSignal.notify({
           state: "loading" as const,
@@ -681,8 +793,15 @@ export class Repo extends EventEmitter<RepoEvents> {
           handle,
         })
       } else {
-        await Promise.race([this.networkSubsystem.whenReady(), abortPromise])
-        handle.request()
+        await Promise.race([
+          this.#requestDocOverSubduction(handle),
+          abortPromise,
+        ])
+        // Only call request() if Subduction didn't already load the data
+        // The storage callback may have called doneLoading() during requestDocOverSubduction
+        if (!handle.isReady()) {
+          handle.request()
+        }
         progressSignal.notify({
           state: "loading" as const,
           progress: 75,
@@ -690,6 +809,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
       }
 
+      await this.#requestDocOverSubduction(handle)
       this.#registerHandleWithSubsystems(handle)
 
       await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
@@ -726,7 +846,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
-    const { allowableStates = ["ready"], signal } = options
+    const { allowableStates = [READY], signal } = options
 
     // Check if already aborted
     if (signal?.aborted) {
@@ -737,93 +857,61 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     if ("subscribe" in progress) {
       this.#registerHandleWithSubsystems(progress.handle)
+      const targetDocumentId = progress.handle.documentId
+
       return new Promise((resolve, reject) => {
-        const unsubscribe = progress.subscribe(state => {
-          if (allowableStates.includes(state.handle.state)) {
+        let resolved = false
+
+        const cleanup = () => {
+          if (!resolved) {
+            resolved = true
             unsubscribe()
+            this.off("document", onDocument)
+          }
+        }
+
+        // Listen for the document event - this fires when a document becomes
+        // available via async sync (e.g., Subduction)
+        const onDocument = ({ handle }: { handle: DocHandle<unknown> }) => {
+          if (
+            handle.documentId === targetDocumentId &&
+            allowableStates.includes(handle.state)
+          ) {
+            cleanup()
+            resolve(handle as DocHandle<T>)
+          }
+        }
+
+        const unsubscribe = progress.subscribe((state: FindProgress<T>) => {
+          if (allowableStates.includes(state.handle.state)) {
+            cleanup()
             resolve(state.handle)
           } else if (state.state === "unavailable") {
-            unsubscribe()
-            reject(new Error(`Document ${id} is unavailable`))
+            // Don't reject on unavailable - the document may become available
+            // via async sync (e.g., Subduction). Keep listening for the
+            // "document" event which will fire when the data arrives.
           } else if (state.state === "failed") {
-            unsubscribe()
+            cleanup()
             reject(state.error)
           }
         })
+
+        this.on("document", onDocument)
       })
     } else {
-      if (progress.handle.state === READY) {
+      if (allowableStates.includes(progress.handle.state)) {
         return progress.handle
       }
       // If the handle isn't ready, wait for it and then return it
       await progress.handle.whenReady([READY, UNAVAILABLE])
       if (
-        progress.handle.state === "unavailable" &&
+        progress.handle.state === UNAVAILABLE &&
         !allowableStates.includes(UNAVAILABLE)
       ) {
         throw new Error(`Document ${id} is unavailable`)
       }
       return progress.handle
     }
-  }
-
-  /**
-   * Loads a document without waiting for ready state
-   */
-  async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      return this.#handleCache[documentId]
-    }
-
-    // If we don't already have the handle, make an empty one and try loading it
-    const handle = this.#getHandle<T>({ documentId })
-    const loadedDoc = await (this.storageSubsystem
-      ? this.storageSubsystem.loadDoc(handle.documentId)
-      : Promise.resolve(null))
-
-    if (loadedDoc) {
-      // We need to cast this to <T> because loadDoc operates in <unknowns>.
-      // This is really where we ought to be validating the input matches <T>.
-      handle.update(() => loadedDoc as Automerge.Doc<T>)
-      handle.doneLoading()
-    } else {
-      // Because the network subsystem might still be booting up, we wait
-      // here so that we don't immediately give up loading because we're still
-      // making our initial connection to a sync server.
-      await this.networkSubsystem.whenReady()
-      handle.request()
-    }
-
-    this.#registerHandleWithSubsystems(handle)
-    return handle
-  }
-
-  /**
-   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
-   * event to advertise interest in the document.
-   */
-  async findClassic<T>(
-    /** The url or documentId of the handle to retrieve */
-    id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
-  ): Promise<DocHandle<T>> {
-    const documentId = interpretAsDocumentId(id)
-    const { allowableStates, signal } = options
-
-    return abortable(
-      (async () => {
-        const handle = await this.#loadDocument<T>(documentId)
-        if (!allowableStates) {
-          await handle.whenReady([READY, UNAVAILABLE])
-          if (handle.state === UNAVAILABLE && !signal?.aborted) {
-            throw new Error(`Document ${id} is unavailable`)
-          }
-        }
-        return handle
-      })(),
-      signal
-    )
   }
 
   delete(
@@ -851,7 +939,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = await this.find(documentId)
+    const handle = this.#getHandle({ documentId })
     const doc = handle.doc()
     return Automerge.save(doc)
   }
@@ -918,15 +1006,17 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @returns Promise<void>
    */
   async flush(documents?: DocumentId[]): Promise<void> {
-    if (!this.storageSubsystem) {
-      return
-    }
     const handles = documents
-      ? documents.map(id => this.#handleCache[id])
+      ? documents
+          .map(id => this.#handleCache[id])
+          .filter(handle => handle.isReady())
       : Object.values(this.#handleCache)
     await Promise.all(
       handles.map(async handle => {
-        return this.storageSubsystem!.saveDoc(handle.documentId, handle.doc())
+        const sid = toSedimentreeId(handle.documentId)
+        if (handle.isReady()) {
+          await this.#broadcast(handle.doc(), sid)
+        }
       })
     )
   }
@@ -956,10 +1046,10 @@ export class Repo extends EventEmitter<RepoEvents> {
           `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
         )
       }
+      await this.#subduction.removeSedimentree(toSedimentreeId(documentId))
       delete this.#handleCache[documentId]
       delete this.#progressCache[documentId]
       delete this.#saveFns[documentId]
-      this.synchronizer.removeDocument(documentId)
     } else {
       this.#log(
         `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
@@ -967,11 +1057,44 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
-  shutdown(): Promise<void> {
-    this.networkSubsystem.adapters.forEach(adapter => {
-      adapter.disconnect()
-    })
-    return this.flush()
+  /**
+   * Wait for all pending outbound operations to complete.
+   * Call this before shutdown() to ensure all changes have been sent to the network.
+   */
+  async awaitOutbound(): Promise<void> {
+    // Flush any pending throttled broadcasts first
+    for (const throttled of this.#throttledBroadcasts) {
+      throttled.flush()
+    }
+
+    // Yield to let flushed broadcasts start executing
+    await Promise.resolve()
+
+    if (this.#pendingOutbound === 0) return
+    return new Promise(resolve => this.#outboundResolvers.push(resolve))
+  }
+
+  async shutdown() {
+    await this.awaitOutbound()
+    await this.#subduction.disconnectAll()
+    await this.flush()
+  }
+
+  /**
+   * Sync all known documents with the server.
+   * Call this before change detection to ensure all remote commits are received.
+   */
+  async syncAllDocuments(): Promise<void> {
+    // Get all known sedimentree IDs
+    const sedimentreeIds = Array.from(this.#handlesBySedimentreeId.keys())
+
+    // Sync each sequentially to avoid overwhelming the server
+    for (const sidStr of sedimentreeIds) {
+      const handle = this.#handlesBySedimentreeId.get(sidStr)
+      if (handle) {
+        await this.#requestDocOverSubduction(handle)
+      }
+    }
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -980,6 +1103,236 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   shareConfigChanged() {
     void this.synchronizer.reevaluateDocumentShare()
+  }
+
+  #disconnectFromPeer(peerId: PeerId) {
+    const subductionPeerId = toSubductionPeerId(peerId)
+    this.#subduction.disconnectFromPeer(subductionPeerId)
+  }
+
+  async #requestDocOverSubduction(handle: DocHandle<any>) {
+    const sedimentreeId = toSedimentreeId(handle.documentId)
+    this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
+
+    // With the 1.5RTT protocol, syncAll performs bidirectional sync in a single call:
+    // 1. We send our summary to peers
+    // 2. Peers respond with data we're missing AND tell us what they need
+    // 3. We send back what they requested (handled internally by Subduction)
+    this.#log(`syncing sedimentree ${sedimentreeId.toString().slice(0, 8)}...`)
+    const peerResultMap = await this.#subduction.syncAll(sedimentreeId, true)
+
+    // Log sync statistics and any errors
+    for (const result of peerResultMap.entries()) {
+      const stats = result.stats
+      if (stats && !stats.isEmpty) {
+        this.#log(
+          `sync stats: received ${stats.commitsReceived} commits, ${stats.fragmentsReceived} fragments; ` +
+            `sent ${stats.commitsSent} commits, ${stats.fragmentsSent} fragments`
+        )
+      }
+      if (!result.success) {
+        this.#log("sync failed for peer")
+      }
+      for (const errPair of result.connErrors || []) {
+        this.#log("sync connection error:", errPair.err)
+      }
+    }
+
+    // Wait for storage callbacks to complete before transitioning to ready
+    if (this.#subductionStorage) {
+      await this.#subductionStorage.awaitSettled()
+    }
+
+    // Now that all blobs have been loaded, transition the handle to READY state.
+    // This must happen AFTER awaitSettled so all data is available before ready.
+    const wasNotReady = !handle.isReady()
+    handle.doneLoading()
+
+    // Emit document event if this handle just transitioned to ready
+    if (wasNotReady && handle.isReady()) {
+      this.emit("document", { handle })
+    }
+  }
+
+  #tellSubductionAboutNewHandle(handle: DocHandle<any>) {
+    const sid = toSedimentreeId(handle.documentId)
+    this.#handlesBySedimentreeId.set(sid.toString(), handle)
+
+    const throttledBroadcast = throttle(() => {
+      // Read the doc outside of handle.update() to avoid holding an XState
+      // borrow while entering async Wasm code. The previous approach called
+      // #broadcast inside handle.update(), which is synchronous — but
+      // #broadcast is async and touches Wasm &mut self via buildFragmentStore.
+      // When multiple handles' throttled broadcasts fire in the same microtask
+      // batch, the nested borrows cause "recursive use of an object" panics.
+      if (!handle.isReady()) return
+      const doc = handle.doc()
+      if (!doc) return
+      this.#broadcast(doc, sid)
+    }, 100)
+
+    // Track for flushing in awaitOutbound()
+    this.#throttledBroadcasts.push(throttledBroadcast)
+
+    handle.on("heads-changed", () => {
+      throttledBroadcast()
+    })
+
+    throttledBroadcast()
+  }
+
+  async #broadcast<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
+    // Track this broadcast for awaitOutbound() BEFORE any awaits
+    this.#pendingOutbound++
+
+    try {
+      const currentHexHeads = Automerge.getHeads(doc)
+      const id = sedimentreeId.toString()
+      const mostRecentHeads: Set<string> =
+        this.#lastHeadsSent.get(id) || new Set()
+
+      // Properly compare set contents (not identity)
+      const currentSet = new Set(currentHexHeads)
+      const headsAlreadySent =
+        currentSet.size === mostRecentHeads.size &&
+        [...currentSet].every(h => mostRecentHeads.has(h))
+      if (headsAlreadySent) {
+        return
+      }
+
+      await Promise.all(
+        Automerge.getChangesMetaSince(doc, Array.from(mostRecentHeads)).map(
+          async meta => {
+            try {
+              const cache =
+                this.#recentlySeenHeads.get(id) ||
+                new HashRing(this.#recentHeadsCacheSize)
+
+              const hexHash = meta.hash
+              if (!cache.add(hexHash)) return
+
+              this.#recentlySeenHeads.set(id, cache)
+
+              const commitBytes = automergeMeta(doc).getChangeByHash(hexHash)
+              const Digest = getDigest()
+              const parents = meta.deps.map(depHexHash =>
+                Digest.fromHexString(depHexHash)
+              )
+
+              const maybeFragmentRequested = await this.#subduction.addCommit(
+                sedimentreeId,
+                parents,
+                commitBytes
+              )
+
+              if (maybeFragmentRequested === undefined) return
+
+              const fragmentRequested = maybeFragmentRequested
+              const head = fragmentRequested.head
+              if (!head || !(head as any).__wbg_ptr) {
+                this.#log(
+                  "skipping buildFragmentStore: fragmentRequested.head is invalid (ptr=%s)",
+                  (head as any)?.__wbg_ptr
+                )
+                return
+              }
+
+              const innerDoc = automergeMeta(doc)
+              const SedimentreeAutomergeCtor = getSedimentreeAutomergeClass()
+              const sam = new SedimentreeAutomergeCtor(innerDoc)
+
+              // Build all missing fragments recursively, not just the top one.
+              const fragmentStates = sam.buildFragmentStore(
+                [head],
+                this.#fragmentStateStore,
+                getHashMetric()
+              )
+
+              for (const fragmentState of fragmentStates) {
+                const members = fragmentState
+                  .members()
+                  .map((digest: DigestType): string => digest.toHexString())
+
+                // NOTE this is the only(?) function that we need from AM v3.2.0
+                const fragmentBlob = Automerge.saveBundle(doc, members)
+
+                await this.#subduction.addFragment(
+                  sedimentreeId,
+                  fragmentState.head_digest(),
+                  fragmentState.boundary().keys(),
+                  fragmentState.checkpoints(),
+                  fragmentBlob
+                )
+              }
+            } catch (e) {
+              // Best-effort: if addCommit or buildFragmentStore fails (e.g.,
+              // partial history, detached Wasm memory), log and continue.
+              // Commits are still stored; fragment compaction will retry later.
+              console.warn(
+                `[Repo] broadcast failed for change ${meta.hash} on ${id}:`,
+                e
+              )
+            }
+          }
+        )
+      )
+
+      this.#lastHeadsSent.set(sedimentreeId.toString(), currentSet)
+    } finally {
+      this.#pendingOutbound--
+      if (this.#pendingOutbound === 0) {
+        this.#outboundResolvers.forEach(r => r())
+        this.#outboundResolvers = []
+      }
+    }
+  }
+
+  /**
+   * Handle a commit being saved to storage.
+   * Called via storage bridge callback after data is persisted.
+   */
+  #handleCommitSaved(id: SedimentreeId, _digest: DigestType, blob: Uint8Array) {
+    const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
+    if (existingHandle !== undefined) {
+      // Only update the document - don't call doneLoading() here.
+      // During batch sync, multiple blobs arrive asynchronously.
+      // Calling doneLoading() on each blob would transition to READY too early.
+      // Instead, #requestDocOverSubduction calls doneLoading() after syncAll + awaitSettled.
+      existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
+    } else {
+      // New sedimentree we haven't seen before - create a handle for it
+      const documentId = toDocumentId(id)
+      const handle = this.#getHandle({ documentId })
+      this.#handlesBySedimentreeId.set(id.toString(), handle)
+      handle.update(doc => Automerge.loadIncremental(doc, blob))
+      // Don't call doneLoading() or emit document event here.
+      // This will be done by #requestDocOverSubduction after batch sync completes.
+    }
+  }
+
+  /**
+   * Handle a fragment being saved to storage.
+   * Called via storage bridge callback after data is persisted.
+   */
+  #handleFragmentSaved(
+    id: SedimentreeId,
+    _digest: DigestType,
+    blob: Uint8Array
+  ) {
+    const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
+    if (existingHandle !== undefined) {
+      // Only update the document - don't call doneLoading() here.
+      // See comment in #handleCommitSaved for rationale.
+      existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
+    } else {
+      // New sedimentree we haven't seen before - create a handle for it
+      const documentId = toDocumentId(id)
+      const handle = this.#getHandle({ documentId })
+      this.#handlesBySedimentreeId.set(id.toString(), handle)
+      handle.update(doc => Automerge.loadIncremental(doc, blob))
+      // Don't call doneLoading() or emit document event here.
+      // This will be done by #requestDocOverSubduction after batch sync completes.
+    }
   }
 }
 
@@ -1037,6 +1390,23 @@ export interface RepoConfig {
    * @hidden
    */
   idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
+
+  /**
+   * The Subduction sync engine instance.
+   *
+   * @remarks
+   * Create this by calling `Subduction.hydrate(signer, storage)` where `storage`
+   * is a `SubductionStorageBridge` wrapping your storage adapter. The bridge package
+   * provides a `setupSubduction()` helper to simplify this.
+   *
+   * @see {@link https://github.com/automerge/automerge-repo | automerge-repo README} for setup examples.
+   */
+  subduction: Subduction
+
+  /**
+   * The size of the cache for recently seen heads per document to avoid resending them
+   */
+  recentHeadsCacheSize?: number
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -1120,3 +1490,9 @@ export type DocMetrics =
       type: "doc-denied"
       documentId: DocumentId
     }
+
+function hasCallbacks(
+  s: SedimentreeStorage | undefined
+): s is SubductionStorageWithCallbacks {
+  return !!s && "on" in s && typeof s.on === "function"
+}

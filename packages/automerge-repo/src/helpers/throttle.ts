@@ -1,15 +1,16 @@
 /** Throttle
- * Returns a function with a built in throttle timer that runs after `delay` ms.
+ * Returns a function with a built in throttle timer.
  *
- * This function differs from a conventional `throttle` in that it ensures the final
- * call will also execute and delays sending the first one until `delay` ms to allow
- * additional work to accumulate.
+ * This is a leading+trailing edge throttle:
+ * - First call executes immediately (leading edge)
+ * - Subsequent calls within delay are batched
+ * - Final call in a burst is also executed (trailing edge)
  *
  * Here's a diagram:
  *
  * calls +----++++++-----++----
- * dlay  ^--v ^--v^--v   ^--v
- * execs ---+----+---+------+--
+ * dlay  v--^ v--^v--^   v--^
+ * execs +------+---+---+----+-
  *
  * The goal in this design is to create batches of changes without flooding
  * communication or storage systems while still feeling responsive.
@@ -25,19 +26,59 @@
  *
  */
 
-export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
+export type ThrottledFunction<F extends (...args: any[]) => any> = {
+  (...args: Parameters<F>): void
+  /** Immediately execute any pending throttled call */
+  flush: () => void
+}
+
+export const throttle = <F extends (...args: any[]) => any>(
   fn: F,
   delay: number
-) => {
-  let lastCall = Date.now()
-  let wait
-  let timeout: ReturnType<typeof setTimeout>
-  return function (...args: Parameters<F>) {
-    wait = lastCall + delay - Date.now()
-    clearTimeout(timeout)
-    timeout = setTimeout(() => {
+): ThrottledFunction<F> => {
+  let lastCall = 0 // Start at 0 so first call is immediate
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let pendingArgs: Parameters<F> | undefined
+
+  const throttled = function (...args: Parameters<F>) {
+    const now = Date.now()
+    const timeSinceLastCall = now - lastCall
+
+    // If enough time has passed, execute immediately (leading edge)
+    if (timeSinceLastCall >= delay) {
+      clearTimeout(timeout)
+      timeout = undefined
+      pendingArgs = undefined
+      lastCall = now
       fn(...args)
+    } else {
+      // Otherwise, schedule for trailing edge
+      pendingArgs = args
+      if (!timeout) {
+        const remaining = delay - timeSinceLastCall
+        timeout = setTimeout(() => {
+          timeout = undefined
+          if (pendingArgs) {
+            lastCall = Date.now()
+            fn(...pendingArgs)
+            pendingArgs = undefined
+          }
+        }, remaining)
+      }
+    }
+  } as ThrottledFunction<F>
+
+  throttled.flush = () => {
+    if (timeout) {
+      clearTimeout(timeout)
+      timeout = undefined
+    }
+    if (pendingArgs) {
       lastCall = Date.now()
-    }, wait)
+      fn(...pendingArgs)
+      pendingArgs = undefined
+    }
   }
+
+  return throttled
 }

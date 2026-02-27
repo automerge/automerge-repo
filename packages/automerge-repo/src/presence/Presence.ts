@@ -2,11 +2,13 @@ import { EventEmitter } from "eventemitter3"
 
 import { DocHandle, DocHandleEphemeralMessagePayload } from "../DocHandle.js"
 import {
+  DeviceId,
   PresenceConfig,
   PresenceEvents,
   PresenceMessage,
   PresenceMessageType,
   PresenceState,
+  UserId,
 } from "./types.js"
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -31,6 +33,8 @@ export class Presence<
   DocType = any
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<DocType>
+  readonly deviceId?: DeviceId
+  readonly userId?: UserId
   #peers: PeerPresenceInfo<State>
   #localState: State
   #heartbeatMs?: number
@@ -51,11 +55,23 @@ export class Presence<
    * @param config see {@link PresenceConfig}
    * @returns
    */
-  constructor({ handle }: { handle: DocHandle<DocType> }) {
+  constructor({
+    handle,
+    deviceId,
+    userId,
+  }: {
+    handle: DocHandle<DocType>
+    /** Our device id (like userId, this is unverified; peers can send anything) */
+    deviceId?: DeviceId
+    /** Our user id (this is unverified; peers can send anything) */
+    userId?: UserId
+  }) {
     super()
     this.#handle = handle
     this.#peers = new PeerPresenceInfo<State>(DEFAULT_PEER_TTL_MS)
     this.#localState = {} as State
+    this.userId = userId
+    this.deviceId = deviceId
   }
 
   /**
@@ -86,6 +102,7 @@ export class Presence<
       }
 
       const message = envelope[PRESENCE_MESSAGE_MARKER]
+      const { deviceId, userId } = message
 
       if (!this.#peers.has(peerId)) {
         this.announce()
@@ -103,11 +120,15 @@ export class Presence<
         case "update":
           this.#peers.update({
             peerId,
+            deviceId,
+            userId,
             value: { [message.channel]: message.value } as Partial<State>,
           })
           this.emit("update", {
             type: "update",
             peerId,
+            deviceId,
+            userId,
             channel: message.channel,
             value: message.value,
           })
@@ -115,11 +136,15 @@ export class Presence<
         case "snapshot":
           this.#peers.update({
             peerId,
+            deviceId,
+            userId,
             value: message.state as State,
           })
           this.emit("snapshot", {
             type: "snapshot",
             peerId,
+            deviceId,
+            userId,
             state: message.state,
           })
           break
@@ -231,6 +256,8 @@ export class Presence<
     extra?: Record<string, unknown>
   ) {
     this.send({
+      userId: this.userId,
+      deviceId: this.deviceId,
       type,
       ...extra,
     })
@@ -270,10 +297,7 @@ export class Presence<
     // to minimize variance between peer expiration, since the heartbeat frequency
     // is expected to be several times higher.
     this.#pruningInterval = setInterval(() => {
-      const pruned = this.#peers.prune()
-      if (pruned.length > 0) {
-        this.emit("pruning", { pruned })
-      }
+      this.#peers.prune()
     }, this.#heartbeatMs)
   }
 

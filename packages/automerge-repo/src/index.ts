@@ -38,13 +38,15 @@ export {
   encodeHeads,
   decodeHeads,
 } from "./AutomergeUrl.js"
-export { Repo } from "./Repo.js"
+export { Repo, setSubductionModule } from "./Repo.js"
 export { Presence } from "./presence/Presence.js"
 export { PeerStateView } from "./presence/PeerStateView.js"
 export type {
   PeerState,
   PresenceState,
   PresenceConfig,
+  UserId,
+  DeviceId,
 } from "./presence/types.js"
 
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
@@ -56,6 +58,14 @@ import { next as Automerge, type ObjID } from "@automerge/automerge/slim"
 
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
+
+// Subduction helpers
+export {
+  toSubductionPeerId,
+  toSedimentreeId,
+  toDocumentId,
+} from "./helpers/subduction.js"
+export type { SedimentreeId, SubductionPeerId } from "./helpers/subduction.js"
 
 // types
 
@@ -77,8 +87,12 @@ export type {
   DocumentPayload,
   RepoConfig,
   RepoEvents,
+  ShareConfig,
   SharePolicy,
+  SubductionStorageWithCallbacks,
 } from "./Repo.js"
+
+export type { FindProgress, FindProgressWithMethods } from "./FindProgress.js"
 
 export type {
   NetworkAdapterEvents,
@@ -111,18 +125,6 @@ export type {
 } from "./storage/types.js"
 
 export * from "./types.js"
-
-// Refs - experimental API for referencing locations within documents
-export type {
-  Ref,
-  PathInput,
-  MutableText,
-  InferRefType,
-  Pattern,
-  RefUrl,
-  ChangeFn as RefChangeFn,
-} from "./refs/types.js"
-export { cursor, findRef, refFromUrl, refFromString } from "./refs/utils.js"
 
 // Automerge re-exports
 //

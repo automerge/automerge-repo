@@ -1,6 +1,9 @@
 import { PeerId } from "../types.js"
 import { PRESENCE_MESSAGE_MARKER } from "./constants.js"
 
+export type UserId = unknown
+export type DeviceId = unknown
+
 export type PresenceState = Record<string, any>
 
 export type PeerStatesValue<State extends PresenceState> = Record<
@@ -11,26 +14,33 @@ export type PeerStatesValue<State extends PresenceState> = Record<
 export type PeerState<State extends PresenceState> = {
   peerId: PeerId
   lastActiveAt: number
-  lastSeenAt: number
+  lastUpdateAt: number
+  deviceId?: DeviceId
+  userId?: UserId
   value: State
 }
 
-type PresenceMessageUpdate = {
+type PresenceMessageBase = {
+  deviceId?: DeviceId
+  userId?: UserId
+}
+
+type PresenceMessageUpdate = PresenceMessageBase & {
   type: "update"
   channel: string
   value: any
 }
 
-type PresenceMessageSnapshot = {
+type PresenceMessageSnapshot = PresenceMessageBase & {
   type: "snapshot"
   state: any
 }
 
-type PresenceMessageHeartbeat = {
+type PresenceMessageHeartbeat = PresenceMessageBase & {
   type: "heartbeat"
 }
 
-type PresenceMessageGoodbye = {
+type PresenceMessageGoodbye = PresenceMessageBase & {
   type: "goodbye"
 }
 
@@ -51,7 +61,6 @@ export type PresenceEventUpdate = PresenceMessageUpdate & WithPeerId
 export type PresenceEventSnapshot = PresenceMessageSnapshot & WithPeerId
 export type PresenceEventHeartbeat = PresenceMessageHeartbeat & WithPeerId
 export type PresenceEventGoodbye = PresenceMessageGoodbye & WithPeerId
-export type PresenceEventPruning = { pruned: PeerId[] }
 
 /**
  * Events emitted by Presence when ephemeral messages are received from peers.
@@ -60,23 +69,19 @@ export type PresenceEvents = {
   /**
    * Handle a state update broadcast by a peer.
    */
-  update: (e: PresenceEventUpdate) => void
+  update: (msg: PresenceEventUpdate) => void
   /**
    * Handle a full state snapshot broadcast by a peer.
    */
-  snapshot: (e: PresenceEventSnapshot) => void
+  snapshot: (msg: PresenceEventSnapshot) => void
   /**
    * Handle a heartbeat broadcast by a peer.
    */
-  heartbeat: (e: PresenceEventHeartbeat) => void
+  heartbeat: (msg: PresenceEventHeartbeat) => void
   /**
    * Handle a disconnection broadcast by a peer.
    */
-  goodbye: (e: PresenceEventGoodbye) => void
-  /**
-   * Handle one or more peers being pruned
-   */
-  pruning: (e: PresenceEventPruning) => void
+  goodbye: (msg: PresenceEventGoodbye) => void
 }
 
 export type PresenceConfig<State extends PresenceState> = {
