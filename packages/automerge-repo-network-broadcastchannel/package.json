@@ -25,6 +25,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "subduction",
+    "publishBranch": "subductionjs"
   }
 }

@@ -19,7 +19,8 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "subduction",
+    "publishBranch": "subductionjs"
   },
   "devDependencies": {
     "execa": "^8.0.1"
