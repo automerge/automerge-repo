@@ -8,3 +8,11 @@ export * from "../index.js"
 //
 // eslint-disable-next-line automerge-slimport/enforce-automerge-slim-import
 import "@automerge/automerge"
+
+// Auto-initialize Subduction's Wasm module and register it with automerge-repo.
+// Importing the bare specifier triggers environment-based Wasm initialization
+// (same pattern as @automerge/automerge above). The namespace import lets us
+// pass the module to setSubductionModule() so Repo can access constructors.
+import * as subductionModule from "@automerge/automerge-subduction"
+import { setSubductionModule } from "../Repo.js"
+setSubductionModule(subductionModule)
