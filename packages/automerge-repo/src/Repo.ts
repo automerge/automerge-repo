@@ -1122,9 +1122,11 @@ export class Repo extends EventEmitter<RepoEvents> {
     const peerResultMap = await this.#subduction.syncAll(sedimentreeId, true)
 
     // Log sync statistics and any errors
+    let receivedData = false
     for (const result of peerResultMap.entries()) {
       const stats = result.stats
       if (stats && !stats.isEmpty) {
+        receivedData = true
         this.#log(
           `sync stats: received ${stats.commitsReceived} commits, ${stats.fragmentsReceived} fragments; ` +
             `sent ${stats.commitsSent} commits, ${stats.fragmentsSent} fragments`
@@ -1138,19 +1140,25 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
     }
 
+    const hasPeers = peerResultMap.entries().length > 0
+
     // Wait for storage callbacks to complete before transitioning to ready
     if (this.#subductionStorage) {
       await this.#subductionStorage.awaitSettled()
     }
 
-    // Now that all blobs have been loaded, transition the handle to READY state.
-    // This must happen AFTER awaitSettled so all data is available before ready.
-    const wasNotReady = !handle.isReady()
-    handle.doneLoading()
+    // Only transition to READY if Subduction actually had peers.
+    // When there are no Subduction peers (e.g., a tab that only syncs via
+    // MessageChannelNetworkAdapter to a SharedWorker), we must leave the
+    // handle in its current state so the old sync path can fetch the doc.
+    if (hasPeers) {
+      const wasNotReady = !handle.isReady()
+      handle.doneLoading()
 
-    // Emit document event if this handle just transitioned to ready
-    if (wasNotReady && handle.isReady()) {
-      this.emit("document", { handle })
+      // Emit document event if this handle just transitioned to ready
+      if (wasNotReady && handle.isReady()) {
+        this.emit("document", { handle })
+      }
     }
   }
 
