@@ -25,11 +25,7 @@ import {
   setupSubduction,
 } from "@automerge/automerge-repo-subduction-bridge"
 import * as SubductionModule from "@automerge/automerge-subduction"
-import {
-  Subduction,
-  SubductionWebSocket,
-  WebCryptoSigner,
-} from "@automerge/automerge-subduction"
+import { WebCryptoSigner } from "@automerge/automerge-subduction"
 
 // 1. Initialize the Wasm module
 initSubductionModule(SubductionModule)
@@ -37,16 +33,13 @@ initSubductionModule(SubductionModule)
 // 2. Set up Subduction
 const signer = await WebCryptoSigner.setup()
 const { subduction, storage } = await setupSubduction({
+  subductionModule: SubductionModule,
   signer,
   storageAdapter: new IndexedDBStorageAdapter("my-app"),
 })
 
 // 3. Connect to a server
-const conn = await SubductionWebSocket.tryDiscover(
-  new URL("ws://localhost:8080"),
-  signer
-)
-await subduction.attach(conn)
+await subduction.connectDiscover(new URL("ws://localhost:8080"), signer)
 
 // 4. Create the Repo
 const repo = new Repo({

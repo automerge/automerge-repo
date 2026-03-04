@@ -10,11 +10,7 @@ import {
   RepoContext,
 } from "@automerge/react"
 import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import {
-  Subduction,
-  SubductionWebSocket,
-  WebCryptoSigner,
-} from "@automerge/automerge-subduction"
+import { Subduction, WebCryptoSigner } from "@automerge/automerge-subduction"
 import { v4 } from "uuid"
 ;(async () => {
   const signer = await WebCryptoSigner.setup()
@@ -24,12 +20,7 @@ import { v4 } from "uuid"
   const storage = new SubductionStorageBridge(storageAdapter)
   const subduction = await Subduction.hydrate(signer, storage)
 
-  // Connect to Subduction server via discovery
-  const conn = await SubductionWebSocket.tryDiscover(
-    new URL("ws://localhost:8080"),
-    signer
-  )
-  await subduction.attach(conn)
+  await subduction.connectDiscover(new URL("ws://localhost:8080"), signer)
 
   const repo = new Repo({
     network: [
