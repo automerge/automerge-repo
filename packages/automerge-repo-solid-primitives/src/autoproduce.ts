@@ -1,5 +1,6 @@
 import type { DocHandleChangePayload } from "@automerge/automerge-repo/slim"
 import { applyPatches } from "@automerge/automerge/slim"
+import { reconcile } from "solid-js/store"
 
 /**
  * convert automerge patches to solid producer operations
@@ -14,5 +15,12 @@ import { applyPatches } from "@automerge/automerge/slim"
 export default function autoproduce<T>(
   payload: DocHandleChangePayload<T>
 ): (doc: T) => void {
-  return (doc: T) => applyPatches(doc, payload.patches)
+  return (doc: T) => {
+    try {
+      return applyPatches(doc, payload.patches)
+    } catch (error) {
+      console.warn(error, "reconciling")
+      return reconcile(doc, payload.doc)
+    }
+  }
 }
