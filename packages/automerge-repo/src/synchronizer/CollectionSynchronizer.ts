@@ -1,90 +1,145 @@
+import { next as A } from "@automerge/automerge/slim"
 import debug from "debug"
+import { EventEmitter } from "eventemitter3"
 import { DocHandle } from "../DocHandle.js"
 import { parseAutomergeUrl } from "../AutomergeUrl.js"
-import { Repo } from "../Repo.js"
-import { DocMessage } from "../network/messages.js"
+import {
+  DocMessage,
+  MessageContents,
+  OpenDocMessage,
+} from "../network/messages.js"
 import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer } from "./DocSynchronizer.js"
-import { Synchronizer } from "./Synchronizer.js"
+import type { ShareConfig } from "./DocSynchronizer.js"
+import type { DocumentSource } from "../DocumentSource.js"
+import type { DocumentQuery } from "../DocumentQuery.js"
+import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
 
 const log = debug("automerge-repo:collectionsync")
 
-/** A CollectionSynchronizer is responsible for synchronizing a DocCollection with peers. */
-export class CollectionSynchronizer extends Synchronizer {
-  /** The set of peers we are connected with */
+export interface AutomergeSyncConfig {
+  peerId: PeerId
+
+  shareConfig: ShareConfig
+
+  /**
+   * Called when the sync layer receives a message for a document it doesn't
+   * have a DocSynchronizer for. The Repo creates the query/handle, calls
+   * attach, and returns the handle and query.
+   */
+  ensureHandle: (documentId: DocumentId) => DocumentQuery<unknown>
+
+  /**
+   * Load persisted sync state for a peer on a specific document. Returns
+   * undefined if no sync state is available.
+   */
+  loadSyncState?: (
+    documentId: DocumentId,
+    peerId: PeerId
+  ) => Promise<A.SyncState | undefined>
+
+  /**
+   * Resolves when the network layer is ready to send messages.
+   * Documents created before this resolves get a "network" source
+   * registered on their query to keep them in "loading" state until
+   * peers have had a chance to connect.
+   */
+  networkReady: Promise<void>
+}
+
+interface CollectionSynchronizerEvents {
+  message: (payload: MessageContents) => void
+  "sync-state": (payload: SyncStatePayload) => void
+  "open-doc": (arg: OpenDocMessage) => void
+  metrics: (arg: DocSyncMetrics) => void
+}
+
+/**
+ * CollectionSynchronizer manages the lifecycle of per-document synchronizers
+ * and routes incoming messages to the correct DocSynchronizer. All share
+ * policy decisions are delegated to the DocSynchronizer — this class is a
+ * thin routing layer.
+ */
+export class CollectionSynchronizer
+  extends EventEmitter<CollectionSynchronizerEvents>
+  implements DocumentSource
+{
   #peers: Set<PeerId> = new Set()
-
-  /** A map of documentIds to their synchronizers */
-  /** @hidden */
-  docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
-
-  /** Used to determine if the document is know to the Collection and a synchronizer exists or is being set up */
-  #docSetUp: Record<DocumentId, boolean> = {}
-
+  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
   #denylist: DocumentId[]
-  #hasRequested: Map<DocumentId, Set<PeerId>> = new Map()
+  #config: AutomergeSyncConfig
+  #networkReady: Promise<void>
 
-  constructor(private repo: Repo, denylist: AutomergeUrl[] = []) {
+  constructor(config: AutomergeSyncConfig, denylist: AutomergeUrl[] = []) {
     super()
+    this.#networkReady = config.networkReady
+    this.#config = config
     this.#denylist = denylist.map(url => parseAutomergeUrl(url).documentId)
   }
 
-  /** Returns a synchronizer for the given document, creating one if it doesn't already exist.  */
-  #fetchDocSynchronizer(handle: DocHandle<unknown>) {
-    if (!this.docSynchronizers[handle.documentId]) {
-      this.docSynchronizers[handle.documentId] =
-        this.#initDocSynchronizer(handle)
-    }
-    return this.docSynchronizers[handle.documentId]
+  /** Expose doc synchronizers for Repo access (e.g. metrics) */
+  get docSynchronizers(): Record<DocumentId, DocSynchronizer> {
+    return this.#docSynchronizers
   }
 
-  /** Creates a new docSynchronizer and sets it up to propagate messages */
-  #initDocSynchronizer(handle: DocHandle<unknown>): DocSynchronizer {
-    const docSynchronizer = new DocSynchronizer({
-      handle,
-      peerId: this.repo.networkSubsystem.peerId,
-      onLoadSyncState: async peerId => {
-        if (!this.repo.storageSubsystem) {
-          return
-        }
-
-        const { storageId, isEphemeral } =
-          this.repo.peerMetadataByPeerId[peerId] || {}
-        if (!storageId || isEphemeral) {
-          return
-        }
-
-        return this.repo.storageSubsystem.loadSyncState(
-          handle.documentId,
-          storageId
-        )
-      },
-    })
-    docSynchronizer.on("message", event => this.emit("message", event))
-    docSynchronizer.on("open-doc", event => this.emit("open-doc", event))
-    docSynchronizer.on("sync-state", event => this.emit("sync-state", event))
-    docSynchronizer.on("metrics", event => this.emit("metrics", event))
-    return docSynchronizer
-  }
-
-  /** returns an array of peerIds that we share this document generously with */
-  async #documentGenerousPeers(documentId: DocumentId): Promise<PeerId[]> {
-    const peers = Array.from(this.#peers)
-    const generousPeers: PeerId[] = []
-    for (const peerId of peers) {
-      const okToShare = await this.#shouldShare(peerId, documentId)
-      if (okToShare) generousPeers.push(peerId)
-    }
-    return generousPeers
-  }
-
-  // PUBLIC
+  // DOCUMENT SOURCE INTERFACE
 
   /**
-   * When we receive a sync message for a document we haven't got in memory, we
-   * register it with the repo and start synchronizing
+   * Register a document for syncing ({@link DocumentSource.attach}). If the
+   * document is already registered this is a no-op. All connected peers are
+   * immediately added to the DocSynchronizer — the DocSynchronizer evaluates
+   * share policy internally.
    */
-  async receiveMessage(message: DocMessage) {
+  attach(query: DocumentQuery<unknown>): void {
+    if (this.#docSynchronizers[query.documentId]) return
+
+    const docSync = this.#initDocSynchronizer(query.handle, query)
+    this.#docSynchronizers[query.documentId] = docSync
+
+    for (const peerId of this.#peers) {
+      this.#addPeerToDoc(peerId, docSync, [])
+    }
+  }
+
+  /** {@link DocumentSource.detach} — removes a document and stops syncing. */
+  detach(documentId: DocumentId): void {
+    log(`removing document ${documentId}`)
+    const docSync = this.#docSynchronizers[documentId]
+    if (docSync) {
+      for (const peerId of this.peers) {
+        docSync.removePeer(peerId)
+      }
+    }
+    delete this.#docSynchronizers[documentId]
+  }
+
+  // PEER MANAGEMENT
+
+  addPeer(peerId: PeerId): void {
+    log(`adding ${peerId} & synchronizing with them`)
+    if (this.#peers.has(peerId)) return
+
+    this.#peers.add(peerId)
+    for (const docSync of Object.values(this.#docSynchronizers)) {
+      this.#addPeerToDoc(peerId, docSync, [])
+    }
+  }
+
+  removePeer(peerId: PeerId): void {
+    log(`removing peer ${peerId}`)
+    this.#peers.delete(peerId)
+    for (const docSync of Object.values(this.#docSynchronizers)) {
+      docSync.removePeer(peerId)
+    }
+  }
+
+  get peers(): PeerId[] {
+    return Array.from(this.#peers)
+  }
+
+  // MESSAGE HANDLING
+
+  receiveMessage(message: DocMessage): void {
     log(
       `onSyncMessage: ${message.senderId}, ${message.documentId}, ${
         "data" in message ? message.data.byteLength + "bytes" : ""
@@ -97,10 +152,7 @@ export class CollectionSynchronizer extends Synchronizer {
     }
 
     if (this.#denylist.includes(documentId)) {
-      this.emit("metrics", {
-        type: "doc-denied",
-        documentId,
-      })
+      this.emit("metrics", { type: "doc-denied", documentId })
       this.emit("message", {
         type: "doc-unavailable",
         documentId,
@@ -109,148 +161,40 @@ export class CollectionSynchronizer extends Synchronizer {
       return
     }
 
-    // Record the request so that even if access is denied now, we know that the
-    // peer requested the document so that if the share policy changes we know
-    // to begin syncing with this peer
-    if (message.type === "request" || message.type === "sync") {
-      if (!this.#hasRequested.has(documentId)) {
-        this.#hasRequested.set(documentId, new Set())
-      }
-      this.#hasRequested.get(documentId)?.add(message.senderId)
+    // Ensure we have a DocSynchronizer for this document.
+    // ensureHandle calls attach which no-ops if already registered.
+    let docSync = this.#docSynchronizers[documentId]
+    if (!docSync) {
+      this.#config.ensureHandle(documentId)
+      docSync = this.#docSynchronizers[documentId]!
     }
 
-    const hasAccess = await this.repo.shareConfig.access(
-      message.senderId,
-      documentId
-    )
-    if (!hasAccess) {
-      log("access denied")
-      this.emit("message", {
-        type: "doc-unavailable",
-        documentId,
-        targetId: message.senderId,
-      })
+    // Ephemeral and doc-unavailable messages may have a senderId that is
+    // not a direct network peer (e.g. relayed ephemeral messages preserve
+    // the original author's senderId). Route them directly to the
+    // DocSynchronizer without trying to register the sender as a peer.
+    if (message.type === "ephemeral" || message.type === "doc-unavailable") {
+      docSync.receiveMessage(message)
       return
     }
 
-    this.#docSetUp[documentId] = true
-
-    const handle = await this.repo.find(documentId, {
-      allowableStates: ["ready", "unavailable", "requesting"],
-    })
-    const docSynchronizer = this.#fetchDocSynchronizer(handle)
-
-    docSynchronizer.receiveMessage(message)
-
-    // Initiate sync with any new peers
-    const peers = await this.#documentGenerousPeers(documentId)
-    void docSynchronizer.beginSync(
-      peers.filter(peerId => !docSynchronizer.hasPeer(peerId))
-    )
-  }
-
-  /**
-   * Starts synchronizing the given document with all peers that we share it generously with.
-   */
-  addDocument(handle: DocHandle<unknown>) {
-    // HACK: this is a hack to prevent us from adding the same document twice
-    if (this.#docSetUp[handle.documentId]) {
-      return
-    }
-    this.#docSetUp[handle.documentId] = true
-    const docSynchronizer = this.#fetchDocSynchronizer(handle)
-    void this.#documentGenerousPeers(handle.documentId).then(peers => {
-      void docSynchronizer.beginSync(peers)
-    })
-  }
-
-  /** Removes a document and stops synchronizing them */
-  removeDocument(documentId: DocumentId) {
-    log(`removing document ${documentId}`)
-    const docSynchronizer = this.docSynchronizers[documentId]
-    if (docSynchronizer !== undefined) {
-      this.peers.forEach(peerId => docSynchronizer.endSync(peerId))
-    }
-    delete this.docSynchronizers[documentId]
-    delete this.#docSetUp[documentId]
-  }
-
-  /** Adds a peer and maybe starts synchronizing with them */
-  addPeer(peerId: PeerId) {
-    log(`adding ${peerId} & synchronizing with them`)
-
-    if (this.#peers.has(peerId)) {
-      return
-    }
-
-    this.#peers.add(peerId)
-    for (const docSynchronizer of Object.values(this.docSynchronizers)) {
-      const { documentId } = docSynchronizer
-      void this.#shouldShare(peerId, documentId).then(okToShare => {
-        if (okToShare) void docSynchronizer.beginSync([peerId])
-      })
+    // For sync/request messages, ensure the sender is a peer on this doc
+    // synchronizer. The incoming message is passed via `messages` so it is
+    // queued and processed after persisted sync state loads, preserving
+    // in-order delivery.
+    if (!docSync.hasPeer(message.senderId)) {
+      this.#addPeerToDoc(message.senderId, docSync, [message as any])
+    } else {
+      docSync.receiveMessage(message)
     }
   }
 
-  /** Removes a peer and stops synchronizing with them */
-  removePeer(peerId: PeerId) {
-    log(`removing peer ${peerId}`)
-    this.#peers.delete(peerId)
-    for (const requested of this.#hasRequested.values()) {
-      requested.delete(peerId)
+  // SHARE POLICY
+
+  reevaluateDocumentShare(): void {
+    for (const docSync of Object.values(this.#docSynchronizers)) {
+      docSync.reevaluateSharePolicy()
     }
-
-    for (const docSynchronizer of Object.values(this.docSynchronizers)) {
-      docSynchronizer.endSync(peerId)
-    }
-  }
-
-  /** Returns a list of all connected peer ids */
-  get peers(): PeerId[] {
-    return Array.from(this.#peers)
-  }
-
-  /**
-   * Re-evaluates share policy for a document and updates sync accordingly
-   *
-   * @remarks
-   * This is called when the share policy for a document has changed. It re-evaluates
-   * which peers should have access and starts/stops synchronization as needed.
-   */
-  async reevaluateDocumentShare() {
-    const peers = Array.from(this.#peers)
-    const docPromises = []
-    for (const docSynchronizer of Object.values(this.docSynchronizers)) {
-      const documentId = docSynchronizer.documentId
-      docPromises.push(
-        (async () => {
-          for (const peerId of peers) {
-            const shouldShare = await this.#shouldShare(peerId, documentId)
-            const isAlreadySyncing = docSynchronizer.hasPeer(peerId)
-
-            log(
-              `reevaluateDocumentShare: ${peerId} for ${documentId}, shouldShare: ${shouldShare}, isAlreadySyncing: ${isAlreadySyncing}`
-            )
-            if (shouldShare && !isAlreadySyncing) {
-              log(
-                `reevaluateDocumentShare: starting sync with ${peerId} for ${documentId}`
-              )
-              void docSynchronizer.beginSync([peerId])
-            } else if (!shouldShare && isAlreadySyncing) {
-              log(
-                `reevaluateDocumentShare: stopping sync with ${peerId} for ${documentId}`
-              )
-              docSynchronizer.endSync(peerId)
-            }
-          }
-        })().catch(e => {
-          console.log(
-            `error reevaluating document share for ${documentId}: ${e}`
-          )
-        })
-      )
-    }
-    await Promise.allSettled(docPromises)
   }
 
   metrics(): {
@@ -260,7 +204,7 @@ export class CollectionSynchronizer extends Synchronizer {
     }
   } {
     return Object.fromEntries(
-      Object.entries(this.docSynchronizers).map(
+      Object.entries(this.#docSynchronizers).map(
         ([documentId, synchronizer]) => {
           return [documentId, synchronizer.metrics()]
         }
@@ -268,13 +212,48 @@ export class CollectionSynchronizer extends Synchronizer {
     )
   }
 
-  async #shouldShare(peerId: PeerId, documentId: DocumentId): Promise<boolean> {
-    const [announce, access] = await Promise.all([
-      this.repo.shareConfig.announce(peerId, documentId),
-      this.repo.shareConfig.access(peerId, documentId),
-    ])
-    const hasRequested =
-      this.#hasRequested.get(documentId)?.has(peerId) ?? false
-    return announce || (access && hasRequested)
+  // PRIVATE
+
+  #initDocSynchronizer(
+    handle: DocHandle<unknown>,
+    query: DocumentQuery<unknown>
+  ): DocSynchronizer {
+    const docSync = new DocSynchronizer({
+      handle,
+      query,
+      networkReady: this.#networkReady,
+      shareConfig: this.#config.shareConfig,
+    })
+
+    docSync.on("message", event => this.emit("message", event))
+    docSync.on("open-doc", event => this.emit("open-doc", event))
+    docSync.on("sync-state", event => this.emit("sync-state", event))
+    docSync.on("metrics", event => this.emit("metrics", event))
+
+    return docSync
+  }
+
+  #addPeerToDoc(
+    peerId: PeerId,
+    docSync: DocSynchronizer,
+    messages: any[]
+  ): void {
+    const documentId = docSync.documentId
+
+    docSync.addPeer(
+      peerId,
+      this.#loadSyncStateFor(documentId, peerId),
+      { messages }
+    )
+  }
+
+  #loadSyncStateFor(
+    documentId: DocumentId,
+    peerId: PeerId
+  ): Promise<A.SyncState | undefined> {
+    return (
+      this.#config.loadSyncState?.(documentId, peerId) ??
+      Promise.resolve(undefined)
+    )
   }
 }

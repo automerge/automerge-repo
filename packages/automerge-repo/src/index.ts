@@ -66,9 +66,7 @@ export type {
   DocHandleEphemeralMessagePayload,
   DocHandleRemoteHeadsPayload,
   DocHandleEvents,
-  DocHandleOptions,
   DocHandleOutboundEphemeralMessagePayload,
-  HandleState,
   SyncInfo,
 } from "./DocHandle.js"
 
@@ -77,8 +75,13 @@ export type {
   DocumentPayload,
   RepoConfig,
   RepoEvents,
+  ShareConfig,
   SharePolicy,
 } from "./Repo.js"
+
+export { DocumentQuery } from "./DocumentQuery.js"
+export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export type { DocumentSource } from "./DocumentSource.js"
 
 export type {
   NetworkAdapterEvents,
@@ -111,18 +114,6 @@ export type {
 } from "./storage/types.js"
 
 export * from "./types.js"
-
-// Refs - experimental API for referencing locations within documents
-export type {
-  Ref,
-  PathInput,
-  MutableText,
-  InferRefType,
-  Pattern,
-  RefUrl,
-  ChangeFn as RefChangeFn,
-} from "./refs/types.js"
-export { cursor, findRef, refFromUrl, refFromString } from "./refs/utils.js"
 
 // Automerge re-exports
 //
