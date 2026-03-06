@@ -19,7 +19,7 @@ import { pause } from "../src/helpers/pause.js"
 describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-  it("should allow to listen for remote head changes and manually read sync info", async () => {
+  it("should allow to listen for remote head changes", async () => {
     const handle = new DocHandle<TestDoc>(TEST_ID, { isNew: true })
     const bobRepo = new Repo({
       peerId: "bob" as PeerId,
@@ -30,24 +30,17 @@ describe("DocHandle.remoteHeads", () => {
     const bobStorageId = await bobRepo.storageId()
 
     const remoteHeadsMessagePromise = eventPromise(handle, "remote-heads")
-    handle.setSyncInfo(bobStorageId, {
-      lastHeads: [] as UrlHeads,
-      lastSyncTimestamp: 1000,
+    handle.emit("remote-heads", {
+      storageId: bobStorageId,
+      heads: [] as UrlHeads,
+      timestamp: 1000,
     })
 
     const remoteHeadsMessage = await remoteHeadsMessagePromise
 
     assert.strictEqual(remoteHeadsMessage.storageId, bobStorageId)
     assert.deepStrictEqual(remoteHeadsMessage.heads, [])
-
-    // read remote heads manually
-
-    const syncInfo = handle.getSyncInfo(bobStorageId)
-
-    assert.deepStrictEqual(syncInfo, {
-      lastHeads: [] as UrlHeads,
-      lastSyncTimestamp: 1000,
-    })
+    assert.strictEqual(remoteHeadsMessage.timestamp, 1000)
   })
 
   describe("multi hop sync", () => {
@@ -216,26 +209,28 @@ describe("DocHandle.remoteHeads", () => {
 
       await pause(50)
 
-      // alice opens the docs
+      // alice opens the docs and subscribes to bob's service worker
       const _aliceDocA = alice.find<TestDoc>(bobDocA.url)
       const _aliceDocB = alice.find<TestDoc>(bobDocB.url)
-
-      // alice subscribes to bob's service worker
       alice.subscribeToRemotes([bobServiceWorkerStorageId])
 
-      // Now alice's service worker has the remote heads of bob's service worker for both doc A and
-      // doc B. If alice subscribes to bob's service worker, bob's service worker should send its
-      // stored remote heads immediately.
+      // Wait for alice's subscription chain to propagate through the
+      // service worker and sync server, and for remote heads to be
+      // gossiped back to alice's service worker.
+      await pause(100)
 
       // open doc and subscribe alice's second tab to bob's service worker
       const alice2DocAPromise = alice2.find<TestDoc>(bobDocA.url)
       alice2.subscribeToRemotes([bobServiceWorkerStorageId])
 
+      // The sync response (which resolves alice2DocAPromise) may arrive
+      // before the remote-heads-changed message because the subscription
+      // control message is processed in a later macrotask.
       const remoteHeadsChangedMessages = (
         await collectMessages({
           emitter: alice2.networkSubsystem,
           event: "message",
-          until: alice2DocAPromise,
+          until: alice2DocAPromise.then(() => pause(50)),
         })
       ).filter(({ type }) => type === "remote-heads-changed")
 

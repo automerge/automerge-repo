@@ -29,8 +29,9 @@ export function useDocHandles<T>(
         continue
       }
 
-      if (progress.state === "ready") {
-        map.set(id, progress.handle)
+      const state = progress.peek()
+      if (state.state === "ready") {
+        map.set(id, state.handle)
       }
     }
 
