@@ -3,23 +3,21 @@ import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
   binaryToDocumentId,
-  encodeHeads,
   generateAutomergeUrl,
   interpretAsDocumentId,
   isValidAutomergeUrl,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
+import { DocHandle } from "./DocHandle.js"
+import type { DocumentSource } from "./DocumentSource.js"
 import {
-  DELETED,
-  DocHandle,
-  DocHandleEncodedChangePayload,
-  READY,
-  UNAVAILABLE,
-  UNLOADED,
-} from "./DocHandle.js"
+  DocumentQuery,
+  progressAtHeads,
+  type DocumentProgress,
+} from "./DocumentQuery.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
-import { headsAreSame } from "./helpers/headsAreSame.js"
-import { asyncThrottle } from "./helpers/throttle.js"
+import { StorageSource } from "./StorageSource.js"
+import { SyncStateTracker } from "./SyncStateTracker.js"
 import {
   NetworkAdapterInterface,
   type PeerMetadata,
@@ -30,10 +28,6 @@ import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import { StorageId } from "./storage/types.js"
 import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import {
-  DocSyncMetrics,
-  SyncStatePayload,
-} from "./synchronizer/Synchronizer.js"
 import type {
   AnyDocumentId,
   AutomergeUrl,
@@ -41,24 +35,13 @@ import type {
   DocumentId,
   PeerId,
 } from "./types.js"
-import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
-import { FindProgress } from "./FindProgress.js"
+import { AbortOptions, AbortError } from "./helpers/abortable.js"
+export { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
 import { RefImpl } from "./refs/ref.js"
-import { foreverPromise } from "./helpers/foreverPromise.js"
-import { noop } from "./helpers/noop.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 
-export type FindProgressWithMethods<T> = FindProgress<T> & {
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
-  peek: () => FindProgress<T>
-  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
-}
-
-export type ProgressSignal<T> = {
-  peek: () => FindProgress<T>
-  subscribe: (callback: (progress: FindProgress<T>) => void) => () => void
-  untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
-}
+export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export { DocumentQuery } from "./DocumentQuery.js"
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -80,16 +63,12 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   storageSubsystem?: StorageSubsystem
 
-  /** @hidden */
-  #saveDebounceRate: number
-
-  /** @hidden */
-  #saveFn: (payload: DocHandleEncodedChangePayload<any>) => void
-
-  #handleCache: Record<DocumentId, DocHandle<any>> = {}
+  #queries: Record<DocumentId, DocumentQuery<any>> = {}
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
+
+  #sources = new Map<string, DocumentSource>()
 
   #shareConfig: ShareConfig = {
     announce: truePromiseFactory,
@@ -100,13 +79,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
 
+  #syncStateTracker: SyncStateTracker
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
-  #progressCache: Record<DocumentId, FindProgress<any>> = {}
-  #saveFns: Record<
-    DocumentId,
-    (payload: DocHandleEncodedChangePayload<any>) => Promise<void>
-  > = {}
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
 
   constructor({
@@ -140,37 +115,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#shareConfig = shareConfig
     }
 
-    this.on("delete-document", ({ documentId }) => {
-      this.synchronizer.removeDocument(documentId)
-
-      if (storageSubsystem) {
-        storageSubsystem.removeDoc(documentId).catch(err => {
-          this.#log("error deleting document", { documentId, err })
-        })
-      }
-    })
-
-    // SYNCHRONIZER
-    // The synchronizer uses the network subsystem to keep documents in sync with peers.
-    this.synchronizer = new CollectionSynchronizer(this, denylist)
-
-    // When the synchronizer emits messages, send them to peers
-    this.synchronizer.on("message", message => {
-      this.#log(`sending ${message.type} message to ${message.targetId}`)
-      networkSubsystem.send(message)
-    })
-
-    // Forward metrics from doc synchronizers
-    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
-
-    if (this.#remoteHeadsGossipingEnabled) {
-      this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
-        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-      })
-    }
-
     // STORAGE
-    // The storage subsystem has access to some form of persistence, and deals with save and loading documents.
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
     if (storageSubsystem) {
       storageSubsystem.on("document-loaded", event =>
@@ -185,32 +130,19 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.storageSubsystem = storageSubsystem
+    this.#syncStateTracker = new SyncStateTracker(
+      this.storageSubsystem,
+      saveDebounceRate
+    )
 
-    this.#saveDebounceRate = saveDebounceRate
-
-    if (this.storageSubsystem) {
-      // Save no more often than saveDebounceRate.
-      this.#saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
-        let fn = this.#saveFns[handle.documentId]
-        if (!fn) {
-          fn = this.#saveFns[handle.documentId] = asyncThrottle(
-            ({
-              doc,
-              handle,
-            }: DocHandleEncodedChangePayload<any>): Promise<void> =>
-              this.storageSubsystem!.saveDoc(handle.documentId, doc),
-            this.#saveDebounceRate
-          )
-        }
-        void fn({ handle, doc })
-      }
-    } else {
-      this.#saveFn = noop
+    if (storageSubsystem) {
+      this.#sources.set(
+        "storage",
+        new StorageSource(storageSubsystem, saveDebounceRate)
+      )
     }
 
     // NETWORK
-    // The network subsystem deals with sending and receiving messages to and from peers.
-
     const myPeerMetadata: Promise<PeerMetadata> = (async () => ({
       storageId: await storageSubsystem?.id(),
       isEphemeral,
@@ -222,6 +154,42 @@ export class Repo extends EventEmitter<RepoEvents> {
       myPeerMetadata
     )
     this.networkSubsystem = networkSubsystem
+
+    // COLLECTION SYNCHRONIZER
+    this.synchronizer = new CollectionSynchronizer(
+      {
+        peerId,
+        shareConfig: this.#shareConfig,
+        priority: 0,
+        ensureQuery: id => this.#ensureQuery(id),
+        loadSyncState: async (documentId, pid) => {
+          if (!this.storageSubsystem) return
+          const { storageId, isEphemeral: isEph } =
+            this.peerMetadataByPeerId[pid] || {}
+          if (!storageId || isEph) return
+          return this.storageSubsystem.loadSyncState(documentId, storageId)
+        },
+        networkReady: networkSubsystem.whenReady().then(() => {}),
+      },
+      denylist
+    )
+    this.#sources.set("automerge-sync", this.synchronizer)
+
+    // When the synchronizer emits messages, send them to peers
+    this.synchronizer.on("message", message => {
+      this.#log(`sending ${message.type} message to ${message.targetId}`)
+      networkSubsystem.send(message)
+    })
+
+    // Forward sync metrics events
+    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
+
+    // Track which peers have which documents open (for remote heads gossiping)
+    this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
+      if (this.#remoteHeadsGossipingEnabled) {
+        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
+      }
+    })
 
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
@@ -239,7 +207,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           }
         })
         .catch(err => {
-          console.log("error in share policy", { err })
+          this.#log("error in share policy", { err })
         })
 
       this.synchronizer.addPeer(peerId)
@@ -257,34 +225,22 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     this.synchronizer.on("sync-state", message => {
-      this.#saveSyncState(message)
+      const handle = this.#queries[message.documentId]?.handle
+      if (!handle) return
 
-      const handle = this.#handleCache[message.documentId]
+      const peerMeta = this.peerMetadataByPeerId[message.peerId]
+      const change = this.#syncStateTracker.handleSyncState(
+        message,
+        peerMeta,
+        handle
+      )
 
-      const { storageId } = this.peerMetadataByPeerId[message.peerId] || {}
-      if (!storageId) {
-        return
-      }
-
-      const heads = handle.getSyncInfo(storageId)?.lastHeads
-      const haveHeadsChanged =
-        message.syncState.theirHeads &&
-        (!heads ||
-          !headsAreSame(heads, encodeHeads(message.syncState.theirHeads)))
-
-      if (haveHeadsChanged && message.syncState.theirHeads) {
-        handle.setSyncInfo(storageId, {
-          lastHeads: encodeHeads(message.syncState.theirHeads),
-          lastSyncTimestamp: Date.now(),
-        })
-
-        if (storageId && this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-            message.documentId,
-            storageId,
-            encodeHeads(message.syncState.theirHeads)
-          )
-        }
+      if (change && this.#remoteHeadsGossipingEnabled) {
+        this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+          message.documentId,
+          change.storageId,
+          change.heads
+        )
       }
     })
 
@@ -318,30 +274,60 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#remoteHeadsSubscriptions.on(
         "remote-heads-changed",
         ({ documentId, storageId, remoteHeads, timestamp }) => {
-          const handle = this.#handleCache[documentId]
-          handle.setSyncInfo(storageId, {
-            lastHeads: remoteHeads,
-            lastSyncTimestamp: timestamp,
-          })
+          const handle = this.#queries[documentId]?.handle
+          if (!handle) return
+          this.#syncStateTracker.handleRemoteHeadsChanged(
+            documentId,
+            storageId,
+            remoteHeads,
+            timestamp,
+            handle
+          )
         }
       )
     }
   }
 
-  // The `document` event is fired by the DocCollection any time we create a new document or look
-  // up a document by ID. We listen for it in order to wire up storage and network synchronization.
-  #registerHandleWithSubsystems(handle: DocHandle<any>) {
-    if (this.storageSubsystem) {
-      // Add save function as a listener if it's not already registered
-      const existingListeners = handle.listeners("heads-changed")
-      if (!existingListeners.some(listener => listener === this.#saveFn)) {
-        // Save when the document changes
-        handle.on("heads-changed", this.#saveFn)
-      }
+  /**
+   * Create a query, handle, set up all sources, and register with the sync
+   * layer. Safe to call multiple times — attach no-ops if the document
+   * is already registered. Used by findWithProgress (outbound), create/import,
+   * and the CollectionSynchronizer's ensureQuery callback (inbound).
+   *
+   * If `initialDoc` is provided (create/import path), storage loading is
+   * skipped and the doc is applied after registration so that the storage
+   * listener captures the initial data.
+   */
+  #ensureQuery(
+    documentId: DocumentId,
+    initialDoc?: Automerge.Doc<unknown>
+  ): DocumentQuery<unknown> {
+    const existing = this.#queries[documentId]
+    if (existing) {
+      return existing
     }
 
-    // Register the document with the synchronizer. This advertises our interest in the document.
-    this.synchronizer.addDocument(handle)
+    const handle = new DocHandle(
+      documentId,
+      (h, p) => new RefImpl(h, p),
+      {},
+      storageId => this.#syncStateTracker.getSyncInfo(documentId, storageId)
+    )
+    if (initialDoc) {
+      handle.update(() => initialDoc)
+    }
+    const query = new DocumentQuery(handle, this.#sources)
+    this.#queries[documentId] = query
+
+    // Attach all sources. Each source calls sourcePending/sourceUnavailable
+    // as appropriate and sets up its own listeners. When initialDoc is
+    // provided the handle already has data, so sources see a ready handle
+    // from the start.
+    for (const source of this.#sources.values()) {
+      source.attach(query)
+    }
+
+    return query
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -360,69 +346,20 @@ export class Repo extends EventEmitter<RepoEvents> {
       case "request":
       case "ephemeral":
       case "doc-unavailable":
-        this.synchronizer.receiveMessage(message).catch(err => {
-          console.log("error receiving message", { err, message })
-        })
+        this.synchronizer.receiveMessage(message)
+        break
     }
-  }
-
-  #throttledSaveSyncStateHandlers: Record<
-    StorageId,
-    (payload: SyncStatePayload) => Promise<void>
-  > = {}
-
-  /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
-  #saveSyncState(payload: SyncStatePayload) {
-    if (!this.storageSubsystem) {
-      return
-    }
-
-    const { storageId, isEphemeral } =
-      this.peerMetadataByPeerId[payload.peerId] || {}
-
-    if (!storageId || isEphemeral) {
-      return
-    }
-
-    let handler = this.#throttledSaveSyncStateHandlers[storageId]
-    if (!handler) {
-      handler = this.#throttledSaveSyncStateHandlers[storageId] = asyncThrottle(
-        ({ documentId, syncState }: SyncStatePayload) =>
-          this.storageSubsystem!.saveSyncState(
-            documentId,
-            storageId,
-            syncState
-          ),
-        this.#saveDebounceRate
-      )
-    }
-
-    void handler(payload)
-  }
-
-  /** Returns an existing handle if we have it; creates one otherwise. */
-  #getHandle<T>({
-    documentId,
-  }: {
-    /** The documentId of the handle to look up or create */
-    documentId: DocumentId /** If we know we're creating a new document, specify this so we can have access to it immediately */
-  }) {
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) return this.#handleCache[documentId]
-
-    // If not, create a new handle, cache it, and return it
-    if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
-    const handle = new DocHandle<T>(
-      documentId,
-      (handle, path) => new RefImpl(handle, path)
-    )
-    this.#handleCache[documentId] = handle
-    return handle
   }
 
   /** Returns all the handles we have cached. */
-  get handles() {
-    return this.#handleCache
+  get handles(): Record<DocumentId, DocHandle<any>> {
+    const result: Record<DocumentId, DocHandle<any>> = {}
+    for (const [id, query] of Object.entries(this.#queries)) {
+      if (query.handle) {
+        result[id as DocumentId] = query.handle
+      }
+    }
+    return result
   }
 
   /** Returns a list of all connected peer ids */
@@ -430,6 +367,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     return this.synchronizer.peers
   }
 
+  /** Returns the local peer id */
   get peerId(): PeerId {
     return this.networkSubsystem.peerId
   }
@@ -471,20 +409,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       initialDoc = Automerge.emptyChange(Automerge.init())
     }
 
-    // Generate a new UUID and store it in the buffer
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const handle = this.#getHandle<T>({
+    const query = this.#ensureQuery(
       documentId,
-    }) as DocHandle<T>
-
-    this.#registerHandleWithSubsystems(handle)
-
-    handle.update(() => {
-      return initialDoc
-    })
-
-    handle.doneLoading()
-    return handle
+      initialDoc as Automerge.Doc<unknown>
+    )
+    return query.handle as DocHandle<T>
   }
 
   /**
@@ -515,19 +445,13 @@ export class Repo extends EventEmitter<RepoEvents> {
       const rawDocId = await this.#idFactory(Automerge.getHeads(initialDoc))
       documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
     }
-    const handle = this.#getHandle<T>({
+    const query = this.#ensureQuery(
       documentId,
-    }) as DocHandle<T>
-
-    this.#registerHandleWithSubsystems(handle)
-
-    handle.update(() => {
-      return initialDoc
-    })
-
-    handle.doneLoading()
-    return handle
+      initialDoc as Automerge.Doc<unknown>
+    )
+    return query.handle as DocHandle<T>
   }
+
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
    *
    * @param clonedHandle - The handle to clone
@@ -542,309 +466,100 @@ export class Repo extends EventEmitter<RepoEvents> {
    *
    */
   clone<T>(clonedHandle: DocHandle<T>) {
-    if (!clonedHandle.isReady()) {
-      throw new Error(
-        `Cloned handle is not yet in ready state.
-        (Try await handle.whenReady() first.)`
-      )
-    }
-
     const sourceDoc = clonedHandle.doc()
     const handle = this.create<T>()
-
-    handle.update(() => {
-      // we replace the document with the new cloned one
-      return Automerge.clone(sourceDoc)
-    })
-
+    handle.update(() => Automerge.clone(sourceDoc))
     return handle
   }
 
+  /**
+   * Returns a `DocumentProgress` for the given document. This is a reactive,
+   * read-only view that tracks the ongoing state of the document.
+   *
+   * Use `subscribe` to observe state changes and `peek` to read the current
+   * state. The `handle` is only available when the state is `"ready"`.
+   */
   findWithProgress<T>(
     id: AnyDocumentId,
-    options: AbortOptions = {}
-  ): FindProgressWithMethods<T> | FindProgress<T> {
-    const { signal } = options
-    const { documentId, heads } = isValidAutomergeUrl(id)
+    // the original automerge-repo v2 accepted `AbortOptions` here which could
+    // be passed an abort signal. For now we accept the signal to remain backwards
+    // compatible but ignore it. The main feature we miss vs the original API is the
+    // ability to not create a doc handle if we abort while loading. Once the DocHandle
+    // was running the abort signal didn't have much effect
+    _options?: AbortOptions
+  ): DocumentProgress<T> {
+    const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
       : { documentId: interpretAsDocumentId(id), heads: undefined }
+    const { documentId, heads } = parsed
 
-    // Check handle cache first - return plain FindStep for terminal states
-    if (this.#handleCache[documentId]) {
-      const handle = this.#handleCache[documentId]
-      if (handle.state === UNAVAILABLE) {
-        const result = {
-          state: "unavailable" as const,
-          error: new Error(`Document ${id} is unavailable`),
-          handle,
-        }
-        return result
-      }
-      if (handle.state === DELETED) {
-        const result = {
-          state: "failed" as const,
-          error: new Error(`Document ${id} was deleted`),
-          handle,
-        }
-        return result
-      }
-      if (handle.state === READY) {
-        const result = {
-          state: "ready" as const,
-          handle: heads ? handle.view(heads) : handle,
-        }
-        return result
-      }
+    // ensureQuery creates the query, handle, sets up all sources, and
+    // registers with the sync layer (no-ops if already added).
+    if (!this.#queries[documentId]) {
+      this.#ensureQuery(documentId)
     }
+    const query = this.#queries[documentId] as DocumentQuery<T>
 
-    // Check progress cache for any existing signal
-    const cachedProgress = this.#progressCache[documentId]
-    if (cachedProgress) {
-      const handle = this.#handleCache[documentId]
-      // Return cached progress if we have a handle and it's either in a terminal state or loading
-      if (
-        handle &&
-        (handle.state === READY ||
-          handle.state === UNAVAILABLE ||
-          handle.state === DELETED ||
-          handle.state === "loading")
-      ) {
-        return cachedProgress as FindProgressWithMethods<T>
-      }
-    }
-
-    const handle = this.#getHandle<T>({ documentId })
-    const initial = {
-      state: "loading" as const,
-      progress: 0,
-      handle,
-    }
-
-    // Create a new progress signal
-    const progressSignal = {
-      subscribers: new Set<(progress: FindProgress<T>) => void>(),
-      currentProgress: undefined as FindProgress<T> | undefined,
-      notify: (progress: FindProgress<T>) => {
-        progressSignal.currentProgress = progress
-        progressSignal.subscribers.forEach(callback => callback(progress))
-        // Cache all states, not just terminal ones
-        this.#progressCache[documentId] = progress
-      },
-      peek: () => progressSignal.currentProgress || initial,
-      subscribe: (callback: (progress: FindProgress<T>) => void) => {
-        progressSignal.subscribers.add(callback)
-        return () => progressSignal.subscribers.delete(callback)
-      },
-    }
-
-    progressSignal.notify(initial)
-
-    // Start the loading process
-    void this.#loadDocumentWithProgress(
-      id,
-      documentId,
-      handle,
-      progressSignal,
-      signal ? abortable(foreverPromise, signal) : foreverPromise
-    )
-
-    const result = {
-      ...initial,
-      peek: progressSignal.peek,
-      subscribe: progressSignal.subscribe,
-    }
-    this.#progressCache[documentId] = result
-    return result
+    if (!heads) return query
+    return progressAtHeads(query, heads)
   }
 
-  async #loadDocumentWithProgress<T>(
-    id: AnyDocumentId,
-    documentId: DocumentId,
-    handle: DocHandle<T>,
-    progressSignal: {
-      notify: (progress: FindProgress<T>) => void
-    },
-    abortPromise: Promise<never>
-  ) {
-    try {
-      progressSignal.notify({
-        state: "loading" as const,
-        progress: 25,
-        handle,
-      })
-
-      const loadingPromise = await (this.storageSubsystem
-        ? this.storageSubsystem.loadDoc(handle.documentId)
-        : Promise.resolve(null))
-
-      const loadedDoc = await Promise.race([loadingPromise, abortPromise])
-
-      if (loadedDoc) {
-        handle.update(() => loadedDoc as Automerge.Doc<T>)
-        handle.doneLoading()
-        progressSignal.notify({
-          state: "loading" as const,
-          progress: 50,
-          handle,
-        })
-      } else {
-        await Promise.race([this.networkSubsystem.whenReady(), abortPromise])
-        handle.request()
-        progressSignal.notify({
-          state: "loading" as const,
-          progress: 75,
-          handle,
-        })
-      }
-
-      this.#registerHandleWithSubsystems(handle)
-
-      await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
-
-      if (handle.state === UNAVAILABLE) {
-        const unavailableProgress = {
-          state: "unavailable" as const,
-          handle,
-        }
-        progressSignal.notify(unavailableProgress)
-        return
-      }
-      if (handle.state === DELETED) {
-        throw new Error(`Document ${id} was deleted`)
-      }
-
-      progressSignal.notify({ state: "ready" as const, handle })
-    } catch (error) {
-      progressSignal.notify({
-        state: "failed" as const,
-        error:
-          // In most JS environments DOMException extends Error, but not always, in some environments it's a separate type.
-          // Some Node.js DOM polyfills do not always extend the Error
-          // Jsdom polyfill doesn't extend Error, whereas happy-dom does.
-          error instanceof Error || error instanceof DOMException
-            ? error
-            : new Error(String(error)),
-        handle: this.#getHandle<T>({ documentId }),
-      })
-    }
-  }
-
+  /**
+   * Look up a document by URL and wait for it to be ready.
+   */
   async find<T>(
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
-    const { allowableStates = ["ready"], signal } = options
+    const { signal } = options
 
-    // Check if already aborted
     if (signal?.aborted) {
       throw new AbortError()
     }
 
-    const progress = this.findWithProgress<T>(id, { signal })
+    const { heads } = isValidAutomergeUrl(id)
+      ? parseAutomergeUrl(id)
+      : { heads: undefined }
 
-    if ("subscribe" in progress) {
-      this.#registerHandleWithSubsystems(progress.handle)
-      return new Promise((resolve, reject) => {
-        const unsubscribe = progress.subscribe(state => {
-          if (allowableStates.includes(state.handle.state)) {
-            unsubscribe()
-            resolve(state.handle)
-          } else if (state.state === "unavailable") {
-            unsubscribe()
-            reject(new Error(`Document ${id} is unavailable`))
-          } else if (state.state === "failed") {
-            unsubscribe()
-            reject(state.error)
-          }
-        })
-      })
-    } else {
-      if (progress.handle.state === READY) {
-        return progress.handle
-      }
-      // If the handle isn't ready, wait for it and then return it
-      await progress.handle.whenReady([READY, UNAVAILABLE])
-      if (
-        progress.handle.state === "unavailable" &&
-        !allowableStates.includes(UNAVAILABLE)
-      ) {
-        throw new Error(`Document ${id} is unavailable`)
-      }
-      return progress.handle
-    }
+    const progress = this.findWithProgress<T>(id) as DocumentQuery<T>
+
+    const handle = await progress.whenReady({ signal })
+    return heads ? handle.view(heads) : handle
   }
 
   /**
-   * Loads a document without waiting for ready state
+   * @deprecated Alias for {@link Repo.find}. Will be removed in the next major release
    */
-  async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
-    // If we have the handle cached, return it
-    if (this.#handleCache[documentId]) {
-      return this.#handleCache[documentId]
-    }
-
-    // If we don't already have the handle, make an empty one and try loading it
-    const handle = this.#getHandle<T>({ documentId })
-    const loadedDoc = await (this.storageSubsystem
-      ? this.storageSubsystem.loadDoc(handle.documentId)
-      : Promise.resolve(null))
-
-    if (loadedDoc) {
-      // We need to cast this to <T> because loadDoc operates in <unknowns>.
-      // This is really where we ought to be validating the input matches <T>.
-      handle.update(() => loadedDoc as Automerge.Doc<T>)
-      handle.doneLoading()
-    } else {
-      // Because the network subsystem might still be booting up, we wait
-      // here so that we don't immediately give up loading because we're still
-      // making our initial connection to a sync server.
-      await this.networkSubsystem.whenReady()
-      handle.request()
-    }
-
-    this.#registerHandleWithSubsystems(handle)
-    return handle
-  }
-
-  /**
-   * Retrieves a document by id. It gets data from the local system, but also emits a `document`
-   * event to advertise interest in the document.
-   */
-  async findClassic<T>(
-    /** The url or documentId of the handle to retrieve */
+  findClassic<T>(
     id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
-    const documentId = interpretAsDocumentId(id)
-    const { allowableStates, signal } = options
-
-    return abortable(
-      (async () => {
-        const handle = await this.#loadDocument<T>(documentId)
-        if (!allowableStates) {
-          await handle.whenReady([READY, UNAVAILABLE])
-          if (handle.state === UNAVAILABLE && !signal?.aborted) {
-            throw new Error(`Document ${id} is unavailable`)
-          }
-        }
-        return handle
-      })(),
-      signal
-    )
+    return this.find<T>(id, options)
   }
 
-  delete(
-    /** The url or documentId of the handle to delete */
-    id: AnyDocumentId
-  ) {
+  delete(id: AnyDocumentId) {
     const documentId = interpretAsDocumentId(id)
 
-    const handle = this.#getHandle({ documentId })
-    handle.delete()
+    const query = this.#queries[documentId]
+    if (query?.handle) {
+      query.handle.emit("delete", { handle: query.handle })
+    }
+    if (query) {
+      query.fail(new Error(`Document ${documentId} was deleted`))
+    }
+    delete this.#queries[documentId]
 
-    delete this.#handleCache[documentId]
-    delete this.#progressCache[documentId]
-    delete this.#saveFns[documentId]
+    for (const source of this.#sources.values()) {
+      source.detach(documentId)
+    }
+    this.#syncStateTracker.delete(documentId)
+
+    if (this.storageSubsystem) {
+      this.storageSubsystem.removeDoc(documentId).catch(err => {
+        this.#log("error deleting document from storage", { documentId, err })
+      })
+    }
+
     this.emit("delete-document", { documentId })
   }
 
@@ -856,11 +571,8 @@ export class Repo extends EventEmitter<RepoEvents> {
    * or undefined if the document is unavailable.
    */
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
-    const documentId = interpretAsDocumentId(id)
-
-    const handle = await this.find(documentId)
-    const doc = handle.doc()
-    return Automerge.save(doc)
+    const handle = await this.find(id)
+    return Automerge.save(handle.doc())
   }
 
   /**
@@ -882,19 +594,24 @@ export class Repo extends EventEmitter<RepoEvents> {
   import<T>(binary: Uint8Array, args?: { docId?: DocumentId }): DocHandle<T> {
     const docId = args?.docId
     if (docId != null) {
-      const handle = this.#getHandle<T>({ documentId: docId })
-      handle.update(doc => {
-        return Automerge.loadIncremental(doc, binary)
-      })
-      this.#registerHandleWithSubsystems(handle)
-      return handle
+      // Check if we already have a handle for this document
+      const existing = this.#queries[docId]?.handle as DocHandle<T> | null
+      if (existing) {
+        existing.update(doc => Automerge.loadIncremental(doc, binary))
+        return existing
+      }
+      const initialDoc = Automerge.load<T>(binary)
+      const query = this.#ensureQuery(
+        docId,
+        initialDoc as Automerge.Doc<unknown>
+      )
+      return query.handle as DocHandle<T>
     } else {
       const doc = Automerge.load<T>(binary)
       const handle = this.create<T>()
       handle.update(() => {
         return Automerge.clone(doc)
       })
-
       return handle
     }
   }
@@ -928,12 +645,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!this.storageSubsystem) {
       return
     }
-    const handles = documents
-      ? documents.map(id => this.#handleCache[id])
-      : Object.values(this.#handleCache)
+
+    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
     await Promise.all(
-      handles.map(async handle => {
-        return this.storageSubsystem!.saveDoc(handle.documentId, handle.doc())
+      ids.map(async id => {
+        const state = this.#queries[id]?.peek()
+        if (state?.state === "ready") {
+          await this.storageSubsystem!.saveDoc(id, state.handle.doc())
+        }
       })
     )
   }
@@ -942,43 +661,18 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Removes a DocHandle from the handleCache.
    * @hidden this API is experimental and may change.
    * @param documentId - documentId of the DocHandle to remove from handleCache, if present in cache.
-   * @returns Promise<void>
    */
-  async removeFromCache(documentId: DocumentId) {
-    if (!this.#handleCache[documentId]) {
-      this.#log(
-        `WARN: removeFromCache called but handle not found in handleCache for documentId: ${documentId}`
-      )
-      return
+  async removeFromCache(documentId: DocumentId): Promise<void> {
+    for (const source of this.#sources.values()) {
+      source.detach(documentId)
     }
-    const handle = this.#getHandle({ documentId })
-    await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
-    const doc = handle.doc()
-    // because this is an internal-ish function, we'll be extra careful about undefined docs here
-    if (doc) {
-      if (handle.isReady()) {
-        handle.unload()
-      } else {
-        this.#log(
-          `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
-        )
-      }
-      delete this.#handleCache[documentId]
-      delete this.#progressCache[documentId]
-      delete this.#saveFns[documentId]
-      this.synchronizer.removeDocument(documentId)
-    } else {
-      this.#log(
-        `WARN: removeFromCache called but doc undefined for documentId: ${documentId}`
-      )
-    }
+    delete this.#queries[documentId]
+    this.#syncStateTracker.delete(documentId)
   }
 
-  shutdown(): Promise<void> {
-    this.networkSubsystem.adapters.forEach(adapter => {
-      adapter.disconnect()
-    })
-    return this.flush()
+  async shutdown() {
+    await this.flush()
+    this.networkSubsystem.disconnect()
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -986,7 +680,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   shareConfigChanged() {
-    void this.synchronizer.reevaluateDocumentShare()
+    this.synchronizer.reevaluateDocumentShare()
   }
 }
 
@@ -1077,53 +771,35 @@ export type ShareConfig = {
   /**
    * Whether a peer should have access to the document
    */
-  access: (peer: PeerId, doc: DocumentId) => Promise<boolean>
+  access: (peerId: PeerId, documentId?: DocumentId) => Promise<boolean>
+}
+
+export type RepoFindOptions = {
+  /**
+   * @deprecated This no longer has any effect, instead you should use
+   * {@link Repo.findWithProgress} to get progress information.
+   */
+  allowableStates?: string[]
+}
+
+// Re-exported from DocHandle
+export type { SyncInfo } from "./DocHandle.js"
+
+export type DeleteDocumentPayload = { documentId: DocumentId }
+export type DocumentPayload = { handle: DocHandle<any> }
+export type DocMetrics = {
+  type: string
+  documentId: DocumentId
+  [key: string]: unknown
 }
 
 // events & payloads
 export interface RepoEvents {
   /** A new document was created or discovered */
-  document: (arg: DocumentPayload) => void
+  document: (payload: DocumentPayload) => void
   /** A document was deleted */
-  "delete-document": (arg: DeleteDocumentPayload) => void
+  "delete-document": (payload: DeleteDocumentPayload) => void
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
-  "unavailable-document": (arg: DeleteDocumentPayload) => void
-  "doc-metrics": (arg: DocMetrics) => void
+  "unavailable-document": (payload: DeleteDocumentPayload) => void
+  "doc-metrics": (payload: DocMetrics) => void
 }
-
-export interface RepoFindOptions {
-  allowableStates?: string[]
-}
-
-export interface DocumentPayload {
-  handle: DocHandle<any>
-}
-
-export interface DeleteDocumentPayload {
-  documentId: DocumentId
-}
-
-export type DocMetrics =
-  | DocSyncMetrics
-  | {
-      type: "doc-compacted"
-      documentId: DocumentId
-      durationMillis: number
-    }
-  | {
-      type: "doc-saved"
-      documentId: DocumentId
-      durationMillis: number
-      sinceHeads: Array<string>
-    }
-  | {
-      type: "doc-loaded"
-      documentId: DocumentId
-      durationMillis: number
-      numOps: number
-      numChanges: number
-    }
-  | {
-      type: "doc-denied"
-      documentId: DocumentId
-    }

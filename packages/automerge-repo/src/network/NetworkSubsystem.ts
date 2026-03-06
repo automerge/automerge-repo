@@ -53,20 +53,16 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.#log(`peer candidate: ${peerId} `)
       // TODO: This is where authentication would happen
 
-      // TODO: on reconnection, this would create problems!
-      // the server would see a reconnection as a late-arriving channel
-      // for an existing peer and decide to ignore it until the connection
-      // times out: turns out my ICE/SIP emulation laziness did not pay off here
-      if (!this.#adaptersByPeer[peerId]) {
-        // TODO: handle losing a server here
-        this.#adaptersByPeer[peerId] = networkAdapter
-      }
+      // A new candidate for an existing peer ID is a replacement connection.
+      // Route future outbound messages through the latest announced adapter.
+      this.#adaptersByPeer[peerId] = networkAdapter
 
       this.emit("peer", { peerId, peerMetadata })
     })
 
     networkAdapter.on("peer-disconnected", ({ peerId }) => {
       this.#log(`peer disconnected: ${peerId} `)
+      if (this.#adaptersByPeer[peerId] !== networkAdapter) return
       delete this.#adaptersByPeer[peerId]
       this.emit("peer-disconnected", { peerId })
     })
@@ -89,6 +85,14 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
           this.emit("message", msg)
         }
 
+        return
+      }
+
+      if (
+        this.#adaptersByPeer[msg.senderId] &&
+        this.#adaptersByPeer[msg.senderId] !== networkAdapter
+      ) {
+        this.#log(`ignoring stale message from ${msg.senderId}`)
         return
       }
 

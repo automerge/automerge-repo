@@ -49,8 +49,9 @@ export function useDocHandle<T>(
   if (id && !currentHandle) {
     // if we haven't saved a handle yet, check if one is immediately available
     const progress = repo.findWithProgress<T>(id)
-    if (progress.state === "ready") {
-      currentHandle = progress.handle
+    const state = progress.peek()
+    if (state.state === "ready") {
+      currentHandle = state.handle
     }
   }
 
