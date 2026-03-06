@@ -77,8 +77,13 @@ export type {
   DocumentPayload,
   RepoConfig,
   RepoEvents,
+  ShareConfig,
   SharePolicy,
 } from "./Repo.js"
+
+export { DocumentQuery } from "./DocumentQuery.js"
+export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export type { DocumentSource } from "./DocumentSource.js"
 
 export type {
   NetworkAdapterEvents,

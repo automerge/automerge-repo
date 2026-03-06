@@ -2,7 +2,6 @@ import type {
   AutomergeUrl,
   DocHandle,
   DocumentId,
-  HandleState,
 } from "@automerge/automerge-repo/slim"
 import {
   createEffect,
@@ -12,8 +11,6 @@ import {
 } from "solid-js"
 import { RepoContext } from "./context.js"
 import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
-const readyStates = ["ready", "deleted", "unavailable"] as HandleState[]
-const badStates = ["deleted", "unavailable"] as HandleState[]
 
 /**
  * get a
@@ -22,8 +19,7 @@ const badStates = ["deleted", "unavailable"] as HandleState[]
  * [AutomergeUrl](https://automerge.org/automerge-repo/types/_automerge_automerge_repo.AutomergeUrl.html)
  * as a
  * [Resource](https://docs.solidjs.com/reference/basic-reactivity/create-resource).
- * Waits for the handle to be
- * [ready](https://automerge.org/automerge-repo/variables/_automerge_automerge_repo.HandleState-1.html).
+ * Waits for the handle to be ready.
  */
 export default function useDocHandle<T>(
   url: MaybeAccessor<AutomergeUrl | undefined>,
@@ -44,7 +40,7 @@ export default function useDocHandle<T>(
     try {
       const documentId = new URL(unwrappedURL).pathname as DocumentId
       const existingHandle = repo.handles[documentId]
-      if (existingHandle?.isReady()) {
+      if (existingHandle) {
         return existingHandle as DocHandle<T>
       }
     } catch (error) {
@@ -55,24 +51,8 @@ export default function useDocHandle<T>(
   const [handle, { mutate }] = createResource(
     url,
     async url => {
-      const handle = await repo.find<T>(url, {
-        allowableStates: readyStates,
-      })
-      const reject = (state: HandleState) =>
-        Promise.reject(new Error(`document not available: [${state}]`))
-
-      if (handle.isReady()) {
-        return handle
-      } else if (handle.inState(badStates)) {
-        return reject(handle.state)
-      }
-
-      return handle.whenReady(readyStates).then(() => {
-        if (handle.isReady()) {
-          return handle
-        }
-        return reject(handle.state)
-      })
+      const progress = repo.findWithProgress<T>(url)
+      return progress.whenReady()
     },
     {
       initialValue: getExistingHandle(),
