@@ -2,7 +2,7 @@ import assert from "assert"
 import { describe, it } from "vitest"
 import { NetworkSubsystem } from "../src/network/NetworkSubsystem.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
-import { PeerId, PeerMetadata, StorageId } from "../src/index.js"
+import { DocumentId, PeerId, PeerMetadata, StorageId } from "../src/index.js"
 
 // Note: The sync tests in `Repo.test.ts` exercise the network subsystem, and the suite in
 // `automerge-repo` provides test utilities that individual adapters can
@@ -103,5 +103,47 @@ describe("Network subsystem", () => {
       true,
       "Network should remain ready when at least one adapter is still ready"
     )
+  })
+
+  it("ignores stale disconnects from an adapter replaced for the same peer ID", async () => {
+    const peerId = "local" as PeerId
+    const remotePeerId = "remote" as PeerId
+    const peerMetadata: Promise<PeerMetadata> = Promise.resolve({
+      storageId: "no-such-id" as StorageId,
+      isEphemeral: true,
+    })
+
+    const staleAdapter = new DummyNetworkAdapter({ startReady: true })
+    const activeAdapter = new DummyNetworkAdapter({ startReady: true })
+    const sentViaActive: string[] = []
+
+    activeAdapter.send = message => {
+      sentViaActive.push(message.type)
+    }
+
+    const network = new NetworkSubsystem(
+      [staleAdapter, activeAdapter],
+      peerId,
+      peerMetadata
+    )
+    const disconnectedPeers: PeerId[] = []
+    network.on("peer-disconnected", ({ peerId }) => {
+      disconnectedPeers.push(peerId)
+    })
+
+    staleAdapter.peerCandidate(remotePeerId)
+    activeAdapter.peerCandidate(remotePeerId)
+
+    staleAdapter.emit("peer-disconnected", { peerId: remotePeerId })
+
+    network.send({
+      type: "sync",
+      targetId: remotePeerId,
+      documentId: "doc" as DocumentId,
+      data: new Uint8Array([1]),
+    })
+
+    assert.deepStrictEqual(disconnectedPeers, [])
+    assert.deepStrictEqual(sentViaActive, ["sync"])
   })
 })
