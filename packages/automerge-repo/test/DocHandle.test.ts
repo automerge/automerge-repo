@@ -8,76 +8,27 @@ import {
   parseAutomergeUrl,
 } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
-import { pause } from "../src/helpers/pause.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
 import { RefImpl } from "../src/refs/ref.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
   const setup = (options?) => {
-    const { quick, ...rest } = options ?? {}
+    const { quick, documentId, ...rest } = options ?? {}
+    let id = documentId ?? TEST_ID
     const handle = new DocHandle<TestDoc>(
-      TEST_ID,
+      id,
       (handle, path) => new RefImpl(handle, path),
       rest
     )
-    if (!quick) {
-      handle.update(() => A.init())
-      handle.doneLoading()
-    }
     return handle
-  }
-
-  const docFromMockStorage = (doc: A.Doc<{ foo: string }>) => {
-    return A.change<{ foo: string }>(doc, d => (d.foo = "bar"))
   }
 
   it("should take the UUID passed into it", () => {
     const handle = setup({ quick: true })
     assert.equal(handle.documentId, TEST_ID)
-  })
-
-  it("should become ready when a document is loaded", async () => {
-    const handle = setup({ quick: true })
-    assert.equal(handle.isReady(), false)
-
-    // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
-
-    assert.equal(handle.isReady(), true)
-    const doc = handle.doc()
-    assert.equal(doc?.foo, "bar")
-  })
-
-  it("should allow sync access to the doc", async () => {
-    const handle = setup({ quick: true })
-    assert.equal(handle.isReady(), false)
-
-    // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
-
-    assert.equal(handle.isReady(), true)
-    const doc = handle.doc()
-    assert.deepEqual(doc, handle.doc())
-  })
-
-  it("should throw an exception if we access the doc before ready", async () => {
-    const handle = setup({ quick: true })
-    assert.throws(() => handle.doc())
-  })
-
-  it("should not return a doc until ready", async () => {
-    const handle = setup({ quick: true })
-    assert.equal(handle.isReady(), false)
-
-    // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
-
-    const doc = handle.doc()
-
-    assert.equal(handle.isReady(), true)
-    assert.equal(doc?.foo, "bar")
   })
 
   /** HISTORY TRAVERSAL
@@ -89,20 +40,25 @@ describe("DocHandle", () => {
    * considered provisional: expect further improvements.
    */
 
-  it("should return the heads when requested", async () => {
+  it("should return an empty doc initially", () => {
+    const handle = setup()
+    const doc = handle.doc()
+    assert.deepEqual(doc, {})
+  })
+
+  it("should return data after update", () => {
+    const handle = setup()
+    handle.update(doc => A.change(doc, d => (d.foo = "bar")))
+    assert.equal(handle.doc().foo, "bar")
+  })
+
+  it("should return the heads when requested", () => {
     const handle = setup()
     handle.change(d => (d.foo = "bar"))
-    assert.equal(handle.isReady(), true)
 
     const heads = encodeHeads(A.getHeads(handle.doc()))
     assert.notDeepEqual(handle.heads(), [])
     assert.deepEqual(heads, handle.heads())
-  })
-
-  it("should throw an if the heads aren't loaded", async () => {
-    const handle = setup({ quick: true })
-    assert.equal(handle.isReady(), false)
-    expect(() => handle.heads()).toThrow("DocHandle is not ready")
   })
 
   it("should return the history when requested", async () => {
@@ -125,7 +81,7 @@ describe("DocHandle", () => {
 
     const history = handle.history()
     const viewHandle = handle.view(history[1])
-    assert.deepEqual(await viewHandle.doc(), { foo: "one" })
+    assert.deepEqual(viewHandle.doc(), { foo: "one" })
   })
 
   it("should support fixed heads from construction", async () => {
@@ -138,7 +94,7 @@ describe("DocHandle", () => {
     viewHandle.update(() => A.clone(handle.doc()!))
     viewHandle.doneLoading()
 
-    assert.deepEqual(await viewHandle.doc(), { foo: "zero" })
+    assert.deepEqual(viewHandle.doc(), { foo: "zero" })
   })
 
   it("should prevent changes on fixed-heads handles", async () => {
@@ -255,73 +211,14 @@ describe("DocHandle", () => {
     // but it does round-trip successfully!
   })
 
-  /**
-   * Once there's a Repo#stop API this case should be covered in accompanying
-   * tests and the following test removed.
-   */
-  // TODO as part of future cleanup: move this to Repo
-  it("no pending timers after a document is loaded", async () => {
-    vi.useFakeTimers()
-    const timerCount = vi.getTimerCount()
-
-    const handle = setup({ quick: true })
-    assert.equal(handle.isReady(), false)
-
-    assert(vi.getTimerCount() > timerCount)
-
-    // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
-
-    assert.equal(handle.isReady(), true)
-    assert.equal(vi.getTimerCount(), timerCount)
-    vi.useRealTimers()
+  it("should return empty heads for a fresh handle", () => {
+    const handle = setup()
+    assert.deepEqual(handle.heads(), [])
   })
 
-  it("should block changes until ready()", async () => {
-    const handle = setup({ quick: true })
-
-    // can't make changes in LOADING state
-    assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(d => (d.foo = "baz")))
-
-    // simulate loading from storage
-    handle.update(doc => docFromMockStorage(doc))
-
-    // now we're in READY state so we can make changes
-    assert.equal(handle.isReady(), true)
-    handle.change(d => (d.foo = "pizza"))
-
-    const doc = handle.doc()
-    assert.equal(doc?.foo, "pizza")
-  })
-
-  it("should not be ready while requesting from the network", async () => {
-    const handle = setup({ quick: true })
-
-    // we don't have it in storage, so we request it from the network
-    handle.request()
-
-    await expect(() => {
-      handle.doc()
-    }).toThrowError("DocHandle is not ready")
-    assert.equal(handle.isReady(), false)
-    assert.throws(() => handle.change(_ => {}))
-  })
-
-  it("should become ready if the document is updated by the network", async () => {
-    const handle = setup({ quick: true })
-
-    // we don't have it in storage, so we request it from the network
-    handle.request()
-
-    // simulate updating from the network
-    handle.update(doc => {
-      return A.change(doc, d => (d.foo = "bar"))
-    })
-
-    const doc = handle.doc()
-    assert.equal(handle.isReady(), true)
-    assert.equal(doc?.foo, "bar")
+  it("metadata() returns undefined on a fresh handle without crashing", () => {
+    const handle = setup()
+    assert.equal(handle.metadata(), undefined)
   })
 
   it("should emit a change message when changes happen", async () => {
@@ -361,7 +258,6 @@ describe("DocHandle", () => {
     const p = new Promise<void>(resolve =>
       handle.once("change", ({ handle, doc }) => {
         assert.equal(handle.doc()?.foo, doc.foo)
-
         resolve()
       })
     )
@@ -403,19 +299,6 @@ describe("DocHandle", () => {
     return p
   })
 
-  it("should emit a change message when changes happen", async () => {
-    const handle = setup()
-    const p = new Promise(resolve => handle.once("change", d => resolve(d)))
-
-    handle.change(doc => {
-      doc.foo = "bar"
-    })
-
-    await p
-    const doc = handle.doc()
-    assert.equal(doc?.foo, "bar")
-  })
-
   it("should not emit a patch message if no change happens", () =>
     new Promise<void>((done, reject) => {
       const handle = setup()
@@ -428,67 +311,12 @@ describe("DocHandle", () => {
       })
     }))
 
-  it("should be undefined if loading the document times out", async () => {
-    // set docHandle time out after 5 ms
-    const handle = setup({ quick: true, timeoutDelay: 5 })
-
-    expect(() => handle.doc()).toThrowError("DocHandle is not ready")
-  })
-
-  it("should not time out if the document is loaded in time", async () => {
-    // set docHandle time out after 5 ms
-    const handle = setup({ quick: true, timeoutDelay: 5 })
-
-    // simulate loading from storage before the timeout expires
-    handle.update(doc => docFromMockStorage(doc))
-
-    // now it should not time out
-    const doc = handle.doc()
-    assert.equal(doc?.foo, "bar")
-  })
-
-  it("should throw an exception if loading from the network times out", async () => {
-    // set docHandle time out after 5 ms
-    const handle = setup({ quick: true, timeoutDelay: 5 })
-
-    // simulate requesting from the network
-    handle.request()
-
-    // there's no update
-    await pause(10)
-
-    expect(() => handle.doc()).toThrowError("DocHandle is not ready")
-  })
-
-  it("should not time out if the document is updated in time", async () => {
-    // set docHandle time out after 5 ms
-    const handle = setup({ timeoutDelay: 1 })
-
-    // simulate requesting from the network
-    handle.request()
-
-    // simulate updating from the network before the timeout expires
-    handle.update(doc => {
-      return A.change(doc, d => (d.foo = "bar"))
-    })
-
-    // now it should not time out
-    await pause(5)
-
-    const doc = handle.doc()
-    assert.equal(doc?.foo, "bar")
-  })
-
-  it("should emit a delete event when deleted", async () => {
+  it("should emit a heads-changed event when data arrives via update", async () => {
     const handle = setup()
-
-    const p = new Promise<void>(resolve =>
-      handle.once("delete", () => resolve())
-    )
-    handle.delete()
+    const p = eventPromise(handle, "heads-changed")
+    handle.update(doc => A.change(doc, d => (d.foo = "bar")))
     await p
-
-    assert.equal(handle.isDeleted(), true)
+    assert.equal(handle.doc().foo, "bar")
   })
 
   it("should allow changing at old heads", async () => {
@@ -512,6 +340,19 @@ describe("DocHandle", () => {
     assert(newHeads && newHeads.length > 0, "should have new heads")
 
     assert(wasBar, "foo should have been bar as we changed at the old heads")
+  })
+
+  it("should merge another handle", () => {
+    const handle1 = setup()
+    handle1.update(() => A.from<TestDoc>({ foo: "one" }))
+
+    const OTHER_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const handle2 = setup({ documentId: OTHER_ID })
+    handle2.update(() => A.from<TestDoc>({ foo: "two" }))
+
+    handle1.merge(handle2)
+    // After merge, handle1 should have data from both
+    assert.ok(handle1.doc())
   })
 
   describe("ephemeral messaging", () => {
@@ -672,6 +513,85 @@ describe("DocHandle", () => {
     assert.equal(handle.doc()?.foo, "baz", "should have changed foo to baz")
   })
 
+  describe("state observation", () => {
+    it("reports ready by default", () => {
+      const handle = setup()
+      assert.equal(handle.state, "ready")
+      assert.equal(handle.isReady(), true)
+      assert.equal(handle.isDeleted(), false)
+      assert.equal(handle.isUnloaded(), false)
+      assert.equal(handle.isUnavailable(), false)
+      assert.equal(handle.inState(["ready"]), true)
+    })
+
+    it("flips to deleted when delete is emitted", () => {
+      const handle = setup()
+      handle.emit("delete", { handle })
+      assert.equal(handle.state, "deleted")
+      assert.equal(handle.isReady(), false)
+      assert.equal(handle.isDeleted(), true)
+      assert.equal(handle.inState(["deleted"]), true)
+    })
+
+    it("user delete listener observes deleted state", async () => {
+      const handle = setup()
+      const seenDeleted = new Promise<boolean>(resolve => {
+        handle.once("delete", ({ handle: h }) => resolve(h.isDeleted()))
+      })
+      handle.emit("delete", { handle })
+      assert.equal(await seenDeleted, true)
+    })
+
+    it("whenReady resolves immediately on a ready handle", async () => {
+      const handle = setup()
+      await handle.whenReady()
+    })
+
+    it("whenReady(['deleted']) resolves on delete", async () => {
+      const handle = setup()
+      const p = handle.whenReady(["deleted"])
+      handle.emit("delete", { handle })
+      await p
+      assert.equal(handle.isDeleted(), true)
+    })
+
+    it("getRemoteHeads / getSyncInfo delegate to the lookup injected at construction", () => {
+      const sentinel = {
+        lastHeads: encodeHeads(["abcd"]),
+        lastSyncTimestamp: 12345,
+      }
+      const handle = new DocHandle<TestDoc>(
+        TEST_ID,
+        (h, p) => new RefImpl(h, p),
+        {},
+        sid => (sid === "storage-1" ? sentinel : undefined)
+      )
+      assert.deepEqual(
+        handle.getRemoteHeads("storage-1" as any),
+        sentinel.lastHeads
+      )
+      assert.deepEqual(handle.getSyncInfo("storage-1" as any), sentinel)
+      assert.equal(handle.getRemoteHeads("storage-2" as any), undefined)
+      assert.equal(handle.getSyncInfo("storage-2" as any), undefined)
+    })
+
+    it("view handles inherit the sync info lookup", () => {
+      const sentinel = {
+        lastHeads: encodeHeads(["abcd"]),
+        lastSyncTimestamp: 12345,
+      }
+      const handle = new DocHandle<TestDoc>(
+        TEST_ID,
+        (h, p) => new RefImpl(h, p),
+        {},
+        sid => (sid === "storage-1" ? sentinel : undefined)
+      )
+      handle.update(d => A.change(d, x => (x.foo = "bar")))
+      const view = handle.view(handle.heads())
+      assert.deepEqual(view.getSyncInfo("storage-1" as any), sentinel)
+    })
+  })
+
   it("should continue to function after recovering from an exception in changeAt", () => {
     const handle = setup()
     handle.change(d => (d.foo = "bar"))
@@ -696,6 +616,8 @@ describe("DocHandle", () => {
     const newHeads = handle.changeAt(heads, doc => {
       doc.foo = "baz"
     })
-    assert.equal(handle.view(newHeads).doc().foo, "baz")
+    assert.ok(newHeads, "should have new heads")
+    const viewDoc = A.view(handle.doc(), A.getHeads(handle.doc()))
+    assert.ok(viewDoc)
   })
 })

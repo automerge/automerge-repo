@@ -3,6 +3,7 @@ import {
   type DocHandle,
   type PeerId,
   Repo,
+  stringifyAutomergeUrl,
 } from "@automerge/automerge-repo"
 import { render, renderHook, waitFor } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -113,6 +114,30 @@ describe("useDocHandle", () => {
 
     render(() => <Component url={undefined} onHandle={onHandle} />, { wrapper })
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
+  })
+
+  it("returns view at heads when url contains heads", async () => {
+    const { handleA, wrapper } = setup()
+    const initialHeads = handleA.heads()!
+    handleA.change(d => (d.foo = "later"))
+
+    const urlWithHeads = stringifyAutomergeUrl({
+      documentId: handleA.documentId,
+      heads: initialHeads,
+    }) as AutomergeUrl
+
+    let captured: DocHandle<ExampleDoc> | undefined
+    const onHandle = (h: DocHandle<unknown> | undefined) => {
+      captured = h as DocHandle<ExampleDoc> | undefined
+    }
+
+    render(() => <Component url={urlWithHeads} onHandle={onHandle} />, {
+      wrapper,
+    })
+
+    await waitFor(() => expect(captured).toBeDefined())
+    expect(captured!.doc()?.foo).toBe("A") // original value, not "later"
+    expect(captured).not.toBe(handleA) // it's the view, not the live handle
   })
 
   it("updates the handle when the url changes", async () => {

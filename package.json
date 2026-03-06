@@ -28,7 +28,7 @@
   "engines": {
     "node": ">=20.0 <22.0.0"
   },
-  "packageManager": "pnpm@9.7.0",
+  "packageManager": "pnpm@10.32.1",
   "prettier": {
     "semi": false,
     "singleQuote": false,
@@ -37,6 +37,8 @@
   },
   "devDependencies": {
     "@automerge/automerge": "^3.0.0",
+    "@eslint/eslintrc": "^3.3.0",
+    "@eslint/js": "^9.5.0",
     "@manypkg/cli": "^0.21.4",
     "@playwright/test": "^1.57.0",
     "@types/debug": "^4.1.12",

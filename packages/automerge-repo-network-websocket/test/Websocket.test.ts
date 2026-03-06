@@ -307,7 +307,7 @@ describe("Websocket adapters", () => {
       return new Promise(resolve => {
         const timer = setTimeout(() => {
           resolve(null)
-        }, 1000)
+        }, 100)
         socket.once("message", msg => {
           clearTimeout(timer)
           resolve(msg as Buffer)

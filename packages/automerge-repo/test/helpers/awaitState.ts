@@ -1,21 +1,16 @@
-import { FindProgress } from "../../src/FindProgress.js"
-import { FindProgressWithMethods } from "../../src/Repo.js"
+import { DocumentProgress, QueryState } from "../../src/DocumentQuery.js"
 
 export default async function awaitState(
-  progress: FindProgress<unknown> | FindProgressWithMethods<unknown>,
+  progress: DocumentProgress<unknown>,
   state: string
 ): Promise<void> {
-  if (progress.state == state) {
+  const current = progress.peek()
+  if (current.state === state) {
     return
   }
-  if (!("subscribe" in progress)) {
-    throw new Error(
-      `expected progress in state ${state} but was in final state ${progress.state}`
-    )
-  }
   await new Promise(resolve => {
-    const unsubscribe = progress.subscribe(progress => {
-      if (progress.state === state) {
+    const unsubscribe = progress.subscribe(s => {
+      if (s.state === state) {
         unsubscribe()
         resolve(null)
       }
