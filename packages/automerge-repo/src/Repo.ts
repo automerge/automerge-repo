@@ -196,6 +196,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   #recentlySeenHeads: Map<string, HashRing>
   #recentHeadsCacheSize: number
 
+  /** SedimentreeIds currently being broadcast — suppresses feedback from storage callbacks */
+  #broadcastingSedimentreeIds: Set<string> = new Set()
+
   /** Tracks pending outbound operations for awaitOutbound() */
   #pendingOutbound: number = 0
   #outboundResolvers: (() => void)[] = []
@@ -787,6 +790,14 @@ export class Repo extends EventEmitter<RepoEvents> {
           return newDoc
         })
         handle.doneLoading()
+
+        // Pre-seed lastHeadsSent so #broadcast doesn't re-enumerate
+        // changes that Subduction already has from local storage.
+        this.#lastHeadsSent.set(
+          sedimentreeId.toString(),
+          new Set(Automerge.getHeads(handle.doc()!))
+        )
+
         progressSignal.notify({
           state: "loading" as const,
           progress: 50,
@@ -809,8 +820,16 @@ export class Repo extends EventEmitter<RepoEvents> {
         })
       }
 
-      await this.#requestDocOverSubduction(handle)
+      // Wire up subsystems before sync so listeners handle any incoming data.
       this.#registerHandleWithSubsystems(handle)
+
+      if (!!loadedBlobs && loadedBlobs.length > 0) {
+        // Local data exists — sync in background, don't block readiness.
+        void this.#requestDocOverSubduction(handle)
+      } else {
+        // No local data — must wait for sync to complete.
+        await this.#requestDocOverSubduction(handle)
+      }
 
       await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
 
@@ -1190,12 +1209,20 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async #broadcast<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
+    const id = sedimentreeId.toString()
+
+    // Suppress storage callbacks for this sedimentree while broadcasting.
+    // #broadcast reads changes FROM the Automerge doc and sends them TO
+    // Subduction. The storage bridge would emit commit-saved/fragment-saved
+    // back, triggering a redundant (and slow) loadIncremental on data the
+    // doc already contains.
+    this.#broadcastingSedimentreeIds.add(id)
+
     // Track this broadcast for awaitOutbound() BEFORE any awaits
     this.#pendingOutbound++
 
     try {
       const currentHexHeads = Automerge.getHeads(doc)
-      const id = sedimentreeId.toString()
       const mostRecentHeads: Set<string> =
         this.#lastHeadsSent.get(id) || new Set()
 
@@ -1287,6 +1314,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
       this.#lastHeadsSent.set(sedimentreeId.toString(), currentSet)
     } finally {
+      this.#broadcastingSedimentreeIds.delete(id)
       this.#pendingOutbound--
       if (this.#pendingOutbound === 0) {
         this.#outboundResolvers.forEach(r => r())
@@ -1300,6 +1328,9 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Called via storage bridge callback after data is persisted.
    */
   #handleCommitSaved(id: SedimentreeId, _digest: DigestType, blob: Uint8Array) {
+    // Skip during broadcast — the doc already contains this data.
+    if (this.#broadcastingSedimentreeIds.has(id.toString())) return
+
     const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
     if (existingHandle !== undefined) {
       // Only update the document - don't call doneLoading() here.
@@ -1327,6 +1358,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     _digest: DigestType,
     blob: Uint8Array
   ) {
+    // Skip during broadcast — the doc already contains this data.
+    if (this.#broadcastingSedimentreeIds.has(id.toString())) return
+
     const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
     if (existingHandle !== undefined) {
       // Only update the document - don't call doneLoading() here.
