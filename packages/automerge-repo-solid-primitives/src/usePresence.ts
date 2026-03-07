@@ -1,11 +1,9 @@
 import {
-  type DeviceId,
   type DocHandle,
   PeerStateView,
   Presence,
   type PresenceConfig,
   type PresenceState,
-  type UserId,
 } from "@automerge/automerge-repo/slim"
 import { onCleanup } from "solid-js"
 import { createStore, reconcile, type Store } from "solid-js/store"
@@ -13,8 +11,6 @@ import { createStore, reconcile, type Store } from "solid-js/store"
 export type UsePresenceConfig<State extends PresenceState> =
   PresenceConfig<State> & {
     handle: DocHandle<unknown>
-    userId?: UserId
-    deviceId?: DeviceId
   }
 
 export type UsePresenceResult<State extends PresenceState> = {
@@ -30,15 +26,13 @@ export type UsePresenceResult<State extends PresenceState> = {
 
 export function usePresence<State extends PresenceState>({
   handle,
-  userId,
-  deviceId,
   initialState,
   heartbeatMs,
   peerTtlMs,
 }: UsePresenceConfig<State>): UsePresenceResult<State> {
   const [localState, setLocalState] = createStore<State>(initialState)
   const [peerStates, setPeerStates] = createStore(new PeerStateView<State>({}))
-  const presence = new Presence<State>({ handle, userId, deviceId })
+  const presence = new Presence<State>({ handle })
   const firstInitialState = initialState
   let currentTiming = { heartbeatMs, peerTtlMs }
 
