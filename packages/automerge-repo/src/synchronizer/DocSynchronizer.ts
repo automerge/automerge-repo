@@ -421,10 +421,17 @@ export class DocSynchronizer extends Synchronizer {
   }
 
   #checkDocUnavailable() {
-    // if we know none of the peers have the document, tell all our peers that we don't either
-    // Note: we require peers.length > 0 to avoid marking docs unavailable when using
-    // Subduction-only mode (no WebSocket peers). Without this check, [].every() returns
-    // true and incorrectly marks documents as unavailable.
+    // If no old-sync peer has the document, notify peers that want it.
+    //
+    // We intentionally do NOT call handle.unavailable() here.  The handle's
+    // own 60 s XState timeout (requesting → unavailable) is the authoritative
+    // source for local unavailability.  Calling it from DocSynchronizer caused
+    // premature unavailability on the SharedWorker: the main-thread peer's
+    // status is "wants" while Subduction is still fetching from the relay,
+    // so the condition below fires before data arrives.
+    //
+    // Note: we require peers.length > 0 to avoid the vacuous-truth case when
+    // there are no old-sync peers (Subduction-only mode).
     if (
       this.#syncStarted &&
       this.#peers.length > 0 &&
@@ -448,8 +455,6 @@ export class DocSynchronizer extends Synchronizer {
           }
           this.emit("message", message)
         })
-
-      this.#handle.unavailable()
     }
   }
 

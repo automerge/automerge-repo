@@ -166,9 +166,6 @@ function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
 }
 
-/** Number of commits to process per chunk in #broadcast before yielding. */
-const BROADCAST_CHUNK_SIZE = 16
-
 // Lazy-initialize HashMetric to avoid accessing WASM before it's loaded
 let _hashMetric: HashMetricType | null = null
 function getHashMetric(): HashMetricType {
@@ -480,6 +477,29 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Register the document with the synchronizer. This advertises our interest in the document.
     this.synchronizer.addDocument(handle)
+
+    // When data arrives via the old sync path (e.g. MessageChannel from a
+    // SharedWorker), the handle transitions to ready but nothing emits the
+    // Repo-level "document" event that find() listens for after an initial
+    // unavailable.  Bridge the gap here: the first time a not-yet-ready handle
+    // receives data (triggering DOC_READY in DocHandle#checkForChanges), emit
+    // the Repo-level "document" event so any pending find() calls resolve.
+    //
+    // We listen for "heads-changed" (which fires synchronously from the same
+    // XState subscriber that sends DOC_READY) and defer the check via
+    // queueMicrotask so the state machine has finished transitioning to ready
+    // by the time we inspect handle.isReady().
+    if (!handle.isReady()) {
+      const onHeadsChanged = () => {
+        queueMicrotask(() => {
+          if (handle.isReady()) {
+            handle.off("heads-changed", onHeadsChanged)
+            this.emit("document", { handle })
+          }
+        })
+      }
+      handle.on("heads-changed", onHeadsChanged)
+    }
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -829,10 +849,11 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (!!loadedBlobs && loadedBlobs.length > 0) {
         // Local data exists — sync in background, don't block readiness.
         void this.#requestDocOverSubduction(handle)
-      } else {
-        // No local data — must wait for sync to complete.
-        await this.#requestDocOverSubduction(handle)
       }
+      // No else: when loadedBlobs was empty, #requestDocOverSubduction was
+      // already awaited above (line 808).  Calling it a second time would
+      // perform an identical syncAll round-trip to the same peers with the
+      // same (empty) local state — pure overhead.
 
       await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
 
@@ -1107,16 +1128,12 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Call this before change detection to ensure all remote commits are received.
    */
   async syncAllDocuments(): Promise<void> {
-    // Get all known sedimentree IDs
-    const sedimentreeIds = Array.from(this.#handlesBySedimentreeId.keys())
-
-    // Sync each sequentially to avoid overwhelming the server
-    for (const sidStr of sedimentreeIds) {
-      const handle = this.#handlesBySedimentreeId.get(sidStr)
-      if (handle) {
-        await this.#requestDocOverSubduction(handle)
-      }
-    }
+    const entries = Array.from(this.#handlesBySedimentreeId.entries())
+    await Promise.all(
+      entries.map(([, handle]) =>
+        handle ? this.#requestDocOverSubduction(handle) : Promise.resolve()
+      )
+    )
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -1238,78 +1255,84 @@ export class Repo extends EventEmitter<RepoEvents> {
         return
       }
 
-      // Phase 1: Add commits (time-sensitive).
-      // Collect fragment requests to defer the expensive build+serialize work.
-      // Process in chunks to yield the event loop between bursts of sync Wasm
-      // calls (getChangeByHash, Digest.fromHexString), improving responsiveness.
-      const deferredHeads: Uint8Array[] = []
-      const metas = Automerge.getChangesMetaSince(
-        doc,
-        Array.from(mostRecentHeads)
+      await Promise.all(
+        Automerge.getChangesMetaSince(doc, Array.from(mostRecentHeads)).map(
+          async meta => {
+            try {
+              const cache =
+                this.#recentlySeenHeads.get(id) ||
+                new HashRing(this.#recentHeadsCacheSize)
+
+              const hexHash = meta.hash
+              if (!cache.add(hexHash)) return
+
+              this.#recentlySeenHeads.set(id, cache)
+
+              const commitBytes = automergeMeta(doc).getChangeByHash(hexHash)
+              const Digest = getDigest()
+              const parents = meta.deps.map(depHexHash =>
+                Digest.fromHexString(depHexHash)
+              )
+
+              const maybeFragmentRequested = await this.#subduction.addCommit(
+                sedimentreeId,
+                parents,
+                commitBytes
+              )
+
+              if (maybeFragmentRequested === undefined) return
+
+              const fragmentRequested = maybeFragmentRequested
+              const head = fragmentRequested.head
+              if (!head || !(head as any).__wbg_ptr) {
+                this.#log(
+                  "skipping buildFragmentStore: fragmentRequested.head is invalid (ptr=%s)",
+                  (head as any)?.__wbg_ptr
+                )
+                return
+              }
+
+              const innerDoc = automergeMeta(doc)
+              const SedimentreeAutomergeCtor = getSedimentreeAutomergeClass()
+              const sam = new SedimentreeAutomergeCtor(innerDoc)
+
+              // Build all missing fragments recursively, not just the top one.
+              const fragmentStates = sam.buildFragmentStore(
+                [head],
+                this.#fragmentStateStore,
+                getHashMetric()
+              )
+
+              for (const fragmentState of fragmentStates) {
+                const members = fragmentState
+                  .members()
+                  .map((digest: DigestType): string => digest.toHexString())
+
+                // NOTE this is the only(?) function that we need from AM v3.2.0
+                const fragmentBlob = Automerge.saveBundle(doc, members)
+
+                await this.#subduction.addFragment(
+                  sedimentreeId,
+                  fragmentState.head_digest(),
+                  fragmentState.boundary().keys(),
+                  fragmentState.checkpoints(),
+                  fragmentBlob
+                )
+              }
+            } catch (e) {
+              // Best-effort: if addCommit or buildFragmentStore fails (e.g.,
+              // partial history, detached Wasm memory), log and continue.
+              // Commits are still stored; fragment compaction will retry later.
+              console.warn(
+                `[Repo] broadcast failed for change ${meta.hash} on ${id}:`,
+                e
+              )
+            }
+          }
+        )
       )
 
-      for (let i = 0; i < metas.length; i += BROADCAST_CHUNK_SIZE) {
-        const chunk = metas.slice(i, i + BROADCAST_CHUNK_SIZE)
-
-        for (const meta of chunk) {
-          try {
-            const cache =
-              this.#recentlySeenHeads.get(id) ||
-              new HashRing(this.#recentHeadsCacheSize)
-
-            const hexHash = meta.hash
-            if (!cache.add(hexHash)) continue
-
-            this.#recentlySeenHeads.set(id, cache)
-
-            const commitBytes = automergeMeta(doc).getChangeByHash(hexHash)
-            const Digest = getDigest()
-            const parents = meta.deps.map(depHexHash =>
-              Digest.fromHexString(depHexHash)
-            )
-
-            const maybeFragmentRequested = await this.#subduction.addCommit(
-              sedimentreeId,
-              parents,
-              commitBytes
-            )
-
-            if (maybeFragmentRequested === undefined) continue
-
-            const head = maybeFragmentRequested.head
-            if (!head || !(head as any).__wbg_ptr) {
-              this.#log(
-                "skipping fragment request: head is invalid (ptr=%s)",
-                (head as any)?.__wbg_ptr
-              )
-              continue
-            }
-
-            // Clone the Digest to raw bytes before deferring — the Wasm pointer
-            // may be freed before the deferred callback runs.
-            deferredHeads.push(new Uint8Array(head.toBytes()))
-          } catch (e) {
-            console.warn(
-              `[Repo] broadcast commit failed for ${meta.hash} on ${id}:`,
-              e
-            )
-          }
-        }
-
-        // Yield between chunks so rendering and input events aren't starved.
-        if (i + BROADCAST_CHUNK_SIZE < metas.length) {
-          await new Promise<void>(r => setTimeout(r, 0))
-        }
-      }
-
       this.#lastHeadsSent.set(sedimentreeId.toString(), currentSet)
-
-      // Phase 2: Build fragments (deferred, best-effort).
-      // buildFragmentStore + saveBundle are the heaviest CPU work — move them
-      // off the critical path so the commit data is available for sync sooner.
-      if (deferredHeads.length > 0) {
-        this.#deferFragmentBuilding(doc, sedimentreeId, deferredHeads)
-      }
     } finally {
       this.#broadcastingSedimentreeIds.delete(id)
       this.#pendingOutbound--
@@ -1318,96 +1341,6 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#outboundResolvers = []
       }
     }
-  }
-
-  /**
-   * Build and persist fragments in the background.
-   *
-   * Called after the commit phase of #broadcast to move the expensive
-   * buildFragmentStore + saveBundle work off the critical path.
-   * Fragment writes are parallelized with Promise.all.
-   */
-  #deferFragmentBuilding<T>(
-    doc: Automerge.Doc<T>,
-    sedimentreeId: SedimentreeId,
-    headBytes: Uint8Array[]
-  ) {
-    const id = sedimentreeId.toString()
-    this.#broadcastingSedimentreeIds.add(id)
-    this.#pendingOutbound++
-
-    const run = async () => {
-      try {
-        const Digest = getDigest()
-
-        for (const bytes of headBytes) {
-          const head = Digest.fromBytes(bytes)
-          const innerDoc = automergeMeta(doc)
-          const SedimentreeAutomergeCtor = getSedimentreeAutomergeClass()
-          const sam = new SedimentreeAutomergeCtor(innerDoc)
-
-          const fragmentStates = sam.buildFragmentStore(
-            [head],
-            this.#fragmentStateStore,
-            getHashMetric()
-          )
-
-          // Collect fragment data synchronously, then write in parallel.
-          const writes = fragmentStates.map(
-            (fragmentState: {
-              members: () => DigestType[]
-              head_digest: () => DigestType
-              boundary: () => { keys: () => DigestType[] }
-              checkpoints: () => DigestType[]
-            }) => {
-              const members = fragmentState
-                .members()
-                .map((digest: DigestType): string => digest.toHexString())
-
-              // NOTE this is the only(?) function that we need from AM v3.2.0
-              const fragmentBlob = Automerge.saveBundle(doc, members)
-
-              return { fragmentState, fragmentBlob }
-            }
-          )
-
-          await Promise.all(
-            writes.map(
-              ({
-                fragmentState,
-                fragmentBlob,
-              }: {
-                fragmentState: {
-                  head_digest: () => DigestType
-                  boundary: () => { keys: () => DigestType[] }
-                  checkpoints: () => DigestType[]
-                }
-                fragmentBlob: Uint8Array
-              }) =>
-                this.#subduction.addFragment(
-                  sedimentreeId,
-                  fragmentState.head_digest(),
-                  fragmentState.boundary().keys(),
-                  fragmentState.checkpoints(),
-                  fragmentBlob
-                )
-            )
-          )
-        }
-      } catch (e) {
-        console.warn(`[Repo] deferred fragment building failed for ${id}:`, e)
-      } finally {
-        this.#broadcastingSedimentreeIds.delete(id)
-        this.#pendingOutbound--
-        if (this.#pendingOutbound === 0) {
-          this.#outboundResolvers.forEach(r => r())
-          this.#outboundResolvers = []
-        }
-      }
-    }
-
-    // Schedule after current microtask queue drains.
-    setTimeout(run, 0)
   }
 
   /**

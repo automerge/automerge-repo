@@ -261,14 +261,30 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async loadAllCommits(
     sedimentreeId: SedimentreeIdType
   ): Promise<CommitWithBlobType[]> {
-    const digests = await this.listCommitDigests(sedimentreeId)
-    const results: CommitWithBlobType[] = []
+    const { SignedLooseCommit, CommitWithBlob } = getSubductionModule()
+    const sid = sedimentreeId.toString()
 
-    for (const digest of digests) {
-      const commitWithBlob = await this.loadCommit(sedimentreeId, digest)
-      if (commitWithBlob) {
-        results.push(commitWithBlob)
+    const [commitChunks, blobChunks] = await Promise.all([
+      this.adapter.loadRange([PREFIX, COMMITS_PREFIX, sid]),
+      this.adapter.loadRange([PREFIX, BLOBS_PREFIX, sid]),
+    ])
+
+    const blobsByDigest = new Map<string, Uint8Array>()
+    for (const chunk of blobChunks) {
+      if (chunk.key.length === 4 && chunk.data) {
+        blobsByDigest.set(chunk.key[3], chunk.data)
       }
+    }
+
+    const results: CommitWithBlobType[] = []
+    for (const chunk of commitChunks) {
+      if (chunk.key.length !== 4 || !chunk.data) continue
+      const digestHex = chunk.key[3]
+      const blobData = blobsByDigest.get(digestHex)
+      if (!blobData) continue
+
+      const signedCommit = SignedLooseCommit.tryDecode(chunk.data)
+      results.push(new CommitWithBlob(signedCommit, blobData))
     }
 
     return results
@@ -400,14 +416,30 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async loadAllFragments(
     sedimentreeId: SedimentreeIdType
   ): Promise<FragmentWithBlobType[]> {
-    const digests = await this.listFragmentDigests(sedimentreeId)
-    const results: FragmentWithBlobType[] = []
+    const { SignedFragment, FragmentWithBlob } = getSubductionModule()
+    const sid = sedimentreeId.toString()
 
-    for (const digest of digests) {
-      const fragmentWithBlob = await this.loadFragment(sedimentreeId, digest)
-      if (fragmentWithBlob) {
-        results.push(fragmentWithBlob)
+    const [fragmentChunks, blobChunks] = await Promise.all([
+      this.adapter.loadRange([PREFIX, FRAGMENTS_PREFIX, sid]),
+      this.adapter.loadRange([PREFIX, FRAGMENT_BLOBS_PREFIX, sid]),
+    ])
+
+    const blobsByDigest = new Map<string, Uint8Array>()
+    for (const chunk of blobChunks) {
+      if (chunk.key.length === 4 && chunk.data) {
+        blobsByDigest.set(chunk.key[3], chunk.data)
       }
+    }
+
+    const results: FragmentWithBlobType[] = []
+    for (const chunk of fragmentChunks) {
+      if (chunk.key.length !== 4 || !chunk.data) continue
+      const digestHex = chunk.key[3]
+      const blobData = blobsByDigest.get(digestHex)
+      if (!blobData) continue
+
+      const signedFragment = SignedFragment.tryDecode(chunk.data)
+      results.push(new FragmentWithBlob(signedFragment, blobData))
     }
 
     return results
