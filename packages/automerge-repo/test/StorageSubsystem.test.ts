@@ -6,9 +6,10 @@ import os from "os"
 import path from "path"
 import { describe, it, expect } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
-import { PeerId, cbor } from "../src/index.js"
+import { PeerId, cbor, Chunk } from "../src/index.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
-import { StorageId } from "../src/storage/types.js"
+import { StorageId, StorageKey } from "../src/storage/types.js"
+import { StorageAdapterInterface } from "../src/storage/StorageAdapterInterface.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import * as Uuid from "uuid"
 import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
@@ -324,4 +325,214 @@ describe("StorageSubsystem", () => {
       })
     })
   }
+
+  describe("concurrent save race condition", () => {
+    // A storage adapter that delays save() calls, simulating slow I/O.
+    // This widens the race window between concurrent saveDoc calls.
+    class SlowSaveAdapter implements StorageAdapterInterface {
+      #inner = new DummyStorageAdapter()
+      #saveDelayMs: number
+
+      constructor(saveDelayMs: number) {
+        this.#saveDelayMs = saveDelayMs
+      }
+
+      async load(key: StorageKey) {
+        return this.#inner.load(key)
+      }
+      async save(key: StorageKey, data: Uint8Array) {
+        await new Promise(resolve => setTimeout(resolve, this.#saveDelayMs))
+        return this.#inner.save(key, data)
+      }
+      async remove(key: StorageKey) {
+        return this.#inner.remove(key)
+      }
+      async loadRange(keyPrefix: StorageKey) {
+        return this.#inner.loadRange(keyPrefix)
+      }
+      async removeRange(keyPrefix: StorageKey) {
+        return this.#inner.removeRange(keyPrefix)
+      }
+      keys() {
+        return this.#inner.keys()
+      }
+    }
+
+    it("concurrent saveDoc calls should not save full history as an incremental chunk", async () => {
+      const adapter = new SlowSaveAdapter(50)
+      const storage = new StorageSubsystem(adapter)
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+      // Create a document with enough data that the snapshot exceeds 1024 bytes,
+      // so that the second save won't trivially re-compact.
+      let doc = A.init<{ items: string[] }>()
+      doc = A.change(doc, d => {
+        d.items = Array(200)
+          .fill(0)
+          .map((_, i) => `item-${i}-${"x".repeat(20)}`)
+      })
+
+      // Compute the size of a full save for reference
+      const fullSaveSize = A.save(doc).length
+
+      // First saveDoc: no storedHeads, enters #saveTotal, sets #compacting = true,
+      // then awaits the slow adapter.save(). Don't await — let it be in-flight.
+      const save1 = storage.saveDoc(documentId, doc)
+
+      // Make a small change while the first save is still in-flight
+      const doc2 = A.change(doc, d => {
+        d.items.push("one-more-item")
+      })
+
+      // Second saveDoc: #compacting is true, so #shouldCompact returns false,
+      // falls through to #saveIncremental with sinceHeads = [] (empty).
+      const save2 = storage.saveDoc(documentId, doc2)
+
+      // Wait for both to complete
+      await Promise.all([save1, save2])
+
+      // Now inspect what was stored. Look at all incremental chunks.
+      const incrementalChunks = await adapter.loadRange([
+        documentId,
+        "incremental",
+      ])
+
+      // If the bug is present, the incremental chunk will contain the full
+      // document history (roughly fullSaveSize). A correct incremental should
+      // only contain the delta — which is much smaller.
+      for (const chunk of incrementalChunks) {
+        expect(
+          chunk.data.length,
+          `incremental chunk should be much smaller than a full save ` +
+            `(${chunk.data.length} vs ${fullSaveSize}), ` +
+            `indicating saveSince was called with empty heads`
+        ).toBeLessThan(fullSaveSize * 0.5)
+      }
+    })
+
+    it("compaction should never roll back storedHeads regardless of save timing", async () => {
+      // This test reproduces an issue where a the storedHeads of the storage
+      // subsystem would be rolled back to an old value. The scenario is
+      // roughly that a compaction starts, but it takes a long time to
+      // complete, during that time some incremental changes arrive and
+      // are saved before the compaction completes. This means that the
+      // storedheads are updated _after_ the compactions save call completes
+      // which means that the storedHeads roll back to before the incremental
+      // changes. This means that the next saveSince call will include
+      // all the incremental changes.
+
+      // An adapter where snapshot saves are slow but incremental saves are
+      // instant. This guarantees that when a compaction and an incremental
+      // save overlap, the compaction's adapter.save() completes *after* the
+      // incremental's — exactly the interleaving that triggers the heads
+      // rollback bug.
+      class SlowSnapshotAdapter implements StorageAdapterInterface {
+        #inner = new DummyStorageAdapter()
+        #snapshotDelayMs: number
+
+        constructor(snapshotDelayMs: number) {
+          this.#snapshotDelayMs = snapshotDelayMs
+        }
+
+        async load(key: StorageKey) {
+          return this.#inner.load(key)
+        }
+        async save(key: StorageKey, data: Uint8Array) {
+          if (key[1] === "snapshot") {
+            await new Promise(r => setTimeout(r, this.#snapshotDelayMs))
+          }
+          return this.#inner.save(key, data)
+        }
+        async remove(key: StorageKey) {
+          return this.#inner.remove(key)
+        }
+        async loadRange(keyPrefix: StorageKey) {
+          return this.#inner.loadRange(keyPrefix)
+        }
+        async removeRange(keyPrefix: StorageKey) {
+          return this.#inner.removeRange(keyPrefix)
+        }
+      }
+
+      const adapter = new SlowSnapshotAdapter(50)
+      const storage = new StorageSubsystem(adapter)
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+      // Build a document large enough to trigger compaction
+      let doc = A.init<{ items: string[] }>()
+      doc = A.change(doc, d => {
+        d.items = Array(200)
+          .fill(0)
+          .map((_, i) => `item-${i}-${"x".repeat(20)}`)
+      })
+      await storage.saveDoc(documentId, doc)
+
+      // Add a large incremental so the next save triggers compaction
+      doc = A.change(doc, d => {
+        for (let i = 0; i < 200; i++) {
+          d.items.push(`extra-${i}-${"y".repeat(20)}`)
+        }
+      })
+      await storage.saveDoc(documentId, doc)
+
+      // Track events to verify the scenario we want actually happened
+      let sawCompaction = false
+      let sawIncrementalAfterCompaction = false
+      storage.on("doc-compacted", () => {
+        sawCompaction = true
+      })
+      storage.on("doc-saved", () => {
+        if (sawCompaction) {
+          sawIncrementalAfterCompaction = true
+        }
+      })
+
+      // Fire concurrent saves. The first will trigger compaction (slow
+      // snapshot save). The second will see #compacting=true and go
+      // through #saveIncremental (fast), completing before the compaction.
+      doc = A.change(doc, d => {
+        d.items.push("change-triggering-compaction")
+      })
+      const save1 = storage.saveDoc(documentId, doc)
+
+      doc = A.change(doc, d => {
+        d.items.push("change-during-compaction")
+      })
+      const save2 = storage.saveDoc(documentId, doc)
+
+      const lastConcurrentHeads = A.getHeads(doc)
+      await Promise.all([save1, save2])
+
+      // Verify we actually exercised the code path: a compaction happened,
+      // and an incremental save occurred while it was in flight.
+      expect(sawCompaction, "expected a compaction to have occurred").toBe(true)
+      expect(
+        sawIncrementalAfterCompaction,
+        "expected an incremental save after the compaction started"
+      ).toBe(true)
+
+      // Now do a final sequential save. Its sinceHeads should match the
+      // heads from the last concurrent save. If the compaction's slower
+      // completion rolled back storedHeads, sinceHeads will be stale.
+      doc = A.change(doc, d => {
+        d.items.push("final-change")
+      })
+
+      let finalSinceHeads: A.Heads | undefined
+      storage.on("doc-saved", ({ sinceHeads }) => {
+        finalSinceHeads = sinceHeads
+      })
+
+      await storage.saveDoc(documentId, doc)
+
+      expect(
+        finalSinceHeads,
+        "final save should have been incremental (not compaction)"
+      ).toBeDefined()
+      expect(
+        finalSinceHeads,
+        "sinceHeads was rolled back — expected heads from the latest concurrent save"
+      ).toEqual(lastConcurrentHeads)
+    })
+  })
 })
