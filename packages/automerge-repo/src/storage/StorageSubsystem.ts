@@ -9,6 +9,7 @@ import { keyHash, headsHash } from "./keyHash.js"
 import * as Uuid from "uuid"
 import { EventEmitter } from "eventemitter3"
 import { encodeHeads } from "../AutomergeUrl.js"
+import { SavedHeads } from "./SavedHeads.js"
 
 type StorageSubsystemEvents = {
   "document-loaded": (arg: {
@@ -20,11 +21,13 @@ type StorageSubsystemEvents = {
   "doc-compacted": (arg: {
     documentId: DocumentId
     durationMillis: number
+    savedHeads: A.Heads
   }) => void
   "doc-saved": (arg: {
     documentId: DocumentId
     durationMillis: number
     sinceHeads: A.Heads
+    savedHeads: A.Heads
   }) => void
 }
 
@@ -37,7 +40,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   #storageAdapter: StorageAdapterInterface
 
   /** Record of the latest heads we've loaded or saved for each document  */
-  #storedHeads: Map<DocumentId, A.Heads> = new Map()
+  #storedHeads: SavedHeads = new SavedHeads()
 
   /** Metadata on the chunks we've already loaded for each document */
   #chunkInfos: Map<DocumentId, ChunkInfo[]> = new Map()
@@ -175,6 +178,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * Loads the Automerge document with the given ID from storage.
    */
   async loadDoc<T>(documentId: DocumentId): Promise<A.Doc<T> | null> {
+    const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
     // Load and combine chunks
     const binary = await this.loadDocData(documentId)
     if (!binary) return null
@@ -190,7 +194,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     })
 
     // Record the latest heads for the document
-    this.#storedHeads.set(documentId, A.getHeads(newDoc))
+    headsHandle.update(A.getHeads(newDoc))
 
     return newDoc
   }
@@ -213,8 +217,6 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     } else {
       await this.#saveIncremental(documentId, doc)
     }
-
-    this.#storedHeads.set(documentId, A.getHeads(doc))
   }
 
   /**
@@ -233,7 +235,18 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     documentId: DocumentId,
     doc: A.Doc<unknown>
   ): Promise<void> {
-    const sinceHeads = this.#storedHeads.get(documentId) ?? []
+    const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
+    const sinceHeads = headsHandle.value
+    if (!sinceHeads || sinceHeads.length === 0) {
+      // No prior save recorded — save a full snapshot instead of calling
+      // saveSince with empty heads (which would save the entire history).
+      await this.#saveTotal(
+        documentId,
+        doc,
+        this.#chunkInfos.get(documentId) ?? []
+      )
+      return
+    }
     const start = performance.now()
     const binary = A.saveSince(doc, sinceHeads)
     const end = performance.now()
@@ -241,6 +254,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       documentId,
       durationMillis: end - start,
       sinceHeads,
+      savedHeads: A.getHeads(doc),
     })
 
     if (binary && binary.length > 0) {
@@ -255,7 +269,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
         type: "incremental",
         size: binary.length,
       })
-      this.#storedHeads.set(documentId, A.getHeads(doc))
+      headsHandle.update(A.getHeads(doc))
     } else {
       return Promise.resolve()
     }
@@ -270,11 +284,16 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     sourceChunks: ChunkInfo[]
   ): Promise<void> {
     this.#compacting = true
+    const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
 
     const start = performance.now()
     const binary = A.save(doc)
     const end = performance.now()
-    this.emit("doc-compacted", { documentId, durationMillis: end - start })
+    this.emit("doc-compacted", {
+      documentId,
+      durationMillis: end - start,
+      savedHeads: A.getHeads(doc),
+    })
 
     const snapshotHash = headsHash(A.getHeads(doc))
     const key = [documentId, "snapshot", snapshotHash]
@@ -296,6 +315,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     newChunkInfos.push({ key, type: "snapshot", size: binary.length })
 
     this.#chunkInfos.set(documentId, newChunkInfos)
+    headsHandle.update(A.getHeads(doc))
     this.#compacting = false
   }
 
@@ -326,7 +346,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * Returns true if the document has changed since the last time it was saved.
    */
   #shouldSave(documentId: DocumentId, doc: A.Doc<unknown>): boolean {
-    const oldHeads = this.#storedHeads.get(documentId)
+    const oldHeads = this.#storedHeads.lastSavedHeads(documentId).value
     if (!oldHeads) {
       // we haven't saved this document before
       return true
