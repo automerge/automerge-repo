@@ -478,17 +478,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Register the document with the synchronizer. This advertises our interest in the document.
     this.synchronizer.addDocument(handle)
 
-    // When data arrives via the old sync path (e.g. MessageChannel from a
-    // SharedWorker), the handle transitions to ready but nothing emits the
-    // Repo-level "document" event that find() listens for after an initial
-    // unavailable.  Bridge the gap here: the first time a not-yet-ready handle
-    // receives data (triggering DOC_READY in DocHandle#checkForChanges), emit
-    // the Repo-level "document" event so any pending find() calls resolve.
-    //
-    // We listen for "heads-changed" (which fires synchronously from the same
-    // XState subscriber that sends DOC_READY) and defer the check via
-    // queueMicrotask so the state machine has finished transitioning to ready
-    // by the time we inspect handle.isReady().
+    // Bridge old-sync-path readiness to find(): emit "document" when a
+    // not-yet-ready handle first reaches ready via heads-changed.
+    // queueMicrotask defers the check until XState finishes transitioning.
     if (!handle.isReady()) {
       const onHeadsChanged = () => {
         queueMicrotask(() => {
@@ -850,10 +842,6 @@ export class Repo extends EventEmitter<RepoEvents> {
         // Local data exists — sync in background, don't block readiness.
         void this.#requestDocOverSubduction(handle)
       }
-      // No else: when loadedBlobs was empty, #requestDocOverSubduction was
-      // already awaited above (line 808).  Calling it a second time would
-      // perform an identical syncAll round-trip to the same peers with the
-      // same (empty) local state — pure overhead.
 
       await Promise.race([handle.whenReady([READY, UNAVAILABLE]), abortPromise])
 
@@ -1231,11 +1219,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async #broadcast<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
     const id = sedimentreeId.toString()
 
-    // Suppress storage callbacks for this sedimentree while broadcasting.
-    // #broadcast reads changes FROM the Automerge doc and sends them TO
-    // Subduction. The storage bridge would emit commit-saved/fragment-saved
-    // back, triggering a redundant (and slow) loadIncremental on data the
-    // doc already contains.
+    // Suppress storage callbacks during broadcast to avoid redundant loadIncremental.
     this.#broadcastingSedimentreeIds.add(id)
 
     // Track this broadcast for awaitOutbound() BEFORE any awaits

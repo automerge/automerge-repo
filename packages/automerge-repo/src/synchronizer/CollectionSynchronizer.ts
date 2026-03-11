@@ -24,10 +24,7 @@ export class CollectionSynchronizer extends Synchronizer {
   #denylist: DocumentId[] // FIXME use case?
   #hasRequested: Map<DocumentId, Set<PeerId>> = new Map()
 
-  constructor(
-    private repo: Repo,
-    denylist: AutomergeUrl[] = []
-  ) {
+  constructor(private repo: Repo, denylist: AutomergeUrl[] = []) {
     super()
     this.#denylist = denylist.map(url => parseAutomergeUrl(url).documentId)
   }
