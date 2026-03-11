@@ -19,11 +19,15 @@ import {
 } from "./DocHandle.js"
 import { HashRing } from "./helpers/HashRing.js"
 import {
+  setSubductionModule,
+  getSubductionModule,
+} from "./helpers/subductionModule.js"
+export { setSubductionModule }
+import {
   automergeMeta,
   toDocumentId,
   toSedimentreeId,
   toSubductionPeerId,
-  _setSubductionModuleForHelpers,
 } from "./helpers/subduction.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
@@ -58,42 +62,6 @@ import type {
   SedimentreeStorage,
   Subduction,
 } from "@automerge/automerge-subduction"
-
-// Runtime constructors are lazy-loaded to avoid accessing Wasm before initialization
-// The module reference is set by setSubductionModule() before Repo construction
-let _subductionModule: typeof import("@automerge/automerge-subduction") | null =
-  null
-
-/**
- * Set the subduction module reference. Must be called after Wasm initialization
- * but before constructing a Repo.
- *
- * @example
- * ```ts
- * import { initSync } from "@automerge/automerge-subduction"
- * import * as subductionModule from "@automerge/automerge-subduction"
- * import { setSubductionModule } from "@automerge/automerge-repo"
- *
- * await initSync()
- * setSubductionModule(subductionModule)
- * // Now you can construct a Repo
- * ```
- */
-export function setSubductionModule(
-  module: typeof import("@automerge/automerge-subduction")
-): void {
-  _subductionModule = module
-  _setSubductionModuleForHelpers(module)
-}
-
-function getSubductionModule(): typeof import("@automerge/automerge-subduction") {
-  if (_subductionModule === null) {
-    throw new Error(
-      "Subduction module not set. Call setSubductionModule() after Wasm initialization."
-    )
-  }
-  return _subductionModule
-}
 
 // Convenience getters for commonly used constructors
 function getDigest(): typeof DigestType {

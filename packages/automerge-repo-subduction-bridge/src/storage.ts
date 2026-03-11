@@ -25,28 +25,7 @@ import type {
   FragmentWithBlob as FragmentWithBlobType,
 } from "@automerge/automerge-subduction"
 
-// Lazy-load constructors via the module registered by setSubductionModule()
-let _subductionModule: typeof import("@automerge/automerge-subduction") | null =
-  null
-
-/**
- * Set the subduction module reference for the storage bridge.
- * This is called automatically by setSubductionModule() from automerge-repo.
- */
-export function _setSubductionModuleForStorage(
-  module: typeof import("@automerge/automerge-subduction")
-): void {
-  _subductionModule = module
-}
-
-function getSubductionModule(): typeof import("@automerge/automerge-subduction") {
-  if (_subductionModule === null) {
-    throw new Error(
-      "Subduction module not set. Call setSubductionModule() after Wasm initialization."
-    )
-  }
-  return _subductionModule
-}
+import { getSubductionModule } from "@automerge/automerge-repo/helpers/subductionModule.js"
 
 export interface StorageBridgeEvents {
   /**

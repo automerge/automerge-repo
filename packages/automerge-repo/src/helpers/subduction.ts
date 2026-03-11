@@ -11,25 +11,7 @@ import { Doc } from "@automerge/automerge"
 export type { SedimentreeIdType as SedimentreeId }
 export type { SubductionPeerIdType as SubductionPeerId }
 
-// Lazy-load constructors via the module registered by setSubductionModule()
-// This avoids accessing Wasm before it's initialized
-let _subductionModule: typeof import("@automerge/automerge-subduction") | null =
-  null
-
-export function _setSubductionModuleForHelpers(
-  module: typeof import("@automerge/automerge-subduction")
-): void {
-  _subductionModule = module
-}
-
-function getSubductionModule(): typeof import("@automerge/automerge-subduction") {
-  if (_subductionModule === null) {
-    throw new Error(
-      "Subduction module not set. Call setSubductionModule() after Wasm initialization."
-    )
-  }
-  return _subductionModule
-}
+import { getSubductionModule } from "./subductionModule.js"
 
 // NOTE temporary until we have [u8; 32] peer IDs
 export function toSubductionPeerId(peerId: PeerId): SubductionPeerIdType {

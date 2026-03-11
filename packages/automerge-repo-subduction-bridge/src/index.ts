@@ -20,11 +20,8 @@
  */
 
 import type { StorageAdapterInterface } from "@automerge/automerge-repo"
-import { setSubductionModule as setRepoModule } from "@automerge/automerge-repo"
-import {
-  SubductionStorageBridge,
-  _setSubductionModuleForStorage,
-} from "./storage.js"
+import { setSubductionModule } from "@automerge/automerge-repo/helpers/subductionModule.js"
+import { SubductionStorageBridge } from "./storage.js"
 import type { Subduction } from "@automerge/automerge-subduction"
 
 export { SubductionStorageBridge, type StorageBridgeEvents } from "./storage.js"
@@ -46,8 +43,7 @@ export { NetworkAdapterConnection } from "./network.js"
 export function initSubductionModule(
   module: typeof import("@automerge/automerge-subduction")
 ): void {
-  setRepoModule(module)
-  _setSubductionModuleForStorage(module)
+  setSubductionModule(module)
 }
 
 /**

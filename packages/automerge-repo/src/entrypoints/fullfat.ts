@@ -14,5 +14,5 @@ import "@automerge/automerge"
 // (same pattern as @automerge/automerge above). The namespace import lets us
 // pass the module to setSubductionModule() so Repo can access constructors.
 import * as subductionModule from "@automerge/automerge-subduction"
-import { setSubductionModule } from "../Repo.js"
+import { setSubductionModule } from "../helpers/subductionModule.js"
 setSubductionModule(subductionModule)
