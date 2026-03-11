@@ -21,7 +21,7 @@ export class CollectionSynchronizer extends Synchronizer {
   /** Used to determine if the document is know to the Collection and a synchronizer exists or is being set up */
   #docSetUp: Record<DocumentId, boolean> = {}
 
-  #denylist: DocumentId[]
+  #denylist: DocumentId[] // FIXME use case?
   #hasRequested: Map<DocumentId, Set<PeerId>> = new Map()
 
   constructor(private repo: Repo, denylist: AutomergeUrl[] = []) {
@@ -112,7 +112,7 @@ export class CollectionSynchronizer extends Synchronizer {
     // Record the request so that even if access is denied now, we know that the
     // peer requested the document so that if the share policy changes we know
     // to begin syncing with this peer
-    if (message.type === "request" || message.type === "sync") {
+    if (message.type === "request") {
       if (!this.#hasRequested.has(documentId)) {
         this.#hasRequested.set(documentId, new Set())
       }
