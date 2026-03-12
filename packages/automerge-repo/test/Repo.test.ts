@@ -457,13 +457,14 @@ describe("Repo", () => {
 
       await repo.flush()
 
-      const initialKeys = storage.keys()
+      const initialKeys = storage.keys().filter(k => !/subduction/.test(k))
 
       const repo2 = new Repo({
         storage,
       })
       const handle2 = await repo2.find(handle.url)
-      assert.deepEqual(storage.keys(), initialKeys)
+      const postkeys = storage.keys().filter(k => !/subduction/.test(k))
+      assert.deepEqual(postkeys, initialKeys)
     })
 
     it("doesn't delete a document from storage when we refresh", async () => {
@@ -658,8 +659,8 @@ describe("Repo", () => {
         const repo = new Repo()
         const handle = repo.create<TestDoc>()
         assert(repo.synchronizer.docSynchronizers[handle.documentId])
-        // No storage = no save listener; 1 from DocumentQuery
-        assert.equal(handle.listenerCount("heads-changed"), 1)
+        // No storage = no save listener; 1 from DocumentQuery + 1 subduction
+        assert.equal(handle.listenerCount("heads-changed"), 2)
       })
 
       it("respects saveDebounceRate when saving", async () => {
@@ -678,7 +679,10 @@ describe("Repo", () => {
           })
         }
         await pause(10)
-        assert(storageAdapter.keys().length < 5)
+        // Filter out subduction keys from this test
+        assert(
+          storageAdapter.keys().filter(k => !/subduction/.test(k)).length < 5
+        )
 
         const keysBeforeDebouncedSave = storageAdapter.keys().length
         await pause(150)
@@ -1563,8 +1567,8 @@ describe("Repo", () => {
       await pause(10)
 
       const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
-      // 1 save listener + 1 DocumentQuery listener
-      assert.equal(bobHandle.listenerCount("heads-changed"), 2)
+      // 1 save listener + 1 DocumentQuery listener + 1 subduction
+      assert.equal(bobHandle.listenerCount("heads-changed"), 3)
 
       teardown()
     })

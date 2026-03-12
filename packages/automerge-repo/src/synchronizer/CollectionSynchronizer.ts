@@ -56,9 +56,7 @@ interface CollectionSynchronizerEvents {
 
 /**
  * CollectionSynchronizer manages the lifecycle of per-document synchronizers
- * and routes incoming messages to the correct DocSynchronizer. All share
- * policy decisions are delegated to the DocSynchronizer — this class is a
- * thin routing layer.
+ * and routes incoming messages to the correct DocSynchronizer.
  */
 export class CollectionSynchronizer
   extends EventEmitter<CollectionSynchronizerEvents>
@@ -86,9 +84,7 @@ export class CollectionSynchronizer
 
   /**
    * Register a document for syncing ({@link DocumentSource.attach}). If the
-   * document is already registered this is a no-op. All connected peers are
-   * immediately added to the DocSynchronizer — the DocSynchronizer evaluates
-   * share policy internally.
+   * document is already registered this is a no-op.
    */
   attach(query: DocumentQuery<unknown>): void {
     if (this.#docSynchronizers[query.documentId]) return
@@ -162,10 +158,12 @@ export class CollectionSynchronizer
     }
 
     // Ensure we have a DocSynchronizer for this document.
-    // ensureHandle calls attach which no-ops if already registered.
+    // ensureHandle calls this.attach which no-ops if already registered.
     let docSync = this.#docSynchronizers[documentId]
     if (!docSync) {
       this.#config.ensureHandle(documentId)
+      // ensureHandle should have synchronously registered a DocSynchronizer via
+      // this.attach so it should now be present in this.#docSynchronizers
       docSync = this.#docSynchronizers[documentId]!
     }
 
@@ -179,7 +177,7 @@ export class CollectionSynchronizer
     }
 
     // For sync/request messages, ensure the sender is a peer on this doc
-    // synchronizer. The incoming message is passed via `messages` so it is
+    // synchronizer. The incoming message is passed to addPeerToDoc so it is
     // queued and processed after persisted sync state loads, preserving
     // in-order delivery.
     if (!docSync.hasPeer(message.senderId)) {
@@ -240,11 +238,9 @@ export class CollectionSynchronizer
   ): void {
     const documentId = docSync.documentId
 
-    docSync.addPeer(
-      peerId,
-      this.#loadSyncStateFor(documentId, peerId),
-      { messages }
-    )
+    docSync.addPeer(peerId, this.#loadSyncStateFor(documentId, peerId), {
+      messages,
+    })
   }
 
   #loadSyncStateFor(

@@ -32,9 +32,22 @@ import type {
   PeerId,
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
+import {
+  Subduction,
+  MemorySigner,
+  SedimentreeStorage,
+  set_subduction_logger,
+} from "@automerge/automerge-subduction/slim"
+import { SubductionStorageBridge } from "./subduction/storage.js"
+import { SubductionSource } from "./subduction/source.js"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { encode, decode } from "cbor-x"
+import type { EphemeralMessage } from "./network/messages.js"
 
 export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
+
+let subductionLoggingEnabled = false
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -75,6 +88,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #syncStateTracker = new SyncStateTracker()
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
+  #subductionSource: SubductionSource | null = null
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
 
   constructor({
@@ -88,6 +102,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     idFactory,
+    subductionWebsocketEndpoints,
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
@@ -121,6 +136,57 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.emit("doc-metrics", { type: "doc-saved", ...event })
       )
     }
+
+    if (!subductionLoggingEnabled) {
+      subductionLoggingEnabled = true
+      set_subduction_logger(
+        (level: string, target: string, message: string, fields: any) => {
+          // Create a debug logger for this Rust module
+          const log = debug(`automerge-repo:subduction:${target}`)
+
+          // Format the message with fields if present
+          const hasFields = fields && Object.keys(fields).length > 0
+          const formattedMessage = hasFields
+            ? `${message} ${JSON.stringify(fields)}`
+            : message
+
+          // Log at the appropriate level (debug supports arbitrary namespaces, not levels,
+          // so we prefix with the level for visibility)
+          log(`[${level}] ${formattedMessage}`)
+        }
+      )
+    }
+    let subductionStorage: SubductionStorageBridge
+    if (storage) {
+      subductionStorage = new SubductionStorageBridge(storage)
+    } else {
+      subductionStorage = new SubductionStorageBridge(new DummyStorageAdapter())
+    }
+    const subductionSource = new SubductionSource({
+      peerId,
+      storage: subductionStorage,
+      signer: new MemorySigner(),
+      websocketEndpoints: subductionWebsocketEndpoints ?? [],
+      onRemoteHeadsChanged: enableRemoteHeadsGossiping
+        ? (documentId, storageId, heads) => {
+            this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+              documentId,
+              storageId,
+              heads
+            )
+          }
+        : undefined,
+      onEphemeral: (sedimentreeId, _senderId, payload) => {
+        try {
+          const msg = decode(new Uint8Array(payload)) as EphemeralMessage
+          this.synchronizer.receiveMessage(msg)
+        } catch (e) {
+          this.#log("failed to decode inbound subduction ephemeral: %O", e)
+        }
+      },
+    })
+    this.#subductionSource = subductionSource
+    this.#sources.push(subductionSource)
 
     this.storageSubsystem = storageSubsystem
 
@@ -165,6 +231,20 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.synchronizer.on("message", message => {
       this.#log(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
+    })
+
+    // Tunnel inbound ephemeral messages through subduction.
+    // When we receive an ephemeral from any network adapter, also
+    // publish it as a subduction ephemeral so it reaches peers
+    // connected via websocket (who aren't sync-protocol peers).
+    networkSubsystem.on("message", message => {
+      if (message.type === "ephemeral" && this.#subductionSource) {
+        const payload = new Uint8Array(encode(message))
+        this.#subductionSource.publishEphemeral(
+          message.documentId,
+          payload
+        )
+      }
     })
 
     // Forward sync metrics events
@@ -388,7 +468,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const query = this.#ensureHandle(documentId, initialDoc as Automerge.Doc<unknown>)
+    const query = this.#ensureHandle(
+      documentId,
+      initialDoc as Automerge.Doc<unknown>
+    )
     return query.handle as DocHandle<T>
   }
 
@@ -416,7 +499,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       const rawDocId = await this.#idFactory(Automerge.getHeads(initialDoc))
       documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
     }
-    const query = this.#ensureHandle(documentId, initialDoc as Automerge.Doc<unknown>)
+    const query = this.#ensureHandle(
+      documentId,
+      initialDoc as Automerge.Doc<unknown>
+    )
     return query.handle as DocHandle<T>
   }
 
@@ -546,7 +632,10 @@ export class Repo extends EventEmitter<RepoEvents> {
         return existing
       }
       const initialDoc = Automerge.load<T>(binary)
-      const query = this.#ensureHandle(docId, initialDoc as Automerge.Doc<unknown>)
+      const query = this.#ensureHandle(
+        docId,
+        initialDoc as Automerge.Doc<unknown>
+      )
       return query.handle as DocHandle<T>
     } else {
       const doc = Automerge.load<T>(binary)
@@ -679,6 +768,8 @@ export interface RepoConfig {
    * @hidden
    */
   idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
+
+  subductionWebsocketEndpoints?: string[]
 }
 
 /** A function that determines whether we should share a document with a peer

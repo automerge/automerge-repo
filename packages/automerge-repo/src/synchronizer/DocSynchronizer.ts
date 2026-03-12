@@ -70,8 +70,7 @@ interface DocSynchronizerEvents {
  * DocSynchronizer runs the automerge sync protocol for a single document
  * against a set of peers.
  *
- * All external events (addPeer, removePeer, receiveMessage, handle change,
- * network ready) mutate state then call {@link #evaluate}, the single
+ * All external events mutate state then call {@link #evaluate}, the single
  * decision function that inspects current state and determines what outbound
  * messages to send and how to update query availability.
  *
@@ -314,7 +313,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       if (peer.sharePolicyState === "loading") continue // share policy pending
       if (peer.sharePolicyState === "denied") continue // access denied
       // "share" peers only get messages after they've requested
-      if (peer.sharePolicyState === "share" && peer.status.type === "unknown") continue
+      if (peer.sharePolicyState === "share" && peer.status.type === "unknown")
+        continue
       if (!peer.syncState) continue // sync state still loading
       if (!peer.dirty) continue
 
@@ -666,9 +666,14 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   }: DocHandleOutboundEphemeralMessagePayload<unknown>): void {
     this.#log(`broadcastToPeers`, Array.from(this.#peers.keys()))
     for (const [peerId, peer] of this.#peers) {
-      if (peer.sharePolicyState === "denied" || peer.sharePolicyState === "loading") continue
+      if (
+        peer.sharePolicyState === "denied" ||
+        peer.sharePolicyState === "loading"
+      )
+        continue
       // "share" peers only get broadcasts after they've interacted
-      if (peer.sharePolicyState === "share" && peer.status.type === "unknown") continue
+      if (peer.sharePolicyState === "share" && peer.status.type === "unknown")
+        continue
       this.#sendEphemeralMessage(peerId, data)
     }
   }
@@ -702,8 +707,13 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     if (isNewMessage) {
       for (const [peerId, peer] of this.#peers) {
         if (peerId === senderId) continue
-        if (peer.sharePolicyState === "denied" || peer.sharePolicyState === "loading") continue
-        if (peer.sharePolicyState === "share" && peer.status.type === "unknown") continue
+        if (
+          peer.sharePolicyState === "denied" ||
+          peer.sharePolicyState === "loading"
+        )
+          continue
+        if (peer.sharePolicyState === "share" && peer.status.type === "unknown")
+          continue
         this.emit("message", { ...message, targetId: peerId })
       }
     }
