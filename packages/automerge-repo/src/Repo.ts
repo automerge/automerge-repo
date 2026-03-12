@@ -32,6 +32,14 @@ import type {
   PeerId,
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
+import {
+  Subduction,
+  MemorySigner,
+  SedimentreeStorage,
+} from "@automerge/automerge-subduction/slim"
+import { SubductionStorageBridge } from "./subduction/storage.js"
+import { SubductionSource } from "./subduction/source.js"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 
 export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
@@ -88,6 +96,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     idFactory,
+    subductionWebsocketEndpoints,
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
@@ -121,6 +130,20 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.emit("doc-metrics", { type: "doc-saved", ...event })
       )
     }
+
+    let subductionStorage: SubductionStorageBridge
+    if (storage) {
+      subductionStorage = new SubductionStorageBridge(storage)
+    } else {
+      subductionStorage = new SubductionStorageBridge(new DummyStorageAdapter())
+    }
+    this.#sources.push(
+      new SubductionSource(
+        subductionStorage,
+        new MemorySigner(),
+        subductionWebsocketEndpoints ?? []
+      )
+    )
 
     this.storageSubsystem = storageSubsystem
 
@@ -388,7 +411,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const query = this.#ensureHandle(documentId, initialDoc as Automerge.Doc<unknown>)
+    const query = this.#ensureHandle(
+      documentId,
+      initialDoc as Automerge.Doc<unknown>
+    )
     return query.handle as DocHandle<T>
   }
 
@@ -416,7 +442,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       const rawDocId = await this.#idFactory(Automerge.getHeads(initialDoc))
       documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
     }
-    const query = this.#ensureHandle(documentId, initialDoc as Automerge.Doc<unknown>)
+    const query = this.#ensureHandle(
+      documentId,
+      initialDoc as Automerge.Doc<unknown>
+    )
     return query.handle as DocHandle<T>
   }
 
@@ -546,7 +575,10 @@ export class Repo extends EventEmitter<RepoEvents> {
         return existing
       }
       const initialDoc = Automerge.load<T>(binary)
-      const query = this.#ensureHandle(docId, initialDoc as Automerge.Doc<unknown>)
+      const query = this.#ensureHandle(
+        docId,
+        initialDoc as Automerge.Doc<unknown>
+      )
       return query.handle as DocHandle<T>
     } else {
       const doc = Automerge.load<T>(binary)
@@ -679,6 +711,8 @@ export interface RepoConfig {
    * @hidden
    */
   idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
+
+  subductionWebsocketEndpoints?: string[]
 }
 
 /** A function that determines whether we should share a document with a peer

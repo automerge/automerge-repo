@@ -21,6 +21,7 @@
 
 import type { StorageAdapterInterface } from "@automerge/automerge-repo"
 import { Subduction } from "@automerge/automerge-subduction/slim"
+export { SubductionSource } from "./source.js"
 
 import { SubductionStorageBridge } from "./storage.js"
 export { SubductionStorageBridge, type StorageBridgeEvents } from "./storage.js"
