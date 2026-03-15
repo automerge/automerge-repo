@@ -7,7 +7,12 @@ import {
 } from "@automerge/automerge-repo"
 import { cbor } from "@automerge/automerge-repo/slim"
 import { NetworkAdapterConnection } from "../src/network.js"
-import { PeerId, Message } from "@automerge/automerge-subduction"
+import { PeerId, Message, SedimentreeId } from "@automerge/automerge-subduction"
+
+const randomBytes = (length: number): Uint8Array =>
+  Uint8Array.from({ length }, () => Math.floor(Math.random() * 256))
+const testSedimentreeId = () => SedimentreeId.fromBytes(randomBytes(32))
+const testMessage = () => Message.blobsRequest(testSedimentreeId(), [])
 
 class MockNetworkAdapter extends NetworkAdapter {
   #peer: MockNetworkAdapter | null = null
@@ -64,7 +69,7 @@ describe("NetworkAdapterConnection", () => {
         remotePeerId
       )
 
-      expect(connection.peerId()).toBe(remotePeerId)
+      expect(connection.remotePeerId()).toBe(remotePeerId)
     })
 
     it("can disconnect", async () => {
@@ -82,7 +87,7 @@ describe("NetworkAdapterConnection", () => {
 
       await connection.disconnect()
 
-      await expect(connection.send(Message.blobsRequest([]))).rejects.toThrow(
+      await expect(connection.send(testMessage())).rejects.toThrow(
         "disconnected"
       )
     })
@@ -118,7 +123,7 @@ describe("NetworkAdapterConnection", () => {
     })
 
     it("sends messages between peers", async () => {
-      const message = Message.blobsRequest([])
+      const message = testMessage()
       const recvPromise = bobConnection.recv()
       await aliceConnection.send(message)
       const received = await recvPromise
@@ -126,7 +131,7 @@ describe("NetworkAdapterConnection", () => {
     })
 
     it("queues messages received before recv() is called", async () => {
-      const message = Message.blobsRequest([])
+      const message = testMessage()
       await aliceConnection.send(message)
       await new Promise(r => setTimeout(r, 10))
       const received = await bobConnection.recv()
@@ -139,7 +144,7 @@ describe("NetworkAdapterConnection", () => {
         type: "subduction-connection",
         senderId: otherPeerId.toString() as RepoMessage["senderId"],
         targetId: bobPeerId.toString() as RepoMessage["targetId"],
-        data: cbor.encode(Message.blobsRequest([])),
+        data: cbor.encode(testMessage()),
       }
 
       bobAdapter.emitMessage(message)
@@ -234,7 +239,7 @@ describe("NetworkAdapterConnection", () => {
 
       adapter.simulateDisconnect(remotePeerId.toString())
 
-      await expect(connection.send(Message.blobsRequest([]))).rejects.toThrow(
+      await expect(connection.send(testMessage())).rejects.toThrow(
         "disconnected"
       )
     })
@@ -255,7 +260,7 @@ describe("NetworkAdapterConnection", () => {
 
       adapter.simulateDisconnect(otherPeerId.toString())
 
-      expect(connection.peerId()).toBe(remotePeerId)
+      expect(connection.remotePeerId()).toBe(remotePeerId)
     })
   })
 
@@ -289,7 +294,7 @@ describe("NetworkAdapterConnection", () => {
       await new Promise(r => setTimeout(r, 10))
       expect(received).toBe(false)
 
-      await aliceConnection.send(Message.blobsRequest([]))
+      await aliceConnection.send(testMessage())
 
       const msg = await recvPromise
       expect(received).toBe(true)

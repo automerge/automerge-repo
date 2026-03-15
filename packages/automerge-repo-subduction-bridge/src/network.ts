@@ -16,7 +16,7 @@ import {
   type BatchSyncRequest,
   type BatchSyncResponse,
   type PeerId,
-} from "@automerge/automerge-subduction"
+} from "@automerge/automerge-subduction/slim"
 
 /**
  * A connection that wraps an `automerge-repo` `NetworkAdapter` to implement
@@ -143,8 +143,12 @@ export class NetworkAdapterConnection implements Connection {
 
   /**
    * Get the peer ID of the remote peer.
+   *
+   * Note: This is _not_ part of the Subduction `Connection` interface
+   * (which no longer exposes `peerId()`). It is a convenience accessor
+   * for callers that need to know which peer this bridge connects to.
    */
-  peerId(): PeerId {
+  remotePeerId(): PeerId {
     return this.#remotePeerId
   }
 

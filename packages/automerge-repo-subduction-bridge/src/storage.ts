@@ -23,7 +23,7 @@ import type {
   SignedFragment as SignedFragmentType,
   CommitWithBlob as CommitWithBlobType,
   FragmentWithBlob as FragmentWithBlobType,
-} from "@automerge/automerge-subduction"
+} from "@automerge/automerge-subduction/slim"
 
 import { getSubductionModule } from "@automerge/automerge-repo/helpers/subductionModule.js"
 

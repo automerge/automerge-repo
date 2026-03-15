@@ -6,7 +6,8 @@
  * can import it without pulling in the entire Repo dependency graph.
  */
 
-type SubductionModuleType = typeof import("@automerge/automerge-subduction")
+type SubductionModuleType =
+  typeof import("@automerge/automerge-subduction/slim")
 
 let _subductionModule: SubductionModuleType | null = null
 

@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge-subduction": "0.2.2-alpha.1",
+    "@automerge/automerge-subduction": "0.4.0-alpha.1",
     "debug": "^4.3.4"
   },
   "devDependencies": {

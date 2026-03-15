@@ -11,9 +11,17 @@ import {
   SubductionStorageBridge,
   initSubductionModule,
 } from "@automerge/automerge-repo-subduction-bridge"
-import * as subductionModule from "@automerge/automerge-subduction"
-import { Subduction, WebCryptoSigner } from "@automerge/automerge-subduction"
+import { initSync } from "@automerge/automerge-subduction/slim"
+import * as subductionModule from "@automerge/automerge-subduction/slim"
+import {
+  Subduction,
+  WebCryptoSigner,
+} from "@automerge/automerge-subduction/slim"
+import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 
+// Initialize Subduction Wasm from base64
+// (use /slim to avoid wasm-bodge bundler.js dual-module class identity issue)
+initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
 initSubductionModule(subductionModule)
 ;(async () => {
   const signer = await WebCryptoSigner.setup()
@@ -23,7 +31,7 @@ initSubductionModule(subductionModule)
   const storage = new SubductionStorageBridge(storageAdapter)
   const subduction = await Subduction.hydrate(signer, storage)
 
-  await subduction.connectDiscover(new URL("ws://localhost:8080"), signer)
+  await subduction.connectDiscover(new URL("ws://localhost:8080"))
 
   const repo = new Repo({
     network: [],

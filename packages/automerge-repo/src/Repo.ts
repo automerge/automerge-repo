@@ -18,10 +18,7 @@ import {
   UNLOADED,
 } from "./DocHandle.js"
 import { HashRing } from "./helpers/HashRing.js"
-import {
-  setSubductionModule,
-  getSubductionModule,
-} from "./helpers/subductionModule.js"
+import { setSubductionModule } from "./helpers/subductionModule.js"
 export { setSubductionModule }
 import {
   automergeMeta,
@@ -52,40 +49,17 @@ import type {
 } from "./types.js"
 import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
 import { FindProgress, type FindProgressWithMethods } from "./FindProgress.js"
-// Type-only imports (don't trigger Wasm access)
+import {
+  Digest,
+  FragmentStateStore,
+  HashMetric,
+  SedimentreeAutomerge,
+} from "@automerge/automerge-subduction/slim"
 import type {
-  Digest as DigestType,
-  FragmentStateStore as FragmentStateStoreType,
-  HashMetric as HashMetricType,
-  SedimentreeAutomerge as SedimentreeAutomergeType,
   SedimentreeId,
   SedimentreeStorage,
   Subduction,
-} from "@automerge/automerge-subduction"
-
-// Convenience getters for commonly used constructors
-function getDigest(): typeof DigestType {
-  return getSubductionModule().Digest as unknown as typeof DigestType
-}
-
-function getHashMetricClass(): new (arg: null) => HashMetricType {
-  return getSubductionModule().HashMetric as unknown as new (
-    arg: null
-  ) => HashMetricType
-}
-
-function getFragmentStateStoreClass(): new () => FragmentStateStoreType {
-  return getSubductionModule()
-    .FragmentStateStore as unknown as new () => FragmentStateStoreType
-}
-
-function getSedimentreeAutomergeClass(): new (
-  doc: any
-) => SedimentreeAutomergeType {
-  return getSubductionModule().SedimentreeAutomerge as unknown as new (
-    doc: any
-  ) => SedimentreeAutomergeType
-}
+} from "@automerge/automerge-subduction/slim"
 
 /**
  * Interface for storage bridges that support event callbacks.
@@ -96,7 +70,7 @@ export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
     event: "commit-saved",
     callback: (
       sedimentreeId: SedimentreeId,
-      digest: DigestType,
+      digest: Digest,
       blob: Uint8Array
     ) => void
   ): void
@@ -104,7 +78,7 @@ export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
     event: "fragment-saved",
     callback: (
       sedimentreeId: SedimentreeId,
-      digest: DigestType,
+      digest: Digest,
       blob: Uint8Array
     ) => void
   ): void
@@ -112,7 +86,7 @@ export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
     event: "commit-saved",
     callback: (
       sedimentreeId: SedimentreeId,
-      digest: DigestType,
+      digest: Digest,
       blob: Uint8Array
     ) => void
   ): void
@@ -120,7 +94,7 @@ export interface SubductionStorageWithCallbacks extends SedimentreeStorage {
     event: "fragment-saved",
     callback: (
       sedimentreeId: SedimentreeId,
-      digest: DigestType,
+      digest: Digest,
       blob: Uint8Array
     ) => void
   ): void
@@ -135,11 +109,10 @@ function randomPeerId() {
 }
 
 // Lazy-initialize HashMetric to avoid accessing WASM before it's loaded
-let _hashMetric: HashMetricType | null = null
-function getHashMetric(): HashMetricType {
+let _hashMetric: HashMetric | null = null
+function getHashMetric(): HashMetric {
   if (_hashMetric === null) {
-    const HashMetricCtor = getHashMetricClass()
-    _hashMetric = new HashMetricCtor(null)
+    _hashMetric = new HashMetric(null)
   }
   return _hashMetric
 }
@@ -159,7 +132,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #subduction: Subduction
   #subductionStorage: SubductionStorageWithCallbacks | null = null
   #handlesBySedimentreeId: Map<string, DocHandle<any>> // NOTE until doc IDs are [u8; 32]s
-  #fragmentStateStore: FragmentStateStoreType
+  #fragmentStateStore: FragmentStateStore
   #lastHeadsSent: Map<string, Set<string>> // TODO move to subduction.wasm
   #recentlySeenHeads: Map<string, HashRing>
   #recentHeadsCacheSize: number
@@ -405,8 +378,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.#subduction = subduction
-    const FragmentStateStoreCtor = getFragmentStateStoreClass()
-    this.#fragmentStateStore = new FragmentStateStoreCtor()
+    this.#fragmentStateStore = new FragmentStateStore()
     this.#recentHeadsCacheSize = recentHeadsCacheSize
     this.#recentlySeenHeads = new Map()
     this.#lastHeadsSent = new Map()
@@ -550,7 +522,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Sync the new document to peers (fire-and-forget since create is sync)
     // This ensures peers receive the initial data and establishes subscriptions
     const sid = toSedimentreeId(documentId)
-    void this.#subduction.syncAll(sid, true)
+    void this.#subduction.syncWithAllPeers(sid, true)
 
     return handle
   }
@@ -592,7 +564,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.doneLoading()
 
     const sid = toSedimentreeId(documentId)
-    this.#subduction.syncAll(sid, true)
+    this.#subduction.syncWithAllPeers(sid, true)
     return handle
   }
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
@@ -1082,12 +1054,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     const sedimentreeId = toSedimentreeId(handle.documentId)
     this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
 
-    // With the 1.5RTT protocol, syncAll performs bidirectional sync in a single call:
+    // With the 1.5RTT protocol, syncWithAllPeers performs bidirectional sync in a single call:
     // 1. We send our summary to peers
     // 2. Peers respond with data we're missing AND tell us what they need
     // 3. We send back what they requested (handled internally by Subduction)
     this.#log(`syncing sedimentree ${sedimentreeId.toString().slice(0, 8)}...`)
-    const peerResultMap = await this.#subduction.syncAll(sedimentreeId, true)
+    const peerResultMap = await this.#subduction.syncWithAllPeers(
+      sedimentreeId,
+      true
+    )
 
     // Log sync statistics and any errors
     let receivedData = false
@@ -1190,7 +1165,6 @@ export class Repo extends EventEmitter<RepoEvents> {
               this.#recentlySeenHeads.set(id, cache)
 
               const commitBytes = automergeMeta(doc).getChangeByHash(hexHash)
-              const Digest = getDigest()
               const parents = meta.deps.map(depHexHash =>
                 Digest.fromHexString(depHexHash)
               )
@@ -1214,8 +1188,7 @@ export class Repo extends EventEmitter<RepoEvents> {
               }
 
               const innerDoc = automergeMeta(doc)
-              const SedimentreeAutomergeCtor = getSedimentreeAutomergeClass()
-              const sam = new SedimentreeAutomergeCtor(innerDoc)
+              const sam = new SedimentreeAutomerge(innerDoc)
 
               // Build all missing fragments recursively, not just the top one.
               const fragmentStates = sam.buildFragmentStore(
@@ -1227,7 +1200,7 @@ export class Repo extends EventEmitter<RepoEvents> {
               for (const fragmentState of fragmentStates) {
                 const members = fragmentState
                   .members()
-                  .map((digest: DigestType): string => digest.toHexString())
+                  .map((digest: Digest): string => digest.toHexString())
 
                 // NOTE this is the only(?) function that we need from AM v3.2.0
                 const fragmentBlob = Automerge.saveBundle(doc, members)
@@ -1267,13 +1240,13 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Handle a commit being saved to storage.
    * Called via storage bridge callback after data is persisted.
    */
-  #handleCommitSaved(id: SedimentreeId, _digest: DigestType, blob: Uint8Array) {
+  #handleCommitSaved(id: SedimentreeId, _digest: Digest, blob: Uint8Array) {
     const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
     if (existingHandle !== undefined) {
       // Only update the document - don't call doneLoading() here.
       // During batch sync, multiple blobs arrive asynchronously.
       // Calling doneLoading() on each blob would transition to READY too early.
-      // Instead, #requestDocOverSubduction calls doneLoading() after syncAll + awaitSettled.
+      // Instead, #requestDocOverSubduction calls doneLoading() after syncWithAllPeers + awaitSettled.
       existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
     } else {
       // New sedimentree we haven't seen before - create a handle for it
@@ -1290,11 +1263,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Handle a fragment being saved to storage.
    * Called via storage bridge callback after data is persisted.
    */
-  #handleFragmentSaved(
-    id: SedimentreeId,
-    _digest: DigestType,
-    blob: Uint8Array
-  ) {
+  #handleFragmentSaved(id: SedimentreeId, _digest: Digest, blob: Uint8Array) {
     const existingHandle = this.#handlesBySedimentreeId.get(id.toString())
     if (existingHandle !== undefined) {
       // Only update the document - don't call doneLoading() here.
