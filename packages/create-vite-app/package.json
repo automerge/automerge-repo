@@ -1,6 +1,6 @@
 {
   "name": "@automerge/create-vite-app",
-  "version": "2.6.0-subduction.3",
+  "version": "2.6.0-subduction.4",
   "description": "Create an automerge-repo app which uses Vite",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/create-vite-app",
   "author": "Alex Good <alex@memoryandthought.me>",
