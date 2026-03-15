@@ -61,7 +61,7 @@ import type {
   SedimentreeId,
   SedimentreeStorage,
   Subduction,
-} from "@automerge/automerge-subduction"
+} from "@automerge/automerge-subduction/slim"
 
 // Convenience getters for commonly used constructors
 function getDigest(): typeof DigestType {
@@ -550,7 +550,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Sync the new document to peers (fire-and-forget since create is sync)
     // This ensures peers receive the initial data and establishes subscriptions
     const sid = toSedimentreeId(documentId)
-    void this.#subduction.syncAll(sid, true)
+    void this.#subduction.syncWithAllPeers(sid, true)
 
     return handle
   }
@@ -592,7 +592,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     handle.doneLoading()
 
     const sid = toSedimentreeId(documentId)
-    this.#subduction.syncAll(sid, true)
+    this.#subduction.syncWithAllPeers(sid, true)
     return handle
   }
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
@@ -1082,12 +1082,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     const sedimentreeId = toSedimentreeId(handle.documentId)
     this.#handlesBySedimentreeId.set(sedimentreeId.toString(), handle)
 
-    // With the 1.5RTT protocol, syncAll performs bidirectional sync in a single call:
+    // With the 1.5RTT protocol, syncWithAllPeers performs bidirectional sync in a single call:
     // 1. We send our summary to peers
     // 2. Peers respond with data we're missing AND tell us what they need
     // 3. We send back what they requested (handled internally by Subduction)
     this.#log(`syncing sedimentree ${sedimentreeId.toString().slice(0, 8)}...`)
-    const peerResultMap = await this.#subduction.syncAll(sedimentreeId, true)
+    const peerResultMap = await this.#subduction.syncWithAllPeers(
+      sedimentreeId,
+      true
+    )
 
     // Log sync statistics and any errors
     let receivedData = false
@@ -1273,7 +1276,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       // Only update the document - don't call doneLoading() here.
       // During batch sync, multiple blobs arrive asynchronously.
       // Calling doneLoading() on each blob would transition to READY too early.
-      // Instead, #requestDocOverSubduction calls doneLoading() after syncAll + awaitSettled.
+      // Instead, #requestDocOverSubduction calls doneLoading() after syncWithAllPeers + awaitSettled.
       existingHandle.update(doc => Automerge.loadIncremental(doc, blob))
     } else {
       // New sedimentree we haven't seen before - create a handle for it

@@ -5,7 +5,12 @@ import {
 } from "@automerge/automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 import { NetworkAdapterConnection } from "../src/network.js"
-import { PeerId, Message } from "@automerge/automerge-subduction"
+import { PeerId, Message, SedimentreeId } from "@automerge/automerge-subduction"
+
+const randomBytes = (length: number): Uint8Array =>
+  Uint8Array.from({ length }, () => Math.floor(Math.random() * 256))
+const testSedimentreeId = () => SedimentreeId.fromBytes(randomBytes(32))
+const testMessage = () => Message.blobsRequest(testSedimentreeId(), [])
 
 describe("NetworkAdapterConnection with BroadcastChannelNetworkAdapter", () => {
   let aliceAdapter: BroadcastChannelNetworkAdapter
@@ -65,7 +70,7 @@ describe("NetworkAdapterConnection with BroadcastChannelNetworkAdapter", () => {
   })
 
   it("sends messages through BroadcastChannel", async () => {
-    const message = Message.blobsRequest([])
+    const message = testMessage()
     const recvPromise = bobConnection.recv()
     await aliceConnection.send(message)
     const received = await recvPromise
@@ -76,8 +81,8 @@ describe("NetworkAdapterConnection with BroadcastChannelNetworkAdapter", () => {
     const aliceRecvPromise = aliceConnection.recv()
     const bobRecvPromise = bobConnection.recv()
 
-    await aliceConnection.send(Message.blobsRequest([]))
-    await bobConnection.send(Message.blobsRequest([]))
+    await aliceConnection.send(testMessage())
+    await bobConnection.send(testMessage())
 
     const [aliceReceived, bobReceived] = await Promise.all([
       aliceRecvPromise,
@@ -98,8 +103,8 @@ describe("NetworkAdapterConnection with BroadcastChannelNetworkAdapter", () => {
     bobAdapter.disconnect()
     await disconnectReceived
 
-    await expect(
-      aliceConnection.send(Message.blobsRequest([]))
-    ).rejects.toThrow("disconnected")
+    await expect(aliceConnection.send(testMessage())).rejects.toThrow(
+      "disconnected"
+    )
   })
 })

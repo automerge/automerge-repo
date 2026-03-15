@@ -2,7 +2,7 @@
 import type {
   SedimentreeId as SedimentreeIdType,
   PeerId as SubductionPeerIdType,
-} from "@automerge/automerge-subduction"
+} from "@automerge/automerge-subduction/slim"
 import { AnyDocumentId, DocumentId, PeerId } from "../types.js"
 import bs58check from "bs58check"
 import { Doc } from "@automerge/automerge"

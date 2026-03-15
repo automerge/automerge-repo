@@ -6,6 +6,9 @@ import { WebSocketServer } from "ws"
 import { Repo } from "@automerge/automerge-repo"
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
 import { default as Prometheus } from "prom-client"
+// Node.js resolves to the `node` export condition (node.js entrypoint),
+// which uses initSync + web/ glue only — no bundler.js dual-module issue.
+// Safe to use the bare specifier here (auto-initializes Wasm from disk).
 import * as subductionModule from "@automerge/automerge-subduction"
 import { Subduction } from "@automerge/automerge-subduction"
 import {

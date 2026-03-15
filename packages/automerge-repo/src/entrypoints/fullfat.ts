@@ -9,10 +9,15 @@ export * from "../index.js"
 // eslint-disable-next-line automerge-slimport/enforce-automerge-slim-import
 import "@automerge/automerge"
 
-// Auto-initialize Subduction's Wasm module and register it with automerge-repo.
-// Importing the bare specifier triggers environment-based Wasm initialization
-// (same pattern as @automerge/automerge above). The namespace import lets us
-// pass the module to setSubductionModule() so Repo can access constructors.
-import * as subductionModule from "@automerge/automerge-subduction"
-import { setSubductionModule } from "../helpers/subductionModule.js"
-setSubductionModule(subductionModule)
+// Subduction Wasm is NOT auto-initialized here.
+//
+// The bare "@automerge/automerge-subduction" import resolves to the
+// `bundler.js` entrypoint under Vite's `browser` export condition.
+// That entrypoint loads two separate wasm-bindgen glue modules
+// (bundler/bg.js and web/), creating duplicate class definitions that
+// break `instanceof` checks inside wasm-bindgen's `_assertClass`.
+//
+// Instead, consumers must import from "@automerge/automerge-subduction/slim"
+// and call `initSubductionModule(module)` (from the bridge package) or
+// `setSubductionModule(module)` directly.  The /slim entrypoint uses a
+// single glue module, avoiding the class-identity problem.

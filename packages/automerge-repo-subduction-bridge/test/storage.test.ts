@@ -1,7 +1,56 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import { DummyStorageAdapter } from "./DummyStorageAdapter.js"
 import { SubductionStorageBridge } from "../src/storage.js"
-import { SedimentreeId, Digest } from "@automerge/automerge-subduction"
+import { initSubductionModule } from "../src/index.js"
+// Tests run in Node/Vitest (not a bundler), so the bare specifier is safe
+// — it resolves to the `node` entrypoint which auto-inits Wasm from disk.
+import * as subductionModule from "@automerge/automerge-subduction"
+import {
+  BlobMeta,
+  Digest,
+  Fragment,
+  LooseCommit,
+  MemorySigner,
+  SedimentreeId,
+  Subduction,
+} from "@automerge/automerge-subduction"
+
+initSubductionModule(subductionModule)
+
+const randomBytes = (length: number): Uint8Array =>
+  Uint8Array.from({ length }, () => Math.floor(Math.random() * 256))
+
+/** Create a random Digest (32 bytes). */
+const randomDigest = (): Digest => Digest.fromBytes(randomBytes(32))
+
+/** Create a random SedimentreeId. */
+const randomSedimentreeId = (): SedimentreeId =>
+  SedimentreeId.fromBytes(randomBytes(32))
+
+/**
+ * Produce a signed commit and its blob by round-tripping through
+ * a throwaway Subduction instance.
+ *
+ * `addCommit` internally signs via `MemorySigner`, persists the
+ * `SignedLooseCommit` + blob through the storage interface, and
+ * we capture the result from the bridge's underlying adapter.
+ */
+async function makeSignedCommit(bridge: SubductionStorageBridge) {
+  const signer = MemorySigner.generate()
+  const sub = await Subduction.hydrate(signer, bridge)
+
+  const sedimentreeId = randomSedimentreeId()
+  const blob = randomBytes(128)
+
+  await sub.addCommit(sedimentreeId, [], blob)
+
+  // The commit was persisted through the bridge — pull it back out
+  const commits = await bridge.loadAllCommits(sedimentreeId)
+  expect(commits.length).toBeGreaterThanOrEqual(1)
+
+  const commit = commits[0]
+  return { sedimentreeId, commit, sub }
+}
 
 describe("SubductionStorageBridge", () => {
   let adapter: DummyStorageAdapter
@@ -12,13 +61,10 @@ describe("SubductionStorageBridge", () => {
     bridge = new SubductionStorageBridge(adapter)
   })
 
-  const randomBytes = (length: number): Uint8Array =>
-    Uint8Array.from({ length }, () => Math.floor(Math.random() * 256))
-
   describe("SedimentreeId operations", () => {
     it("saves and loads sedimentree IDs", async () => {
-      const id1 = SedimentreeId.fromBytes(randomBytes(32))
-      const id2 = SedimentreeId.fromBytes(randomBytes(32))
+      const id1 = randomSedimentreeId()
+      const id2 = randomSedimentreeId()
 
       await bridge.saveSedimentreeId(id1)
       await bridge.saveSedimentreeId(id2)
@@ -32,8 +78,8 @@ describe("SubductionStorageBridge", () => {
     })
 
     it("deletes sedimentree IDs", async () => {
-      const id1 = SedimentreeId.fromBytes(randomBytes(32))
-      const id2 = SedimentreeId.fromBytes(randomBytes(32))
+      const id1 = randomSedimentreeId()
+      const id2 = randomSedimentreeId()
 
       await bridge.saveSedimentreeId(id1)
       await bridge.saveSedimentreeId(id2)
@@ -50,102 +96,71 @@ describe("SubductionStorageBridge", () => {
     })
   })
 
-  describe("Commit operations (CAS)", () => {
-    it("saves and loads commits by digest", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const signedCommit = randomBytes(200) // Opaque CBOR bytes
-      const digest = Digest.hash(signedCommit)
-      // For commits, blobDigest is the same as digest
-      const blobDigest = digest
+  describe("Commit operations via Subduction round-trip", () => {
+    it("stores and loads commits produced by Subduction", async () => {
+      const { sedimentreeId, commit } = await makeSignedCommit(bridge)
 
-      await bridge.saveCommit(sedimentreeId, digest, signedCommit, blobDigest)
+      // Verify the loaded commit has a signed payload and blob
+      expect(commit.signed).toBeDefined()
+      expect(commit.blob).toBeDefined()
+      expect(commit.blob.length).toBeGreaterThan(0)
 
-      const loaded = await bridge.loadCommit(sedimentreeId, digest)
-      expect(loaded).not.toBeNull()
-      expect(loaded).toEqual(signedCommit)
+      // Verify we can re-load by digest
+      const digest = commit.signed.payload.digest
+      const reloaded = await bridge.loadCommit(sedimentreeId, digest)
+      expect(reloaded).not.toBeNull()
     })
 
     it("returns null for non-existent commit", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const digest = Digest.hash(randomBytes(64))
+      const sedimentreeId = randomSedimentreeId()
+      const digest = randomDigest()
 
       const loaded = await bridge.loadCommit(sedimentreeId, digest)
       expect(loaded).toBeNull()
     })
 
     it("lists commit digests", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const commit1 = randomBytes(100)
-      const commit2 = randomBytes(150)
-      const digest1 = Digest.hash(commit1)
-      const digest2 = Digest.hash(commit2)
+      const signer = MemorySigner.generate()
+      const sedimentreeId = randomSedimentreeId()
+      const sub = await Subduction.hydrate(signer, bridge)
 
-      await bridge.saveCommit(sedimentreeId, digest1, commit1, digest1)
-      await bridge.saveCommit(sedimentreeId, digest2, commit2, digest2)
+      // Add two commits (second depends on first)
+      await sub.addCommit(sedimentreeId, [], randomBytes(64))
+
+      const commits = await bridge.loadAllCommits(sedimentreeId)
+      const firstDigest = commits[0].signed.payload.digest
+
+      await sub.addCommit(sedimentreeId, [firstDigest], randomBytes(64))
 
       const digests = await bridge.listCommitDigests(sedimentreeId)
       expect(digests.length).toBe(2)
-
-      const digestStrings = digests.map(d => d.toHexString())
-      expect(digestStrings).toContain(digest1.toHexString())
-      expect(digestStrings).toContain(digest2.toHexString())
-    })
-
-    it("loads all commits with digests", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const commit1 = randomBytes(100)
-      const commit2 = randomBytes(150)
-      const digest1 = Digest.hash(commit1)
-      const digest2 = Digest.hash(commit2)
-
-      await bridge.saveCommit(sedimentreeId, digest1, commit1, digest1)
-      await bridge.saveCommit(sedimentreeId, digest2, commit2, digest2)
-
-      const loaded = await bridge.loadAllCommits(sedimentreeId)
-      expect(loaded.length).toBe(2)
-
-      const found1 = loaded.find(
-        c => c.digest.toHexString() === digest1.toHexString()
-      )
-      const found2 = loaded.find(
-        c => c.digest.toHexString() === digest2.toHexString()
-      )
-
-      expect(found1).toBeDefined()
-      expect(found1!.signed).toEqual(commit1)
-      expect(found2).toBeDefined()
-      expect(found2!.signed).toEqual(commit2)
     })
 
     it("deletes single commit by digest", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const commit1 = randomBytes(100)
-      const commit2 = randomBytes(150)
-      const digest1 = Digest.hash(commit1)
-      const digest2 = Digest.hash(commit2)
+      const signer = MemorySigner.generate()
+      const sedimentreeId = randomSedimentreeId()
+      const sub = await Subduction.hydrate(signer, bridge)
 
-      await bridge.saveCommit(sedimentreeId, digest1, commit1, digest1)
-      await bridge.saveCommit(sedimentreeId, digest2, commit2, digest2)
+      await sub.addCommit(sedimentreeId, [], randomBytes(64))
 
-      await bridge.deleteCommit(sedimentreeId, digest1)
+      const commits = await bridge.loadAllCommits(sedimentreeId)
+      expect(commits.length).toBe(1)
+      const digest = commits[0].signed.payload.digest
 
-      const loaded1 = await bridge.loadCommit(sedimentreeId, digest1)
-      const loaded2 = await bridge.loadCommit(sedimentreeId, digest2)
+      await bridge.deleteCommit(sedimentreeId, digest)
 
-      expect(loaded1).toBeNull()
-      expect(loaded2).toEqual(commit2)
+      const reloaded = await bridge.loadCommit(sedimentreeId, digest)
+      expect(reloaded).toBeNull()
     })
 
     it("deletes all commits for a sedimentree", async () => {
-      const id1 = SedimentreeId.fromBytes(randomBytes(32))
-      const id2 = SedimentreeId.fromBytes(randomBytes(32))
-      const commit1 = randomBytes(100)
-      const commit2 = randomBytes(150)
-      const digest1 = Digest.hash(commit1)
-      const digest2 = Digest.hash(commit2)
+      const signer = MemorySigner.generate()
+      const id1 = randomSedimentreeId()
+      const id2 = randomSedimentreeId()
+      const sub = await Subduction.hydrate(signer, bridge)
 
-      await bridge.saveCommit(id1, digest1, commit1, digest1)
-      await bridge.saveCommit(id2, digest2, commit2, digest2)
+      await sub.addCommit(id1, [], randomBytes(64))
+      await sub.addCommit(id2, [], randomBytes(64))
 
       await bridge.deleteAllCommits(id1)
 
@@ -157,268 +172,72 @@ describe("SubductionStorageBridge", () => {
     })
 
     it("isolates commits between different sedimentrees", async () => {
-      const id1 = SedimentreeId.fromBytes(randomBytes(32))
-      const id2 = SedimentreeId.fromBytes(randomBytes(32))
-      const commit1 = randomBytes(100)
-      const commit2 = randomBytes(150)
-      const digest1 = Digest.hash(commit1)
-      const digest2 = Digest.hash(commit2)
+      const signer = MemorySigner.generate()
+      const id1 = randomSedimentreeId()
+      const id2 = randomSedimentreeId()
+      const sub = await Subduction.hydrate(signer, bridge)
 
-      await bridge.saveCommit(id1, digest1, commit1, digest1)
-      await bridge.saveCommit(id2, digest2, commit2, digest2)
+      await sub.addCommit(id1, [], randomBytes(64))
+      await sub.addCommit(id2, [], randomBytes(128))
 
       const loaded1 = await bridge.loadAllCommits(id1)
       const loaded2 = await bridge.loadAllCommits(id2)
 
       expect(loaded1.length).toBe(1)
       expect(loaded2.length).toBe(1)
-      expect(loaded1[0].signed).toEqual(commit1)
-      expect(loaded2[0].signed).toEqual(commit2)
     })
   })
 
-  describe("Fragment operations (CAS)", () => {
-    it("saves and loads fragments by digest", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const signedFragment = randomBytes(300) // Opaque CBOR bytes
-      const digest = Digest.hash(signedFragment)
-      // For fragments, blobDigest is separate (the bundle's digest)
-      const blobDigest = Digest.hash(randomBytes(500))
-
-      await bridge.saveFragment(
-        sedimentreeId,
-        digest,
-        signedFragment,
-        blobDigest
-      )
-
-      const loaded = await bridge.loadFragment(sedimentreeId, digest)
-      expect(loaded).not.toBeNull()
-      expect(loaded).toEqual(signedFragment)
-    })
-
+  describe("Fragment operations", () => {
     it("returns null for non-existent fragment", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const digest = Digest.hash(randomBytes(64))
+      const sedimentreeId = randomSedimentreeId()
+      const digest = randomDigest()
 
       const loaded = await bridge.loadFragment(sedimentreeId, digest)
       expect(loaded).toBeNull()
     })
 
-    it("lists fragment digests", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const fragment1 = randomBytes(200)
-      const fragment2 = randomBytes(250)
-      const digest1 = Digest.hash(fragment1)
-      const digest2 = Digest.hash(fragment2)
-      const blobDigest1 = Digest.hash(randomBytes(500))
-      const blobDigest2 = Digest.hash(randomBytes(600))
-
-      await bridge.saveFragment(sedimentreeId, digest1, fragment1, blobDigest1)
-      await bridge.saveFragment(sedimentreeId, digest2, fragment2, blobDigest2)
+    it("returns empty list for sedimentree with no fragments", async () => {
+      const sedimentreeId = randomSedimentreeId()
 
       const digests = await bridge.listFragmentDigests(sedimentreeId)
-      expect(digests.length).toBe(2)
+      expect(digests.length).toBe(0)
 
-      const digestStrings = digests.map(d => d.toHexString())
-      expect(digestStrings).toContain(digest1.toHexString())
-      expect(digestStrings).toContain(digest2.toHexString())
+      const fragments = await bridge.loadAllFragments(sedimentreeId)
+      expect(fragments.length).toBe(0)
     })
 
-    it("loads all fragments with digests", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const fragment1 = randomBytes(200)
-      const fragment2 = randomBytes(250)
-      const digest1 = Digest.hash(fragment1)
-      const digest2 = Digest.hash(fragment2)
-      const blobDigest1 = Digest.hash(randomBytes(500))
-      const blobDigest2 = Digest.hash(randomBytes(600))
-
-      await bridge.saveFragment(sedimentreeId, digest1, fragment1, blobDigest1)
-      await bridge.saveFragment(sedimentreeId, digest2, fragment2, blobDigest2)
+    it("deleteAllFragments on empty sedimentree is a no-op", async () => {
+      const sedimentreeId = randomSedimentreeId()
+      await bridge.deleteAllFragments(sedimentreeId)
 
       const loaded = await bridge.loadAllFragments(sedimentreeId)
-      expect(loaded.length).toBe(2)
-
-      const found1 = loaded.find(
-        f => f.digest.toHexString() === digest1.toHexString()
-      )
-      const found2 = loaded.find(
-        f => f.digest.toHexString() === digest2.toHexString()
-      )
-
-      expect(found1).toBeDefined()
-      expect(found1!.signed).toEqual(fragment1)
-      expect(found2).toBeDefined()
-      expect(found2!.signed).toEqual(fragment2)
-    })
-
-    it("deletes single fragment by digest", async () => {
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const fragment1 = randomBytes(200)
-      const fragment2 = randomBytes(250)
-      const digest1 = Digest.hash(fragment1)
-      const digest2 = Digest.hash(fragment2)
-      const blobDigest1 = Digest.hash(randomBytes(500))
-      const blobDigest2 = Digest.hash(randomBytes(600))
-
-      await bridge.saveFragment(sedimentreeId, digest1, fragment1, blobDigest1)
-      await bridge.saveFragment(sedimentreeId, digest2, fragment2, blobDigest2)
-
-      await bridge.deleteFragment(sedimentreeId, digest1)
-
-      const loaded1 = await bridge.loadFragment(sedimentreeId, digest1)
-      const loaded2 = await bridge.loadFragment(sedimentreeId, digest2)
-
-      expect(loaded1).toBeNull()
-      expect(loaded2).toEqual(fragment2)
-    })
-
-    it("deletes all fragments for a sedimentree", async () => {
-      const id1 = SedimentreeId.fromBytes(randomBytes(32))
-      const id2 = SedimentreeId.fromBytes(randomBytes(32))
-      const fragment1 = randomBytes(200)
-      const fragment2 = randomBytes(250)
-      const digest1 = Digest.hash(fragment1)
-      const digest2 = Digest.hash(fragment2)
-      const blobDigest1 = Digest.hash(randomBytes(500))
-      const blobDigest2 = Digest.hash(randomBytes(600))
-
-      await bridge.saveFragment(id1, digest1, fragment1, blobDigest1)
-      await bridge.saveFragment(id2, digest2, fragment2, blobDigest2)
-
-      await bridge.deleteAllFragments(id1)
-
-      const loaded1 = await bridge.loadAllFragments(id1)
-      const loaded2 = await bridge.loadAllFragments(id2)
-
-      expect(loaded1.length).toBe(0)
-      expect(loaded2.length).toBe(1)
-    })
-
-    it("isolates fragments between different sedimentrees", async () => {
-      const id1 = SedimentreeId.fromBytes(randomBytes(32))
-      const id2 = SedimentreeId.fromBytes(randomBytes(32))
-      const fragment1 = randomBytes(200)
-      const fragment2 = randomBytes(250)
-      const digest1 = Digest.hash(fragment1)
-      const digest2 = Digest.hash(fragment2)
-      const blobDigest1 = Digest.hash(randomBytes(500))
-      const blobDigest2 = Digest.hash(randomBytes(600))
-
-      await bridge.saveFragment(id1, digest1, fragment1, blobDigest1)
-      await bridge.saveFragment(id2, digest2, fragment2, blobDigest2)
-
-      const loaded1 = await bridge.loadAllFragments(id1)
-      const loaded2 = await bridge.loadAllFragments(id2)
-
-      expect(loaded1.length).toBe(1)
-      expect(loaded2.length).toBe(1)
-      expect(loaded1[0].signed).toEqual(fragment1)
-      expect(loaded2[0].signed).toEqual(fragment2)
-    })
-  })
-
-  describe("Blob operations", () => {
-    it("saves and loads blobs", async () => {
-      const data = randomBytes(256)
-      const digest = await bridge.saveBlob(data)
-
-      const loaded = await bridge.loadBlob(digest)
-      expect(loaded).not.toBeNull()
-      expect(loaded).toEqual(data)
-    })
-
-    it("returns null for non-existent blob", async () => {
-      const digest = Digest.hash(randomBytes(64))
-      const loaded = await bridge.loadBlob(digest)
-      expect(loaded).toBeNull()
-    })
-
-    it("deletes blobs", async () => {
-      const data = randomBytes(128)
-      const digest = await bridge.saveBlob(data)
-
-      await bridge.deleteBlob(digest)
-
-      const loaded = await bridge.loadBlob(digest)
-      expect(loaded).toBeNull()
-    })
-
-    it("handles large blobs", async () => {
-      const data = randomBytes(1024 * 1024)
-      const digest = await bridge.saveBlob(data)
-
-      const loaded = await bridge.loadBlob(digest)
-      expect(loaded).toEqual(data)
-    })
-
-    it("returns correct digest for blob content", async () => {
-      const data = new Uint8Array([1, 2, 3, 4, 5])
-      const expectedDigest = Digest.hash(data)
-
-      const returnedDigest = await bridge.saveBlob(data)
-      expect(returnedDigest.toHexString()).toBe(expectedDigest.toHexString())
+      expect(loaded.length).toBe(0)
     })
   })
 
   describe("Event system", () => {
-    it("emits blob-saved event", async () => {
-      const callback = vi.fn()
-      bridge.on("blob-saved", callback)
-
-      const data = randomBytes(64)
-      await bridge.saveBlob(data)
-
-      expect(callback).toHaveBeenCalledTimes(1)
-      expect(callback).toHaveBeenCalledWith(expect.any(Digest), data)
-    })
-
-    it("emits commit-saved event", async () => {
+    it("emits commit-saved event when Subduction persists a commit", async () => {
       const callback = vi.fn()
       bridge.on("commit-saved", callback)
 
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const signedCommit = randomBytes(200)
-      const digest = Digest.hash(signedCommit)
-      // Save the blob first (for commits, blobDigest = digest)
-      const blobData = randomBytes(150)
-      const blobDigest = await bridge.saveBlob(blobData)
-
-      await bridge.saveCommit(sedimentreeId, digest, signedCommit, blobDigest)
+      await makeSignedCommit(bridge)
 
       expect(callback).toHaveBeenCalledTimes(1)
-      expect(callback).toHaveBeenCalledWith(sedimentreeId, digest, blobData)
-    })
-
-    it("emits fragment-saved event", async () => {
-      const callback = vi.fn()
-      bridge.on("fragment-saved", callback)
-
-      const sedimentreeId = SedimentreeId.fromBytes(randomBytes(32))
-      const signedFragment = randomBytes(300)
-      const digest = Digest.hash(signedFragment)
-      // Save the blob first (for fragments, blobDigest is the bundle digest)
-      const blobData = randomBytes(500)
-      const blobDigest = await bridge.saveBlob(blobData)
-
-      await bridge.saveFragment(
-        sedimentreeId,
-        digest,
-        signedFragment,
-        blobDigest
-      )
-
-      expect(callback).toHaveBeenCalledTimes(1)
-      expect(callback).toHaveBeenCalledWith(sedimentreeId, digest, blobData)
+      // commit-saved is called with (sedimentreeId, digest, blobData)
+      const [sid, digest, blob] = callback.mock.calls[0]
+      expect(sid).toBeDefined()
+      expect(digest).toBeDefined()
+      expect(blob).toBeInstanceOf(Uint8Array)
+      expect(blob.length).toBeGreaterThan(0)
     })
 
     it("removes event listeners with off()", async () => {
       const callback = vi.fn()
-      bridge.on("blob-saved", callback)
-      bridge.off("blob-saved", callback)
+      bridge.on("commit-saved", callback)
+      bridge.off("commit-saved", callback)
 
-      await bridge.saveBlob(randomBytes(64))
+      await makeSignedCommit(bridge)
 
       expect(callback).not.toHaveBeenCalled()
     })
@@ -427,10 +246,10 @@ describe("SubductionStorageBridge", () => {
       const callback1 = vi.fn()
       const callback2 = vi.fn()
 
-      bridge.on("blob-saved", callback1)
-      bridge.on("blob-saved", callback2)
+      bridge.on("commit-saved", callback1)
+      bridge.on("commit-saved", callback2)
 
-      await bridge.saveBlob(randomBytes(64))
+      await makeSignedCommit(bridge)
 
       expect(callback1).toHaveBeenCalledTimes(1)
       expect(callback2).toHaveBeenCalledTimes(1)

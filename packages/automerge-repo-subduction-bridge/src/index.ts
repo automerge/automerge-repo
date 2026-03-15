@@ -3,11 +3,11 @@
  *
  * @example
  * ```ts
- * import * as subductionModule from "@automerge/automerge-subduction"
- * import { WebCryptoSigner } from "@automerge/automerge-subduction"
+ * import * as subductionModule from "@automerge/automerge-subduction/slim"
+ * import { WebCryptoSigner } from "@automerge/automerge-subduction/slim"
  * import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
  * import { setupSubduction } from "@automerge/automerge-repo-subduction-bridge"
- * import { Repo } from "@automerge/automerge-repo"
+ * import { Repo } from "@automerge/automerge-repo/slim"
  *
  * // Quick setup using the helper
  * const { subduction } = await setupSubduction({
@@ -22,7 +22,7 @@
 import type { StorageAdapterInterface } from "@automerge/automerge-repo"
 import { setSubductionModule } from "@automerge/automerge-repo/helpers/subductionModule.js"
 import { SubductionStorageBridge } from "./storage.js"
-import type { Subduction } from "@automerge/automerge-subduction"
+import type { Subduction } from "@automerge/automerge-subduction/slim"
 
 export { SubductionStorageBridge, type StorageBridgeEvents } from "./storage.js"
 export { NetworkAdapterConnection } from "./network.js"
@@ -33,7 +33,7 @@ export { NetworkAdapterConnection } from "./network.js"
  *
  * @example
  * ```ts
- * import * as subductionModule from "@automerge/automerge-subduction"
+ * import * as subductionModule from "@automerge/automerge-subduction/slim"
  * import { initSubductionModule } from "@automerge/automerge-repo-subduction-bridge"
  *
  * initSubductionModule(subductionModule)
@@ -41,7 +41,7 @@ export { NetworkAdapterConnection } from "./network.js"
  * ```
  */
 export function initSubductionModule(
-  module: typeof import("@automerge/automerge-subduction")
+  module: typeof import("@automerge/automerge-subduction/slim")
 ): void {
   setSubductionModule(module)
 }
@@ -50,8 +50,8 @@ export function initSubductionModule(
  * Options for {@link setupSubduction}.
  */
 export interface SetupSubductionOptions {
-  /** The namespace import of `@automerge/automerge-subduction` (the Wasm module). */
-  subductionModule: typeof import("@automerge/automerge-subduction")
+  /** The namespace import of `@automerge/automerge-subduction/slim` (the Wasm module). */
+  subductionModule: typeof import("@automerge/automerge-subduction/slim")
   /**
    * An Ed25519 signer (e.g. `WebCryptoSigner` in the browser, or a `NodeSigner` on the server).
    * Must implement `sign(message: Uint8Array): Uint8Array` and `verifyingKey(): Uint8Array`.
@@ -78,11 +78,11 @@ export interface SetupSubductionResult {
  *
  * @example
  * ```ts
- * import * as subductionModule from "@automerge/automerge-subduction"
- * import { WebCryptoSigner } from "@automerge/automerge-subduction"
+ * import * as subductionModule from "@automerge/automerge-subduction/slim"
+ * import { WebCryptoSigner } from "@automerge/automerge-subduction/slim"
  * import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
  * import { setupSubduction } from "@automerge/automerge-repo-subduction-bridge"
- * import { Repo } from "@automerge/automerge-repo"
+ * import { Repo } from "@automerge/automerge-repo/slim"
  *
  * const { subduction } = await setupSubduction({
  *   subductionModule,

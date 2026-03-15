@@ -18,16 +18,19 @@ npm install @automerge/automerge-repo-subduction-bridge@subduction
 ## Quick start
 
 ```typescript
-import { Repo } from "@automerge/automerge-repo"
+import { Repo } from "@automerge/automerge-repo/slim"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import {
   initSubductionModule,
   setupSubduction,
 } from "@automerge/automerge-repo-subduction-bridge"
-import * as SubductionModule from "@automerge/automerge-subduction"
-import { WebCryptoSigner } from "@automerge/automerge-subduction"
+import { initSync } from "@automerge/automerge-subduction/slim"
+import * as SubductionModule from "@automerge/automerge-subduction/slim"
+import { WebCryptoSigner } from "@automerge/automerge-subduction/slim"
+import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 
-// 1. Initialize the Wasm module
+// 1. Initialize the Wasm module (use /slim to avoid bundler class identity issue)
+initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
 initSubductionModule(SubductionModule)
 
 // 2. Set up Subduction
@@ -39,7 +42,7 @@ const { subduction, storage } = await setupSubduction({
 })
 
 // 3. Connect to a server
-await subduction.connectDiscover(new URL("ws://localhost:8080"), signer)
+await subduction.connectDiscover(new URL("ws://localhost:8080"))
 
 // 4. Create the Repo
 const repo = new Repo({

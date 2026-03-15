@@ -9,9 +9,22 @@ import {
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
-import { SubductionStorageBridge } from "@automerge/automerge-repo-subduction-bridge"
-import { Subduction, WebCryptoSigner } from "@automerge/automerge-subduction"
+import {
+  SubductionStorageBridge,
+  initSubductionModule,
+} from "@automerge/automerge-repo-subduction-bridge"
+import { initSync } from "@automerge/automerge-subduction/slim"
+import * as subductionModule from "@automerge/automerge-subduction/slim"
+import {
+  Subduction,
+  WebCryptoSigner,
+} from "@automerge/automerge-subduction/slim"
+import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 import { v4 } from "uuid"
+
+// Initialize Subduction Wasm from base64 (use /slim to avoid bundler.js dual-module class identity issue)
+initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
+initSubductionModule(subductionModule)
 ;(async () => {
   const signer = await WebCryptoSigner.setup()
   const storageAdapter = new IndexedDBStorageAdapter(
@@ -20,7 +33,7 @@ import { v4 } from "uuid"
   const storage = new SubductionStorageBridge(storageAdapter)
   const subduction = await Subduction.hydrate(signer, storage)
 
-  await subduction.connectDiscover(new URL("ws://localhost:8080"), signer)
+  await subduction.connectDiscover(new URL("ws://localhost:8080"))
 
   const repo = new Repo({
     network: [
@@ -39,7 +52,7 @@ import { v4 } from "uuid"
 
   const docUrl = (document.location.hash = handle.url)
 
-  ReactDOM.createRoot(document.getElementById("root")).render(
+  ReactDOM.createRoot(document.getElementById("root")!).render(
     <RepoContext.Provider value={repo}>
       <React.StrictMode>
         <App userId={userId} url={docUrl} />
