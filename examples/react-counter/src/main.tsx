@@ -19,7 +19,8 @@ import {
 } from "@automerge/automerge-subduction/slim"
 import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 
-// Initialize Subduction Wasm from base64 (use /slim to avoid bundler.js dual-module class identity issue)
+// Initialize Subduction Wasm from base64
+// (use /slim to avoid wasm-bodge bundler.js dual-module class identity issue)
 initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
 initSubductionModule(subductionModule)
 ;(async () => {

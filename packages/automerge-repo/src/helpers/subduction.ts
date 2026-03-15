@@ -1,4 +1,7 @@
-// Type-only imports (don't trigger Wasm access)
+import {
+  SedimentreeId,
+  PeerId as SubductionPeerId,
+} from "@automerge/automerge-subduction/slim"
 import type {
   SedimentreeId as SedimentreeIdType,
   PeerId as SubductionPeerIdType,
@@ -11,11 +14,8 @@ import { Doc } from "@automerge/automerge"
 export type { SedimentreeIdType as SedimentreeId }
 export type { SubductionPeerIdType as SubductionPeerId }
 
-import { getSubductionModule } from "./subductionModule.js"
-
 // NOTE temporary until we have [u8; 32] peer IDs
 export function toSubductionPeerId(peerId: PeerId): SubductionPeerIdType {
-  const SubductionPeerId = getSubductionModule().PeerId
   const peerIdBytes = new TextEncoder().encode(peerId)
   const bytes = new Uint8Array(32)
   bytes.set(peerIdBytes.slice(0, 32))
@@ -24,7 +24,6 @@ export function toSubductionPeerId(peerId: PeerId): SubductionPeerIdType {
 
 // NOTE temporary until we have [u8; 32] peer IDs
 export function toSedimentreeId(id: AnyDocumentId): SedimentreeIdType {
-  const SedimentreeId = getSubductionModule().SedimentreeId
   const docIdBytes = toBinaryDocumentId(id)
   const out = new Uint8Array(32)
   out.set(docIdBytes.subarray(0, 32))

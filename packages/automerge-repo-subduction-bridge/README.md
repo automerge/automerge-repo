@@ -18,7 +18,7 @@ npm install @automerge/automerge-repo-subduction-bridge@subduction
 ## Quick start
 
 ```typescript
-import { Repo } from "@automerge/automerge-repo/slim"
+import { Repo } from "@automerge/automerge-repo"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
 import {
   initSubductionModule,

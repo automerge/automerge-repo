@@ -3,17 +3,17 @@ export { initializeBase64Wasm, initializeWasm } from "@automerge/automerge/slim"
 // TODO: temporary work-around during alpha.
 export * as Automerge from "@automerge/automerge/slim"
 
-// Subduction Wasm initialization:
+// Subduction Wasm initialization for slim consumers:
 //
-// All consumers (slim AND fullfat) must initialize Subduction's Wasm
-// manually and register the module before constructing a Repo.
-// Always use the /slim sub-export to avoid the bundler.js dual-module
-// class identity issue (see fullfat.ts for details).
+// Slim consumers must initialize Subduction's Wasm manually and register
+// the module before constructing a Repo:
 //
-//   import { initSync } from "@automerge/automerge-subduction/slim"
+//   import init from "@automerge/automerge-subduction/slim"
 //   import * as subductionModule from "@automerge/automerge-subduction/slim"
-//   import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 //   import { setSubductionModule } from "@automerge/automerge-repo/slim"
 //
-//   initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
+//   await init(wasmUrl)
 //   setSubductionModule(subductionModule)
+//
+// The fullfat entrypoint ("@automerge/automerge-repo") handles this
+// automatically via a side-effect import.

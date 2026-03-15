@@ -17,7 +17,10 @@ import "@automerge/automerge"
 // (bundler/bg.js and web/), creating duplicate class definitions that
 // break `instanceof` checks inside wasm-bindgen's `_assertClass`.
 //
-// Instead, consumers must import from "@automerge/automerge-subduction/slim"
-// and call `initSubductionModule(module)` (from the bridge package) or
-// `setSubductionModule(module)` directly.  The /slim entrypoint uses a
-// single glue module, avoiding the class-identity problem.
+// Instead, consumers must:
+//   1. import { initSync } from "@automerge/automerge-subduction/slim"
+//   2. import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
+//   3. Call initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
+//   4. Call initSubductionModule(module) from the bridge package
+//
+// See https://github.com/alexjg/wasm-bodge/issues/8

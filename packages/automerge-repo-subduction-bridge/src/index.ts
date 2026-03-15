@@ -7,7 +7,7 @@
  * import { WebCryptoSigner } from "@automerge/automerge-subduction/slim"
  * import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
  * import { setupSubduction } from "@automerge/automerge-repo-subduction-bridge"
- * import { Repo } from "@automerge/automerge-repo/slim"
+ * import { Repo } from "@automerge/automerge-repo"
  *
  * // Quick setup using the helper
  * const { subduction } = await setupSubduction({
@@ -50,7 +50,7 @@ export function initSubductionModule(
  * Options for {@link setupSubduction}.
  */
 export interface SetupSubductionOptions {
-  /** The namespace import of `@automerge/automerge-subduction/slim` (the Wasm module). */
+  /** The namespace import of `@automerge/automerge-subduction` (the Wasm module). */
   subductionModule: typeof import("@automerge/automerge-subduction/slim")
   /**
    * An Ed25519 signer (e.g. `WebCryptoSigner` in the browser, or a `NodeSigner` on the server).
@@ -82,7 +82,7 @@ export interface SetupSubductionResult {
  * import { WebCryptoSigner } from "@automerge/automerge-subduction/slim"
  * import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
  * import { setupSubduction } from "@automerge/automerge-repo-subduction-bridge"
- * import { Repo } from "@automerge/automerge-repo/slim"
+ * import { Repo } from "@automerge/automerge-repo"
  *
  * const { subduction } = await setupSubduction({
  *   subductionModule,

@@ -22,7 +22,8 @@ import {
 import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 import { v4 } from "uuid"
 
-// Initialize Subduction Wasm from base64 (use /slim to avoid bundler.js dual-module class identity issue)
+// Initialize Subduction Wasm from base64
+// (use /slim to avoid wasm-bodge bundler.js dual-module class identity issue)
 initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
 initSubductionModule(subductionModule)
 ;(async () => {
@@ -37,8 +38,8 @@ initSubductionModule(subductionModule)
 
   const repo = new Repo({
     network: [
-      new BroadcastChannelNetworkAdapter(), // For same-browser tab communication
-      new WebSocketClientAdapter("ws://localhost:8081"), // Ephemeral messages (presence) via relay server
+      new BroadcastChannelNetworkAdapter(),
+      new WebSocketClientAdapter("ws://localhost:8081"),
     ],
     subduction,
   })

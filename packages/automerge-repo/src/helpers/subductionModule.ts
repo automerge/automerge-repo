@@ -17,8 +17,8 @@ let _subductionModule: SubductionModuleType | null = null
  *
  * @example
  * ```ts
- * import { initSync } from "@automerge/automerge-subduction/slim"
- * import * as subductionModule from "@automerge/automerge-subduction/slim"
+ * import { initSync } from "@automerge/automerge-subduction"
+ * import * as subductionModule from "@automerge/automerge-subduction"
  * import { setSubductionModule } from "@automerge/automerge-repo"
  *
  * await initSync()
