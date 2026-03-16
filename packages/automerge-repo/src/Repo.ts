@@ -142,6 +142,20 @@ export class Repo extends EventEmitter<RepoEvents> {
   #outboundResolvers: (() => void)[] = []
   #throttledBroadcasts: ThrottledFunction<() => void>[] = []
 
+  /** Self-healing sync: per-sedimentreeId backoff state */
+  static readonly #HEAL_INITIAL_DELAY = 2_000
+  static readonly #HEAL_MAX_DELAY = 60_000
+  static readonly #HEAL_MAX_ATTEMPTS = 10
+  #healTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
+  #healBackoff: Map<string, number> = new Map()
+  #healAttempts: Map<string, number> = new Map()
+
+  /** Periodic background sync */
+  #periodicSyncTimer: ReturnType<typeof setInterval> | null = null
+  #batchSyncTimer: ReturnType<typeof setInterval> | null = null
+  #periodicSyncInProgress = false
+  #batchSyncInProgress = false
+
   /** @hidden */
   networkSubsystem: NetworkSubsystem
   /** @hidden */
@@ -189,6 +203,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     idFactory,
     subduction,
     recentHeadsCacheSize = 256,
+    periodicSyncInterval = 60_000,
+    batchSyncInterval = 300_000,
   }: RepoConfig) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
@@ -395,6 +411,18 @@ export class Repo extends EventEmitter<RepoEvents> {
       subductionStorage.on("fragment-saved", (id, digest, blob) => {
         this.#handleFragmentSaved(id, digest, blob)
       })
+    }
+
+    // Start periodic background sync timers
+    if (periodicSyncInterval > 0) {
+      this.#periodicSyncTimer = setInterval(() => {
+        void this.#runPeriodicSync()
+      }, periodicSyncInterval)
+    }
+    if (batchSyncInterval > 0) {
+      this.#batchSyncTimer = setInterval(() => {
+        void this.#runBatchSync()
+      }, batchSyncInterval)
     }
   }
 
@@ -1015,6 +1043,24 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async shutdown() {
+    // Cancel periodic sync timers
+    if (this.#periodicSyncTimer !== null) {
+      clearInterval(this.#periodicSyncTimer)
+      this.#periodicSyncTimer = null
+    }
+    if (this.#batchSyncTimer !== null) {
+      clearInterval(this.#batchSyncTimer)
+      this.#batchSyncTimer = null
+    }
+
+    // Cancel all pending heal timers
+    for (const timer of this.#healTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.#healTimers.clear()
+    this.#healBackoff.clear()
+    this.#healAttempts.clear()
+
     await this.awaitOutbound()
     await this.#subduction.disconnectAll()
     await this.flush()
@@ -1066,6 +1112,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Log sync statistics and any errors
     let receivedData = false
+    let anyFailed = false
     for (const result of peerResultMap.entries()) {
       const stats = result.stats
       if (stats && !stats.isEmpty) {
@@ -1076,11 +1123,20 @@ export class Repo extends EventEmitter<RepoEvents> {
         )
       }
       if (!result.success) {
+        anyFailed = true
         this.#log("sync failed for peer")
       }
       for (const errPair of result.connErrors || []) {
+        anyFailed = true
         this.#log("sync connection error:", errPair.err)
       }
+    }
+
+    // Self-healing: schedule retry on failure, reset backoff on success
+    if (anyFailed) {
+      this.#scheduleHealSync(sedimentreeId)
+    } else {
+      this.#resetHealState(sedimentreeId.toString())
     }
 
     const hasPeers = peerResultMap.entries().length > 0
@@ -1130,6 +1186,199 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     throttledBroadcast()
+  }
+
+  // ---------------------------------------------------------------------------
+  // Self-healing sync
+  //
+  // When a sync or broadcast fails, we schedule a debounced retry for the
+  // affected sedimentree. Repeated failures use exponential backoff (2 s →
+  // 60 s cap). After 10 consecutive failures we give up and emit
+  // "heal-exhausted" so the application layer can decide what to do.
+  // ---------------------------------------------------------------------------
+
+  #scheduleHealSync(sedimentreeId: SedimentreeId) {
+    const key = sedimentreeId.toString()
+    const attempts = this.#healAttempts.get(key) ?? 0
+
+    if (attempts >= Repo.#HEAL_MAX_ATTEMPTS) {
+      this.#log(
+        `heal sync exhausted after ${attempts} attempts for ${key.slice(0, 8)}`
+      )
+      const documentId = toDocumentId(sedimentreeId)
+      this.emit("heal-exhausted", { documentId })
+      return
+    }
+
+    // Debounce: if a timer is already pending, restart the window.
+    const existing = this.#healTimers.get(key)
+    if (existing !== undefined) clearTimeout(existing)
+
+    const delay = this.#healBackoff.get(key) ?? Repo.#HEAL_INITIAL_DELAY
+
+    this.#log(
+      `scheduling heal sync for ${key.slice(0, 8)} in ${delay}ms (attempt ${
+        attempts + 1
+      }/${Repo.#HEAL_MAX_ATTEMPTS})`
+    )
+
+    const timer = setTimeout(() => {
+      void this.#executeHealSync(sedimentreeId)
+    }, delay)
+    this.#healTimers.set(key, timer)
+  }
+
+  async #executeHealSync(sedimentreeId: SedimentreeId) {
+    const key = sedimentreeId.toString()
+    this.#healTimers.delete(key)
+    this.#healAttempts.set(key, (this.#healAttempts.get(key) ?? 0) + 1)
+
+    this.#log(`executing heal sync for ${key.slice(0, 8)}...`)
+
+    try {
+      const peerResultMap = await this.#subduction.syncWithAllPeers(
+        sedimentreeId,
+        true
+      )
+
+      let anyFailed = false
+      for (const result of peerResultMap.entries()) {
+        if (!result.success || (result.connErrors?.length ?? 0) > 0) {
+          anyFailed = true
+          break
+        }
+      }
+
+      if (anyFailed) {
+        const currentDelay =
+          this.#healBackoff.get(key) ?? Repo.#HEAL_INITIAL_DELAY
+        const nextDelay = Math.min(currentDelay * 2, Repo.#HEAL_MAX_DELAY)
+        this.#healBackoff.set(key, nextDelay)
+        this.#scheduleHealSync(sedimentreeId)
+      } else {
+        this.#log(`heal sync succeeded for ${key.slice(0, 8)}`)
+        this.#resetHealState(key)
+      }
+    } catch (e) {
+      this.#log(`heal sync threw for ${key.slice(0, 8)}:`, e)
+      const currentDelay =
+        this.#healBackoff.get(key) ?? Repo.#HEAL_INITIAL_DELAY
+      const nextDelay = Math.min(currentDelay * 2, Repo.#HEAL_MAX_DELAY)
+      this.#healBackoff.set(key, nextDelay)
+      this.#scheduleHealSync(sedimentreeId)
+    }
+  }
+
+  #resetHealState(key: string) {
+    const timer = this.#healTimers.get(key)
+    if (timer !== undefined) clearTimeout(timer)
+    this.#healTimers.delete(key)
+    this.#healBackoff.delete(key)
+    this.#healAttempts.delete(key)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Periodic background sync
+  //
+  // Two tiers run on independent intervals:
+  //   1. Per-document sync (default 60 s) — syncWithAllPeers for each known
+  //      sedimentree, skipping any already in the heal-backoff loop.
+  //   2. Full batch sync (default 5 min) — fullSyncWithAllPeers across all
+  //      sedimentrees and peers in a single 1.5 RTT exchange.
+  //
+  // Both skip their run when already in-progress or when there are no peers.
+  // Failures from the per-document sweep feed into the heal-sync backoff.
+  // A successful batch sync resets *all* heal state as a clean-slate signal.
+  // ---------------------------------------------------------------------------
+
+  async #runPeriodicSync() {
+    if (this.#periodicSyncInProgress) return
+    this.#periodicSyncInProgress = true
+    this.#log("starting periodic per-document sync")
+
+    try {
+      for (const [key, handle] of this.#handlesBySedimentreeId.entries()) {
+        // Skip sedimentrees already in heal-backoff (they have their own retry)
+        if (this.#healTimers.has(key)) continue
+
+        try {
+          const sedimentreeId = toSedimentreeId(handle.documentId)
+          const peerResultMap = await this.#subduction.syncWithAllPeers(
+            sedimentreeId,
+            true
+          )
+
+          // No peers → skip (we're offline)
+          if (peerResultMap.entries().length === 0) continue
+
+          let anyFailed = false
+          for (const result of peerResultMap.entries()) {
+            if (!result.success || (result.connErrors?.length ?? 0) > 0) {
+              anyFailed = true
+              break
+            }
+          }
+
+          if (anyFailed) {
+            this.#scheduleHealSync(sedimentreeId)
+          } else {
+            this.#resetHealState(key)
+          }
+        } catch (e) {
+          this.#log(`periodic sync failed for ${key.slice(0, 8)}:`, e)
+        }
+      }
+    } finally {
+      this.#periodicSyncInProgress = false
+    }
+  }
+
+  async #runBatchSync() {
+    if (this.#batchSyncInProgress) return
+    this.#batchSyncInProgress = true
+    this.#log("starting periodic batch sync (open handles)")
+
+    try {
+      let allSucceeded = true
+
+      for (const [key, handle] of this.#handlesBySedimentreeId.entries()) {
+        try {
+          const sedimentreeId = toSedimentreeId(handle.documentId)
+          const peerResultMap = await this.#subduction.syncWithAllPeers(
+            sedimentreeId,
+            true
+          )
+
+          if (peerResultMap.entries().length === 0) continue
+
+          for (const result of peerResultMap.entries()) {
+            if (!result.success || (result.connErrors?.length ?? 0) > 0) {
+              allSucceeded = false
+              break
+            }
+          }
+        } catch (e) {
+          allSucceeded = false
+          this.#log(`batch sync failed for ${key.slice(0, 8)}:`, e)
+        }
+      }
+
+      if (allSucceeded) {
+        this.#log("batch sync succeeded — resetting all heal state")
+        for (const timer of this.#healTimers.values()) {
+          clearTimeout(timer)
+        }
+        this.#healTimers.clear()
+        this.#healBackoff.clear()
+        this.#healAttempts.clear()
+      } else {
+        this.#log("batch sync completed with errors")
+      }
+    } catch (e) {
+      this.#log("batch sync threw:", e)
+    } finally {
+      this.#batchSyncInProgress = false
+    }
   }
 
   async #broadcast<T>(doc: Automerge.Doc<T>, sedimentreeId: SedimentreeId) {
@@ -1216,11 +1465,12 @@ export class Repo extends EventEmitter<RepoEvents> {
             } catch (e) {
               // Best-effort: if addCommit or buildFragmentStore fails (e.g.,
               // partial history, detached Wasm memory), log and continue.
-              // Commits are still stored; fragment compaction will retry later.
+              // Self-healing sync will retry the affected sedimentree.
               console.warn(
                 `[Repo] broadcast failed for change ${meta.hash} on ${id}:`,
                 e
               )
+              this.#scheduleHealSync(sedimentreeId)
             }
           }
         )
@@ -1352,6 +1602,21 @@ export interface RepoConfig {
    * The size of the cache for recently seen heads per document to avoid resending them
    */
   recentHeadsCacheSize?: number
+
+  /**
+   * Interval in ms for periodic per-document background sync.
+   * Each known sedimentree is synced with all peers (1.5 RTT each).
+   * Set to 0 to disable. Defaults to 60000 (60 s).
+   */
+  periodicSyncInterval?: number
+
+  /**
+   * Interval in ms for a full batch sync across all sedimentrees and peers.
+   * A single `fullSyncWithAllPeers()` call (1.5 RTT). Serves as a
+   * coarse-grained consistency check and resets all heal-sync state on
+   * success.  Set to 0 to disable. Defaults to 300000 (5 min).
+   */
+  batchSyncInterval?: number
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -1397,6 +1662,8 @@ export interface RepoEvents {
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (arg: DeleteDocumentPayload) => void
   "doc-metrics": (arg: DocMetrics) => void
+  /** Self-healing sync exhausted all retry attempts for a document */
+  "heal-exhausted": (arg: { documentId: DocumentId }) => void
 }
 
 export interface RepoFindOptions {
