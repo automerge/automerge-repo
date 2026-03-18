@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-subduction-bridge",
-  "version": "2.6.0-subduction.4",
+  "version": "2.6.0-subduction.5",
   "description": "Bridges to use automerge-repo storage and network adapters with Subduction",
   "repository": "https://github.com/automerge/automerge-repo/tree/subductionjs/packages/automerge-repo-subduction-bridge",
   "keywords": [
