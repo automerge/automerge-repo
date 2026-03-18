@@ -5,12 +5,11 @@ import {
 } from "@automerge/automerge-repo"
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
 import { NetworkAdapterConnection } from "../src/network.js"
-import { PeerId, Message, SedimentreeId } from "@automerge/automerge-subduction"
+import { PeerId, SedimentreeId } from "@automerge/automerge-subduction"
 
 const randomBytes = (length: number): Uint8Array =>
   Uint8Array.from({ length }, () => Math.floor(Math.random() * 256))
-const testSedimentreeId = () => SedimentreeId.fromBytes(randomBytes(32))
-const testMessage = () => Message.blobsRequest(testSedimentreeId(), [])
+const testBytes = () => randomBytes(64)
 
 describe("NetworkAdapterConnection with BroadcastChannelNetworkAdapter", () => {
   let aliceAdapter: BroadcastChannelNetworkAdapter
@@ -69,28 +68,31 @@ describe("NetworkAdapterConnection with BroadcastChannelNetworkAdapter", () => {
     bobAdapter.disconnect()
   })
 
-  it("sends messages through BroadcastChannel", async () => {
-    const message = testMessage()
-    const recvPromise = bobConnection.recv()
-    await aliceConnection.send(message)
+  it("sends bytes through BroadcastChannel", async () => {
+    const bytes = testBytes()
+    const recvPromise = bobConnection.recvBytes()
+    await aliceConnection.sendBytes(bytes)
     const received = await recvPromise
-    expect(received.type).toBe("BlobsRequest")
+    expect(received).toEqual(bytes)
   })
 
-  it("sends messages in both directions", async () => {
-    const aliceRecvPromise = aliceConnection.recv()
-    const bobRecvPromise = bobConnection.recv()
+  it("sends bytes in both directions", async () => {
+    const aliceRecvPromise = aliceConnection.recvBytes()
+    const bobRecvPromise = bobConnection.recvBytes()
 
-    await aliceConnection.send(testMessage())
-    await bobConnection.send(testMessage())
+    const aliceBytes = testBytes()
+    const bobBytes = testBytes()
+
+    await aliceConnection.sendBytes(aliceBytes)
+    await bobConnection.sendBytes(bobBytes)
 
     const [aliceReceived, bobReceived] = await Promise.all([
       aliceRecvPromise,
       bobRecvPromise,
     ])
 
-    expect(aliceReceived.type).toBe("BlobsRequest")
-    expect(bobReceived.type).toBe("BlobsRequest")
+    expect(aliceReceived).toEqual(bobBytes)
+    expect(bobReceived).toEqual(aliceBytes)
   })
 
   it("handles peer disconnection", async () => {
@@ -103,7 +105,7 @@ describe("NetworkAdapterConnection with BroadcastChannelNetworkAdapter", () => {
     bobAdapter.disconnect()
     await disconnectReceived
 
-    await expect(aliceConnection.send(testMessage())).rejects.toThrow(
+    await expect(aliceConnection.sendBytes(testBytes())).rejects.toThrow(
       "disconnected"
     )
   })

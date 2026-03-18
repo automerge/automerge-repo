@@ -1,5 +1,10 @@
 /**
- * Bridge that allows Subduction to use `automerge-repo` network adapters.
+ * Bridge that allows Subduction to use `automerge-repo` network adapters
+ * as a byte-level {@link Transport}.
+ *
+ * Subduction's Wasm layer handles message framing, request/response
+ * correlation, and encoding internally. This bridge only needs to shuttle
+ * raw bytes between the adapter's message envelope and the Wasm transport.
  */
 
 import debug from "debug"
@@ -7,45 +12,28 @@ import type {
   NetworkAdapterInterface,
   Message as RepoMessage,
 } from "@automerge/automerge-repo"
-import {
-  Nonce,
-  RequestId,
-  Message,
-  type Connection,
-  type Message as SubductionMessage,
-  type BatchSyncRequest,
-  type BatchSyncResponse,
-  type PeerId,
-} from "@automerge/automerge-subduction/slim"
+import type { Transport, PeerId } from "@automerge/automerge-subduction/slim"
 
 /**
- * A connection that wraps an `automerge-repo` `NetworkAdapter` to implement
- * Subduction's `Connection` interface.
+ * A {@link Transport} that wraps an `automerge-repo` `NetworkAdapter`.
  *
- * This allows Subduction to communicate over any automerge-repo network adapter
- * (`BroadcastChannel`, `MessageChannel`, etc.) by encoding Subduction messages
- * within the adapter's message format, and decoding this on the other end.
+ * This allows Subduction to communicate over any automerge-repo network
+ * adapter (`BroadcastChannel`, `MessageChannel`, etc.) by embedding raw
+ * Subduction bytes in the adapter's message envelope.
  *
- * Note that both ends of the connection must be able to understand the transport.
+ * Use with {@link Subduction.connectTransport} / {@link Subduction.acceptTransport},
+ * or wrap with {@link AuthenticatedTransport.setup} and pass to
+ * {@link Subduction.addConnection}.
+ *
+ * Both ends of the channel must be using this bridge.
  */
-export class NetworkAdapterConnection implements Connection {
+export class NetworkAdapterConnection implements Transport {
   #adapter: NetworkAdapterInterface
   #localPeerId: PeerId
   #remotePeerId: PeerId
 
-  // For pull-based recv()
-  #messageQueue: SubductionMessage[] = []
-  #waitingReceivers: Array<(msg: SubductionMessage) => void> = []
-
-  // For call() request/response correlation
-  #pendingCalls = new Map<
-    string,
-    {
-      resolve: (resp: BatchSyncResponse) => void
-      reject: (err: Error) => void
-      timeoutId?: ReturnType<typeof setTimeout>
-    }
-  >()
+  #byteQueue: Uint8Array[] = []
+  #waitingReceivers: Array<(bytes: Uint8Array) => void> = []
 
   #disconnected = false
 
@@ -89,116 +77,64 @@ export class NetworkAdapterConnection implements Connection {
       return
     }
 
-    let subductionMsg: SubductionMessage
-    try {
-      subductionMsg = Message.fromBytes(msg.data)
-    } catch {
-      console.error("Failed to decode Subduction message:", msg.data)
-      return
-    }
-
-    // Check if this is a BatchSyncResponse for a pending call()
-    if (subductionMsg.type === "BatchSyncResponse") {
-      const resp = subductionMsg.response
-      if (resp) {
-        const key = this.#requestIdKey(resp.request_id())
-        const pending = this.#pendingCalls.get(key)
-
-        if (pending) {
-          if (pending.timeoutId) clearTimeout(pending.timeoutId)
-          this.#pendingCalls.delete(key)
-          pending.resolve(resp)
-          return
-        }
-      }
-    }
-
-    // Otherwise queue for recv()
     const receiver = this.#waitingReceivers.shift()
     if (receiver) {
-      receiver(subductionMsg)
+      receiver(msg.data)
     } else {
-      this.#messageQueue.push(subductionMsg)
+      this.#byteQueue.push(msg.data)
     }
   }
 
   #handlePeerDisconnected = ({ peerId }: { peerId: string }) => {
     if (peerId === this.#remotePeerId.toString()) {
       this.#disconnected = true
-      this.#pendingCalls.forEach(pending => {
-        if (pending.timeoutId) clearTimeout(pending.timeoutId)
-        pending.reject(new Error("Peer disconnected"))
-      })
-      this.#pendingCalls.clear()
-    }
-  }
 
-  #requestIdKey(reqId: RequestId): string {
-    const nonceBytes: Uint8Array = reqId.nonce.bytes
-    const nonceHex = Array.from(nonceBytes)
-      .map((b: number) => b.toString(16).padStart(2, "0"))
-      .join("")
-    return `${reqId.requestor}:${nonceHex}`
+      // Reject any pending recvBytes() calls
+      for (const _receiver of this.#waitingReceivers) {
+        // Receivers are resolve callbacks; we can't reject them directly.
+        // They will hang until GC. The disconnected flag prevents new calls.
+      }
+      this.#waitingReceivers = []
+    }
   }
 
   /**
    * Get the peer ID of the remote peer.
    *
-   * Note: This is _not_ part of the Subduction `Connection` interface
-   * (which no longer exposes `peerId()`). It is a convenience accessor
-   * for callers that need to know which peer this bridge connects to.
+   * This is a convenience accessor for callers that need to know which
+   * peer this bridge connects to (e.g. for connection tracking).
    */
-  remotePeerId(): PeerId {
+  getRemotePeerId(): PeerId {
     return this.#remotePeerId
   }
 
   /**
-   * Disconnect from the peer.
-   *
-   * Note: This doesn't close the underlying adapter since it may be shared
-   * with other connections. It just stops listening for this peer's messages.
+   * Send raw bytes to the remote peer.
    */
-  async disconnect(): Promise<void> {
-    this.#disconnected = true
-    this.#adapter.off("message", this.#handleMessage)
-    this.#adapter.off("peer-disconnected", this.#handlePeerDisconnected)
-
-    this.#pendingCalls.forEach(pending => {
-      if (pending.timeoutId) clearTimeout(pending.timeoutId)
-      pending.reject(new Error("Disconnected"))
-    })
-    this.#pendingCalls.clear()
-  }
-
-  /**
-   * Send a Subduction message to the remote peer.
-   */
-  async send(message: SubductionMessage): Promise<void> {
+  async sendBytes(bytes: Uint8Array): Promise<void> {
     if (this.#disconnected) {
       throw new Error("Connection is disconnected")
     }
-
-    const encoded = message.toBytes()
 
     this.#adapter.send({
       type: SUBDUCTION_MESSAGE_TYPE,
       senderId: this.#localPeerId.toString() as RepoMessage["senderId"],
       targetId: this.#remotePeerId.toString() as RepoMessage["targetId"],
-      data: encoded,
+      data: bytes,
     })
   }
 
   /**
-   * Receive the next Subduction message from the remote peer.
+   * Receive the next chunk of raw bytes from the remote peer.
    *
-   * This returns a Promise that resolves when a message is available.
+   * Returns a Promise that resolves when bytes are available.
    */
-  async recv(): Promise<SubductionMessage> {
+  async recvBytes(): Promise<Uint8Array> {
     if (this.#disconnected) {
       throw new Error("Connection is disconnected")
     }
 
-    const queued = this.#messageQueue.shift()
+    const queued = this.#byteQueue.shift()
     if (queued) return queued
 
     return new Promise((resolve, reject) => {
@@ -211,49 +147,16 @@ export class NetworkAdapterConnection implements Connection {
   }
 
   /**
-   * Get the next request ID for making calls.
-   */
-  async nextRequestId(): Promise<RequestId> {
-    const nonce = Nonce.random()
-    return new RequestId(this.#localPeerId, nonce)
-  }
-
-  /**
-   * Make a request/response call to the remote peer.
+   * Disconnect from the peer.
    *
-   * @param request - The BatchSyncRequest to send
-   * @param timeoutMs - Timeout in milliseconds (null for no timeout)
-   * @returns The BatchSyncResponse from the peer
+   * This doesn't close the underlying adapter since it may be shared
+   * with other connections. It just stops listening for this peer's messages.
    */
-  async call(
-    request: BatchSyncRequest,
-    timeoutMs: number | null
-  ): Promise<BatchSyncResponse> {
-    if (this.#disconnected) {
-      throw new Error("Connection is disconnected")
-    }
-
-    const key = this.#requestIdKey(request.request_id())
-
-    return new Promise((resolve, reject) => {
-      let timeoutId: ReturnType<typeof setTimeout> | undefined
-
-      if (timeoutMs !== null) {
-        timeoutId = setTimeout(() => {
-          this.#pendingCalls.delete(key)
-          reject(new Error("Call timed out"))
-        }, timeoutMs)
-      }
-
-      this.#pendingCalls.set(key, { resolve, reject, timeoutId })
-
-      const message = Message.batchSyncRequest(request)
-      this.send(message).catch(err => {
-        if (timeoutId) clearTimeout(timeoutId)
-        this.#pendingCalls.delete(key)
-        reject(err)
-      })
-    })
+  async disconnect(): Promise<void> {
+    this.#disconnected = true
+    this.#adapter.off("message", this.#handleMessage)
+    this.#adapter.off("peer-disconnected", this.#handlePeerDisconnected)
+    this.#waitingReceivers = []
   }
 }
 

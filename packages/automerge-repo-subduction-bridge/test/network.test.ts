@@ -5,14 +5,12 @@ import {
   type Message as RepoMessage,
   type PeerId as RepoPeerId,
 } from "@automerge/automerge-repo"
-import { cbor } from "@automerge/automerge-repo/slim"
 import { NetworkAdapterConnection } from "../src/network.js"
-import { PeerId, Message, SedimentreeId } from "@automerge/automerge-subduction"
+import { PeerId, SedimentreeId } from "@automerge/automerge-subduction"
 
 const randomBytes = (length: number): Uint8Array =>
   Uint8Array.from({ length }, () => Math.floor(Math.random() * 256))
-const testSedimentreeId = () => SedimentreeId.fromBytes(randomBytes(32))
-const testMessage = () => Message.blobsRequest(testSedimentreeId(), [])
+const testBytes = () => randomBytes(64)
 
 class MockNetworkAdapter extends NetworkAdapter {
   #peer: MockNetworkAdapter | null = null
@@ -36,7 +34,7 @@ class MockNetworkAdapter extends NetworkAdapter {
   }
 
   simulateDisconnect(peerId: string): void {
-    this.emit("peer-disconnected", { peerId })
+    this.emit("peer-disconnected", { peerId: peerId as RepoPeerId })
   }
 
   emitMessage(message: RepoMessage): void {
@@ -69,7 +67,7 @@ describe("NetworkAdapterConnection", () => {
         remotePeerId
       )
 
-      expect(connection.remotePeerId()).toBe(remotePeerId)
+      expect(connection.getRemotePeerId()).toBe(remotePeerId)
     })
 
     it("can disconnect", async () => {
@@ -87,13 +85,13 @@ describe("NetworkAdapterConnection", () => {
 
       await connection.disconnect()
 
-      await expect(connection.send(testMessage())).rejects.toThrow(
+      await expect(connection.sendBytes(testBytes())).rejects.toThrow(
         "disconnected"
       )
     })
   })
 
-  describe("send and receive", () => {
+  describe("sendBytes and recvBytes", () => {
     let aliceAdapter: MockNetworkAdapter
     let bobAdapter: MockNetworkAdapter
     let alicePeerId: PeerId
@@ -122,20 +120,20 @@ describe("NetworkAdapterConnection", () => {
       )
     })
 
-    it("sends messages between peers", async () => {
-      const message = testMessage()
-      const recvPromise = bobConnection.recv()
-      await aliceConnection.send(message)
+    it("sends bytes between peers", async () => {
+      const bytes = testBytes()
+      const recvPromise = bobConnection.recvBytes()
+      await aliceConnection.sendBytes(bytes)
       const received = await recvPromise
-      expect(received.type).toBe("BlobsRequest")
+      expect(received).toEqual(bytes)
     })
 
-    it("queues messages received before recv() is called", async () => {
-      const message = testMessage()
-      await aliceConnection.send(message)
+    it("queues bytes received before recvBytes() is called", async () => {
+      const bytes = testBytes()
+      await aliceConnection.sendBytes(bytes)
       await new Promise(r => setTimeout(r, 10))
-      const received = await bobConnection.recv()
-      expect(received.type).toBe("BlobsRequest")
+      const received = await bobConnection.recvBytes()
+      expect(received).toEqual(bytes)
     })
 
     it("filters messages from other peers", async () => {
@@ -144,7 +142,7 @@ describe("NetworkAdapterConnection", () => {
         type: "subduction-connection",
         senderId: otherPeerId.toString() as RepoMessage["senderId"],
         targetId: bobPeerId.toString() as RepoMessage["targetId"],
-        data: cbor.encode(testMessage()),
+        data: testBytes(),
       }
 
       bobAdapter.emitMessage(message)
@@ -154,7 +152,7 @@ describe("NetworkAdapterConnection", () => {
       )
 
       const result = await Promise.race([
-        bobConnection.recv().then(() => "received"),
+        bobConnection.recvBytes().then(() => "received"),
         timeoutPromise,
       ])
 
@@ -176,50 +174,11 @@ describe("NetworkAdapterConnection", () => {
       )
 
       const result = await Promise.race([
-        bobConnection.recv().then(() => "received"),
+        bobConnection.recvBytes().then(() => "received"),
         timeoutPromise,
       ])
 
       expect(result).toBeNull()
-    })
-  })
-
-  describe("nextRequestId", () => {
-    it("generates unique request IDs", async () => {
-      const adapter = new MockNetworkAdapter("local")
-      const localPeerId = new PeerId(crypto.getRandomValues(new Uint8Array(32)))
-      const remotePeerId = new PeerId(
-        crypto.getRandomValues(new Uint8Array(32))
-      )
-
-      const connection = new NetworkAdapterConnection(
-        adapter as NetworkAdapterInterface,
-        localPeerId,
-        remotePeerId
-      )
-
-      const id1 = await connection.nextRequestId()
-      const id2 = await connection.nextRequestId()
-
-      expect(id1.nonce.bytes).not.toEqual(id2.nonce.bytes)
-    })
-
-    it("uses the local peer ID as requestor", async () => {
-      const adapter = new MockNetworkAdapter("local")
-      const localPeerId = new PeerId(crypto.getRandomValues(new Uint8Array(32)))
-      const remotePeerId = new PeerId(
-        crypto.getRandomValues(new Uint8Array(32))
-      )
-
-      const connection = new NetworkAdapterConnection(
-        adapter as NetworkAdapterInterface,
-        localPeerId,
-        remotePeerId
-      )
-
-      const reqId = await connection.nextRequestId()
-
-      expect(reqId.requestor).toBeDefined()
     })
   })
 
@@ -239,7 +198,7 @@ describe("NetworkAdapterConnection", () => {
 
       adapter.simulateDisconnect(remotePeerId.toString())
 
-      await expect(connection.send(testMessage())).rejects.toThrow(
+      await expect(connection.sendBytes(testBytes())).rejects.toThrow(
         "disconnected"
       )
     })
@@ -260,12 +219,12 @@ describe("NetworkAdapterConnection", () => {
 
       adapter.simulateDisconnect(otherPeerId.toString())
 
-      expect(connection.remotePeerId()).toBe(remotePeerId)
+      expect(connection.getRemotePeerId()).toBe(remotePeerId)
     })
   })
 
-  describe("recv() blocking behavior", () => {
-    it("recv() blocks until a message arrives", async () => {
+  describe("recvBytes() blocking behavior", () => {
+    it("recvBytes() blocks until bytes arrive", async () => {
       const aliceAdapter = new MockNetworkAdapter("alice")
       const bobAdapter = new MockNetworkAdapter("bob")
       aliceAdapter.connectTo(bobAdapter)
@@ -286,19 +245,20 @@ describe("NetworkAdapterConnection", () => {
       )
 
       let received = false
-      const recvPromise = bobConnection.recv().then(msg => {
+      const recvPromise = bobConnection.recvBytes().then(bytes => {
         received = true
-        return msg
+        return bytes
       })
 
       await new Promise(r => setTimeout(r, 10))
       expect(received).toBe(false)
 
-      await aliceConnection.send(testMessage())
+      const sentBytes = testBytes()
+      await aliceConnection.sendBytes(sentBytes)
 
-      const msg = await recvPromise
+      const receivedBytes = await recvPromise
       expect(received).toBe(true)
-      expect(msg.type).toBe("BlobsRequest")
+      expect(receivedBytes).toEqual(sentBytes)
     })
   })
 })

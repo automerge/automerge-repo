@@ -19,8 +19,8 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4
       '@automerge/automerge-subduction':
-        specifier: 0.4.0-alpha.1
-        version: 0.4.0-alpha.1
+        specifier: 0.5.0-alpha.1
+        version: 0.5.0-alpha.1
       '@manypkg/cli':
         specifier: ^0.21.4
         version: 0.21.4
@@ -139,8 +139,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction-bridge
       '@automerge/automerge-subduction':
-        specifier: 0.4.0-alpha.1
-        version: 0.4.0-alpha.1
+        specifier: 0.5.0-alpha.1
+        version: 0.5.0-alpha.1
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -160,8 +160,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction-bridge
       '@automerge/automerge-subduction':
-        specifier: 0.4.0-alpha.1
-        version: 0.4.0-alpha.1
+        specifier: 0.5.0-alpha.1
+        version: 0.5.0-alpha.1
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -200,8 +200,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction-bridge
       '@automerge/automerge-subduction':
-        specifier: 0.4.0-alpha.1
-        version: 0.4.0-alpha.1
+        specifier: 0.5.0-alpha.1
+        version: 0.5.0-alpha.1
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -246,8 +246,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-svelte-store
       '@automerge/automerge-subduction':
-        specifier: 0.4.0-alpha.1
-        version: 0.4.0-alpha.1
+        specifier: 0.5.0-alpha.1
+        version: 0.5.0-alpha.1
       svelte:
         specifier: ^5.0.0
         version: 5.37.3
@@ -277,8 +277,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction-bridge
       '@automerge/automerge-subduction':
-        specifier: 0.4.0-alpha.1
-        version: 0.4.0-alpha.1
+        specifier: 0.5.0-alpha.1
+        version: 0.5.0-alpha.1
       express:
         specifier: ^4.18.1
         version: 4.22.0
@@ -333,8 +333,8 @@ importers:
         specifier: ^3.2.0
         version: 3.2.1
       '@automerge/automerge-subduction':
-        specifier: 0.4.0-alpha.1
-        version: 0.4.0-alpha.1
+        specifier: 0.5.0-alpha.1
+        version: 0.5.0-alpha.1
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -503,8 +503,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
       '@automerge/automerge-subduction':
-        specifier: 0.4.0-alpha.1
-        version: 0.4.0-alpha.1
+        specifier: 0.5.0-alpha.1
+        version: 0.5.0-alpha.1
       debug:
         specifier: ^4.3.4
         version: 4.4.3
@@ -587,8 +587,8 @@ packages:
   '@asamuzakjp/nwsapi@2.3.9':
     resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
 
-  '@automerge/automerge-subduction@0.4.0-alpha.1':
-    resolution: {integrity: sha512-rZccu++x9D9yMtBFO0QFYrUHticETlhrqIPFMf4nmSqLEF87gkH3pi07HQVukbtoXLNvovA3pzsJscaCLZytng==}
+  '@automerge/automerge-subduction@0.5.0-alpha.1':
+    resolution: {integrity: sha512-hYTNiBmZzoPoI07oDPk2d9ZWSWom95c+NC9MmWV3lXsWO9CqqdSGtM7wwZvWMb9d4weUbYZ3RcoSGraFqaZKYw==}
 
   '@automerge/automerge@3.0.0':
     resolution: {integrity: sha512-vp/LrAzOyS4J+YmEKRjnCjCUqN6itzz9nKvPEcSLJuapZXfPmY72TYg0F05DVnLCvGe+sLuVAoVntJT6K0qutQ==}
@@ -7256,7 +7256,7 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
-  '@automerge/automerge-subduction@0.4.0-alpha.1': {}
+  '@automerge/automerge-subduction@0.5.0-alpha.1': {}
 
   '@automerge/automerge@3.0.0': {}
 

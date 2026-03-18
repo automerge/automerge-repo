@@ -1126,9 +1126,9 @@ export class Repo extends EventEmitter<RepoEvents> {
         anyFailed = true
         this.#log("sync failed for peer")
       }
-      for (const errPair of result.connErrors || []) {
+      for (const err of result.transportErrors || []) {
         anyFailed = true
-        this.#log("sync connection error:", errPair.err)
+        this.#log("sync transport error:", err)
       }
     }
 
@@ -1243,7 +1243,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
       let anyFailed = false
       for (const result of peerResultMap.entries()) {
-        if (!result.success || (result.connErrors?.length ?? 0) > 0) {
+        if (!result.success || (result.transportErrors?.length ?? 0) > 0) {
           anyFailed = true
           break
         }
@@ -1313,7 +1313,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
           let anyFailed = false
           for (const result of peerResultMap.entries()) {
-            if (!result.success || (result.connErrors?.length ?? 0) > 0) {
+            if (!result.success || (result.transportErrors?.length ?? 0) > 0) {
               anyFailed = true
               break
             }
@@ -1352,7 +1352,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           if (peerResultMap.entries().length === 0) continue
 
           for (const result of peerResultMap.entries()) {
-            if (!result.success || (result.connErrors?.length ?? 0) > 0) {
+            if (!result.success || (result.transportErrors?.length ?? 0) > 0) {
               allSucceeded = false
               break
             }

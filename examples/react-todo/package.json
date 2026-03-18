@@ -11,7 +11,7 @@
   "dependencies": {
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "@automerge/automerge-repo-subduction-bridge": "workspace:*",
-    "@automerge/automerge-subduction": "0.4.0-alpha.1",
+    "@automerge/automerge-subduction": "0.5.0-alpha.1",
     "@automerge/react": "workspace:*",
     "autoprefixer": "^10.4.13",
     "classnames": "^2.3.2",
