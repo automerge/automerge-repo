@@ -4,15 +4,14 @@ import {
   type PeerId,
   Repo,
 } from "@automerge/automerge-repo"
-import { render, renderHook, waitFor } from "@solidjs/testing-library"
+import { render, waitFor } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import useDocHandle from "../src/useDocHandle.js"
 import { RepoContext } from "../src/context.js"
 import {
   createEffect,
   createSignal,
-  on,
-  Suspense,
+  Loading,
   untrack,
   type ParentComponent,
 } from "solid-js"
@@ -23,9 +22,7 @@ interface ExampleDoc {
 }
 
 function getRepoWrapper(repo: Repo): ParentComponent {
-  return props => (
-    <RepoContext.Provider value={repo}>{props.children}</RepoContext.Provider>
-  )
+  return props => <RepoContext value={repo}>{props.children}</RepoContext>
 }
 
 describe("useDocHandle", () => {
@@ -61,15 +58,16 @@ describe("useDocHandle", () => {
       untrack(() => props.options)
     )
     createEffect(
-      on([handle], () => {
-        props.onHandle(handle())
-      })
+      () => handle(),
+      handle => {
+        props.onHandle(handle)
+      }
     )
 
     return (
-      <Suspense fallback={<div>fallback</div>}>
-        <button>{handle.latest?.url ?? "🕯️🕯️🕯️🕯️"}</button>
-      </Suspense>
+      <Loading fallback={<button>fallback</button>}>
+        <button>{handle()?.url ?? "🕯️🕯️🕯️🕯️"}</button>
+      </Loading>
     )
   }
 
@@ -120,35 +118,30 @@ describe("useDocHandle", () => {
     const onHandle = vi.fn()
     const [url, updateURL] = createSignal<AutomergeUrl | undefined>(undefined)
 
-    let hookResult = renderHook(useDocHandle, {
-      initialProps: [url],
-      wrapper,
-    })
-
     let componentResult = render(
       () => <Component url={url()} onHandle={onHandle} />,
       { wrapper }
     )
-    let button = componentResult.getByRole("button")
+    let button = () => componentResult.getByRole("button")
 
     // set url to doc A
     updateURL(handleA.url)
-    await waitFor(() => expect(hookResult.result.latest).toBe(handleA))
+
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
 
-    await waitFor(() => expect(button).toHaveTextContent(handleA.url))
+    await waitFor(() => expect(button()).toHaveTextContent(handleA.url))
 
     // set url to doc B
     updateURL(handleB.url)
-    await waitFor(() => expect(hookResult.result.latest?.url).toBe(handleB.url))
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleB))
 
-    await waitFor(() => expect(button).toHaveTextContent(handleB.url))
+    await waitFor(() => expect(button()).toHaveTextContent(handleB.url))
 
     // set url to undefined
     updateURL(undefined)
-    await waitFor(() => expect(hookResult.result.latest?.url).toBe(undefined))
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(undefined))
 
-    await waitFor(() => expect(button).toHaveTextContent("🕯️🕯️🕯️🕯️"))
+    await waitFor(() => expect(button()).toHaveTextContent("🕯️🕯️🕯️🕯️"))
   })
 
   it("does not return undefined after the url is updated", async () => {

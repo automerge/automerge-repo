@@ -25,7 +25,7 @@ describe("useRepo", () => {
   test("should return repo from context", () => {
     const repo = new Repo()
     const wrapper: ParentComponent = props => (
-      <RepoContext.Provider value={repo}>{props.children}</RepoContext.Provider>
+      <RepoContext value={repo}>{props.children}</RepoContext>
     )
     const onRepo = vi.fn()
     render(() => <Component onRepo={onRepo} />, { wrapper })

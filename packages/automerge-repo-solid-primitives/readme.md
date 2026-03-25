@@ -109,9 +109,9 @@ A convenience context for Automerge-Repo Solid apps. Optional: if you prefer you
 can pass a repo as an option to `useDocHandle` and `useDocument`.
 
 ```tsx
-<RepoContext.Provider repo={Repo}>
+<RepoContext repo={Repo}>
   <App />
-</RepoContext.Provider>
+</RepoContext>
 ```
 
 ### `useRepo`

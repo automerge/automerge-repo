@@ -4,16 +4,11 @@ import type {
   DocumentId,
   HandleState,
 } from "@automerge/automerge-repo/slim"
-import {
-  createEffect,
-  createResource,
-  useContext,
-  type Resource,
-} from "solid-js"
+import { createMemo, useContext, type Accessor } from "solid-js"
 import { RepoContext } from "./context.js"
 import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
 const readyStates = ["ready", "deleted", "unavailable"] as HandleState[]
-const badStates = ["deleted", "unavailable"] as HandleState[]
+const badStates = ["deleted"] as HandleState[]
 
 /**
  * get a
@@ -28,7 +23,7 @@ const badStates = ["deleted", "unavailable"] as HandleState[]
 export default function useDocHandle<T>(
   url: MaybeAccessor<AutomergeUrl | undefined>,
   options?: UseDocHandleOptions
-): Resource<DocHandle<T> | undefined> {
+): Accessor<DocHandle<T> | undefined> {
   const contextRepo = useContext(RepoContext)
 
   if (!options?.repo && !contextRepo) {
@@ -37,10 +32,11 @@ export default function useDocHandle<T>(
 
   const repo = (options?.repo || contextRepo)!
 
-  function getExistingHandle() {
-    if (options?.["~skipInitialValue"]) return undefined
+  const handle = createMemo(async function () {
     const unwrappedURL = typeof url == "function" ? url() : url
-    if (!unwrappedURL) return undefined
+    if (!unwrappedURL) {
+      return undefined
+    }
     try {
       const documentId = new URL(unwrappedURL).pathname as DocumentId
       const existingHandle = repo.handles[documentId]
@@ -49,40 +45,26 @@ export default function useDocHandle<T>(
       }
     } catch (error) {
       console.error("Error parsing URL:", error)
+      return undefined
     }
-  }
-
-  const [handle, { mutate }] = createResource(
-    url,
-    async url => {
-      const handle = await repo.find<T>(url, {
-        allowableStates: readyStates,
-      })
-      const reject = (state: HandleState) =>
-        Promise.reject(new Error(`document not available: [${state}]`))
-
-      if (handle.isReady()) {
-        return handle
-      } else if (handle.inState(badStates)) {
-        return reject(handle.state)
-      }
-
-      return handle.whenReady(readyStates).then(() => {
+    const handle = await repo.find<T>(unwrappedURL, {
+      allowableStates: readyStates,
+    })
+    if (handle.isReady()) {
+      return handle
+    } else if (handle.inState(badStates)) {
+      return undefined
+    } else {
+      try {
+        await handle.whenReady(readyStates)
         if (handle.isReady()) {
           return handle
         }
-        return reject(handle.state)
-      })
-    },
-    {
-      initialValue: getExistingHandle(),
-    }
-  )
-
-  createEffect(() => {
-    const unwrappedURL = typeof url == "function" ? url() : url
-    if (!unwrappedURL) {
-      mutate()
+      } catch (error) {
+        throw new Error("Error waiting for handle to be ready:", {
+          cause: error,
+        })
+      }
     }
   })
 

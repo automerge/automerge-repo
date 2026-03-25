@@ -1,11 +1,10 @@
-import { onCleanup } from "solid-js"
+import { onCleanup, createProjection, Store } from "solid-js"
 import type {
   Doc,
   DocHandle,
   DocHandleChangePayload,
 } from "@automerge/automerge-repo/slim"
-import autoproduce from "./autoproduce.js"
-import { createStore, produce, reconcile, type Store } from "solid-js/store"
+
 import { applyPatches, diff, getHeads } from "@automerge/automerge/slim"
 
 const cache = new WeakMap<
@@ -45,28 +44,39 @@ export default function makeDocumentProjection<T extends object>(
     return item.store as T
   }
 
-  const [doc, set] = createStore<T>(initial(handle))
+  let p = Promise.withResolvers<DocHandleChangePayload<T>>()
+  function onchange(payload: DocHandleChangePayload<T>) {
+    p.resolve(payload)
+  }
+  handle.on("change", onchange)
+
+  const doc = createProjection<T>(
+    async function* (doc) {
+      yield doc
+      while (true) {
+        const payload = await p.promise
+        yield applyPatches(doc, payload.patches)
+        p = Promise.withResolvers<DocHandleChangePayload<T>>()
+      }
+    },
+    initial(handle),
+    { name: `Projection(${handle.url})` }
+  )
 
   cache.set(handle, {
     refs: 0,
     store: doc,
     cleanup() {
-      handle.off("change", patch)
+      handle.off("change", onchange)
       handle.off("delete", ondelete)
       // https://github.com/chee/solid-automerge/pull/5
       cache.delete(handle)
     },
   })
 
-  function patch(payload: DocHandleChangePayload<T>) {
-    set(produce(autoproduce(payload)))
-  }
+  function ondelete() {}
 
-  function ondelete() {
-    set(reconcile({} as T))
-  }
-
-  handle.on("change", patch)
+  handle.on("change", onchange)
   handle.on("delete", ondelete)
 
   return doc

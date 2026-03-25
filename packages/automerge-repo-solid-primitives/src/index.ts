@@ -1,4 +1,3 @@
-export { default as autoproduce } from "./autoproduce.js"
 export { default as useDocument } from "./useDocument.js"
 export { default as useDocHandle } from "./useDocHandle.js"
 export { default as makeDocumentProjection } from "./makeDocumentProjection.js"

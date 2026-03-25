@@ -1,16 +1,20 @@
 import { type PeerId, Repo, type AutomergeUrl } from "@automerge/automerge-repo"
-import { render, renderHook, testEffect } from "@solidjs/testing-library"
-import { describe, expect, it, vi } from "vitest"
+import { render, waitFor } from "@solidjs/testing-library"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { RepoContext } from "../src/context.js"
 import {
   createEffect,
   createSignal,
-  type Accessor,
+  Loading,
   type ParentComponent,
 } from "solid-js"
 import useDocument from "../src/useDocument.js"
 
 describe("useDocument", () => {
+  afterEach(() => {
+    document.body.innerHTML = ""
+  })
+
   function setup() {
     const repo = new Repo({
       peerId: "bob" as PeerId,
@@ -29,11 +33,7 @@ describe("useDocument", () => {
 
     const handle = create()
     const wrapper: ParentComponent = props => {
-      return (
-        <RepoContext.Provider value={repo}>
-          {props.children}
-        </RepoContext.Provider>
-      )
+      return <RepoContext value={repo}>{props.children}</RepoContext>
     }
 
     return {
@@ -47,197 +47,233 @@ describe("useDocument", () => {
 
   it("should notify on a property change", async () => {
     const { create, options } = setup()
+    const onKey = vi.fn()
+    const createdHandle = create()
 
-    await testEffect(done => {
-      const [doc, handle] = useDocument<ExampleDoc>(create().url, options)
-      createEffect((run: number = 0) => {
-        if (run == 0) {
-          expect(doc()?.key).toBe("value")
-          handle()?.change(doc => (doc.key = "hello world!"))
-        } else if (run == 1) {
-          expect(doc()?.key).toBe("hello world!")
-          handle()?.change(doc => (doc.key = "friday night!"))
-        } else if (run == 2) {
-          expect(doc()?.key).toBe("friday night!")
-          done()
-        }
-        return run + 1
-      })
-    })
+    const Component = () => {
+      const [doc] = useDocument<ExampleDoc>(createdHandle.url, options)
+      createEffect(
+        () => doc()?.key,
+        key => onKey(key)
+      )
+      return (
+        <Loading fallback={<button>loading</button>}>
+          <button>{doc()?.key}</button>
+        </Loading>
+      )
+    }
+
+    const { getByRole } = render(() => <Component />)
+
+    await waitFor(() => expect(getByRole("button")).toHaveTextContent("value"))
+
+    createdHandle.change(doc => (doc.key = "hello world!"))
+    await waitFor(() =>
+      expect(getByRole("button")).toHaveTextContent("hello world!")
+    )
+    expect(onKey).toHaveBeenLastCalledWith("hello world!")
+
+    createdHandle.change(doc => (doc.key = "friday night!"))
+    await waitFor(() =>
+      expect(getByRole("button")).toHaveTextContent("friday night!")
+    )
+    expect(onKey).toHaveBeenLastCalledWith("friday night!")
   })
 
   it("should not apply patches multiple times just because there are multiple projections", async () => {
     const {
       handle: { url },
+      handle,
       options,
     } = setup()
+    const onArray1 = vi.fn()
+    const onArray2 = vi.fn()
 
-    const done2 = testEffect(done => {
-      const [two, handle] = useDocument<ExampleDoc>(url, options)
-      createEffect((run: number = 0) => {
-        if (run == 0) {
-          expect(two()?.array).toEqual([1, 2, 3])
-        } else if (run == 1) {
-          expect(two()?.array).toEqual([1, 2, 3, 4])
-          handle()?.change(doc => doc.array.push(5))
-        } else if (run == 2) {
-          expect(two()?.array).toEqual([1, 2, 3, 4, 5])
-          done()
-        }
-        return run + 1
-      })
-    })
+    const Component1 = () => {
+      const [doc] = useDocument<ExampleDoc>(url, options)
+      createEffect(
+        () => doc()?.array && [...doc()!.array],
+        arr => onArray1(arr)
+      )
+      return (
+        <Loading fallback={<span data-testid="one">loading</span>}>
+          <span data-testid="one">{JSON.stringify(doc()?.array)}</span>
+        </Loading>
+      )
+    }
 
-    const done1 = testEffect(done => {
-      const [one, handle] = useDocument<ExampleDoc>(url, options)
-      createEffect((run: number = 0) => {
-        if (run == 0) {
-          expect(one()?.array).toEqual([1, 2, 3])
-          handle()?.change(doc => doc.array.push(4))
-        } else if (run == 1) {
-          expect(one()?.array).toEqual([1, 2, 3, 4])
-        } else if (run == 2) {
-          expect(one()?.array).toEqual([1, 2, 3, 4, 5])
-          done()
-        }
-        return run + 1
-      })
-    })
+    const Component2 = () => {
+      const [doc] = useDocument<ExampleDoc>(url, options)
+      createEffect(
+        () => doc()?.array && [...doc()!.array],
+        arr => onArray2(arr)
+      )
+      return (
+        <Loading fallback={<span data-testid="two">loading</span>}>
+          <span data-testid="two">{JSON.stringify(doc()?.array)}</span>
+        </Loading>
+      )
+    }
 
-    return Promise.allSettled([done1, done2])
+    render(() => (
+      <>
+        <Component1 />
+        <Component2 />
+      </>
+    ))
+
+    handle.change(doc => doc.array.push(4))
+    await waitFor(() => expect(onArray1).toHaveBeenLastCalledWith([1, 2, 3, 4]))
+    await waitFor(() => expect(onArray2).toHaveBeenLastCalledWith([1, 2, 3, 4]))
+
+    handle.change(doc => doc.array.push(5))
+    await waitFor(() =>
+      expect(onArray1).toHaveBeenLastCalledWith([1, 2, 3, 4, 5])
+    )
+    await waitFor(() =>
+      expect(onArray2).toHaveBeenLastCalledWith([1, 2, 3, 4, 5])
+    )
   })
 
   it("should work with a signal url", async () => {
     const { create, wrapper } = setup()
     const [url, setURL] = createSignal<AutomergeUrl>()
-    const {
-      result: [doc, handle],
-      owner,
-    } = renderHook(useDocument<ExampleDoc>, {
-      initialProps: [url],
-      wrapper,
-    })
-    const done = testEffect(done => {
-      createEffect((run: number = 0) => {
-        if (run == 0) {
-          expect(doc()?.key).toBe(undefined)
-          setURL(create().url)
-        } else if (run == 1) {
-          expect(doc()?.key).toBe("value")
-          handle()?.change(doc => (doc.key = "hello world!"))
-        } else if (run == 2) {
-          expect(doc()?.key).toBe("hello world!")
-          setURL(create().url)
-        } else if (run == 3) {
-          expect(doc()?.key).toBe("value")
-          handle()?.change(doc => (doc.key = "friday night!"))
-        } else if (run == 4) {
-          expect(doc()?.key).toBe("friday night!")
-          done()
-        }
+    const onKey = vi.fn()
 
-        return run + 1
-      })
-    }, owner!)
-    return done
+    const Component = () => {
+      const [doc] = useDocument<ExampleDoc>(url)
+      createEffect(
+        () => doc()?.key,
+        key => onKey(key)
+      )
+      return (
+        <Loading fallback={<button>loading</button>}>
+          <button>{doc()?.key ?? "empty"}</button>
+        </Loading>
+      )
+    }
+
+    const { getByRole } = render(() => <Component />, { wrapper })
+
+    // no url yet
+    await waitFor(() => expect(getByRole("button")).toHaveTextContent("empty"))
+
+    // set url to first doc
+    const handle1 = create()
+    setURL(handle1.url)
+    await waitFor(() => expect(getByRole("button")).toHaveTextContent("value"))
+
+    // change the doc
+    handle1.change(doc => (doc.key = "hello world!"))
+    await waitFor(() =>
+      expect(getByRole("button")).toHaveTextContent("hello world!")
+    )
+
+    // switch to a new doc
+    setURL(create().url)
+    await waitFor(() => expect(getByRole("button")).toHaveTextContent("value"))
   })
 
   it("should clear the store when the url signal returns to nothing", async () => {
     const { create, options } = setup()
     const [url, setURL] = createSignal<AutomergeUrl>()
 
-    const done = testEffect(done => {
+    const Component = () => {
       const [doc, handle] = useDocument<ExampleDoc>(url, options)
-      createEffect((run: number = 0) => {
-        if (run == 0) {
-          expect(doc()?.key).toBe(undefined)
-          expect(handle()).toBe(undefined)
-          setURL(create().url)
-        } else if (run == 1) {
-          expect(doc()?.key).toBe("value")
-          expect(handle()).not.toBe(undefined)
-          setURL(undefined)
-        } else if (run == 2) {
-          expect(doc()?.key).toBe(undefined)
-          expect(handle()).toBe(undefined)
-          setURL(create().url)
-        } else if (run == 3) {
-          expect(doc()?.key).toBe("value")
-          expect(handle()).not.toBe(undefined)
-          done()
-        }
+      return (
+        <Loading fallback={<button>loading</button>}>
+          <button>
+            {doc()?.key ?? "empty"}|{handle() ? "has-handle" : "no-handle"}
+          </button>
+        </Loading>
+      )
+    }
 
-        return run + 1
-      })
+    const { getByRole } = render(() => <Component />)
+
+    // no url
+    await waitFor(() => {
+      expect(getByRole("button")).toHaveTextContent("empty")
+      expect(getByRole("button")).toHaveTextContent("no-handle")
     })
-    return done
+
+    // set url
+    setURL(create().url)
+    await waitFor(() => {
+      expect(getByRole("button")).toHaveTextContent("value")
+      expect(getByRole("button")).toHaveTextContent("has-handle")
+    })
+
+    // clear url
+    setURL(undefined)
+    await waitFor(() => {
+      expect(getByRole("button")).toHaveTextContent("empty")
+      expect(getByRole("button")).toHaveTextContent("no-handle")
+    })
+
+    // set url again
+    setURL(create().url)
+    await waitFor(() => {
+      expect(getByRole("button")).toHaveTextContent("value")
+      expect(getByRole("button")).toHaveTextContent("has-handle")
+    })
   })
 
   it("should not return the wrong store when url changes", async () => {
     const { create, repo } = setup()
     const h1 = create()
     const h2 = create()
-    const u1 = h1.url
-    const u2 = h2.url
 
-    const [stableURL] = createSignal(u1)
-    const [changingURL, setChangingURL] = createSignal(u1)
+    const [stableURL] = createSignal(h1.url)
+    const [changingURL, setChangingURL] = createSignal(h1.url)
 
-    await testEffect(async done => {
-      const result = render(() => {
-        function Component(props: {
-          stableURL: Accessor<AutomergeUrl>
-          changingURL: Accessor<AutomergeUrl>
-        }) {
-          const [stableDoc] = useDocument<ExampleDoc>(() => props.stableURL())
+    const Component = () => {
+      const [stableDoc] = useDocument<ExampleDoc>(stableURL)
+      const [changingDoc] = useDocument<ExampleDoc>(changingURL)
+      return (
+        <Loading fallback={<div>loading</div>}>
+          <span data-testid="stable">{stableDoc()?.key}</span>
+          <span data-testid="changing">{changingDoc()?.key}</span>
+        </Loading>
+      )
+    }
 
-          const [changingDoc] = useDocument<ExampleDoc>(() =>
-            props.changingURL()
-          )
+    const { getByTestId } = render(() => (
+      <RepoContext value={repo}>
+        <Component />
+      </RepoContext>
+    ))
 
-          return (
-            <>
-              <div data-testid="key-stable">{stableDoc()?.key}</div>
-              <div data-testid="key-changing">{changingDoc()?.key}</div>
-            </>
-          )
-        }
+    // both start with h1's value
+    await waitFor(() => {
+      expect(getByTestId("stable")).toHaveTextContent("value")
+      expect(getByTestId("changing")).toHaveTextContent("value")
+    })
 
-        return (
-          <RepoContext.Provider value={repo}>
-            <Component stableURL={stableURL} changingURL={changingURL} />
-          </RepoContext.Provider>
-        )
-      })
+    h2.change(doc => (doc.key = "document-2"))
+    h1.change(doc => (doc.key = "hello"))
+    await waitFor(() => {
+      expect(getByTestId("stable")).toHaveTextContent("hello")
+      expect(getByTestId("changing")).toHaveTextContent("hello")
+    })
 
-      h2.change(doc => (doc.key = "document-2"))
-      expect(result.getByTestId("key-stable").textContent).toBe("value")
-      expect(result.getByTestId("key-changing").textContent).toBe("value")
+    setChangingURL(h2.url)
+    await waitFor(() => {
+      expect(getByTestId("stable")).toHaveTextContent("hello")
+      expect(getByTestId("changing")).toHaveTextContent("document-2")
+    })
 
-      h1.change(doc => (doc.key = "hello"))
-      await new Promise(yay => setImmediate(yay))
+    setChangingURL(h1.url)
+    await waitFor(() => {
+      expect(getByTestId("stable")).toHaveTextContent("hello")
+      expect(getByTestId("changing")).toHaveTextContent("hello")
+    })
 
-      expect(result.getByTestId("key-stable").textContent).toBe("hello")
-      expect(result.getByTestId("key-changing").textContent).toBe("hello")
-
-      setChangingURL(u2)
-      await new Promise(yay => setImmediate(yay))
-      expect(result.getByTestId("key-stable").textContent).toBe("hello")
-      expect(result.getByTestId("key-changing").textContent).toBe("document-2")
-      h2.change(doc => (doc.key = "world"))
-
-      setChangingURL(u1)
-      await new Promise(yay => setImmediate(yay))
-      expect(result.getByTestId("key-stable").textContent).toBe("hello")
-      expect(result.getByTestId("key-changing").textContent).toBe("hello")
-
-      setChangingURL(u2)
-      await new Promise(yay => setImmediate(yay))
-
-      expect(result.getByTestId("key-stable").textContent).toBe("hello")
-      expect(result.getByTestId("key-changing").textContent).toBe("world")
-
-      done()
+    setChangingURL(h2.url)
+    h2.change(doc => (doc.key = "world"))
+    await waitFor(() => {
+      expect(getByTestId("stable")).toHaveTextContent("hello")
+      expect(getByTestId("changing")).toHaveTextContent("world")
     })
   })
 
@@ -252,77 +288,95 @@ describe("useDocument", () => {
       return await originalFind(...args)
     })
 
-    const done = testEffect(done => {
+    const Component = () => {
       const [doc] = useDocument<{ im: "slow" }>(() => slowHandle.url, {
         repo,
-        "~skipInitialValue": true,
       })
-      createEffect((run: number = 0) => {
-        if (run == 0) {
-          expect(doc()?.im).toBe(undefined)
-        } else if (run == 1) {
-          expect(doc()?.im).toBe("slow")
-          done()
-        }
-        return run + 1
-      })
+      return (
+        <Loading fallback={<button>loading</button>}>
+          <button>{doc()?.im ?? "waiting"}</button>
+        </Loading>
+      )
+    }
+
+    const { getByRole } = render(() => <Component />)
+
+    // initially loading
+    await waitFor(() =>
+      expect(getByRole("button")).toHaveTextContent("loading")
+    )
+
+    // eventually resolves
+    await waitFor(() => expect(getByRole("button")).toHaveTextContent("slow"), {
+      timeout: 3000,
     })
+
     repo.find = originalFind
-    return done
   })
 
   it("should not notify on properties nobody cares about", async () => {
     const {
       handle: { url },
+      handle,
       options,
     } = setup()
+    const onProjectOneTitle = vi.fn()
+    const onArrayThree = vi.fn()
+    const onProjectZeroItemZeroTitle = vi.fn()
 
-    let fn = vi.fn()
+    const Component = () => {
+      const [doc] = useDocument<ExampleDoc>(url, options)
+      createEffect(
+        () => doc()?.projects[1].title,
+        t => onProjectOneTitle(t)
+      )
+      createEffect(
+        () => doc()?.array[3],
+        v => onArrayThree(v)
+      )
+      createEffect(
+        () => doc()?.projects[0].items[0].title,
+        t => onProjectZeroItemZeroTitle(t)
+      )
+      return (
+        <Loading fallback={<div>loading</div>}>
+          <div>{doc()?.key}</div>
+        </Loading>
+      )
+    }
 
-    const [doc, handle] = useDocument<ExampleDoc>(url, options)
+    render(() => <Component />)
 
-    testEffect(() => {
-      createEffect(() => {
-        fn(doc()?.projects[1].title)
-      })
-    })
-    const arrayDotThree = testEffect(done => {
-      createEffect((run: number = 0) => {
-        if (run == 0) {
-          expect(doc()?.array[3]).toBeUndefined()
-          handle()?.change(doc => (doc.array[2] = 22))
-          handle()?.change(doc => (doc.key = "hello world!"))
-          handle()?.change(doc => (doc.array[1] = 11))
-          handle()?.change(doc => (doc.array[3] = 145))
-        } else if (run == 1) {
-          expect(doc()?.array[3]).toBe(145)
-          handle()?.change(doc => (doc.projects[0].title = "hello world!"))
-          handle()?.change(
-            doc => (doc.projects[0].items[0].title = "hello world!")
-          )
-          handle()?.change(doc => (doc.array[3] = 147))
-        } else if (run == 2) {
-          expect(doc()?.array[3]).toBe(147)
-          done()
-        }
-        return run + 1
-      })
-    })
-
-    const projectZeroItemZeroTitle = testEffect(done => {
-      createEffect((run: number = 0) => {
-        if (run == 0) {
-          expect(doc()?.projects[0].items[0].title).toBe("hello world!")
-          done()
-        }
-        return run + 1
-      })
+    // resolve the projection with a batch of changes including array[3]
+    handle.change(doc => {
+      doc.array[2] = 22
+      doc.key = "hello world!"
+      doc.array[1] = 11
+      doc.array[3] = 145
     })
 
-    expect(fn).toHaveBeenCalledOnce()
-    expect(fn).toHaveBeenCalledWith("two")
+    await waitFor(() => expect(onArrayThree).toHaveBeenLastCalledWith(145))
 
-    return Promise.all([arrayDotThree, projectZeroItemZeroTitle])
+    // projects[1].title should have been called once (initial resolve) with "two"
+    expect(onProjectOneTitle).toHaveBeenCalledTimes(1)
+    expect(onProjectOneTitle).toHaveBeenCalledWith("two")
+
+    // more changes in a single batch
+    handle.change(doc => {
+      doc.projects[0].title = "hello world!"
+      doc.projects[0].items[0].title = "hello world!"
+      doc.array[3] = 147
+    })
+
+    await waitFor(() => expect(onArrayThree).toHaveBeenLastCalledWith(147))
+    await waitFor(() =>
+      expect(onProjectZeroItemZeroTitle).toHaveBeenLastCalledWith(
+        "hello world!"
+      )
+    )
+
+    // projects[1].title should STILL not have been called again
+    expect(onProjectOneTitle).toHaveBeenCalledTimes(1)
   })
 })
 
