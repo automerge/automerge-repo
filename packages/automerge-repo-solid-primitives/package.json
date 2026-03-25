@@ -7,25 +7,28 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "play": "vite",
     "watch": "npm-watch build",
     "visualize": "VISUALIZE=true vite build"
   },
   "author": "chee <chee@rabbits.computer>",
   "license": "MIT",
   "devDependencies": {
-    "@automerge/automerge": "3.0.0",
+    "@automerge/automerge": "^3.0.0",
     "@automerge/automerge-repo": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
+    "@solidjs/web": "2.0.0-beta.4",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/user-event": "^14.5.2",
     "rollup-plugin-visualizer": "^5.9.3",
-    "solid-js": "^1.9.11",
+    "solid-js": "next",
     "vite-plugin-dts": "^3.9.1",
-    "vite-plugin-solid": "^2.11.10"
+    "vite-plugin-solid": "next"
   },
   "peerDependencies": {
     "@automerge/automerge": "^3.0.0",
-    "solid-js": "^1.9.4"
+    "@solidjs/signals": "^0.13.7",
+    "solid-js": "next"
   },
   "repository": {
     "type": "git",
