@@ -24,7 +24,6 @@ describe("useDocSignal", () => {
         nested: { title: "hello" },
       })
 
-    const handle = create()
     const wrapper: ParentComponent = props => {
       return (
         <RepoContext.Provider value={repo}>
@@ -35,7 +34,6 @@ describe("useDocSignal", () => {
 
     return {
       repo,
-      handle,
       wrapper,
       create,
       options: { repo },
