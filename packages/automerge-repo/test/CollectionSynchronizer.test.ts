@@ -1,10 +1,7 @@
 import assert from "assert"
 import { beforeEach, describe, it } from "vitest"
 import { next as Automerge } from "@automerge/automerge"
-import {
-  generateAutomergeUrl,
-  parseAutomergeUrl,
-} from "../src/AutomergeUrl.js"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import {
   CollectionSynchronizer,
   AutomergeSyncConfig,
