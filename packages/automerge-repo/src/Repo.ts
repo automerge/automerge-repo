@@ -184,6 +184,9 @@ export class Repo extends EventEmitter<RepoEvents> {
           this.#log("failed to decode inbound subduction ephemeral: %O", e)
         }
       },
+      onHealExhausted: documentId => {
+        this.emit("heal-exhausted", { documentId })
+      },
     })
     this.#subductionSource = subductionSource
     this.#sources.push(subductionSource)
@@ -240,10 +243,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     networkSubsystem.on("message", message => {
       if (message.type === "ephemeral" && this.#subductionSource) {
         const payload = new Uint8Array(encode(message))
-        this.#subductionSource.publishEphemeral(
-          message.documentId,
-          payload
-        )
+        this.#subductionSource.publishEphemeral(message.documentId, payload)
       }
     })
 
@@ -702,6 +702,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async shutdown() {
+    this.#subductionSource?.shutdown()
     this.networkSubsystem.disconnect()
   }
 
@@ -828,4 +829,6 @@ export interface RepoEvents {
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (payload: DeleteDocumentPayload) => void
   "doc-metrics": (payload: DocMetrics) => void
+  /** Self-healing sync gave up after all retry attempts for a document */
+  "heal-exhausted": (payload: { documentId: DocumentId }) => void
 }
