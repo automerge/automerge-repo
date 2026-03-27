@@ -26,6 +26,11 @@ const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
 const RECENTLY_SAVED_CACHE_SIZE = 256
 
+// ── Self-healing sync constants ─────────────────────────────────────────
+const HEAL_INITIAL_DELAY_MS = 2_000
+const HEAL_MAX_DELAY_MS = 60_000
+const HEAL_MAX_ATTEMPTS = 10
+
 // ── Connection state ────────────────────────────────────────────────────
 type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
 
@@ -76,6 +81,9 @@ export type OnEphemeral = (
   payload: Uint8Array
 ) => void
 
+/** Callback when heal sync gives up after all retry attempts. */
+export type OnHealExhausted = (documentId: DocumentId) => void
+
 export interface SubductionSourceOptions {
   peerId: PeerId
   storage: SubductionStorageBridge
@@ -83,6 +91,7 @@ export interface SubductionSourceOptions {
   websocketEndpoints: string[]
   onRemoteHeadsChanged?: OnRemoteHeadsChanged
   onEphemeral?: OnEphemeral
+  onHealExhausted?: OnHealExhausted
 }
 
 export class SubductionSource implements DocumentSource {
@@ -93,6 +102,12 @@ export class SubductionSource implements DocumentSource {
   #log: debug.Debugger
   #connectionStates = new Map<string, ConnectionState>()
 
+  // ── Self-healing sync state ─────────────────────────────────────────
+  #healTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  #healBackoff = new Map<string, number>()
+  #healAttempts = new Map<string, number>()
+  #onHealExhausted?: OnHealExhausted
+
   constructor({
     peerId,
     storage,
@@ -100,6 +115,7 @@ export class SubductionSource implements DocumentSource {
     websocketEndpoints,
     onRemoteHeadsChanged,
     onEphemeral,
+    onHealExhausted,
   }: SubductionSourceOptions) {
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
@@ -110,6 +126,7 @@ export class SubductionSource implements DocumentSource {
     setSubductionLogLevel(subductionDebugRequested ? "debug" : "warn")
     this.#log = debug(`automerge-repo:subduction(${peerId})`)
     this.#storage = storage
+    this.#onHealExhausted = onHealExhausted
 
     const onRemoteHeads = onRemoteHeadsChanged
       ? (
@@ -332,8 +349,10 @@ export class SubductionSource implements DocumentSource {
       entry.lastSyncResult = "no-peers"
     } else if (results.every(r => !r.success)) {
       entry.lastSyncResult = "all-failed"
+      this.#scheduleHealSync(entry.sedimentreeId)
     } else {
       entry.lastSyncResult = "succeeded"
+      this.#resetHealState(sedimentreeId.toString())
     }
 
     entry.syncInFlight = false
@@ -421,6 +440,103 @@ export class SubductionSource implements DocumentSource {
         }
       })
     )
+  }
+
+  // ── Self-healing sync ────────────────────────────────────────────────
+  //
+  // When syncWithAllPeers fails for a sedimentree, we schedule a retry
+  // with exponential backoff (2s → 60s cap). After HEAL_MAX_ATTEMPTS
+  // consecutive failures we give up and notify the application via the
+  // onHealExhausted callback.
+
+  #scheduleHealSync(sedimentreeId: SedimentreeId) {
+    const key = sedimentreeId.toString()
+    const attempts = this.#healAttempts.get(key) ?? 0
+
+    if (attempts >= HEAL_MAX_ATTEMPTS) {
+      this.#log(
+        `heal sync exhausted after ${attempts} attempts for ${key.slice(0, 8)}`
+      )
+      this.#onHealExhausted?.(toDocumentId(sedimentreeId))
+      return
+    }
+
+    // Debounce: restart the window if a timer is already pending.
+    const existing = this.#healTimers.get(key)
+    if (existing !== undefined) clearTimeout(existing)
+
+    const delay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
+
+    this.#log(
+      `scheduling heal sync for ${key.slice(0, 8)} in ${delay}ms ` +
+        `(attempt ${attempts + 1}/${HEAL_MAX_ATTEMPTS})`
+    )
+
+    const timer = setTimeout(() => {
+      void this.#executeHealSync(sedimentreeId)
+    }, delay)
+    this.#healTimers.set(key, timer)
+  }
+
+  async #executeHealSync(sedimentreeId: SedimentreeId) {
+    const key = sedimentreeId.toString()
+    this.#healTimers.delete(key)
+    this.#healAttempts.set(key, (this.#healAttempts.get(key) ?? 0) + 1)
+
+    this.#log(`executing heal sync for ${key.slice(0, 8)}...`)
+
+    try {
+      const subduction = await this.#subduction
+      const peerResultMap = await subduction.syncWithAllPeers(
+        sedimentreeId,
+        true
+      )
+
+      const results = peerResultMap.entries()
+      const anyFailed = results.some(
+        r => !r.success || (r.transportErrors?.length ?? 0) > 0
+      )
+
+      if (anyFailed || results.length === 0) {
+        const currentDelay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
+        const nextDelay = Math.min(currentDelay * 2, HEAL_MAX_DELAY_MS)
+        this.#healBackoff.set(key, nextDelay)
+        this.#scheduleHealSync(sedimentreeId)
+      } else {
+        this.#log(`heal sync succeeded for ${key.slice(0, 8)}`)
+        this.#resetHealState(key)
+      }
+    } catch (e) {
+      this.#log(`heal sync threw for ${key.slice(0, 8)}: %O`, e)
+      const currentDelay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
+      const nextDelay = Math.min(currentDelay * 2, HEAL_MAX_DELAY_MS)
+      this.#healBackoff.set(key, nextDelay)
+      this.#scheduleHealSync(sedimentreeId)
+    }
+  }
+
+  #resetHealState(key: string) {
+    const timer = this.#healTimers.get(key)
+    if (timer !== undefined) clearTimeout(timer)
+    this.#healTimers.delete(key)
+    this.#healBackoff.delete(key)
+    this.#healAttempts.delete(key)
+  }
+
+  /** Check whether a sedimentree is currently in heal-backoff. */
+  isHealing(sedimentreeId: SedimentreeId): boolean {
+    return this.#healTimers.has(sedimentreeId.toString())
+  }
+
+  // ── Shutdown ────────────────────────────────────────────────────────
+
+  shutdown() {
+    for (const timer of this.#healTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.#healTimers.clear()
+    this.#healBackoff.clear()
+    this.#healAttempts.clear()
   }
 
   // ── Ephemeral messaging ──────────────────────────────────────────────
