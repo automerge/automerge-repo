@@ -6,7 +6,7 @@ settings:
 
 overrides:
   semver: ^7.5.2
-  '@automerge/automerge-subduction': /home/alex/Projects/automerge/subduction/automerge_subduction_wasm
+  '@automerge/automerge-subduction': /Users/expede/Documents/Code/subduction/automerge_subduction_wasm
 
 importers:
 
@@ -17,11 +17,11 @@ importers:
         version: 20.8.8
     devDependencies:
       '@automerge/automerge':
-        specifier: ^3.2.4
+        specifier: ^3.2.5
         version: 3.2.5
       '@automerge/automerge-subduction':
-        specifier: /home/alex/Projects/automerge/subduction/automerge_subduction_wasm
-        version: link:../subduction/automerge_subduction_wasm
+        specifier: /Users/expede/Documents/Code/subduction/automerge_subduction_wasm
+        version: link:../../../../../Users/expede/Documents/Code/subduction/automerge_subduction_wasm
       '@manypkg/cli':
         specifier: ^0.21.4
         version: 0.21.4
@@ -292,8 +292,8 @@ importers:
         specifier: ^3.2.4
         version: 3.2.5
       '@automerge/automerge-subduction':
-        specifier: /home/alex/Projects/automerge/subduction/automerge_subduction_wasm
-        version: link:../../../subduction/automerge_subduction_wasm
+        specifier: /Users/expede/Documents/Code/subduction/automerge_subduction_wasm
+        version: link:../../../../../../../Users/expede/Documents/Code/subduction/automerge_subduction_wasm
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1

@@ -101,7 +101,13 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
   }: SubductionSourceOptions) {
-    setSubductionLogLevel("debug")
+    // Default to "warn" so the Rust side is quiet. When the debug npm module
+    // has subduction namespaces enabled (via localStorage.debug), open the
+    // Rust tracing filter so the messages actually reach the JS logger.
+    const subductionDebugRequested =
+      typeof localStorage !== "undefined" &&
+      /subduction/i.test(localStorage.getItem("debug") ?? "")
+    setSubductionLogLevel(subductionDebugRequested ? "debug" : "warn")
     this.#log = debug(`automerge-repo:subduction(${peerId})`)
     this.#storage = storage
 
@@ -238,9 +244,7 @@ export class SubductionSource implements DocumentSource {
     void (async () => {
       try {
         const subduction = await this.#subduction
-        await subduction.subscribeEphemeral([
-          toSedimentreeId(query.documentId),
-        ])
+        await subduction.subscribeEphemeral([toSedimentreeId(query.documentId)])
       } catch (e) {
         this.#log("ephemeral subscribe failed: %O", e)
       }
@@ -425,10 +429,7 @@ export class SubductionSource implements DocumentSource {
   async publishEphemeral(documentId: DocumentId, payload: Uint8Array) {
     try {
       const subduction = await this.#subduction
-      await subduction.publishEphemeral(
-        toSedimentreeId(documentId),
-        payload
-      )
+      await subduction.publishEphemeral(toSedimentreeId(documentId), payload)
     } catch (e) {
       this.#log("ephemeral publish failed: %O", e)
     }
