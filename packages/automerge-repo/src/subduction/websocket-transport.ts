@@ -1,14 +1,14 @@
-import WebSocket from "ws"
+import WebSocket from "isomorphic-ws"
 import type { Transport } from "@automerge/automerge-subduction/slim"
 import debug from "debug"
 
 const log = debug("automerge-repo:subduction:ws-transport")
 
 /**
- * Wraps a `ws` WebSocket connection as a subduction {@link Transport}.
+ * Wraps a WebSocket connection as a subduction {@link Transport}.
  *
- * This lets us use `connectTransport`/`acceptTransport` over WebSocket
- * without relying on the browser's `WebSocket` global (`web_sys::WebSocket`).
+ * Works in both Node.js (via `ws`) and the browser (via native `WebSocket`)
+ * through `isomorphic-ws`.
  */
 export class WebSocketTransport implements Transport {
   #ws: WebSocket
@@ -25,13 +25,18 @@ export class WebSocketTransport implements Transport {
     this.#closedPromise = new Promise(r => {
       this.#closedResolve = r
     })
-    ws.binaryType = "nodebuffer"
-    ws.on("message", (data: Buffer) => {
-      const bytes = new Uint8Array(
-        data.buffer,
-        data.byteOffset,
-        data.byteLength
-      )
+    ws.binaryType = "arraybuffer"
+
+    ws.addEventListener("message", (event: WebSocket.MessageEvent) => {
+      const raw = event.data
+      const bytes =
+        raw instanceof ArrayBuffer
+          ? new Uint8Array(raw)
+          : new Uint8Array(
+              (raw as Buffer).buffer,
+              (raw as Buffer).byteOffset,
+              (raw as Buffer).byteLength
+            )
       const waiter = this.#waiters.shift()
       if (waiter) {
         this.#errorWaiters.shift()
@@ -40,7 +45,8 @@ export class WebSocketTransport implements Transport {
         this.#messageQueue.push(bytes)
       }
     })
-    ws.on("close", () => {
+
+    ws.addEventListener("close", () => {
       this.#isClosed = true
       this.#closedResolve()
       const err = new Error("WebSocket closed")
@@ -48,10 +54,15 @@ export class WebSocketTransport implements Transport {
       this.#errorWaiters = []
       this.#waiters = []
     })
-    ws.on("error", (err: Error) => {
-      log("ws error: %O", err)
+
+    ws.addEventListener("error", (event: WebSocket.ErrorEvent) => {
+      log("ws error: %O", event)
       this.#isClosed = true
       this.#closedResolve()
+      const err =
+        "error" in event && event.error instanceof Error
+          ? event.error
+          : new Error("WebSocket error")
       for (const ew of this.#errorWaiters) ew(err)
       this.#errorWaiters = []
       this.#waiters = []
@@ -69,8 +80,22 @@ export class WebSocketTransport implements Transport {
   static connect(url: string): Promise<WebSocketTransport> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url)
-      ws.once("open", () => resolve(new WebSocketTransport(ws)))
-      ws.once("error", reject)
+      const onOpen = () => {
+        ws.removeEventListener("open", onOpen)
+        ws.removeEventListener("error", onError)
+        resolve(new WebSocketTransport(ws))
+      }
+      const onError = (event: WebSocket.ErrorEvent) => {
+        ws.removeEventListener("open", onOpen)
+        ws.removeEventListener("error", onError)
+        const err =
+          "error" in event && event.error instanceof Error
+            ? event.error
+            : new Error("WebSocket connection failed")
+        reject(err)
+      }
+      ws.addEventListener("open", onOpen)
+      ws.addEventListener("error", onError)
     })
   }
 
