@@ -96,7 +96,7 @@ export interface SubductionSourceOptions {
   /**
    * Interval in ms for per-document periodic sync. Each open document is
    * synced individually (skipping those already in heal-backoff).
-   * Set to 0 to disable. Default: 10_000 (10s).
+   * Set to 0 to disable. Default: 30_000 (30s).
    */
   periodicSyncInterval?: number
 
@@ -136,7 +136,7 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
-    periodicSyncInterval = 10_000,
+    periodicSyncInterval = 30_000,
     batchSyncInterval = 300_000,
   }: SubductionSourceOptions) {
     // Default to "warn" so the Rust side is quiet. When the debug npm module
@@ -145,7 +145,11 @@ export class SubductionSource implements DocumentSource {
     const subductionDebugRequested =
       typeof localStorage !== "undefined" &&
       /subduction/i.test(localStorage.getItem("debug") ?? "")
-    setSubductionLogLevel(subductionDebugRequested ? "debug" : "warn")
+    try {
+      setSubductionLogLevel(subductionDebugRequested ? "debug" : "warn")
+    } catch {
+      // Wasm module not yet initialized
+    }
     this.#log = debug(`automerge-repo:subduction(${peerId})`)
     this.#storage = storage
     this.#onHealExhausted = onHealExhausted

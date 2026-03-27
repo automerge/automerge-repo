@@ -79,10 +79,7 @@ async function startSubductionServer(): Promise<TestServer> {
   }
 }
 
-function createClientRepo(
-  peerId: string,
-  serverUrl: string
-): Repo {
+function createClientRepo(peerId: string, serverUrl: string): Repo {
   return new Repo({
     peerId: peerId as PeerId,
     storage: new DummyStorageAdapter(),
@@ -235,7 +232,9 @@ describe("Subduction WebSocket sync", () => {
     // Client 1 creates a doc and pushes it
     const client1 = createClientRepo("client-1", server.url)
     const handle1 = client1.create<{ value: number }>()
-    handle1.change(d => { d.value = 99 })
+    handle1.change(d => {
+      d.value = 99
+    })
     await pause(500)
 
     // Client 2: issue find() immediately — the connection manager is

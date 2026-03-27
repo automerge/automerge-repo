@@ -38,10 +38,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #refCache = new Map<string, WeakRef<RefImpl<T, any>>>()
 
   /** @hidden */
-  constructor(
-    public documentId: DocumentId,
-    options?: { isNew?: boolean }
-  ) {
+  constructor(public documentId: DocumentId, options?: { isNew?: boolean }) {
     super()
     if (options?.isNew) {
       this.#doc = A.emptyChange(A.init<T>())
@@ -124,8 +121,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /**
    * @returns true if the handle is in one of the given states.
    */
-  inState = (states: HandleState[]) =>
-    states.some(s => s === "ready")
+  inState = (states: HandleState[]) => states.some(s => s === "ready")
 
   /** @hidden */
   get state(): HandleState {
@@ -142,9 +138,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns a promise that resolves when the document is in one of the given states (if no states
    * are passed, when the document is ready)
    */
-  async whenReady(
-    _awaitStates: HandleState[] = ["ready"]
-  ): Promise<void> {
+  async whenReady(_awaitStates: HandleState[] = ["ready"]): Promise<void> {
     // Documents are always immediately ready in the new architecture
   }
 
