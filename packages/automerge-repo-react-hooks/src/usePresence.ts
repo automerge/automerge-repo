@@ -91,7 +91,7 @@ export function usePresence<State extends PresenceState>({
     presence.on("snapshot", () => setPeerStates(presence.getPeerStates()))
     presence.on("update", () => setPeerStates(presence.getPeerStates()))
     presence.on("goodbye", () => setPeerStates(presence.getPeerStates()))
-    presence.on("pruning", () => setPeerStates(presence.getPeerStates()))
+    presence.on("pruned", () => setPeerStates(presence.getPeerStates()))
 
     return () => {
       presence.stop()
