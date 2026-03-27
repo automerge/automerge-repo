@@ -92,6 +92,20 @@ export interface SubductionSourceOptions {
   onRemoteHeadsChanged?: OnRemoteHeadsChanged
   onEphemeral?: OnEphemeral
   onHealExhausted?: OnHealExhausted
+
+  /**
+   * Interval in ms for per-document periodic sync. Each open document is
+   * synced individually (skipping those already in heal-backoff).
+   * Set to 0 to disable. Default: 10_000 (10s).
+   */
+  periodicSyncInterval?: number
+
+  /**
+   * Interval in ms for a full batch sync across all sedimentrees.
+   * On success, all heal state is reset.
+   * Set to 0 to disable. Default: 300_000 (5 min).
+   */
+  batchSyncInterval?: number
 }
 
 export class SubductionSource implements DocumentSource {
@@ -108,6 +122,12 @@ export class SubductionSource implements DocumentSource {
   #healAttempts = new Map<string, number>()
   #onHealExhausted?: OnHealExhausted
 
+  // ── Periodic sync state ───────────────────────────────────────────
+  #periodicSyncTimer: ReturnType<typeof setInterval> | null = null
+  #batchSyncTimer: ReturnType<typeof setInterval> | null = null
+  #periodicSyncInProgress = false
+  #batchSyncInProgress = false
+
   constructor({
     peerId,
     storage,
@@ -116,6 +136,8 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
+    periodicSyncInterval = 10_000,
+    batchSyncInterval = 300_000,
   }: SubductionSourceOptions) {
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
@@ -159,6 +181,18 @@ export class SubductionSource implements DocumentSource {
 
     this.#storage.on("commit-saved", this.#handleDataFound.bind(this))
     this.#storage.on("fragment-saved", this.#handleDataFound.bind(this))
+
+    // ── Periodic sync timers ──────────────────────────────────────────
+    if (periodicSyncInterval > 0) {
+      this.#periodicSyncTimer = setInterval(() => {
+        void this.#runPeriodicSync()
+      }, periodicSyncInterval)
+    }
+    if (batchSyncInterval > 0) {
+      this.#batchSyncTimer = setInterval(() => {
+        void this.#runBatchSync()
+      }, batchSyncInterval)
+    }
   }
 
   // ── Connection management ───────────────────────────────────────────
@@ -528,9 +562,111 @@ export class SubductionSource implements DocumentSource {
     return this.#healTimers.has(sedimentreeId.toString())
   }
 
+  // ── Periodic background sync ────────────────────────────────────────
+  //
+  // Two timers run in the background:
+  //
+  //   periodicSync  (default 10s)  — per-document sync for each open handle,
+  //       skipping entries already in heal-backoff.
+  //
+  //   batchSync     (default 5 min) — syncs every open handle. On full
+  //       success, resets all heal state.
+
+  async #runPeriodicSync() {
+    if (this.#periodicSyncInProgress) return
+    this.#periodicSyncInProgress = true
+    this.#log("starting periodic per-document sync")
+
+    try {
+      const subduction = await this.#subduction
+
+      for (const [key, entry] of this.#entries.entries()) {
+        // Skip sedimentrees already in heal-backoff
+        if (this.#healTimers.has(key)) continue
+
+        try {
+          const peerResultMap = await subduction.syncWithAllPeers(
+            entry.sedimentreeId,
+            true
+          )
+
+          const results = peerResultMap.entries()
+          if (results.length === 0) continue
+
+          const anyFailed = results.some(
+            r => !r.success || (r.transportErrors?.length ?? 0) > 0
+          )
+
+          if (anyFailed) {
+            this.#scheduleHealSync(entry.sedimentreeId)
+          } else {
+            this.#resetHealState(key)
+          }
+        } catch (e) {
+          this.#log(`periodic sync failed for ${key.slice(0, 8)}: %O`, e)
+        }
+      }
+    } finally {
+      this.#periodicSyncInProgress = false
+    }
+  }
+
+  async #runBatchSync() {
+    if (this.#batchSyncInProgress) return
+    this.#batchSyncInProgress = true
+    this.#log("starting batch sync (all open handles)")
+
+    try {
+      const subduction = await this.#subduction
+      let allSucceeded = true
+
+      for (const [key, entry] of this.#entries.entries()) {
+        try {
+          const peerResultMap = await subduction.syncWithAllPeers(
+            entry.sedimentreeId,
+            true
+          )
+
+          const results = peerResultMap.entries()
+          if (results.length === 0) continue
+
+          const anyFailed = results.some(
+            r => !r.success || (r.transportErrors?.length ?? 0) > 0
+          )
+          if (anyFailed) allSucceeded = false
+        } catch (e) {
+          allSucceeded = false
+          this.#log(`batch sync failed for ${key.slice(0, 8)}: %O`, e)
+        }
+      }
+
+      if (allSucceeded) {
+        this.#log("batch sync succeeded — resetting all heal state")
+        for (const timer of this.#healTimers.values()) {
+          clearTimeout(timer)
+        }
+        this.#healTimers.clear()
+        this.#healBackoff.clear()
+        this.#healAttempts.clear()
+      } else {
+        this.#log("batch sync completed with errors")
+      }
+    } finally {
+      this.#batchSyncInProgress = false
+    }
+  }
+
   // ── Shutdown ────────────────────────────────────────────────────────
 
   shutdown() {
+    if (this.#periodicSyncTimer !== null) {
+      clearInterval(this.#periodicSyncTimer)
+      this.#periodicSyncTimer = null
+    }
+    if (this.#batchSyncTimer !== null) {
+      clearInterval(this.#batchSyncTimer)
+      this.#batchSyncTimer = null
+    }
     for (const timer of this.#healTimers.values()) {
       clearTimeout(timer)
     }
