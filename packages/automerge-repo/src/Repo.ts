@@ -30,6 +30,7 @@ import type {
   BinaryDocumentId,
   DocumentId,
   PeerId,
+  SessionId,
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
 import {
@@ -90,6 +91,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsGossipingEnabled = false
   #subductionSource: SubductionSource | null = null
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
+  #peerId: PeerId
 
   constructor({
     storage,
@@ -102,9 +104,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     idFactory,
+    signer,
     subductionWebsocketEndpoints,
+    periodicSyncInterval,
+    batchSyncInterval,
   }: RepoConfig = {}) {
     super()
+    this.#peerId = peerId
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
 
@@ -165,7 +171,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const subductionSource = new SubductionSource({
       peerId,
       storage: subductionStorage,
-      signer: new MemorySigner(),
+      signer: signer ?? new MemorySigner(),
       websocketEndpoints: subductionWebsocketEndpoints ?? [],
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
         ? (documentId, storageId, heads) => {
@@ -184,6 +190,11 @@ export class Repo extends EventEmitter<RepoEvents> {
           this.#log("failed to decode inbound subduction ephemeral: %O", e)
         }
       },
+      onHealExhausted: documentId => {
+        this.emit("heal-exhausted", { documentId })
+      },
+      periodicSyncInterval,
+      batchSyncInterval,
     })
     this.#subductionSource = subductionSource
     this.#sources.push(subductionSource)
@@ -233,17 +244,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       networkSubsystem.send(message)
     })
 
-    // Tunnel inbound ephemeral messages through subduction.
-    // When we receive an ephemeral from any network adapter, also
-    // publish it as a subduction ephemeral so it reaches peers
-    // connected via websocket (who aren't sync-protocol peers).
+    // Tunnel inbound ephemeral messages from network adapters through
+    // subduction, so they reach peers connected via websocket transport.
     networkSubsystem.on("message", message => {
       if (message.type === "ephemeral" && this.#subductionSource) {
         const payload = new Uint8Array(encode(message))
-        this.#subductionSource.publishEphemeral(
-          message.documentId,
-          payload
-        )
+        this.#subductionSource.publishEphemeral(message.documentId, payload)
       }
     })
 
@@ -383,6 +389,31 @@ export class Repo extends EventEmitter<RepoEvents> {
     // from the start.
     for (const source of this.#sources) {
       source.attach(query)
+    }
+
+    // Bridge outbound ephemeral messages to Subduction.
+    // This fires once per DocHandle.broadcast() call, independent of
+    // whether there are any old-protocol sync peers.
+    if (this.#subductionSource) {
+      const subductionSource = this.#subductionSource
+      query.handle.on("ephemeral-message-outbound", ({ data }) => {
+        console.log(
+          `[repo] ephemeral outbound for ${documentId.slice(0, 8)}, ${
+            data.byteLength
+          } bytes`
+        )
+        const fullMsg: EphemeralMessage = {
+          type: "ephemeral",
+          senderId: this.#peerId,
+          targetId: this.#peerId, // not meaningful for pub/sub
+          documentId,
+          data,
+          count: 0,
+          sessionId: "subduction-bridge" as SessionId,
+        }
+        const payload = new Uint8Array(encode(fullMsg))
+        subductionSource.publishEphemeral(documentId, payload)
+      })
     }
 
     return query
@@ -702,6 +733,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async shutdown() {
+    this.#subductionSource?.shutdown()
     this.networkSubsystem.disconnect()
   }
 
@@ -769,7 +801,29 @@ export interface RepoConfig {
    */
   idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
 
+  /**
+   * Signer used for Subduction commit signatures and peer identity.
+   * Defaults to a fresh `MemorySigner` (ephemeral key, lost on restart).
+   * Pass a `WebCryptoSigner` (via `await WebCryptoSigner.setup()`) for
+   * persistent identity across page loads.
+   */
+  signer?: unknown
+
   subductionWebsocketEndpoints?: string[]
+
+  /**
+   * Interval in ms for per-document periodic sync via Subduction. Each open
+   * document is synced individually (skipping those in heal-backoff).
+   * Set to 0 to disable. Default: 10_000 (10s).
+   */
+  periodicSyncInterval?: number
+
+  /**
+   * Interval in ms for a full batch sync across all open documents via
+   * Subduction. On success, all heal state is reset.
+   * Set to 0 to disable. Default: 300_000 (5 min).
+   */
+  batchSyncInterval?: number
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -828,4 +882,6 @@ export interface RepoEvents {
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (payload: DeleteDocumentPayload) => void
   "doc-metrics": (payload: DocMetrics) => void
+  /** Self-healing sync gave up after all retry attempts for a document */
+  "heal-exhausted": (payload: { documentId: DocumentId }) => void
 }

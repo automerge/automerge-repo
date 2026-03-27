@@ -6,6 +6,7 @@ import {
   SedimentreeAutomerge,
   FragmentStateStore,
   HashMetric,
+  Topic,
   setSubductionLogLevel,
   type FragmentRequested,
 } from "@automerge/automerge-subduction/slim"
@@ -25,6 +26,11 @@ import { WebSocketTransport } from "./websocket-transport.js"
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
 const RECENTLY_SAVED_CACHE_SIZE = 256
+
+// ── Self-healing sync constants ─────────────────────────────────────────
+const HEAL_INITIAL_DELAY_MS = 2_000
+const HEAL_MAX_DELAY_MS = 60_000
+const HEAL_MAX_ATTEMPTS = 10
 
 // ── Connection state ────────────────────────────────────────────────────
 type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
@@ -52,6 +58,8 @@ interface SedimentreeEntry {
   syncInFlight: boolean
   lastSyncResult: SyncResult | null
   blobLoadInFlight: boolean
+  needsResync: boolean
+  blobRetries: number
 
   // Save tracking
   lastSavedHeads: Set<string>
@@ -76,6 +84,9 @@ export type OnEphemeral = (
   payload: Uint8Array
 ) => void
 
+/** Callback when heal sync gives up after all retry attempts. */
+export type OnHealExhausted = (documentId: DocumentId) => void
+
 export interface SubductionSourceOptions {
   peerId: PeerId
   storage: SubductionStorageBridge
@@ -83,6 +94,21 @@ export interface SubductionSourceOptions {
   websocketEndpoints: string[]
   onRemoteHeadsChanged?: OnRemoteHeadsChanged
   onEphemeral?: OnEphemeral
+  onHealExhausted?: OnHealExhausted
+
+  /**
+   * Interval in ms for per-document periodic sync. Each open document is
+   * synced individually (skipping those already in heal-backoff).
+   * Set to 0 to disable. Default: 30_000 (30s).
+   */
+  periodicSyncInterval?: number
+
+  /**
+   * Interval in ms for a full batch sync across all sedimentrees.
+   * On success, all heal state is reset.
+   * Set to 0 to disable. Default: 300_000 (5 min).
+   */
+  batchSyncInterval?: number
 }
 
 export class SubductionSource implements DocumentSource {
@@ -93,6 +119,18 @@ export class SubductionSource implements DocumentSource {
   #log: debug.Debugger
   #connectionStates = new Map<string, ConnectionState>()
 
+  // ── Self-healing sync state ─────────────────────────────────────────
+  #healTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  #healBackoff = new Map<string, number>()
+  #healAttempts = new Map<string, number>()
+  #onHealExhausted?: OnHealExhausted
+
+  // ── Periodic sync state ───────────────────────────────────────────
+  #periodicSyncTimer: ReturnType<typeof setInterval> | null = null
+  #batchSyncTimer: ReturnType<typeof setInterval> | null = null
+  #periodicSyncInProgress = false
+  #batchSyncInProgress = false
+
   constructor({
     peerId,
     storage,
@@ -100,10 +138,27 @@ export class SubductionSource implements DocumentSource {
     websocketEndpoints,
     onRemoteHeadsChanged,
     onEphemeral,
+    onHealExhausted,
+    periodicSyncInterval = 30_000,
+    batchSyncInterval = 300_000,
   }: SubductionSourceOptions) {
-    setSubductionLogLevel("debug")
+    // Default to "warn" so the Rust side is quiet. When the debug npm module
+    // has subduction namespaces enabled (via localStorage.debug), open the
+    // Rust tracing filter so the messages actually reach the JS logger.
+    // In Service Worker contexts, localStorage is unavailable — check
+    // globalThis.__SUBDUCTION_DEBUG as a fallback.
+    const subductionDebugRequested =
+      (typeof localStorage !== "undefined" &&
+        /subduction/i.test(localStorage.getItem("debug") ?? "")) ||
+      !!(globalThis as any).__SUBDUCTION_DEBUG
+    try {
+      setSubductionLogLevel(subductionDebugRequested ? "debug" : "warn")
+    } catch {
+      // Wasm module not yet initialized
+    }
     this.#log = debug(`automerge-repo:subduction(${peerId})`)
     this.#storage = storage
+    this.#onHealExhausted = onHealExhausted
 
     const onRemoteHeads = onRemoteHeadsChanged
       ? (
@@ -118,16 +173,46 @@ export class SubductionSource implements DocumentSource {
         }
       : undefined
 
-    this.#subduction = Subduction.hydrate(
-      signer,
-      storage,
-      undefined, // service_name
-      undefined, // hash_metric_override
-      undefined, // max_pending_blob_requests
-      undefined, // policy
-      onRemoteHeads,
-      onEphemeral
-    )
+    if (websocketEndpoints.length > 0) {
+      // Full hydration: load persisted sedimentrees from storage so
+      // fingerprint-based sync can resume where it left off.
+      console.log("[subduction] starting hydrate...")
+      const hydrateStart = performance.now()
+      this.#subduction = Subduction.hydrate(
+        signer,
+        storage,
+        undefined, // service_name
+        undefined, // hash_metric_override
+        undefined, // max_pending_blob_requests
+        undefined, // policy
+        onRemoteHeads,
+        onEphemeral
+      ).then(s => {
+        console.log(
+          `[subduction] hydrate complete in ${(
+            performance.now() - hydrateStart
+          ).toFixed(0)}ms`
+        )
+        return s
+      })
+    } else {
+      // No endpoints — skip hydration to avoid hundreds of IndexedDB
+      // transactions that would compete with the service worker's real
+      // hydration on the same database.
+      console.log("[subduction] no endpoints, skipping hydrate")
+      this.#subduction = Promise.resolve(
+        new Subduction(
+          signer,
+          storage,
+          undefined, // service_name
+          undefined, // hash_metric_override
+          undefined, // max_pending_blob_requests
+          undefined, // policy
+          onRemoteHeads,
+          onEphemeral
+        )
+      )
+    }
 
     for (const url of websocketEndpoints) {
       this.#connectionStates.set(url, "connecting")
@@ -136,6 +221,18 @@ export class SubductionSource implements DocumentSource {
 
     this.#storage.on("commit-saved", this.#handleDataFound.bind(this))
     this.#storage.on("fragment-saved", this.#handleDataFound.bind(this))
+
+    // ── Periodic sync timers ──────────────────────────────────────────
+    if (periodicSyncInterval > 0) {
+      this.#periodicSyncTimer = setInterval(() => {
+        void this.#runPeriodicSync()
+      }, periodicSyncInterval)
+    }
+    if (batchSyncInterval > 0) {
+      this.#batchSyncTimer = setInterval(() => {
+        void this.#runBatchSync()
+      }, batchSyncInterval)
+    }
   }
 
   // ── Connection management ───────────────────────────────────────────
@@ -146,21 +243,24 @@ export class SubductionSource implements DocumentSource {
 
     while (true) {
       this.#setConnectionState(url, "connecting")
+      console.log(`[subduction] connecting to ${url}...`)
 
       try {
         const transport = await WebSocketTransport.connect(url)
         const subduction = await this.#subduction
         await subduction.connectTransport(transport, serviceName)
         this.#setConnectionState(url, "running")
+        console.log(`[subduction] connected to ${url}`)
         backoff = RECONNECT_BASE_MS
 
         await transport.closed()
-        this.#log("disconnected from %s", url)
+        console.log(`[subduction] disconnected from ${url}`)
       } catch (e) {
-        this.#log("connection to %s failed: %O", url, e)
+        console.warn(`[subduction] connection to ${url} failed:`, e)
       }
 
       this.#setConnectionState(url, "awaiting-reconnect")
+      console.log(`[subduction] reconnecting to ${url} in ${backoff}ms`)
       await new Promise(r => setTimeout(r, backoff))
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
     }
@@ -175,6 +275,7 @@ export class SubductionSource implements DocumentSource {
       this.#log("connected to %s", url)
       for (const entry of this.#entries.values()) {
         entry.lastSyncResult = null
+        entry.needsResync = true
         entry.query.sourcePending("subduction")
       }
     }
@@ -194,10 +295,21 @@ export class SubductionSource implements DocumentSource {
   #handleDataFound(id: SedimentreeId, _digest: Digest, blob: Uint8Array) {
     const entry = this.#entries.get(id.toString())
     if (!entry) return
-    if (entry.syncState !== "running") return
+
+    // During "initializing", let #loadBlobsAndTransition handle the
+    // complete blob load atomically. Applying individual commits here
+    // would cause premature "ready" transitions (the handle gets heads > 0
+    // from a partial load, triggering DocumentQuery to resolve whenReady()
+    // before the full document is available).
+    if (entry.syncState === "initializing") return
 
     this.#log(`handleDataFound ${id}`)
     entry.handle.update(d => Automerge.loadIncremental(d, blob))
+
+    // If the query was previously marked unavailable (e.g. sync completed
+    // before data arrived), re-trigger a recompute so the query detects the
+    // newly-loaded heads and transitions to "ready".
+    entry.query.sourcePending("subduction")
   }
 
   // ── Attach / detach ─────────────────────────────────────────────────
@@ -215,6 +327,8 @@ export class SubductionSource implements DocumentSource {
       syncInFlight: false,
       lastSyncResult: null,
       blobLoadInFlight: false,
+      blobRetries: 0,
+      needsResync: false,
       lastSavedHeads: new Set(),
       recentlySavedHashes: new HashRing(RECENTLY_SAVED_CACHE_SIZE),
       pendingFragmentRequests: new Map(),
@@ -238,9 +352,8 @@ export class SubductionSource implements DocumentSource {
     void (async () => {
       try {
         const subduction = await this.#subduction
-        await subduction.subscribeEphemeral([
-          toSedimentreeId(query.documentId),
-        ])
+        const sid = toSedimentreeId(query.documentId)
+        await subduction.subscribeEphemeral([Topic.fromBytes(sid.toBytes())])
       } catch (e) {
         this.#log("ephemeral subscribe failed: %O", e)
       }
@@ -292,7 +405,8 @@ export class SubductionSource implements DocumentSource {
       }
 
       case "running": {
-        // Re-sync when lastSyncResult is cleared (new peer connected)
+        // Re-sync when lastSyncResult is cleared (e.g. after local save
+        // or new peer connected).
         if (!entry.syncInFlight && entry.lastSyncResult === null) {
           entry.syncInFlight = true
           void this.#doSync(entry)
@@ -305,60 +419,142 @@ export class SubductionSource implements DocumentSource {
   // ── Async work kicked off by #recompute ─────────────────────────────
 
   async #doSync(entry: SedimentreeEntry) {
-    const subduction = await this.#subduction
     const { sedimentreeId } = entry
+    const sid = sedimentreeId.toString().slice(0, 8)
 
-    this.#log(`syncing sedimentree ${sedimentreeId.toString().slice(0, 8)}...`)
-    const peerResultMap = await subduction.syncWithAllPeers(sedimentreeId, true)
+    try {
+      const subduction = await this.#subduction
 
-    for (const result of peerResultMap.entries()) {
-      const stats = result.stats
-      if (stats && !stats.isEmpty) {
-        this.#log(
-          `sync stats: received ${stats.commitsReceived} commits, ` +
-            `${stats.fragmentsReceived} fragments; ` +
-            `sent ${stats.commitsSent} commits, ` +
-            `${stats.fragmentsSent} fragments`
+      console.log(`[subduction] doSync ${sid} (state=${entry.syncState})`)
+      const peerResultMap = await subduction.syncWithAllPeers(
+        sedimentreeId,
+        true
+      )
+
+      const results = peerResultMap.entries()
+      const anySuccess = results.some(r => r.success)
+      this.#log(
+        `doSync ${sid}: ${results.length} peer(s), success=${anySuccess}`
+      )
+
+      // Check if any data was received from peers
+      const dataReceived = results.some(r => {
+        const s = r.stats
+        return s && (s.commitsReceived > 0 || s.fragmentsReceived > 0)
+      })
+
+      // If new data was received, immediately load it into the handle.
+      // This makes sync reactive — the handle updates as soon as data
+      // arrives, without waiting for periodic timers or state transitions.
+      if (dataReceived) {
+        await this.#loadBlobsIntoHandle(entry, subduction)
+      }
+
+      if (results.length === 0) {
+        entry.lastSyncResult = "no-peers"
+      } else if (results.every(r => !r.success)) {
+        entry.lastSyncResult = "all-failed"
+        this.#scheduleHealSync(entry.sedimentreeId)
+      } else {
+        entry.lastSyncResult = "succeeded"
+        this.#resetHealState(sedimentreeId.toString())
+      }
+    } catch (e) {
+      console.error(`[subduction] doSync THREW for ${sid}:`, e)
+      entry.lastSyncResult = "all-failed"
+      this.#scheduleHealSync(sedimentreeId)
+    } finally {
+      entry.syncInFlight = false
+      // If new commits were saved or a new connection was established
+      // while this sync was in flight, re-sync immediately.
+      if (entry.needsResync || entry.lastSyncResult === null) {
+        console.log(
+          `[subduction] doSync ${sid} finally: re-sync needed ` +
+            `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
+        )
+        entry.needsResync = false
+        entry.lastSyncResult = null
+      } else {
+        console.log(
+          `[subduction] doSync ${sid} finally: no re-sync ` +
+            `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
       }
+      this.#recompute()
     }
+  }
 
-    const results = peerResultMap.entries()
-    if (results.length === 0) {
-      entry.lastSyncResult = "no-peers"
-    } else if (results.every(r => !r.success)) {
-      entry.lastSyncResult = "all-failed"
-    } else {
-      entry.lastSyncResult = "succeeded"
-    }
+  /**
+   * Load all blobs for a sedimentree from Subduction and apply them to the
+   * handle via `Automerge.loadIncremental`. If new data was loaded, signal
+   * the query so it can transition to "ready".
+   *
+   * This is called reactively after any `syncWithAllPeers` that received
+   * data, making handle updates immediate rather than timer-driven.
+   */
+  async #loadBlobsIntoHandle(
+    entry: SedimentreeEntry,
+    subduction: Subduction
+  ): Promise<boolean> {
+    const sid = entry.sedimentreeId.toString().slice(0, 8)
+    const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
+    const totalBytes = allBlobs
+      ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
+      : 0
+    console.log(
+      `[subduction] loadBlobsIntoHandle ${sid}: ${
+        allBlobs?.length ?? 0
+      } blob(s), ${totalBytes} bytes, heads=${entry.handle.heads().length}`
+    )
+    if (!allBlobs || allBlobs.length === 0) return false
 
-    entry.syncInFlight = false
-    this.#recompute()
+    entry.handle.update(d => {
+      let result = d
+      for (const blob of allBlobs) {
+        result = Automerge.loadIncremental(result, blob)
+      }
+      return result
+    })
+
+    return true
   }
 
   async #loadBlobsAndTransition(entry: SedimentreeEntry) {
-    const subduction = await this.#subduction
-    const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
-    if (allBlobs && allBlobs.length > 0) {
-      entry.handle.update(d => {
-        let result = d
-        for (const blob of allBlobs) {
-          result = Automerge.loadIncremental(result, blob)
+    try {
+      const subduction = await this.#subduction
+      await this.#loadBlobsIntoHandle(entry, subduction)
+
+      entry.syncState = "running"
+
+      if (entry.handle.heads().length === 0) {
+        if (!this.#hasConnectingEndpoints()) {
+          // No data after a successful sync and no pending connections —
+          // the document is genuinely unavailable. If data arrives later
+          // via #handleDataFound, it calls sourcePending to re-enter
+          // "loading" → "ready".
+          entry.query.sourceUnavailable("subduction")
         }
-        return result
-      })
+        // Otherwise endpoints are still connecting — stay pending,
+        // data may arrive once the connection is established.
+      } else {
+        // Data loaded — notify the query so it can transition to "ready".
+        entry.query.sourcePending("subduction")
+      }
+    } catch (e) {
+      this.#log(
+        `loadBlobsAndTransition threw for ${entry.sedimentreeId
+          .toString()
+          .slice(0, 8)}: %O`,
+        e
+      )
+      // Transition to running anyway so live pushes aren't permanently blocked.
+      // The periodic sync will retry loading data.
+      entry.syncState = "running"
+      entry.lastSyncResult = null
+    } finally {
+      entry.blobLoadInFlight = false
+      this.#recompute()
     }
-
-    entry.syncState = "running"
-    entry.blobLoadInFlight = false
-
-    // If after loading there's still no data, mark unavailable.
-    // Data may arrive later via subscription (handleDataFound),
-    // which will update the handle and transition the query to ready.
-    if (entry.handle.heads().length === 0) {
-      entry.query.sourceUnavailable("subduction")
-    }
-    this.#recompute()
   }
 
   // ── Saving local changes to subduction ──────────────────────────────
@@ -378,8 +574,29 @@ export class SubductionSource implements DocumentSource {
     entry.lastSavedHeads = currentSet
 
     const subduction = await this.#subduction
+    const sid = entry.sedimentreeId.toString().slice(0, 8)
+    const changeCount = Automerge.getChangesMetaSince(
+      doc,
+      Array.from(previousHeads)
+    ).length
+    console.log(
+      `[subduction] #save ${sid}: ${changeCount} change(s), ` +
+        `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
+    )
     await this.#saveNewCommits(entry, doc, subduction, previousHeads)
 
+    // Trigger immediate sync to peers. If a sync is already in flight,
+    // flag for re-sync when it completes (otherwise the in-flight sync
+    // would overwrite lastSyncResult and the new commits would be lost).
+    if (entry.syncInFlight) {
+      console.log(
+        `[subduction] #save ${sid}: setting needsResync=true (sync in flight)`
+      )
+      entry.needsResync = true
+    } else {
+      console.log(`[subduction] #save ${sid}: setting lastSyncResult=null`)
+      entry.lastSyncResult = null
+    }
     this.#recompute()
   }
 
@@ -419,16 +636,249 @@ export class SubductionSource implements DocumentSource {
     )
   }
 
+  // ── Self-healing sync ────────────────────────────────────────────────
+  //
+  // When syncWithAllPeers fails for a sedimentree, we schedule a retry
+  // with exponential backoff (2s → 60s cap). After HEAL_MAX_ATTEMPTS
+  // consecutive failures we give up and notify the application via the
+  // onHealExhausted callback.
+
+  #scheduleHealSync(sedimentreeId: SedimentreeId) {
+    const key = sedimentreeId.toString()
+    const attempts = this.#healAttempts.get(key) ?? 0
+
+    if (attempts >= HEAL_MAX_ATTEMPTS) {
+      console.warn(
+        `[subduction] heal EXHAUSTED for ${key.slice(
+          0,
+          8
+        )} after ${attempts} attempts`
+      )
+      this.#onHealExhausted?.(toDocumentId(sedimentreeId))
+      return
+    }
+
+    // Debounce: restart the window if a timer is already pending.
+    const existing = this.#healTimers.get(key)
+    if (existing !== undefined) clearTimeout(existing)
+
+    const delay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
+
+    console.log(
+      `[subduction] scheduling heal for ${key.slice(0, 8)} in ${delay}ms ` +
+        `(attempt ${attempts + 1}/${HEAL_MAX_ATTEMPTS})`
+    )
+
+    const timer = setTimeout(() => {
+      void this.#executeHealSync(sedimentreeId)
+    }, delay)
+    this.#healTimers.set(key, timer)
+  }
+
+  async #executeHealSync(sedimentreeId: SedimentreeId) {
+    const key = sedimentreeId.toString()
+    this.#healTimers.delete(key)
+    this.#healAttempts.set(key, (this.#healAttempts.get(key) ?? 0) + 1)
+
+    this.#log(`executing heal sync for ${key.slice(0, 8)}...`)
+
+    try {
+      const subduction = await this.#subduction
+      const peerResultMap = await subduction.syncWithAllPeers(
+        sedimentreeId,
+        true
+      )
+
+      const results = peerResultMap.entries()
+      const anyFailed = results.some(
+        r => !r.success || (r.transportErrors?.length ?? 0) > 0
+      )
+
+      if (anyFailed || results.length === 0) {
+        const currentDelay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
+        const nextDelay = Math.min(currentDelay * 2, HEAL_MAX_DELAY_MS)
+        this.#healBackoff.set(key, nextDelay)
+        this.#scheduleHealSync(sedimentreeId)
+      } else {
+        this.#log(`heal sync succeeded for ${key.slice(0, 8)}`)
+        this.#resetHealState(key)
+      }
+    } catch (e) {
+      this.#log(`heal sync threw for ${key.slice(0, 8)}: %O`, e)
+      const currentDelay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
+      const nextDelay = Math.min(currentDelay * 2, HEAL_MAX_DELAY_MS)
+      this.#healBackoff.set(key, nextDelay)
+      this.#scheduleHealSync(sedimentreeId)
+    }
+  }
+
+  #resetHealState(key: string) {
+    const timer = this.#healTimers.get(key)
+    if (timer !== undefined) clearTimeout(timer)
+    this.#healTimers.delete(key)
+    this.#healBackoff.delete(key)
+    this.#healAttempts.delete(key)
+  }
+
+  /** Check whether a sedimentree is currently in heal-backoff. */
+  isHealing(sedimentreeId: SedimentreeId): boolean {
+    return this.#healTimers.has(sedimentreeId.toString())
+  }
+
+  // ── Periodic background sync ────────────────────────────────────────
+  //
+  // Two timers run in the background:
+  //
+  //   periodicSync  (default 10s)  — per-document sync for each open handle,
+  //       skipping entries already in heal-backoff.
+  //
+  //   batchSync     (default 5 min) — syncs every open handle. On full
+  //       success, resets all heal state.
+
+  async #runPeriodicSync() {
+    if (this.#periodicSyncInProgress) return
+    this.#periodicSyncInProgress = true
+
+    try {
+      const subduction = await this.#subduction
+
+      const healingCount = [...this.#entries.keys()].filter(k =>
+        this.#healTimers.has(k)
+      ).length
+      console.log(
+        `[subduction] periodic sync: ${this.#entries.size} entries, ` +
+          `${healingCount} healing (skipped)`
+      )
+
+      const tasks: Array<Promise<void>> = []
+      for (const [key, entry] of this.#entries.entries()) {
+        // Skip sedimentrees already in heal-backoff
+        if (this.#healTimers.has(key)) continue
+
+        tasks.push(
+          (async () => {
+            try {
+              const peerResultMap = await subduction.syncWithAllPeers(
+                entry.sedimentreeId,
+                true
+              )
+
+              const results = peerResultMap.entries()
+              if (results.length === 0) return
+
+              // If data was received, update the handle immediately
+              const dataReceived = results.some(r => {
+                const s = r.stats
+                return s && (s.commitsReceived > 0 || s.fragmentsReceived > 0)
+              })
+              if (dataReceived) {
+                await this.#loadBlobsIntoHandle(entry, subduction)
+              }
+
+              const anyFailed = results.some(
+                r => !r.success || (r.transportErrors?.length ?? 0) > 0
+              )
+
+              if (anyFailed) {
+                this.#scheduleHealSync(entry.sedimentreeId)
+              } else {
+                this.#resetHealState(key)
+              }
+            } catch (e) {
+              console.warn(
+                `[subduction] periodic sync failed for ${key.slice(0, 8)}:`,
+                e
+              )
+            }
+          })()
+        )
+      }
+
+      await Promise.allSettled(tasks)
+    } finally {
+      this.#periodicSyncInProgress = false
+    }
+  }
+
+  async #runBatchSync() {
+    if (this.#batchSyncInProgress) return
+    this.#batchSyncInProgress = true
+    this.#log("starting batch sync (all open handles)")
+
+    try {
+      const subduction = await this.#subduction
+      let anyFailed = false
+
+      const tasks: Array<Promise<void>> = []
+      for (const [key, entry] of this.#entries.entries()) {
+        tasks.push(
+          (async () => {
+            try {
+              const peerResultMap = await subduction.syncWithAllPeers(
+                entry.sedimentreeId,
+                true
+              )
+
+              const results = peerResultMap.entries()
+              if (results.length === 0) return
+
+              const entryFailed = results.some(
+                r => !r.success || (r.transportErrors?.length ?? 0) > 0
+              )
+              if (entryFailed) anyFailed = true
+            } catch (e) {
+              anyFailed = true
+              this.#log(`batch sync failed for ${key.slice(0, 8)}: %O`, e)
+            }
+          })()
+        )
+      }
+
+      await Promise.allSettled(tasks)
+
+      if (!anyFailed) {
+        this.#log("batch sync succeeded — resetting all heal state")
+        for (const timer of this.#healTimers.values()) {
+          clearTimeout(timer)
+        }
+        this.#healTimers.clear()
+        this.#healBackoff.clear()
+        this.#healAttempts.clear()
+      } else {
+        this.#log("batch sync completed with errors")
+      }
+    } finally {
+      this.#batchSyncInProgress = false
+    }
+  }
+
+  // ── Shutdown ────────────────────────────────────────────────────────
+
+  shutdown() {
+    if (this.#periodicSyncTimer !== null) {
+      clearInterval(this.#periodicSyncTimer)
+      this.#periodicSyncTimer = null
+    }
+    if (this.#batchSyncTimer !== null) {
+      clearInterval(this.#batchSyncTimer)
+      this.#batchSyncTimer = null
+    }
+    for (const timer of this.#healTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.#healTimers.clear()
+    this.#healBackoff.clear()
+    this.#healAttempts.clear()
+  }
+
   // ── Ephemeral messaging ──────────────────────────────────────────────
 
   /** Publish an ephemeral payload to subduction peers for the given document. */
   async publishEphemeral(documentId: DocumentId, payload: Uint8Array) {
     try {
       const subduction = await this.#subduction
-      await subduction.publishEphemeral(
-        toSedimentreeId(documentId),
-        payload
-      )
+      const sid = toSedimentreeId(documentId)
+      await subduction.publishEphemeral(Topic.fromBytes(sid.toBytes()), payload)
     } catch (e) {
       this.#log("ephemeral publish failed: %O", e)
     }

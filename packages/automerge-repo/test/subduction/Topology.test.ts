@@ -641,9 +641,7 @@ describe("Tab → Worker → Server topology", () => {
       await pause(500)
 
       // Bob finds the doc
-      const bobHandle = await pair2.tab.find<{ value: string }>(
-        aliceHandle.url
-      )
+      const bobHandle = await pair2.tab.find<{ value: string }>(aliceHandle.url)
       await bobHandle.whenReady()
 
       // Wait for sync to fully settle (peer states need to be resolved
@@ -677,9 +675,7 @@ describe("Tab → Worker → Server topology", () => {
 
       await pause(500)
 
-      const bobHandle = await pair2.tab.find<{ value: string }>(
-        aliceHandle.url
-      )
+      const bobHandle = await pair2.tab.find<{ value: string }>(aliceHandle.url)
       await bobHandle.whenReady()
       await pause(500)
 

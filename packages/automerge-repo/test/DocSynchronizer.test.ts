@@ -9,9 +9,7 @@ import {
 import { DocHandle } from "../src/DocHandle.js"
 import { DocumentQuery } from "../src/DocumentQuery.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
-import {
-  MessageContents,
-} from "../src/network/messages.js"
+import { MessageContents } from "../src/network/messages.js"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
 import type { ShareConfig } from "../src/synchronizer/DocSynchronizer.js"
 import { PeerId } from "../src/types.js"
