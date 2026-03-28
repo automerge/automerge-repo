@@ -102,6 +102,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     idFactory,
+    signer,
     subductionWebsocketEndpoints,
     periodicSyncInterval,
     batchSyncInterval,
@@ -167,7 +168,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const subductionSource = new SubductionSource({
       peerId,
       storage: subductionStorage,
-      signer: new MemorySigner(),
+      signer: signer ?? new MemorySigner(),
       websocketEndpoints: subductionWebsocketEndpoints ?? [],
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
         ? (documentId, storageId, heads) => {
@@ -773,6 +774,14 @@ export interface RepoConfig {
    * @hidden
    */
   idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
+
+  /**
+   * Signer used for Subduction commit signatures and peer identity.
+   * Defaults to a fresh `MemorySigner` (ephemeral key, lost on restart).
+   * Pass a `WebCryptoSigner` (via `await WebCryptoSigner.setup()`) for
+   * persistent identity across page loads.
+   */
+  signer?: unknown
 
   subductionWebsocketEndpoints?: string[]
 

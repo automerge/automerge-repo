@@ -142,9 +142,12 @@ export class SubductionSource implements DocumentSource {
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
     // Rust tracing filter so the messages actually reach the JS logger.
+    // In Service Worker contexts, localStorage is unavailable — check
+    // globalThis.__SUBDUCTION_DEBUG as a fallback.
     const subductionDebugRequested =
-      typeof localStorage !== "undefined" &&
-      /subduction/i.test(localStorage.getItem("debug") ?? "")
+      (typeof localStorage !== "undefined" &&
+        /subduction/i.test(localStorage.getItem("debug") ?? "")) ||
+      !!(globalThis as any).__SUBDUCTION_DEBUG
     try {
       setSubductionLogLevel(subductionDebugRequested ? "debug" : "warn")
     } catch {
@@ -207,21 +210,24 @@ export class SubductionSource implements DocumentSource {
 
     while (true) {
       this.#setConnectionState(url, "connecting")
+      console.log(`[subduction] connecting to ${url}...`)
 
       try {
         const transport = await WebSocketTransport.connect(url)
         const subduction = await this.#subduction
         await subduction.connectTransport(transport, serviceName)
         this.#setConnectionState(url, "running")
+        console.log(`[subduction] connected to ${url}`)
         backoff = RECONNECT_BASE_MS
 
         await transport.closed()
-        this.#log("disconnected from %s", url)
+        console.log(`[subduction] disconnected from ${url}`)
       } catch (e) {
-        this.#log("connection to %s failed: %O", url, e)
+        console.warn(`[subduction] connection to ${url} failed:`, e)
       }
 
       this.#setConnectionState(url, "awaiting-reconnect")
+      console.log(`[subduction] reconnecting to ${url} in ${backoff}ms`)
       await new Promise(r => setTimeout(r, backoff))
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
     }
@@ -364,62 +370,89 @@ export class SubductionSource implements DocumentSource {
   // ── Async work kicked off by #recompute ─────────────────────────────
 
   async #doSync(entry: SedimentreeEntry) {
-    const subduction = await this.#subduction
     const { sedimentreeId } = entry
+    const sid = sedimentreeId.toString().slice(0, 8)
 
-    this.#log(`syncing sedimentree ${sedimentreeId.toString().slice(0, 8)}...`)
-    const peerResultMap = await subduction.syncWithAllPeers(sedimentreeId, true)
+    try {
+      const subduction = await this.#subduction
 
-    for (const result of peerResultMap.entries()) {
-      const stats = result.stats
-      if (stats && !stats.isEmpty) {
-        this.#log(
-          `sync stats: received ${stats.commitsReceived} commits, ` +
-            `${stats.fragmentsReceived} fragments; ` +
-            `sent ${stats.commitsSent} commits, ` +
-            `${stats.fragmentsSent} fragments`
-        )
+      console.log(`[subduction] doSync ${sid} (state=${entry.syncState})`)
+      const peerResultMap = await subduction.syncWithAllPeers(
+        sedimentreeId,
+        true
+      )
+
+      const results = peerResultMap.entries()
+      console.log(
+        `[subduction] doSync ${sid}: ${results.length} peer(s), ` +
+          `success=${results.some(r => r.success)}`
+      )
+
+      for (const result of results) {
+        const stats = result.stats
+        if (stats && !stats.isEmpty) {
+          console.log(
+            `[subduction] doSync ${sid} stats: ` +
+              `recv ${stats.commitsReceived}c/${stats.fragmentsReceived}f, ` +
+              `sent ${stats.commitsSent}c/${stats.fragmentsSent}f`
+          )
+        }
       }
-    }
 
-    const results = peerResultMap.entries()
-    if (results.length === 0) {
-      entry.lastSyncResult = "no-peers"
-    } else if (results.every(r => !r.success)) {
+      if (results.length === 0) {
+        entry.lastSyncResult = "no-peers"
+      } else if (results.every(r => !r.success)) {
+        entry.lastSyncResult = "all-failed"
+        this.#scheduleHealSync(entry.sedimentreeId)
+      } else {
+        entry.lastSyncResult = "succeeded"
+        this.#resetHealState(sedimentreeId.toString())
+      }
+    } catch (e) {
+      console.error(`[subduction] doSync THREW for ${sid}:`, e)
       entry.lastSyncResult = "all-failed"
-      this.#scheduleHealSync(entry.sedimentreeId)
-    } else {
-      entry.lastSyncResult = "succeeded"
-      this.#resetHealState(sedimentreeId.toString())
+      this.#scheduleHealSync(sedimentreeId)
+    } finally {
+      entry.syncInFlight = false
+      this.#recompute()
     }
-
-    entry.syncInFlight = false
-    this.#recompute()
   }
 
   async #loadBlobsAndTransition(entry: SedimentreeEntry) {
-    const subduction = await this.#subduction
-    const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
-    if (allBlobs && allBlobs.length > 0) {
-      entry.handle.update(d => {
-        let result = d
-        for (const blob of allBlobs) {
-          result = Automerge.loadIncremental(result, blob)
-        }
-        return result
-      })
-    }
+    try {
+      const subduction = await this.#subduction
+      const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
+      if (allBlobs && allBlobs.length > 0) {
+        entry.handle.update(d => {
+          let result = d
+          for (const blob of allBlobs) {
+            result = Automerge.loadIncremental(result, blob)
+          }
+          return result
+        })
+      }
 
-    entry.syncState = "running"
-    entry.blobLoadInFlight = false
+      entry.syncState = "running"
 
-    // If after loading there's still no data, mark unavailable.
-    // Data may arrive later via subscription (handleDataFound),
-    // which will update the handle and transition the query to ready.
-    if (entry.handle.heads().length === 0) {
-      entry.query.sourceUnavailable("subduction")
+      // If after loading there's still no data, mark unavailable.
+      // Data may arrive later via subscription (handleDataFound),
+      // which will update the handle and transition the query to ready.
+      if (entry.handle.heads().length === 0) {
+        entry.query.sourceUnavailable("subduction")
+      }
+    } catch (e) {
+      this.#log(
+        `loadBlobsAndTransition threw for ${entry.sedimentreeId.toString().slice(0, 8)}: %O`,
+        e
+      )
+      // Transition to running anyway so live pushes aren't permanently blocked.
+      // The periodic sync will retry loading data.
+      entry.syncState = "running"
+      entry.lastSyncResult = null
+    } finally {
+      entry.blobLoadInFlight = false
+      this.#recompute()
     }
-    this.#recompute()
   }
 
   // ── Saving local changes to subduction ──────────────────────────────
@@ -492,8 +525,8 @@ export class SubductionSource implements DocumentSource {
     const attempts = this.#healAttempts.get(key) ?? 0
 
     if (attempts >= HEAL_MAX_ATTEMPTS) {
-      this.#log(
-        `heal sync exhausted after ${attempts} attempts for ${key.slice(0, 8)}`
+      console.warn(
+        `[subduction] heal EXHAUSTED for ${key.slice(0, 8)} after ${attempts} attempts`
       )
       this.#onHealExhausted?.(toDocumentId(sedimentreeId))
       return
@@ -505,8 +538,8 @@ export class SubductionSource implements DocumentSource {
 
     const delay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
 
-    this.#log(
-      `scheduling heal sync for ${key.slice(0, 8)} in ${delay}ms ` +
+    console.log(
+      `[subduction] scheduling heal for ${key.slice(0, 8)} in ${delay}ms ` +
         `(attempt ${attempts + 1}/${HEAL_MAX_ATTEMPTS})`
     )
 
@@ -579,37 +612,54 @@ export class SubductionSource implements DocumentSource {
   async #runPeriodicSync() {
     if (this.#periodicSyncInProgress) return
     this.#periodicSyncInProgress = true
-    this.#log("starting periodic per-document sync")
 
     try {
       const subduction = await this.#subduction
 
+      const healingCount = [...this.#entries.keys()].filter(k =>
+        this.#healTimers.has(k)
+      ).length
+      console.log(
+        `[subduction] periodic sync: ${this.#entries.size} entries, ` +
+          `${healingCount} healing (skipped)`
+      )
+
+      const tasks: Array<Promise<void>> = []
       for (const [key, entry] of this.#entries.entries()) {
         // Skip sedimentrees already in heal-backoff
         if (this.#healTimers.has(key)) continue
 
-        try {
-          const peerResultMap = await subduction.syncWithAllPeers(
-            entry.sedimentreeId,
-            true
-          )
+        tasks.push(
+          (async () => {
+            try {
+              const peerResultMap = await subduction.syncWithAllPeers(
+                entry.sedimentreeId,
+                true
+              )
 
-          const results = peerResultMap.entries()
-          if (results.length === 0) continue
+              const results = peerResultMap.entries()
+              if (results.length === 0) return
 
-          const anyFailed = results.some(
-            r => !r.success || (r.transportErrors?.length ?? 0) > 0
-          )
+              const anyFailed = results.some(
+                r => !r.success || (r.transportErrors?.length ?? 0) > 0
+              )
 
-          if (anyFailed) {
-            this.#scheduleHealSync(entry.sedimentreeId)
-          } else {
-            this.#resetHealState(key)
-          }
-        } catch (e) {
-          this.#log(`periodic sync failed for ${key.slice(0, 8)}: %O`, e)
-        }
+              if (anyFailed) {
+                this.#scheduleHealSync(entry.sedimentreeId)
+              } else {
+                this.#resetHealState(key)
+              }
+            } catch (e) {
+              console.warn(
+                `[subduction] periodic sync failed for ${key.slice(0, 8)}:`,
+                e
+              )
+            }
+          })()
+        )
       }
+
+      await Promise.allSettled(tasks)
     } finally {
       this.#periodicSyncInProgress = false
     }
@@ -622,29 +672,36 @@ export class SubductionSource implements DocumentSource {
 
     try {
       const subduction = await this.#subduction
-      let allSucceeded = true
+      let anyFailed = false
 
+      const tasks: Array<Promise<void>> = []
       for (const [key, entry] of this.#entries.entries()) {
-        try {
-          const peerResultMap = await subduction.syncWithAllPeers(
-            entry.sedimentreeId,
-            true
-          )
+        tasks.push(
+          (async () => {
+            try {
+              const peerResultMap = await subduction.syncWithAllPeers(
+                entry.sedimentreeId,
+                true
+              )
 
-          const results = peerResultMap.entries()
-          if (results.length === 0) continue
+              const results = peerResultMap.entries()
+              if (results.length === 0) return
 
-          const anyFailed = results.some(
-            r => !r.success || (r.transportErrors?.length ?? 0) > 0
-          )
-          if (anyFailed) allSucceeded = false
-        } catch (e) {
-          allSucceeded = false
-          this.#log(`batch sync failed for ${key.slice(0, 8)}: %O`, e)
-        }
+              const entryFailed = results.some(
+                r => !r.success || (r.transportErrors?.length ?? 0) > 0
+              )
+              if (entryFailed) anyFailed = true
+            } catch (e) {
+              anyFailed = true
+              this.#log(`batch sync failed for ${key.slice(0, 8)}: %O`, e)
+            }
+          })()
+        )
       }
 
-      if (allSucceeded) {
+      await Promise.allSettled(tasks)
+
+      if (!anyFailed) {
         this.#log("batch sync succeeded — resetting all heal state")
         for (const timer of this.#healTimers.values()) {
           clearTimeout(timer)
