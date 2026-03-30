@@ -101,7 +101,7 @@ export class WebSocketTransport implements Transport {
 
   async sendBytes(bytes: Uint8Array): Promise<void> {
     if (this.#isClosed) throw new Error("WebSocket closed")
-    this.#ws.send(bytes)
+    this.#ws.send(bytes.slice())
   }
 
   recvBytes(): Promise<Uint8Array> {
