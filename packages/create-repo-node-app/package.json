@@ -1,6 +1,6 @@
 {
   "name": "@automerge/create-repo-node-app",
-  "version": "2.5.5",
+  "version": "2.6.0-subduction.6",
   "description": "Create an automerge-repo app for node",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/create-repo-node-app",
   "author": "Alex Good <alex@memoryandthought.me>",
@@ -12,6 +12,7 @@
     "postbuild": "node postbuild.js"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "subduction"
   }
 }
