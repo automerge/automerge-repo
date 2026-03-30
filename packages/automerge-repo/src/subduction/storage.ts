@@ -145,7 +145,11 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   }
 
   async loadAllSedimentreeIds(): Promise<SedimentreeId[]> {
+    console.log("[subduction:storage] loadAllSedimentreeIds: starting")
     const chunks = await this.adapter.loadRange([PREFIX, IDS_PREFIX])
+    console.log(
+      `[subduction:storage] loadAllSedimentreeIds: found ${chunks.length} IDs`
+    )
     return chunks
       .filter(chunk => chunk.key.length === 3 && chunk.data)
       .map(chunk => SedimentreeId.fromBytes(hexToBytes(chunk.key[2])))
@@ -233,16 +237,37 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async loadAllCommits(
     sedimentreeId: SedimentreeId
   ): Promise<CommitWithBlob[]> {
-    const digests = await this.listCommitDigests(sedimentreeId)
-    const results: CommitWithBlob[] = []
+    const sid = sedimentreeId.toString()
+    const sidShort = sid.slice(0, 8)
 
-    for (const digest of digests) {
-      const commitWithBlob = await this.loadCommit(sedimentreeId, digest)
-      if (commitWithBlob) {
-        results.push(commitWithBlob)
+    // Batch: two loadRange calls in parallel instead of 1 + 2N sequential loads.
+    const [commitChunks, blobChunks] = await Promise.all([
+      this.adapter.loadRange([PREFIX, COMMITS_PREFIX, sid]),
+      this.adapter.loadRange([PREFIX, BLOBS_PREFIX, sid]),
+    ])
+
+    // Index blobs by digest hex for O(1) lookup
+    const blobsByDigest = new Map<string, Uint8Array>()
+    for (const chunk of blobChunks) {
+      if (chunk.key.length === 4 && chunk.data) {
+        blobsByDigest.set(chunk.key[3], chunk.data)
       }
     }
 
+    const results: CommitWithBlob[] = []
+    for (const chunk of commitChunks) {
+      if (chunk.key.length !== 4 || !chunk.data) continue
+      const digestHex = chunk.key[3]
+      const blobData = blobsByDigest.get(digestHex)
+      if (!blobData) continue
+
+      const signedCommit = SignedLooseCommit.tryDecode(chunk.data)
+      results.push(new CommitWithBlob(signedCommit, blobData))
+    }
+
+    console.log(
+      `[subduction:storage] loadAllCommits ${sidShort}: ${results.length} commits (batched)`
+    )
     return results
   }
 
@@ -368,16 +393,37 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async loadAllFragments(
     sedimentreeId: SedimentreeId
   ): Promise<FragmentWithBlob[]> {
-    const digests = await this.listFragmentDigests(sedimentreeId)
-    const results: FragmentWithBlob[] = []
+    const sid = sedimentreeId.toString()
+    const sidShort = sid.slice(0, 8)
 
-    for (const digest of digests) {
-      const fragmentWithBlob = await this.loadFragment(sedimentreeId, digest)
-      if (fragmentWithBlob) {
-        results.push(fragmentWithBlob)
+    // Batch: two loadRange calls in parallel instead of 1 + 2M sequential loads.
+    const [fragmentChunks, blobChunks] = await Promise.all([
+      this.adapter.loadRange([PREFIX, FRAGMENTS_PREFIX, sid]),
+      this.adapter.loadRange([PREFIX, FRAGMENT_BLOBS_PREFIX, sid]),
+    ])
+
+    // Index blobs by digest hex for O(1) lookup
+    const blobsByDigest = new Map<string, Uint8Array>()
+    for (const chunk of blobChunks) {
+      if (chunk.key.length === 4 && chunk.data) {
+        blobsByDigest.set(chunk.key[3], chunk.data)
       }
     }
 
+    const results: FragmentWithBlob[] = []
+    for (const chunk of fragmentChunks) {
+      if (chunk.key.length !== 4 || !chunk.data) continue
+      const digestHex = chunk.key[3]
+      const blobData = blobsByDigest.get(digestHex)
+      if (!blobData) continue
+
+      const signedFragment = SignedFragment.tryDecode(chunk.data)
+      results.push(new FragmentWithBlob(signedFragment, blobData))
+    }
+
+    console.log(
+      `[subduction:storage] loadAllFragments ${sidShort}: ${results.length} fragments (batched)`
+    )
     return results
   }
 
