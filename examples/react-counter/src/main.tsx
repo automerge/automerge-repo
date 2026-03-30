@@ -9,6 +9,13 @@ import {
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
+// @ts-ignore — initSync is not in the type declarations but is exported at runtime
+import { initSync } from "@automerge/automerge-subduction/slim"
+// @ts-ignore — wasm-base64 has no type declarations
+import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
+
+// Initialize Subduction Wasm before constructing the Repo
+initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
 
 // We run the network & storage in a separate file and the tabs themselves are stateless and lightweight.
 // This means we only ever create one websocket connection to the sync server, we only do our writes in one place
