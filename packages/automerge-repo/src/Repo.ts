@@ -30,6 +30,7 @@ import type {
   BinaryDocumentId,
   DocumentId,
   PeerId,
+  SessionId,
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
 import {
@@ -90,6 +91,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsGossipingEnabled = false
   #subductionSource: SubductionSource | null = null
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
+  #peerId: PeerId
 
   constructor({
     storage,
@@ -108,6 +110,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     batchSyncInterval,
   }: RepoConfig = {}) {
     super()
+    this.#peerId = peerId
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
 
@@ -241,10 +244,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       networkSubsystem.send(message)
     })
 
-    // Tunnel inbound ephemeral messages through subduction.
-    // When we receive an ephemeral from any network adapter, also
-    // publish it as a subduction ephemeral so it reaches peers
-    // connected via websocket (who aren't sync-protocol peers).
+    // Tunnel inbound ephemeral messages from network adapters through
+    // subduction, so they reach peers connected via websocket transport.
     networkSubsystem.on("message", message => {
       if (message.type === "ephemeral" && this.#subductionSource) {
         const payload = new Uint8Array(encode(message))
@@ -388,6 +389,31 @@ export class Repo extends EventEmitter<RepoEvents> {
     // from the start.
     for (const source of this.#sources) {
       source.attach(query)
+    }
+
+    // Bridge outbound ephemeral messages to Subduction.
+    // This fires once per DocHandle.broadcast() call, independent of
+    // whether there are any old-protocol sync peers.
+    if (this.#subductionSource) {
+      const subductionSource = this.#subductionSource
+      query.handle.on("ephemeral-message-outbound", ({ data }) => {
+        console.log(
+          `[repo] ephemeral outbound for ${documentId.slice(0, 8)}, ${
+            data.byteLength
+          } bytes`
+        )
+        const fullMsg: EphemeralMessage = {
+          type: "ephemeral",
+          senderId: this.#peerId,
+          targetId: this.#peerId, // not meaningful for pub/sub
+          documentId,
+          data,
+          count: 0,
+          sessionId: "subduction-bridge" as SessionId,
+        }
+        const payload = new Uint8Array(encode(fullMsg))
+        subductionSource.publishEphemeral(documentId, payload)
+      })
     }
 
     return query
