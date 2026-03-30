@@ -172,16 +172,44 @@ export class SubductionSource implements DocumentSource {
         }
       : undefined
 
-    this.#subduction = Subduction.hydrate(
-      signer,
-      storage,
-      undefined, // service_name
-      undefined, // hash_metric_override
-      undefined, // max_pending_blob_requests
-      undefined, // policy
-      onRemoteHeads,
-      onEphemeral
-    )
+    if (websocketEndpoints.length > 0) {
+      // Full hydration: load persisted sedimentrees from storage so
+      // fingerprint-based sync can resume where it left off.
+      console.log("[subduction] starting hydrate...")
+      const hydrateStart = performance.now()
+      this.#subduction = Subduction.hydrate(
+        signer,
+        storage,
+        undefined, // service_name
+        undefined, // hash_metric_override
+        undefined, // max_pending_blob_requests
+        undefined, // policy
+        onRemoteHeads,
+        onEphemeral
+      ).then(s => {
+        console.log(
+          `[subduction] hydrate complete in ${(performance.now() - hydrateStart).toFixed(0)}ms`
+        )
+        return s
+      })
+    } else {
+      // No endpoints — skip hydration to avoid hundreds of IndexedDB
+      // transactions that would compete with the service worker's real
+      // hydration on the same database.
+      console.log("[subduction] no endpoints, skipping hydrate")
+      this.#subduction = Promise.resolve(
+        new Subduction(
+          signer,
+          storage,
+          undefined, // service_name
+          undefined, // hash_metric_override
+          undefined, // max_pending_blob_requests
+          undefined, // policy
+          onRemoteHeads,
+          onEphemeral
+        )
+      )
+    }
 
     for (const url of websocketEndpoints) {
       this.#connectionStates.set(url, "connecting")
