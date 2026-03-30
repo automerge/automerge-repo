@@ -6,6 +6,7 @@ import {
   SedimentreeAutomerge,
   FragmentStateStore,
   HashMetric,
+  Topic,
   setSubductionLogLevel,
   type FragmentRequested,
 } from "@automerge/automerge-subduction/slim"
@@ -57,6 +58,7 @@ interface SedimentreeEntry {
   syncInFlight: boolean
   lastSyncResult: SyncResult | null
   blobLoadInFlight: boolean
+  blobRetries: number
 
   // Save tracking
   lastSavedHeads: Set<string>
@@ -261,10 +263,14 @@ export class SubductionSource implements DocumentSource {
   #handleDataFound(id: SedimentreeId, _digest: Digest, blob: Uint8Array) {
     const entry = this.#entries.get(id.toString())
     if (!entry) return
-    if (entry.syncState !== "running") return
 
-    this.#log(`handleDataFound ${id}`)
+    this.#log(`handleDataFound ${id} (state=${entry.syncState})`)
     entry.handle.update(d => Automerge.loadIncremental(d, blob))
+
+    // If the query was previously marked unavailable (e.g. sync completed
+    // before data arrived), re-trigger a recompute so the query detects the
+    // newly-loaded heads and transitions to "ready".
+    entry.query.sourcePending("subduction")
   }
 
   // ── Attach / detach ─────────────────────────────────────────────────
@@ -282,6 +288,7 @@ export class SubductionSource implements DocumentSource {
       syncInFlight: false,
       lastSyncResult: null,
       blobLoadInFlight: false,
+      blobRetries: 0,
       lastSavedHeads: new Set(),
       recentlySavedHashes: new HashRing(RECENTLY_SAVED_CACHE_SIZE),
       pendingFragmentRequests: new Map(),
@@ -305,7 +312,8 @@ export class SubductionSource implements DocumentSource {
     void (async () => {
       try {
         const subduction = await this.#subduction
-        await subduction.subscribeEphemeral([toSedimentreeId(query.documentId)])
+        const sid = toSedimentreeId(query.documentId)
+        await subduction.subscribeEphemeral([Topic.fromBytes(sid.toBytes())])
       } catch (e) {
         this.#log("ephemeral subscribe failed: %O", e)
       }
@@ -419,9 +427,18 @@ export class SubductionSource implements DocumentSource {
   }
 
   async #loadBlobsAndTransition(entry: SedimentreeEntry) {
+    const sid = entry.sedimentreeId.toString().slice(0, 8)
     try {
       const subduction = await this.#subduction
       const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
+      const totalBytes = allBlobs
+        ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
+        : 0
+      console.log(
+        `[subduction] loadBlobs ${sid}: ${
+          allBlobs?.length ?? 0
+        } blob(s), ${totalBytes} bytes`
+      )
       if (allBlobs && allBlobs.length > 0) {
         entry.handle.update(d => {
           let result = d
@@ -432,17 +449,27 @@ export class SubductionSource implements DocumentSource {
         })
       }
 
+      const headsLen = entry.handle.heads().length
+      console.log(
+        `[subduction] loadBlobs ${sid}: after load, heads=${headsLen}`
+      )
+
       entry.syncState = "running"
 
-      // If after loading there's still no data, mark unavailable.
-      // Data may arrive later via subscription (handleDataFound),
-      // which will update the handle and transition the query to ready.
-      if (entry.handle.heads().length === 0) {
-        entry.query.sourceUnavailable("subduction")
+      // If there's no data yet, don't mark unavailable — the sender may
+      // not have pushed commits yet. Data will arrive via #handleDataFound
+      // (the storage bridge push), which calls sourcePending to transition
+      // the query to "ready".
+      if (headsLen === 0) {
+        console.log(
+          `[subduction] loadBlobs ${sid}: no data yet, waiting for push`
+        )
       }
     } catch (e) {
       this.#log(
-        `loadBlobsAndTransition threw for ${entry.sedimentreeId.toString().slice(0, 8)}: %O`,
+        `loadBlobsAndTransition threw for ${entry.sedimentreeId
+          .toString()
+          .slice(0, 8)}: %O`,
         e
       )
       // Transition to running anyway so live pushes aren't permanently blocked.
@@ -526,7 +553,10 @@ export class SubductionSource implements DocumentSource {
 
     if (attempts >= HEAL_MAX_ATTEMPTS) {
       console.warn(
-        `[subduction] heal EXHAUSTED for ${key.slice(0, 8)} after ${attempts} attempts`
+        `[subduction] heal EXHAUSTED for ${key.slice(
+          0,
+          8
+        )} after ${attempts} attempts`
       )
       this.#onHealExhausted?.(toDocumentId(sedimentreeId))
       return
@@ -742,7 +772,8 @@ export class SubductionSource implements DocumentSource {
   async publishEphemeral(documentId: DocumentId, payload: Uint8Array) {
     try {
       const subduction = await this.#subduction
-      await subduction.publishEphemeral(toSedimentreeId(documentId), payload)
+      const sid = toSedimentreeId(documentId)
+      await subduction.publishEphemeral(Topic.fromBytes(sid.toBytes()), payload)
     } catch (e) {
       this.#log("ephemeral publish failed: %O", e)
     }
