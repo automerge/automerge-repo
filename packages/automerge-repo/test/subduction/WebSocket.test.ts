@@ -135,7 +135,13 @@ describe("Subduction WebSocket sync", () => {
     const handle2 = await client2.find<{ count: number }>(handle1.url)
     await handle2.whenReady()
 
-    expect(handle2.doc()!.count).toBe(42)
+    const doc = handle2.doc()!
+    console.log(
+      `[test] after whenReady: heads=${handle2.heads().length}, ` +
+        `keys=${Object.keys(doc)}, count=${doc.count}`
+    )
+
+    expect(doc.count).toBe(42)
   }, 10_000)
 
   it("two clients sync through a server", async () => {
