@@ -15,7 +15,7 @@ export class AdapterStateSignal implements AdapterState {
     )
   }
 
-  async *watch(): AsyncIterator<"ready" | "connecting"> {
+  async *watch(): AsyncIterable<"ready" | "connecting"> {
     while (!this.#done) {
       try {
         yield await this.#nextPromise
