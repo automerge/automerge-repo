@@ -58,6 +58,7 @@ interface SedimentreeEntry {
   syncInFlight: boolean
   lastSyncResult: SyncResult | null
   blobLoadInFlight: boolean
+  needsResync: boolean
   blobRetries: number
 
   // Save tracking
@@ -274,6 +275,7 @@ export class SubductionSource implements DocumentSource {
       this.#log("connected to %s", url)
       for (const entry of this.#entries.values()) {
         entry.lastSyncResult = null
+        entry.needsResync = true
         entry.query.sourcePending("subduction")
       }
     }
@@ -294,7 +296,14 @@ export class SubductionSource implements DocumentSource {
     const entry = this.#entries.get(id.toString())
     if (!entry) return
 
-    this.#log(`handleDataFound ${id} (state=${entry.syncState})`)
+    // During "initializing", let #loadBlobsAndTransition handle the
+    // complete blob load atomically. Applying individual commits here
+    // would cause premature "ready" transitions (the handle gets heads > 0
+    // from a partial load, triggering DocumentQuery to resolve whenReady()
+    // before the full document is available).
+    if (entry.syncState === "initializing") return
+
+    this.#log(`handleDataFound ${id}`)
     entry.handle.update(d => Automerge.loadIncremental(d, blob))
 
     // If the query was previously marked unavailable (e.g. sync completed
@@ -319,6 +328,7 @@ export class SubductionSource implements DocumentSource {
       lastSyncResult: null,
       blobLoadInFlight: false,
       blobRetries: 0,
+      needsResync: false,
       lastSavedHeads: new Set(),
       recentlySavedHashes: new HashRing(RECENTLY_SAVED_CACHE_SIZE),
       pendingFragmentRequests: new Map(),
@@ -422,20 +432,22 @@ export class SubductionSource implements DocumentSource {
       )
 
       const results = peerResultMap.entries()
-      console.log(
-        `[subduction] doSync ${sid}: ${results.length} peer(s), ` +
-          `success=${results.some(r => r.success)}`
+      const anySuccess = results.some(r => r.success)
+      this.#log(
+        `doSync ${sid}: ${results.length} peer(s), success=${anySuccess}`
       )
 
-      for (const result of results) {
-        const stats = result.stats
-        if (stats && !stats.isEmpty) {
-          console.log(
-            `[subduction] doSync ${sid} stats: ` +
-              `recv ${stats.commitsReceived}c/${stats.fragmentsReceived}f, ` +
-              `sent ${stats.commitsSent}c/${stats.fragmentsSent}f`
-          )
-        }
+      // Check if any data was received from peers
+      const dataReceived = results.some(r => {
+        const s = r.stats
+        return s && (s.commitsReceived > 0 || s.fragmentsReceived > 0)
+      })
+
+      // If new data was received, immediately load it into the handle.
+      // This makes sync reactive — the handle updates as soon as data
+      // arrives, without waiting for periodic timers or state transitions.
+      if (dataReceived) {
+        await this.#loadBlobsIntoHandle(entry, subduction)
       }
 
       if (results.length === 0) {
@@ -453,48 +465,80 @@ export class SubductionSource implements DocumentSource {
       this.#scheduleHealSync(sedimentreeId)
     } finally {
       entry.syncInFlight = false
+      // If new commits were saved or a new connection was established
+      // while this sync was in flight, re-sync immediately.
+      if (entry.needsResync || entry.lastSyncResult === null) {
+        console.log(
+          `[subduction] doSync ${sid} finally: re-sync needed ` +
+            `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
+        )
+        entry.needsResync = false
+        entry.lastSyncResult = null
+      } else {
+        console.log(
+          `[subduction] doSync ${sid} finally: no re-sync ` +
+            `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
+        )
+      }
       this.#recompute()
     }
   }
 
-  async #loadBlobsAndTransition(entry: SedimentreeEntry) {
+  /**
+   * Load all blobs for a sedimentree from Subduction and apply them to the
+   * handle via `Automerge.loadIncremental`. If new data was loaded, signal
+   * the query so it can transition to "ready".
+   *
+   * This is called reactively after any `syncWithAllPeers` that received
+   * data, making handle updates immediate rather than timer-driven.
+   */
+  async #loadBlobsIntoHandle(
+    entry: SedimentreeEntry,
+    subduction: Subduction
+  ): Promise<boolean> {
     const sid = entry.sedimentreeId.toString().slice(0, 8)
+    const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
+    const totalBytes = allBlobs
+      ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
+      : 0
+    console.log(
+      `[subduction] loadBlobsIntoHandle ${sid}: ${
+        allBlobs?.length ?? 0
+      } blob(s), ${totalBytes} bytes, heads=${entry.handle.heads().length}`
+    )
+    if (!allBlobs || allBlobs.length === 0) return false
+
+    entry.handle.update(d => {
+      let result = d
+      for (const blob of allBlobs) {
+        result = Automerge.loadIncremental(result, blob)
+      }
+      return result
+    })
+
+    return true
+  }
+
+  async #loadBlobsAndTransition(entry: SedimentreeEntry) {
     try {
       const subduction = await this.#subduction
-      const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
-      const totalBytes = allBlobs
-        ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
-        : 0
-      console.log(
-        `[subduction] loadBlobs ${sid}: ${
-          allBlobs?.length ?? 0
-        } blob(s), ${totalBytes} bytes`
-      )
-      if (allBlobs && allBlobs.length > 0) {
-        entry.handle.update(d => {
-          let result = d
-          for (const blob of allBlobs) {
-            result = Automerge.loadIncremental(result, blob)
-          }
-          return result
-        })
-      }
-
-      const headsLen = entry.handle.heads().length
-      console.log(
-        `[subduction] loadBlobs ${sid}: after load, heads=${headsLen}`
-      )
+      await this.#loadBlobsIntoHandle(entry, subduction)
 
       entry.syncState = "running"
 
-      // If there's no data yet, don't mark unavailable — the sender may
-      // not have pushed commits yet. Data will arrive via #handleDataFound
-      // (the storage bridge push), which calls sourcePending to transition
-      // the query to "ready".
-      if (headsLen === 0) {
-        console.log(
-          `[subduction] loadBlobs ${sid}: no data yet, waiting for push`
-        )
+      if (entry.handle.heads().length === 0) {
+        if (!this.#hasConnectingEndpoints()) {
+          // No data after a successful sync and no pending connections —
+          // the document is genuinely unavailable. If data arrives later
+          // via #handleDataFound, it calls sourcePending to re-enter
+          // "loading" → "ready".
+          entry.query.sourceUnavailable("subduction")
+        }
+        // Otherwise endpoints are still connecting — stay pending,
+        // data may arrive once the connection is established.
+      } else {
+        // Data loaded — notify the query so it can transition to "ready".
+        entry.query.sourcePending("subduction")
       }
     } catch (e) {
       this.#log(
@@ -530,9 +574,29 @@ export class SubductionSource implements DocumentSource {
     entry.lastSavedHeads = currentSet
 
     const subduction = await this.#subduction
+    const sid = entry.sedimentreeId.toString().slice(0, 8)
+    const changeCount = Automerge.getChangesMetaSince(
+      doc,
+      Array.from(previousHeads)
+    ).length
+    console.log(
+      `[subduction] #save ${sid}: ${changeCount} change(s), ` +
+        `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
+    )
     await this.#saveNewCommits(entry, doc, subduction, previousHeads)
 
-    entry.lastSyncResult = null // trigger immediate sync to peers
+    // Trigger immediate sync to peers. If a sync is already in flight,
+    // flag for re-sync when it completes (otherwise the in-flight sync
+    // would overwrite lastSyncResult and the new commits would be lost).
+    if (entry.syncInFlight) {
+      console.log(
+        `[subduction] #save ${sid}: setting needsResync=true (sync in flight)`
+      )
+      entry.needsResync = true
+    } else {
+      console.log(`[subduction] #save ${sid}: setting lastSyncResult=null`)
+      entry.lastSyncResult = null
+    }
     this.#recompute()
   }
 
@@ -701,6 +765,15 @@ export class SubductionSource implements DocumentSource {
 
               const results = peerResultMap.entries()
               if (results.length === 0) return
+
+              // If data was received, update the handle immediately
+              const dataReceived = results.some(r => {
+                const s = r.stats
+                return s && (s.commitsReceived > 0 || s.fragmentsReceived > 0)
+              })
+              if (dataReceived) {
+                await this.#loadBlobsIntoHandle(entry, subduction)
+              }
 
               const anyFailed = results.some(
                 r => !r.success || (r.transportErrors?.length ?? 0) > 0
