@@ -21,7 +21,7 @@
 
 import type { StorageAdapterInterface } from "@automerge/automerge-repo/slim"
 import { Subduction } from "@automerge/automerge-subduction/slim"
-export { SubductionSource, type OnRemoteHeadsChanged } from "./source.js"
+export { SubductionSource, SubductionPolicy, type OnRemoteHeadsChanged } from "./source.js"
 export type { OnHealExhausted } from "./SyncScheduler.js"
 
 import { SubductionStorageBridge } from "./storage.js"

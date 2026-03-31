@@ -80,6 +80,28 @@ export type OnEphemeral = (
   payload: Uint8Array
 ) => void
 
+/**
+ * Authorization policy for the Subduction sync engine.
+ *
+ * Matches the duck-typed `JsPolicy` interface expected by the subduction WASM
+ * API. Throwing (or returning a rejected promise) denies the operation. Resolving
+ * allows it.
+ * Defaults to allow-all when a policy is omitted.
+ */
+export interface SubductionPolicy {
+  authorizeConnect(peerId: Uint8Array): Promise<void>
+  authorizeFetch(peerId: Uint8Array, sedimentreeId: Uint8Array): Promise<void>
+  authorizePut(
+    requestor: Uint8Array,
+    author: Uint8Array,
+    sedimentreeId: Uint8Array
+  ): Promise<void>
+  filterAuthorizedFetch(
+    peerId: Uint8Array,
+    ids: Uint8Array[]
+  ): Promise<Uint8Array[]>
+}
+
 export interface SubductionSourceOptions {
   peerId: PeerId
   storage: SubductionStorageBridge
@@ -93,6 +115,8 @@ export interface SubductionSourceOptions {
   onRemoteHeadsChanged?: OnRemoteHeadsChanged
   onEphemeral?: OnEphemeral
   onHealExhausted?: (documentId: DocumentId) => void
+
+  policy?: SubductionPolicy
 
   /**
    * Interval in ms for per-document periodic sync. Each open document is
@@ -127,6 +151,7 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
+    policy,
     periodicSyncInterval = 30_000,
     batchSyncInterval = 300_000,
   }: SubductionSourceOptions) {
@@ -171,7 +196,7 @@ export class SubductionSource implements DocumentSource {
         undefined, // service_name
         undefined, // hash_metric_override
         undefined, // max_pending_blob_requests
-        undefined, // policy
+        policy,
         undefined, // ephemeral_policy
         onRemoteHeads,
         onEphemeral
@@ -195,7 +220,7 @@ export class SubductionSource implements DocumentSource {
           undefined, // service_name
           undefined, // hash_metric_override
           undefined, // max_pending_blob_requests
-          undefined, // policy
+          policy,
           undefined, // ephemeral_policy
           onRemoteHeads,
           onEphemeral
