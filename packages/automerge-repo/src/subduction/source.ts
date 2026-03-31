@@ -188,7 +188,9 @@ export class SubductionSource implements DocumentSource {
         onEphemeral
       ).then(s => {
         console.log(
-          `[subduction] hydrate complete in ${(performance.now() - hydrateStart).toFixed(0)}ms`
+          `[subduction] hydrate complete in ${(
+            performance.now() - hydrateStart
+          ).toFixed(0)}ms`
         )
         return s
       })
@@ -393,7 +395,8 @@ export class SubductionSource implements DocumentSource {
       }
 
       case "running": {
-        // Re-sync when lastSyncResult is cleared (new peer connected)
+        // Re-sync when lastSyncResult is cleared (e.g. after local save
+        // or new peer connected).
         if (!entry.syncInFlight && entry.lastSyncResult === null) {
           entry.syncInFlight = true
           void this.#doSync(entry)
@@ -529,6 +532,7 @@ export class SubductionSource implements DocumentSource {
     const subduction = await this.#subduction
     await this.#saveNewCommits(entry, doc, subduction, previousHeads)
 
+    entry.lastSyncResult = null // trigger immediate sync to peers
     this.#recompute()
   }
 
