@@ -31,4 +31,13 @@ export interface StorageAdapterInterface {
 
   /** Remove all values with keys that start with `keyPrefix` */
   removeRange(keyPrefix: StorageKey): Promise<void>
+
+  /**
+   * Save multiple key-value pairs in a single transaction.
+   *
+   * Optional — implementations that don't provide this will fall back to
+   * individual {@link save} calls. Implementing this can significantly
+   * reduce IDB transaction overhead for batch writes.
+   */
+  saveBatch?(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
 }
