@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest"
 import { WebSocketServer } from "ws"
+import * as net from "net"
 import {
   Subduction,
   MemorySigner,
@@ -41,12 +42,12 @@ interface TestServer {
  * and handed to `subduction.acceptTransport()`, which runs the responder side
  * of the cryptographic handshake and adds the authenticated connection.
  */
-async function startSubductionServer(): Promise<TestServer> {
+async function startSubductionServer(listenPort = 0): Promise<TestServer> {
   const signer = new MemorySigner()
   const storage = new MemoryStorage()
   const subduction = await Subduction.hydrate(signer, storage)
 
-  const wss = new WebSocketServer({ port: 0 })
+  const wss = new WebSocketServer({ port: listenPort })
   await new Promise<void>(resolve => wss.on("listening", resolve))
 
   const address = wss.address()
@@ -252,4 +253,45 @@ describe("Subduction WebSocket sync", () => {
     await handle2.whenReady()
     expect(handle2.doc()!.value).toBe(99)
   }, 10_000)
+
+  it("does not spin when saving locally with no connected peers", async () => {
+    // Grab a free port, then release it so the repo can't connect yet
+    const freePort = await new Promise<number>((resolve, reject) => {
+      const srv = net.createServer()
+      srv.listen(0, () => {
+        const addr = srv.address() as net.AddressInfo
+        srv.close(() => resolve(addr.port))
+      })
+      srv.on("error", reject)
+    })
+
+    const serverUrl = `ws://localhost:${freePort}`
+    const client = createClientRepo("client-1", serverUrl)
+
+    // Create a doc and make changes while disconnected
+    const handle = client.create<{ value: number }>()
+    handle.change(d => {
+      d.value = 42
+    })
+
+    // Wait long enough that an infinite loop would have spun hundreds of
+    // times. If the no-peers guard is missing, this would peg the CPU.
+    await pause(500)
+
+    // Now start the server on the same port
+    const server = await startSubductionServer(freePort)
+    cleanups.push(() => server.close())
+
+    // Wait for the reconnect backoff (1s initial) + sync
+    await waitForCondition(async () => {
+      const sid = toSedimentreeId(handle.documentId)
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 3000)
+
+    // Verify the data reached the server
+    const sid = toSedimentreeId(handle.documentId)
+    const blobs = await server.subduction.getBlobs(sid)
+    expect(blobs.length).toBeGreaterThan(0)
+  }, 5_000)
 })
