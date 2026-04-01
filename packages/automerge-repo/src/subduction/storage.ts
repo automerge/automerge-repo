@@ -406,6 +406,95 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       this.adapter.removeRange([PREFIX, FRAGMENT_BLOBS_PREFIX, sid]),
     ])
   }
+
+  // ==================== Batch Operations ====================
+
+  /**
+   * Save a batch of commits and fragments in a single IDB transaction.
+   *
+   * Called from Subduction's Wasm `save_batch` during sync ingestion.
+   * Instead of N individual `saveCommit`/`saveFragment` calls (each creating
+   * its own IDB readwrite transaction), this collects all key-value pairs
+   * and writes them in one `adapter.saveBatch()` call.
+   *
+   * For 50 commits this reduces ~100 IDB transactions to 1.
+   */
+  async saveBatchAll(
+    sedimentreeId: SedimentreeId,
+    commits: Array<{
+      digest: Digest
+      signedCommit: SignedLooseCommit
+      blob: Uint8Array
+    }>,
+    fragments: Array<{
+      digest: Digest
+      signedFragment: SignedFragment
+      blob: Uint8Array
+    }>
+  ): Promise<number> {
+    const sid = sedimentreeId.toString()
+    const entries: Array<[string[], Uint8Array]> = []
+
+    // Sedimentree ID marker
+    entries.push([[PREFIX, IDS_PREFIX, sid], ID_MARKER])
+
+    // Collect all commit key-value pairs
+    for (const { digest, signedCommit, blob } of commits) {
+      const digestHex = digest.toHexString()
+      const commitBytes = signedCommit.encode()
+      // Copy from Wasm memory before any async work
+      const commitCopy = new Uint8Array(commitBytes)
+      const blobCopy = new Uint8Array(blob)
+
+      entries.push([[PREFIX, COMMITS_PREFIX, sid, digestHex], commitCopy])
+      entries.push([[PREFIX, BLOBS_PREFIX, sid, digestHex], blobCopy])
+    }
+
+    // Collect all fragment key-value pairs
+    for (const { digest, signedFragment, blob } of fragments) {
+      const digestHex = digest.toHexString()
+      const fragBytes = signedFragment.encode()
+      const fragCopy = new Uint8Array(fragBytes)
+      const blobCopy = new Uint8Array(blob)
+
+      entries.push([[PREFIX, FRAGMENTS_PREFIX, sid, digestHex], fragCopy])
+      entries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, digestHex], blobCopy])
+    }
+
+    // Single IDB transaction for all entries
+    this.pendingSaves++
+    try {
+      if (this.adapter.saveBatch) {
+        await this.adapter.saveBatch(entries)
+      } else {
+        // Fallback: parallel individual saves (still better than sequential)
+        await Promise.all(
+          entries.map(([key, data]) => this.adapter.save(key, data))
+        )
+      }
+
+      // Emit events after successful save
+      for (const { digest, blob } of commits) {
+        if (this.listeners["commit-saved"]?.length) {
+          this.emit("commit-saved", sedimentreeId, digest, new Uint8Array(blob))
+        }
+      }
+      for (const { digest, blob } of fragments) {
+        if (this.listeners["fragment-saved"]?.length) {
+          this.emit(
+            "fragment-saved",
+            sedimentreeId,
+            digest,
+            new Uint8Array(blob)
+          )
+        }
+      }
+    } finally {
+      this.decrementPending()
+    }
+
+    return commits.length + fragments.length
+  }
 }
 
 const PREFIX = "subduction"
