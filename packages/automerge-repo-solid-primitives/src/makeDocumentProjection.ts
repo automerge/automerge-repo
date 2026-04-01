@@ -59,7 +59,12 @@ export default function makeDocumentProjection<T extends object>(
   })
 
   function patch(payload: DocHandleChangePayload<T>) {
-    set(produce(autoproduce(payload)))
+    try {
+      set(produce(autoproduce(payload)))
+    } catch (error) {
+      console.warn(error, "reconciling")
+      set(reconcile(payload.doc))
+    }
   }
 
   function ondelete() {
