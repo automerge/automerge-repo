@@ -229,10 +229,7 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
     const bogusUrl = generateAutomergeUrl()
     const progress = alice.repo.findWithProgress(bogusUrl)
 
-    await waitForCondition(
-      () => progress.peek().state === "unavailable",
-      3000
-    )
+    await waitForCondition(() => progress.peek().state === "unavailable", 3000)
   }, 10_000)
 
   // ── Concurrent edits ──────────────────────────────────────────────

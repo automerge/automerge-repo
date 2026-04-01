@@ -1,7 +1,4 @@
-import {
-  SedimentreeId,
-  Subduction,
-} from "@automerge/automerge-subduction/slim"
+import { SedimentreeId, Subduction } from "@automerge/automerge-subduction/slim"
 import { DocumentId } from "../types.js"
 import { toDocumentId } from "./helpers.js"
 import debug from "debug"
