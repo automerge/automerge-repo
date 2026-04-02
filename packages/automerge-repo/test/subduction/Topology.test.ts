@@ -505,6 +505,56 @@ describe("Tab → Worker → Server topology", () => {
     }
   }, 10_000)
 
+  it("recovers from unavailable to ready when data arrives later", async () => {
+    // Bob tries to find a doc that doesn't exist yet — his query
+    // transitions to "unavailable". Then Alice creates the doc and
+    // syncs it. Bob's subscription-based recovery picks it up and
+    // the query transitions to "ready".
+    const server = await startServer()
+
+    // Alice creates a doc and waits for it to reach the server
+    const pair1 = createTabWorkerPair("alice", server.url)
+    const aliceHandle = pair1.tab.create<{ value: number }>()
+    aliceHandle.change(d => {
+      d.value = 42
+    })
+    const sid = toSedimentreeId(aliceHandle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 5000)
+
+    // Stop the server so Bob can't reach it
+    await server.stop()
+
+    // Bob connects to the (dead) server and tries to find Alice's doc.
+    // The query goes "unavailable" because the server is down.
+    const pair2 = createTabWorkerPair("bob", server.url)
+    const progress = pair2.tab.findWithProgress<{ value: number }>(
+      aliceHandle.url
+    )
+
+    const states: string[] = []
+    progress.subscribe(s => {
+      if (!states.includes(s.state)) states.push(s.state)
+    })
+
+    await waitForCondition(() => progress.peek().state === "unavailable", 5000)
+    expect(states).toContain("unavailable")
+
+    // Restart the server (with the same storage — Alice's data persists)
+    await server.restart({ clearStorage: false })
+
+    // Bob's reconnect should eventually sync and recover to "ready"
+    await waitForCondition(() => progress.peek().state === "ready", 8000)
+
+    expect(states).toContain("ready")
+    const readyState = progress.peek()
+    if (readyState.state === "ready") {
+      expect(readyState.handle.doc()!.value).toBe(42)
+    }
+  }, 20_000)
+
   // ── Multi-document ────────────────────────────────────────────────
 
   it("multiple documents sync concurrently across tabs", async () => {

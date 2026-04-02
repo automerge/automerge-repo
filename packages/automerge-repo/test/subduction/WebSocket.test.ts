@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest"
 import { WebSocketServer } from "ws"
-import * as net from "net"
+
 import {
   Subduction,
   MemorySigner,
@@ -262,16 +262,13 @@ describe("Subduction WebSocket sync", () => {
   }, 10_000)
 
   it("does not spin when saving locally with no connected peers", async () => {
-    // Grab a free port, then release it so the repo gets ECONNREFUSED.
-    // The TOCTOU window is small and acceptable for a test environment.
-    const freePort = await new Promise<number>((resolve, reject) => {
-      const srv = net.createServer()
-      srv.once("error", reject)
-      srv.listen(0, () => {
-        const addr = srv.address() as net.AddressInfo
-        srv.close(() => resolve(addr.port))
-      })
-    })
+    // Start a real server to grab a known port, then shut it down so
+    // the client gets ECONNREFUSED. This avoids the TOCTOU race of
+    // binding an ephemeral port, releasing it, and hoping nobody else
+    // claims it before our server restarts.
+    const tempServer = await startSubductionServer()
+    const freePort = Number(new URL(tempServer.url).port)
+    tempServer.close()
 
     const serverUrl = `ws://localhost:${freePort}`
     const client = createClientRepo("client-1", serverUrl)
