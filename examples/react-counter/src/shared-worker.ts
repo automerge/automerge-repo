@@ -21,7 +21,9 @@ const repoPromise = (async () => {
   const { wasmBase64 } = await import(
     "@automerge/automerge-subduction/wasm-base64"
   )
-  initSync(Uint8Array.from(atob(wasmBase64), (c: string) => c.charCodeAt(0)))
+  initSync({
+    module: Uint8Array.from(atob(wasmBase64), (c: string) => c.charCodeAt(0)),
+  })
 
   return {
     repo: new Repo({

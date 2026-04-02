@@ -20,3 +20,4 @@ blob-report/
 playwright/.cache/
 playwright/.auth/
 .claude
+.pnpm-store

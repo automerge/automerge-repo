@@ -86,6 +86,7 @@ export type {
 export { DocumentQuery } from "./DocumentQuery.js"
 export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
 export type { DocumentSource } from "./DocumentSource.js"
+export type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 
 export type {
   NetworkAdapterEvents,

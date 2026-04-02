@@ -2018,7 +2018,12 @@ describe("Repo.find() abort behavior", () => {
         })
       }
 
-      await pause(200)
+      // Wait for compaction events to arrive (timing depends on storage
+      // subsystem internals and Subduction save throttle)
+      const deadline = Date.now() + 5000
+      while (events.length === 0 && Date.now() < deadline) {
+        await pause(100)
+      }
 
       assert.notEqual(events.length, 0)
       assert(
@@ -2031,7 +2036,7 @@ describe("Repo.find() abort behavior", () => {
       )
 
       await bob.shutdown()
-    })
+    }, 10_000)
 
     it("should emit events on save since", async () => {
       const bob = new Repo({
@@ -2063,7 +2068,13 @@ describe("Repo.find() abort behavior", () => {
       }
 
       // Wait for the debounced save routine to finish
-      await pause(20)
+      {
+        const deadline = Date.now() + 5000
+        const initialLen = events.length
+        while (events.length === initialLen && Date.now() < deadline) {
+          await pause(50)
+        }
+      }
 
       // Now trigger some changes which will cause incremental saves
       for (let i = 0; i < 10; i++) {
@@ -2073,7 +2084,13 @@ describe("Repo.find() abort behavior", () => {
       }
 
       // Wait for the debounced save routine again
-      await pause(20)
+      {
+        const deadline = Date.now() + 5000
+        const initialLen = events.length
+        while (events.length === initialLen && Date.now() < deadline) {
+          await pause(50)
+        }
+      }
 
       // Now actually test the events we got
       assert.notEqual(events.length, 0)
@@ -2088,7 +2105,7 @@ describe("Repo.find() abort behavior", () => {
       )
 
       await bob.shutdown()
-    })
+    }, 15_000)
   })
 })
 
