@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest"
+import { once } from "events"
 import { WebSocketServer } from "ws"
 
 import {
@@ -49,10 +50,7 @@ async function startSubductionServer(listenPort = 0): Promise<TestServer> {
   const subduction = await Subduction.hydrate(signer, storage)
 
   const wss = new WebSocketServer({ port: listenPort })
-  await new Promise<void>((resolve, reject) => {
-    wss.once("listening", resolve)
-    wss.once("error", reject)
-  })
+  await once(wss, "listening")
 
   const address = wss.address()
   if (typeof address === "string") throw new Error("unexpected address type")
@@ -263,12 +261,12 @@ describe("Subduction WebSocket sync", () => {
 
   it("does not spin when saving locally with no connected peers", async () => {
     // Start a real server to grab a known port, then shut it down so
-    // the client gets ECONNREFUSED. This avoids the TOCTOU race of
+    // the client gets ECONNREFUSED. This reduces the TOCTOU race of
     // binding an ephemeral port, releasing it, and hoping nobody else
     // claims it before our server restarts.
     const tempServer = await startSubductionServer()
     const freePort = Number(new URL(tempServer.url).port)
-    tempServer.close()
+    await tempServer.close()
 
     const serverUrl = `ws://localhost:${freePort}`
     const client = createClientRepo("client-1", serverUrl)
@@ -299,4 +297,57 @@ describe("Subduction WebSocket sync", () => {
     const blobs = await server.subduction.getBlobs(sid)
     expect(blobs.length).toBeGreaterThan(0)
   }, 10_000)
+
+  it("syncs saves made while disconnected once a peer connects", async () => {
+    // Verify that the no-peers guard on #save doesn't permanently
+    // block sync. Saves made while disconnected must be pushed once
+    // a connection is established (via #setConnectionState resetting
+    // lastSyncResult).
+    const server = await startSubductionServer()
+    const serverPort = Number(new URL(server.url).port)
+
+    const client = createClientRepo("client-1", server.url)
+
+    // Wait for the connection to establish
+    await pause(500)
+
+    // Stop the server — client is now disconnected
+    await server.close()
+    await pause(200)
+
+    // Make several changes while disconnected. Each #save will see
+    // lastSyncResult === "no-peers" and skip the sync trigger.
+    const handle = client.create<{ items: string[] }>()
+    handle.change(d => {
+      d.items = ["first"]
+    })
+    handle.change(d => {
+      d.items.push("second")
+    })
+    handle.change(d => {
+      d.items.push("third")
+    })
+
+    await pause(500)
+
+    // Restart the server on the same port — client will reconnect
+    // and #setConnectionState("running") should reset lastSyncResult,
+    // triggering a sync that pushes all accumulated changes.
+    const newServer = await startSubductionServer(serverPort)
+    cleanups.push(() => newServer.close())
+
+    // Verify ALL changes made while disconnected arrive at the server
+    const sid = toSedimentreeId(handle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await newServer.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 8000)
+
+    // Verify by loading the doc on a second client
+    const client2 = createClientRepo("client-2", newServer.url)
+    const handle2 = await client2.find<{ items: string[] }>(handle.url)
+    await handle2.whenReady()
+
+    expect(handle2.doc()!.items).toEqual(["first", "second", "third"])
+  }, 15_000)
 })

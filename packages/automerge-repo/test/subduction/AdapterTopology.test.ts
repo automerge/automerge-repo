@@ -179,21 +179,22 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.title = "Hello from Alice"
     })
 
-    // Wait for Alice's data to propagate, then verify Bob can find it
-    await waitForCondition(async () => {
-      try {
-        const h = await bob.repo.find<{ title: string }>(aliceHandle.url)
-        await h.whenReady()
-        return h.doc()?.title === "Hello from Alice"
-      } catch {
-        return false
-      }
+    // Create the handle once, then wait for the full data to arrive.
+    // Using findWithProgress avoids calling find() repeatedly in a
+    // polling loop, which would accumulate handles and subscriptions.
+    const progress = bob.repo.findWithProgress<{ title: string }>(
+      aliceHandle.url
+    )
+    await waitForCondition(() => {
+      const s = progress.peek()
+      return s.state === "ready" && s.handle.doc()?.title === "Hello from Alice"
     }, 5000)
 
-    const bobHandle = await bob.repo.find<{ title: string }>(aliceHandle.url)
-    await bobHandle.whenReady()
-
-    expect(bobHandle.doc()!.title).toBe("Hello from Alice")
+    const result = progress.peek()
+    expect(result.state).toBe("ready")
+    if (result.state === "ready") {
+      expect(result.handle.doc()!.title).toBe("Hello from Alice")
+    }
   }, 10_000)
 
   it("updates flow in both directions", async () => {
