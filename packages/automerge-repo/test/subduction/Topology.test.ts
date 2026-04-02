@@ -22,6 +22,7 @@ import { type PeerId, type UrlHeads } from "../../src/types.js"
 import { type StorageId } from "../../src/storage/types.js"
 import { type DocHandleRemoteHeadsPayload } from "../../src/DocHandle.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
+import { toSedimentreeId } from "../../src/subduction/helpers.js"
 import { pause } from "../../src/helpers/pause.js"
 
 // ── Test helpers ──────────────────────────────────────────────────────
@@ -195,7 +196,12 @@ describe("Tab → Worker → Server topology", () => {
       d.title = "Hello from Alice"
     })
 
-    await pause(500)
+    // Wait for Alice's data to reach the server before Bob tries to find it
+    const sid = toSedimentreeId(aliceHandle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 5000)
 
     const bobHandle = await pair2.tab.find<{ title: string }>(aliceHandle.url)
     await bobHandle.whenReady()
@@ -471,7 +477,7 @@ describe("Tab → Worker → Server topology", () => {
 
   // ── Ordering / causality ──────────────────────────────────────────
 
-  it("find issued before create has synced transitions through unavailable to ready", async () => {
+  it("find issued before create has synced eventually resolves to ready", async () => {
     const server = await startServer()
 
     const pair1 = createTabWorkerPair("alice", server.url)
@@ -484,19 +490,18 @@ describe("Tab → Worker → Server topology", () => {
     })
 
     // Bob immediately tries to find it — before it has synced to the server.
-    // The query should go unavailable (server has no data yet), then
-    // recover to ready once Alice's data arrives via subscription.
+    // The query may go through "unavailable" (server has no data yet) then
+    // recover, or it may go directly to "ready" if the sync is fast enough.
     const progress = pair2.tab.findWithProgress<{ value: number }>(
       aliceHandle.url
     )
 
-    const states: string[] = []
-    progress.subscribe(s => states.push(s.state))
-
-    await waitForCondition(() => progress.peek().state === "ready", 5000)
-
-    expect(states).toContain("unavailable")
-    expect(states).toContain("ready")
+    // Wait for the full document (including the value=42 change) to arrive,
+    // not just the initial empty change which also satisfies "ready".
+    await waitForCondition(() => {
+      const s = progress.peek()
+      return s.state === "ready" && s.handle.doc()?.value === 42
+    }, 5000)
 
     const readyState = progress.peek()
     expect(readyState.state).toBe("ready")
@@ -504,6 +509,56 @@ describe("Tab → Worker → Server topology", () => {
       expect(readyState.handle.doc()!.value).toBe(42)
     }
   }, 10_000)
+
+  it("recovers from unavailable to ready when data arrives later", async () => {
+    // Bob tries to find a doc that doesn't exist yet — his query
+    // transitions to "unavailable". Then Alice creates the doc and
+    // syncs it. Bob's subscription-based recovery picks it up and
+    // the query transitions to "ready".
+    const server = await startServer()
+
+    // Alice creates a doc and waits for it to reach the server
+    const pair1 = createTabWorkerPair("alice", server.url)
+    const aliceHandle = pair1.tab.create<{ value: number }>()
+    aliceHandle.change(d => {
+      d.value = 42
+    })
+    const sid = toSedimentreeId(aliceHandle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 5000)
+
+    // Stop the server so Bob can't reach it
+    await server.stop()
+
+    // Bob connects to the (dead) server and tries to find Alice's doc.
+    // The query goes "unavailable" because the server is down.
+    const pair2 = createTabWorkerPair("bob", server.url)
+    const progress = pair2.tab.findWithProgress<{ value: number }>(
+      aliceHandle.url
+    )
+
+    const states: string[] = []
+    progress.subscribe(s => {
+      if (!states.includes(s.state)) states.push(s.state)
+    })
+
+    await waitForCondition(() => progress.peek().state === "unavailable", 5000)
+    expect(states).toContain("unavailable")
+
+    // Restart the server (with the same storage — Alice's data persists)
+    await server.restart({ clearStorage: false })
+
+    // Bob's reconnect should eventually sync and recover to "ready"
+    await waitForCondition(() => progress.peek().state === "ready", 8000)
+
+    expect(states).toContain("ready")
+    const readyState = progress.peek()
+    if (readyState.state === "ready") {
+      expect(readyState.handle.doc()!.value).toBe(42)
+    }
+  }, 20_000)
 
   // ── Multi-document ────────────────────────────────────────────────
 
