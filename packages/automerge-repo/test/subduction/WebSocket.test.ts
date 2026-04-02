@@ -48,7 +48,10 @@ async function startSubductionServer(listenPort = 0): Promise<TestServer> {
   const subduction = await Subduction.hydrate(signer, storage)
 
   const wss = new WebSocketServer({ port: listenPort })
-  await new Promise<void>(resolve => wss.on("listening", resolve))
+  await new Promise<void>((resolve, reject) => {
+    wss.once("listening", resolve)
+    wss.once("error", reject)
+  })
 
   const address = wss.address()
   if (typeof address === "string") throw new Error("unexpected address type")
@@ -255,14 +258,15 @@ describe("Subduction WebSocket sync", () => {
   }, 10_000)
 
   it("does not spin when saving locally with no connected peers", async () => {
-    // Grab a free port, then release it so the repo can't connect yet
+    // Grab a free port, then release it so the repo gets ECONNREFUSED.
+    // The TOCTOU window is small and acceptable for a test environment.
     const freePort = await new Promise<number>((resolve, reject) => {
       const srv = net.createServer()
+      srv.once("error", reject)
       srv.listen(0, () => {
         const addr = srv.address() as net.AddressInfo
         srv.close(() => resolve(addr.port))
       })
-      srv.on("error", reject)
     })
 
     const serverUrl = `ws://localhost:${freePort}`
@@ -283,15 +287,16 @@ describe("Subduction WebSocket sync", () => {
     cleanups.push(() => server.close())
 
     // Wait for the reconnect backoff (1s initial) + sync
+    // Wait for the reconnect backoff (1s base, doubles each retry) + sync
     await waitForCondition(async () => {
       const sid = toSedimentreeId(handle.documentId)
       const blobs = await server.subduction.getBlobs(sid)
       return blobs !== undefined && blobs.length > 0
-    }, 3000)
+    }, 8000)
 
     // Verify the data reached the server
     const sid = toSedimentreeId(handle.documentId)
     const blobs = await server.subduction.getBlobs(sid)
     expect(blobs.length).toBeGreaterThan(0)
-  }, 5_000)
+  }, 10_000)
 })

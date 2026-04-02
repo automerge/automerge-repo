@@ -7,7 +7,11 @@ settings:
 overrides:
   semver: ^7.5.2
   '@automerge/automerge': 3.2.5
+<<<<<<< HEAD
   '@automerge/automerge-subduction': 0.6.3
+=======
+  '@automerge/automerge-subduction': 0.6.1
+>>>>>>> d301b23ed (on 0.6.1)
 
 importers:
 
@@ -21,8 +25,13 @@ importers:
         specifier: 3.2.5
         version: 3.2.5
       '@automerge/automerge-subduction':
+<<<<<<< HEAD
         specifier: 0.6.3
         version: 0.6.3
+=======
+        specifier: 0.6.1
+        version: 0.6.1
+>>>>>>> d301b23ed (on 0.6.1)
       '@manypkg/cli':
         specifier: ^0.21.4
         version: 0.21.4
@@ -293,8 +302,13 @@ importers:
         specifier: 3.2.5
         version: 3.2.5
       '@automerge/automerge-subduction':
+<<<<<<< HEAD
         specifier: 0.6.3
         version: 0.6.3
+=======
+        specifier: 0.6.1
+        version: 0.6.1
+>>>>>>> d301b23ed (on 0.6.1)
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -533,8 +547,13 @@ packages:
   '@asamuzakjp/nwsapi@2.3.9':
     resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
 
+<<<<<<< HEAD
   '@automerge/automerge-subduction@0.6.3':
     resolution: {integrity: sha512-uGKE4ZzQpEPOEjW78lUClw1IMhfzuVhrW8+JqJDfIcrvPnLPn2Mv1vkmVFl8vsk3TO9KOYPYRAI5zjnFrKP1xA==}
+=======
+  '@automerge/automerge-subduction@0.6.1':
+    resolution: {integrity: sha512-ZoVgEXxPEjQq3tR9wymtfMVac6eQyd4H5Zzo3fwjJmoqwJFeBf5d0YE2Z8+mYfGSkxYHjiNRTFjB2Hfrr3b34Q==}
+>>>>>>> d301b23ed (on 0.6.1)
 
   '@automerge/automerge@3.2.5':
     resolution: {integrity: sha512-tCdaGDTLaRzBJV+Q9zMyyEH/vUFkBNh21jpwlpcEYV7gs5r63xh9UFa1N3yNJ5ZzmiLBD42TIBeqK+g54sLp0w==}
@@ -7209,7 +7228,11 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
+<<<<<<< HEAD
   '@automerge/automerge-subduction@0.6.3': {}
+=======
+  '@automerge/automerge-subduction@0.6.1': {}
+>>>>>>> d301b23ed (on 0.6.1)
 
   '@automerge/automerge@3.2.5': {}
 
