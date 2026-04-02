@@ -3,7 +3,6 @@ import {
   isValidAutomergeUrl,
   IndexedDBStorageAdapter,
   RepoContext,
-  BroadcastChannelNetworkAdapter,
 } from "@automerge/react"
 // @ts-ignore — initSync is not in the type declarations but is exported at runtime
 import { initSync } from "@automerge/automerge-subduction/slim"
@@ -18,7 +17,7 @@ import { State } from "./types.js"
 import "./index.css"
 
 // Initialize Subduction Wasm before constructing the Repo
-initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
+initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),

@@ -1,20 +1,8 @@
-import {
-  SedimentreeId as SedimentreeId,
-  PeerId as SubductionPeerId,
-} from "@automerge/automerge-subduction/slim"
-import { AnyDocumentId, DocumentId, PeerId } from "../types.js"
+import { SedimentreeId } from "@automerge/automerge-subduction/slim"
+import { AnyDocumentId, DocumentId } from "../types.js"
 import bs58check from "bs58check"
 import { type Doc } from "@automerge/automerge/slim"
 
-// NOTE temporary until we have [u8; 32] peer IDs
-export function toSubductionPeerId(peerId: PeerId): SubductionPeerId {
-  const peerIdBytes = new TextEncoder().encode(peerId)
-  const bytes = new Uint8Array(32)
-  bytes.set(peerIdBytes.slice(0, 32))
-  return new SubductionPeerId(bytes)
-}
-
-// NOTE temporary until we have [u8; 32] peer IDs
 export function toSedimentreeId(id: AnyDocumentId): SedimentreeId {
   const docIdBytes = toBinaryDocumentId(id)
   const out = new Uint8Array(32)
@@ -22,7 +10,7 @@ export function toSedimentreeId(id: AnyDocumentId): SedimentreeId {
   return SedimentreeId.fromBytes(out)
 }
 
-// NOTE temporary until we have [u8; 32] peer IDs
+// NOTE temporary: zero-pads 16-byte DocumentId to 32-byte SedimentreeId
 export function toDocumentId(sedimentreeId: SedimentreeId): DocumentId {
   // Get the raw bytes and take the first 16 (DocumentId is 16 bytes)
   const bytes = sedimentreeId.toBytes()
@@ -31,7 +19,7 @@ export function toDocumentId(sedimentreeId: SedimentreeId): DocumentId {
   return bs58check.encode(docIdBytes) as DocumentId
 }
 
-// NOTE temporary until we have [u8; 32] peer IDs
+// NOTE temporary: bridges DocumentId formats (string/URL/bytes → raw bytes)
 function toBinaryDocumentId(id: AnyDocumentId): Uint8Array {
   if (id instanceof Uint8Array) {
     return id

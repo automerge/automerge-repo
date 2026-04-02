@@ -34,13 +34,12 @@ import type {
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
 import {
-  Subduction,
   MemorySigner,
-  SedimentreeStorage,
   set_subduction_logger,
 } from "@automerge/automerge-subduction/slim"
 import { SubductionStorageBridge } from "./subduction/storage.js"
-import { SubductionSource, type SubductionPolicy } from "./subduction/source.js"
+import { SubductionSource } from "./subduction/source.js"
+import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { encode, decode } from "cbor-x"
 import type { EphemeralMessage } from "./network/messages.js"
@@ -813,7 +812,7 @@ export interface RepoConfig {
    */
   signer?: unknown
 
-  /** Authorization policy for the Subduction sync engine. See {@link SubductionPolicy}. */
+  /** Authorization policy for the Subduction sync engine. See {@link Policy} from `@automerge/automerge-subduction`. */
   subductionPolicy?: SubductionPolicy
 
   subductionWebsocketEndpoints?: string[]

@@ -15,7 +15,7 @@ import { initSync } from "@automerge/automerge-subduction/slim"
 import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 
 // Initialize Subduction Wasm before constructing the Repo
-initSync(Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)))
+initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
 
 // We run the network & storage in a SharedWorker so we only create one
 // Subduction WebSocket connection to the sync server and get local
