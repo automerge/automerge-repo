@@ -163,10 +163,13 @@ describe("SubductionPolicy", () => {
   })
 
   it("server rejects sync when authorizePut denies the operation", async () => {
+    const authorizePutSpy = vi.fn()
+
     const denyPutPolicy: Policy = {
       async authorizeConnect() {},
       async authorizeFetch() {},
-      async authorizePut() {
+      async authorizePut(requestor, author, sedimentreeId) {
+        authorizePutSpy(requestor, author, sedimentreeId)
         throw new Error("put denied by policy")
       },
       async filterAuthorizedFetch(_peerId, ids) {
@@ -191,10 +194,14 @@ describe("SubductionPolicy", () => {
     // Give ample time for sync attempts
     await pause(3000)
 
+    // Verify the policy was actually invoked (not a false positive from
+    // a connection failure preventing data from ever reaching the server).
+    expect(authorizePutSpy).toHaveBeenCalled()
+
     // The server should NOT have any blobs for this document
     const sid = toSedimentreeId(handle.documentId)
     const blobs = await server.subduction.getBlobs(sid)
-    expect(blobs.length).toBe(0)
+    expect(blobs?.length ?? 0).toBe(0)
   }, 10_000)
 })
 
