@@ -42,10 +42,39 @@ interface TestServer {
  * and handed to `subduction.acceptTransport()`, which runs the responder side
  * of the cryptographic handshake and adds the authenticated connection.
  */
+/**
+ * Shim `saveBatchAll` onto MemoryStorage if it's missing.
+ * `@automerge/automerge-subduction@0.6.3` requires this method on the
+ * SedimentreeStorage interface but MemoryStorage doesn't implement it yet.
+ */
+function shimSaveBatchAll(storage: MemoryStorage): MemoryStorage {
+  if (typeof (storage as any).saveBatchAll === "function") return storage
+  ;(storage as any).saveBatchAll = async (
+    sedimentreeId: any,
+    commits: Array<{ digest: any; signedCommit: any; blob: Uint8Array }>,
+    fragments: Array<{ digest: any; signedFragment: any; blob: Uint8Array }>
+  ): Promise<number> => {
+    await storage.saveSedimentreeId(sedimentreeId)
+    for (const c of commits) {
+      await storage.saveCommit(sedimentreeId, c.digest, c.signedCommit, c.blob)
+    }
+    for (const f of fragments) {
+      await storage.saveFragment(
+        sedimentreeId,
+        f.digest,
+        f.signedFragment,
+        f.blob
+      )
+    }
+    return commits.length + fragments.length
+  }
+  return storage
+}
+
 async function startSubductionServer(listenPort = 0): Promise<TestServer> {
   const signer = new MemorySigner()
-  const storage = new MemoryStorage()
-  const subduction = await Subduction.hydrate(signer, storage)
+  const storage = shimSaveBatchAll(new MemoryStorage())
+  const subduction = await Subduction.hydrate(signer, storage as any)
 
   const wss = new WebSocketServer({ port: listenPort })
   await new Promise<void>((resolve, reject) => {
@@ -112,9 +141,12 @@ describe("Subduction WebSocket sync", () => {
       d.text = "hello from client"
     })
 
-    await pause(500)
-
     const sid = toSedimentreeId(handle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 5000)
+
     const blobs = await server.subduction.getBlobs(sid)
     expect(blobs.length).toBeGreaterThan(0)
   })
@@ -207,8 +239,8 @@ describe("Subduction WebSocket sync", () => {
 
     // Now start the real server on the same port
     const signer = new MemorySigner()
-    const memStorage = new MemoryStorage()
-    const subduction = await Subduction.hydrate(signer, memStorage)
+    const memStorage = shimSaveBatchAll(new MemoryStorage())
+    const subduction = await Subduction.hydrate(signer, memStorage as any)
     const serviceName = `localhost:${port}`
 
     const serverWss = new WebSocketServer({ port })

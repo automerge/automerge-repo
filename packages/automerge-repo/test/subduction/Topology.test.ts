@@ -76,9 +76,32 @@ class TestServer {
 
     if (clearStorage || !this.#signer) {
       this.#signer = new MemorySigner()
-      this.#storage = new MemoryStorage()
+      const ms = new MemoryStorage()
+      // Shim saveBatchAll if missing (needed for @automerge/automerge-subduction ≥ 0.6.3)
+      if (typeof (ms as any).saveBatchAll !== "function") {
+        ;(ms as any).saveBatchAll = async (
+          sid: any,
+          commits: Array<{ digest: any; signedCommit: any; blob: Uint8Array }>,
+          fragments: Array<{
+            digest: any
+            signedFragment: any
+            blob: Uint8Array
+          }>
+        ): Promise<number> => {
+          await ms.saveSedimentreeId(sid)
+          for (const c of commits)
+            await ms.saveCommit(sid, c.digest, c.signedCommit, c.blob)
+          for (const f of fragments)
+            await ms.saveFragment(sid, f.digest, f.signedFragment, f.blob)
+          return commits.length + fragments.length
+        }
+      }
+      this.#storage = ms
     }
-    this.#subduction = await Subduction.hydrate(this.#signer, this.#storage!)
+    this.#subduction = await Subduction.hydrate(
+      this.#signer,
+      this.#storage! as any
+    )
     const serviceName = `localhost:${this.#port}`
 
     this.#wss = new WebSocketServer({ port: this.#port })
