@@ -3,7 +3,6 @@
  *
  * @example
  * ```ts
- * import * as subductionModule from "@automerge/automerge-subduction"
  * import { WebCryptoSigner } from "@automerge/automerge-subduction"
  * import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
  * import { setupSubduction } from "@automerge/automerge-repo-subduction-bridge"
@@ -11,7 +10,6 @@
  *
  * // Quick setup using the helper
  * const { subduction } = await setupSubduction({
- *   subductionModule,
  *   signer: await WebCryptoSigner.setup(),
  *   storageAdapter: new IndexedDBStorageAdapter("my-app"),
  * })
@@ -22,6 +20,7 @@
 import type { StorageAdapterInterface } from "@automerge/automerge-repo/slim"
 import { Subduction } from "@automerge/automerge-subduction/slim"
 export { SubductionSource, type OnRemoteHeadsChanged } from "./source.js"
+export type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 export type { OnHealExhausted } from "./SyncScheduler.js"
 
 import { SubductionStorageBridge } from "./storage.js"
@@ -59,14 +58,12 @@ export interface SetupSubductionResult {
  *
  * @example
  * ```ts
- * import * as subductionModule from "@automerge/automerge-subduction"
  * import { WebCryptoSigner } from "@automerge/automerge-subduction"
  * import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
  * import { setupSubduction } from "@automerge/automerge-repo-subduction-bridge"
  * import { Repo } from "@automerge/automerge-repo"
  *
  * const { subduction } = await setupSubduction({
- *   subductionModule,
  *   signer: await WebCryptoSigner.setup(),
  *   storageAdapter: new IndexedDBStorageAdapter("my-app"),
  * })

@@ -9,6 +9,7 @@ import {
   Topic,
   setSubductionLogLevel,
   type FragmentRequested,
+  type Policy,
 } from "@automerge/automerge-subduction/slim"
 import { DocumentSource } from "../DocumentSource.js"
 import { DocumentQuery } from "../DocumentQuery.js"
@@ -94,6 +95,8 @@ export interface SubductionSourceOptions {
   onEphemeral?: OnEphemeral
   onHealExhausted?: (documentId: DocumentId) => void
 
+  policy?: Policy
+
   /**
    * Interval in ms for per-document periodic sync. Each open document is
    * synced individually (skipping those already in heal-backoff).
@@ -127,6 +130,7 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
+    policy,
     periodicSyncInterval = 30_000,
     batchSyncInterval = 300_000,
   }: SubductionSourceOptions) {
@@ -171,7 +175,7 @@ export class SubductionSource implements DocumentSource {
         undefined, // service_name
         undefined, // hash_metric_override
         undefined, // max_pending_blob_requests
-        undefined, // policy
+        policy,
         undefined, // ephemeral_policy
         onRemoteHeads,
         onEphemeral
@@ -195,7 +199,7 @@ export class SubductionSource implements DocumentSource {
           undefined, // service_name
           undefined, // hash_metric_override
           undefined, // max_pending_blob_requests
-          undefined, // policy
+          policy,
           undefined, // ephemeral_policy
           onRemoteHeads,
           onEphemeral

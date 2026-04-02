@@ -1,4 +1,4 @@
-import { Subduction } from "@automerge/automerge-subduction"
+import { Subduction } from "@automerge/automerge-subduction/slim"
 import { NetworkAdapterInterface } from "../network/NetworkAdapterInterface.js"
 import { NetworkAdapterTransport } from "./network.js"
 import { PeerId } from "../types.js"
