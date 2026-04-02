@@ -496,7 +496,12 @@ describe("Tab → Worker → Server topology", () => {
       aliceHandle.url
     )
 
-    await waitForCondition(() => progress.peek().state === "ready", 5000)
+    // Wait for the full document (including the value=42 change) to arrive,
+    // not just the initial empty change which also satisfies "ready".
+    await waitForCondition(() => {
+      const s = progress.peek()
+      return s.state === "ready" && s.handle.doc()?.value === 42
+    }, 5000)
 
     const readyState = progress.peek()
     expect(readyState.state).toBe("ready")
