@@ -22,6 +22,7 @@ import { type PeerId, type UrlHeads } from "../../src/types.js"
 import { type StorageId } from "../../src/storage/types.js"
 import { type DocHandleRemoteHeadsPayload } from "../../src/DocHandle.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
+import { toSedimentreeId } from "../../src/subduction/helpers.js"
 import { pause } from "../../src/helpers/pause.js"
 
 // ── Test helpers ──────────────────────────────────────────────────────
@@ -195,7 +196,12 @@ describe("Tab → Worker → Server topology", () => {
       d.title = "Hello from Alice"
     })
 
-    await pause(500)
+    // Wait for Alice's data to reach the server before Bob tries to find it
+    const sid = toSedimentreeId(aliceHandle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 5000)
 
     const bobHandle = await pair2.tab.find<{ title: string }>(aliceHandle.url)
     await bobHandle.whenReady()
@@ -471,7 +477,7 @@ describe("Tab → Worker → Server topology", () => {
 
   // ── Ordering / causality ──────────────────────────────────────────
 
-  it("find issued before create has synced transitions through unavailable to ready", async () => {
+  it("find issued before create has synced eventually resolves to ready", async () => {
     const server = await startServer()
 
     const pair1 = createTabWorkerPair("alice", server.url)
@@ -484,19 +490,13 @@ describe("Tab → Worker → Server topology", () => {
     })
 
     // Bob immediately tries to find it — before it has synced to the server.
-    // The query should go unavailable (server has no data yet), then
-    // recover to ready once Alice's data arrives via subscription.
+    // The query may go through "unavailable" (server has no data yet) then
+    // recover, or it may go directly to "ready" if the sync is fast enough.
     const progress = pair2.tab.findWithProgress<{ value: number }>(
       aliceHandle.url
     )
 
-    const states: string[] = []
-    progress.subscribe(s => states.push(s.state))
-
     await waitForCondition(() => progress.peek().state === "ready", 5000)
-
-    expect(states).toContain("unavailable")
-    expect(states).toContain("ready")
 
     const readyState = progress.peek()
     expect(readyState.state).toBe("ready")

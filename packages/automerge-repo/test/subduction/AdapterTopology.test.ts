@@ -179,7 +179,16 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.title = "Hello from Alice"
     })
 
-    await pause(500)
+    // Wait for Alice's data to propagate, then verify Bob can find it
+    await waitForCondition(async () => {
+      try {
+        const h = await bob.repo.find<{ title: string }>(aliceHandle.url)
+        await h.whenReady()
+        return h.doc()?.title === "Hello from Alice"
+      } catch {
+        return false
+      }
+    }, 5000)
 
     const bobHandle = await bob.repo.find<{ title: string }>(aliceHandle.url)
     await bobHandle.whenReady()
