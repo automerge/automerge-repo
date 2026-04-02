@@ -572,8 +572,7 @@ export class SubductionSource implements DocumentSource {
         `[subduction] #save ${sid}: setting needsResync=true (sync in flight)`
       )
       entry.needsResync = true
-    } else {
-      console.log(`[subduction] #save ${sid}: setting lastSyncResult=null`)
+    } else if (entry.lastSyncResult !== "no-peers") {
       entry.lastSyncResult = null
     }
     this.#recompute()
