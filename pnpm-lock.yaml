@@ -7,7 +7,7 @@ settings:
 overrides:
   semver: ^7.5.2
   '@automerge/automerge': 3.2.5
-  '@automerge/automerge-subduction': /home/alex/Projects/automerge/subduction/automerge_subduction_wasm
+  '@automerge/automerge-subduction': 0.6.3
 
 importers:
 
@@ -21,8 +21,8 @@ importers:
         specifier: 3.2.5
         version: 3.2.5
       '@automerge/automerge-subduction':
-        specifier: /home/alex/Projects/automerge/subduction/automerge_subduction_wasm
-        version: link:../subduction/automerge_subduction_wasm
+        specifier: 0.6.3
+        version: 0.6.3
       '@manypkg/cli':
         specifier: ^0.21.4
         version: 0.21.4
@@ -293,8 +293,8 @@ importers:
         specifier: 3.2.5
         version: 3.2.5
       '@automerge/automerge-subduction':
-        specifier: /home/alex/Projects/automerge/subduction/automerge_subduction_wasm
-        version: link:../../../subduction/automerge_subduction_wasm
+        specifier: 0.6.3
+        version: 0.6.3
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -532,6 +532,9 @@ packages:
 
   '@asamuzakjp/nwsapi@2.3.9':
     resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
+
+  '@automerge/automerge-subduction@0.6.3':
+    resolution: {integrity: sha512-uGKE4ZzQpEPOEjW78lUClw1IMhfzuVhrW8+JqJDfIcrvPnLPn2Mv1vkmVFl8vsk3TO9KOYPYRAI5zjnFrKP1xA==}
 
   '@automerge/automerge@3.2.5':
     resolution: {integrity: sha512-tCdaGDTLaRzBJV+Q9zMyyEH/vUFkBNh21jpwlpcEYV7gs5r63xh9UFa1N3yNJ5ZzmiLBD42TIBeqK+g54sLp0w==}
@@ -7205,6 +7208,8 @@ snapshots:
       is-potential-custom-element-name: 1.0.1
 
   '@asamuzakjp/nwsapi@2.3.9': {}
+
+  '@automerge/automerge-subduction@0.6.3': {}
 
   '@automerge/automerge@3.2.5': {}
 
