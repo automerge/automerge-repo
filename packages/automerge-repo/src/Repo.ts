@@ -34,13 +34,12 @@ import type {
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
 import {
-  Subduction,
   MemorySigner,
-  SedimentreeStorage,
   set_subduction_logger,
 } from "@automerge/automerge-subduction/slim"
 import { SubductionStorageBridge } from "./subduction/storage.js"
 import { SubductionSource } from "./subduction/source.js"
+import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { encode, decode } from "cbor-x"
 import type { EphemeralMessage } from "./network/messages.js"
@@ -105,6 +104,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     saveDebounceRate = 100,
     idFactory,
     signer,
+    subductionPolicy,
     subductionWebsocketEndpoints,
     subductionAdapters,
     periodicSyncInterval,
@@ -175,6 +175,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       signer: signer ?? new MemorySigner(),
       websocketEndpoints: subductionWebsocketEndpoints ?? [],
       adapters: subductionAdapters ?? [],
+      policy: subductionPolicy,
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
         ? (documentId, storageId, heads) => {
             this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
@@ -810,6 +811,9 @@ export interface RepoConfig {
    * persistent identity across page loads.
    */
   signer?: unknown
+
+  /** Authorization policy for the Subduction sync engine. See {@link Policy} from `@automerge/automerge-subduction`. */
+  subductionPolicy?: SubductionPolicy
 
   subductionWebsocketEndpoints?: string[]
 
