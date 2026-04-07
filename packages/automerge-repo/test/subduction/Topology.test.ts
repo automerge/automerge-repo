@@ -18,7 +18,11 @@ import {
 } from "@automerge/automerge-subduction"
 import { Repo } from "../../src/Repo.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
-import { type PeerId, type UrlHeads } from "../../src/types.js"
+import {
+  type AutomergeUrl,
+  type PeerId,
+  type UrlHeads,
+} from "../../src/types.js"
 import { type StorageId } from "../../src/storage/types.js"
 import { type DocHandleRemoteHeadsPayload } from "../../src/DocHandle.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
@@ -599,7 +603,7 @@ describe("Tab → Worker → Server topology", () => {
     const pair2 = createTabWorkerPair("bob", server.url)
 
     // Alice creates a root list doc
-    type ListDoc = { items: string[] }
+    type ListDoc = { items: AutomergeUrl[] }
     type ItemDoc = { title: string }
 
     const listHandle = pair1.tab.create<ListDoc>()
@@ -631,7 +635,7 @@ describe("Tab → Worker → Server topology", () => {
 
     // Now Bob should be able to find the sub-document and get its data
     // WITHOUT needing another round-trip / another edit from Alice.
-    const bobSub = await pair2.tab.find<ItemDoc>(bobList.doc()!.items[0] as any)
+    const bobSub = await pair2.tab.find<ItemDoc>(bobList.doc()!.items[0])
     await bobSub.whenReady()
     expect(bobSub.doc()!.title).toBe("First item")
   }, 15_000)

@@ -64,7 +64,6 @@ interface SedimentreeEntry {
   flushSave: ThrottledFunction<() => void>
   /** Resolves when any in-progress `#save` completes. */
   saveSettled: Promise<void>
-  resolveSaveSettled: () => void
 
   // Fragment processing — decoupled from saves, deduped by head+depth
   pendingFragmentRequests: Map<string, FragmentRequested>
@@ -320,7 +319,6 @@ export class SubductionSource implements DocumentSource {
       recentlySavedHashes: new HashRing(RECENTLY_SAVED_CACHE_SIZE),
       flushSave: throttledSave,
       saveSettled,
-      resolveSaveSettled,
       pendingFragmentRequests: new Map(),
       processingFragments: false,
     })
@@ -581,7 +579,6 @@ export class SubductionSource implements DocumentSource {
     entry.saveSettled = new Promise<void>(r => {
       resolveSaveSettled = r
     })
-    entry.resolveSaveSettled = resolveSaveSettled
 
     try {
       const previousHeads = entry.lastSavedHeads
