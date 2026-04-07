@@ -1,8 +1,8 @@
 import * as Automerge from "@automerge/automerge/slim"
 import {
+  CommitId,
   SedimentreeId,
   Subduction,
-  Digest,
   SedimentreeAutomerge,
   FragmentStateStore,
   HashMetric,
@@ -259,7 +259,7 @@ export class SubductionSource implements DocumentSource {
 
   // ── Storage events ──────────────────────────────────────────────────
 
-  #handleDataFound(id: SedimentreeId, _digest: Digest, blob: Uint8Array) {
+  #handleDataFound(id: SedimentreeId, _commitId: CommitId, blob: Uint8Array) {
     const entry = this.#entries.get(id.toString())
     if (!entry) return
 
@@ -596,10 +596,12 @@ export class SubductionSource implements DocumentSource {
           if (!entry.recentlySavedHashes.add(meta.hash)) return
 
           const commitBytes = automergeMeta(doc).getChangeByHash(meta.hash)
-          const parents = meta.deps.map(dep => Digest.fromHexString(dep))
+          const head = CommitId.fromHexString(meta.hash)
+          const parents = meta.deps.map(dep => CommitId.fromHexString(dep))
 
           const result = await subduction.addCommit(
             entry.sedimentreeId,
+            head,
             parents,
             commitBytes
           )
@@ -674,13 +676,13 @@ export class SubductionSource implements DocumentSource {
         try {
           const members = fragmentState
             .members()
-            .map((digest: Digest): string => digest.toHexString())
+            .map((commitId: CommitId): string => commitId.toHexString())
 
           const fragmentBlob = Automerge.saveBundle(doc, members)
 
           await subduction.addFragment(
             entry.sedimentreeId,
-            fragmentState.head_digest(),
+            fragmentState.head_id(),
             fragmentState.boundary().keys(),
             fragmentState.checkpoints(),
             fragmentBlob

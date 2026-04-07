@@ -1,8 +1,8 @@
 import {
-  Repo,
-  isValidAutomergeUrl,
-  IndexedDBStorageAdapter,
-  RepoContext,
+    Repo,
+    isValidAutomergeUrl,
+    IndexedDBStorageAdapter,
+    RepoContext,
 } from "@automerge/react"
 // @ts-ignore — initSync is not in the type declarations but is exported at runtime
 import { initSync } from "@automerge/automerge-subduction/slim"
@@ -20,36 +20,37 @@ import "./index.css"
 initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
 
 const repo = new Repo({
-  storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),
-  subductionWebsocketEndpoints: ["wss://subduction.sync.inkandswitch.com"],
+    storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),
+    subductionWebsocketEndpoints: ["ws://localhost:8080"],
+    // subductionWebsocketEndpoints: ["wss://subduction.sync.inkandswitch.com"],
 })
 
 declare global {
-  interface Window {
-    handle: any
-    repo: Repo
-  }
+    interface Window {
+        handle: any
+        repo: Repo
+    }
 }
 
 const rootDocUrl = `${document.location.hash.substring(1)}`
 let handle
 if (isValidAutomergeUrl(rootDocUrl)) {
-  handle = await repo.find(rootDocUrl)
+    handle = await repo.find(rootDocUrl)
 } else {
-  handle = repo.create<State>({ todos: [] })
+    handle = repo.create<State>({ todos: [] })
 }
 const docUrl = (document.location.hash = handle.url)
 window.handle = handle
 window.repo = repo
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <RepoContext.Provider value={repo}>
-    <React.StrictMode>
-      <ErrorBoundary fallback={<div>Something went wrong</div>}>
-        <Suspense fallback={<div>Loading...</div>}>
-          <App url={docUrl} />
-        </Suspense>
-      </ErrorBoundary>
-    </React.StrictMode>
-  </RepoContext.Provider>
+    <RepoContext.Provider value={repo}>
+        <React.StrictMode>
+            <ErrorBoundary fallback={<div>Something went wrong</div>}>
+                <Suspense fallback={<div>Loading...</div>}>
+                    <App url={docUrl} />
+                </Suspense>
+            </ErrorBoundary>
+        </React.StrictMode>
+    </RepoContext.Provider>
 )
