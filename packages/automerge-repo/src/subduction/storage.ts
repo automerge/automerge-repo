@@ -17,8 +17,8 @@ import type { StorageAdapterInterface } from "@automerge/automerge-repo"
 // Type-only imports (don't trigger Wasm access)
 import type { SedimentreeStorage } from "@automerge/automerge-subduction/slim"
 import {
+  CommitId,
   CommitWithBlob,
-  Digest,
   FragmentWithBlob,
   SedimentreeId,
   SignedLooseCommit,
@@ -32,7 +32,7 @@ export interface StorageBridgeEvents {
    */
   "commit-saved": (
     sedimentreeId: SedimentreeId,
-    digest: Digest,
+    commitId: CommitId,
     blob: Uint8Array
   ) => void
 
@@ -42,7 +42,7 @@ export interface StorageBridgeEvents {
    */
   "fragment-saved": (
     sedimentreeId: SedimentreeId,
-    digest: Digest,
+    commitId: CommitId,
     blob: Uint8Array
   ) => void
 }
@@ -61,7 +61,7 @@ export interface StorageBridgeEvents {
  * - Blob bytes stored alongside under blobs prefix
  * - Content-addressed storage (CAS) pattern for all data types
  *
- * Supports event callbacks via `on()` for commit-saved, fragment-saved, and blob-saved events.
+ * Supports event callbacks via `on()` for commit-saved and fragment-saved events.
  */
 export class SubductionStorageBridge implements SedimentreeStorage {
   private adapter: StorageAdapterInterface
@@ -155,7 +155,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async saveCommit(
     sedimentreeId: SedimentreeId,
-    digest: Digest,
+    commitId: CommitId,
     signedCommit: SignedLooseCommit,
     blob: Uint8Array
   ): Promise<void> {
@@ -167,10 +167,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
     this.pendingSaves++
     try {
-      const digestHex = digest.toHexString()
+      const idHex = commitId.toHexString()
       const sid = sedimentreeId.toString()
-      const commitKey = [PREFIX, COMMITS_PREFIX, sid, digestHex]
-      const blobKey = [PREFIX, BLOBS_PREFIX, sid, digestHex]
+      const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
+      const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
       if (this.adapter.saveBatch) {
         await this.adapter.saveBatch([
@@ -186,7 +186,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
       // Emit event after save
       if (this.listeners["commit-saved"]?.length) {
-        this.emit("commit-saved", sedimentreeId, digest, blobCopy)
+        this.emit("commit-saved", sedimentreeId, commitId, blobCopy)
       }
     } finally {
       this.decrementPending()
@@ -195,12 +195,12 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async loadCommit(
     sedimentreeId: SedimentreeId,
-    digest: Digest
+    commitId: CommitId
   ): Promise<CommitWithBlob | null> {
-    const digestHex = digest.toHexString()
+    const idHex = commitId.toHexString()
     const sid = sedimentreeId.toString()
-    const commitKey = [PREFIX, COMMITS_PREFIX, sid, digestHex]
-    const blobKey = [PREFIX, BLOBS_PREFIX, sid, digestHex]
+    const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
+    const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
     const [commitData, blobData] = await Promise.all([
       this.adapter.load(commitKey),
@@ -213,7 +213,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     return new CommitWithBlob(signedCommit, blobData)
   }
 
-  async listCommitDigests(sedimentreeId: SedimentreeId): Promise<Digest[]> {
+  async listCommitIds(sedimentreeId: SedimentreeId): Promise<CommitId[]> {
     const chunks = await this.adapter.loadRange([
       PREFIX,
       COMMITS_PREFIX,
@@ -221,7 +221,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     ])
     return chunks
       .filter(chunk => chunk.key.length === 4 && chunk.data)
-      .map(chunk => Digest.fromBytes(hexToBytes(chunk.key[3])))
+      .map(chunk => CommitId.fromBytes(hexToBytes(chunk.key[3])))
   }
 
   async loadAllCommits(
@@ -234,19 +234,19 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       this.adapter.loadRange([PREFIX, BLOBS_PREFIX, sid]),
     ])
 
-    // Index blobs by digest hex for O(1) lookup
-    const blobsByDigest = new Map<string, Uint8Array>()
+    // Index blobs by id hex for O(1) lookup
+    const blobsById = new Map<string, Uint8Array>()
     for (const chunk of blobChunks) {
       if (chunk.key.length === 4 && chunk.data) {
-        blobsByDigest.set(chunk.key[3], chunk.data)
+        blobsById.set(chunk.key[3], chunk.data)
       }
     }
 
     const results: CommitWithBlob[] = []
     for (const chunk of commitChunks) {
       if (chunk.key.length !== 4 || !chunk.data) continue
-      const digestHex = chunk.key[3]
-      const blobData = blobsByDigest.get(digestHex)
+      const idHex = chunk.key[3]
+      const blobData = blobsById.get(idHex)
       if (!blobData) continue
 
       const signedCommit = SignedLooseCommit.tryDecode(chunk.data)
@@ -258,12 +258,12 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async deleteCommit(
     sedimentreeId: SedimentreeId,
-    digest: Digest
+    commitId: CommitId
   ): Promise<void> {
-    const digestHex = digest.toHexString()
+    const idHex = commitId.toHexString()
     const sid = sedimentreeId.toString()
-    const commitKey = [PREFIX, COMMITS_PREFIX, sid, digestHex]
-    const blobKey = [PREFIX, BLOBS_PREFIX, sid, digestHex]
+    const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
+    const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
     await Promise.all([
       this.adapter.remove(commitKey),
@@ -283,7 +283,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async saveFragment(
     sedimentreeId: SedimentreeId,
-    digest: Digest,
+    fragmentHead: CommitId,
     signedFragment: SignedFragment,
     blob: Uint8Array
   ): Promise<void> {
@@ -295,10 +295,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
     this.pendingSaves++
     try {
-      const digestHex = digest.toHexString()
+      const idHex = fragmentHead.toHexString()
       const sid = sedimentreeId.toString()
-      const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, digestHex]
-      const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, digestHex]
+      const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
+      const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
       if (this.adapter.saveBatch) {
         await this.adapter.saveBatch([
@@ -314,7 +314,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
       // Emit event after save
       if (this.listeners["fragment-saved"]?.length) {
-        this.emit("fragment-saved", sedimentreeId, digest, blobCopy)
+        this.emit("fragment-saved", sedimentreeId, fragmentHead, blobCopy)
       }
     } finally {
       this.decrementPending()
@@ -323,12 +323,12 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async loadFragment(
     sedimentreeId: SedimentreeId,
-    digest: Digest
+    fragmentHead: CommitId
   ): Promise<FragmentWithBlob | null> {
-    const digestHex = digest.toHexString()
+    const idHex = fragmentHead.toHexString()
     const sid = sedimentreeId.toString()
-    const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, digestHex]
-    const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, digestHex]
+    const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
+    const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
     const [fragmentData, blobData] = await Promise.all([
       this.adapter.load(fragmentKey),
@@ -341,7 +341,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     return new FragmentWithBlob(signedFragment, blobData)
   }
 
-  async listFragmentDigests(sedimentreeId: SedimentreeId): Promise<Digest[]> {
+  async listFragmentIds(sedimentreeId: SedimentreeId): Promise<CommitId[]> {
     const chunks = await this.adapter.loadRange([
       PREFIX,
       FRAGMENTS_PREFIX,
@@ -349,7 +349,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     ])
     return chunks
       .filter(chunk => chunk.key.length === 4 && chunk.data)
-      .map(chunk => Digest.fromBytes(hexToBytes(chunk.key[3])))
+      .map(chunk => CommitId.fromBytes(hexToBytes(chunk.key[3])))
   }
 
   async loadAllFragments(
@@ -362,19 +362,19 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       this.adapter.loadRange([PREFIX, FRAGMENT_BLOBS_PREFIX, sid]),
     ])
 
-    // Index blobs by digest hex for O(1) lookup
-    const blobsByDigest = new Map<string, Uint8Array>()
+    // Index blobs by id hex for O(1) lookup
+    const blobsById = new Map<string, Uint8Array>()
     for (const chunk of blobChunks) {
       if (chunk.key.length === 4 && chunk.data) {
-        blobsByDigest.set(chunk.key[3], chunk.data)
+        blobsById.set(chunk.key[3], chunk.data)
       }
     }
 
     const results: FragmentWithBlob[] = []
     for (const chunk of fragmentChunks) {
       if (chunk.key.length !== 4 || !chunk.data) continue
-      const digestHex = chunk.key[3]
-      const blobData = blobsByDigest.get(digestHex)
+      const idHex = chunk.key[3]
+      const blobData = blobsById.get(idHex)
       if (!blobData) continue
 
       const signedFragment = SignedFragment.tryDecode(chunk.data)
@@ -386,12 +386,12 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async deleteFragment(
     sedimentreeId: SedimentreeId,
-    digest: Digest
+    fragmentHead: CommitId
   ): Promise<void> {
-    const digestHex = digest.toHexString()
+    const idHex = fragmentHead.toHexString()
     const sid = sedimentreeId.toString()
-    const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, digestHex]
-    const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, digestHex]
+    const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
+    const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
     await Promise.all([
       this.adapter.remove(fragmentKey),
@@ -422,12 +422,12 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
     commits: Array<{
-      digest: Digest
+      commitId: CommitId
       signedCommit: SignedLooseCommit
       blob: Uint8Array
     }>,
     fragments: Array<{
-      digest: Digest
+      fragmentHead: CommitId
       signedFragment: SignedFragment
       blob: Uint8Array
     }>
@@ -439,26 +439,26 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     entries.push([[PREFIX, IDS_PREFIX, sid], ID_MARKER])
 
     // Collect all commit key-value pairs
-    for (const { digest, signedCommit, blob } of commits) {
-      const digestHex = digest.toHexString()
+    for (const { commitId, signedCommit, blob } of commits) {
+      const idHex = commitId.toHexString()
       const commitBytes = signedCommit.encode()
       // Copy from Wasm memory before any async work
       const commitCopy = new Uint8Array(commitBytes)
       const blobCopy = new Uint8Array(blob)
 
-      entries.push([[PREFIX, COMMITS_PREFIX, sid, digestHex], commitCopy])
-      entries.push([[PREFIX, BLOBS_PREFIX, sid, digestHex], blobCopy])
+      entries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
+      entries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
     }
 
     // Collect all fragment key-value pairs
-    for (const { digest, signedFragment, blob } of fragments) {
-      const digestHex = digest.toHexString()
+    for (const { fragmentHead, signedFragment, blob } of fragments) {
+      const idHex = fragmentHead.toHexString()
       const fragBytes = signedFragment.encode()
       const fragCopy = new Uint8Array(fragBytes)
       const blobCopy = new Uint8Array(blob)
 
-      entries.push([[PREFIX, FRAGMENTS_PREFIX, sid, digestHex], fragCopy])
-      entries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, digestHex], blobCopy])
+      entries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
+      entries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
     }
 
     // Single IDB transaction for all entries
@@ -474,17 +474,22 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       }
 
       // Emit events after successful save
-      for (const { digest, blob } of commits) {
+      for (const { commitId, blob } of commits) {
         if (this.listeners["commit-saved"]?.length) {
-          this.emit("commit-saved", sedimentreeId, digest, new Uint8Array(blob))
+          this.emit(
+            "commit-saved",
+            sedimentreeId,
+            commitId,
+            new Uint8Array(blob)
+          )
         }
       }
-      for (const { digest, blob } of fragments) {
+      for (const { fragmentHead, blob } of fragments) {
         if (this.listeners["fragment-saved"]?.length) {
           this.emit(
             "fragment-saved",
             sedimentreeId,
-            digest,
+            fragmentHead,
             new Uint8Array(blob)
           )
         }

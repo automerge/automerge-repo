@@ -18,7 +18,11 @@ import {
 } from "@automerge/automerge-subduction"
 import { Repo } from "../../src/Repo.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
-import { type PeerId, type UrlHeads } from "../../src/types.js"
+import {
+  type AutomergeUrl,
+  type PeerId,
+  type UrlHeads,
+} from "../../src/types.js"
 import { type StorageId } from "../../src/storage/types.js"
 import { type DocHandleRemoteHeadsPayload } from "../../src/DocHandle.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
@@ -591,6 +595,50 @@ describe("Tab → Worker → Server topology", () => {
     await aliceDocB.whenReady()
     expect(aliceDocB.doc()!.from).toBe("bob")
   }, 10_000)
+
+  it("sub-documents created and linked sync without being one-behind", async () => {
+    const server = await startServer()
+
+    const pair1 = createTabWorkerPair("alice", server.url)
+    const pair2 = createTabWorkerPair("bob", server.url)
+
+    // Alice creates a root list doc
+    type ListDoc = { items: AutomergeUrl[] }
+    type ItemDoc = { title: string }
+
+    const listHandle = pair1.tab.create<ListDoc>()
+    listHandle.change(d => {
+      d.items = []
+    })
+
+    await pause(500)
+
+    // Bob opens the list
+    const bobList = await pair2.tab.find<ListDoc>(listHandle.url)
+    await bobList.whenReady()
+    expect(bobList.doc()!.items).toHaveLength(0)
+
+    // Alice creates a sub-document and links it in one go (like react-todo)
+    const subHandle = pair1.tab.create<ItemDoc>()
+    subHandle.change(d => {
+      d.title = "First item"
+    })
+    listHandle.change(d => {
+      d.items.push(subHandle.url)
+    })
+
+    // Wait for the list doc to show the new item URL on Bob's side
+    await waitForCondition(() => {
+      const doc = bobList.doc()
+      return doc !== undefined && doc.items.length === 1
+    }, 5000)
+
+    // Now Bob should be able to find the sub-document and get its data
+    // WITHOUT needing another round-trip / another edit from Alice.
+    const bobSub = await pair2.tab.find<ItemDoc>(bobList.doc()!.items[0])
+    await bobSub.whenReady()
+    expect(bobSub.doc()!.title).toBe("First item")
+  }, 15_000)
 
   describe("Remote heads gossiping", () => {
     it("remote heads are reported after sync", async () => {
