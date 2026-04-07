@@ -19,7 +19,7 @@ import { DocHandle, NetworkAdapterInterface } from "../index.js"
 import { ConnectionManager } from "./ConnectionManager.js"
 import type { StorageId } from "../storage/types.js"
 import type { UrlHeads } from "../types.js"
-import { throttle } from "../helpers/throttle.js"
+import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { HashRing } from "../helpers/HashRing.js"
 import debug from "debug"
 import { SubductionStorageBridge } from "./storage.js"
@@ -61,6 +61,10 @@ interface SedimentreeEntry {
   // Save tracking
   lastSavedHeads: Set<string>
   recentlySavedHashes: HashRing
+  flushSave: ThrottledFunction<() => void>
+  /** Resolves when any in-progress `#save` completes. */
+  saveSettled: Promise<void>
+  resolveSaveSettled: () => void
 
   // Fragment processing — decoupled from saves, deduped by head+depth
   pendingFragmentRequests: Map<string, FragmentRequested>
@@ -286,6 +290,21 @@ export class SubductionSource implements DocumentSource {
     const sidStr = sid.toString()
     if (this.#entries.has(sidStr)) return
 
+    let resolveSaveSettled!: () => void
+    const saveSettled = new Promise<void>(r => {
+      resolveSaveSettled = r
+    })
+    // Resolve immediately — no save is in-progress yet.
+    resolveSaveSettled()
+
+    const throttledSave = throttle(() => {
+      const entry = this.#entries.get(sidStr)
+      if (!entry) return
+      const doc = entry.handle.doc()
+      if (!doc) return
+      this.#save(entry, doc)
+    }, 100)
+
     this.#entries.set(sidStr, {
       syncState: "initializing",
       query,
@@ -299,19 +318,14 @@ export class SubductionSource implements DocumentSource {
       needsResync: false,
       lastSavedHeads: new Set(),
       recentlySavedHashes: new HashRing(RECENTLY_SAVED_CACHE_SIZE),
+      flushSave: throttledSave,
+      saveSettled,
+      resolveSaveSettled,
       pendingFragmentRequests: new Map(),
       processingFragments: false,
     })
 
     query.sourcePending("subduction")
-
-    const throttledSave = throttle(() => {
-      const entry = this.#entries.get(sidStr)
-      if (!entry) return
-      const doc = entry.handle.doc()
-      if (!doc) return
-      this.#save(entry, doc)
-    }, 100)
 
     query.handle.on("heads-changed", () => throttledSave())
     throttledSave()
@@ -407,6 +421,14 @@ export class SubductionSource implements DocumentSource {
 
     try {
       const subduction = await this.#subduction
+
+      // Flush any pending throttled save and wait for in-progress saves
+      // to complete. This ensures that all locally-known commits have
+      // been persisted to subduction before the sync round reads state.
+      // Without this, a sync can race ahead of the save and send stale
+      // data, causing a "one-behind" pattern on the remote peer.
+      entry.flushSave.flush()
+      await entry.saveSettled
 
       console.log(`[subduction] doSync ${sid} (state=${entry.syncState})`)
       const peerResultMap = await subduction.syncWithAllPeers(
@@ -553,27 +575,41 @@ export class SubductionSource implements DocumentSource {
       return
     }
 
-    const previousHeads = entry.lastSavedHeads
-    entry.lastSavedHeads = currentSet
+    // Replace the save-settled promise so that #doSync can await this
+    // save completing before starting a network sync round.
+    let resolveSaveSettled!: () => void
+    entry.saveSettled = new Promise<void>(r => {
+      resolveSaveSettled = r
+    })
+    entry.resolveSaveSettled = resolveSaveSettled
 
-    const subduction = await this.#subduction
-    const sid = entry.sedimentreeId.toString().slice(0, 8)
-    const changeCount = Automerge.getChangesMetaSince(
-      doc,
-      Array.from(previousHeads)
-    ).length
-    console.log(
-      `[subduction] #save ${sid}: ${changeCount} change(s), ` +
-        `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
-    )
-    await this.#saveNewCommits(entry, doc, subduction, previousHeads)
+    try {
+      const previousHeads = entry.lastSavedHeads
+      entry.lastSavedHeads = currentSet
+
+      const subduction = await this.#subduction
+      const sid = entry.sedimentreeId.toString().slice(0, 8)
+      const changeCount = Automerge.getChangesMetaSince(
+        doc,
+        Array.from(previousHeads)
+      ).length
+      console.log(
+        `[subduction] #save ${sid}: ${changeCount} change(s), ` +
+          `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
+      )
+      await this.#saveNewCommits(entry, doc, subduction, previousHeads)
+    } finally {
+      resolveSaveSettled()
+    }
 
     // Trigger immediate sync to peers. If a sync is already in flight,
     // flag for re-sync when it completes (otherwise the in-flight sync
     // would overwrite lastSyncResult and the new commits would be lost).
     if (entry.syncInFlight) {
       console.log(
-        `[subduction] #save ${sid}: setting needsResync=true (sync in flight)`
+        `[subduction] #save ${entry.sedimentreeId
+          .toString()
+          .slice(0, 8)}: setting needsResync=true (sync in flight)`
       )
       entry.needsResync = true
     } else if (entry.lastSyncResult !== "no-peers") {
