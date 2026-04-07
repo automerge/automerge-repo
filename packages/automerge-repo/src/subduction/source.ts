@@ -1,8 +1,8 @@
 import * as Automerge from "@automerge/automerge/slim"
 import {
+  CommitId,
   SedimentreeId,
   Subduction,
-  Digest,
   SedimentreeAutomerge,
   FragmentStateStore,
   HashMetric,
@@ -19,7 +19,7 @@ import { DocHandle, NetworkAdapterInterface } from "../index.js"
 import { ConnectionManager } from "./ConnectionManager.js"
 import type { StorageId } from "../storage/types.js"
 import type { UrlHeads } from "../types.js"
-import { throttle } from "../helpers/throttle.js"
+import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { HashRing } from "../helpers/HashRing.js"
 import debug from "debug"
 import { SubductionStorageBridge } from "./storage.js"
@@ -61,6 +61,9 @@ interface SedimentreeEntry {
   // Save tracking
   lastSavedHeads: Set<string>
   recentlySavedHashes: HashRing
+  flushSave: ThrottledFunction<() => void>
+  /** Resolves when any in-progress `#save` completes. */
+  saveSettled: Promise<void>
 
   // Fragment processing — decoupled from saves, deduped by head+depth
   pendingFragmentRequests: Map<string, FragmentRequested>
@@ -167,7 +170,7 @@ export class SubductionSource implements DocumentSource {
     if (websocketEndpoints.length > 0) {
       // Full hydration: load persisted sedimentrees from storage so
       // fingerprint-based sync can resume where it left off.
-      console.log("[subduction] starting hydrate...")
+      this.#log("starting hydrate...")
       const hydrateStart = performance.now()
       this.#subduction = Subduction.hydrate(
         signer,
@@ -180,10 +183,10 @@ export class SubductionSource implements DocumentSource {
         onRemoteHeads,
         onEphemeral
       ).then(s => {
-        console.log(
-          `[subduction] hydrate complete in ${(
-            performance.now() - hydrateStart
-          ).toFixed(0)}ms`
+        this.#log(
+          `hydrate complete in ${(performance.now() - hydrateStart).toFixed(
+            0
+          )}ms`
         )
         return s
       })
@@ -191,7 +194,7 @@ export class SubductionSource implements DocumentSource {
       // No endpoints — skip hydration to avoid hundreds of IndexedDB
       // transactions that would compete with the service worker's real
       // hydration on the same database.
-      console.log("[subduction] no endpoints, skipping hydrate")
+      this.#log("no endpoints, skipping hydrate")
       this.#subduction = Promise.resolve(
         new Subduction(
           signer,
@@ -259,7 +262,7 @@ export class SubductionSource implements DocumentSource {
 
   // ── Storage events ──────────────────────────────────────────────────
 
-  #handleDataFound(id: SedimentreeId, _digest: Digest, blob: Uint8Array) {
+  #handleDataFound(id: SedimentreeId, _commitId: CommitId, blob: Uint8Array) {
     const entry = this.#entries.get(id.toString())
     if (!entry) return
 
@@ -286,6 +289,21 @@ export class SubductionSource implements DocumentSource {
     const sidStr = sid.toString()
     if (this.#entries.has(sidStr)) return
 
+    let resolveSaveSettled!: () => void
+    const saveSettled = new Promise<void>(r => {
+      resolveSaveSettled = r
+    })
+    // Resolve immediately — no save is in-progress yet.
+    resolveSaveSettled()
+
+    const throttledSave = throttle(() => {
+      const entry = this.#entries.get(sidStr)
+      if (!entry) return
+      const doc = entry.handle.doc()
+      if (!doc) return
+      this.#save(entry, doc)
+    }, 100)
+
     this.#entries.set(sidStr, {
       syncState: "initializing",
       query,
@@ -299,19 +317,13 @@ export class SubductionSource implements DocumentSource {
       needsResync: false,
       lastSavedHeads: new Set(),
       recentlySavedHashes: new HashRing(RECENTLY_SAVED_CACHE_SIZE),
+      flushSave: throttledSave,
+      saveSettled,
       pendingFragmentRequests: new Map(),
       processingFragments: false,
     })
 
     query.sourcePending("subduction")
-
-    const throttledSave = throttle(() => {
-      const entry = this.#entries.get(sidStr)
-      if (!entry) return
-      const doc = entry.handle.doc()
-      if (!doc) return
-      this.#save(entry, doc)
-    }, 100)
 
     query.handle.on("heads-changed", () => throttledSave())
     throttledSave()
@@ -408,7 +420,15 @@ export class SubductionSource implements DocumentSource {
     try {
       const subduction = await this.#subduction
 
-      console.log(`[subduction] doSync ${sid} (state=${entry.syncState})`)
+      // Flush any pending throttled save and wait for in-progress saves
+      // to complete. This ensures that all locally-known commits have
+      // been persisted to subduction before the sync round reads state.
+      // Without this, a sync can race ahead of the save and send stale
+      // data, causing a "one-behind" pattern on the remote peer.
+      entry.flushSave.flush()
+      await entry.saveSettled
+
+      this.#log(`doSync ${sid} (state=${entry.syncState})`)
       const peerResultMap = await subduction.syncWithAllPeers(
         sedimentreeId,
         true
@@ -451,15 +471,15 @@ export class SubductionSource implements DocumentSource {
       // If new commits were saved or a new connection was established
       // while this sync was in flight, re-sync immediately.
       if (entry.needsResync || entry.lastSyncResult === null) {
-        console.log(
-          `[subduction] doSync ${sid} finally: re-sync needed ` +
+        this.#log(
+          `doSync ${sid} finally: re-sync needed ` +
             `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
         entry.needsResync = false
         entry.lastSyncResult = null
       } else {
-        console.log(
-          `[subduction] doSync ${sid} finally: no re-sync ` +
+        this.#log(
+          `doSync ${sid} finally: no re-sync ` +
             `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
       }
@@ -484,8 +504,8 @@ export class SubductionSource implements DocumentSource {
     const totalBytes = allBlobs
       ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
       : 0
-    console.log(
-      `[subduction] loadBlobsIntoHandle ${sid}: ${
+    this.#log(
+      `loadBlobsIntoHandle ${sid}: ${
         allBlobs?.length ?? 0
       } blob(s), ${totalBytes} bytes, heads=${entry.handle.heads().length}`
     )
@@ -553,27 +573,40 @@ export class SubductionSource implements DocumentSource {
       return
     }
 
-    const previousHeads = entry.lastSavedHeads
-    entry.lastSavedHeads = currentSet
+    // Replace the save-settled promise so that #doSync can await this
+    // save completing before starting a network sync round.
+    let resolveSaveSettled!: () => void
+    entry.saveSettled = new Promise<void>(r => {
+      resolveSaveSettled = r
+    })
 
-    const subduction = await this.#subduction
-    const sid = entry.sedimentreeId.toString().slice(0, 8)
-    const changeCount = Automerge.getChangesMetaSince(
-      doc,
-      Array.from(previousHeads)
-    ).length
-    console.log(
-      `[subduction] #save ${sid}: ${changeCount} change(s), ` +
-        `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
-    )
-    await this.#saveNewCommits(entry, doc, subduction, previousHeads)
+    try {
+      const previousHeads = entry.lastSavedHeads
+      entry.lastSavedHeads = currentSet
+
+      const subduction = await this.#subduction
+      const sid = entry.sedimentreeId.toString().slice(0, 8)
+      const changeCount = Automerge.getChangesMetaSince(
+        doc,
+        Array.from(previousHeads)
+      ).length
+      this.#log(
+        `#save ${sid}: ${changeCount} change(s), ` +
+          `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
+      )
+      await this.#saveNewCommits(entry, doc, subduction, previousHeads)
+    } finally {
+      resolveSaveSettled()
+    }
 
     // Trigger immediate sync to peers. If a sync is already in flight,
     // flag for re-sync when it completes (otherwise the in-flight sync
     // would overwrite lastSyncResult and the new commits would be lost).
     if (entry.syncInFlight) {
-      console.log(
-        `[subduction] #save ${sid}: setting needsResync=true (sync in flight)`
+      this.#log(
+        `#save ${entry.sedimentreeId
+          .toString()
+          .slice(0, 8)}: setting needsResync=true (sync in flight)`
       )
       entry.needsResync = true
     } else if (entry.lastSyncResult !== "no-peers") {
@@ -596,10 +629,12 @@ export class SubductionSource implements DocumentSource {
           if (!entry.recentlySavedHashes.add(meta.hash)) return
 
           const commitBytes = automergeMeta(doc).getChangeByHash(meta.hash)
-          const parents = meta.deps.map(dep => Digest.fromHexString(dep))
+          const head = CommitId.fromHexString(meta.hash)
+          const parents = meta.deps.map(dep => CommitId.fromHexString(dep))
 
           const result = await subduction.addCommit(
             entry.sedimentreeId,
+            head,
             parents,
             commitBytes
           )
@@ -627,8 +662,49 @@ export class SubductionSource implements DocumentSource {
 
   // ── Shutdown ────────────────────────────────────────────────────────
 
-  shutdown() {
+  async shutdown() {
+    // 1. Stop reconnect loops and prevent new transports
+    for (const mgr of this.#connectionManagers) {
+      mgr.shutdown()
+    }
+
+    // 2. Stop scheduled sync timers (no new sync rounds will be triggered)
     this.#scheduler.shutdown()
+
+    // 3. Flush all pending throttled saves so they start executing
+    for (const entry of this.#entries.values()) {
+      entry.flushSave.flush()
+    }
+
+    // 4. Wait for all in-flight #save() calls to complete
+    await Promise.all(
+      Array.from(this.#entries.values()).map(e => e.saveSettled)
+    )
+
+    // 5. Wait for SubductionStorageBridge writes to land on disk
+    await this.#storage.awaitSettled()
+
+    // 6. Disconnect all Wasm-side transports gracefully, then free.
+    //    If hydration failed, this.#subduction is a rejected promise —
+    //    treat that as a no-op (nothing to disconnect or free).
+    let subduction: Subduction | null = null
+    try {
+      subduction = await this.#subduction
+    } catch (e) {
+      this.#log("subduction never initialized, skipping teardown: %O", e)
+      return
+    }
+    try {
+      await subduction.disconnectAll()
+    } catch (e) {
+      this.#log("error disconnecting subduction transports: %O", e)
+    } finally {
+      try {
+        subduction.free()
+      } catch (e) {
+        this.#log("error freeing subduction resources: %O", e)
+      }
+    }
   }
 
   // ── Ephemeral messaging ──────────────────────────────────────────────
@@ -674,13 +750,13 @@ export class SubductionSource implements DocumentSource {
         try {
           const members = fragmentState
             .members()
-            .map((digest: Digest): string => digest.toHexString())
+            .map((commitId: CommitId): string => commitId.toHexString())
 
           const fragmentBlob = Automerge.saveBundle(doc, members)
 
           await subduction.addFragment(
             entry.sedimentreeId,
-            fragmentState.head_digest(),
+            fragmentState.head_id(),
             fragmentState.boundary().keys(),
             fragmentState.checkpoints(),
             fragmentBlob
