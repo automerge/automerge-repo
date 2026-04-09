@@ -189,7 +189,7 @@ export class CollectionSynchronizer
 
   // SHARE POLICY
 
-  reevaluateDocumentShare(): void {
+  shareConfigChanged(): void {
     for (const docSync of Object.values(this.#docSynchronizers)) {
       docSync.reevaluateSharePolicy()
     }
