@@ -77,6 +77,7 @@ export class SyncScheduler {
   #healTimers = new Map<string, ReturnType<typeof setTimeout>>()
   #healBackoff = new Map<string, number>()
   #healAttempts = new Map<string, number>()
+  #isShutdown = false
 
   // ── Periodic sync state ───────────────────────────────────────────
   #periodicSyncTimer: ReturnType<typeof setInterval> | null = null
@@ -111,6 +112,7 @@ export class SyncScheduler {
   // onHealExhausted callback.
 
   scheduleHealSync(sedimentreeId: SedimentreeId): void {
+    if (this.#isShutdown) return
     const key = sedimentreeId.toString()
     const attempts = this.#healAttempts.get(key) ?? 0
 
@@ -318,6 +320,7 @@ export class SyncScheduler {
   // ── Shutdown ────────────────────────────────────────────────────────
 
   shutdown(): void {
+    this.#isShutdown = true
     if (this.#periodicSyncTimer !== null) {
       clearInterval(this.#periodicSyncTimer)
       this.#periodicSyncTimer = null

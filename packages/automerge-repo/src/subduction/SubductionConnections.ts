@@ -15,6 +15,7 @@ export class SubductionConnections implements ConnectionManager {
   #onChangeCallback: (() => void) | null = null
   #generation = 0
   #isShutdown = false
+  #reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(subduction: Promise<Subduction>) {
     this.#subduction = subduction
@@ -49,6 +50,12 @@ export class SubductionConnections implements ConnectionManager {
 
       try {
         const transport = await WebSocketTransport.connect(url)
+
+        if (this.#isShutdown) {
+          transport.disconnect()
+          break
+        }
+
         const subduction = await this.#subduction
         await subduction.connectTransport(transport, serviceName)
         this.#setConnectionState(url, "running")
@@ -61,15 +68,26 @@ export class SubductionConnections implements ConnectionManager {
         console.warn(`[subduction] connection to ${url} failed:`, e)
       }
 
+      if (this.#isShutdown) break
+
       this.#setConnectionState(url, "awaiting-reconnect")
       this.#log(`reconnecting to ${url} in ${backoff}ms`)
-      await new Promise(r => setTimeout(r, backoff))
+      await new Promise<void>(r => {
+        this.#reconnectTimer = setTimeout(() => {
+          this.#reconnectTimer = null
+          r()
+        }, backoff)
+      })
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
     }
   }
 
   shutdown(): void {
     this.#isShutdown = true
+    if (this.#reconnectTimer !== null) {
+      clearTimeout(this.#reconnectTimer)
+      this.#reconnectTimer = null
+    }
   }
 
   #setConnectionState(url: string, state: ConnectionState) {

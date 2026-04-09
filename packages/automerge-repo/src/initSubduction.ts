@@ -14,7 +14,12 @@ let initPromise: Promise<void> | null = null
  */
 export async function initSubduction(): Promise<void> {
   if (!initPromise) {
-    initPromise = import("@automerge/automerge-subduction").then(() => {})
+    initPromise = import("@automerge/automerge-subduction")
+      .then(() => {})
+      .catch(error => {
+        initPromise = null
+        throw error
+      })
   }
   return initPromise
 }

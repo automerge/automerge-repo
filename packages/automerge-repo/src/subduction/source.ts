@@ -685,12 +685,17 @@ export class SubductionSource implements DocumentSource {
     await this.#storage.awaitSettled()
 
     // 6. Disconnect all Wasm-side transports gracefully, then free
+    const subduction = await this.#subduction
     try {
-      const subduction = await this.#subduction
       await subduction.disconnectAll()
-      subduction.free()
     } catch (e) {
-      this.#log("error during subduction teardown: %O", e)
+      this.#log("error disconnecting subduction transports: %O", e)
+    } finally {
+      try {
+        subduction.free()
+      } catch (e) {
+        this.#log("error freeing subduction resources: %O", e)
+      }
     }
   }
 
