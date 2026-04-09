@@ -517,6 +517,9 @@ describe("Repo", () => {
       })
 
       await repo.flush()
+      // Subduction has its own throttled save pipeline (100ms); let it
+      // settle so initialKeys reflects the post-quiescence state.
+      await pause(200)
 
       const initialKeys = storage.keys()
 
@@ -524,6 +527,9 @@ describe("Repo", () => {
         storage,
       })
       const handle2 = await repo2.find(handle.url)
+      // Same again on the reload side — subduction re-writes its
+      // (content-addressed, idempotent) commits/blobs on attach.
+      await pause(200)
       assert.deepEqual(storage.keys(), initialKeys)
     })
 
