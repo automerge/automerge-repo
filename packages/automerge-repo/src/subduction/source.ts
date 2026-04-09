@@ -101,20 +101,6 @@ export interface SubductionSourceOptions {
   policy?: Policy
 
   /**
-   * Interval in ms for per-document periodic sync. Each open document is
-   * synced individually (skipping those already in heal-backoff).
-   * Set to 0 to disable. Default: 30_000 (30s).
-   */
-  periodicSyncInterval?: number
-
-  /**
-   * Interval in ms for a full batch sync across all sedimentrees.
-   * On success, all heal state is reset.
-   * Set to 0 to disable. Default: 300_000 (5 min).
-   */
-  batchSyncInterval?: number
-
-  /**
    * What priority this source should have w.r.t to other sources
    */
   priority?: SourcePriority
@@ -142,8 +128,6 @@ export class SubductionSource implements DocumentSource {
     onHealExhausted,
     priority = 2,
     policy,
-    periodicSyncInterval = 30_000,
-    batchSyncInterval = 300_000,
   }: SubductionSourceOptions) {
     this.priority = priority
     // Default to "warn" so the Rust side is quiet. When the debug npm module
@@ -151,8 +135,12 @@ export class SubductionSource implements DocumentSource {
     // Rust tracing filter so the messages actually reach the JS logger.
     // In Service Worker contexts, localStorage is unavailable — check
     // globalThis.__SUBDUCTION_DEBUG as a fallback.
+    // Node 25's experimental built-in `localStorage` object satisfies
+    // `typeof localStorage !== "undefined"` but throws when its methods
+    // are called, so guard for `getItem` being callable too.
     const subductionDebugRequested =
       (typeof localStorage !== "undefined" &&
+        typeof localStorage.getItem === "function" &&
         /subduction/i.test(localStorage.getItem("debug") ?? "")) ||
       !!(globalThis as any).__SUBDUCTION_DEBUG
     try {
@@ -243,8 +231,6 @@ export class SubductionSource implements DocumentSource {
     this.#scheduler = new SyncScheduler({
       subduction: this.#subduction,
       log: this.#log,
-      getActiveSedimentreeIds: () =>
-        Array.from(this.#entries.values()).map(e => e.sedimentreeId),
       onSyncDataReceived: async (sedimentreeId, subduction) => {
         const entry = this.#entries.get(sedimentreeId.toString())
         if (entry) {
@@ -252,8 +238,6 @@ export class SubductionSource implements DocumentSource {
         }
       },
       onHealExhausted,
-      periodicSyncInterval,
-      batchSyncInterval,
     })
   }
 
@@ -352,6 +336,16 @@ export class SubductionSource implements DocumentSource {
   }
 
   detach(documentId: DocumentId): void {}
+
+  shareConfigChanged(): void {
+    for (const entry of this.#entries.values()) {
+      if (entry.lastSyncResult === "all-failed" && !entry.syncInFlight) {
+        entry.lastSyncResult = null
+        this.#scheduler.resetHealState(entry.sedimentreeId.toString())
+      }
+    }
+    this.#recompute()
+  }
 
   // ── Central recompute ───────────────────────────────────────────────
 
@@ -457,7 +451,7 @@ export class SubductionSource implements DocumentSource {
 
       // If new data was received, immediately load it into the handle.
       // This makes sync reactive — the handle updates as soon as data
-      // arrives, without waiting for periodic timers or state transitions.
+      // arrives, without waiting for further state transitions.
       if (dataReceived) {
         await this.#loadBlobsIntoHandle(entry, subduction)
       }
@@ -502,7 +496,7 @@ export class SubductionSource implements DocumentSource {
    * the query so it can transition to "ready".
    *
    * This is called reactively after any `syncWithAllPeers` that received
-   * data, making handle updates immediate rather than timer-driven.
+   * data, making handle updates immediate.
    */
   async #loadBlobsIntoHandle(
     entry: SedimentreeEntry,
@@ -560,7 +554,8 @@ export class SubductionSource implements DocumentSource {
         e
       )
       // Transition to running anyway so live pushes aren't permanently blocked.
-      // The periodic sync will retry loading data.
+      // A subsequent heal retry or connection-state change will retry loading
+      // data.
       entry.syncState = "running"
       entry.lastSyncResult = null
     } finally {
@@ -677,7 +672,7 @@ export class SubductionSource implements DocumentSource {
       mgr.shutdown()
     }
 
-    // 2. Stop scheduled sync timers (no new sync rounds will be triggered)
+    // 2. Stop any pending heal-retry timers and prevent new schedules
     this.#scheduler.shutdown()
 
     // 3. Flush all pending throttled saves so they start executing
