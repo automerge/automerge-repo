@@ -633,9 +633,20 @@ describe("Tab → Worker → Server topology", () => {
       return doc !== undefined && doc.items.length === 1
     }, 5000)
 
-    // Now Bob should be able to find the sub-document and get its data
-    // WITHOUT needing another round-trip / another edit from Alice.
-    const bobSub = await pair2.tab.find<ItemDoc>(bobList.doc()!.items[0])
+    const subUrl = bobList.doc()!.items[0]
+
+    // Wait for the sub-document data to arrive on Bob's worker via
+    // subduction. We poll findWithProgress rather than calling find()
+    // (which rejects on unavailable) because the worker may need
+    // several sync rounds before the sub-doc arrives.
+    await waitForCondition(() => {
+      const state = pair2.worker.findWithProgress<ItemDoc>(subUrl).peek()
+      return state.state === "ready" && state.handle.doc()?.title !== undefined
+    }, 5000)
+
+    // Now Bob's tab can find the sub-document via MessageChannel sync
+    // with the worker — the worker already has the data.
+    const bobSub = await pair2.tab.find<ItemDoc>(subUrl)
     await bobSub.whenReady()
     expect(bobSub.doc()!.title).toBe("First item")
   }, 15_000)
