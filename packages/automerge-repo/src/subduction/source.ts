@@ -98,6 +98,12 @@ export interface SubductionSourceOptions {
   onEphemeral?: OnEphemeral
   onHealExhausted?: (documentId: DocumentId) => void
 
+  /**
+   * Called when subduction receives data for a document it doesn't have
+   * an entry for. The Repo creates the query/handle and calls attach.
+   */
+  ensureHandle?: (documentId: DocumentId) => void
+
   policy?: Policy
 
   /**
@@ -123,6 +129,7 @@ export class SubductionSource implements DocumentSource {
   #log: debug.Debugger
   #connectionManagers: ConnectionManager[] = []
   #scheduler: SyncScheduler
+  #ensureHandle?: (documentId: DocumentId) => void
 
   constructor({
     peerId,
@@ -133,6 +140,7 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
+    ensureHandle,
     policy,
     periodicSyncInterval = 30_000,
     batchSyncInterval = 300_000,
@@ -153,6 +161,7 @@ export class SubductionSource implements DocumentSource {
     }
     this.#log = debug(`automerge-repo:subduction(${peerId})`)
     this.#storage = storage
+    this.#ensureHandle = ensureHandle
 
     const onRemoteHeads = onRemoteHeadsChanged
       ? (
@@ -167,7 +176,7 @@ export class SubductionSource implements DocumentSource {
         }
       : undefined
 
-    if (websocketEndpoints.length > 0) {
+    if (websocketEndpoints.length > 0 || adapters.length > 0) {
       // Full hydration: load persisted sedimentrees from storage so
       // fingerprint-based sync can resume where it left off.
       this.#log("starting hydrate...")
@@ -229,6 +238,7 @@ export class SubductionSource implements DocumentSource {
 
     this.#storage.on("commit-saved", this.#handleDataFound.bind(this))
     this.#storage.on("fragment-saved", this.#handleDataFound.bind(this))
+    this.#storage.on("sedimentree-id-saved", this.#handleSedimentreeIdSaved.bind(this))
 
     // ── Sync scheduler ────────────────────────────────────────────────
     this.#scheduler = new SyncScheduler({
@@ -264,7 +274,14 @@ export class SubductionSource implements DocumentSource {
 
   #handleDataFound(id: SedimentreeId, _commitId: CommitId, blob: Uint8Array) {
     const entry = this.#entries.get(id.toString())
-    if (!entry) return
+    if (!entry) {
+      if (this.#ensureHandle) {
+        const documentId = toDocumentId(id)
+        this.#log(`ensureHandle for unknown sedimentree ${id.toString().slice(0, 8)} (docId=${documentId.slice(0, 8)})`)
+        this.#ensureHandle(documentId)
+      }
+      return
+    }
 
     // During "initializing", let #loadBlobsAndTransition handle the
     // complete blob load atomically. Applying individual commits here
@@ -280,6 +297,14 @@ export class SubductionSource implements DocumentSource {
     // before data arrived), re-trigger a recompute so the query detects the
     // newly-loaded heads and transitions to "ready".
     entry.query.sourcePending("subduction")
+  }
+
+  #handleSedimentreeIdSaved(id: SedimentreeId) {
+    if (this.#entries.has(id.toString())) return
+    if (!this.#ensureHandle) return
+    const documentId = toDocumentId(id)
+    this.#log(`sedimentree-id-saved: ensureHandle for ${id.toString().slice(0, 8)} (docId=${documentId.slice(0, 8)})`)
+    this.#ensureHandle(documentId)
   }
 
   // ── Attach / detach ─────────────────────────────────────────────────
@@ -342,7 +367,23 @@ export class SubductionSource implements DocumentSource {
     this.#recompute()
   }
 
-  detach(documentId: DocumentId): void {}
+  detach(documentId: DocumentId): void {
+    const sid = toSedimentreeId(documentId)
+    const sidStr = sid.toString()
+    this.#entries.delete(sidStr)
+    this.#scheduler.resetHealState(sidStr)
+  }
+
+  /** Reset entries stuck in "all-failed" so they sync again. */
+  retryFailedSyncs(): void {
+    for (const entry of this.#entries.values()) {
+      if (entry.lastSyncResult === "all-failed" && !entry.syncInFlight) {
+        entry.lastSyncResult = null
+        this.#scheduler.resetHealState(entry.sedimentreeId.toString())
+      }
+    }
+    this.#recompute()
+  }
 
   // ── Central recompute ───────────────────────────────────────────────
 

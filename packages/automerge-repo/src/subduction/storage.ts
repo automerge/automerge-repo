@@ -27,6 +27,11 @@ import {
 
 export interface StorageBridgeEvents {
   /**
+   * Emitted when a new sedimentree ID is saved.
+   */
+  "sedimentree-id-saved": (sedimentreeId: SedimentreeId) => void
+
+  /**
    * Emitted when a commit is saved.
    * The blob is the Automerge change data.
    */
@@ -137,6 +142,9 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async saveSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
     const key = [PREFIX, IDS_PREFIX, sedimentreeId.toString()]
     await this.adapter.save(key, ID_MARKER)
+    if (this.listeners["sedimentree-id-saved"]?.length) {
+      this.emit("sedimentree-id-saved", sedimentreeId)
+    }
   }
 
   async deleteSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
