@@ -15,7 +15,7 @@ export class SubductionConnections implements ConnectionManager {
   #onChangeCallback: (() => void) | null = null
   #generation = 0
   #isShutdown = false
-  #reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  #reconnectTimers = new Set<ReturnType<typeof setTimeout>>()
 
   constructor(subduction: Promise<Subduction>) {
     this.#subduction = subduction
@@ -73,10 +73,11 @@ export class SubductionConnections implements ConnectionManager {
       this.#setConnectionState(url, "awaiting-reconnect")
       this.#log(`reconnecting to ${url} in ${backoff}ms`)
       await new Promise<void>(r => {
-        this.#reconnectTimer = setTimeout(() => {
-          this.#reconnectTimer = null
+        const timer = setTimeout(() => {
+          this.#reconnectTimers.delete(timer)
           r()
         }, backoff)
+        this.#reconnectTimers.add(timer)
       })
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
     }
@@ -84,10 +85,10 @@ export class SubductionConnections implements ConnectionManager {
 
   shutdown(): void {
     this.#isShutdown = true
-    if (this.#reconnectTimer !== null) {
-      clearTimeout(this.#reconnectTimer)
-      this.#reconnectTimer = null
+    for (const timer of this.#reconnectTimers) {
+      clearTimeout(timer)
     }
+    this.#reconnectTimers.clear()
   }
 
   #setConnectionState(url: string, state: ConnectionState) {

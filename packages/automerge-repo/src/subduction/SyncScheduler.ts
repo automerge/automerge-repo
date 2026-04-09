@@ -197,7 +197,7 @@ export class SyncScheduler {
   // ── Periodic background sync ────────────────────────────────────────
 
   async #runPeriodicSync(): Promise<void> {
-    if (this.#periodicSyncInProgress) return
+    if (this.#isShutdown || this.#periodicSyncInProgress) return
     this.#periodicSyncInProgress = true
 
     try {
@@ -264,7 +264,7 @@ export class SyncScheduler {
   }
 
   async #runBatchSync(): Promise<void> {
-    if (this.#batchSyncInProgress) return
+    if (this.#isShutdown || this.#batchSyncInProgress) return
     this.#batchSyncInProgress = true
     this.#log("starting batch sync (all open handles)")
 

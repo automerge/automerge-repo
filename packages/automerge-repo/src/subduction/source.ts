@@ -684,8 +684,16 @@ export class SubductionSource implements DocumentSource {
     // 5. Wait for SubductionStorageBridge writes to land on disk
     await this.#storage.awaitSettled()
 
-    // 6. Disconnect all Wasm-side transports gracefully, then free
-    const subduction = await this.#subduction
+    // 6. Disconnect all Wasm-side transports gracefully, then free.
+    //    If hydration failed, this.#subduction is a rejected promise —
+    //    treat that as a no-op (nothing to disconnect or free).
+    let subduction: Subduction | null = null
+    try {
+      subduction = await this.#subduction
+    } catch (e) {
+      this.#log("subduction never initialized, skipping teardown: %O", e)
+      return
+    }
     try {
       await subduction.disconnectAll()
     } catch (e) {
