@@ -14,6 +14,7 @@ export class SubductionConnections implements ConnectionManager {
   #subduction: Promise<Subduction>
   #onChangeCallback: (() => void) | null = null
   #generation = 0
+  #isShutdown = false
 
   constructor(subduction: Promise<Subduction>) {
     this.#subduction = subduction
@@ -42,7 +43,7 @@ export class SubductionConnections implements ConnectionManager {
     const serviceName = new URL(url).host
     let backoff = RECONNECT_BASE_MS
 
-    while (true) {
+    while (!this.#isShutdown) {
       this.#setConnectionState(url, "connecting")
       this.#log(`connecting to ${url}...`)
 
@@ -65,6 +66,10 @@ export class SubductionConnections implements ConnectionManager {
       await new Promise(r => setTimeout(r, backoff))
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
     }
+  }
+
+  shutdown(): void {
+    this.#isShutdown = true
   }
 
   #setConnectionState(url: string, state: ConnectionState) {

@@ -184,9 +184,9 @@ export class SubductionSource implements DocumentSource {
         onEphemeral
       ).then(s => {
         this.#log(
-          `hydrate complete in ${(
-            performance.now() - hydrateStart
-          ).toFixed(0)}ms`
+          `hydrate complete in ${(performance.now() - hydrateStart).toFixed(
+            0
+          )}ms`
         )
         return s
       })
@@ -663,21 +663,35 @@ export class SubductionSource implements DocumentSource {
   // ── Shutdown ────────────────────────────────────────────────────────
 
   async shutdown() {
-    // Flush all pending throttled saves so they start executing
+    // 1. Stop reconnect loops and prevent new transports
+    for (const mgr of this.#connectionManagers) {
+      mgr.shutdown()
+    }
+
+    // 2. Stop scheduled sync timers (no new sync rounds will be triggered)
+    this.#scheduler.shutdown()
+
+    // 3. Flush all pending throttled saves so they start executing
     for (const entry of this.#entries.values()) {
       entry.flushSave.flush()
     }
 
-    // Wait for all in-flight #save() calls to complete
+    // 4. Wait for all in-flight #save() calls to complete
     await Promise.all(
       Array.from(this.#entries.values()).map(e => e.saveSettled)
     )
 
-    // Wait for SubductionStorageBridge writes to land on disk
+    // 5. Wait for SubductionStorageBridge writes to land on disk
     await this.#storage.awaitSettled()
 
-    // Clear all timers (periodic sync, batch sync, heal retries)
-    this.#scheduler.shutdown()
+    // 6. Disconnect all Wasm-side transports gracefully, then free
+    try {
+      const subduction = await this.#subduction
+      await subduction.disconnectAll()
+      subduction.free()
+    } catch (e) {
+      this.#log("error during subduction teardown: %O", e)
+    }
   }
 
   // ── Ephemeral messaging ──────────────────────────────────────────────
