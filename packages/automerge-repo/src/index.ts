@@ -39,6 +39,7 @@ export {
   decodeHeads,
 } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
+export { initSubduction } from "./initSubduction.js"
 export { Presence } from "./presence/Presence.js"
 export { PeerStateView } from "./presence/PeerStateView.js"
 export type {
