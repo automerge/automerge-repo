@@ -15,7 +15,7 @@ export class SubductionConnections implements ConnectionManager {
   #onChangeCallback: (() => void) | null = null
   #generation = 0
   #isShutdown = false
-  #reconnectTimers = new Set<ReturnType<typeof setTimeout>>()
+  #pendingSleeps = new Map<ReturnType<typeof setTimeout>, () => void>()
 
   constructor(subduction: Promise<Subduction>) {
     this.#subduction = subduction
@@ -74,10 +74,10 @@ export class SubductionConnections implements ConnectionManager {
       this.#log(`reconnecting to ${url} in ${backoff}ms`)
       await new Promise<void>(r => {
         const timer = setTimeout(() => {
-          this.#reconnectTimers.delete(timer)
+          this.#pendingSleeps.delete(timer)
           r()
         }, backoff)
-        this.#reconnectTimers.add(timer)
+        this.#pendingSleeps.set(timer, r)
       })
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
     }
@@ -85,10 +85,11 @@ export class SubductionConnections implements ConnectionManager {
 
   shutdown(): void {
     this.#isShutdown = true
-    for (const timer of this.#reconnectTimers) {
+    for (const [timer, resolve] of this.#pendingSleeps) {
       clearTimeout(timer)
+      resolve()
     }
-    this.#reconnectTimers.clear()
+    this.#pendingSleeps.clear()
   }
 
   #setConnectionState(url: string, state: ConnectionState) {
