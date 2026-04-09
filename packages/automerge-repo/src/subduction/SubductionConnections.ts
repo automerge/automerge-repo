@@ -44,24 +44,24 @@ export class SubductionConnections implements ConnectionManager {
 
     while (true) {
       this.#setConnectionState(url, "connecting")
-      console.log(`[subduction] connecting to ${url}...`)
+      this.#log(`connecting to ${url}...`)
 
       try {
         const transport = await WebSocketTransport.connect(url)
         const subduction = await this.#subduction
         await subduction.connectTransport(transport, serviceName)
         this.#setConnectionState(url, "running")
-        console.log(`[subduction] connected to ${url}`)
+        this.#log(`connected to ${url}`)
         backoff = RECONNECT_BASE_MS
 
         await transport.closed()
-        console.log(`[subduction] disconnected from ${url}`)
+        this.#log(`disconnected from ${url}`)
       } catch (e) {
         console.warn(`[subduction] connection to ${url} failed:`, e)
       }
 
       this.#setConnectionState(url, "awaiting-reconnect")
-      console.log(`[subduction] reconnecting to ${url} in ${backoff}ms`)
+      this.#log(`reconnecting to ${url} in ${backoff}ms`)
       await new Promise(r => setTimeout(r, backoff))
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
     }

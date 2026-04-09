@@ -170,7 +170,7 @@ export class SubductionSource implements DocumentSource {
     if (websocketEndpoints.length > 0) {
       // Full hydration: load persisted sedimentrees from storage so
       // fingerprint-based sync can resume where it left off.
-      console.log("[subduction] starting hydrate...")
+      this.#log("starting hydrate...")
       const hydrateStart = performance.now()
       this.#subduction = Subduction.hydrate(
         signer,
@@ -183,8 +183,8 @@ export class SubductionSource implements DocumentSource {
         onRemoteHeads,
         onEphemeral
       ).then(s => {
-        console.log(
-          `[subduction] hydrate complete in ${(
+        this.#log(
+          `hydrate complete in ${(
             performance.now() - hydrateStart
           ).toFixed(0)}ms`
         )
@@ -194,7 +194,7 @@ export class SubductionSource implements DocumentSource {
       // No endpoints — skip hydration to avoid hundreds of IndexedDB
       // transactions that would compete with the service worker's real
       // hydration on the same database.
-      console.log("[subduction] no endpoints, skipping hydrate")
+      this.#log("no endpoints, skipping hydrate")
       this.#subduction = Promise.resolve(
         new Subduction(
           signer,
@@ -428,7 +428,7 @@ export class SubductionSource implements DocumentSource {
       entry.flushSave.flush()
       await entry.saveSettled
 
-      console.log(`[subduction] doSync ${sid} (state=${entry.syncState})`)
+      this.#log(`doSync ${sid} (state=${entry.syncState})`)
       const peerResultMap = await subduction.syncWithAllPeers(
         sedimentreeId,
         true
@@ -471,15 +471,15 @@ export class SubductionSource implements DocumentSource {
       // If new commits were saved or a new connection was established
       // while this sync was in flight, re-sync immediately.
       if (entry.needsResync || entry.lastSyncResult === null) {
-        console.log(
-          `[subduction] doSync ${sid} finally: re-sync needed ` +
+        this.#log(
+          `doSync ${sid} finally: re-sync needed ` +
             `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
         entry.needsResync = false
         entry.lastSyncResult = null
       } else {
-        console.log(
-          `[subduction] doSync ${sid} finally: no re-sync ` +
+        this.#log(
+          `doSync ${sid} finally: no re-sync ` +
             `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
       }
@@ -504,8 +504,8 @@ export class SubductionSource implements DocumentSource {
     const totalBytes = allBlobs
       ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
       : 0
-    console.log(
-      `[subduction] loadBlobsIntoHandle ${sid}: ${
+    this.#log(
+      `loadBlobsIntoHandle ${sid}: ${
         allBlobs?.length ?? 0
       } blob(s), ${totalBytes} bytes, heads=${entry.handle.heads().length}`
     )
@@ -590,8 +590,8 @@ export class SubductionSource implements DocumentSource {
         doc,
         Array.from(previousHeads)
       ).length
-      console.log(
-        `[subduction] #save ${sid}: ${changeCount} change(s), ` +
+      this.#log(
+        `#save ${sid}: ${changeCount} change(s), ` +
           `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
       )
       await this.#saveNewCommits(entry, doc, subduction, previousHeads)
@@ -603,8 +603,8 @@ export class SubductionSource implements DocumentSource {
     // flag for re-sync when it completes (otherwise the in-flight sync
     // would overwrite lastSyncResult and the new commits would be lost).
     if (entry.syncInFlight) {
-      console.log(
-        `[subduction] #save ${entry.sedimentreeId
+      this.#log(
+        `#save ${entry.sedimentreeId
           .toString()
           .slice(0, 8)}: setting needsResync=true (sync in flight)`
       )

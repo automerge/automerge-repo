@@ -131,8 +131,8 @@ export class SyncScheduler {
 
     const delay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
 
-    console.log(
-      `[subduction] scheduling heal for ${key.slice(0, 8)} in ${delay}ms ` +
+    this.#log(
+      `scheduling heal for ${key.slice(0, 8)} in ${delay}ms ` +
         `(attempt ${attempts + 1}/${HEAL_MAX_ATTEMPTS})`
     )
 
@@ -205,8 +205,8 @@ export class SyncScheduler {
       const healingCount = sedimentreeIds.filter(id =>
         this.#healTimers.has(id.toString())
       ).length
-      console.log(
-        `[subduction] periodic sync: ${sedimentreeIds.length} entries, ` +
+      this.#log(
+        `periodic sync: ${sedimentreeIds.length} entries, ` +
           `${healingCount} healing (skipped)`
       )
 
