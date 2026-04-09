@@ -662,7 +662,21 @@ export class SubductionSource implements DocumentSource {
 
   // ── Shutdown ────────────────────────────────────────────────────────
 
-  shutdown() {
+  async shutdown() {
+    // Flush all pending throttled saves so they start executing
+    for (const entry of this.#entries.values()) {
+      entry.flushSave.flush()
+    }
+
+    // Wait for all in-flight #save() calls to complete
+    await Promise.all(
+      Array.from(this.#entries.values()).map(e => e.saveSettled)
+    )
+
+    // Wait for SubductionStorageBridge writes to land on disk
+    await this.#storage.awaitSettled()
+
+    // Clear all timers (periodic sync, batch sync, heal retries)
     this.#scheduler.shutdown()
   }
 

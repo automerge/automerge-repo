@@ -736,8 +736,14 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async shutdown() {
-    this.#subductionSource?.shutdown()
+    // Stop all inbound data — no new changes can arrive
     this.networkSubsystem.disconnect()
+
+    // Flush all Automerge document storage (bypasses throttle, saves directly)
+    await this.flush()
+
+    // Flush Subduction pending saves, await in-flight writes, then clear timers
+    await this.#subductionSource?.shutdown()
   }
 
   metrics(): { documents: { [key: string]: any } } {
