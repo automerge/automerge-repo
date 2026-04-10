@@ -102,7 +102,7 @@ export interface SubductionSourceOptions {
    * Called when subduction receives data for a document it doesn't have
    * an entry for. The Repo creates the query/handle and calls attach.
    */
-  ensureHandle?: (documentId: DocumentId) => void
+  ensureHandle: (documentId: DocumentId) => void
 
   policy?: Policy
 
@@ -129,7 +129,7 @@ export class SubductionSource implements DocumentSource {
   #log: debug.Debugger
   #connectionManagers: ConnectionManager[] = []
   #scheduler: SyncScheduler
-  #ensureHandle?: (documentId: DocumentId) => void
+  #ensureHandle: (documentId: DocumentId) => void
 
   constructor({
     peerId,
@@ -275,11 +275,9 @@ export class SubductionSource implements DocumentSource {
   #handleDataFound(id: SedimentreeId, _commitId: CommitId, blob: Uint8Array) {
     const entry = this.#entries.get(id.toString())
     if (!entry) {
-      if (this.#ensureHandle) {
-        const documentId = toDocumentId(id)
-        this.#log(`ensureHandle for unknown sedimentree ${id.toString().slice(0, 8)} (docId=${documentId.slice(0, 8)})`)
-        this.#ensureHandle(documentId)
-      }
+      const documentId = toDocumentId(id)
+      this.#log(`ensureHandle for unknown sedimentree ${id.toString().slice(0, 8)} (docId=${documentId.slice(0, 8)})`)
+      this.#ensureHandle(documentId)
       return
     }
 
@@ -301,7 +299,6 @@ export class SubductionSource implements DocumentSource {
 
   #handleSedimentreeIdSaved(id: SedimentreeId) {
     if (this.#entries.has(id.toString())) return
-    if (!this.#ensureHandle) return
     const documentId = toDocumentId(id)
     this.#log(`sedimentree-id-saved: ensureHandle for ${id.toString().slice(0, 8)} (docId=${documentId.slice(0, 8)})`)
     this.#ensureHandle(documentId)

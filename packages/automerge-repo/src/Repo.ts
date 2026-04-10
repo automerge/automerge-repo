@@ -176,6 +176,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       websocketEndpoints: subductionWebsocketEndpoints ?? [],
       adapters: subductionAdapters ?? [],
       policy: subductionPolicy,
+      ensureHandle: id => this.#ensureHandle(id),
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
         ? (documentId, storageId, heads) => {
             this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
