@@ -24,6 +24,7 @@ import { generateAutomergeUrl } from "../../src/AutomergeUrl.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
 import { type PeerId } from "../../src/types.js"
 import { pause } from "../../src/helpers/pause.js"
+import type { Policy } from "@automerge/automerge-subduction"
 
 // ── Test helpers ──────────────────────────────────────────────────────
 
@@ -32,12 +33,18 @@ import { pause } from "../../src/helpers/pause.js"
  * Each restart creates a fresh Repo and WebSocketServer. The underlying
  * storage and signer can optionally be preserved across restarts.
  */
+interface TestServerOptions {
+  subductionPolicy?: Policy
+  periodicSyncInterval?: number
+}
+
 class TestServer {
   #port: number
   #wss: WebSocketServer | null = null
   #serverAdapter: WebSocketServerAdapter | null = null
   #storage: DummyStorageAdapter | null = null
   #repo: Repo | null = null
+  #opts: TestServerOptions
 
   get url() {
     return `ws://localhost:${this.#port}`
@@ -47,11 +54,12 @@ class TestServer {
     return this.#repo!
   }
 
-  private constructor(port: number) {
+  private constructor(port: number, opts: TestServerOptions = {}) {
     this.#port = port
+    this.#opts = opts
   }
 
-  static async start(): Promise<TestServer> {
+  static async start(opts?: TestServerOptions): Promise<TestServer> {
     // Grab an ephemeral port
     const tmp = new WebSocketServer({ port: 0 })
     await new Promise<void>(r => tmp.on("listening", r))
@@ -59,7 +67,7 @@ class TestServer {
     if (typeof addr === "string") throw new Error("unexpected address type")
     const port = addr.port
     await new Promise<void>((r, e) => tmp.close(err => (err ? e(err) : r())))
-    const server = new TestServer(port)
+    const server = new TestServer(port, opts)
     await server.restart()
     return server
   }
@@ -88,6 +96,8 @@ class TestServer {
         { adapter: this.#serverAdapter, serviceName, role: "accept" },
       ],
       sharePolicy: async () => true,
+      subductionPolicy: this.#opts.subductionPolicy,
+      periodicSyncInterval: this.#opts.periodicSyncInterval,
     })
   }
 
@@ -154,8 +164,8 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
     cleanups.length = 0
   })
 
-  async function startServer() {
-    const server = await TestServer.start()
+  async function startServer(opts?: TestServerOptions) {
+    const server = await TestServer.start(opts)
     cleanups.push(() => server.close())
     return server
   }
@@ -387,5 +397,93 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
     const aliceDocB = await alice.repo.find<{ from: string }>(docB.url)
     await aliceDocB.whenReady()
     expect(aliceDocB.doc()!.from).toBe("bob")
+  }, 10_000)
+
+  // ── ensureHandle for unknown documents ──────────────────────────────
+
+  it("server creates handle for doc pushed by client via ensureHandle", async () => {
+    const server = await startServer()
+
+    const alice = startClient("alice", server.url)
+    await pause(500)
+
+    // Alice pushes a doc. The server never calls find().
+    const aliceHandle = alice.repo.create<{ title: string }>()
+    aliceHandle.change(d => {
+      d.title = "server should see this"
+    })
+
+    // With ensureHandle, the storage bridge fires sedimentree-id-saved,
+    // which creates a Repo-level handle on the server.
+    await waitForCondition(() => {
+      return aliceHandle.documentId in server.repo.handles
+    }, 5000)
+
+    const serverHandle = server.repo.handles[aliceHandle.documentId]
+    expect(serverHandle).toBeDefined()
+
+    await waitForCondition(() => {
+      return serverHandle.doc()?.title === "server should see this"
+    }, 5000)
+
+    expect(serverHandle.doc()!.title).toBe("server should see this")
+  }, 10_000)
+
+  // ── Policy verdict change from deny to allow ──────────────────────────────────────
+
+  it("client gets doc after server policy changes from deny to allow", async () => {
+    // Mutable policy: deny fetch for everyone initially, then allow
+    let allowFetch = false
+    const policy: Policy = {
+      async authorizeConnect() {},
+      async authorizeFetch(_peerId, _sedimentreeId) {
+        if (!allowFetch) throw new Error("fetch denied")
+      },
+      async authorizePut() {},
+      async filterAuthorizedFetch(_peerId, ids) {
+        return allowFetch ? ids : []
+      },
+    }
+
+    const server = await startServer({
+      subductionPolicy: policy,
+      // Short periodic sync so the server pushes to Bob quickly
+      // after the policy changes.
+      periodicSyncInterval: 500,
+    })
+
+    const alice = startClient("alice", server.url)
+    const bob = startClient("bob", server.url)
+    await pause(500)
+
+    // Alice pushes a doc (put is allowed).
+    const aliceHandle = alice.repo.create<{ value: string }>()
+    aliceHandle.change(d => {
+      d.value = "access granted"
+    })
+
+    await waitForCondition(() => {
+      return aliceHandle.documentId in server.repo.handles
+    }, 5000)
+
+    // Bob requests the doc.
+    const progress = bob.repo.findWithProgress<{ value: string }>(
+      aliceHandle.url
+    )
+    await pause(1000)
+    expect(progress.peek().state).not.toBe("ready")
+
+    // Policy changes: Bob is now allowed.
+    allowFetch = true
+
+    // Tell the client the share config changed.
+    bob.repo.shareConfigChanged()
+
+    await waitForCondition(() => {
+      const s = progress.peek()
+      return s.state === "ready" && s.handle.doc()?.value === "access granted"
+    }, 5000)
+
+    expect(progress.peek().state).toBe("ready")
   }, 10_000)
 })
