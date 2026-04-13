@@ -21,4 +21,6 @@ export interface DocumentSource {
 
   /** Called when a document is removed from the repo. */
   detach(documentId: DocumentId): void
+
+  shareConfigChanged(): void
 }
