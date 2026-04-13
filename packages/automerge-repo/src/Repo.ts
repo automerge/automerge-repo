@@ -752,8 +752,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   shareConfigChanged() {
-    this.synchronizer.reevaluateDocumentShare()
-    this.#subductionSource?.retryFailedSyncs()
+    for (const source of this.#sources) {
+      source.shareConfigChanged()
+    }
   }
 }
 

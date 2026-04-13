@@ -344,8 +344,7 @@ export class SubductionSource implements DocumentSource {
 
   detach(documentId: DocumentId): void {}
 
-  /** Reset entries stuck in "all-failed" so they sync again. */
-  retryFailedSyncs(): void {
+  shareConfigChanged(): void {
     for (const entry of this.#entries.values()) {
       if (entry.lastSyncResult === "all-failed" && !entry.syncInFlight) {
         entry.lastSyncResult = null
