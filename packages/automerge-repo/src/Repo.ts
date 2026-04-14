@@ -409,9 +409,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // If not, create a new handle, cache it, and return it
     if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
-    const handle = new DocHandle<T>(documentId, {
-      refConstructor: (handle, path) => new RefImpl(handle, path),
-    })
+    const handle = new DocHandle<T>(
+      documentId,
+      (handle, path) => new RefImpl(handle, path)
+    )
     this.#handleCache[documentId] = handle
     return handle
   }

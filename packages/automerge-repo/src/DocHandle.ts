@@ -58,7 +58,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #refCache: Map<string, WeakRef<Ref<any>>> = new Map()
 
   /** Factory for creating Ref instances, injected by Repo to avoid circular imports */
-  #refConstructor?: <TDoc, TPath extends readonly PathInput[]>(
+  #refConstructor: <TDoc, TPath extends readonly PathInput[]>(
     handle: DocHandle<TDoc>,
     path: [...TPath]
   ) => Ref<any>
@@ -66,13 +66,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** @hidden */
   constructor(
     public documentId: DocumentId,
+    refConstructor: <TDoc, TPath extends readonly PathInput[]>(
+      handle: DocHandle<TDoc>,
+      path: [...TPath]
+    ) => Ref<any>,
     options: DocHandleOptions<T> = {}
   ) {
     super()
 
-    if ("refConstructor" in options && options.refConstructor) {
-      this.#refConstructor = options.refConstructor
-    }
+    this.#refConstructor = refConstructor
 
     if ("timeoutDelay" in options && options.timeoutDelay) {
       this.#timeoutDelay = options.timeoutDelay
@@ -455,10 +457,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     }
 
     // Create a new handle with the same documentId but fixed heads
-    const handle = new DocHandle<T>(this.documentId, {
+    const handle = new DocHandle<T>(this.documentId, this.#refConstructor, {
       heads,
       timeoutDelay: this.#timeoutDelay,
-      refConstructor: this.#refConstructor,
     })
     handle.update(() => A.clone(this.#doc))
     handle.doneLoading()
@@ -766,12 +767,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return existingRef as Ref<InferRefType<T, TPath>>
     }
 
-    if (!this.#refConstructor) {
-      throw new Error(
-        "Refs are not available on this DocHandle (no refConstructor option provided)"
-      )
-    }
-
     // Create new ref and cache it
     const newRef = this.#refConstructor<T, TPath>(this, segments as [...TPath])
     this.#refCache.set(cacheKey, new WeakRef(newRef))
@@ -806,13 +801,7 @@ export type SyncInfo = {
 }
 
 /** @hidden */
-export type DocHandleOptions<T> = {
-  /** @hidden Factory for creating Ref instances — injected by Repo to avoid circular imports */
-  refConstructor?: <TDoc, TPath extends readonly PathInput[]>(
-    handle: DocHandle<TDoc>,
-    path: [...TPath]
-  ) => Ref<any>
-} & (
+export type DocHandleOptions<T> =
   | // NEW DOCUMENTS
   {
       /** If we know this is a new document (because we're creating it) this should be set to true. */
@@ -830,7 +819,6 @@ export type DocHandleOptions<T> = {
       /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
       timeoutDelay?: number
     }
-)
 
 // EXTERNAL EVENTS
 
