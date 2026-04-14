@@ -1,6 +1,9 @@
 import { EventEmitter } from "eventemitter3"
 
-import { DocHandle, DocHandleEphemeralMessagePayload } from "../DocHandle.js"
+import type {
+  DocHandle,
+  DocHandleEphemeralMessagePayload,
+} from "../DocHandle.js"
 import {
   PresenceConfig,
   PresenceEvents,

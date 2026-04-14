@@ -17,7 +17,6 @@ import {
   AbortOptions,
   isAbortErrorLike,
 } from "./helpers/abortable.js"
-import { RefImpl } from "./refs/ref.js"
 import type { PathInput, InferRefType, Ref } from "./refs/types.js"
 
 /**
@@ -58,12 +57,22 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** Cache for ref instances, keyed by serialized path */
   #refCache: Map<string, WeakRef<Ref<any>>> = new Map()
 
+  /** Factory for creating Ref instances, injected by Repo to avoid circular imports */
+  #refConstructor?: <TDoc, TPath extends readonly PathInput[]>(
+    handle: DocHandle<TDoc>,
+    path: [...TPath]
+  ) => Ref<any>
+
   /** @hidden */
   constructor(
     public documentId: DocumentId,
     options: DocHandleOptions<T> = {}
   ) {
     super()
+
+    if ("refConstructor" in options && options.refConstructor) {
+      this.#refConstructor = options.refConstructor
+    }
 
     if ("timeoutDelay" in options && options.timeoutDelay) {
       this.#timeoutDelay = options.timeoutDelay
@@ -449,6 +458,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     const handle = new DocHandle<T>(this.documentId, {
       heads,
       timeoutDelay: this.#timeoutDelay,
+      refConstructor: this.#refConstructor,
     })
     handle.update(() => A.clone(this.#doc))
     handle.doneLoading()
@@ -756,8 +766,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return existingRef as Ref<InferRefType<T, TPath>>
     }
 
+    if (!this.#refConstructor) {
+      throw new Error(
+        "Refs are not available on this DocHandle (no refConstructor option provided)"
+      )
+    }
+
     // Create new ref and cache it
-    const newRef = new RefImpl<T, TPath>(this, segments as [...TPath])
+    const newRef = this.#refConstructor<T, TPath>(this, segments as [...TPath])
     this.#refCache.set(cacheKey, new WeakRef(newRef))
 
     return newRef as Ref<InferRefType<T, TPath>>
@@ -790,16 +806,21 @@ export type SyncInfo = {
 }
 
 /** @hidden */
-export type DocHandleOptions<T> =
-  // NEW DOCUMENTS
-  | {
+export type DocHandleOptions<T> = {
+  /** @hidden Factory for creating Ref instances — injected by Repo to avoid circular imports */
+  refConstructor?: <TDoc, TPath extends readonly PathInput[]>(
+    handle: DocHandle<TDoc>,
+    path: [...TPath]
+  ) => Ref<any>
+} & (
+  | // NEW DOCUMENTS
+  {
       /** If we know this is a new document (because we're creating it) this should be set to true. */
       isNew: true
 
       /** The initial value of the document. */
       initialValue?: T
-    }
-  // EXISTING DOCUMENTS
+    } // EXISTING DOCUMENTS
   | {
       isNew?: false
 
@@ -809,6 +830,7 @@ export type DocHandleOptions<T> =
       /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
       timeoutDelay?: number
     }
+)
 
 // EXTERNAL EVENTS
 

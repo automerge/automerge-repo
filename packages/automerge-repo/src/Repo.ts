@@ -43,6 +43,7 @@ import type {
 } from "./types.js"
 import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
+import { RefImpl } from "./refs/ref.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
@@ -408,7 +409,9 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // If not, create a new handle, cache it, and return it
     if (!documentId) throw new Error(`Invalid documentId ${documentId}`)
-    const handle = new DocHandle<T>(documentId)
+    const handle = new DocHandle<T>(documentId, {
+      refConstructor: (handle, path) => new RefImpl(handle, path),
+    })
     this.#handleCache[documentId] = handle
     return handle
   }
