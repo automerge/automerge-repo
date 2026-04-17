@@ -99,20 +99,6 @@ export interface SubductionSourceOptions {
   onHealExhausted?: (documentId: DocumentId) => void
 
   policy?: Policy
-
-  /**
-   * Interval in ms for per-document periodic sync. Each open document is
-   * synced individually (skipping those already in heal-backoff).
-   * Set to 0 to disable. Default: 30_000 (30s).
-   */
-  periodicSyncInterval?: number
-
-  /**
-   * Interval in ms for a full batch sync across all sedimentrees.
-   * On success, all heal state is reset.
-   * Set to 0 to disable. Default: 300_000 (5 min).
-   */
-  batchSyncInterval?: number
 }
 
 export class SubductionSource implements DocumentSource {
@@ -134,8 +120,6 @@ export class SubductionSource implements DocumentSource {
     onEphemeral,
     onHealExhausted,
     policy,
-    periodicSyncInterval = 30_000,
-    batchSyncInterval = 300_000,
   }: SubductionSourceOptions) {
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
@@ -234,8 +218,6 @@ export class SubductionSource implements DocumentSource {
     this.#scheduler = new SyncScheduler({
       subduction: this.#subduction,
       log: this.#log,
-      getActiveSedimentreeIds: () =>
-        Array.from(this.#entries.values()).map(e => e.sedimentreeId),
       onSyncDataReceived: async (sedimentreeId, subduction) => {
         const entry = this.#entries.get(sedimentreeId.toString())
         if (entry) {
@@ -243,8 +225,6 @@ export class SubductionSource implements DocumentSource {
         }
       },
       onHealExhausted,
-      periodicSyncInterval,
-      batchSyncInterval,
     })
   }
 
@@ -458,7 +438,7 @@ export class SubductionSource implements DocumentSource {
 
       // If new data was received, immediately load it into the handle.
       // This makes sync reactive — the handle updates as soon as data
-      // arrives, without waiting for periodic timers or state transitions.
+      // arrives, without waiting for further state transitions.
       if (dataReceived) {
         await this.#loadBlobsIntoHandle(entry, subduction)
       }
@@ -503,7 +483,7 @@ export class SubductionSource implements DocumentSource {
    * the query so it can transition to "ready".
    *
    * This is called reactively after any `syncWithAllPeers` that received
-   * data, making handle updates immediate rather than timer-driven.
+   * data, making handle updates immediate.
    */
   async #loadBlobsIntoHandle(
     entry: SedimentreeEntry,
@@ -561,7 +541,8 @@ export class SubductionSource implements DocumentSource {
         e
       )
       // Transition to running anyway so live pushes aren't permanently blocked.
-      // The periodic sync will retry loading data.
+      // A subsequent heal retry or connection-state change will retry loading
+      // data.
       entry.syncState = "running"
       entry.lastSyncResult = null
     } finally {
@@ -678,7 +659,7 @@ export class SubductionSource implements DocumentSource {
       mgr.shutdown()
     }
 
-    // 2. Stop scheduled sync timers (no new sync rounds will be triggered)
+    // 2. Stop any pending heal-retry timers and prevent new schedules
     this.#scheduler.shutdown()
 
     // 3. Flush all pending throttled saves so they start executing
