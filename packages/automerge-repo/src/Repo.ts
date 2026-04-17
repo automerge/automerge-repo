@@ -107,8 +107,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionPolicy,
     subductionWebsocketEndpoints,
     subductionAdapters,
-    periodicSyncInterval,
-    batchSyncInterval,
   }: RepoConfig = {}) {
     super()
     this.#peerId = peerId
@@ -196,8 +194,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       onHealExhausted: documentId => {
         this.emit("heal-exhausted", { documentId })
       },
-      periodicSyncInterval,
-      batchSyncInterval,
     })
     this.#subductionSource = subductionSource
     this.#sources.push(subductionSource)
@@ -833,20 +829,6 @@ export interface RepoConfig {
      *  handshake for peers on this adapter. Defaults to "connect". */
     role?: "connect" | "accept"
   }[]
-
-  /**
-   * Interval in ms for per-document periodic sync via Subduction. Each open
-   * document is synced individually (skipping those in heal-backoff).
-   * Set to 0 to disable. Default: 10_000 (10s).
-   */
-  periodicSyncInterval?: number
-
-  /**
-   * Interval in ms for a full batch sync across all open documents via
-   * Subduction. On success, all heal state is reset.
-   * Set to 0 to disable. Default: 300_000 (5 min).
-   */
-  batchSyncInterval?: number
 }
 
 /** A function that determines whether we should share a document with a peer
