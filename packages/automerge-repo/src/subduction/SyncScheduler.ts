@@ -16,14 +16,8 @@ export interface SyncSchedulerOptions {
   log: debug.Debugger
 
   /**
-   * Returns the SedimentreeIds of all currently-attached documents.
-   * Called on each periodic/batch tick to discover the working set.
-   */
-  getActiveSedimentreeIds: () => SedimentreeId[]
-
-  /**
-   * Called when a periodic or heal sync receives new data from peers.
-   * The source should load the blobs into the document handle.
+   * Called when a heal sync receives new data from peers. The source
+   * should load the blobs into the document handle.
    */
   onSyncDataReceived: (
     sedimentreeId: SedimentreeId,
@@ -31,42 +25,28 @@ export interface SyncSchedulerOptions {
   ) => Promise<void>
 
   onHealExhausted?: OnHealExhausted
-
-  /**
-   * Interval in ms for per-document periodic sync. Each open document is
-   * synced individually (skipping those already in heal-backoff).
-   * Set to 0 to disable. Default: 30_000 (30s).
-   */
-  periodicSyncInterval: number
-
-  /**
-   * Interval in ms for a full batch sync across all sedimentrees.
-   * On success, all heal state is reset.
-   * Set to 0 to disable. Default: 300_000 (5 min).
-   */
-  batchSyncInterval: number
 }
 
 /**
- * Manages background periodic sync timers and self-healing retry logic.
+ * Manages self-healing retry logic for failed syncs.
  *
- * Two background timers run independently:
+ * When a caller observes a failed `syncWithAllPeers` for a sedimentree,
+ * it invokes {@link scheduleHealSync} to schedule an exponential-backoff
+ * retry (2 s → 60 s cap, up to {@link HEAL_MAX_ATTEMPTS}). Each retry
+ * calls `syncWithAllPeers`; if it recovers new commits/fragments, the
+ * caller's {@link SyncSchedulerOptions.onSyncDataReceived} hook is
+ * invoked so the handle can be updated. Successful retries clear the
+ * heal state via {@link resetHealState}. After exhausting retries the
+ * application is notified via {@link OnHealExhausted}.
  *
- *   **periodicSync** — syncs each open document individually, skipping
- *       those already in heal-backoff.
- *
- *   **batchSync** — syncs every open document in one sweep. On full
- *       success, resets all heal state.
- *
- * When a sync fails for a sedimentree, exponential-backoff retries are
- * scheduled (2 s → 60 s cap, up to {@link HEAL_MAX_ATTEMPTS}). After
- * exhausting retries the application is notified via
- * {@link OnHealExhausted}.
+ * This is entirely event-driven: no background polling runs. All sync
+ * attempts are triggered by real events (initial attach, reconnect,
+ * local change, share-config change) in {@link SubductionSource} or by
+ * heal retries scheduled here after a real failure.
  */
 export class SyncScheduler {
   #subduction: Promise<Subduction>
   #log: debug.Debugger
-  #getActiveSedimentreeIds: () => SedimentreeId[]
   #onSyncDataReceived: (
     sedimentreeId: SedimentreeId,
     subduction: Subduction
@@ -79,29 +59,11 @@ export class SyncScheduler {
   #healAttempts = new Map<string, number>()
   #isShutdown = false
 
-  // ── Periodic sync state ───────────────────────────────────────────
-  #periodicSyncTimer: ReturnType<typeof setInterval> | null = null
-  #batchSyncTimer: ReturnType<typeof setInterval> | null = null
-  #periodicSyncInProgress = false
-  #batchSyncInProgress = false
-
   constructor(options: SyncSchedulerOptions) {
     this.#subduction = options.subduction
     this.#log = options.log
-    this.#getActiveSedimentreeIds = options.getActiveSedimentreeIds
     this.#onSyncDataReceived = options.onSyncDataReceived
     this.#onHealExhausted = options.onHealExhausted
-
-    if (options.periodicSyncInterval > 0) {
-      this.#periodicSyncTimer = setInterval(() => {
-        void this.#runPeriodicSync()
-      }, options.periodicSyncInterval)
-    }
-    if (options.batchSyncInterval > 0) {
-      this.#batchSyncTimer = setInterval(() => {
-        void this.#runBatchSync()
-      }, options.batchSyncInterval)
-    }
   }
 
   // ── Self-healing sync ────────────────────────────────────────────────
@@ -163,6 +125,24 @@ export class SyncScheduler {
         r => !r.success || (r.transportErrors?.length ?? 0) > 0
       )
 
+      // If new data was received during the heal, load it into the handle
+      // immediately — otherwise the recovered commits/fragments would sit
+      // in subduction storage until some other event surfaced them.
+      const dataReceived = results.some(r => {
+        const s = r.stats
+        return s && (s.commitsReceived > 0 || s.fragmentsReceived > 0)
+      })
+      if (dataReceived) {
+        try {
+          await this.#onSyncDataReceived(sedimentreeId, subduction)
+        } catch (e) {
+          this.#log(
+            `onSyncDataReceived threw during heal for ${key.slice(0, 8)}: %O`,
+            e
+          )
+        }
+      }
+
       if (anyFailed || results.length === 0) {
         const currentDelay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
         const nextDelay = Math.min(currentDelay * 2, HEAL_MAX_DELAY_MS)
@@ -194,141 +174,10 @@ export class SyncScheduler {
     return this.#healTimers.has(sedimentreeId.toString())
   }
 
-  // ── Periodic background sync ────────────────────────────────────────
-
-  async #runPeriodicSync(): Promise<void> {
-    if (this.#isShutdown || this.#periodicSyncInProgress) return
-    this.#periodicSyncInProgress = true
-
-    try {
-      const subduction = await this.#subduction
-      const sedimentreeIds = this.#getActiveSedimentreeIds()
-
-      const healingCount = sedimentreeIds.filter(id =>
-        this.#healTimers.has(id.toString())
-      ).length
-      this.#log(
-        `periodic sync: ${sedimentreeIds.length} entries, ` +
-          `${healingCount} healing (skipped)`
-      )
-
-      const tasks: Array<Promise<void>> = []
-      for (const sedimentreeId of sedimentreeIds) {
-        const key = sedimentreeId.toString()
-        // Skip sedimentrees already in heal-backoff
-        if (this.#healTimers.has(key)) continue
-
-        tasks.push(
-          (async () => {
-            try {
-              const peerResultMap = await subduction.syncWithAllPeers(
-                sedimentreeId,
-                true
-              )
-
-              const results = peerResultMap.entries()
-              if (results.length === 0) return
-
-              // If data was received, update the handle immediately
-              const dataReceived = results.some(r => {
-                const s = r.stats
-                return s && (s.commitsReceived > 0 || s.fragmentsReceived > 0)
-              })
-              if (dataReceived) {
-                await this.#onSyncDataReceived(sedimentreeId, subduction)
-              }
-
-              const anyFailed = results.some(
-                r => !r.success || (r.transportErrors?.length ?? 0) > 0
-              )
-
-              if (anyFailed) {
-                this.scheduleHealSync(sedimentreeId)
-              } else {
-                this.resetHealState(key)
-              }
-            } catch (e) {
-              console.warn(
-                `[subduction] periodic sync failed for ${key.slice(0, 8)}:`,
-                e
-              )
-            }
-          })()
-        )
-      }
-
-      await Promise.allSettled(tasks)
-    } finally {
-      this.#periodicSyncInProgress = false
-    }
-  }
-
-  async #runBatchSync(): Promise<void> {
-    if (this.#isShutdown || this.#batchSyncInProgress) return
-    this.#batchSyncInProgress = true
-    this.#log("starting batch sync (all open handles)")
-
-    try {
-      const subduction = await this.#subduction
-      const sedimentreeIds = this.#getActiveSedimentreeIds()
-      let anyFailed = false
-
-      const tasks: Array<Promise<void>> = []
-      for (const sedimentreeId of sedimentreeIds) {
-        const key = sedimentreeId.toString()
-        tasks.push(
-          (async () => {
-            try {
-              const peerResultMap = await subduction.syncWithAllPeers(
-                sedimentreeId,
-                true
-              )
-
-              const results = peerResultMap.entries()
-              if (results.length === 0) return
-
-              const entryFailed = results.some(
-                r => !r.success || (r.transportErrors?.length ?? 0) > 0
-              )
-              if (entryFailed) anyFailed = true
-            } catch (e) {
-              anyFailed = true
-              this.#log(`batch sync failed for ${key.slice(0, 8)}: %O`, e)
-            }
-          })()
-        )
-      }
-
-      await Promise.allSettled(tasks)
-
-      if (!anyFailed) {
-        this.#log("batch sync succeeded — resetting all heal state")
-        for (const timer of this.#healTimers.values()) {
-          clearTimeout(timer)
-        }
-        this.#healTimers.clear()
-        this.#healBackoff.clear()
-        this.#healAttempts.clear()
-      } else {
-        this.#log("batch sync completed with errors")
-      }
-    } finally {
-      this.#batchSyncInProgress = false
-    }
-  }
-
   // ── Shutdown ────────────────────────────────────────────────────────
 
   shutdown(): void {
     this.#isShutdown = true
-    if (this.#periodicSyncTimer !== null) {
-      clearInterval(this.#periodicSyncTimer)
-      this.#periodicSyncTimer = null
-    }
-    if (this.#batchSyncTimer !== null) {
-      clearInterval(this.#batchSyncTimer)
-      this.#batchSyncTimer = null
-    }
     for (const timer of this.#healTimers.values()) {
       clearTimeout(timer)
     }

@@ -35,7 +35,6 @@ import type { Policy } from "@automerge/automerge-subduction"
  */
 interface TestServerOptions {
   subductionPolicy?: Policy
-  periodicSyncInterval?: number
 }
 
 class TestServer {
@@ -97,7 +96,6 @@ class TestServer {
       ],
       sharePolicy: async () => true,
       subductionPolicy: this.#opts.subductionPolicy,
-      periodicSyncInterval: this.#opts.periodicSyncInterval,
     })
   }
 
@@ -417,9 +415,6 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
 
     const server = await startServer({
       subductionPolicy: policy,
-      // Short periodic sync so the server pushes to Bob quickly
-      // after the policy changes.
-      periodicSyncInterval: 500,
     })
 
     const alice = startClient("alice", server.url)
