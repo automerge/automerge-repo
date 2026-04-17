@@ -152,7 +152,7 @@ export class SubductionSource implements DocumentSource {
         }
       : undefined
 
-    if (websocketEndpoints.length > 0) {
+    if (websocketEndpoints.length > 0 || adapters.length > 0) {
       // Full hydration: load persisted sedimentrees from storage so
       // fingerprint-based sync can resume where it left off.
       this.#log("starting hydrate...")
