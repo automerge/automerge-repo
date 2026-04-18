@@ -173,15 +173,20 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
       if (this.adapter.saveBatch) {
+        // Even when the adapter implements saveBatch, pass the blob
+        // entry first so any adapter that serialises the batch (e.g.
+        // NodeFS: atomic per-entry but not cross-entry) preserves the
+        // "blob before commit" invariant on crash.
         await this.adapter.saveBatch([
-          [commitKey, commitCopy],
           [blobKey, blobCopy],
+          [commitKey, commitCopy],
         ])
       } else {
-        await Promise.all([
-          this.adapter.save(commitKey, commitCopy),
-          this.adapter.save(blobKey, blobCopy),
-        ])
+        // Write blob first, then commit metadata. Any crash between the
+        // two yields an orphan blob (harmless, skipped by the reader)
+        // rather than a commit pointing at a missing blob.
+        await this.adapter.save(blobKey, blobCopy)
+        await this.adapter.save(commitKey, commitCopy)
       }
 
       // Emit event after save
@@ -301,15 +306,18 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
       if (this.adapter.saveBatch) {
+        // Blob first so serialising adapters preserve "blob before
+        // fragment" under crash.
         await this.adapter.saveBatch([
-          [fragmentKey, fragmentCopy],
           [blobKey, blobCopy],
+          [fragmentKey, fragmentCopy],
         ])
       } else {
-        await Promise.all([
-          this.adapter.save(fragmentKey, fragmentCopy),
-          this.adapter.save(blobKey, blobCopy),
-        ])
+        // Write blob first, then fragment metadata. Any crash between
+        // the two yields an orphan blob (harmless) rather than a
+        // fragment pointing at missing data.
+        await this.adapter.save(blobKey, blobCopy)
+        await this.adapter.save(fragmentKey, fragmentCopy)
       }
 
       // Emit event after save
@@ -433,12 +441,29 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     }>
   ): Promise<number> {
     const sid = sedimentreeId.toString()
-    const entries: Array<[string[], Uint8Array]> = []
 
-    // Sedimentree ID marker
-    entries.push([[PREFIX, IDS_PREFIX, sid], ID_MARKER])
+    // Write-ahead ordering: collect entries in three groups that must
+    // be written in order so any crash-prefix state is consistent.
+    //
+    //   1. All blobs (commit blobs and fragment blobs). Orphan blobs
+    //      without their metadata are skipped silently by loadAll* and
+    //      are harmless on-disk garbage.
+    //   2. All metadata (signed commits and signed fragments). By the
+    //      time any of this is visible, every blob it references is
+    //      already durable.
+    //   3. The sedimentree ID marker. This makes the sedimentree
+    //      enumerable via loadAllSedimentreeIds only once its data is
+    //      durable; a crash before this point leaves invisible-but-
+    //      otherwise-consistent state that the next run will ignore.
+    //
+    // For adapters that implement saveBatch, we still group the entries
+    // in this order so a serialising adapter (e.g. NodeFS, whose
+    // saveBatch is atomic per-entry but not cross-entry) preserves the
+    // invariant on crash. For adapters whose saveBatch is truly
+    // transactional (e.g. IndexedDB), order is inert.
+    const blobEntries: Array<[string[], Uint8Array]> = []
+    const metaEntries: Array<[string[], Uint8Array]> = []
 
-    // Collect all commit key-value pairs
     for (const { commitId, signedCommit, blob } of commits) {
       const idHex = commitId.toHexString()
       const commitBytes = signedCommit.encode()
@@ -446,31 +471,48 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const commitCopy = new Uint8Array(commitBytes)
       const blobCopy = new Uint8Array(blob)
 
-      entries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
-      entries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
+      blobEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
+      metaEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
     }
 
-    // Collect all fragment key-value pairs
     for (const { fragmentHead, signedFragment, blob } of fragments) {
       const idHex = fragmentHead.toHexString()
       const fragBytes = signedFragment.encode()
       const fragCopy = new Uint8Array(fragBytes)
       const blobCopy = new Uint8Array(blob)
 
-      entries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
-      entries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
+      blobEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
+      metaEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
     }
 
-    // Single IDB transaction for all entries
+    const markerEntry: [string[], Uint8Array] = [
+      [PREFIX, IDS_PREFIX, sid],
+      ID_MARKER,
+    ]
+
     this.pendingSaves++
     try {
       if (this.adapter.saveBatch) {
-        await this.adapter.saveBatch(entries)
+        // Pass entries in write-ahead order. An adapter that serialises
+        // entries within the batch (NodeFS) preserves the invariant
+        // under crash; an adapter with a true transactional saveBatch
+        // (IDB) ignores the ordering and writes atomically.
+        await this.adapter.saveBatch([
+          ...blobEntries,
+          ...metaEntries,
+          markerEntry,
+        ])
       } else {
-        // Fallback: parallel individual saves (still better than sequential)
+        // Fallback: three sequential phases, parallel within each phase.
+        // A crash between phases leaves a consistent prefix (orphan
+        // blobs, or blobs+metadata without marker).
         await Promise.all(
-          entries.map(([key, data]) => this.adapter.save(key, data))
+          blobEntries.map(([key, data]) => this.adapter.save(key, data))
         )
+        await Promise.all(
+          metaEntries.map(([key, data]) => this.adapter.save(key, data))
+        )
+        await this.adapter.save(markerEntry[0], markerEntry[1])
       }
 
       // Emit events after successful save
