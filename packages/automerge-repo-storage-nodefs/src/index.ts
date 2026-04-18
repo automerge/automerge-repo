@@ -22,6 +22,22 @@
  * making them invisible to older adapters and to {@link loadRange} /
  * {@link load}, which are always prefix-scoped and are unlikely to walk
  * `.tmp/` since real-world keys won't shard into a `.t` prefix.
+ *
+ * {@link NodeFSStorageAdapter.saveBatch | saveBatch} uses the same
+ * pattern per entry, plus a two-phase stage/commit structure across
+ * the batch:
+ *
+ *   1. Stage every entry's value to a tmp file (write + fsync). No
+ *      target is yet observable.
+ *   2. Commit by renaming every tmp file over its target.
+ *   3. fsync every distinct parent directory once all renames have
+ *      completed, so the renames themselves are durable across a crash.
+ *
+ * If any stage operation fails, no commits happen and the staged tmp
+ * files are cleaned up. A crash during the commit phase may leave an
+ * arbitrary subset of entries observable, but each individual
+ * committed entry is atomic — readers never see partial bytes for any
+ * single key.
  */
 
 import {
@@ -89,11 +105,6 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       const fileContent = await fs.promises.readFile(filePath)
       return new Uint8Array(fileContent)
     } catch (error: any) {
-      // Treat both "file not found" and "path component is not a
-      // directory" as absent. ENOTDIR can surface when a key's
-      // logical path passes through a location where some other
-      // entry occupies the expected directory slot — from load()'s
-      // perspective that still means "no file at this key".
       if (error.code === "ENOENT" || error.code === "ENOTDIR") {
         return undefined
       }
@@ -129,6 +140,164 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     }
 
     await fsyncDir(dir)
+  }
+
+  async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
+    if (entries.length === 0) return
+
+    const prevByKey: Array<[string, Uint8Array | undefined, Uint8Array]> = []
+    for (const [keyArray, binary] of entries) {
+      const key = getKey(keyArray)
+      prevByKey.push([key, this.cache[key], binary])
+      this.cache[key] = binary
+    }
+
+    const rollbackAllCache = () => {
+      for (const [key, prev, ours] of prevByKey) {
+        if (this.cache[key] === ours) {
+          rollbackCache(this.cache, key, prev)
+        }
+      }
+    }
+
+    const rollbackCacheForIndices = (indices: number[]) => {
+      for (const i of indices) {
+        const [key, prev, ours] = prevByKey[i]
+        if (this.cache[key] === ours) {
+          rollbackCache(this.cache, key, prev)
+        }
+      }
+    }
+
+    // Ensure the tmp directory exists once for the whole batch.
+    try {
+      await this.ensureTmpDirectory()
+    } catch (err) {
+      rollbackAllCache()
+      throw err
+    }
+
+    // Ensure every target's parent directory exists (deduped by
+    // directory path). mkdir is `recursive: true`, idempotent.
+    const targetDirs = new Set<string>()
+    for (const [keyArray] of entries) {
+      targetDirs.add(path.dirname(this.getFilePath(keyArray)))
+    }
+    try {
+      await Promise.all(
+        Array.from(targetDirs).map(d =>
+          fs.promises.mkdir(d, { recursive: true })
+        )
+      )
+    } catch (err) {
+      rollbackAllCache()
+      throw err
+    }
+
+    // ── Phase 1: Stage ─────────────────────────────────────────────
+    const tmpPaths: string[] = entries.map(() => this.makeTmpPath())
+    const targetPaths: string[] = entries.map(([keyArray]) =>
+      this.getFilePath(keyArray)
+    )
+
+    const stageResults = await Promise.all(
+      entries.map(([, binary], i) =>
+        stageToTmp(tmpPaths[i], binary).then(
+          () => ({ ok: true as const }),
+          err => ({ ok: false as const, err })
+        )
+      )
+    )
+
+    const stageFailures: number[] = []
+    let firstStageErr: unknown
+    for (let i = 0; i < stageResults.length; i++) {
+      const r = stageResults[i]
+      if (!r.ok) {
+        stageFailures.push(i)
+        if (firstStageErr === undefined) firstStageErr = r.err
+      }
+    }
+
+    if (stageFailures.length > 0) {
+      await Promise.all(
+        tmpPaths.map(async tmpPath => {
+          try {
+            await fs.promises.unlink(tmpPath)
+          } catch (cleanupErr: any) {
+            if (cleanupErr?.code === "ENOENT") return
+            console.debug(
+              `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPath}:`,
+              cleanupErr
+            )
+          }
+        })
+      )
+      rollbackAllCache()
+      throw firstStageErr
+    }
+
+    // ── Phase 2: Commit ────────────────────────────────────────────
+    const commitResults = await Promise.all(
+      tmpPaths.map((tmpPath, i) =>
+        fs.promises.rename(tmpPath, targetPaths[i]).then(
+          () => ({ ok: true as const }),
+          err => ({ ok: false as const, err })
+        )
+      )
+    )
+
+    const commitFailures: number[] = []
+    let firstCommitErr: unknown
+    for (let i = 0; i < commitResults.length; i++) {
+      const r = commitResults[i]
+      if (!r.ok) {
+        commitFailures.push(i)
+        if (firstCommitErr === undefined) firstCommitErr = r.err
+      }
+    }
+
+    if (commitFailures.length > 0) {
+      await Promise.all(
+        commitFailures.map(async i => {
+          try {
+            await fs.promises.unlink(tmpPaths[i])
+          } catch (cleanupErr) {
+            console.debug(
+              `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPaths[i]}:`,
+              cleanupErr
+            )
+          }
+        })
+      )
+      rollbackCacheForIndices(commitFailures)
+
+      // fsync the parent directories of any entries whose rename
+      // *did* succeed, so their renames are durable across a crash
+      // even though we're about to throw. Otherwise a partial-commit
+      // saveBatch leaves successful renames observable but not
+      // durable, which is strictly weaker than a single save().
+      const successDirs = new Set<string>()
+      commitResults.forEach((r, i) => {
+        if (r.ok) successDirs.add(path.dirname(targetPaths[i]))
+      })
+
+      const fsyncResults = await Promise.allSettled(
+        Array.from(successDirs).map(d => fsyncDir(d))
+      )
+      fsyncResults.forEach(r => {
+        if (r.status === "rejected") {
+          console.debug(
+            `[automerge-repo-storage-nodefs] fsyncDir failed during partial-commit recovery:`,
+            r.reason
+          )
+        }
+      })
+
+      throw firstCommitErr
+    }
+
+    await Promise.all(Array.from(targetDirs).map(d => fsyncDir(d)))
   }
 
   async remove(keyArray: string[]): Promise<void> {
@@ -328,6 +497,71 @@ const atomicWrite = async (
 }
 
 /**
+ * Write `bytes` to `tmpPath` durably, without touching any target
+ * file. Used by {@link NodeFSStorageAdapter.saveBatch} to stage each
+ * entry before the commit (rename) phase.
+ *
+ *   1. open + writeFile + fsync + close
+ *   2. if open/write/sync threw, best-effort unlink the tmp file and
+ *      re-throw
+ *   3. if close threw after a successful write+fsync, surface that
+ *      error (on some filesystems close is where delayed write errors
+ *      appear; see atomicWrite for the same pattern)
+ */
+const stageToTmp = async (
+  tmpPath: string,
+  bytes: Uint8Array
+): Promise<void> => {
+  const fh = await fs.promises.open(tmpPath, "w")
+  let wroteTmp = false
+  let closeErr: unknown
+  try {
+    await fh.writeFile(bytes)
+    await fh.sync()
+    wroteTmp = true
+  } finally {
+    try {
+      await fh.close()
+    } catch (e) {
+      closeErr = e
+    }
+    if (!wroteTmp) {
+      if (closeErr !== undefined) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] fh.close() failed for ${tmpPath}:`,
+          closeErr
+        )
+      }
+      try {
+        await fs.promises.unlink(tmpPath)
+      } catch (cleanupErr) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+          cleanupErr
+        )
+      }
+    }
+  }
+
+  if (wroteTmp && closeErr !== undefined) {
+    // Write + sync succeeded but close threw. Don't trust the tmp
+    // file's durability; clean it up and surface the error.
+    //
+    // Note: guarded by `wroteTmp` so we don't double-unlink when the
+    // !wroteTmp branch above already cleaned up and logged.
+    try {
+      await fs.promises.unlink(tmpPath)
+    } catch (cleanupErr) {
+      console.debug(
+        `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+        cleanupErr
+      )
+    }
+    throw closeErr
+  }
+}
+
+/**
  * `fsync` a directory so that recent `rename(2)` calls into it are durable.
  */
 const fsyncDir = async (dir: string): Promise<void> => {
@@ -339,9 +573,6 @@ const fsyncDir = async (dir: string): Promise<void> => {
   } catch (err: any) {
     if (err.code !== "EISDIR" && err.code !== "EINVAL") throw err
   } finally {
-    // Swallow close() failures so they can't turn a tolerated fsync
-    // outcome into a hard failure. Symmetric with the close handling
-    // in atomicWrite.
     if (fh) {
       try {
         await fh.close()

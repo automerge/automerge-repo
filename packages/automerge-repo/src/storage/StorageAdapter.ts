@@ -33,4 +33,21 @@ export abstract class StorageAdapter implements StorageAdapterInterface {
 
   /** Remove all values with keys that start with `keyPrefix` */
   abstract removeRange(keyPrefix: StorageKey): Promise<void>
+
+  /**
+   * Save multiple key-value pairs as a staged batch.
+   *
+   * Default implementation falls back to sequential {@link save}
+   * calls. Adapters that support a transactional or otherwise more
+   * efficient batch path should override this.
+   *
+   * See {@link StorageAdapterInterface.saveBatch} for the full
+   * semantic contract (two-phase stage/commit, per-entry atomicity,
+   * no intra-batch ordering guarantee).
+   */
+  async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
+    for (const [key, data] of entries) {
+      await this.save(key, data)
+    }
+  }
 }
