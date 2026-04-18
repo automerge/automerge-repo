@@ -216,11 +216,21 @@ const atomicWrite = async (
   } finally {
     await fh.close()
     if (!wroteTmp) {
-      // Best-effort cleanup if writeFile/sync threw.
+      // Best-effort cleanup if writeFile/sync threw. The caller is
+      // about to see the outer writeFile/sync error; the cleanup
+      // failure almost certainly shares the same underlying cause
+      // (e.g. EIO on the same filesystem), so we don't surface it
+      // through the thrown error. A stray tmp file is filtered out by
+      // loadRange and is otherwise harmless. We log via console.debug
+      // so persistent tmp-file buildup is diagnosable in the unusual
+      // case the cleanup itself fails.
       try {
         await fs.promises.unlink(tmpPath)
-      } catch {
-        /* ignore */
+      } catch (cleanupErr) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+          cleanupErr
+        )
       }
     }
   }
@@ -228,11 +238,15 @@ const atomicWrite = async (
   try {
     await fs.promises.rename(tmpPath, targetPath)
   } catch (err) {
-    // If the rename failed, the tmp file is still lying around.
+    // If the rename failed, the tmp file is still lying around. Same
+    // best-effort cleanup semantics as above.
     try {
       await fs.promises.unlink(tmpPath)
-    } catch {
-      /* ignore */
+    } catch (cleanupErr) {
+      console.debug(
+        `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+        cleanupErr
+      )
     }
     throw err
   }
