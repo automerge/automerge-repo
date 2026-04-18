@@ -7,7 +7,7 @@
  * Writes use the standard POSIX "write-to-temporary + fsync + rename"
  * pattern so that a reader or a crash never observes a half-written file:
  *
- *   1. The payload is written to `<target>.tmp.<pid>.<uuid>`.
+ *   1. The payload is written to `<baseDirectory>/.tmp/<pid>.<uuid>`.
  *   2. The temporary file is `fsync`ed so its bytes reach disk.
  *   3. `rename(2)` replaces the target atomically (POSIX) or via
  *      `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` (Windows NTFS).
@@ -15,6 +15,13 @@
  *      is durable across a crash. Windows does not expose directory
  *      fsync from user-space Node; directory metadata durability falls
  *      back to the operating system's own guarantees.
+ *
+ * Temporary files live in a dedicated `<baseDirectory>/.tmp/` directory
+ * rather than as siblings of their target files. This keeps them on the
+ * same filesystem as their targets (required for atomic rename) while
+ * making them invisible to older adapters and to {@link loadRange} /
+ * {@link load}, which are always prefix-scoped and are unlikely to walk
+ * `.tmp/` since real-world keys won't shard into a `.t` prefix.
  *
  * {@link NodeFSStorageAdapter.saveBatch | saveBatch} applies the same
  * pattern per entry — every individual write is atomic — but is not an
@@ -39,6 +46,8 @@ const IS_POSIX = os.platform() !== "win32"
 
 export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
+  private tmpDirectory: string
+  private tmpDirectoryReady: Promise<void> | undefined
   private cache: { [key: string]: Uint8Array } = {}
 
   /**
@@ -46,6 +55,40 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
    */
   constructor(baseDirectory = "automerge-repo-data") {
     this.baseDirectory = baseDirectory
+    // Same-filesystem tmp directory so rename(2) stays atomic. Hidden by
+    // a leading dot so `ls` / casual listings don't show it. Real storage
+    // keys shard by hex/base58 first two characters, so they never
+    // collide with the literal `.t` shard — older adapters walking a
+    // shard subtree will never descend into here.
+    this.tmpDirectory = path.join(baseDirectory, TMP_DIR_NAME)
+  }
+
+  /**
+   * Create `tmpDirectory` once (idempotent). Called lazily on the first
+   * write so a read-only consumer of this adapter never creates the
+   * `.tmp/` directory as a side effect of construction.
+   */
+  private ensureTmpDirectory(): Promise<void> {
+    if (!this.tmpDirectoryReady) {
+      this.tmpDirectoryReady = fs.promises
+        .mkdir(this.tmpDirectory, { recursive: true })
+        .then(() => undefined)
+        .catch(err => {
+          // Reset so subsequent writes retry the mkdir. Otherwise a
+          // transient failure would be remembered forever.
+          this.tmpDirectoryReady = undefined
+          throw err
+        })
+    }
+    return this.tmpDirectoryReady
+  }
+
+  /** Build a fresh unique path inside {@link tmpDirectory}. */
+  private makeTmpPath(): string {
+    return path.join(
+      this.tmpDirectory,
+      `${process.pid}.${crypto.randomUUID().replace(/-/g, "")}`
+    )
   }
 
   async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
@@ -92,8 +135,9 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     const dir = path.dirname(filePath)
 
     try {
+      await this.ensureTmpDirectory()
       await fs.promises.mkdir(dir, { recursive: true })
-      await atomicWrite(filePath, binary)
+      await atomicWrite(filePath, this.makeTmpPath(), binary)
       await fsyncDir(dir)
     } catch (err) {
       rollbackCache(this.cache, key, prev)
@@ -115,6 +159,17 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       this.cache[key] = binary
     }
 
+    // Ensure the tmp directory exists once for the whole batch.
+    try {
+      await this.ensureTmpDirectory()
+    } catch (err) {
+      // tmp dir mkdir failed before any write; roll every entry back.
+      for (const [key, prev] of prevByKey) {
+        rollbackCache(this.cache, key, prev)
+      }
+      throw err
+    }
+
     // Per-entry mkdir + atomicWrite in parallel, collecting individual
     // results so a partial failure can roll back only the affected
     // entries. mkdir is `recursive: true`, which is idempotent and
@@ -125,7 +180,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
         const dir = path.dirname(filePath)
         return fs.promises
           .mkdir(dir, { recursive: true })
-          .then(() => atomicWrite(filePath, binary))
+          .then(() => atomicWrite(filePath, this.makeTmpPath(), binary))
           .then(
             () => ({ ok: true as const }),
             err => ({ ok: false as const, err })
@@ -262,15 +317,22 @@ const rollbackCache = (
   }
 }
 
-const TMP_SUFFIX = ".tmp."
+/**
+ * Name of the subdirectory under `baseDirectory` that holds in-flight
+ * temporary files. Hidden by the leading dot. The `.t` two-character
+ * prefix cannot collide with any real sharded storage key, which shards
+ * by hex or base58 (see {@link NodeFSStorageAdapter.getFilePath}), so
+ * an older adapter walking a shard subtree never descends here.
+ */
+const TMP_DIR_NAME = ".tmp"
 
 /**
- * Matches the tmp-file suffix produced by {@link atomicWrite}:
- * `<target>.tmp.<pid>.<uuid-without-dashes>`. The UUID is 32 hex chars
- * after `crypto.randomUUID().replace(/-/g, "")`, and the pid is a
- * positive integer. Anchored at end-of-string to avoid matching
- * legitimate keys that happen to contain `.tmp.` somewhere in their
- * basename.
+ * Matches the legacy tmp-file suffix format produced by earlier
+ * versions of this adapter, when tmp files were siblings of their
+ * target: `<target>.tmp.<pid>.<uuid-without-dashes>`. Current code
+ * places tmp files in the {@link TMP_DIR_NAME} directory instead, so
+ * this predicate exists only to filter stale siblings left behind by
+ * crashes under the older layout during an upgrade window.
  */
 const TMP_PATH_PATTERN = /\.tmp\.\d+\.[0-9a-f]{32}$/i
 
@@ -279,7 +341,7 @@ const isTmpPath = (p: string): boolean =>
 
 /**
  * Write `bytes` to `targetPath` atomically:
- *   1. write to a temporary sibling file
+ *   1. write to `tmpPath` on the same filesystem as `targetPath`
  *   2. fsync the temporary file
  *   3. rename over the target
  *
@@ -288,15 +350,17 @@ const isTmpPath = (p: string): boolean =>
  * `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` which is atomic for
  * concurrent readers; post-crash state on Windows depends on NTFS and
  * the OS flush policy.
+ *
+ * `tmpPath` MUST be on the same filesystem as `targetPath`; otherwise
+ * `rename` will fail with `EXDEV` and no fallback is attempted. In
+ * practice callers construct `tmpPath` under `<baseDirectory>/.tmp/`,
+ * so this holds automatically.
  */
 const atomicWrite = async (
   targetPath: string,
+  tmpPath: string,
   bytes: Uint8Array
 ): Promise<void> => {
-  const tmpPath = `${targetPath}${TMP_SUFFIX}${process.pid}.${crypto
-    .randomUUID()
-    .replace(/-/g, "")}`
-
   const fh = await fs.promises.open(tmpPath, "w")
   let wroteTmp = false
   try {
@@ -396,6 +460,11 @@ const walkdir = async (dirPath: string): Promise<string[]> => {
     })
     const files = await Promise.all(
       entries.map(entry => {
+        // Defensive: never descend into the tmp directory if walkdir is
+        // ever invoked with `dirPath === baseDirectory`. Today loadRange
+        // is always called with a prefix, so walkdir starts at a shard
+        // subdirectory and this branch is effectively unreachable.
+        if (entry.isDirectory() && entry.name === TMP_DIR_NAME) return []
         const subpath = path.resolve(dirPath, entry.name)
         return entry.isDirectory() ? walkdir(subpath) : subpath
       })
