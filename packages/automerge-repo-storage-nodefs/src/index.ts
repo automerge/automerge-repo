@@ -58,50 +58,109 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       const fileContent = await fs.promises.readFile(filePath)
       return new Uint8Array(fileContent)
     } catch (error: any) {
-      // don't throw if file not found
-      if (error.code === "ENOENT") return undefined
+      // Treat both "file not found" and "path component is not a
+      // directory" as absent. ENOTDIR can surface when a key's
+      // logical path passes through a location where some other
+      // entry occupies the expected directory slot — from load()'s
+      // perspective that still means "no file at this key".
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+        return undefined
+      }
       throw error
     }
   }
 
   async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
-    this.cache[getKey(keyArray)] = binary
+    // Populate the cache synchronously — before any await — so that an
+    // in-process load() issued after this call but before the returned
+    // promise resolves still observes the latest bytes. This preserves
+    // the prior adapter's fire-and-forget contract; see
+    // packages/automerge-repo/test/StorageSubsystem.test.ts
+    // ("stores incremental changes following a load"), which performs
+    // an unawaited saveDoc() followed by a fresh-subsystem load().
+    //
+    // If the on-disk write or fsync rejects, we roll the cache back to
+    // its prior value so the cache never exposes bytes that aren't
+    // durable. Fire-and-forget callers still see the latest bytes until
+    // the promise rejects; awaited callers see a rejection and a cache
+    // consistent with disk.
+    const key = getKey(keyArray)
+    const prev = this.cache[key]
+    this.cache[key] = binary
 
     const filePath = this.getFilePath(keyArray)
     const dir = path.dirname(filePath)
 
-    await fs.promises.mkdir(dir, { recursive: true })
-    await atomicWrite(filePath, binary)
-    await fsyncDir(dir)
+    try {
+      await fs.promises.mkdir(dir, { recursive: true })
+      await atomicWrite(filePath, binary)
+      await fsyncDir(dir)
+    } catch (err) {
+      rollbackCache(this.cache, key, prev)
+      throw err
+    }
   }
 
   async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
     if (entries.length === 0) return
 
+    // Capture prior cache state per key, then populate synchronously so
+    // in-flight in-process loads still observe the batch. On failure we
+    // use the per-entry settled results to roll back only the keys whose
+    // on-disk writes did not succeed. See save() for rationale.
+    const prevByKey: Array<[string, Uint8Array | undefined]> = []
     for (const [keyArray, binary] of entries) {
-      this.cache[getKey(keyArray)] = binary
+      const key = getKey(keyArray)
+      prevByKey.push([key, this.cache[key]])
+      this.cache[key] = binary
     }
 
-    // Phase 1: ensure all target directories exist.
-    const dirs = new Set<string>()
+    // Per-entry mkdir + atomicWrite in parallel, collecting individual
+    // results so a partial failure can roll back only the affected
+    // entries. mkdir is `recursive: true`, which is idempotent and
+    // cheap on already-existing directories.
+    const writeResults = await Promise.all(
+      entries.map(([keyArray, binary]) => {
+        const filePath = this.getFilePath(keyArray)
+        const dir = path.dirname(filePath)
+        return fs.promises
+          .mkdir(dir, { recursive: true })
+          .then(() => atomicWrite(filePath, binary))
+          .then(
+            () => ({ ok: true as const }),
+            err => ({ ok: false as const, err })
+          )
+      })
+    )
 
+    const failedIndices: number[] = []
+    let firstErr: unknown
+    for (let i = 0; i < writeResults.length; i++) {
+      const r = writeResults[i]
+      if (!r.ok) {
+        failedIndices.push(i)
+        if (firstErr === undefined) firstErr = r.err
+      }
+    }
+
+    if (failedIndices.length > 0) {
+      // Roll back only the failed entries' cache state; successful
+      // entries are durable on disk and should remain in cache.
+      for (const i of failedIndices) {
+        const [key, prev] = prevByKey[i]
+        rollbackCache(this.cache, key, prev)
+      }
+      throw firstErr
+    }
+
+    // fsync each distinct parent directory once so the renames are
+    // durable. No-op on Windows. If this rejects, bytes are on disk
+    // and cache matches disk — we don't roll back, but we do surface
+    // the error so callers that care about durability see it.
+    const dirs = new Set<string>()
     for (const [keyArray] of entries) {
       dirs.add(path.dirname(this.getFilePath(keyArray)))
     }
-
-    await Promise.all(
-      Array.from(dirs).map(d => fs.promises.mkdir(d, { recursive: true }))
-    )
-
-    // Phase 2: atomic per-entry write (tmp + fsync + rename) in parallel.
-    await Promise.all(
-      entries.map(([keyArray, binary]) =>
-        atomicWrite(this.getFilePath(keyArray), binary)
-      )
-    )
-
-    // Phase 3: fsync each distinct parent directory once,
-    // so the renames are durable. No-op on Windows.
     await Promise.all(Array.from(dirs).map(d => fsyncDir(d)))
   }
 
@@ -183,9 +242,40 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
 const getKey = (key: StorageKey): string => path.join(...key)
 
+/**
+ * Restore a cache entry to its value prior to a failed write.
+ *
+ * If the key had no prior entry (`prev === undefined`), the entry is
+ * deleted entirely. Otherwise it is overwritten with the prior bytes.
+ * This keeps the in-memory cache consistent with on-disk state when
+ * save() / saveBatch() rejects partway through.
+ */
+const rollbackCache = (
+  cache: Record<string, Uint8Array>,
+  key: string,
+  prev: Uint8Array | undefined
+): void => {
+  if (prev === undefined) {
+    delete cache[key]
+  } else {
+    cache[key] = prev
+  }
+}
+
 const TMP_SUFFIX = ".tmp."
 
-const isTmpPath = (p: string): boolean => path.basename(p).includes(TMP_SUFFIX)
+/**
+ * Matches the tmp-file suffix produced by {@link atomicWrite}:
+ * `<target>.tmp.<pid>.<uuid-without-dashes>`. The UUID is 32 hex chars
+ * after `crypto.randomUUID().replace(/-/g, "")`, and the pid is a
+ * positive integer. Anchored at end-of-string to avoid matching
+ * legitimate keys that happen to contain `.tmp.` somewhere in their
+ * basename.
+ */
+const TMP_PATH_PATTERN = /\.tmp\.\d+\.[0-9a-f]{32}$/i
+
+const isTmpPath = (p: string): boolean =>
+  TMP_PATH_PATTERN.test(path.basename(p))
 
 /**
  * Write `bytes` to `targetPath` atomically:
@@ -282,7 +372,19 @@ const fsyncDir = async (dir: string): Promise<void> => {
     // hard failure — the file fsync still gave us data durability.
     if (err.code !== "EISDIR" && err.code !== "EINVAL") throw err
   } finally {
-    await fh?.close()
+    // Swallow close() failures so they can't turn a tolerated fsync
+    // outcome into a hard failure. Symmetric with the close handling
+    // in atomicWrite.
+    if (fh) {
+      try {
+        await fh.close()
+      } catch (closeErr) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] fsyncDir close() failed for ${dir}:`,
+          closeErr
+        )
+      }
+    }
   }
 }
 

@@ -114,16 +114,129 @@ describe("NodeFSStorageAdapter", () => {
       await adapter.save(key, new Uint8Array([1, 2, 3, 4]))
 
       // Simulate a concurrent atomic write that crashed mid-flight by
-      // dropping a stray .tmp file next to the real one.
+      // dropping a stray .tmp file next to the real one. The suffix
+      // format here matches what atomicWrite actually produces:
+      // <target>.tmp.<pid>.<32-hex-uuid-without-dashes>.
       const realFile = walkSync(dir).find(
-        f => !path.basename(f).includes(".tmp.")
+        f => !/\.tmp\.\d+\.[0-9a-f]{32}$/i.test(path.basename(f))
       )!
-      const staleTmp = `${realFile}.tmp.99999.deadbeef`
+      const staleTmp = `${realFile}.tmp.99999.${"deadbeef".repeat(4)}`
       fs.writeFileSync(staleTmp, Buffer.from([0xff, 0xff, 0xff, 0xff]))
 
       const chunks = await adapter.loadRange(["AAAAAAAA"])
       expect(chunks).toHaveLength(1)
       expect(Array.from(chunks[0].data!)).toEqual([1, 2, 3, 4])
+    })
+
+    it("loadRange does NOT hide a legitimate key whose basename contains .tmp.", async () => {
+      // Regression guard: a key whose trailing segment happens to
+      // contain ".tmp." in the middle (but doesn't match the actual
+      // tmp-file suffix pattern) must not be filtered out by the
+      // atomic-write tmp-file detection.
+      const weirdKey = ["AAAAAAAA", "blobs", "file.tmp.data"]
+      await adapter.save(weirdKey, new Uint8Array([7, 7, 7]))
+
+      const chunks = await adapter.loadRange(["AAAAAAAA"])
+      const keyStrings = chunks.map(c => c.key.join("/"))
+      expect(keyStrings).toContain(weirdKey.join("/"))
+    })
+
+    // ─── Cache rollback on failure ─────────────────────────────────────
+    //
+    // The adapter populates its in-memory cache synchronously so that
+    // fire-and-forget saves are observable within the same process. If
+    // the on-disk write subsequently fails, the cache must roll back so
+    // it never exposes bytes that aren't durable on disk.
+
+    it("save() rolls the cache back to the prior value on write failure", async () => {
+      const key = ["AAAAAAAA", "snapshot", "hash"]
+      await adapter.save(key, new Uint8Array([1, 1, 1]))
+
+      // Force the next write to fail by dropping a regular file where
+      // the nested shard directory would need to exist for a different
+      // key. More reliable: drop a regular file where this key's own
+      // parent directory would be recreated after a remove. Easiest
+      // reliable approach: point a FRESH key at a path under a pre-
+      // existing file-not-directory.
+      const blockerKey = ["BBBBBBBB", "snapshot", "hash"]
+      const adapterAny = adapter as unknown as {
+        getFilePath(k: string[]): string
+      }
+      const blockerParent = path.dirname(adapterAny.getFilePath(blockerKey))
+      // Make the intended directory path a plain file so mkdir fails.
+      fs.mkdirSync(path.dirname(blockerParent), { recursive: true })
+      fs.writeFileSync(blockerParent, Buffer.from("block"))
+
+      await expect(
+        adapter.save(blockerKey, new Uint8Array([9, 9, 9]))
+      ).rejects.toBeDefined()
+
+      // Cache must not report the failed key as having any value.
+      expect(await adapter.load(blockerKey)).toBeUndefined()
+
+      // A previously-saved key's cache must be untouched.
+      const prior = await adapter.load(key)
+      expect(prior).toBeDefined()
+      expect(Array.from(prior!)).toEqual([1, 1, 1])
+    })
+
+    it("save() restores the prior cache value when overwriting an existing key fails", async () => {
+      const key = ["AAAAAAAA", "snapshot", "hash"]
+      await adapter.save(key, new Uint8Array([1, 1, 1]))
+
+      // Clobber the parent directory's *file entry* for this key with a
+      // directory so the next rename over it fails.
+      const adapterAny = adapter as unknown as {
+        getFilePath(k: string[]): string
+      }
+      const existingFile = adapterAny.getFilePath(key)
+      fs.rmSync(existingFile)
+      fs.mkdirSync(existingFile) // now a directory where a file should be
+
+      await expect(
+        adapter.save(key, new Uint8Array([2, 2, 2]))
+      ).rejects.toBeDefined()
+
+      // Cache should have rolled back to the original bytes (1,1,1),
+      // NOT the attempted (2,2,2). load() consults the cache first, so
+      // if we rolled back correctly we get [1,1,1].
+      const loaded = await adapter.load(key)
+      expect(loaded).toBeDefined()
+      expect(Array.from(loaded!)).toEqual([1, 1, 1])
+    })
+
+    it("saveBatch() rolls back only the entries whose writes failed", async () => {
+      const okKey1 = ["AAAAAAAA", "snapshot", "one"]
+      const okKey2 = ["AAAAAAAA", "snapshot", "two"]
+      const badKey = ["BBBBBBBB", "snapshot", "hash"]
+
+      // Create a file-not-directory at the parent of the bad key so
+      // its mkdir/atomicWrite will fail, while the good keys succeed.
+      const adapterAny = adapter as unknown as {
+        getFilePath(k: string[]): string
+      }
+      const badParent = path.dirname(adapterAny.getFilePath(badKey))
+      fs.mkdirSync(path.dirname(badParent), { recursive: true })
+      fs.writeFileSync(badParent, Buffer.from("block"))
+
+      await expect(
+        adapter.saveBatch([
+          [okKey1, new Uint8Array([1])],
+          [badKey, new Uint8Array([9])],
+          [okKey2, new Uint8Array([2])],
+        ])
+      ).rejects.toBeDefined()
+
+      // The failed key must have been rolled back out of the cache...
+      expect(await adapter.load(badKey)).toBeUndefined()
+
+      // ...but the successful entries should remain in both cache and disk.
+      const one = await adapter.load(okKey1)
+      const two = await adapter.load(okKey2)
+      expect(one).toBeDefined()
+      expect(two).toBeDefined()
+      expect(Array.from(one!)).toEqual([1])
+      expect(Array.from(two!)).toEqual([2])
     })
   })
 })
