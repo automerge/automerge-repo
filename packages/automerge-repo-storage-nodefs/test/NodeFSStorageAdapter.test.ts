@@ -113,9 +113,10 @@ describe("NodeFSStorageAdapter", () => {
       const key = ["AAAAAAAA", "snapshot", "hash"]
       await adapter.save(key, new Uint8Array([1, 2, 3, 4]))
 
-      // Simulate a concurrent atomic write that crashed mid-flight by
-      // dropping a stray .tmp file next to the real one. The suffix
-      // format here matches what atomicWrite actually produces:
+      // Simulate a legacy sibling .tmp file left behind by older adapter
+      // versions after a crashed write. Current atomicWrite uses the
+      // adapter's .tmp directory instead, but loadRange still filters
+      // this older sibling-file pattern:
       // <target>.tmp.<pid>.<32-hex-uuid-without-dashes>.
       const realFile = walkSync(dir).find(
         f => !/\.tmp\.\d+\.[0-9a-f]{32}$/i.test(path.basename(f))
