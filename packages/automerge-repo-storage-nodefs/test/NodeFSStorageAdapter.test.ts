@@ -49,7 +49,7 @@ describe("NodeFSStorageAdapter", () => {
       expect(leftover).toHaveLength(0)
     })
 
-    it("overwriting a key leaves either the old or new value, never a partial mix", async () => {
+    it("sequentially overwriting a key yields the new value with no partial mix", async () => {
       const key = ["AAAAAAAA", "snapshot", "hash"]
 
       // 64 KiB so a torn write would be visibly shorter on disk

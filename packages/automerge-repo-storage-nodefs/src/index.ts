@@ -214,7 +214,20 @@ const atomicWrite = async (
     await fh.sync()
     wroteTmp = true
   } finally {
-    await fh.close()
+    // fh.close() can itself throw (e.g. EIO). Wrap it in its own
+    // try/finally so the tmp-file cleanup below still runs — otherwise
+    // a close failure would mask the original error AND leak a tmp
+    // file. We log the close error at debug level but don't re-throw;
+    // the outer writeFile/sync error (if any) is the signal the caller
+    // cares about.
+    try {
+      await fh.close()
+    } catch (closeErr) {
+      console.debug(
+        `[automerge-repo-storage-nodefs] fh.close() failed for ${tmpPath}:`,
+        closeErr
+      )
+    }
     if (!wroteTmp) {
       // Best-effort cleanup if writeFile/sync threw. The caller is
       // about to see the outer writeFile/sync error; the cleanup

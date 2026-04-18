@@ -172,22 +172,18 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
-      if (this.adapter.saveBatch) {
-        // Even when the adapter implements saveBatch, pass the blob
-        // entry first so any adapter that serialises the batch (e.g.
-        // NodeFS: atomic per-entry but not cross-entry) preserves the
-        // "blob before commit" invariant on crash.
-        await this.adapter.saveBatch([
-          [blobKey, blobCopy],
-          [commitKey, commitCopy],
-        ])
-      } else {
-        // Write blob first, then commit metadata. Any crash between the
-        // two yields an orphan blob (harmless, skipped by the reader)
-        // rather than a commit pointing at a missing blob.
-        await this.adapter.save(blobKey, blobCopy)
-        await this.adapter.save(commitKey, commitCopy)
-      }
+      // Write blob first, then commit metadata. Any crash between the
+      // two yields an orphan blob (harmless, skipped by the reader)
+      // rather than a commit pointing at a missing blob.
+      //
+      // We deliberately don't use adapter.saveBatch here even when
+      // available: saveBatch's contract guarantees each entry lands
+      // atomically, but an implementation that executes entries in
+      // parallel (e.g. NodeFS) could still produce commit-without-blob
+      // on crash. Two sequential save() calls cost one extra `await`
+      // boundary and are unambiguously crash-consistent.
+      await this.adapter.save(blobKey, blobCopy)
+      await this.adapter.save(commitKey, commitCopy)
 
       // Emit event after save
       if (this.listeners["commit-saved"]?.length) {
@@ -305,20 +301,14 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
-      if (this.adapter.saveBatch) {
-        // Blob first so serialising adapters preserve "blob before
-        // fragment" under crash.
-        await this.adapter.saveBatch([
-          [blobKey, blobCopy],
-          [fragmentKey, fragmentCopy],
-        ])
-      } else {
-        // Write blob first, then fragment metadata. Any crash between
-        // the two yields an orphan blob (harmless) rather than a
-        // fragment pointing at missing data.
-        await this.adapter.save(blobKey, blobCopy)
-        await this.adapter.save(fragmentKey, fragmentCopy)
-      }
+      // Write blob first, then fragment metadata. Any crash between
+      // the two yields an orphan blob (harmless) rather than a
+      // fragment pointing at missing data.
+      //
+      // We deliberately don't use adapter.saveBatch here; see the
+      // matching comment in saveCommit for rationale.
+      await this.adapter.save(blobKey, blobCopy)
+      await this.adapter.save(fragmentKey, fragmentCopy)
 
       // Emit event after save
       if (this.listeners["fragment-saved"]?.length) {
@@ -418,14 +408,20 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   // ==================== Batch Operations ====================
 
   /**
-   * Save a batch of commits and fragments in a single IDB transaction.
+   * Save a batch of commits and fragments.
    *
    * Called from Subduction's Wasm `save_batch` during sync ingestion.
-   * Instead of N individual `saveCommit`/`saveFragment` calls (each creating
-   * its own IDB readwrite transaction), this collects all key-value pairs
-   * and writes them in one `adapter.saveBatch()` call.
+   * Instead of N individual `saveCommit`/`saveFragment` calls (each
+   * creating its own underlying transaction), this issues at most three
+   * `adapter.saveBatch()` calls (blobs, metadata, sedimentree ID marker)
+   * in order.
    *
-   * For 50 commits this reduces ~100 IDB transactions to 1.
+   * The three-phase structure enforces write-ahead ordering so that any
+   * crash-prefix state is consistent: orphan blobs (harmless), or blobs
+   * + metadata without the ID marker (invisible to enumeration).
+   *
+   * For 50 commits this reduces ~100 round-trips to 3 on adapters that
+   * implement `adapter.saveBatch`.
    */
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
@@ -456,11 +452,15 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     //      durable; a crash before this point leaves invisible-but-
     //      otherwise-consistent state that the next run will ignore.
     //
-    // For adapters that implement saveBatch, we still group the entries
-    // in this order so a serialising adapter (e.g. NodeFS, whose
-    // saveBatch is atomic per-entry but not cross-entry) preserves the
-    // invariant on crash. For adapters whose saveBatch is truly
-    // transactional (e.g. IndexedDB), order is inert.
+    // We enforce the ordering at the `await` boundary between phases
+    // rather than relying on in-batch entry order. An `adapter.saveBatch`
+    // call may internally parallelise entries (e.g. NodeFS), so stuffing
+    // all three phases into one saveBatch call doesn't preserve the
+    // invariant on crash. Three sequential saveBatch calls preserve the
+    // invariant for any adapter whose single saveBatch is "atomic per
+    // entry and durable before returning" — a much weaker contract than
+    // full cross-entry transactionality, which IDB happens to satisfy
+    // but NodeFS does not.
     const blobEntries: Array<[string[], Uint8Array]> = []
     const metaEntries: Array<[string[], Uint8Array]> = []
 
@@ -493,15 +493,16 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     this.pendingSaves++
     try {
       if (this.adapter.saveBatch) {
-        // Pass entries in write-ahead order. An adapter that serialises
-        // entries within the batch (NodeFS) preserves the invariant
-        // under crash; an adapter with a true transactional saveBatch
-        // (IDB) ignores the ordering and writes atomically.
-        await this.adapter.saveBatch([
-          ...blobEntries,
-          ...metaEntries,
-          markerEntry,
-        ])
+        // Three sequential saveBatch calls. Each phase is parallelised
+        // inside the adapter (fast); the `await` boundary between phases
+        // enforces the write-ahead ordering (correct under crash).
+        if (blobEntries.length > 0) {
+          await this.adapter.saveBatch(blobEntries)
+        }
+        if (metaEntries.length > 0) {
+          await this.adapter.saveBatch(metaEntries)
+        }
+        await this.adapter.saveBatch([markerEntry])
       } else {
         // Fallback: three sequential phases, parallel within each phase.
         // A crash between phases leaves a consistent prefix (orphan

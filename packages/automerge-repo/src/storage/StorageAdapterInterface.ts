@@ -33,11 +33,25 @@ export interface StorageAdapterInterface {
   removeRange(keyPrefix: StorageKey): Promise<void>
 
   /**
-   * Save multiple key-value pairs in a single transaction.
+   * Save multiple key-value pairs in a single batched operation.
    *
    * Optional — implementations that don't provide this will fall back to
    * individual {@link save} calls. Implementing this can significantly
    * reduce IDB transaction overhead for batch writes.
+   *
+   * ## Durability contract
+   *
+   * When the returned promise resolves, every entry in `entries` is
+   * durable. Implementations are free to execute entries in any order
+   * (including in parallel). Callers that require write-ahead ordering
+   * between entries (e.g. "blob before metadata") must split their
+   * entries across multiple sequential `saveBatch` (or `save`) calls —
+   * ordering within a single `saveBatch` call is not guaranteed.
+   *
+   * Implementations MAY provide stronger guarantees (e.g. IndexedDB's
+   * `saveBatch` is a single transaction, so the batch is fully
+   * observable-as-a-unit), but callers cannot rely on those stronger
+   * guarantees through this interface.
    */
   saveBatch?(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
 }
