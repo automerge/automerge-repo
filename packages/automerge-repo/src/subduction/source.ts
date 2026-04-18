@@ -19,6 +19,7 @@ import { DocHandle, NetworkAdapterInterface } from "../index.js"
 import { ConnectionManager } from "./ConnectionManager.js"
 import type { StorageId } from "../storage/types.js"
 import type { UrlHeads } from "../types.js"
+import { mergeArrays } from "../helpers/mergeArrays.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { HashRing } from "../helpers/HashRing.js"
 import debug from "debug"
@@ -500,14 +501,10 @@ export class SubductionSource implements DocumentSource {
       } blob(s), ${totalBytes} bytes, heads=${entry.handle.heads().length}`
     )
     if (!allBlobs || allBlobs.length === 0) return false
-
-    entry.handle.update(d => {
-      let result = d
-      for (const blob of allBlobs) {
-        result = Automerge.loadIncremental(result, blob)
-      }
-      return result
-    })
+    allBlobs.sort((a, b) => b.byteLength - a.byteLength)
+    entry.handle.update(d =>
+      Automerge.loadIncremental(d, mergeArrays(allBlobs))
+    )
 
     return true
   }
