@@ -122,11 +122,14 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     // ("stores incremental changes following a load"), which performs
     // an unawaited saveDoc() followed by a fresh-subsystem load().
     //
-    // If the on-disk write or fsync rejects, we roll the cache back to
-    // its prior value so the cache never exposes bytes that aren't
-    // durable. Fire-and-forget callers still see the latest bytes until
-    // the promise rejects; awaited callers see a rejection and a cache
-    // consistent with disk.
+    // Rollback semantics: if the rename has not yet completed, on-disk
+    // state is unchanged and we roll the cache back to match. Once the
+    // rename completes, on-disk state is the new bytes (visible to
+    // concurrent readers), so we do NOT roll back — cache matches disk.
+    // A subsequent fsyncDir failure means the rename may not be durable
+    // across a crash, but the bytes are still present and observable;
+    // rolling back in that case would make cache diverge from disk.
+    // The caller learns about the durability gap via the rejection.
     const key = getKey(keyArray)
     const prev = this.cache[key]
     this.cache[key] = binary
@@ -138,11 +141,27 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       await this.ensureTmpDirectory()
       await fs.promises.mkdir(dir, { recursive: true })
       await atomicWrite(filePath, this.makeTmpPath(), binary)
-      await fsyncDir(dir)
     } catch (err) {
+      // Rename has not yet completed — disk is unchanged, so cache must
+      // also revert to prior state to stay consistent.
       rollbackCache(this.cache, key, prev)
       throw err
     }
+
+    // Rename succeeded — disk now holds `binary`. Cache and disk agree.
+    // If the directory fsync fails, surface the error so callers that
+    // care about durability see it, but do NOT roll back: bytes ARE
+    // visible on disk and in the page cache.
+    //
+    // We fsync only the leaf directory after rename. On journaled
+    // filesystems (ext4, APFS, NTFS, ZFS, btrfs) the rename's journal
+    // commit persists ancestor directory metadata transitively, so the
+    // full path to the new file is crash-durable. On non-journaled
+    // filesystems (ext2, tmpfs, FAT, some NFS configs) newly-created
+    // ancestor directories from `mkdir(recursive: true)` may not be
+    // crash-durable until a later fsync walks the chain. See follow-up
+    // issue for shard-amortized ancestor fsync.
+    await fsyncDir(dir)
   }
 
   async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
@@ -212,6 +231,9 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     // durable. No-op on Windows. If this rejects, bytes are on disk
     // and cache matches disk — we don't roll back, but we do surface
     // the error so callers that care about durability see it.
+    //
+    // Leaf-only fsync; see the same caveat in save() about ancestor
+    // directory durability on non-journaled filesystems.
     const dirs = new Set<string>()
     for (const [keyArray] of entries) {
       dirs.add(path.dirname(this.getFilePath(keyArray)))
