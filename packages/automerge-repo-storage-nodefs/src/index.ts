@@ -23,12 +23,21 @@
  * {@link load}, which are always prefix-scoped and are unlikely to walk
  * `.tmp/` since real-world keys won't shard into a `.t` prefix.
  *
- * {@link NodeFSStorageAdapter.saveBatch | saveBatch} applies the same
- * pattern per entry — every individual write is atomic — but is not an
- * all-or-nothing transaction across the batch. A crash midway through a
- * `saveBatch` may leave any subset of entries applied. Consumers that
- * need cross-entry atomicity must order their writes so that any
- * partial prefix is still a valid state.
+ * {@link NodeFSStorageAdapter.saveBatch | saveBatch} uses the same
+ * pattern per entry, plus a two-phase stage/commit structure across
+ * the batch:
+ *
+ *   1. Stage every entry's value to a tmp file (write + fsync). No
+ *      target is yet observable.
+ *   2. Verify every CAS precondition.
+ *   3. Commit by renaming every tmp file over its target in turn.
+ *   4. fsync every distinct parent directory.
+ *
+ * If any stage operation or CAS precondition fails, no commits happen
+ * and the staged tmp files are cleaned up. A crash during the commit
+ * phase may leave an arbitrary subset of entries observable, but each
+ * individual committed entry is atomic — readers never see partial
+ * bytes for any single key.
  */
 
 import {
@@ -141,15 +150,16 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
   async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
     if (entries.length === 0) return
 
-    // Capture prior cache state per key, then populate synchronously so
-    // in-flight in-process loads still observe the batch. On failure we
-    // use the per-entry settled results to roll back only the keys whose
-    // on-disk writes did not succeed. See save() for rationale.
+    // Populate the cache synchronously, matching save()'s fire-and-
+    // forget contract. If the stage phase rejects before any rename
+    // completes, disk is unchanged — we roll cache back to match (with
+    // per-entry concurrency guard: only revert entries where the cache
+    // still holds OUR bytes; a later concurrent save/saveBatch may have
+    // superseded them).
     //
-    // Per-entry concurrency guard (matching save()): only roll back if
-    // the cache still holds the bytes WE wrote. A later concurrent
-    // saveBatch or save may have superseded our entry; clobbering its
-    // value would diverge cache from disk.
+    // Once the commit (rename) phase begins, successful renames make
+    // bytes observable on disk — we do NOT roll those entries back even
+    // if later renames fail, because cache matches disk for them.
     const prevByKey: Array<[string, Uint8Array | undefined, Uint8Array]> = []
     for (const [keyArray, binary] of entries) {
       const key = getKey(keyArray)
@@ -157,69 +167,150 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       this.cache[key] = binary
     }
 
-    // Ensure the tmp directory exists once for the whole batch.
-    try {
-      await this.ensureTmpDirectory()
-    } catch (err) {
-      // tmp dir mkdir failed before any write; roll every entry back
-      // (subject to the concurrency guard).
+    const rollbackAllCache = () => {
       for (const [key, prev, ours] of prevByKey) {
         if (this.cache[key] === ours) {
           rollbackCache(this.cache, key, prev)
         }
       }
-      throw err
     }
 
-    // Per-entry mkdir + atomicWrite in parallel, collecting individual
-    // results so a partial failure can roll back only the affected
-    // entries. mkdir is `recursive: true`, which is idempotent and
-    // cheap on already-existing directories.
-    const writeResults = await Promise.all(
-      entries.map(([keyArray, binary]) => {
-        const filePath = this.getFilePath(keyArray)
-        const dir = path.dirname(filePath)
-        return fs.promises
-          .mkdir(dir, { recursive: true })
-          .then(() => atomicWrite(filePath, this.makeTmpPath(), binary))
-          .then(
-            () => ({ ok: true as const }),
-            err => ({ ok: false as const, err })
-          )
-      })
-    )
-
-    const failedIndices: number[] = []
-    let firstErr: unknown
-    for (let i = 0; i < writeResults.length; i++) {
-      const r = writeResults[i]
-      if (!r.ok) {
-        failedIndices.push(i)
-        if (firstErr === undefined) firstErr = r.err
-      }
-    }
-
-    if (failedIndices.length > 0) {
-      // Roll back only the failed entries' cache state; successful
-      // entries are durable on disk and should remain in cache.
-      for (const i of failedIndices) {
+    const rollbackCacheForIndices = (indices: number[]) => {
+      for (const i of indices) {
         const [key, prev, ours] = prevByKey[i]
         if (this.cache[key] === ours) {
           rollbackCache(this.cache, key, prev)
         }
       }
-      throw firstErr
     }
 
-    // fsync each distinct parent directory once so the renames are
-    // durable. No-op on Windows. If this rejects, bytes are on disk
-    // and cache matches disk — we don't roll back, but we do surface
-    // the error so callers that care about durability see it.
-    const dirs = new Set<string>()
-    for (const [keyArray] of entries) {
-      dirs.add(path.dirname(this.getFilePath(keyArray)))
+    // Ensure the tmp directory exists once for the whole batch.
+    try {
+      await this.ensureTmpDirectory()
+    } catch (err) {
+      rollbackAllCache()
+      throw err
     }
-    await Promise.all(Array.from(dirs).map(d => fsyncDir(d)))
+
+    // Ensure every target's parent directory exists (deduped by
+    // directory path). mkdir is `recursive: true`, idempotent.
+    const targetDirs = new Set<string>()
+    for (const [keyArray] of entries) {
+      targetDirs.add(path.dirname(this.getFilePath(keyArray)))
+    }
+    try {
+      await Promise.all(
+        Array.from(targetDirs).map(d =>
+          fs.promises.mkdir(d, { recursive: true })
+        )
+      )
+    } catch (err) {
+      rollbackAllCache()
+      throw err
+    }
+
+    // ── Phase 1: Stage ─────────────────────────────────────────────
+    //
+    // Write every entry to a tmp file under `.tmp/` and fsync it. No
+    // target files are touched yet. If any stage fails, the batch is
+    // aborted: no targets are observable, all successfully-staged tmp
+    // files are cleaned up, and the cache is rolled back in full.
+    const tmpPaths: string[] = entries.map(() => this.makeTmpPath())
+    const targetPaths: string[] = entries.map(([keyArray]) =>
+      this.getFilePath(keyArray)
+    )
+
+    const stageResults = await Promise.all(
+      entries.map(([, binary], i) =>
+        stageToTmp(tmpPaths[i], binary).then(
+          () => ({ ok: true as const }),
+          err => ({ ok: false as const, err })
+        )
+      )
+    )
+
+    const stageFailures: number[] = []
+    let firstStageErr: unknown
+    for (let i = 0; i < stageResults.length; i++) {
+      const r = stageResults[i]
+      if (!r.ok) {
+        stageFailures.push(i)
+        if (firstStageErr === undefined) firstStageErr = r.err
+      }
+    }
+
+    if (stageFailures.length > 0) {
+      // Clean up any successfully-staged tmp files. No renames have
+      // happened; the on-disk target state is unchanged.
+      await Promise.all(
+        stageResults.map(async (r, i) => {
+          if (r.ok) {
+            try {
+              await fs.promises.unlink(tmpPaths[i])
+            } catch (cleanupErr) {
+              console.debug(
+                `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPaths[i]}:`,
+                cleanupErr
+              )
+            }
+          }
+        })
+      )
+      rollbackAllCache()
+      throw firstStageErr
+    }
+
+    // ── Phase 2: Commit ────────────────────────────────────────────
+    //
+    // Every tmp file is durable. Rename each into place. Per-entry
+    // atomicity: readers never see torn bytes for any single key.
+    // Cross-entry: an arbitrary subset may succeed before a crash.
+    const commitResults = await Promise.all(
+      tmpPaths.map((tmpPath, i) =>
+        fs.promises.rename(tmpPath, targetPaths[i]).then(
+          () => ({ ok: true as const }),
+          err => ({ ok: false as const, err })
+        )
+      )
+    )
+
+    const commitFailures: number[] = []
+    let firstCommitErr: unknown
+    for (let i = 0; i < commitResults.length; i++) {
+      const r = commitResults[i]
+      if (!r.ok) {
+        commitFailures.push(i)
+        if (firstCommitErr === undefined) firstCommitErr = r.err
+      }
+    }
+
+    if (commitFailures.length > 0) {
+      // Best-effort: unlink the un-renamed tmp files for the failed
+      // entries. Successful renames remain; their cache entries stay.
+      await Promise.all(
+        commitFailures.map(async i => {
+          try {
+            await fs.promises.unlink(tmpPaths[i])
+          } catch (cleanupErr) {
+            console.debug(
+              `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPaths[i]}:`,
+              cleanupErr
+            )
+          }
+        })
+      )
+      // Roll back the cache only for the failed commits. Successful
+      // commits are durable on disk and should remain in the cache.
+      rollbackCacheForIndices(commitFailures)
+      throw firstCommitErr
+    }
+
+    // ── Phase 3: fsync parent directories ──────────────────────────
+    //
+    // Ensures the renames are durable across a crash. If this rejects,
+    // bytes are on disk (and cache matches) — we surface the error but
+    // don't roll back.
+    await Promise.all(Array.from(targetDirs).map(d => fsyncDir(d)))
   }
 
   async remove(keyArray: string[]): Promise<void> {
@@ -415,6 +506,68 @@ const atomicWrite = async (
       )
     }
     throw err
+  }
+}
+
+/**
+ * Write `bytes` to `tmpPath` durably, without touching any target
+ * file. Used by {@link NodeFSStorageAdapter.saveBatch} to stage each
+ * entry before the commit (rename) phase.
+ *
+ *   1. open + writeFile + fsync + close
+ *   2. if open/write/sync threw, best-effort unlink the tmp file and
+ *      re-throw
+ *   3. if close threw after a successful write+fsync, surface that
+ *      error (on some filesystems close is where delayed write errors
+ *      appear; see atomicWrite for the same pattern)
+ */
+const stageToTmp = async (
+  tmpPath: string,
+  bytes: Uint8Array
+): Promise<void> => {
+  const fh = await fs.promises.open(tmpPath, "w")
+  let wroteTmp = false
+  let closeErr: unknown
+  try {
+    await fh.writeFile(bytes)
+    await fh.sync()
+    wroteTmp = true
+  } finally {
+    try {
+      await fh.close()
+    } catch (e) {
+      closeErr = e
+    }
+    if (!wroteTmp) {
+      if (closeErr !== undefined) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] fh.close() failed for ${tmpPath}:`,
+          closeErr
+        )
+      }
+      try {
+        await fs.promises.unlink(tmpPath)
+      } catch (cleanupErr) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+          cleanupErr
+        )
+      }
+    }
+  }
+
+  if (closeErr !== undefined) {
+    // Write + sync succeeded but close threw. Don't trust the tmp
+    // file's durability; clean it up and surface the error.
+    try {
+      await fs.promises.unlink(tmpPath)
+    } catch (cleanupErr) {
+      console.debug(
+        `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+        cleanupErr
+      )
+    }
+    throw closeErr
   }
 }
 

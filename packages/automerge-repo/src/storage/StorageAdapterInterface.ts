@@ -33,25 +33,40 @@ export interface StorageAdapterInterface {
   removeRange(keyPrefix: StorageKey): Promise<void>
 
   /**
-   * Save multiple key-value pairs in a single batched operation.
+   * Save multiple key-value pairs as a staged batch.
    *
    * Optional — implementations that don't provide this will fall back to
-   * individual {@link save} calls. Implementing this can significantly
-   * reduce IDB transaction overhead for batch writes.
+   * individual {@link save} calls.
    *
-   * ## Durability contract
+   * ## Two-phase semantics
    *
-   * When the returned promise resolves, every entry in `entries` is
-   * durable. Implementations are free to execute entries in any order
-   * (including in parallel). Callers that require write-ahead ordering
-   * between entries (e.g. "blob before metadata") must split their
-   * entries across multiple sequential `saveBatch` (or `save`) calls —
-   * ordering within a single `saveBatch` call is not guaranteed.
+   * Implementations SHOULD apply the batch in two phases:
+   *
+   *   1. **Stage**: every entry's value is written to durable temporary
+   *      storage (e.g. tmp file + fsync). No target is observable yet.
+   *   2. **Commit**: every staged write is committed to its final
+   *      target (e.g. rename over target).
+   *
+   * If any stage operation fails, the batch is aborted before any
+   * commit happens — no entries become observable.
+   *
+   * If a crash occurs:
+   *   - During the stage phase: zero entries are observable. Staged
+   *     tmp files may be left behind as garbage.
+   *   - During the commit phase: an arbitrary subset of entries may be
+   *     observable. Each individual committed entry is atomic; readers
+   *     never see partial bytes for any single key.
    *
    * Implementations MAY provide stronger guarantees (e.g. IndexedDB's
-   * `saveBatch` is a single transaction, so the batch is fully
-   * observable-as-a-unit), but callers cannot rely on those stronger
-   * guarantees through this interface.
+   * `saveBatch` runs as a single transaction, so the entire batch is
+   * fully observable-as-a-unit even across crash). Callers cannot rely
+   * on the stronger guarantees through this interface.
+   *
+   * Ordering within the `entries` array is not guaranteed to be
+   * preserved across the commit phase. Callers that require write-
+   * ahead ordering between entries (e.g. "blob before metadata") must
+   * split their entries across multiple sequential `saveBatch` (or
+   * `save`) calls.
    */
   saveBatch?(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
 }
