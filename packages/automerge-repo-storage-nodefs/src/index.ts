@@ -105,12 +105,17 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       const fileContent = await fs.promises.readFile(filePath)
       return new Uint8Array(fileContent)
     } catch (error: any) {
-      // Treat both "file not found" and "path component is not a
-      // directory" as absent. ENOTDIR can surface when a key's
-      // logical path passes through a location where some other
-      // entry occupies the expected directory slot — from load()'s
-      // perspective that still means "no file at this key".
-      if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+      // "No file at this key" covers three fs-error codes:
+      //   ENOENT  — path doesn't exist
+      //   ENOTDIR — a path component is a file where a directory
+      //             was expected
+      //   EISDIR  — the target itself is a directory, not a file
+      // All three correctly mean "no stored value for this key".
+      if (
+        error.code === "ENOENT" ||
+        error.code === "ENOTDIR" ||
+        error.code === "EISDIR"
+      ) {
         return undefined
       }
       throw error
