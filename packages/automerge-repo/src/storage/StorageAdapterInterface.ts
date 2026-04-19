@@ -47,27 +47,36 @@ export interface StorageAdapterInterface {
    * If any stage operation fails, the batch is aborted before any
    * commit happens — no entries become observable.
    *
-   * If a crash occurs:
-   *   - During the stage phase: zero entries are observable. Staged
-   *     tmp files may be left behind as garbage.
-   *   - During the commit phase: an arbitrary subset of entries may be
-   *     observable. Each individual committed entry is atomic; readers
-   *     never see partial bytes for any single key.
+   * ## Commit-phase semantics vary by implementation
    *
-   * Implementations MAY provide stronger guarantees (e.g. IndexedDB's
-   * `saveBatch` runs as a single transaction, so the entire batch is
-   * fully observable-as-a-unit even across crash). Callers cannot rely
-   * on the stronger guarantees through this interface.
+   * - **Transactional implementations** (e.g. IndexedDB, where the
+   *   whole batch runs inside one readwrite transaction) commit the
+   *   entire batch atomically. A crash either leaves the full batch
+   *   observable or none of it — never a partial prefix.
+   * - **Non-transactional implementations** (e.g. NodeFS, where the
+   *   commit phase is a sequence of `rename(2)` calls) may leave an
+   *   arbitrary subset observable on crash. Each individual committed
+   *   entry is still atomic — readers never see partial bytes for any
+   *   single key — but cross-entry ordering within the commit phase
+   *   is not guaranteed.
    *
-   * Ordering within the `entries` array is not guaranteed to be
-   * preserved across the commit phase. Callers that require write-
-   * ahead ordering between entries (e.g. "blob before metadata") must
-   * split their entries across multiple sequential `saveBatch` (or
-   * `save`) calls.
+   * Callers that need strict cross-entry ordering across crashes (on
+   * any adapter) must split their entries across multiple sequential
+   * `saveBatch` (or `save`) calls: the phase boundary between calls
+   * gives them the ordering guarantee they need.
+   *
+   * Callers whose downstream readers tolerate partial-batch outcomes
+   * (e.g. a reader that checks for a related key's presence before
+   * surfacing an entry) can safely pass related keys as a single
+   * `saveBatch` call — on transactional adapters they get atomicity,
+   * and on non-transactional adapters the tolerated-partial case is
+   * handled at read time.
    *
    * {@link StorageAdapter} provides a default implementation that
-   * simply falls back to sequential {@link save} calls; adapters are
-   * free to override it with a more efficient backend-specific path.
+   * simply falls back to sequential {@link save} calls. The default
+   * offers only per-entry atomicity — not the stage/commit separation
+   * — so consumers that depend on the stage/commit semantics above
+   * should require an adapter that overrides `saveBatch` explicitly.
    */
   saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
 }

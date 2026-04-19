@@ -277,6 +277,18 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
         })
       )
       rollbackCacheForIndices(commitFailures)
+
+      // fsync the parent directories of any entries whose rename
+      // *did* succeed, so their renames are durable across a crash
+      // even though we're about to throw. Otherwise a partial-commit
+      // saveBatch leaves successful renames observable but not
+      // durable, which is strictly weaker than a single save().
+      const successDirs = new Set<string>()
+      commitResults.forEach((r, i) => {
+        if (r.ok) successDirs.add(path.dirname(targetPaths[i]))
+      })
+      await Promise.allSettled(Array.from(successDirs).map(d => fsyncDir(d)))
+
       throw firstCommitErr
     }
 

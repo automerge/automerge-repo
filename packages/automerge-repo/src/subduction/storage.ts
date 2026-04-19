@@ -177,9 +177,13 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         [commitKey, commitCopy],
       ])
 
-      // Emit event after save
       if (this.listeners["commit-saved"]?.length) {
-        this.emit("commit-saved", sedimentreeId, commitId, blobCopy)
+        this.emit(
+          "commit-saved",
+          sedimentreeId,
+          commitId,
+          new Uint8Array(blobCopy)
+        )
       }
     } finally {
       this.decrementPending()
@@ -299,9 +303,13 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         [fragmentKey, fragmentCopy],
       ])
 
-      // Emit event after save
       if (this.listeners["fragment-saved"]?.length) {
-        this.emit("fragment-saved", sedimentreeId, fragmentHead, blobCopy)
+        this.emit(
+          "fragment-saved",
+          sedimentreeId,
+          fragmentHead,
+          new Uint8Array(blobCopy)
+        )
       }
     } finally {
       this.decrementPending()
@@ -478,7 +486,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
             "commit-saved",
             sedimentreeId,
             commitId,
-            commitBlobCopies[i]
+            new Uint8Array(commitBlobCopies[i])
           )
         })
       }
@@ -488,7 +496,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
             "fragment-saved",
             sedimentreeId,
             fragmentHead,
-            fragmentBlobCopies[i]
+            new Uint8Array(fragmentBlobCopies[i])
           )
         })
       }
