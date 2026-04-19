@@ -35,9 +35,6 @@ export interface StorageAdapterInterface {
   /**
    * Save multiple key-value pairs as a staged batch.
    *
-   * Optional — implementations that don't provide this will fall back to
-   * individual {@link save} calls.
-   *
    * ## Two-phase semantics
    *
    * Implementations SHOULD apply the batch in two phases:
@@ -67,6 +64,10 @@ export interface StorageAdapterInterface {
    * ahead ordering between entries (e.g. "blob before metadata") must
    * split their entries across multiple sequential `saveBatch` (or
    * `save`) calls.
+   *
+   * {@link StorageAdapter} provides a default implementation that
+   * simply falls back to sequential {@link save} calls; adapters are
+   * free to override it with a more efficient backend-specific path.
    */
-  saveBatch?(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
+  saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
 }

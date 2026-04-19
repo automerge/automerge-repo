@@ -172,18 +172,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
-      // Write blob first, then commit metadata. Any crash between the
-      // two yields an orphan blob (harmless, skipped by the reader)
-      // rather than a commit pointing at a missing blob.
-      //
-      // We deliberately don't use adapter.saveBatch here even when
-      // available: saveBatch's contract guarantees each entry lands
-      // atomically, but an implementation that executes entries in
-      // parallel (e.g. NodeFS) could still produce commit-without-blob
-      // on crash. Two sequential save() calls cost one extra `await`
-      // boundary and are unambiguously crash-consistent.
-      await this.adapter.save(blobKey, blobCopy)
-      await this.adapter.save(commitKey, commitCopy)
+      await this.adapter.saveBatch([
+        [blobKey, blobCopy],
+        [commitKey, commitCopy],
+      ])
 
       // Emit event after save
       if (this.listeners["commit-saved"]?.length) {
@@ -301,14 +293,11 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
-      // Write blob first, then fragment metadata. Any crash between
-      // the two yields an orphan blob (harmless) rather than a
-      // fragment pointing at missing data.
-      //
-      // We deliberately don't use adapter.saveBatch here; see the
-      // matching comment in saveCommit for rationale.
-      await this.adapter.save(blobKey, blobCopy)
-      await this.adapter.save(fragmentKey, fragmentCopy)
+      // See the matching comment in saveCommit for rationale.
+      await this.adapter.saveBatch([
+        [blobKey, blobCopy],
+        [fragmentKey, fragmentCopy],
+      ])
 
       // Emit event after save
       if (this.listeners["fragment-saved"]?.length) {
@@ -475,29 +464,13 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
     this.pendingSaves++
     try {
-      if (this.adapter.saveBatch) {
-        // Three sequential saveBatch calls. Each phase is parallelised
-        // inside the adapter (fast); the `await` boundary between phases
-        // enforces the write-ahead ordering (correct under crash).
-        if (blobEntries.length > 0) {
-          await this.adapter.saveBatch(blobEntries)
-        }
-        if (metaEntries.length > 0) {
-          await this.adapter.saveBatch(metaEntries)
-        }
-        await this.adapter.saveBatch([markerEntry])
-      } else {
-        // Fallback: three sequential phases, parallel within each phase.
-        // A crash between phases leaves a consistent prefix (orphan
-        // blobs, or blobs+metadata without marker).
-        await Promise.all(
-          blobEntries.map(([key, data]) => this.adapter.save(key, data))
-        )
-        await Promise.all(
-          metaEntries.map(([key, data]) => this.adapter.save(key, data))
-        )
-        await this.adapter.save(markerEntry[0], markerEntry[1])
+      if (blobEntries.length > 0) {
+        await this.adapter.saveBatch(blobEntries)
       }
+      if (metaEntries.length > 0) {
+        await this.adapter.saveBatch(metaEntries)
+      }
+      await this.adapter.saveBatch([markerEntry])
 
       if (this.listeners["commit-saved"]?.length) {
         commits.forEach(({ commitId }, i) => {
