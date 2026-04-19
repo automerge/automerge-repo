@@ -281,6 +281,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       commitResults.forEach((r, i) => {
         if (r.ok) successDirs.add(path.dirname(targetPaths[i]))
       })
+
       const fsyncResults = await Promise.allSettled(
         Array.from(successDirs).map(d => fsyncDir(d))
       )
@@ -572,9 +573,6 @@ const fsyncDir = async (dir: string): Promise<void> => {
   } catch (err: any) {
     if (err.code !== "EISDIR" && err.code !== "EINVAL") throw err
   } finally {
-    // Swallow close() failures so they can't turn a tolerated fsync
-    // outcome into a hard failure. Symmetric with the close handling
-    // in atomicWrite.
     if (fh) {
       try {
         await fh.close()
