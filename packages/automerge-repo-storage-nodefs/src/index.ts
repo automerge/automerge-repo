@@ -150,16 +150,6 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
   async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
     if (entries.length === 0) return
 
-    // Populate the cache synchronously, matching save()'s fire-and-
-    // forget contract. If the stage phase rejects before any rename
-    // completes, disk is unchanged — we roll cache back to match (with
-    // per-entry concurrency guard: only revert entries where the cache
-    // still holds OUR bytes; a later concurrent save/saveBatch may have
-    // superseded them).
-    //
-    // Once the commit (rename) phase begins, successful renames make
-    // bytes observable on disk — we do NOT roll those entries back even
-    // if later renames fail, because cache matches disk for them.
     const prevByKey: Array<[string, Uint8Array | undefined, Uint8Array]> = []
     for (const [keyArray, binary] of entries) {
       const key = getKey(keyArray)
