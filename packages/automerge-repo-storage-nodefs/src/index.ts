@@ -210,11 +210,6 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     }
 
     // ── Phase 1: Stage ─────────────────────────────────────────────
-    //
-    // Write every entry to a tmp file under `.tmp/` and fsync it. No
-    // target files are touched yet. If any stage fails, the batch is
-    // aborted: no targets are observable, all successfully-staged tmp
-    // files are cleaned up, and the cache is rolled back in full.
     const tmpPaths: string[] = entries.map(() => this.makeTmpPath())
     const targetPaths: string[] = entries.map(([keyArray]) =>
       this.getFilePath(keyArray)
@@ -240,8 +235,6 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     }
 
     if (stageFailures.length > 0) {
-      // Clean up any successfully-staged tmp files. No renames have
-      // happened; the on-disk target state is unchanged.
       await Promise.all(
         stageResults.map(async (r, i) => {
           if (r.ok) {
@@ -261,10 +254,6 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     }
 
     // ── Phase 2: Commit ────────────────────────────────────────────
-    //
-    // Every tmp file is durable. Rename each into place. Per-entry
-    // atomicity: readers never see torn bytes for any single key.
-    // Cross-entry: an arbitrary subset may succeed before a crash.
     const commitResults = await Promise.all(
       tmpPaths.map((tmpPath, i) =>
         fs.promises.rename(tmpPath, targetPaths[i]).then(
@@ -285,8 +274,6 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     }
 
     if (commitFailures.length > 0) {
-      // Best-effort: unlink the un-renamed tmp files for the failed
-      // entries. Successful renames remain; their cache entries stay.
       await Promise.all(
         commitFailures.map(async i => {
           try {
@@ -299,17 +286,10 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
           }
         })
       )
-      // Roll back the cache only for the failed commits. Successful
-      // commits are durable on disk and should remain in the cache.
       rollbackCacheForIndices(commitFailures)
       throw firstCommitErr
     }
 
-    // ── Phase 3: fsync parent directories ──────────────────────────
-    //
-    // Ensures the renames are durable across a crash. If this rejects,
-    // bytes are on disk (and cache matches) — we surface the error but
-    // don't roll back.
     await Promise.all(Array.from(targetDirs).map(d => fsyncDir(d)))
   }
 

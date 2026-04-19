@@ -202,13 +202,18 @@ describe("NodeFSStorageAdapter", () => {
       expect(files).toHaveLength(0)
     })
 
-    it("saveBatch() rolls back only the entries whose writes failed", async () => {
+    it("saveBatch() aborts the whole batch when any entry's stage phase fails", async () => {
+      // Staged semantics: if any entry can't be prepared (e.g. its
+      // target directory can't be created), the whole batch is
+      // aborted before any rename happens. No entry should end up
+      // observable on disk, and all cache entries should be rolled
+      // back.
       const okKey1 = ["AAAAAAAA", "snapshot", "one"]
       const okKey2 = ["AAAAAAAA", "snapshot", "two"]
       const badKey = ["BBBBBBBB", "snapshot", "hash"]
 
-      // Create a file-not-directory at the parent of the bad key so
-      // its mkdir/atomicWrite will fail, while the good keys succeed.
+      // Create a file-not-directory at an ancestor of the bad key so
+      // its parent-dir mkdir fails.
       const adapterAny = adapter as unknown as {
         getFilePath(k: string[]): string
       }
@@ -224,16 +229,43 @@ describe("NodeFSStorageAdapter", () => {
         ])
       ).rejects.toBeDefined()
 
-      // The failed key must have been rolled back out of the cache...
-      expect(await adapter.load(badKey)).toBeUndefined()
+      // None of the entries should be observable: the batch was
+      // aborted before any commit. Read via a fresh adapter to verify
+      // on-disk state bypassing any in-memory cache.
+      const fresh = new NodeFSStorageAdapter(dir)
+      expect(await fresh.load(okKey1)).toBeUndefined()
+      expect(await fresh.load(okKey2)).toBeUndefined()
+      expect(await fresh.load(badKey)).toBeUndefined()
 
-      // ...but the successful entries should remain in both cache and disk.
-      const one = await adapter.load(okKey1)
-      const two = await adapter.load(okKey2)
-      expect(one).toBeDefined()
-      expect(two).toBeDefined()
-      expect(Array.from(one!)).toEqual([1])
-      expect(Array.from(two!)).toEqual([2])
+      // The in-memory cache must also be rolled back for all entries.
+      expect(await adapter.load(okKey1)).toBeUndefined()
+      expect(await adapter.load(okKey2)).toBeUndefined()
+      expect(await adapter.load(badKey)).toBeUndefined()
+    })
+
+    it("saveBatch() commits every entry when the stage phase succeeds", async () => {
+      // Successful-path regression: make sure the two-phase design
+      // doesn't accidentally leave tmp files hanging around or fail
+      // to commit.
+      const entries: Array<[string[], Uint8Array]> = [
+        [["AAAAAAAA", "snapshot", "one"], new Uint8Array([1])],
+        [["AAAAAAAA", "snapshot", "two"], new Uint8Array([2])],
+        [["BBBBBBBB", "snapshot", "one"], new Uint8Array([11])],
+      ]
+
+      await adapter.saveBatch(entries)
+
+      // Every entry is persisted.
+      const fresh = new NodeFSStorageAdapter(dir)
+      for (const [key, expected] of entries) {
+        const loaded = await fresh.load(key)
+        expect(loaded).toBeDefined()
+        expect(Array.from(loaded!)).toEqual(Array.from(expected))
+      }
+
+      // No staged tmp files are left behind.
+      const tmpDir = path.join(dir, ".tmp")
+      expect(fs.readdirSync(tmpDir)).toEqual([])
     })
   })
 })
