@@ -409,8 +409,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
    * crash-prefix state is consistent: orphan blobs (harmless), or blobs
    * + metadata without the ID marker (invisible to enumeration).
    *
-   * For 50 commits this reduces ~100 round-trips to 3 on adapters that
-   * implement `adapter.saveBatch`.
+   * For 50 commits this reduces ~100 round-trips to 3 on adapters
+   * that override the default `saveBatch` with a native batch path.
    */
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
