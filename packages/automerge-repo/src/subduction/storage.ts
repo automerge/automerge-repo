@@ -438,29 +438,6 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<number> {
     const sid = sedimentreeId.toString()
 
-    // Write-ahead ordering: collect entries in three groups that must
-    // be written in order so any crash-prefix state is consistent.
-    //
-    //   1. All blobs (commit blobs and fragment blobs). Orphan blobs
-    //      without their metadata are skipped silently by loadAll* and
-    //      are harmless on-disk garbage.
-    //   2. All metadata (signed commits and signed fragments). By the
-    //      time any of this is visible, every blob it references is
-    //      already durable.
-    //   3. The sedimentree ID marker. This makes the sedimentree
-    //      enumerable via loadAllSedimentreeIds only once its data is
-    //      durable; a crash before this point leaves invisible-but-
-    //      otherwise-consistent state that the next run will ignore.
-    //
-    // We enforce the ordering at the `await` boundary between phases
-    // rather than relying on in-batch entry order. An `adapter.saveBatch`
-    // call may internally parallelise entries (e.g. NodeFS), so stuffing
-    // all three phases into one saveBatch call doesn't preserve the
-    // invariant on crash. Three sequential saveBatch calls preserve the
-    // invariant for any adapter whose single saveBatch is "atomic per
-    // entry and durable before returning" — a much weaker contract than
-    // full cross-entry transactionality, which IDB happens to satisfy
-    // but NodeFS does not.
     const blobEntries: Array<[string[], Uint8Array]> = []
     const metaEntries: Array<[string[], Uint8Array]> = []
 
