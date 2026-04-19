@@ -464,6 +464,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const blobEntries: Array<[string[], Uint8Array]> = []
     const metaEntries: Array<[string[], Uint8Array]> = []
 
+    // Retain copies of each blob so we can emit them after the save.
+    const commitBlobCopies: Uint8Array[] = []
+    const fragmentBlobCopies: Uint8Array[] = []
+
     for (const { commitId, signedCommit, blob } of commits) {
       const idHex = commitId.toHexString()
       const commitBytes = signedCommit.encode()
@@ -473,6 +477,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
       blobEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
       metaEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
+      commitBlobCopies.push(blobCopy)
     }
 
     for (const { fragmentHead, signedFragment, blob } of fragments) {
@@ -483,6 +488,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
       blobEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
       metaEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
+      fragmentBlobCopies.push(blobCopy)
     }
 
     const markerEntry: [string[], Uint8Array] = [
@@ -516,26 +522,25 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         await this.adapter.save(markerEntry[0], markerEntry[1])
       }
 
-      // Emit events after successful save
-      for (const { commitId, blob } of commits) {
-        if (this.listeners["commit-saved"]?.length) {
+      if (this.listeners["commit-saved"]?.length) {
+        commits.forEach(({ commitId }, i) => {
           this.emit(
             "commit-saved",
             sedimentreeId,
             commitId,
-            new Uint8Array(blob)
+            commitBlobCopies[i]
           )
-        }
+        })
       }
-      for (const { fragmentHead, blob } of fragments) {
-        if (this.listeners["fragment-saved"]?.length) {
+      if (this.listeners["fragment-saved"]?.length) {
+        fragments.forEach(({ fragmentHead }, i) => {
           this.emit(
             "fragment-saved",
             sedimentreeId,
             fragmentHead,
-            new Uint8Array(blob)
+            fragmentBlobCopies[i]
           )
-        }
+        })
       }
     } finally {
       this.decrementPending()
