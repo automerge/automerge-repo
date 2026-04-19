@@ -105,17 +105,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       const fileContent = await fs.promises.readFile(filePath)
       return new Uint8Array(fileContent)
     } catch (error: any) {
-      // "No file at this key" covers three fs-error codes:
-      //   ENOENT  — path doesn't exist
-      //   ENOTDIR — a path component is a file where a directory
-      //             was expected
-      //   EISDIR  — the target itself is a directory, not a file
-      // All three correctly mean "no stored value for this key".
-      if (
-        error.code === "ENOENT" ||
-        error.code === "ENOTDIR" ||
-        error.code === "EISDIR"
-      ) {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") {
         return undefined
       }
       throw error
@@ -291,7 +281,17 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       commitResults.forEach((r, i) => {
         if (r.ok) successDirs.add(path.dirname(targetPaths[i]))
       })
-      await Promise.allSettled(Array.from(successDirs).map(d => fsyncDir(d)))
+      const fsyncResults = await Promise.allSettled(
+        Array.from(successDirs).map(d => fsyncDir(d))
+      )
+      fsyncResults.forEach(r => {
+        if (r.status === "rejected") {
+          console.debug(
+            `[automerge-repo-storage-nodefs] fsyncDir failed during partial-commit recovery:`,
+            r.reason
+          )
+        }
+      })
 
       throw firstCommitErr
     }

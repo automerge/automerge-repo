@@ -255,20 +255,21 @@ describe("NodeFSStorageAdapter", () => {
       // in <dir>/.tmp/). The commit phase's rename fails for badKey
       // because its target path already exists as a directory; the
       // other entries rename successfully. Expected outcome:
-      //   - successful entries are observable on disk
-      //   - successful entries' cache retains the new bytes
-      //   - failed entry is absent from disk and rolled back in cache
-      //   - no tmp files remain (successful renames moved the tmp
-      //     file to target; failed entry's tmp was unlinked)
+      //   - successful entries are observable on disk and in cache
+      //   - failed entry's cache is rolled back
+      //   - load(badKey) throws EISDIR (directory squatting on a key
+      //     path is a corruption signal that must propagate)
+      //   - no tmp files remain
       const okKey1 = ["AAAAAAAA", "snapshot", "one"]
       const okKey2 = ["CCCCCCCC", "snapshot", "two"]
       const badKey = ["BBBBBBBB", "snapshot", "hash"]
 
       // Make the bad key's target path a directory so rename fails
-      // with EISDIR during the commit phase. Its parent dir exists,
-      // so stage-phase mkdir of the parent succeeds.
+      // during the commit phase. Its parent dir exists, so stage-phase
+      // mkdir of the parent succeeds.
       const adapterAny = adapter as unknown as {
         getFilePath(k: string[]): string
+        cache: Record<string, Uint8Array>
       }
       const badTarget = adapterAny.getFilePath(badKey)
       fs.mkdirSync(path.dirname(badTarget), { recursive: true })
@@ -285,21 +286,31 @@ describe("NodeFSStorageAdapter", () => {
       // Successful entries should be durable on disk (visible via a
       // fresh adapter bypassing the writer's cache).
       const fresh = new NodeFSStorageAdapter(dir)
-      const one = await fresh.load(okKey1)
-      const two = await fresh.load(okKey2)
-      expect(one).toBeDefined()
-      expect(two).toBeDefined()
-      expect(Array.from(one!)).toEqual([1])
-      expect(Array.from(two!)).toEqual([2])
+      expect(Array.from((await fresh.load(okKey1))!)).toEqual([1])
+      expect(Array.from((await fresh.load(okKey2))!)).toEqual([2])
 
       // Successful entries remain in the writer's cache too.
       expect(Array.from((await adapter.load(okKey1))!)).toEqual([1])
       expect(Array.from((await adapter.load(okKey2))!)).toEqual([2])
 
-      // Failed entry: target still exists (it's the directory we
-      // pre-created, not the file we tried to write), and the key
-      // is absent from the writer's cache.
-      expect(await adapter.load(badKey)).toBeUndefined()
+      // Failed entry: directory is still at the target path, so load()
+      // surfaces EISDIR rather than silently returning undefined. This
+      // is the corruption signal; load() MUST propagate it.
+      await expect(adapter.load(badKey)).rejects.toMatchObject({
+        code: "EISDIR",
+      })
+      await expect(fresh.load(badKey)).rejects.toMatchObject({
+        code: "EISDIR",
+      })
+
+      // Direct cache-state check: the failed entry is rolled back in
+      // the writer's cache. The successful entries retain their new
+      // bytes. (Separating this from the load() assertions above
+      // isolates cache behavior from the EISDIR-propagation behavior.)
+      const keyStr = (k: string[]) => k.join(path.sep)
+      expect(adapterAny.cache[keyStr(badKey)]).toBeUndefined()
+      expect(Array.from(adapterAny.cache[keyStr(okKey1)])).toEqual([1])
+      expect(Array.from(adapterAny.cache[keyStr(okKey2)])).toEqual([2])
 
       // No staged tmp files should remain — successful renames moved
       // them to targets; the failing rename's tmp was unlinked.
