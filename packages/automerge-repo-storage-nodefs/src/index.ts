@@ -29,15 +29,15 @@
  *
  *   1. Stage every entry's value to a tmp file (write + fsync). No
  *      target is yet observable.
- *   2. Verify every CAS precondition.
- *   3. Commit by renaming every tmp file over its target in turn.
- *   4. fsync every distinct parent directory.
+ *   2. Commit by renaming every tmp file over its target.
+ *   3. fsync every distinct parent directory once all renames have
+ *      completed, so the renames themselves are durable across a crash.
  *
- * If any stage operation or CAS precondition fails, no commits happen
- * and the staged tmp files are cleaned up. A crash during the commit
- * phase may leave an arbitrary subset of entries observable, but each
- * individual committed entry is atomic — readers never see partial
- * bytes for any single key.
+ * If any stage operation fails, no commits happen and the staged tmp
+ * files are cleaned up. A crash during the commit phase may leave an
+ * arbitrary subset of entries observable, but each individual
+ * committed entry is atomic — readers never see partial bytes for any
+ * single key.
  */
 
 import {
