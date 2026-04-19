@@ -172,12 +172,14 @@ describe("NodeFSStorageAdapter", () => {
 
     // ─── saveBatch ────────────────────────────────────────────────────
 
-    it("saveBatch persists every entry", async () => {
+    it("saveBatch persists every entry across multiple shards and leaves no tmp files", async () => {
       const entries: Array<[string[], Uint8Array]> = []
       for (let i = 0; i < 32; i++) {
         const hash = i.toString(16).padStart(8, "0")
+        // Alternate shards so the batch spans multiple target dirs.
+        const shard = i % 2 === 0 ? "AAAAAAAA" : "BBBBBBBB"
         entries.push([
-          ["AAAAAAAA", "incremental", hash],
+          [shard, "incremental", hash],
           new Uint8Array([i, i, i, i]),
         ])
       }
@@ -192,6 +194,11 @@ describe("NodeFSStorageAdapter", () => {
         expect(loaded).toBeDefined()
         expect(Array.from(loaded!)).toEqual(Array.from(expected))
       }
+
+      // The two-phase design must leave no staged tmp files behind on
+      // successful commit.
+      const tmpDir = path.join(dir, ".tmp")
+      expect(fs.readdirSync(tmpDir)).toEqual([])
     })
 
     it("saveBatch([]) is a no-op", async () => {
@@ -202,7 +209,7 @@ describe("NodeFSStorageAdapter", () => {
       expect(files).toHaveLength(0)
     })
 
-    it("saveBatch() aborts the whole batch when any entry's stage phase fails", async () => {
+    it("saveBatch() aborts the whole batch when any entry's setup fails", async () => {
       // Staged semantics: if any entry can't be prepared (e.g. its
       // target directory can't be created), the whole batch is
       // aborted before any rename happens. No entry should end up
@@ -241,31 +248,6 @@ describe("NodeFSStorageAdapter", () => {
       expect(await adapter.load(okKey1)).toBeUndefined()
       expect(await adapter.load(okKey2)).toBeUndefined()
       expect(await adapter.load(badKey)).toBeUndefined()
-    })
-
-    it("saveBatch() commits every entry when the stage phase succeeds", async () => {
-      // Successful-path regression: make sure the two-phase design
-      // doesn't accidentally leave tmp files hanging around or fail
-      // to commit.
-      const entries: Array<[string[], Uint8Array]> = [
-        [["AAAAAAAA", "snapshot", "one"], new Uint8Array([1])],
-        [["AAAAAAAA", "snapshot", "two"], new Uint8Array([2])],
-        [["BBBBBBBB", "snapshot", "one"], new Uint8Array([11])],
-      ]
-
-      await adapter.saveBatch(entries)
-
-      // Every entry is persisted.
-      const fresh = new NodeFSStorageAdapter(dir)
-      for (const [key, expected] of entries) {
-        const loaded = await fresh.load(key)
-        expect(loaded).toBeDefined()
-        expect(Array.from(loaded!)).toEqual(Array.from(expected))
-      }
-
-      // No staged tmp files are left behind.
-      const tmpDir = path.join(dir, ".tmp")
-      expect(fs.readdirSync(tmpDir)).toEqual([])
     })
   })
 })
