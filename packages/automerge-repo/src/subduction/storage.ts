@@ -172,21 +172,22 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
-      if (this.adapter.saveBatch) {
-        await this.adapter.saveBatch([
-          [commitKey, commitCopy],
-          [blobKey, blobCopy],
-        ])
-      } else {
-        await Promise.all([
-          this.adapter.save(commitKey, commitCopy),
-          this.adapter.save(blobKey, blobCopy),
-        ])
-      }
+      await this.adapter.saveBatch([
+        [blobKey, blobCopy],
+        [commitKey, commitCopy],
+      ])
 
-      // Emit event after save
+      // Emit a fresh copy per event. `blobCopy` is already the bytes
+      // we handed to the adapter, and adapters (e.g. NodeFS) cache by
+      // reference. A listener that mutates the shared reference would
+      // corrupt the adapter's cache and affect other listeners.
       if (this.listeners["commit-saved"]?.length) {
-        this.emit("commit-saved", sedimentreeId, commitId, blobCopy)
+        this.emit(
+          "commit-saved",
+          sedimentreeId,
+          commitId,
+          new Uint8Array(blobCopy)
+        )
       }
     } finally {
       this.decrementPending()
@@ -300,21 +301,20 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
-      if (this.adapter.saveBatch) {
-        await this.adapter.saveBatch([
-          [fragmentKey, fragmentCopy],
-          [blobKey, blobCopy],
-        ])
-      } else {
-        await Promise.all([
-          this.adapter.save(fragmentKey, fragmentCopy),
-          this.adapter.save(blobKey, blobCopy),
-        ])
-      }
+      // See the matching comment in saveCommit for rationale.
+      await this.adapter.saveBatch([
+        [blobKey, blobCopy],
+        [fragmentKey, fragmentCopy],
+      ])
 
-      // Emit event after save
+      // Defensive copy per event; see comment in saveCommit.
       if (this.listeners["fragment-saved"]?.length) {
-        this.emit("fragment-saved", sedimentreeId, fragmentHead, blobCopy)
+        this.emit(
+          "fragment-saved",
+          sedimentreeId,
+          fragmentHead,
+          new Uint8Array(blobCopy)
+        )
       }
     } finally {
       this.decrementPending()
@@ -410,14 +410,20 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   // ==================== Batch Operations ====================
 
   /**
-   * Save a batch of commits and fragments in a single IDB transaction.
+   * Save a batch of commits and fragments.
    *
    * Called from Subduction's Wasm `save_batch` during sync ingestion.
-   * Instead of N individual `saveCommit`/`saveFragment` calls (each creating
-   * its own IDB readwrite transaction), this collects all key-value pairs
-   * and writes them in one `adapter.saveBatch()` call.
+   * Instead of N individual `saveCommit`/`saveFragment` calls (each
+   * creating its own underlying transaction), this issues at most three
+   * `adapter.saveBatch()` calls (blobs, metadata, sedimentree ID marker)
+   * in order.
    *
-   * For 50 commits this reduces ~100 IDB transactions to 1.
+   * The three-phase structure enforces write-ahead ordering so that any
+   * crash-prefix state is consistent: orphan blobs (harmless), or blobs
+   * + metadata without the ID marker (invisible to enumeration).
+   *
+   * For 50 commits this reduces ~100 round-trips to 3 on adapters
+   * that override the default `saveBatch` with a native batch path.
    */
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
@@ -433,12 +439,14 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     }>
   ): Promise<number> {
     const sid = sedimentreeId.toString()
-    const entries: Array<[string[], Uint8Array]> = []
 
-    // Sedimentree ID marker
-    entries.push([[PREFIX, IDS_PREFIX, sid], ID_MARKER])
+    const blobEntries: Array<[string[], Uint8Array]> = []
+    const metaEntries: Array<[string[], Uint8Array]> = []
 
-    // Collect all commit key-value pairs
+    // Retain copies of each blob so we can emit them after the save.
+    const commitBlobCopies: Uint8Array[] = []
+    const fragmentBlobCopies: Uint8Array[] = []
+
     for (const { commitId, signedCommit, blob } of commits) {
       const idHex = commitId.toHexString()
       const commitBytes = signedCommit.encode()
@@ -446,53 +454,57 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const commitCopy = new Uint8Array(commitBytes)
       const blobCopy = new Uint8Array(blob)
 
-      entries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
-      entries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
+      blobEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
+      metaEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
+      commitBlobCopies.push(blobCopy)
     }
 
-    // Collect all fragment key-value pairs
     for (const { fragmentHead, signedFragment, blob } of fragments) {
       const idHex = fragmentHead.toHexString()
       const fragBytes = signedFragment.encode()
       const fragCopy = new Uint8Array(fragBytes)
       const blobCopy = new Uint8Array(blob)
 
-      entries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
-      entries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
+      blobEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
+      metaEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
+      fragmentBlobCopies.push(blobCopy)
     }
 
-    // Single IDB transaction for all entries
+    const markerEntry: [string[], Uint8Array] = [
+      [PREFIX, IDS_PREFIX, sid],
+      ID_MARKER,
+    ]
+
     this.pendingSaves++
     try {
-      if (this.adapter.saveBatch) {
-        await this.adapter.saveBatch(entries)
-      } else {
-        // Fallback: parallel individual saves (still better than sequential)
-        await Promise.all(
-          entries.map(([key, data]) => this.adapter.save(key, data))
-        )
+      if (blobEntries.length > 0) {
+        await this.adapter.saveBatch(blobEntries)
       }
+      if (metaEntries.length > 0) {
+        await this.adapter.saveBatch(metaEntries)
+      }
+      await this.adapter.saveBatch([markerEntry])
 
-      // Emit events after successful save
-      for (const { commitId, blob } of commits) {
-        if (this.listeners["commit-saved"]?.length) {
+      // Defensive copy per event; see comment in saveCommit.
+      if (this.listeners["commit-saved"]?.length) {
+        commits.forEach(({ commitId }, i) => {
           this.emit(
             "commit-saved",
             sedimentreeId,
             commitId,
-            new Uint8Array(blob)
+            new Uint8Array(commitBlobCopies[i])
           )
-        }
+        })
       }
-      for (const { fragmentHead, blob } of fragments) {
-        if (this.listeners["fragment-saved"]?.length) {
+      if (this.listeners["fragment-saved"]?.length) {
+        fragments.forEach(({ fragmentHead }, i) => {
           this.emit(
             "fragment-saved",
             sedimentreeId,
             fragmentHead,
-            new Uint8Array(blob)
+            new Uint8Array(fragmentBlobCopies[i])
           )
-        }
+        })
       }
     } finally {
       this.decrementPending()

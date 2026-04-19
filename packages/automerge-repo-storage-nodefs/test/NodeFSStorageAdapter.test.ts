@@ -169,6 +169,154 @@ describe("NodeFSStorageAdapter", () => {
       expect(loaded).toBeDefined()
       expect(Array.from(loaded!)).toEqual([1, 1, 1])
     })
+
+    // ─── saveBatch ────────────────────────────────────────────────────
+
+    it("saveBatch persists every entry across multiple shards and leaves no tmp files", async () => {
+      const entries: Array<[string[], Uint8Array]> = []
+      for (let i = 0; i < 32; i++) {
+        const hash = i.toString(16).padStart(8, "0")
+        // Alternate shards so the batch spans multiple target dirs.
+        const shard = i % 2 === 0 ? "AAAAAAAA" : "BBBBBBBB"
+        entries.push([
+          [shard, "incremental", hash],
+          new Uint8Array([i, i, i, i]),
+        ])
+      }
+
+      await adapter.saveBatch(entries)
+
+      // Read via a fresh adapter so we hit on-disk bytes, not the
+      // writer's in-memory cache.
+      const fresh = new NodeFSStorageAdapter(dir)
+      for (const [key, expected] of entries) {
+        const loaded = await fresh.load(key)
+        expect(loaded).toBeDefined()
+        expect(Array.from(loaded!)).toEqual(Array.from(expected))
+      }
+
+      // The two-phase design must leave no staged tmp files behind on
+      // successful commit.
+      const tmpDir = path.join(dir, ".tmp")
+      expect(fs.readdirSync(tmpDir)).toEqual([])
+    })
+
+    it("saveBatch([]) is a no-op", async () => {
+      await adapter.saveBatch([])
+      // Nothing to assert beyond "didn't throw" — but confirm directory
+      // is still empty so we didn't accidentally create anything.
+      const files = walkSync(dir)
+      expect(files).toHaveLength(0)
+    })
+
+    it("saveBatch() aborts the whole batch when any entry's setup fails", async () => {
+      // Staged semantics: if any entry can't be prepared (e.g. its
+      // target directory can't be created), the whole batch is
+      // aborted before any rename happens. No entry should end up
+      // observable on disk, and all cache entries should be rolled
+      // back.
+      const okKey1 = ["AAAAAAAA", "snapshot", "one"]
+      const okKey2 = ["AAAAAAAA", "snapshot", "two"]
+      const badKey = ["BBBBBBBB", "snapshot", "hash"]
+
+      // Create a file-not-directory at an ancestor of the bad key so
+      // its parent-dir mkdir fails.
+      const adapterAny = adapter as unknown as {
+        getFilePath(k: string[]): string
+      }
+      const badParent = path.dirname(adapterAny.getFilePath(badKey))
+      fs.mkdirSync(path.dirname(badParent), { recursive: true })
+      fs.writeFileSync(badParent, Buffer.from("block"))
+
+      await expect(
+        adapter.saveBatch([
+          [okKey1, new Uint8Array([1])],
+          [badKey, new Uint8Array([9])],
+          [okKey2, new Uint8Array([2])],
+        ])
+      ).rejects.toBeDefined()
+
+      // None of the entries should be observable: the batch was
+      // aborted before any commit. Read via a fresh adapter to verify
+      // on-disk state bypassing any in-memory cache.
+      const fresh = new NodeFSStorageAdapter(dir)
+      expect(await fresh.load(okKey1)).toBeUndefined()
+      expect(await fresh.load(okKey2)).toBeUndefined()
+      expect(await fresh.load(badKey)).toBeUndefined()
+
+      // The in-memory cache must also be rolled back for all entries.
+      expect(await adapter.load(okKey1)).toBeUndefined()
+      expect(await adapter.load(okKey2)).toBeUndefined()
+      expect(await adapter.load(badKey)).toBeUndefined()
+    })
+
+    it("saveBatch() with a commit-phase failure keeps successful entries and rolls back only the failed one", async () => {
+      // Stage phase succeeds for every entry (tmp files are created
+      // in <dir>/.tmp/). The commit phase's rename fails for badKey
+      // because its target path already exists as a directory; the
+      // other entries rename successfully. Expected outcome:
+      //   - successful entries are observable on disk and in cache
+      //   - failed entry's cache is rolled back
+      //   - load(badKey) throws EISDIR (directory squatting on a key
+      //     path is a corruption signal that must propagate)
+      //   - no tmp files remain
+      const okKey1 = ["AAAAAAAA", "snapshot", "one"]
+      const okKey2 = ["CCCCCCCC", "snapshot", "two"]
+      const badKey = ["BBBBBBBB", "snapshot", "hash"]
+
+      // Make the bad key's target path a directory so rename fails
+      // during the commit phase. Its parent dir exists, so stage-phase
+      // mkdir of the parent succeeds.
+      const adapterAny = adapter as unknown as {
+        getFilePath(k: string[]): string
+        cache: Record<string, Uint8Array>
+      }
+      const badTarget = adapterAny.getFilePath(badKey)
+      fs.mkdirSync(path.dirname(badTarget), { recursive: true })
+      fs.mkdirSync(badTarget) // target-as-directory blocks rename
+
+      await expect(
+        adapter.saveBatch([
+          [okKey1, new Uint8Array([1])],
+          [badKey, new Uint8Array([9])],
+          [okKey2, new Uint8Array([2])],
+        ])
+      ).rejects.toBeDefined()
+
+      // Successful entries should be durable on disk (visible via a
+      // fresh adapter bypassing the writer's cache).
+      const fresh = new NodeFSStorageAdapter(dir)
+      expect(Array.from((await fresh.load(okKey1))!)).toEqual([1])
+      expect(Array.from((await fresh.load(okKey2))!)).toEqual([2])
+
+      // Successful entries remain in the writer's cache too.
+      expect(Array.from((await adapter.load(okKey1))!)).toEqual([1])
+      expect(Array.from((await adapter.load(okKey2))!)).toEqual([2])
+
+      // Failed entry: directory is still at the target path, so load()
+      // surfaces EISDIR rather than silently returning undefined. This
+      // is the corruption signal; load() MUST propagate it.
+      await expect(adapter.load(badKey)).rejects.toMatchObject({
+        code: "EISDIR",
+      })
+      await expect(fresh.load(badKey)).rejects.toMatchObject({
+        code: "EISDIR",
+      })
+
+      // Direct cache-state check: the failed entry is rolled back in
+      // the writer's cache. The successful entries retain their new
+      // bytes. (Separating this from the load() assertions above
+      // isolates cache behavior from the EISDIR-propagation behavior.)
+      const keyStr = (k: string[]) => k.join(path.sep)
+      expect(adapterAny.cache[keyStr(badKey)]).toBeUndefined()
+      expect(Array.from(adapterAny.cache[keyStr(okKey1)])).toEqual([1])
+      expect(Array.from(adapterAny.cache[keyStr(okKey2)])).toEqual([2])
+
+      // No staged tmp files should remain — successful renames moved
+      // them to targets; the failing rename's tmp was unlinked.
+      const tmpDir = path.join(dir, ".tmp")
+      expect(fs.readdirSync(tmpDir)).toEqual([])
+    })
   })
 })
 

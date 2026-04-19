@@ -33,11 +33,19 @@ export interface StorageAdapterInterface {
   removeRange(keyPrefix: StorageKey): Promise<void>
 
   /**
-   * Save multiple key-value pairs in a single transaction.
+   * Save multiple key-value pairs as a staged batch.
    *
-   * Optional — implementations that don't provide this will fall back to
-   * individual {@link save} calls. Implementing this can significantly
-   * reduce IDB transaction overhead for batch writes.
+   * ## Two-phase semantics
+   *
+   * Implementations SHOULD apply the batch in two phases:
+   *
+   *   1. **Stage**: every entry's value is written to durable temporary
+   *      storage (e.g. tmp file + fsync). No target is observable yet.
+   *   2. **Commit**: every staged write is committed to its final
+   *      target (e.g. rename over target).
+   *
+   * If any stage operation fails, the batch is aborted before any
+   * commit happens — no entries become observable.
    */
-  saveBatch?(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
+  saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
 }
