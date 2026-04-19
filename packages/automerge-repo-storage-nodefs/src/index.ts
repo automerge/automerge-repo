@@ -22,6 +22,13 @@
  * making them invisible to older adapters and to {@link loadRange} /
  * {@link load}, which are always prefix-scoped and are unlikely to walk
  * `.tmp/` since real-world keys won't shard into a `.t` prefix.
+ *
+ * {@link NodeFSStorageAdapter.saveBatch | saveBatch} applies the same
+ * pattern per entry — every individual write is atomic — but is not an
+ * all-or-nothing transaction across the batch. A crash midway through a
+ * `saveBatch` may leave any subset of entries applied. Consumers that
+ * need cross-entry atomicity must order their writes so that any
+ * partial prefix is still a valid state.
  */
 
 import {
@@ -129,6 +136,90 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     }
 
     await fsyncDir(dir)
+  }
+
+  async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
+    if (entries.length === 0) return
+
+    // Capture prior cache state per key, then populate synchronously so
+    // in-flight in-process loads still observe the batch. On failure we
+    // use the per-entry settled results to roll back only the keys whose
+    // on-disk writes did not succeed. See save() for rationale.
+    //
+    // Per-entry concurrency guard (matching save()): only roll back if
+    // the cache still holds the bytes WE wrote. A later concurrent
+    // saveBatch or save may have superseded our entry; clobbering its
+    // value would diverge cache from disk.
+    const prevByKey: Array<[string, Uint8Array | undefined, Uint8Array]> = []
+    for (const [keyArray, binary] of entries) {
+      const key = getKey(keyArray)
+      prevByKey.push([key, this.cache[key], binary])
+      this.cache[key] = binary
+    }
+
+    // Ensure the tmp directory exists once for the whole batch.
+    try {
+      await this.ensureTmpDirectory()
+    } catch (err) {
+      // tmp dir mkdir failed before any write; roll every entry back
+      // (subject to the concurrency guard).
+      for (const [key, prev, ours] of prevByKey) {
+        if (this.cache[key] === ours) {
+          rollbackCache(this.cache, key, prev)
+        }
+      }
+      throw err
+    }
+
+    // Per-entry mkdir + atomicWrite in parallel, collecting individual
+    // results so a partial failure can roll back only the affected
+    // entries. mkdir is `recursive: true`, which is idempotent and
+    // cheap on already-existing directories.
+    const writeResults = await Promise.all(
+      entries.map(([keyArray, binary]) => {
+        const filePath = this.getFilePath(keyArray)
+        const dir = path.dirname(filePath)
+        return fs.promises
+          .mkdir(dir, { recursive: true })
+          .then(() => atomicWrite(filePath, this.makeTmpPath(), binary))
+          .then(
+            () => ({ ok: true as const }),
+            err => ({ ok: false as const, err })
+          )
+      })
+    )
+
+    const failedIndices: number[] = []
+    let firstErr: unknown
+    for (let i = 0; i < writeResults.length; i++) {
+      const r = writeResults[i]
+      if (!r.ok) {
+        failedIndices.push(i)
+        if (firstErr === undefined) firstErr = r.err
+      }
+    }
+
+    if (failedIndices.length > 0) {
+      // Roll back only the failed entries' cache state; successful
+      // entries are durable on disk and should remain in cache.
+      for (const i of failedIndices) {
+        const [key, prev, ours] = prevByKey[i]
+        if (this.cache[key] === ours) {
+          rollbackCache(this.cache, key, prev)
+        }
+      }
+      throw firstErr
+    }
+
+    // fsync each distinct parent directory once so the renames are
+    // durable. No-op on Windows. If this rejects, bytes are on disk
+    // and cache matches disk — we don't roll back, but we do surface
+    // the error so callers that care about durability see it.
+    const dirs = new Set<string>()
+    for (const [keyArray] of entries) {
+      dirs.add(path.dirname(this.getFilePath(keyArray)))
+    }
+    await Promise.all(Array.from(dirs).map(d => fsyncDir(d)))
   }
 
   async remove(keyArray: string[]): Promise<void> {

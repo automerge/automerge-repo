@@ -169,6 +169,72 @@ describe("NodeFSStorageAdapter", () => {
       expect(loaded).toBeDefined()
       expect(Array.from(loaded!)).toEqual([1, 1, 1])
     })
+
+    // ─── saveBatch ────────────────────────────────────────────────────
+
+    it("saveBatch persists every entry", async () => {
+      const entries: Array<[string[], Uint8Array]> = []
+      for (let i = 0; i < 32; i++) {
+        const hash = i.toString(16).padStart(8, "0")
+        entries.push([
+          ["AAAAAAAA", "incremental", hash],
+          new Uint8Array([i, i, i, i]),
+        ])
+      }
+
+      await adapter.saveBatch(entries)
+
+      // Read via a fresh adapter so we hit on-disk bytes, not the
+      // writer's in-memory cache.
+      const fresh = new NodeFSStorageAdapter(dir)
+      for (const [key, expected] of entries) {
+        const loaded = await fresh.load(key)
+        expect(loaded).toBeDefined()
+        expect(Array.from(loaded!)).toEqual(Array.from(expected))
+      }
+    })
+
+    it("saveBatch([]) is a no-op", async () => {
+      await adapter.saveBatch([])
+      // Nothing to assert beyond "didn't throw" — but confirm directory
+      // is still empty so we didn't accidentally create anything.
+      const files = walkSync(dir)
+      expect(files).toHaveLength(0)
+    })
+
+    it("saveBatch() rolls back only the entries whose writes failed", async () => {
+      const okKey1 = ["AAAAAAAA", "snapshot", "one"]
+      const okKey2 = ["AAAAAAAA", "snapshot", "two"]
+      const badKey = ["BBBBBBBB", "snapshot", "hash"]
+
+      // Create a file-not-directory at the parent of the bad key so
+      // its mkdir/atomicWrite will fail, while the good keys succeed.
+      const adapterAny = adapter as unknown as {
+        getFilePath(k: string[]): string
+      }
+      const badParent = path.dirname(adapterAny.getFilePath(badKey))
+      fs.mkdirSync(path.dirname(badParent), { recursive: true })
+      fs.writeFileSync(badParent, Buffer.from("block"))
+
+      await expect(
+        adapter.saveBatch([
+          [okKey1, new Uint8Array([1])],
+          [badKey, new Uint8Array([9])],
+          [okKey2, new Uint8Array([2])],
+        ])
+      ).rejects.toBeDefined()
+
+      // The failed key must have been rolled back out of the cache...
+      expect(await adapter.load(badKey)).toBeUndefined()
+
+      // ...but the successful entries should remain in both cache and disk.
+      const one = await adapter.load(okKey1)
+      const two = await adapter.load(okKey2)
+      expect(one).toBeDefined()
+      expect(two).toBeDefined()
+      expect(Array.from(one!)).toEqual([1])
+      expect(Array.from(two!)).toEqual([2])
+    })
   })
 })
 
