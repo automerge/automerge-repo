@@ -177,6 +177,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         [commitKey, commitCopy],
       ])
 
+      // Emit a fresh copy per event. `blobCopy` is already the bytes
+      // we handed to the adapter, and adapters (e.g. NodeFS) cache by
+      // reference. A listener that mutates the shared reference would
+      // corrupt the adapter's cache and affect other listeners.
       if (this.listeners["commit-saved"]?.length) {
         this.emit(
           "commit-saved",
@@ -303,6 +307,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         [fragmentKey, fragmentCopy],
       ])
 
+      // Defensive copy per event; see comment in saveCommit.
       if (this.listeners["fragment-saved"]?.length) {
         this.emit(
           "fragment-saved",
@@ -480,6 +485,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       }
       await this.adapter.saveBatch([markerEntry])
 
+      // Defensive copy per event; see comment in saveCommit.
       if (this.listeners["commit-saved"]?.length) {
         commits.forEach(({ commitId }, i) => {
           this.emit(

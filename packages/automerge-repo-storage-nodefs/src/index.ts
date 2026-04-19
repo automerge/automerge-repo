@@ -226,16 +226,15 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
     if (stageFailures.length > 0) {
       await Promise.all(
-        stageResults.map(async (r, i) => {
-          if (r.ok) {
-            try {
-              await fs.promises.unlink(tmpPaths[i])
-            } catch (cleanupErr) {
-              console.debug(
-                `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPaths[i]}:`,
-                cleanupErr
-              )
-            }
+        tmpPaths.map(async tmpPath => {
+          try {
+            await fs.promises.unlink(tmpPath)
+          } catch (cleanupErr: any) {
+            if (cleanupErr?.code === "ENOENT") return
+            console.debug(
+              `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPath}:`,
+              cleanupErr
+            )
           }
         })
       )
@@ -538,9 +537,12 @@ const stageToTmp = async (
     }
   }
 
-  if (closeErr !== undefined) {
+  if (wroteTmp && closeErr !== undefined) {
     // Write + sync succeeded but close threw. Don't trust the tmp
     // file's durability; clean it up and surface the error.
+    //
+    // Note: guarded by `wroteTmp` so we don't double-unlink when the
+    // !wroteTmp branch above already cleaned up and logged.
     try {
       await fs.promises.unlink(tmpPath)
     } catch (cleanupErr) {
