@@ -672,9 +672,9 @@ export class SubductionSource implements DocumentSource {
     // 5. Wait for SubductionStorageBridge writes to land on disk
     await this.#storage.awaitSettled()
 
-    // 6. Disconnect all Wasm-side transports gracefully, then free.
+    // 6. Disconnect all Wasm-side transports gracefully.
     //    If hydration failed, this.#subduction is a rejected promise —
-    //    treat that as a no-op (nothing to disconnect or free).
+    //    treat that as a no-op (nothing to disconnect).
     let subduction: Subduction | null = null
     try {
       subduction = await this.#subduction
@@ -686,12 +686,6 @@ export class SubductionSource implements DocumentSource {
       await subduction.disconnectAll()
     } catch (e) {
       this.#log("error disconnecting subduction transports: %O", e)
-    } finally {
-      try {
-        subduction.free()
-      } catch (e) {
-        this.#log("error freeing subduction resources: %O", e)
-      }
     }
   }
 
