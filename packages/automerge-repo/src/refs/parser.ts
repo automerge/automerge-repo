@@ -215,6 +215,22 @@ export function serializeHeads(heads: string[]): string {
   return heads.length > 0 ? `#${heads.join("|")}` : ""
 }
 
+/**
+ * Returns true if the input looks like a valid ref URL (`automerge:<documentId>`
+ * optionally followed by `/<path>` and/or `#<heads>`). Rejects anything that
+ * isn't a string or doesn't follow the ref URL shape.
+ */
+export function isValidRefUrl(url: unknown): url is RefUrl {
+  if (typeof url !== "string") return false
+  if (!url.startsWith(URL_PREFIX)) return false
+  try {
+    parseRefUrl(url as RefUrl)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function parseRefUrl(url: RefUrl): {
   documentId: DocumentId
   segments: Segment[]

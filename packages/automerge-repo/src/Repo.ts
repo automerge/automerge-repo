@@ -17,6 +17,8 @@ import {
   UNAVAILABLE,
   UNLOADED,
 } from "./DocHandle.js"
+import { isValidRefUrl, parseRefUrl } from "./refs/parser.js"
+import type { RefUrl, AnyPathInput } from "./refs/types.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
@@ -723,7 +725,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async find<T>(
-    id: AnyDocumentId,
+    id: AnyDocumentId | RefUrl,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
     const { allowableStates = ["ready"], signal } = options
@@ -733,7 +735,29 @@ export class Repo extends EventEmitter<RepoEvents> {
       throw new AbortError()
     }
 
-    const progress = this.findWithProgress<T>(id, { signal })
+    // If the id looks like a ref URL (e.g. "automerge:docId/path#heads"), resolve
+    // the root document first, optionally view it at the given heads, and then
+    // scope into the requested sub-path.
+    if (
+      typeof id === "string" &&
+      !isValidAutomergeUrl(id) &&
+      isValidRefUrl(id)
+    ) {
+      const { documentId, segments, heads } = parseRefUrl(id as RefUrl)
+      const rootHandle = await this.find<any>(documentId as AnyDocumentId, {
+        allowableStates,
+        signal,
+      })
+      const viewed = heads ? rootHandle.view(encodeHeads(heads as Heads)) : rootHandle
+      if (segments.length === 0) {
+        return viewed as DocHandle<T>
+      }
+      return (viewed.ref as (...s: AnyPathInput[]) => DocHandle<T>)(
+        ...segments
+      )
+    }
+
+    const progress = this.findWithProgress<T>(id as AnyDocumentId, { signal })
 
     if ("subscribe" in progress) {
       this.#registerHandleWithSubsystems(progress.handle)
