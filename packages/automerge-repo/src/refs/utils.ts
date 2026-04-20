@@ -6,12 +6,10 @@ import type {
   Pattern,
   CursorMarker,
   RefUrl,
-  SegmentsFromString,
   Ref,
   InferRefTypeFromString,
 } from "./types.js"
 import { CURSOR_MARKER } from "./types.js"
-import { RefImpl } from "./ref.js"
 import { parseRefUrl } from "./parser.js"
 
 /**
@@ -66,7 +64,7 @@ export function refFromUrl<TValue = unknown>(
   // If URL has heads, get a time-traveled handle
   const targetHandle = heads ? handle.view(encodeHeads(heads as Heads)) : handle
 
-  return new RefImpl(targetHandle, segments) as Ref<TValue>
+  return (targetHandle.ref as any)(...segments) as Ref<TValue>
 }
 
 /**
@@ -87,10 +85,9 @@ export function refFromString<TDoc, TPath extends string>(
 ): Ref<InferRefTypeFromString<TDoc, TPath>> {
   const url = docHandle.url
   const { segments } = parseRefUrl(`${url}/${path}` as RefUrl)
-  return new RefImpl(
-    docHandle,
-    segments as unknown as [...SegmentsFromString<TPath>]
-  ) as Ref<InferRefTypeFromString<TDoc, TPath>>
+  return (docHandle.ref as any)(...segments) as Ref<
+    InferRefTypeFromString<TDoc, TPath>
+  >
 }
 
 /**
