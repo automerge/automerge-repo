@@ -39,12 +39,15 @@ export {
   decodeHeads,
 } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
+export { initSubduction } from "./initSubduction.js"
 export { Presence } from "./presence/Presence.js"
 export { PeerStateView } from "./presence/PeerStateView.js"
 export type {
+  DeviceId,
   PeerState,
-  PresenceState,
   PresenceConfig,
+  PresenceState,
+  UserId,
 } from "./presence/types.js"
 
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
@@ -77,8 +80,14 @@ export type {
   DocumentPayload,
   RepoConfig,
   RepoEvents,
+  ShareConfig,
   SharePolicy,
 } from "./Repo.js"
+
+export { DocumentQuery } from "./DocumentQuery.js"
+export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export type { DocumentSource } from "./DocumentSource.js"
+export type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 
 export type {
   NetworkAdapterEvents,

@@ -18,7 +18,7 @@ export function App({ url }: { url: AutomergeUrl }) {
   const newCount = localState?.count
   const count = doc?.count ?? 0
 
-  const peers = peerStates.getStates()
+  const peers = peerStates.peers
 
   return (
     <div>
@@ -48,7 +48,7 @@ export function App({ url }: { url: AutomergeUrl }) {
       </div>
       <div>
         Peer states:
-        {Object.values(peers).map(state => (
+        {peers.map(state => (
           <span
             key={state.peerId}
             style={{ backgroundColor: "silver", marginRight: "2px" }}
@@ -79,7 +79,7 @@ export function App({ url }: { url: AutomergeUrl }) {
           {
             doc,
             localState,
-            peerStates: Object.values(peers),
+            peerStates: peers,
           },
           null,
           2

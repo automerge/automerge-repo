@@ -1,12 +1,13 @@
 import {
-  DocHandle,
   Repo,
   isValidAutomergeUrl,
-  BroadcastChannelNetworkAdapter,
-  WebSocketClientAdapter,
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
+// @ts-ignore — initSync is not in the type declarations but is exported at runtime
+import { initSync } from "@automerge/automerge-subduction/slim"
+// @ts-ignore — wasm-base64 has no type declarations
+import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"
@@ -15,17 +16,17 @@ import { App } from "./App.js"
 import { State } from "./types.js"
 import "./index.css"
 
+// Initialize Subduction Wasm before constructing the Repo
+initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
+
 const repo = new Repo({
-  network: [
-    new BroadcastChannelNetworkAdapter(),
-    new WebSocketClientAdapter("ws://localhost:3030"),
-  ],
   storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),
+  subductionWebsocketEndpoints: ["wss://subduction.sync.inkandswitch.com"],
 })
 
 declare global {
   interface Window {
-    handle: DocHandle<unknown>
+    handle: any
     repo: Repo
   }
 }
@@ -38,7 +39,7 @@ if (isValidAutomergeUrl(rootDocUrl)) {
   handle = repo.create<State>({ todos: [] })
 }
 const docUrl = (document.location.hash = handle.url)
-window.handle = handle // we'll use this later for experimentation
+window.handle = handle
 window.repo = repo
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

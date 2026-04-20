@@ -1,15 +1,45 @@
 import assert from "assert"
 import { beforeEach, describe, it } from "vitest"
-import { PeerId, Repo, SyncMessage } from "../src/index.js"
-import { CollectionSynchronizer } from "../src/synchronizer/CollectionSynchronizer.js"
+import { next as Automerge } from "@automerge/automerge"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import {
+  CollectionSynchronizer,
+  AutomergeSyncConfig,
+} from "../src/synchronizer/CollectionSynchronizer.js"
+import { PeerId } from "../src/types.js"
+import { SyncMessage } from "../src/network/messages.js"
+import { DocumentQuery } from "../src/DocumentQuery.js"
+import { TestDoc } from "./types.js"
+
+const alice = "peer1" as PeerId
+
+function createReadyQuery(): DocumentQuery<unknown> {
+  const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+  const query = new DocumentQuery<unknown>(docId)
+  query.handle.update(() => Automerge.from<TestDoc>({ foo: "" }))
+  return query
+}
+
+function createConfig(
+  overrides: Partial<AutomergeSyncConfig> = {}
+): AutomergeSyncConfig {
+  return {
+    peerId: "test" as PeerId,
+    shareConfig: {
+      announce: async () => true,
+      access: async () => true,
+    },
+    ensureHandle: () => createReadyQuery(),
+    networkReady: Promise.resolve(),
+    ...overrides,
+  }
+}
 
 describe("CollectionSynchronizer", () => {
-  let repo: Repo
   let synchronizer: CollectionSynchronizer
 
   beforeEach(() => {
-    repo = new Repo()
-    synchronizer = new CollectionSynchronizer(repo)
+    synchronizer = new CollectionSynchronizer(createConfig())
   })
 
   it("is not null", async () => {
@@ -18,84 +48,97 @@ describe("CollectionSynchronizer", () => {
 
   it("starts synchronizing a document to peers when added", () =>
     new Promise<void>(done => {
-      const handle = repo.create()
-      synchronizer.addPeer("peer1" as PeerId)
+      const query = createReadyQuery()
+      synchronizer.addPeer(alice)
 
       synchronizer.once("message", event => {
         const { targetId, documentId } = event as SyncMessage
         assert(targetId === "peer1")
-        assert(documentId === handle.documentId)
+        assert(documentId === query.documentId)
         done()
       })
 
-      synchronizer.addDocument(handle)
+      synchronizer.attach(query)
     }))
 
   it("starts synchronizing existing documents when a peer is added", () =>
     new Promise<void>(done => {
-      const handle = repo.create()
-      synchronizer.addDocument(handle)
+      const query = createReadyQuery()
+      synchronizer.attach(query)
       synchronizer.once("message", event => {
         const { targetId, documentId } = event as SyncMessage
         assert(targetId === "peer1")
-        assert(documentId === handle.documentId)
+        assert(documentId === query.documentId)
         done()
       })
-      synchronizer.addPeer("peer1" as PeerId)
+      synchronizer.addPeer(alice)
     }))
 
   it("should not synchronize to a peer which is excluded from the share policy", () =>
     new Promise<void>((done, reject) => {
-      const handle = repo.create()
-
-      repo.sharePolicy = async (peerId: PeerId) => peerId !== "peer1"
-
-      synchronizer.addDocument(handle)
+      synchronizer = new CollectionSynchronizer(
+        createConfig({
+          shareConfig: {
+            announce: async peerId => peerId !== alice,
+            access: async peerId => peerId !== alice,
+          },
+        })
+      )
+      const query = createReadyQuery()
+      synchronizer.attach(query)
       synchronizer.once("message", () => {
         reject(new Error("Should not have sent a message"))
       })
-      synchronizer.addPeer("peer1" as PeerId)
-
+      synchronizer.addPeer(alice)
       setTimeout(done)
     }))
 
   it("should not synchronize a document which is excluded from the share policy", () =>
     new Promise<void>((done, reject) => {
-      const handle = repo.create()
-      repo.sharePolicy = async (_, documentId) =>
-        documentId !== handle.documentId
+      const query = createReadyQuery()
+      synchronizer = new CollectionSynchronizer(
+        createConfig({
+          shareConfig: {
+            announce: async (_peerId, documentId) =>
+              documentId !== query.documentId,
+            access: async (_peerId, documentId) =>
+              documentId !== query.documentId,
+          },
+        })
+      )
 
-      synchronizer.addPeer("peer2" as PeerId)
-
+      synchronizer.addPeer(alice)
       synchronizer.once("message", () => {
         reject(new Error("Should not have sent a message"))
       })
-
-      synchronizer.addDocument(handle)
-
+      synchronizer.attach(query)
       setTimeout(done)
     }))
 
-  it("removes document", () =>
-    new Promise<void>((done, reject) => {
-      const handle = repo.create()
-      synchronizer.addDocument(handle)
-      synchronizer.addPeer("peer1" as PeerId)
-      // starts synchronizing document to peer
-      synchronizer.once("message", event => {
-        const { targetId, documentId } = event as SyncMessage
-        assert(targetId === "peer1")
-        assert(documentId === handle.documentId)
-        done()
-      })
-      // no message should be sent after removing document
-      synchronizer.once("message", () => {
-        reject(new Error("Should not have sent a message"))
-      })
-      assert(synchronizer.docSynchronizers[handle.documentId] !== undefined)
-      synchronizer.removeDocument(handle.documentId)
-      assert(synchronizer.docSynchronizers[handle.documentId] === undefined)
-      // removing document again should not throw an error
-      synchronizer.removeDocument(handle.documentId)
-    }))
+  it("removes document", async () => {
+    const query = createReadyQuery()
+    synchronizer.attach(query)
+    synchronizer.addPeer(alice)
+
+    // Wait for the first sync message (activation is async)
+    const event = await new Promise<SyncMessage>(resolve => {
+      synchronizer.once("message", event => resolve(event as SyncMessage))
+    })
+    assert(event.targetId === "peer1")
+    assert(event.documentId === query.documentId)
+
+    assert(synchronizer.docSynchronizers[query.documentId] !== undefined)
+    synchronizer.detach(query.documentId)
+    assert(synchronizer.docSynchronizers[query.documentId] === undefined)
+
+    // No message should be sent after removing document
+    const noMessage = await new Promise<boolean>(resolve => {
+      synchronizer.once("message", () => resolve(false))
+      setTimeout(() => resolve(true), 50)
+    })
+    assert(noMessage, "Should not have sent a message after detach")
+
+    // Removing document again should not throw an error
+    synchronizer.detach(query.documentId)
+  })
 })

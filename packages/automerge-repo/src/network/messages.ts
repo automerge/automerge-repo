@@ -1,6 +1,7 @@
 import { SyncState } from "@automerge/automerge/slim"
 import { StorageId } from "../storage/types.js"
 import { DocumentId, PeerId, SessionId } from "../types.js"
+import { SUBDUCTION_MESSAGE_TYPE } from "../subduction/network.js"
 
 export type Message = {
   type: string
@@ -130,6 +131,7 @@ export type RepoMessage =
   | DocumentUnavailableMessage
   | RemoteSubscriptionControlMessage
   | RemoteHeadsChanged
+  | SubductionMessage
 
 /** These are message types that are handled by the {@link CollectionSynchronizer}.*/
 export type DocMessage =
@@ -159,6 +161,13 @@ export interface OpenDocMessage {
   documentId: DocumentId
 }
 
+export type SubductionMessage = {
+  type: typeof SUBDUCTION_MESSAGE_TYPE
+  data: Uint8Array
+  senderId: PeerId
+  targetId: PeerId
+}
+
 // TYPE GUARDS
 
 export const isRepoMessage = (message: Message): message is RepoMessage =>
@@ -167,10 +176,11 @@ export const isRepoMessage = (message: Message): message is RepoMessage =>
   isRequestMessage(message) ||
   isDocumentUnavailableMessage(message) ||
   isRemoteSubscriptionControlMessage(message) ||
-  isRemoteHeadsChanged(message)
+  isRemoteHeadsChanged(message) ||
+  isSubductionMessage(message)
 
 // prettier-ignore
-export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage => 
+export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage =>
   msg.type === "doc-unavailable"
 
 export const isRequestMessage = (msg: Message): msg is RequestMessage =>
@@ -188,3 +198,6 @@ export const isRemoteSubscriptionControlMessage = (msg: Message): msg is RemoteS
 
 export const isRemoteHeadsChanged = (msg: Message): msg is RemoteHeadsChanged =>
   msg.type === "remote-heads-changed"
+
+export const isSubductionMessage = (msg: Message): msg is SubductionMessage =>
+  msg.type === SUBDUCTION_MESSAGE_TYPE

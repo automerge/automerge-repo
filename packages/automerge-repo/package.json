@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo",
-  "version": "2.5.5",
+  "version": "2.6.0-subduction.14",
   "description": "A repository object to manage a collection of automerge documents",
   "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
@@ -19,18 +19,22 @@
     "crypto": false
   },
   "devDependencies": {
+    "@types/ws": "^8.5.10",
     "http-server": "^14.1.0",
     "ts-node": "^10.9.2",
     "vite": "^5.0.8"
   },
   "dependencies": {
-    "@automerge/automerge": "2.2.8 - 3",
+    "@automerge/automerge": "^3.2.5",
+    "@automerge/automerge-subduction": "0.7.0",
     "bs58check": "^3.0.1",
     "cbor-x": "^1.3.0",
     "debug": "^4.3.4",
     "eventemitter3": "^5.0.1",
     "fast-sha256": "^1.3.0",
+    "isomorphic-ws": "^5.0.0",
     "uuid": "^9.0.0",
+    "ws": "^8.7.0",
     "xstate": "^5.9.1"
   },
   "exports": {
@@ -57,6 +61,7 @@
     }
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "subduction"
   }
 }

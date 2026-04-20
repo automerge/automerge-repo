@@ -41,6 +41,12 @@ export class DummyStorageAdapter implements StorageAdapterInterface {
     delete this.#data[this.#keyToString(key)]
   }
 
+  async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
+    for (const [key, data] of entries) {
+      await this.save(key, data)
+    }
+  }
+
   keys() {
     return Object.keys(this.#data)
   }

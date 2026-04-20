@@ -4,14 +4,20 @@ import { App } from "./App"
 import {
   Repo,
   isValidAutomergeUrl,
-  BroadcastChannelNetworkAdapter,
   IndexedDBStorageAdapter,
   RepoContext,
 } from "@automerge/react"
+// @ts-ignore — initSync is not in the type declarations but is exported at runtime
+import { initSync } from "@automerge/automerge-subduction/slim"
+// @ts-ignore — wasm-base64 has no type declarations
+import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
+
+// Initialize Subduction Wasm before constructing the Repo
+initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter("use-awareness-example"),
-  network: [new BroadcastChannelNetworkAdapter()],
+  subductionWebsocketEndpoints: ["wss://subduction.sync.inkandswitch.com"],
 })
 
 const rootDocUrl = `${document.location.hash.substring(1)}`

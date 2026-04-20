@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-solid-primitives",
-  "version": "2.5.5",
+  "version": "2.6.0-subduction.14",
   "description": "Access Automerge Repo in your SolidJS application",
   "type": "module",
   "main": "dist/index.js",
@@ -33,7 +33,8 @@
   },
   "homepage": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-solid-primitives",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "subduction"
   },
   "watch": {
     "build": {

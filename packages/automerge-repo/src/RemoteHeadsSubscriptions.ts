@@ -138,8 +138,11 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
       })
     }
 
-    // send all our stored heads of documents the peer knows for the remotes they've added
-    for (const remote of addedRemotesWeKnow) {
+    // Send all our stored heads of documents the peer knows for the remotes
+    // they've added. Use control.add (not just addedRemotesWeKnow) because we
+    // may have stored heads from handleImmediateRemoteHeadsChanged even for
+    // remotes that had no prior subscribers.
+    for (const remote of control.add ?? []) {
       const subscribedDocs = this.#subscribedDocsByPeer.get(control.senderId)
       if (subscribedDocs) {
         for (const documentId of subscribedDocs) {

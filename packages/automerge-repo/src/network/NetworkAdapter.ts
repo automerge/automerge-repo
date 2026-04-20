@@ -4,7 +4,11 @@ import { EventEmitter } from "eventemitter3"
 import { NetworkAdapterEvents, PeerMetadata } from "../index.js"
 import { PeerId } from "../types.js"
 import { Message } from "./messages.js"
-import { NetworkAdapterInterface } from "./NetworkAdapterInterface.js"
+import {
+  AdapterState,
+  NetworkAdapterInterface,
+} from "./NetworkAdapterInterface.js"
+import { AdapterStateSignal } from "./AdapterStateSignal.js"
 
 /** An interface representing some way to connect to other peers
  *
@@ -22,6 +26,23 @@ export abstract class NetworkAdapter
 {
   peerId?: PeerId
   peerMetadata?: PeerMetadata
+  #adapterState: AdapterStateSignal
+
+  constructor() {
+    super()
+    this.#adapterState = new AdapterStateSignal("connecting")
+    // Defer to a microtask so subclass field initializers (which run after
+    // super() returns) have completed before we call the overridden whenReady().
+    queueMicrotask(() => {
+      this.whenReady().then(() => {
+        this.#adapterState.set("ready")
+      })
+    })
+  }
+
+  state(): AdapterState {
+    return this.#adapterState
+  }
 
   abstract isReady(): boolean
   abstract whenReady(): Promise<void>
