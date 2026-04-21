@@ -19,7 +19,7 @@ import {
 } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
-import { throttle } from "./helpers/throttle.js"
+import { asyncThrottle } from "./helpers/throttle.js"
 import {
   NetworkAdapterInterface,
   type PeerMetadata,
@@ -102,7 +102,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #progressCache: Record<DocumentId, FindProgress<any>> = {}
   #saveFns: Record<
     DocumentId,
-    (payload: DocHandleEncodedChangePayload<any>) => void
+    (payload: DocHandleEncodedChangePayload<any>) => Promise<void>
   > = {}
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
 
@@ -190,13 +190,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
         let fn = this.#saveFns[handle.documentId]
         if (!fn) {
-          fn = throttle(
-            ({ doc, handle }: DocHandleEncodedChangePayload<any>) => {
-              void this.storageSubsystem!.saveDoc(handle.documentId, doc)
-            },
+          fn = this.#saveFns[handle.documentId] = asyncThrottle(
+            ({
+              doc,
+              handle,
+            }: DocHandleEncodedChangePayload<any>): Promise<void> =>
+              this.storageSubsystem!.saveDoc(handle.documentId, doc),
             this.#saveDebounceRate
           )
-          this.#saveFns[handle.documentId] = fn
         }
         fn({ handle, doc })
       }
@@ -364,7 +365,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #throttledSaveSyncStateHandlers: Record<
     StorageId,
-    (payload: SyncStatePayload) => void
+    (payload: SyncStatePayload) => Promise<void>
   > = {}
 
   /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
@@ -382,14 +383,13 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     let handler = this.#throttledSaveSyncStateHandlers[storageId]
     if (!handler) {
-      handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
-        ({ documentId, syncState }: SyncStatePayload) => {
-          void this.storageSubsystem!.saveSyncState(
+      handler = this.#throttledSaveSyncStateHandlers[storageId] = asyncThrottle(
+        ({ documentId, syncState }: SyncStatePayload) =>
+          this.storageSubsystem!.saveSyncState(
             documentId,
             storageId,
             syncState
-          )
-        },
+          ),
         this.#saveDebounceRate
       )
     }
