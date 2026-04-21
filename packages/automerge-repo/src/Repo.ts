@@ -44,6 +44,7 @@ import type {
 import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
 import { RefImpl } from "./refs/ref.js"
+import { foreverPromise } from "./helpers/foreverPromise.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
@@ -642,7 +643,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
       handle,
       progressSignal,
-      signal ? abortable(new Promise(() => {}), signal) : new Promise(() => {})
+      //IMPORTANT: Reuse foreverPromise. Don't keep re-creating promises that never settle like `new Promise(() => {})`
+      signal ? abortable(foreverPromise, signal) : foreverPromise
     )
 
     const result = {
