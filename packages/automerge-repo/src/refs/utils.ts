@@ -16,8 +16,6 @@ import { CURSOR_MARKER } from "./types.js"
 import { RefImpl } from "./ref.js"
 import { parseRefUrl } from "./parser.js"
 
-const AUTOMERGE_STATE = Symbol.for("_am_meta")
-
 /**
  * Create a cursor-based range segment for stable text selection.
  *
@@ -138,8 +136,9 @@ export async function findRef<TValue = unknown>(
  * ref.change(f => { f.x = 42 })
  * ```
  *
- * Works both on the materialized document returned by `handle.doc()` and on
- * the live proxy passed into `handle.change(d => ...)` callbacks.
+ * Works on the materialized document returned by `handle.doc()`, the live
+ * proxy passed into `handle.change(d => ...)` callbacks, and objects read
+ * from any view of the same document.
  *
  * Limitations:
  * - The value must be a map or list sub-object of the document. Primitives
@@ -150,12 +149,14 @@ export async function findRef<TValue = unknown>(
  * - Array element refs are position-based, just like `handle.ref('list', 0)`.
  *   If you need stability across concurrent inserts, build a pattern ref
  *   instead: `handle.ref('list', { id })`.
- * - The object must belong to the same document as the provided handle.
+ * - The object must exist in the current state of `handle`'s document.
+ *   Objects from a different document, or objects that have been deleted,
+ *   will throw.
  *
  * @experimental This API is experimental and may change in future versions.
  *
  * @throws Error if `value` is not an Automerge map or list sub-object.
- * @throws Error if the object does not belong to `handle`'s document.
+ * @throws Error if the object does not exist in `handle`'s current document.
  */
 export function refFromObject<TValue = unknown>(
   handle: DocHandle<any>,
@@ -179,16 +180,13 @@ export function refFromObject<TValue = unknown>(
     )
   }
 
-  const doc = handle.doc()
-  const docBackend = Automerge.getBackend(doc)
+  // Object IDs are stable across clones and history, so an object looked up
+  // from a view (or any past state) of the same document will still resolve
+  // against the current backend. We only care whether the object exists in
+  // the current document and is still reachable.
+  const docBackend = Automerge.getBackend(handle.doc())
 
   if (objectId === "_root") {
-    const stateBackend = (value as any)[AUTOMERGE_STATE]?.handle
-    if (stateBackend && stateBackend !== docBackend) {
-      throw new Error(
-        "refFromObject: object belongs to a different document or view"
-      )
-    }
     return new RefImpl(handle, [] as unknown as AnyPathInput[]) as Ref<TValue>
   }
 
@@ -198,14 +196,15 @@ export function refFromObject<TValue = unknown>(
   } catch (err) {
     throw new Error(
       "refFromObject: object is not present in the current document. " +
-        "It may belong to a different document or a stale view. " +
+        "It may belong to a different document. " +
         `(underlying error: ${(err as Error).message})`
     )
   }
 
   if (!info.path) {
     throw new Error(
-      `refFromObject: Automerge did not return a path for object ${objectId}`
+      `refFromObject: object ${objectId} has no path in the current ` +
+        "document. It may have been deleted."
     )
   }
 

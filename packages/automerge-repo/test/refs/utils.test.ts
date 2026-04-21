@@ -418,6 +418,68 @@ describe("utils", () => {
       expect(nestedRef.path.map(s => s.prop)).toEqual(["nested"])
     })
 
+    it("should resolve an object from a view against the live handle", () => {
+      // Object IDs are stable across history. Passing an object read from a
+      // view of the same doc to the live handle should work fine and produce
+      // a ref on the live handle.
+      handle.change((d: any) => {
+        d.nested = { value: "v1" }
+      })
+
+      const heads1 = Automerge.getHeads(handle.doc() as any)
+      const encodedHeads1 = encodeHeads(heads1)
+
+      handle.change((d: any) => {
+        d.nested.value = "v2"
+      })
+
+      const viewHandle = handle.view(encodedHeads1)
+      const nestedFromView = (viewHandle.doc() as any).nested
+
+      const liveRef = refFromObject(handle, nestedFromView)
+      expect(liveRef.path.map(s => s.prop)).toEqual(["nested"])
+      // Points at the live doc, so value reflects the latest state.
+      expect(liveRef.value()).toEqual({ value: "v2" })
+      expect(liveRef.docHandle).toBe(handle)
+    })
+
+    it("should resolve a root from a view against the live handle", () => {
+      handle.change((d: any) => {
+        d.value = 42
+      })
+
+      const heads1 = Automerge.getHeads(handle.doc() as any)
+      const viewHandle = handle.view(encodeHeads(heads1))
+      const viewDoc = viewHandle.doc()
+
+      handle.change((d: any) => {
+        d.value = 100
+      })
+
+      const rootRef = refFromObject(handle, viewDoc)
+      expect(rootRef.path).toEqual([])
+      expect(rootRef.value()).toEqual({ value: 100 })
+    })
+
+    it("should throw when the object has been deleted from the current doc", () => {
+      handle.change((d: any) => {
+        d.thing = { v: 1 }
+      })
+
+      const heads1 = Automerge.getHeads(handle.doc() as any)
+      const viewHandle = handle.view(encodeHeads(heads1))
+      const thingFromView = (viewHandle.doc() as any).thing
+
+      handle.change((d: any) => {
+        delete d.thing
+      })
+
+      // Object exists in the view but has no reachable path in the live doc.
+      expect(() => refFromObject(handle, thingFromView)).toThrow(
+        /no path in the current document|deleted/
+      )
+    })
+
     it("should be reactive via onChange", () => {
       handle.change((d: any) => {
         d.user = { name: "Alice", age: 30 }
