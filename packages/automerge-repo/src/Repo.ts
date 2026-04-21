@@ -45,6 +45,7 @@ import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
 import { RefImpl } from "./refs/ref.js"
 import { foreverPromise } from "./helpers/foreverPromise.js"
+import { noop } from "./helpers/noop.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
@@ -203,7 +204,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         fn({ handle, doc })
       }
     } else {
-      this.#saveFn = () => {}
+      this.#saveFn = noop
     }
 
     // NETWORK
