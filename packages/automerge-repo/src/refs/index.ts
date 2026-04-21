@@ -8,4 +8,10 @@ export type {
   Ref,
 } from "./types.js"
 
-export { cursor, findRef, refFromUrl, refFromString } from "./utils.js"
+export {
+  cursor,
+  findRef,
+  refFromUrl,
+  refFromString,
+  refFromObject,
+} from "./utils.js"
