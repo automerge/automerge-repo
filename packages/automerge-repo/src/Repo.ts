@@ -46,6 +46,7 @@ import { FindProgress } from "./FindProgress.js"
 import { RefImpl } from "./refs/ref.js"
 import { foreverPromise } from "./helpers/foreverPromise.js"
 import { noop } from "./helpers/noop.js"
+import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
@@ -91,8 +92,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   synchronizer: CollectionSynchronizer
 
   #shareConfig: ShareConfig = {
-    announce: async () => true,
-    access: async () => true,
+    announce: truePromiseFactory,
+    access: truePromiseFactory,
   }
 
   /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
@@ -132,7 +133,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (sharePolicy) {
       this.#shareConfig = {
         announce: sharePolicy,
-        access: async () => true,
+        access: truePromiseFactory,
       }
     }
     if (shareConfig) {
