@@ -392,7 +392,7 @@ describe("utils", () => {
 
       const otherDoc = otherHandle.doc() as any
       expect(() => refFromObject(handle, otherDoc.user)).toThrow(
-        /not present in the current document|different document/
+        /not present in the document|different document/
       )
     })
 
@@ -461,6 +461,38 @@ describe("utils", () => {
       expect(rootRef.value()).toEqual({ value: 100 })
     })
 
+    it("should return the path at the handle's heads, not the object's source", () => {
+      // A list element's path (index) can change across heads. The ref we
+      // build must use the path as of the handle we bind to, regardless of
+      // which doc state the input object was read from.
+      handle.change((d: any) => {
+        d.items = [{ v: 1 }]
+      })
+      const heads1 = Automerge.getHeads(handle.doc() as any)
+
+      handle.change((d: any) => {
+        d.items.unshift({ v: 0 })
+      })
+
+      // At heads1 the object lives at items[0]; now it lives at items[1].
+      const liveItem = (handle.doc() as any).items[1]
+      const liveRef = refFromObject(handle, liveItem)
+      expect(liveRef.path.map(s => s.prop)).toEqual(["items", 1])
+      expect(liveRef.value()).toEqual({ v: 1 })
+
+      const viewHandle = handle.view(encodeHeads(heads1))
+      const viewItem = (viewHandle.doc() as any).items[0]
+      const viewRef = refFromObject(viewHandle, viewItem)
+      expect(viewRef.path.map(s => s.prop)).toEqual(["items", 0])
+      expect(viewRef.value()).toEqual({ v: 1 })
+
+      // Same object read from a view, but bound to the live handle: we
+      // should get the live path, not the view path.
+      const liveRefFromViewObj = refFromObject(handle, viewItem)
+      expect(liveRefFromViewObj.path.map(s => s.prop)).toEqual(["items", 1])
+      expect(liveRefFromViewObj.docHandle).toBe(handle)
+    })
+
     it("should throw when the object has been deleted from the current doc", () => {
       handle.change((d: any) => {
         d.thing = { v: 1 }
@@ -476,7 +508,7 @@ describe("utils", () => {
 
       // Object exists in the view but has no reachable path in the live doc.
       expect(() => refFromObject(handle, thingFromView)).toThrow(
-        /no path in the current document|deleted/
+        /no path|deleted/
       )
     })
 

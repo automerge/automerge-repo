@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge/slim"
 import type { DocHandle } from "../DocHandle.js"
 import type { Repo } from "../Repo.js"
-import { encodeHeads } from "../AutomergeUrl.js"
+import { decodeHeads, encodeHeads } from "../AutomergeUrl.js"
 import type { Heads } from "@automerge/automerge/slim"
 import type {
   Pattern,
@@ -182,29 +182,35 @@ export function refFromObject<TValue = unknown>(
 
   // Object IDs are stable across clones and history, so an object looked up
   // from a view (or any past state) of the same document will still resolve
-  // against the current backend. We only care whether the object exists in
-  // the current document and is still reachable.
+  // against the current backend. We only care whether the object exists at
+  // the handle's heads and is reachable from root there.
   const docBackend = Automerge.getBackend(handle.doc())
 
   if (objectId === "_root") {
     return new RefImpl(handle, [] as unknown as AnyPathInput[]) as Ref<TValue>
   }
 
+  // Look up the path at the handle's heads so the ref's path is consistent
+  // with what `ref.value()` will read through `handle.doc()`. For a live
+  // handle this is the current heads; for a view handle it's the fixed heads.
+  const heads = decodeHeads(handle.heads())
+
   let info: { path?: Automerge.Prop[] }
   try {
-    info = docBackend.objInfo(objectId)
+    info = docBackend.objInfo(objectId, heads)
   } catch (err) {
     throw new Error(
-      "refFromObject: object is not present in the current document. " +
-        "It may belong to a different document. " +
+      "refFromObject: object is not present in the document at the " +
+        "handle's heads. It may belong to a different document or did " +
+        "not exist yet at those heads. " +
         `(underlying error: ${(err as Error).message})`
     )
   }
 
   if (!info.path) {
     throw new Error(
-      `refFromObject: object ${objectId} has no path in the current ` +
-        "document. It may have been deleted."
+      `refFromObject: object ${objectId} has no path in the document at ` +
+        "the handle's heads. It may have been deleted."
     )
   }
 
