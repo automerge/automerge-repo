@@ -5,7 +5,7 @@
  */
 
 import type { DocHandle } from "../../src/DocHandle.js"
-import type { Ref, MutableText } from "../../src/refs/types.js"
+import type { MutableText } from "../../src/refs/types.js"
 
 type TestDoc = {
   title: string
@@ -178,57 +178,37 @@ const deepNumberRef = deepHandle.ref("a", "b", "c", "d", "e")
 const deepNumberValue = deepNumberRef.value()
 // Hover over deepNumberValue - should be: number | undefined
 
-// === String Path Type Inference Tests ===
-import { refFromString } from "../../src/refs/utils.js"
-import type {
-  SegmentsFromString,
-  InferRefTypeFromString,
-} from "../../src/refs/types.js"
-
-// Test PathFromString parsing
-type TestSplit1 = SegmentsFromString<"todos/0/title">
-// Should be: ["todos", number, "title"]
-
-type TestSplit2 = SegmentsFromString<"text/[cursor1-cursor2]">
-// Should be: ["text", CursorRangeMarker] (where CursorRangeMarker is the internal marker)
-
-type TestSplit3 = SegmentsFromString<"users">
-// Should be: ["users"]
-
-// Test InferRefTypeFromString
-type DocForStringTest = {
-  title: string
-  count: number
-  todos: Array<{ title: string; done: boolean }>
-  content: string
-}
-
-type Test1 = InferRefTypeFromString<DocForStringTest, "title">
-// Should be: string
-
-type Test2 = InferRefTypeFromString<DocForStringTest, "todos/0/title">
-// Should be: string
-
-type Test3 = InferRefTypeFromString<DocForStringTest, "count">
-// Should be: number
-
-// Test refFromString function with type inference
-declare const stringTestHandle: DocHandle<DocForStringTest>
-
-const stringTitleRef = refFromString(stringTestHandle, "title")
-const stringTitleValue = stringTitleRef.value()
-// Hover over stringTitleValue - should be: string | undefined
-
-const stringTodoTitleRef = refFromString(stringTestHandle, "todos/0/title")
-const stringTodoTitleValue = stringTodoTitleRef.value()
-// Hover over stringTodoTitleValue - should be: string | undefined
-
-const stringCountRef = refFromString(stringTestHandle, "count")
-const stringCountValue = stringCountRef.value()
-// Hover over stringCountValue - should be: number | undefined
-
-function doubleIt(ref: Ref<number>) {
+function doubleIt(ref: DocHandle<number>) {
   ref.change(n => n * 2)
 }
 
 doubleIt(deepNumberRef) // Should pass
+
+// === Post-unification inference checks ===========================================
+// Verify that sub-document handles are just `DocHandle<T>` and that the URL /
+// repo.find / viewAt surface remains inference-friendly.
+
+import type { AutomergeUrl } from "../../src/types.js"
+import type { Repo } from "../../src/Repo.js"
+
+// `handle.url` on any handle (root or sub) is an `AutomergeUrl`, with no separate
+// "ref URL" type in the public API.
+const _subUrl: AutomergeUrl = deepNumberRef.url
+
+// `viewAt` preserves the generic parameter.
+const _pinned: DocHandle<number> = deepNumberRef.viewAt([] as unknown as string[])
+
+// `repo.find(anyUrl)` returns `Promise<DocHandle<T>>` for both root and
+// sub-document URLs — there's a single overload because both are `AutomergeUrl`.
+declare const repo: Repo
+async function _findChecks() {
+  const viaRoot = await repo.find<TestDoc>(handle.url)
+  viaRoot.change(d => {
+    d.count = 1
+  })
+
+  // A sub-document URL resolves via the same `find`; callers pick the expected
+  // element type explicitly.
+  const viaRef = await repo.find<string>(titleRef.url)
+  const _sv: string | undefined = viaRef.value()
+}

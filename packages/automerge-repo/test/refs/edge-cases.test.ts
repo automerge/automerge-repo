@@ -7,10 +7,13 @@ import {
   parsePath,
   parseSegment,
   serializeSegment,
-  parseRefUrl,
 } from "../../src/refs/parser.js"
-import { isValidRefUrl } from "../../src/refs/guards.js"
-import { KIND, RefUrl } from "../../src/refs/types.js"
+import {
+  isValidAutomergeUrl,
+  parseAutomergeUrl,
+} from "../../src/AutomergeUrl.js"
+import type { AutomergeUrl } from "../../src/types.js"
+import { KIND } from "../../src/refs/types.js"
 import { splice } from "../../src/index.js"
 
 describe("Edge Cases", () => {
@@ -116,7 +119,7 @@ describe("Edge Cases", () => {
       expect(url).toContain("/123")
 
       // Round-trips correctly as key!
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe("123")
     })
@@ -130,7 +133,7 @@ describe("Edge Cases", () => {
       const url = ref.url
 
       // Dash is fine in keys (only [cursor-cursor] is special)
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe("my-key")
     })
@@ -144,7 +147,7 @@ describe("Edge Cases", () => {
       const url = ref.url
 
       // Colons are fine in keys now
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe(":special")
     })
@@ -163,7 +166,7 @@ describe("Edge Cases", () => {
       expect(url).toContain("%5C%7Bnotjson") // \{notjson URL-encoded
 
       // Round-trips correctly
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe("{notjson")
     })
@@ -182,7 +185,7 @@ describe("Edge Cases", () => {
       expect(url).toContain("path%2Fwith%2Fslashes")
 
       // Round-trips correctly as single key
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments.length).toBe(1)
       expect((parsed.segments[0] as any).key).toBe("path/with/slashes")
     })
@@ -209,7 +212,7 @@ describe("Edge Cases", () => {
       expect(url).toContain("%5C%40mention") // \@mention URL-encoded
 
       // Round-trips correctly
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe("@mention")
     })
@@ -226,7 +229,7 @@ describe("Edge Cases", () => {
       expect(url).toContain("%5C%5Barray%5D") // \[array] URL-encoded
 
       // Round-trips correctly
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe("[array]")
     })
@@ -243,7 +246,7 @@ describe("Edge Cases", () => {
       expect(url).toContain("%5C%5Cbackslash")
 
       // Round-trips correctly
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe("\\backslash")
     })
@@ -261,7 +264,7 @@ describe("Edge Cases", () => {
       expect(url).not.toContain("%5C") // No backslash escape
 
       // Round-trips correctly
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe("~tilde")
     })
@@ -445,27 +448,35 @@ describe("Edge Cases", () => {
 
   describe("URL edge cases", () => {
     it("should reject invalid URL prefix", () => {
-      expect(isValidRefUrl("http://example.com")).toBe(false)
-      expect(isValidRefUrl("automerge-repo:abc")).toBe(false)
+      expect(isValidAutomergeUrl("http://example.com")).toBe(false)
+      expect(isValidAutomergeUrl("automerge-repo:abc")).toBe(false)
     })
 
     it("should reject URL with multiple # (heads sections)", () => {
       expect(() => {
-        parseRefUrl("automerge:abc/path#head1#head2" as any)
+        parseAutomergeUrl("automerge:abc/path#head1#head2" as any)
       }).toThrow("multiple heads sections")
     })
 
     it("should handle URL with no path", () => {
-      const parsed = parseRefUrl("automerge:docid123" as any)
-      expect(parsed.documentId).toBe("docid123")
-      expect(parsed.segments).toEqual([])
+      // Root document URL: no path, no heads. `segments` is undefined (not []).
+      const rootUrl = handle.url
+      const parsed = parseAutomergeUrl(rootUrl)
+      expect(parsed.documentId).toBe(handle.documentId)
+      expect(parsed.segments).toBeUndefined()
     })
 
     it("should handle URL with only heads", () => {
-      const parsed = parseRefUrl("automerge:docid123#head1|head2" as RefUrl)
-      expect(parsed.documentId).toBe("docid123")
-      expect(parsed.segments).toEqual([])
-      expect(parsed.heads).toEqual(["head1", "head2"])
+      // Root document URL with heads but no path.
+      handle.change(d => {
+        d.value = 1
+      })
+      const heads = handle.heads()!
+      const urlWithHeads = handle.view(heads).url
+      const parsed = parseAutomergeUrl(urlWithHeads)
+      expect(parsed.documentId).toBe(handle.documentId)
+      expect(parsed.segments).toBeUndefined()
+      expect(parsed.heads).toEqual(heads)
     })
 
     // TODO: this makes me think we should prefix indexes with a colon or possibly another character
@@ -637,7 +648,7 @@ describe("Edge Cases", () => {
       const ref = handle.ref("items", { type: "task", status: "done" })
       const url = ref.url
 
-      const parsed = parseRefUrl(url)
+      const parsed = parseAutomergeUrl(url)
       const matchSegment = parsed.segments[1]
       expect(matchSegment[KIND]).toBe("match")
       expect((matchSegment as any).match).toEqual({
@@ -691,7 +702,7 @@ describe("Edge Cases", () => {
       expect(recovered).toBe(originalUrl)
 
       // Should still parse correctly
-      const parsed = parseRefUrl(recovered as any)
+      const parsed = parseAutomergeUrl(recovered as any)
       expect(parsed.segments[0][KIND]).toBe("key")
       expect((parsed.segments[0] as any).key).toBe("title")
     })
@@ -718,7 +729,7 @@ describe("Edge Cases", () => {
       expect(recovered).toBe(originalUrl)
 
       // Should parse correctly to original key
-      const parsed = parseRefUrl(recovered as any)
+      const parsed = parseAutomergeUrl(recovered as any)
       expect((parsed.segments[0] as any).key).toBe("path/with/slashes")
     })
 
@@ -738,7 +749,7 @@ describe("Edge Cases", () => {
 
       expect(recovered).toBe(originalUrl)
 
-      const parsed = parseRefUrl(recovered as any)
+      const parsed = parseAutomergeUrl(recovered as any)
       expect((parsed.segments[0] as any).key).toBe("@mention")
     })
 
@@ -759,7 +770,7 @@ describe("Edge Cases", () => {
       expect(recovered).toBe(originalUrl)
 
       // Most importantly: the match pattern with slash round-trips correctly!
-      const parsed = parseRefUrl(recovered as any)
+      const parsed = parseAutomergeUrl(recovered as any)
       expect(parsed.segments[1][KIND]).toBe("match")
       expect((parsed.segments[1] as any).match).toEqual({ id: "test/path" })
     })
@@ -780,7 +791,7 @@ describe("Edge Cases", () => {
       expect(recovered).toBe(originalUrl)
 
       // Value should still resolve correctly
-      const parsed = parseRefUrl(recovered as any)
+      const parsed = parseAutomergeUrl(recovered as any)
       expect(parsed.segments[1][KIND]).toBe("cursors")
     })
 
@@ -798,7 +809,7 @@ describe("Edge Cases", () => {
 
       expect(recovered).toBe(originalUrl)
 
-      const parsed = parseRefUrl(recovered as any)
+      const parsed = parseAutomergeUrl(recovered as any)
       expect((parsed.segments[0] as any).key).toBe("root/path")
       expect((parsed.segments[1] as any).key).toBe("items")
       expect((parsed.segments[2] as any).match).toEqual({
@@ -811,24 +822,24 @@ describe("Edge Cases", () => {
         d.counter = 1
       })
 
-      // Get actual heads in hex format
-      const heads = Automerge.getHeads(handle.doc())
+      // Heads inside Automerge URLs are bs58check-encoded (UrlHeads), matching
+      // stringifyAutomergeUrl. parseAutomergeUrl returns them in that same form.
+      const urlHeads = handle.heads()
+      expect(urlHeads).toBeDefined()
 
-      // Create a view handle with these heads
-      const viewHandle = handle.view(handle.heads())
+      const viewHandle = handle.view(urlHeads!)
       const ref = viewHandle.ref("counter")
       const originalUrl = ref.url
 
-      // Should have heads section with pipe separator
       expect(originalUrl).toContain("#")
-      expect(originalUrl).toContain(heads[0])
+      expect(originalUrl).toContain(urlHeads![0])
 
       const recovered = decodeURIComponent(encodeURIComponent(originalUrl))
 
       expect(recovered).toBe(originalUrl)
 
-      const parsed = parseRefUrl(recovered as any)
-      expect(parsed.heads).toEqual(heads)
+      const parsed = parseAutomergeUrl(recovered as any)
+      expect(parsed.heads).toEqual(urlHeads)
     })
 
     it("should survive URL query param encoding/decoding", () => {
@@ -848,7 +859,7 @@ describe("Edge Cases", () => {
 
       expect(extracted).toBe(originalUrl)
 
-      const parsed = parseRefUrl(extracted as any)
+      const parsed = parseAutomergeUrl(extracted as any)
       expect((parsed.segments[0] as any).key).toBe("special&chars=here")
     })
 
@@ -874,7 +885,7 @@ describe("Edge Cases", () => {
 
       expect(decoded2).toBe(originalUrl)
 
-      const parsed = parseRefUrl(decoded2 as any)
+      const parsed = parseAutomergeUrl(decoded2 as any)
       expect((parsed.segments[0] as any).key).toBe("key%with%percent")
     })
 
@@ -897,8 +908,8 @@ describe("Edge Cases", () => {
       expect(recovered1).toBe(originalUrl1)
       expect(recovered2).toBe(originalUrl2)
 
-      const parsed1 = parseRefUrl(recovered1 as any)
-      const parsed2 = parseRefUrl(recovered2 as any)
+      const parsed1 = parseAutomergeUrl(recovered1 as any)
+      const parsed2 = parseAutomergeUrl(recovered2 as any)
 
       expect((parsed1.segments[0] as any).key).toBe("日本語キー")
       expect((parsed2.segments[0] as any).key).toBe("emoji🎉key")
@@ -909,25 +920,24 @@ describe("Edge Cases", () => {
         d.value = 1
       })
 
-      // Get actual heads and create a view handle
-      const heads = Automerge.getHeads(handle.doc())
-      const viewHandle = handle.view(handle.heads())
+      const urlHeads = handle.heads()
+      const viewHandle = handle.view(urlHeads!)
       const ref = viewHandle.ref("value")
       const originalUrl = ref.url
 
       // The # is part of the ref URL format
       expect(originalUrl).toContain("#")
 
-      // In a real browser, # has special meaning (fragment identifier)
-      // encodeURIComponent encodes # as %23
+      // In a real browser, # has special meaning (fragment identifier).
+      // encodeURIComponent encodes # as %23.
       const encoded = encodeURIComponent(originalUrl)
       expect(encoded).toContain("%23")
 
       const recovered = decodeURIComponent(encoded)
       expect(recovered).toBe(originalUrl)
 
-      const parsed = parseRefUrl(recovered as any)
-      expect(parsed.heads).toEqual(heads)
+      const parsed = parseAutomergeUrl(recovered as any)
+      expect(parsed.heads).toEqual(urlHeads)
     })
   })
 })

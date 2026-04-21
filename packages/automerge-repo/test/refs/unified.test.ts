@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
-import type { RefUrl } from "../../src/refs/types.js"
 
 /**
  * Tests for the unified DocHandle/Ref API. The idea: a "ref" is now just a
@@ -33,13 +32,13 @@ describe("unified DocHandle / Ref", () => {
       expect(sub.url).toBe(`${handle.url}/items/@0/title`)
     })
 
-    it("sub-handle URL round-trips through refFromUrl semantics", () => {
+    it("sub-handle URLs round-trip through repo.find", () => {
       handle.change(d => {
         d.user = { name: "Alice" }
       })
 
       const sub = handle.ref("user", "name")
-      const url = sub.url as RefUrl
+      const url = sub.url
 
       // Re-derive a handle via the same ref path and compare URLs
       const recreated = handle.ref("user", "name")
@@ -80,7 +79,7 @@ describe("unified DocHandle / Ref", () => {
         d.items = [{ title: "Hello" }, { title: "World" }]
       })
 
-      const titleRefUrl = created.ref("items", 0, "title").url as RefUrl
+      const titleRefUrl = created.ref("items", 0, "title").url
       const found = await repo.find<string>(titleRefUrl)
 
       expect(found.documentId).toBe(created.documentId)
@@ -102,7 +101,7 @@ describe("unified DocHandle / Ref", () => {
         d.value = 2
       })
 
-      const url = created.ref("value").viewAt(heads).url as RefUrl
+      const url = created.ref("value").viewAt(heads).url
       const resolved = await repo.find<number>(url)
 
       expect(resolved.value()).toBe(1)

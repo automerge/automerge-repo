@@ -114,15 +114,13 @@ export * from "./types.js"
 
 // Refs - experimental API for referencing locations within documents
 export type {
-  Ref,
   PathInput,
   MutableText,
   InferRefType,
   Pattern,
-  RefUrl,
   ChangeFn as RefChangeFn,
 } from "./refs/types.js"
-export { cursor, findRef, refFromUrl, refFromString } from "./refs/utils.js"
+export { cursor } from "./refs/utils.js"
 
 // Automerge re-exports
 //

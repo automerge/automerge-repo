@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge/slim"
-import type { RefUrl, Segment, SegmentCodec } from "./types.js"
+import type { Segment, SegmentCodec } from "./types.js"
 import { KIND } from "./types.js"
-import type { DocumentId } from "../types.js"
+import type { UrlHeads } from "../types.js"
 
 /**
  * # Path Segment Encoding Scheme
@@ -27,7 +27,6 @@ import type { DocumentId } from "../types.js"
  * 4. Key: `\...` (escaped, URL-encoded as `%5C...`) or anything else
  */
 
-const URL_PREFIX = "automerge:"
 /** The escape character (backslash) */
 const ESCAPE_CHAR = "\\"
 /** URL-encoded form of the escape character for matching in URLs */
@@ -207,64 +206,12 @@ export function serializePath(segments: Segment[]): string {
   return segments.map(serializeSegment).join("/")
 }
 
-export function parseHeads(heads: string): string[] | undefined {
-  return heads ? heads.split("|") : undefined
+export function parseHeads(heads: string | undefined): UrlHeads | undefined {
+  if (heads === undefined) return undefined
+  return (heads === "" ? [] : heads.split("|")) as UrlHeads
 }
 // ⇧ Parse --- Serialize ⇩
-export function serializeHeads(heads: string[]): string {
+export function serializeHeads(heads: UrlHeads | string[]): string {
   return heads.length > 0 ? `#${heads.join("|")}` : ""
 }
 
-/**
- * Returns true if the input looks like a valid ref URL (`automerge:<documentId>`
- * optionally followed by `/<path>` and/or `#<heads>`). Rejects anything that
- * isn't a string or doesn't follow the ref URL shape.
- */
-export function isValidRefUrl(url: unknown): url is RefUrl {
-  if (typeof url !== "string") return false
-  if (!url.startsWith(URL_PREFIX)) return false
-  try {
-    parseRefUrl(url as RefUrl)
-    return true
-  } catch {
-    return false
-  }
-}
-
-export function parseRefUrl(url: RefUrl): {
-  documentId: DocumentId
-  segments: Segment[]
-  heads?: string[]
-} {
-  const [baseUrl, headsSection, ...rest] = url.split("#")
-  if (rest.length > 0) {
-    throw new Error("Invalid ref URL: contains multiple heads sections")
-  }
-
-  const match = baseUrl.match(/^automerge:([^/]+)(?:\/(.*))?$/)
-  if (!match) {
-    throw new Error(
-      `Invalid ref URL: ${url}\n` +
-        `Expected format: automerge:documentId/path/to/value#head1|head2`
-    )
-  }
-
-  const [, documentId, pathStr] = match
-
-  return {
-    documentId: documentId as DocumentId,
-    segments: pathStr ? parsePath(pathStr) : [],
-    heads: parseHeads(headsSection),
-  }
-}
-
-// ⇧ Parse --- Serialize ⇩ (named stringify to match other automerge methods)
-export function stringifyRefUrl(
-  documentId: string,
-  segments: Segment[],
-  heads?: string[]
-): RefUrl {
-  const pathStr = serializePath(segments)
-  const headsStr = heads ? serializeHeads(heads) : ""
-  return `${URL_PREFIX}${documentId}/${pathStr}${headsStr}` as RefUrl
-}

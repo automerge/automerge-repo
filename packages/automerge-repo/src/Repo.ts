@@ -17,8 +17,7 @@ import {
   UNAVAILABLE,
   UNLOADED,
 } from "./DocHandle.js"
-import { isValidRefUrl, parseRefUrl } from "./refs/parser.js"
-import type { RefUrl, AnyPathInput } from "./refs/types.js"
+import type { AnyPathInput } from "./refs/types.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
 import { throttle } from "./helpers/throttle.js"
@@ -725,7 +724,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async find<T>(
-    id: AnyDocumentId | RefUrl,
+    id: AnyDocumentId,
     options: RepoFindOptions & AbortOptions = {}
   ): Promise<DocHandle<T>> {
     const { allowableStates = ["ready"], signal } = options
@@ -735,29 +734,24 @@ export class Repo extends EventEmitter<RepoEvents> {
       throw new AbortError()
     }
 
-    // If the id looks like a ref URL (e.g. "automerge:docId/path#heads"), resolve
-    // the root document first, optionally view it at the given heads, and then
-    // scope into the requested sub-path.
-    if (
-      typeof id === "string" &&
-      !isValidAutomergeUrl(id) &&
-      isValidRefUrl(id)
-    ) {
-      const { documentId, segments, heads } = parseRefUrl(id as RefUrl)
-      const rootHandle = await this.find<any>(documentId as AnyDocumentId, {
-        allowableStates,
-        signal,
-      })
-      const viewed = heads ? rootHandle.view(encodeHeads(heads as Heads)) : rootHandle
-      if (segments.length === 0) {
-        return viewed as DocHandle<T>
+    // If the URL addresses a sub-document (has a path after the documentId),
+    // resolve the root document first, then view-at-heads (if any) and scope
+    // into the requested sub-path.
+    if (isValidAutomergeUrl(id)) {
+      const { documentId, segments, heads } = parseAutomergeUrl(id)
+      if (segments && segments.length > 0) {
+        const rootHandle = await this.find<any>(documentId, {
+          allowableStates,
+          signal,
+        })
+        const viewed = heads ? rootHandle.view(heads) : rootHandle
+        return (viewed.ref as (...s: AnyPathInput[]) => DocHandle<T>)(
+          ...segments
+        )
       }
-      return (viewed.ref as (...s: AnyPathInput[]) => DocHandle<T>)(
-        ...segments
-      )
     }
 
-    const progress = this.findWithProgress<T>(id as AnyDocumentId, { signal })
+    const progress = this.findWithProgress<T>(id, { signal })
 
     if ("subscribe" in progress) {
       this.#registerHandleWithSubsystems(progress.handle)

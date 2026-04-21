@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
 import { KIND } from "../../src/refs/types.js"
-import { cursor, refFromUrl } from "../../src/refs/utils.js"
+import { cursor } from "../../src/refs/utils.js"
 import { splice } from "../../src/index.js"
 
 describe("Ref", () => {
@@ -593,42 +593,34 @@ describe("Ref", () => {
   })
 
   describe("idempotency", () => {
-    it("should produce identical paths when parsing URL twice", () => {
+    it("should produce identical paths when resolving URL twice", async () => {
       handle.change(d => {
         d.todos = [{ title: "First" }, { title: "Second" }]
       })
 
-      // Create ref and serialize to URL
       const ref1 = handle.ref("todos", 0, "title")
       const url = ref1.url
 
-      // Parse URL and create new ref
-      const ref2 = refFromUrl(handle, url)
+      const ref2 = await repo.find(url)
 
-      // Both refs should have identical URLs
       expect(ref2.url).toBe(ref1.url)
       expect(ref2.value()).toBe(ref1.value())
-
       expect(ref2.equals(ref1)).toBe(true)
     })
 
-    it("should preserve cursor ranges through URL round-trip", () => {
+    it("should preserve cursor ranges through URL round-trip", async () => {
       handle.change(d => {
         d.note = "Hello World"
       })
 
-      // Create ref with cursor range
       const ref1 = handle.ref("note", cursor(0, 5))
       const url = ref1.url
 
-      // Parse from URL
-      const ref2 = refFromUrl(handle, url)
+      const ref2 = await repo.find(url)
 
-      // Should have same cursor range
       expect(ref2.url).toBe(ref1.url)
       expect(ref2.value()).toBe("Hello")
 
-      // Insert text before the range
       handle.change(d => {
         splice(d, ["note"], 0, 0, "XXX")
       })
@@ -638,53 +630,33 @@ describe("Ref", () => {
       expect(ref2.value()).toBe("Hello")
     })
 
-    it("should handle multiple refFromUrl round-trips without drift", () => {
+    it("should handle multiple URL round-trips without drift", async () => {
       handle.change(d => {
         d.data = [{ value: 42 }]
       })
 
       const ref1 = handle.ref("data", 0, "value")
 
-      // Round-trip 1
       const url1 = ref1.url
-      const ref2 = refFromUrl(handle, url1)
+      const ref2 = await repo.find(url1)
 
-      // Round-trip 2
       const url2 = ref2.url
-      const ref3 = refFromUrl(handle, url2)
+      const ref3 = await repo.find(url2)
 
-      // Round-trip 3
       const url3 = ref3.url
-      const ref4 = refFromUrl(handle, url3)
+      const ref4 = await repo.find(url3)
 
-      // All URLs should be identical (this is the key invariant)
       expect(url1).toBe(url2)
       expect(url2).toBe(url3)
 
-      // All refs should resolve to the same value
       expect(ref1.value()).toBe(42)
       expect(ref2.value()).toBe(42)
       expect(ref3.value()).toBe(42)
       expect(ref4.value()).toBe(42)
 
-      // All refs should be equal (same URL)
       expect(ref2.equals(ref1)).toBe(true)
       expect(ref3.equals(ref1)).toBe(true)
       expect(ref4.equals(ref1)).toBe(true)
-    })
-
-    it("should throw when URL documentId does not match handle", () => {
-      // Create a second handle with a different documentId
-      const handle2 = repo.create()
-
-      // Get URL from first handle
-      const ref1 = handle.ref("value")
-      const url = ref1.url
-
-      // Trying to use refFromUrl with a different handle should throw
-      expect(() => refFromUrl(handle2, url)).toThrow(
-        /URL documentId .* does not match handle's documentId/
-      )
     })
   })
 
@@ -712,11 +684,16 @@ describe("Ref", () => {
       expect(ref1.equals(ref2)).toBe(false)
     })
 
-    it("should support valueOf for == comparison", () => {
+    it("coerces to its URL when used as a string", () => {
       const ref1 = handle.ref("title")
       const ref2 = handle.ref("title")
 
-      expect(ref1.valueOf()).toBe(ref2.valueOf())
+      // String coercion (e.g. in template literals) goes through toString().
+      expect(`${ref1}`).toBe(ref1.url)
+      expect(String(ref1)).toBe(ref1.url)
+      // Equivalent refs have equal URLs; identity comparison still uses
+      // reference equality rather than URL equality (no valueOf override).
+      expect(ref1.url).toBe(ref2.url)
     })
   })
 

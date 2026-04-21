@@ -1,5 +1,4 @@
 import type { Cursor } from "@automerge/automerge/slim"
-import type { DocHandle } from "../DocHandle.js"
 
 /**
  * Symbol used as discriminator for segments to avoid collision with user data.
@@ -205,24 +204,3 @@ export type InferRefTypeFromString<
   TDoc,
   P extends string
 > = PathValueFromString<TDoc, SegmentsFromString<P>>
-
-/**
- * Branded type for ref URLs.
- * A string in the format: `automerge:documentId/path#heads`
- *
- * @experimental This API is experimental and may change in future versions.
- */
-export type RefUrl = string & { readonly __brand: "RefUrl" }
-
-/**
- * A reference to a location in an Automerge document.
- *
- * This type is a deprecated alias for `DocHandle<TValue>`. The two concepts have been
- * unified: a sub-document `DocHandle` carries a `path` and (optionally) a `range` and
- * supports the same surface as a root handle, so existing `Ref`-typed code continues
- * to work unchanged.
- *
- * @deprecated Use `DocHandle<TValue>` directly.
- * @experimental This API is experimental and may change in future versions.
- */
-export type Ref<TValue = unknown> = DocHandle<TValue>

@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
-import { cursor, findRef } from "../../src/refs/utils.js"
+import { cursor } from "../../src/refs/utils.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
-import type { RefUrl } from "../../src/refs/types.js"
+import type { AutomergeUrl } from "../../src/types.js"
 import { CURSOR_MARKER } from "../../src/refs/types.js"
 
 describe("utils", () => {
@@ -88,7 +88,7 @@ describe("utils", () => {
     })
   })
 
-  describe("findRef", () => {
+  describe("repo.find(url) with sub-document URLs", () => {
     let repo: Repo
     let handle: DocHandle<any>
 
@@ -97,7 +97,7 @@ describe("utils", () => {
       handle = repo.create()
     })
 
-    it("should reconstruct a ref from its URL", async () => {
+    it("should reconstruct a sub-handle from its URL", async () => {
       handle.change((d: any) => {
         d.user = { name: "Alice", age: 30 }
       })
@@ -105,7 +105,7 @@ describe("utils", () => {
       const nameRef = handle.ref("user", "name")
       const url = nameRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("Alice")
       expect(foundRef.url).toBe(url)
     })
@@ -122,7 +122,7 @@ describe("utils", () => {
       const colorRef = handle.ref("app", "settings", "theme", "color")
       const url = colorRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("blue")
     })
 
@@ -143,7 +143,7 @@ describe("utils", () => {
       })
 
       // With numeric indices, ref still points to position 0 (now "zeroth")
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("zeroth")
     })
 
@@ -158,7 +158,7 @@ describe("utils", () => {
       const aliceRef = handle.ref("users", { id: "user1" }, "name")
       const url = aliceRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("Alice")
     })
 
@@ -170,16 +170,15 @@ describe("utils", () => {
       const rangeRef = handle.ref("text", cursor(0, 5))
       const url = rangeRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("hello")
     })
 
-    it("should handle refs with heads", async () => {
+    it("should handle sub-handle URLs with heads", async () => {
       handle.change((d: any) => {
         d.counter = 1
       })
 
-      // Get heads using Automerge.getHeads (hex format) and encode to base58
       const heads1 = Automerge.getHeads(handle.doc())
       const encodedHeads1 = encodeHeads(heads1)
 
@@ -187,39 +186,23 @@ describe("utils", () => {
         d.counter = 2
       })
 
-      // Create a view handle at the old heads and get a ref from it
       const viewHandle = handle.view(encodedHeads1)
       const counterRef = viewHandle.ref("counter")
       const url = counterRef.url
 
-      // Verify URL format: automerge:docId/path#head1,head2
       expect(url).toMatch(/^automerge:[^/]+\/counter#.+$/)
-      expect(counterRef.value()).toBe(1) // Should see old value
+      expect(counterRef.value()).toBe(1)
 
-      const foundRef = await findRef(repo, url)
-      expect(foundRef.value()).toBe(1) // Should see old value
+      const foundRef = await repo.find(url)
+      expect(foundRef.value()).toBe(1)
       expect(foundRef.url).toBe(url)
     })
 
     it("should throw on invalid URL format", async () => {
-      await expect(findRef(repo, "not-a-valid-url" as RefUrl)).rejects.toThrow(
-        "Invalid ref URL"
-      )
-      await expect(findRef(repo, "wrong:abc/path" as RefUrl)).rejects.toThrow(
-        "Invalid ref URL"
-      )
-    })
-
-    it("should handle root path (document ref)", async () => {
-      handle.change((d: any) => {
-        d.value = 42
-      })
-
-      const rootRef = handle.ref()
-      const url = rootRef.url
-
-      const foundRef = await findRef(repo, url)
-      expect(foundRef.value()).toEqual({ value: 42 })
+      await expect(
+        repo.find("not-a-valid-url" as AutomergeUrl)
+      ).rejects.toThrow()
+      await expect(repo.find("wrong:abc/path" as AutomergeUrl)).rejects.toThrow()
     })
   })
 })
