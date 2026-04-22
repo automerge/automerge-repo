@@ -64,9 +64,9 @@ describe("pause", () => {
       setTimeout(() => c2.abort(), 20) // abort via the second source
 
       const start = Date.now()
-      await expect(
-        pause(1000, { signal: combined })
-      ).rejects.toBeInstanceOf(AbortError)
+      await expect(pause(1000, { signal: combined })).rejects.toBeInstanceOf(
+        AbortError
+      )
       expect(Date.now() - start).toBeLessThan(200)
     })
   })

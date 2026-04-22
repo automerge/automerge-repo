@@ -815,9 +815,7 @@ describe("Repo", () => {
         // exercise is actually reached.
         const aliceStorageId = await aliceStorage
           .load(["storage-adapter-id"])
-          .then(
-            bytes => new TextDecoder().decode(bytes!) as StorageId
-          )
+          .then(bytes => new TextDecoder().decode(bytes!) as StorageId)
         bob.peerMetadataByPeerId["alice" as PeerId] = {
           storageId: aliceStorageId,
           isEphemeral: false,

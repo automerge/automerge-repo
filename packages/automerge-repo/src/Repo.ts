@@ -202,7 +202,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             this.#saveDebounceRate
           )
         }
-        fn({ handle, doc })
+        void fn({ handle, doc })
       }
     } else {
       this.#saveFn = noop
@@ -397,7 +397,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
     }
 
-    handler(payload)
+    void handler(payload)
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
