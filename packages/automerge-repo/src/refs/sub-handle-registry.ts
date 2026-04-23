@@ -140,6 +140,11 @@ export class SubHandleRegistry {
         this.state.refCache.delete(key)
         continue
       }
+      // Sub-handles pinned to fixed heads are frozen snapshots: their
+      // value never changes as the live document moves forward, so we
+      // suppress `change` emissions on them. Lifecycle and ephemeral
+      // events still flow through (see dispatchDelete / dispatchEphemeral).
+      if (sub.isReadOnly()) continue
       try {
         if (this.#subRecords.has(sub)) {
           const filtered = perSubPatches.get(sub)
@@ -160,7 +165,12 @@ export class SubHandleRegistry {
   }
 
   dispatchHeadsChanged(payload: DocumentHeadsChangedPayload): void {
-    this.#forEachLiveSubHandle(sub => sub._dispatchRootHeadsChanged(payload))
+    this.#forEachLiveSubHandle(sub => {
+      // Same reasoning as `dispatchChange`: a frozen sub-handle's heads
+      // are fixed by definition and cannot change.
+      if (sub.isReadOnly()) return
+      sub._dispatchRootHeadsChanged(payload)
+    })
   }
 
   dispatchDelete(): void {

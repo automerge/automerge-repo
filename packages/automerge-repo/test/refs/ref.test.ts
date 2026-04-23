@@ -2,6 +2,7 @@ import * as Automerge from "@automerge/automerge"
 import { beforeEach, describe, expect, it } from "vitest"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
+import { encodeHeads } from "../../src/AutomergeUrl.js"
 import { KIND } from "../../src/refs/types.js"
 import { cursor } from "../../src/refs/utils.js"
 import { splice } from "../../src/index.js"
@@ -1590,7 +1591,7 @@ describe("Ref", () => {
     })
   })
 
-  describe("viewAt", () => {
+  describe("view at heads", () => {
     it("should create a new ref with different heads", () => {
       handle.change(d => {
         d.value = 1
@@ -1604,7 +1605,7 @@ describe("Ref", () => {
       const currentRef = handle.ref("value")
       expect(currentRef.value()).toBe(2)
 
-      const pastRef = currentRef.viewAt(heads1)
+      const pastRef = currentRef.view(encodeHeads(heads1))
       expect(pastRef.value()).toBe(1)
 
       // Original ref should be unchanged
@@ -1624,7 +1625,7 @@ describe("Ref", () => {
       const currentRef = handle.ref("user", "name")
       expect(currentRef.value()).toBe("Bob")
 
-      const pastRef = currentRef.viewAt(heads1)
+      const pastRef = currentRef.view(encodeHeads(heads1))
       expect(pastRef.value()).toBe("Alice")
     })
 
@@ -1635,7 +1636,7 @@ describe("Ref", () => {
       const heads = Automerge.getHeads(handle.doc())
 
       const currentRef = handle.ref("value")
-      const pastRef = currentRef.viewAt(heads)
+      const pastRef = currentRef.view(encodeHeads(heads))
 
       // Distinct handles: same symbolic path but different fixed heads.
       expect(pastRef).not.toBe(currentRef)
@@ -1656,7 +1657,7 @@ describe("Ref", () => {
       const heads = Automerge.getHeads(handle.doc())
 
       const originalRef = handle.ref("nested", "deep", "value")
-      const viewRef = originalRef.viewAt(heads)
+      const viewRef = originalRef.view(encodeHeads(heads))
 
       expect(viewRef.path).toEqual(originalRef.path)
     })
@@ -1667,7 +1668,7 @@ describe("Ref", () => {
       })
       const heads1 = Automerge.getHeads(handle.doc())
 
-      const pastRef = handle.ref("value").viewAt(heads1)
+      const pastRef = handle.ref("value").view(encodeHeads(heads1))
 
       expect(() => {
         pastRef.change(() => 2)
@@ -1736,8 +1737,8 @@ describe("Ref", () => {
       })
       const heads2 = Automerge.getHeads(handle.doc())
 
-      const ref1 = handle.ref("value").viewAt(heads1)
-      const ref2 = handle.ref("value").viewAt(heads2)
+      const ref1 = handle.ref("value").view(encodeHeads(heads1))
+      const ref2 = handle.ref("value").view(encodeHeads(heads2))
 
       expect(ref1.contains(ref2)).toBe(false)
     })

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
+import { encodeHeads } from "../../src/AutomergeUrl.js"
 
 /**
  * Tests for the unified DocHandle/Ref API. The idea: a "ref" is now just a
@@ -56,7 +57,7 @@ describe("unified DocHandle / Ref", () => {
         d.value = 1
       })
       const heads = Automerge.getHeads(handle.doc())
-      const sub = handle.ref("value").viewAt(heads)
+      const sub = handle.ref("value").view(encodeHeads(heads))
       expect(sub.url).toContain("#")
     })
   })
@@ -101,7 +102,7 @@ describe("unified DocHandle / Ref", () => {
         d.value = 2
       })
 
-      const url = created.ref("value").viewAt(heads).url
+      const url = created.ref("value").view(encodeHeads(heads)).url
       const resolved = await repo.find<number>(url)
 
       expect(resolved.value()).toBe(1)
@@ -146,6 +147,57 @@ describe("unified DocHandle / Ref", () => {
       })
 
       expect(observed).toEqual(["New"])
+    })
+
+    it("a fixed-heads handle does not fire change/heads-changed when the underlying doc moves forward", () => {
+      handle.change(d => {
+        d.value = 1
+      })
+      const pinnedHeads = handle.heads()
+      const pinned = handle.view(pinnedHeads)
+
+      const changeEvents: any[] = []
+      const headsEvents: any[] = []
+      pinned.on("change", p => changeEvents.push(p))
+      pinned.on("heads-changed", p => headsEvents.push(p))
+
+      // The live doc continues to evolve. The pinned view is a frozen
+      // snapshot at `pinnedHeads`; its content cannot change, so no
+      // `change` or `heads-changed` should fire on it.
+      handle.change(d => {
+        d.value = 2
+      })
+      handle.change(d => {
+        d.value = 3
+      })
+
+      expect(changeEvents).toEqual([])
+      expect(headsEvents).toEqual([])
+
+      // Sanity: the live root still sees the events.
+      expect(pinned.value()).toEqual({ value: 1 })
+      expect(handle.value()).toEqual({ value: 3 })
+    })
+
+    it("a fixed-heads sub-handle also does not fire change/heads-changed", () => {
+      handle.change(d => {
+        d.title = "First"
+      })
+      const pinnedHeads = handle.heads()
+
+      // Pinned at the path AND at heads.
+      const pinnedTitle = handle.ref("title").view(pinnedHeads)
+
+      const events: any[] = []
+      pinnedTitle.on("change", p => events.push(p))
+      pinnedTitle.on("heads-changed", p => events.push(p))
+
+      handle.change(d => {
+        d.title = "Second"
+      })
+
+      expect(events).toEqual([])
+      expect(pinnedTitle.value()).toBe("First")
     })
   })
 

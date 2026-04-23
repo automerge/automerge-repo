@@ -2,14 +2,14 @@
 //
 // Every "ref" is just a DocHandle scoped to a path inside a document, so the same
 // methods you know from a root handle (doc / value / change / history / on / url /
-// viewAt / ...) also work on a sub-document.
+// view / ...) also work on a sub-document.
 //
 // Run with plain node (after `pnpm build` in this package):
 //
 //   node examples/sub-doc-handles.mjs
 
 import { next as Automerge } from "@automerge/automerge"
-import { Repo } from "../dist/index.js"
+import { Repo, encodeHeads } from "../dist/index.js"
 
 async function main() {
   const repo = new Repo()
@@ -28,7 +28,7 @@ async function main() {
   console.log("root url:", handle.url)
 
   // 2. Carve out a sub-document handle --------------------------------------
-  // handle.ref(...) / handle.sub(...) return a DocHandle scoped to a path.
+  // handle.ref(...) returns a DocHandle scoped to a path.
   const firstTodo = handle.ref("todos", 0)
 
   console.log("sub  url:", firstTodo.url)
@@ -74,12 +74,13 @@ async function main() {
   console.log("firstTodo history length:", firstTodo.history().length)
 
   // 5. Time travel ----------------------------------------------------------
-  // viewAt(heads) returns a read-only sub-handle at a past point in time.
-  // It accepts either UrlHeads (from handle.heads()) or raw Automerge heads
-  // (from Automerge.getHeads(doc)).
+  // view(heads) returns a read-only sub-handle at a past point in time.
+  // `heads` are `UrlHeads` (base58-encoded) - what `handle.heads()` and
+  // `firstTodo.history()` return. To pin to raw Automerge heads (e.g. from
+  // `Automerge.getHeads(doc)`), wrap with `encodeHeads(...)`.
   // firstTodo.history()[0] is the heads right after firstTodo was created.
   const afterCreate = firstTodo.history()[0]
-  const earlyFirstTodo = firstTodo.viewAt(afterCreate)
+  const earlyFirstTodo = firstTodo.view(afterCreate)
   console.log("firstTodo at creation:", earlyFirstTodo.value())
 
   // 6. repo.find(refUrl) ----------------------------------------------------
@@ -95,7 +96,7 @@ async function main() {
 
   // A ref URL with #heads resolves to a read-only, pinned sub-handle.
   const heads = Automerge.getHeads(handle.doc())
-  const pinnedUrl = firstTodo.viewAt(heads).url
+  const pinnedUrl = firstTodo.view(encodeHeads(heads)).url
   const pinned = await repo.find(pinnedUrl)
   console.log("pinned isReadOnly?   ", pinned.isReadOnly())
 }

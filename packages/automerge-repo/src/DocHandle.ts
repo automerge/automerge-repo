@@ -175,12 +175,20 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
-    this.documentState.on("change", payload =>
+    // `change` and `heads-changed` represent the *live* document moving
+    // forward. A handle pinned to `#fixedHeads` (a view-at-heads handle,
+    // or a `repo.find(url#heads)` result) is conceptually a frozen
+    // snapshot, so we suppress those events on it - its `value()` would
+    // never reflect a change anyway. Lifecycle and ephemeral events still
+    // fire because they're document-level, not view-content.
+    this.documentState.on("change", payload => {
+      if (this.#fixedHeads) return
       this.emit("change", { handle: this, ...payload })
-    )
-    this.documentState.on("heads-changed", payload =>
+    })
+    this.documentState.on("heads-changed", payload => {
+      if (this.#fixedHeads) return
       this.emit("heads-changed", { handle: this, ...payload })
-    )
+    })
     this.documentState.on("delete", () =>
       this.emit("delete", { handle: this })
     )
@@ -218,7 +226,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * The fixed heads this handle reads at, if any. Uses the handle's own
    * `#fixedHeads` if set, otherwise inherits from its root handle. This
    * lets `handle.view(heads)` produce a root-view pinned to those heads
-   * while `handle.ref("x").viewAt(heads2)` produces a sub-handle with its
+   * while `handle.ref("x").view(heads2)` produces a sub-handle with its
    * own `heads2` that takes precedence over the root's.
    */
   get #effectiveFixedHeads(): UrlHeads | undefined {
@@ -886,38 +894,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     >
   }
 
-  /** Alias for {@link DocHandle.ref} for discoverability when working with sub-documents. */
-  sub<TPath extends readonly PathInput[]>(
-    ...segments: [...TPath]
-  ): DocHandle<InferRefType<T, TPath>> {
-    return this.ref(...segments)
-  }
-
-  /**
-   * Create a read-only sub-handle at the given heads (time travel). Equivalent to
-   * `this.view(heads).ref(...this.path)` but preserves path composition for callers.
-   *
-   * Accepts either `UrlHeads` (base58-encoded, as returned by `handle.heads()`) or raw
-   * Automerge heads (hex strings, as returned by `Automerge.getHeads(doc)`).
-   */
-  viewAt(heads: UrlHeads | A.Heads): DocHandle<T> {
-    const urlHeads = normalizeToUrlHeads(heads)
-    // Root handle: delegate to `view()` for cache identity.
-    if (!this.#root) return this.view(urlHeads)
-
-    // Sub-handle: produce a fresh sub-handle sharing the root's
-    // `DocumentState` but pinned to `heads`. We bypass `refCache` here
-    // deliberately - two refs at the same path differing only in fixed
-    // heads are distinct handles, and we don't want cache collisions.
-    const segs: AnyPathInput[] = this.#range
-      ? [...this.#path, this.#range]
-      : [...this.#path]
-    return new DocHandle<T>(this.documentId, {
-      root: this.#root,
-      pathInputs: segs,
-      heads: urlHeads,
-    } as DocHandleOptions<T>)
-  }
 
   /** Removes the value at this sub-handle's path from the underlying document. */
   remove(): void {
@@ -1032,7 +1008,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     }
 
     // Compose path relative to root. The new sub inherits any fixedHeads
-    // from this handle: `view(heads).ref("x")` and `ref("x").viewAt(heads)`
+    // from this handle: `view(heads).ref("x")` and `ref("x").view(heads)`
     // both produce a sub at path ["x"] pinned to `heads`.
     const rootHandle = this.#root ?? this
     const combined: AnyPathInput[] = this.#range
@@ -1407,7 +1383,7 @@ function pathToCacheKey(segments: readonly AnyPathInput[]): string {
 
 /**
  * Cache key for sub-handle identity. Distinct (path, heads) pairs produce
- * distinct cache entries: `root.ref("x")` and `root.ref("x").viewAt(h)`
+ * distinct cache entries: `root.ref("x")` and `root.ref("x").view(h)`
  * must return different handles, because they read at different heads.
  * Sub-handles with no fixed heads (the common case) collapse to just their
  * path key.
@@ -1556,15 +1532,3 @@ export interface DocHandleRemoteHeadsPayload {
   timestamp: number
 }
 
-/**
- * Accept either base58-encoded `UrlHeads` or raw hex-string Automerge `Heads` and return
- * the `UrlHeads` form. Raw heads produced by `Automerge.getHeads(doc)` are hex strings,
- * so we detect that by checking whether every element parses as hex.
- */
-function normalizeToUrlHeads(heads: UrlHeads | A.Heads): UrlHeads {
-  if (heads.length === 0) return heads as UrlHeads
-  const isHex = heads.every(
-    h => typeof h === "string" && /^[0-9a-fA-F]+$/.test(h)
-  )
-  return (isHex ? encodeHeads(heads as A.Heads) : heads) as UrlHeads
-}

@@ -186,17 +186,17 @@ doubleIt(deepNumberRef) // Should pass
 
 // === Post-unification inference checks ===========================================
 // Verify that sub-document handles are just `DocHandle<T>` and that the URL /
-// repo.find / viewAt surface remains inference-friendly.
+// repo.find / view surface remains inference-friendly.
 
-import type { AutomergeUrl } from "../../src/types.js"
+import type { AutomergeUrl, UrlHeads } from "../../src/types.js"
 import type { Repo } from "../../src/Repo.js"
 
 // `handle.url` on any handle (root or sub) is an `AutomergeUrl`, with no separate
 // "ref URL" type in the public API.
 const _subUrl: AutomergeUrl = deepNumberRef.url
 
-// `viewAt` preserves the generic parameter.
-const _pinned: DocHandle<number> = deepNumberRef.viewAt([] as unknown as string[])
+// `view` preserves the generic parameter on sub-handles too.
+const _pinned: DocHandle<number> = deepNumberRef.view([] as unknown as UrlHeads)
 
 // `repo.find(anyUrl)` returns `Promise<DocHandle<T>>` for both root and
 // sub-document URLs — there's a single overload because both are `AutomergeUrl`.
