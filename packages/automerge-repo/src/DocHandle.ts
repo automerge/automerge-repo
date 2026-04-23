@@ -217,20 +217,22 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.#root !== undefined
   }
 
-  /** Expose `#fixedHeads` for use by sub-handles' `#effectiveFixedHeads`. */
-  get _fixedHeadsForRef(): UrlHeads | undefined {
-    return this.#fixedHeads
-  }
-
   /**
    * The fixed heads this handle reads at, if any. Uses the handle's own
    * `#fixedHeads` if set, otherwise inherits from its root handle. This
    * lets `handle.view(heads)` produce a root-view pinned to those heads
    * while `handle.ref("x").view(heads2)` produces a sub-handle with its
    * own `heads2` that takes precedence over the root's.
+   *
+   * Reaches across to the root's private `#fixedHeads` directly: JS class
+   * private fields are accessible from any instance of the same class.
    */
   get #effectiveFixedHeads(): UrlHeads | undefined {
-    return this.#fixedHeads ?? this.#root?._fixedHeadsForRef
+    if (this.#fixedHeads) return this.#fixedHeads
+    // Optional chaining can't reach private fields, so do the null check
+    // explicitly. Cross-instance access works because `#fixedHeads` is
+    // declared on `DocHandle` and `this.#root` is also a `DocHandle`.
+    return this.#root === undefined ? undefined : this.#root.#fixedHeads
   }
 
   // PUBLIC
@@ -462,43 +464,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before calling view().`
       )
     }
-
-    // Sub-handle: return a sub-handle sharing the same DocumentState but
-    // with its own `#fixedHeads`. This is the per-handle heads contract:
-    // a sub can be pinned to arbitrary heads independently of its root.
-    // We intentionally don't cache sub-view handles; callers that want
-    // identity stability should memoise externally.
-    if (this.#root) {
-      const segs: AnyPathInput[] = this.#range
-        ? [...this.#path, this.#range]
-        : [...this.#path]
-      return new DocHandle<T>(this.documentId, {
-        root: this.#root,
-        pathInputs: segs,
-        heads,
-      } as DocHandleOptions<T>)
-    }
-
-    // Root-view: share the same DocumentState with a handle whose own
-    // `#fixedHeads` is set. Reads go through `A.view(doc, heads)` via
-    // `doc()`; no cloning required. Cached per-heads for identity stability.
-    const cacheKey = JSON.stringify(heads)
-    const cached = this.documentState.viewCache.get(cacheKey)?.deref() as
-      | DocHandle<T>
-      | undefined
-    if (cached) return cached
-    if (this.documentState.viewCache.has(cacheKey)) {
-      this.documentState.viewCache.delete(cacheKey)
-    }
-
-    const handle = new DocHandle<T>(this.documentId, {
-      root: this as DocHandle<any>,
-      pathInputs: [],
-      heads,
-    } as DocHandleOptions<T>)
-
-    this.documentState.viewCache.set(cacheKey, new WeakRef(handle))
-    return handle
+    // A view-at-heads is just "this same handle, but pinned to `heads`".
+    // We route through `#createSubHandle` so identity is stable across both
+    // `root.view(h).ref("x")` and `root.ref("x").view(h)` - both produce
+    // cache key `s:x#h0,h1` in `handleCache` and return the same instance.
+    return this.#createSubHandle([], { heads }) as DocHandle<T>
   }
 
   /**
@@ -1001,31 +971,42 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Sub-handles are cached on the root (or view) handle so repeated calls return the same instance.
    */
   #createSubHandle(
-    segments: readonly AnyPathInput[]
+    segments: readonly AnyPathInput[],
+    options: { heads?: UrlHeads } = {}
   ): DocHandle<any> {
-    if (segments.length === 0 && !this.#range) {
+    // Heads source: caller override (from `view(heads)`) wins over the
+    // heads inherited from `this` (set if `this` is itself view-pinned).
+    const heads = options.heads ?? this.#effectiveFixedHeads
+
+    // Identity at "no segments added, no range, no heads override" → return
+    // this handle itself. Without the heads check, `root.view(h)` would
+    // hit this short-circuit and return the unpinned root.
+    if (segments.length === 0 && !this.#range && !heads) {
       return this
     }
 
-    // Compose path relative to root. The new sub inherits any fixedHeads
-    // from this handle: `view(heads).ref("x")` and `ref("x").view(heads)`
-    // both produce a sub at path ["x"] pinned to `heads`.
+    // Compose path relative to root.
     const rootHandle = this.#root ?? this
     const combined: AnyPathInput[] = this.#range
       ? [...inputsFromPath(this.#path), this.#range, ...segments]
       : [...inputsFromPath(this.#path), ...segments]
-    const inheritedHeads = this.#effectiveFixedHeads
 
-    const cacheKey = subHandleCacheKey(combined, inheritedHeads)
-    const existing = this.documentState.refCache.get(cacheKey)?.deref()
+    // Cache by (path, heads). Two refs at the same path with different
+    // fixed heads are distinct handles; refs with no heads collapse to
+    // just the path key. This unifies what used to be two caches:
+    //   - root view at heads (`root.view(h)`)            → key `#h`
+    //   - sub at path                (`root.ref("x")`)   → key `s:x`
+    //   - sub at path, view at heads (`...ref("x").view(h)`) → key `s:x#h`
+    const cacheKey = handleCacheKey(combined, heads)
+    const existing = this.documentState.handleCache.get(cacheKey)?.deref()
     if (existing) return existing
 
     const newHandle = new DocHandle<any>(rootHandle.documentId, {
       root: rootHandle,
       pathInputs: combined,
-      heads: inheritedHeads,
+      heads,
     } as DocHandleOptions<any>)
-    this.documentState.refCache.set(cacheKey, new WeakRef(newHandle))
+    this.documentState.handleCache.set(cacheKey, new WeakRef(newHandle))
     return newHandle
   }
 
@@ -1155,8 +1136,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   // ---------------- Listener retention (sub-handles only) ----------------
   //
   // Sub-handles are held on the shared DocumentState as `WeakRef`s (see
-  // `DocumentState.refCache`), so they
-  // can be garbage-collected whenever no one else references them. That's
+  // `DocumentState.handleCache`), so they can be garbage-collected
+  // whenever no one else references them. That's
   // usually what we want — but users who call
   // `handle.ref(...).on("change", cb)` without keeping a local variable for
   // the sub-handle would see their listener silently stop firing as soon as
@@ -1172,17 +1153,18 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /**
    * Sub-handle only: sync our root-retainer status with whether we currently
-   * have any listeners attached. Cheap enough to call from every listener
-   * mutation (and from every emit, to catch `once` auto-removal).
+   * have any listeners attached. Returns `this` so listener-modifying
+   * overrides can use it as their tail call. Cheap enough to call from
+   * every listener mutation (and from every emit, to catch `once`
+   * auto-removal).
    */
-  #updateSubHandleRetention(): void {
-    if (!this.#root) return
-    const registry = this.documentState.registry
-    if (this.eventNames().length > 0) {
-      registry.insert(this)
-    } else {
-      registry.remove(this)
+  #syncRetention(): this {
+    if (this.#root) {
+      const registry = this.documentState.registry
+      if (this.eventNames().length > 0) registry.insert(this)
+      else registry.remove(this)
     }
+    return this
   }
 
   on<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
@@ -1191,8 +1173,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     context?: any
   ): this {
     super.on(event, fn, context)
-    this.#updateSubHandleRetention()
-    return this
+    return this.#syncRetention()
   }
 
   addListener<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
@@ -1201,8 +1182,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     context?: any
   ): this {
     super.addListener(event, fn, context)
-    this.#updateSubHandleRetention()
-    return this
+    return this.#syncRetention()
   }
 
   once<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
@@ -1211,8 +1191,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     context?: any
   ): this {
     super.once(event, fn, context)
-    this.#updateSubHandleRetention()
-    return this
+    return this.#syncRetention()
   }
 
   off<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
@@ -1222,8 +1201,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     once?: boolean
   ): this {
     super.off(event, fn, context, once)
-    this.#updateSubHandleRetention()
-    return this
+    return this.#syncRetention()
   }
 
   removeListener<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
@@ -1233,26 +1211,24 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     once?: boolean
   ): this {
     super.removeListener(event, fn, context, once)
-    this.#updateSubHandleRetention()
-    return this
+    return this.#syncRetention()
   }
 
   removeAllListeners(
     event?: EventEmitter.EventNames<DocHandleEvents<T>>
   ): this {
     super.removeAllListeners(event)
-    this.#updateSubHandleRetention()
-    return this
+    return this.#syncRetention()
   }
 
   emit<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
     event: E,
     ...args: EventEmitter.EventArgs<DocHandleEvents<T>, E>
   ): boolean {
-    const result = super.emit(event, ...args)
     // `once` listeners auto-remove themselves during emit; re-check so the
     // root can release its strong grip if that was our last listener.
-    this.#updateSubHandleRetention()
+    const result = super.emit(event, ...args)
+    this.#syncRetention()
     return result
   }
 
@@ -1261,7 +1237,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   // lives on one DocHandle instance but needs to fan out events into every live
   // sub-handle instance. Using explicit methods (rather than subscribing N
   // listeners on the root) keeps both the per-event and per-sub-handle cost to
-  // a single predictable pass through `DocumentState.refCache`.
+  // a single predictable pass through `DocumentState.handleCache`.
 
   /** @internal Logger accessor used by the root dispatcher. */
   get _log(): debug.Debugger {
@@ -1279,16 +1255,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** @internal The sub-handle's symbolic path segments. Empty for root handles. */
   get _pathSegments(): readonly PathSegment[] {
     return this.#path
-  }
-
-  /**
-   * @internal Resolved numeric/string prop path at the current document state,
-   * or `undefined` if any segment fails to resolve (e.g. a pattern has no
-   * matching item). Used by the registry to key the literal trie and to
-   * filter patches on pattern-path sub-handles.
-   */
-  _propPath(): Prop[] | undefined {
-    return this.#getPropPath()
   }
 
   /**
@@ -1310,7 +1276,22 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
-  /** @internal Forward a document-level `change` event, filtered to this sub-handle's path. */
+  /**
+   * @internal Forward a document-level `change` event, filtered to this
+   * sub-handle's path.
+   *
+   * TODO: this method exists primarily so dormant (listener-less) pattern
+   * sub-handles get their `segment.prop` refreshed on every change - so
+   * that reading `ref.path[i].prop` on a never-listened-to ref always
+   * returns the current resolution. It's the last per-sub-per-change
+   * cost in the dispatch path. The cleaner alternative is to make
+   * `scopedValue` write `.prop` back as a side-effect of resolution
+   * (lazy refresh: stale until read, never stale after read), at which
+   * point dormant subs need no per-dispatch work and we can delete this
+   * method along with the `if (this.#subRecords.has(sub)) ... else ...`
+   * branch in the registry's `dispatchChange`. See `scopedValue` in
+   * `refs/sub-handle-ops.ts`.
+   */
   _dispatchRootChange(payload: DocumentChangePayload): void {
     // Keep segment props (indices resolved from patterns, etc.) fresh.
     this.#updatePropsFromRoot()
@@ -1367,14 +1348,37 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 // Internal helpers (module-private)
 // ---------------------------------------------------------------------------
 
+/**
+ * Render a path-input segment to a cache-key fragment that's stable across
+ * the two equivalent forms a segment can take in the codebase:
+ *
+ *   - "primitive" form (what user code typically passes): `"foo"`, `3`, `{id: "x"}`
+ *   - "normalised" form (what `#normalizePath` produces and what `inputsFromPath`
+ *      threads back through chained `ref()` calls): `{KIND: "key", key: "foo"}`,
+ *      `{KIND: "index", index: 3}`, `{KIND: "match", match: {id: "x"}}`
+ *
+ * Without this normalisation, `root.ref("x").ref("y")` would produce a
+ * different cache key than `root.ref("x", "y")`, even though they're the
+ * same handle conceptually. Map both forms onto a single canonical
+ * representation so the handle cache treats them as identical.
+ */
 function pathToCacheKey(segments: readonly AnyPathInput[]): string {
   return segments
     .map(seg => {
       if (typeof seg === "string") return `s:${seg}`
       if (typeof seg === "number") return `n:${seg}`
       if (typeof seg === "object" && seg !== null) {
-        if (isSegment(seg)) return `seg:${JSON.stringify(seg)}`
-        return `o:${JSON.stringify(seg)}`
+        if (isSegment(seg)) {
+          const kind = (seg as any)[KIND]
+          if (kind === "key") return `s:${(seg as any).key}`
+          if (kind === "index") return `n:${(seg as any).index}`
+          if (kind === "match") {
+            return `m:${JSON.stringify((seg as any).match)}`
+          }
+          return `seg:${JSON.stringify(seg)}`
+        }
+        // Plain object: a Pattern that hasn't been wrapped into a Segment yet.
+        return `m:${JSON.stringify(seg)}`
       }
       return `?:${String(seg)}`
     })
@@ -1382,13 +1386,18 @@ function pathToCacheKey(segments: readonly AnyPathInput[]): string {
 }
 
 /**
- * Cache key for sub-handle identity. Distinct (path, heads) pairs produce
- * distinct cache entries: `root.ref("x")` and `root.ref("x").view(h)`
- * must return different handles, because they read at different heads.
- * Sub-handles with no fixed heads (the common case) collapse to just their
- * path key.
+ * Cache key for the unified handle cache. Keyed by `(path, heads)` so
+ * every distinct view of the document - root, sub at path, sub at path
+ * pinned to heads, root pinned to heads - gets its own cache slot. The
+ * root handle (path=[], no heads) maps to the empty key, but it's never
+ * cached itself; only handles created via `#createSubHandle` end up here.
+ *
+ *   root.view(h)              → "#h0,h1"
+ *   root.ref("x")             → "s:x"
+ *   root.ref("x").view(h)     → "s:x#h0,h1"
+ *   root.view(h).ref("x")     → "s:x#h0,h1"  (same as above)
  */
-function subHandleCacheKey(
+function handleCacheKey(
   segments: readonly AnyPathInput[],
   heads: UrlHeads | undefined
 ): string {

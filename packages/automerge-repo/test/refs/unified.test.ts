@@ -62,6 +62,49 @@ describe("unified DocHandle / Ref", () => {
     })
   })
 
+  describe("handle cache identity", () => {
+    it("composes view() and ref() in either order to the same handle", () => {
+      handle.change(d => {
+        d.value = 1
+      })
+      const heads = handle.heads()
+
+      const a = handle.view(heads).ref("value")
+      const b = handle.ref("value").view(heads)
+
+      expect(a).toBe(b)
+      expect(a.url).toBe(b.url)
+    })
+
+    it("repeated view() calls at the same heads return the same handle", () => {
+      handle.change(d => {
+        d.title = "frozen"
+      })
+      const heads = handle.heads()
+
+      const v1 = handle.view(heads)
+      const v2 = handle.view(heads)
+      expect(v1).toBe(v2)
+    })
+
+    it("different heads on the same path produce different handles", () => {
+      handle.change(d => {
+        d.value = 1
+      })
+      const heads1 = handle.heads()
+      handle.change(d => {
+        d.value = 2
+      })
+      const heads2 = handle.heads()
+
+      const v1 = handle.ref("value").view(heads1)
+      const v2 = handle.ref("value").view(heads2)
+      expect(v1).not.toBe(v2)
+      expect(v1.value()).toBe(1)
+      expect(v2.value()).toBe(2)
+    })
+  })
+
   describe("repo.find(refUrl)", () => {
     it("resolves a root handle via its automerge URL", async () => {
       const created = repo.create<any>()

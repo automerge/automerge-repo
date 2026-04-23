@@ -30,8 +30,8 @@ import { matchesPattern } from "./utils.js"
  * observers of `ref.path[i].prop` stay accurate.
  *
  * Sub-handles that have never been retained (no listener ever attached) are
- * still tracked weakly in `DocumentState.refCache`. They do not enter the
- * trie; instead they continue to receive `change` events through the
+ * still tracked weakly in `DocumentState.handleCache`. They do not enter
+ * the trie; instead they continue to receive `change` events through the
  * per-sub `_dispatchRootChange` forwarder, which refreshes their segment
  * `.prop` values via `#updatePropsFromRoot` - the same mechanism used
  * today. This keeps `ref.path[i].prop` observations well-defined on
@@ -134,10 +134,10 @@ export class SubHandleRegistry {
       )
     }
 
-    for (const [key, weak] of this.state.refCache) {
+    for (const [key, weak] of this.state.handleCache) {
       const sub = weak.deref()
       if (!sub) {
-        this.state.refCache.delete(key)
+        this.state.handleCache.delete(key)
         continue
       }
       // Sub-handles pinned to fixed heads are frozen snapshots: their
@@ -156,6 +156,8 @@ export class SubHandleRegistry {
           // dispatch so its segment `.prop`s stay fresh for external
           // observers of `ref.path[i].prop`; the `emit` call at the end
           // is a no-op because there are no listeners.
+          // TODO: replace this with lazy `.prop` refresh in `scopedValue`
+          // - see the TODO on `DocHandle._dispatchRootChange`.
           sub._dispatchRootChange(payload)
         }
       } catch (e) {
@@ -383,10 +385,10 @@ export class SubHandleRegistry {
   }
 
   #forEachLiveSubHandle(fn: (sub: DocHandle<any>) => void): void {
-    for (const [key, weak] of this.state.refCache) {
+    for (const [key, weak] of this.state.handleCache) {
       const sub = weak.deref()
       if (!sub) {
-        this.state.refCache.delete(key)
+        this.state.handleCache.delete(key)
         continue
       }
       try {

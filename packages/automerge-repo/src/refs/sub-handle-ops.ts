@@ -33,7 +33,28 @@ export function getPropPath(
   return propPath
 }
 
-/** Get the current scoped value (value at path, or substring for a range handle). */
+/**
+ * Get the current scoped value (value at path, or substring for a range handle).
+ *
+ * TODO: lazy `.prop` refresh. Today this function reads the cached
+ * `segment.prop` values produced by the most recent `updatePropsFromRoot`
+ * pass. That pass is run for every dormant sub-handle on every change
+ * (via `DocHandle._dispatchRootChange`), which is the last per-sub-per-
+ * change cost in the dispatch path - the thing standing between us and
+ * "many thousands of refs are free".
+ *
+ * The cleaner alternative is to walk segments here against the live
+ * `rootView`, resolving each segment with `resolveSegmentProp(cursor, seg)`
+ * and writing the result back to `seg.prop` as a side-effect. Then:
+ *   - `scopedValue` returns are always up-to-date with the doc passed in.
+ *   - `ref.path[i].prop` observations are correct after any `value()` call.
+ *   - The dispatch-time `_dispatchRootChange`/`updatePropsFromRoot` path
+ *     for dormant subs goes away entirely.
+ *
+ * The trade-off is "stale `.prop` until you read." Probably fine - users
+ * who care about `.prop` either listen for changes (retained) or just
+ * called `value()` (which would now refresh).
+ */
 export function scopedValue(
   rootView: A.Doc<any>,
   segments: readonly PathSegment[],

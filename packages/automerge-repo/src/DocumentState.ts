@@ -1,5 +1,4 @@
 import { next as A } from "@automerge/automerge/slim"
-import type { Prop } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import { assertEvent, assign, createActor, setup, waitFor } from "xstate"
@@ -59,11 +58,13 @@ export class DocumentState extends EventEmitter<DocumentStateEvents> {
   #syncInfoByStorageId: Record<StorageId, SyncInfo> = {}
 
   /**
-   * WeakRef cache of sub-handles that have ever been requested on this
-   * document, keyed by serialised path. Retained-but-dropped references are
-   * pruned lazily during iteration.
+   * WeakRef cache of every distinct handle into this document - sub-handles
+   * at a path, view-handles at fixed heads, and combinations of the two -
+   * keyed by `(path, heads)` (see {@link DocHandle.handleCacheKey}). The
+   * root handle is the only exception; it's owned by the `Repo` and
+   * doesn't live here. Dead WeakRefs are pruned lazily during iteration.
    */
-  readonly refCache: Map<string, WeakRef<DocHandle<any>>> = new Map()
+  readonly handleCache: Map<string, WeakRef<DocHandle<any>>> = new Map()
 
   /**
    * Strong retainers for sub-handles that currently have at least one
@@ -71,13 +72,6 @@ export class DocumentState extends EventEmitter<DocumentStateEvents> {
    * hooks from `DocHandle`'s listener overrides.
    */
   readonly subHandleRetainers: Set<DocHandle<any>> = new Set()
-
-  /**
-   * Cache of view-at-heads handles, keyed by stringified heads. Uses
-   * `WeakRef` so time-travel UIs that open many `handle.view(heads)`
-   * snapshots don't pin every historical handle in memory.
-   */
-  readonly viewCache: Map<string, WeakRef<DocHandle<any>>> = new Map()
 
   /** Sub-handle dispatcher and retention tracker. */
   readonly registry: SubHandleRegistry
