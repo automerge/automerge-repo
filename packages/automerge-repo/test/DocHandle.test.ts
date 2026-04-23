@@ -584,8 +584,12 @@ describe("DocHandle", () => {
     console.log(`Time for first view (no cache): ${timeForFirstAccess}ms`)
     console.log(`Average time per cached view: ${timeForCachedAccesses}ms`)
 
-    // Cached access should be significantly faster
-    expect(timeForCachedAccesses).toBeLessThan(timeForFirstAccess / 10)
+    // Cached access should be meaningfully faster. With the DocumentState
+    // refactor the first view is itself very cheap (it no longer clones
+    // the doc, just allocates a handle sharing state), so the absolute
+    // delta is small - but caching should still shave off the
+    // path-normalisation + constructor cost, yielding a consistent speedup.
+    expect(timeForCachedAccesses).toBeLessThan(timeForFirstAccess / 3)
   })
 
   describe("isReadOnly", () => {

@@ -2,12 +2,12 @@ import type * as A from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
 import type { DocHandle } from "../DocHandle.js"
 import type {
-  DocHandleChangePayload,
-  DocHandleEncodedChangePayload,
-  DocHandleEphemeralMessagePayload,
-  DocHandleRemoteHeadsPayload,
-} from "../DocHandle.js"
-import type { DocumentState } from "../DocumentState.js"
+  DocumentChangePayload,
+  DocumentEphemeralMessagePayload,
+  DocumentHeadsChangedPayload,
+  DocumentRemoteHeadsPayload,
+  DocumentState,
+} from "../DocumentState.js"
 import { KIND } from "./types.js"
 import type { PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
@@ -42,37 +42,23 @@ import { matchesPattern } from "./utils.js"
  * sub-handle cache and call the sub's per-event forwarding method.
  */
 export class SubHandleRegistry {
-  constructor(private readonly state: DocumentState) {}
-
-  #root: TrieNode = emptyNode()
-
   /**
-   * Whether we've already attached the five per-event listeners to the
-   * owning root DocHandle. `attachTo()` is idempotent via this flag so
-   * callers (currently `#createSubHandle`) can call it unconditionally.
+   * Subscribes to `DocumentState` events directly in the constructor so
+   * the registry comes online as soon as the document exists, without a
+   * separate "attach" step. The DocumentState constructor instantiates us
+   * eagerly for the same reason.
    */
-  #attached = false
-
-  /**
-   * Lazily attach this registry as the single listener for the five root
-   * events that a sub-handle can re-emit (change, heads-changed, delete,
-   * remote-heads, ephemeral-message). We do this on first ref(...) so root
-   * handles that are never scoped into pay no subscription cost.
-   *
-   * The target handle must be the root DocHandle this registry belongs
-   * to (i.e. the one whose DocumentState owns this registry).
-   */
-  attachTo(root: DocHandle<any>): void {
-    if (this.#attached) return
-    this.#attached = true
-    root.on("change", payload => this.dispatchChange(payload))
-    root.on("heads-changed", payload => this.dispatchHeadsChanged(payload))
-    root.on("delete", () => this.dispatchDelete())
-    root.on("remote-heads", payload => this.dispatchRemoteHeads(payload))
-    root.on("ephemeral-message", payload =>
+  constructor(private readonly state: DocumentState) {
+    state.on("change", payload => this.dispatchChange(payload))
+    state.on("heads-changed", payload => this.dispatchHeadsChanged(payload))
+    state.on("delete", () => this.dispatchDelete())
+    state.on("remote-heads", payload => this.dispatchRemoteHeads(payload))
+    state.on("ephemeral-message", payload =>
       this.dispatchEphemeral(payload)
     )
   }
+
+  #root: TrieNode = emptyNode()
 
   /**
    * Per-retained-sub bookkeeping: which terminal node it ends at, and which
@@ -130,7 +116,7 @@ export class SubHandleRegistry {
    * per-sub dispatch path, which keeps their segment `.prop` values fresh
    * via `#updatePropsFromRoot`.
    */
-  dispatchChange(payload: DocHandleChangePayload<any>): void {
+  dispatchChange(payload: DocumentChangePayload): void {
     const perSubPatches = new Map<DocHandle<any>, A.Patch[]>()
     const resolvedNodes = new Set<TrieNode>()
 
@@ -173,7 +159,7 @@ export class SubHandleRegistry {
     }
   }
 
-  dispatchHeadsChanged(payload: DocHandleEncodedChangePayload<any>): void {
+  dispatchHeadsChanged(payload: DocumentHeadsChangedPayload): void {
     this.#forEachLiveSubHandle(sub => sub._dispatchRootHeadsChanged(payload))
   }
 
@@ -181,11 +167,11 @@ export class SubHandleRegistry {
     this.#forEachLiveSubHandle(sub => sub._dispatchRootDelete())
   }
 
-  dispatchRemoteHeads(payload: DocHandleRemoteHeadsPayload): void {
+  dispatchRemoteHeads(payload: DocumentRemoteHeadsPayload): void {
     this.#forEachLiveSubHandle(sub => sub._dispatchRootRemoteHeads(payload))
   }
 
-  dispatchEphemeral(payload: DocHandleEphemeralMessagePayload<any>): void {
+  dispatchEphemeral(payload: DocumentEphemeralMessagePayload): void {
     this.#forEachLiveSubHandle(sub => sub._dispatchRootEphemeralMessage(payload))
   }
 

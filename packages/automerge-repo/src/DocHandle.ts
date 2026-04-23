@@ -2,23 +2,32 @@ import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import { assertEvent, assign, createActor, setup, waitFor } from "xstate"
 import {
   decodeHeads,
   encodeHeads,
   stringifyAutomergeUrl,
 } from "./AutomergeUrl.js"
-import { encode } from "./helpers/cbor.js"
-import { headsAreSame } from "./helpers/headsAreSame.js"
-import { withTimeout } from "./helpers/withTimeout.js"
 import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
-import { StorageId } from "./storage/types.js"
-import { DocumentState } from "./DocumentState.js"
+import type { StorageId } from "./storage/types.js"
 import {
-  AbortError,
-  AbortOptions,
-  isAbortErrorLike,
-} from "./helpers/abortable.js"
+  DocumentState,
+  HandleState,
+  IDLE,
+  LOADING,
+  REQUESTING,
+  READY,
+  UNLOADED,
+  DELETED,
+  UNAVAILABLE,
+} from "./DocumentState.js"
+import type {
+  DocumentChangePayload,
+  DocumentEphemeralMessagePayload,
+  DocumentHeadsChangedPayload,
+  DocumentRemoteHeadsPayload,
+  SyncInfo,
+} from "./DocumentState.js"
+import { AbortOptions } from "./helpers/abortable.js"
 import { isCursorMarker, isPattern, isSegment } from "./refs/guards.js"
 import { matchesPattern } from "./refs/utils.js"
 import {
@@ -42,6 +51,21 @@ import type {
 } from "./refs/types.js"
 import { KIND } from "./refs/types.js"
 
+// Re-export lifecycle state + sync types from DocumentState so existing
+// consumers (`import { HandleState, SyncInfo } from "./DocHandle.js"`)
+// continue to compile.
+export {
+  HandleState,
+  IDLE,
+  LOADING,
+  REQUESTING,
+  READY,
+  UNLOADED,
+  DELETED,
+  UNAVAILABLE,
+}
+export type { SyncInfo }
+
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
  * notify the network and storage of new changes.
@@ -57,67 +81,48 @@ import { KIND } from "./refs/types.js"
  *
  * ---
  *
- * Worklist: remaining `if (this.#root)` branching for the next refactor pass.
- * Each sub-handle-aware method on DocHandle falls into one of three buckets
- * today. They are _not_ bugs - they're a natural consequence of the fact that
- * a `DocHandle` represents both "the root document" and "a scoped view into
- * it". The registry refactor localised dispatch but did not attempt to
- * eliminate this branching; the follow-up DocumentState extraction (moving
- * the XState machine, `#doc`, `#fixedHeads`, and sync state off DocHandle)
- * will let us delete most of these branches mechanically.
+ * Architecturally, a `DocHandle` is now a thin view over a shared
+ * `DocumentState` (which owns the XState machine, the underlying doc,
+ * remote-sync bookkeeping, and the sub-handle registry). Root handles
+ * allocate their own `DocumentState`; sub-handles and view-handles share
+ * their root's. This removes most of the previous root-vs-sub branching
+ * and enables per-handle fixed heads (a sub-handle can be pinned to
+ * arbitrary heads independent of its root).
  *
- *   Bucket 1 (pure delegation): `inState`, `state`, `whenReady`, `heads`,
- *     `metadata`, `getRemoteHeads`, `getSyncInfo`, `setSyncInfo`,
- *     `isReadOnly`, `broadcast`. Each body is `if (this.#root) return
- *     this.#root.<method>(args)`; once the underlying state-machine-owning
- *     fields live on DocumentState, these can redirect through the
- *     container with no special-casing.
- *
- *   Bucket 2 (scoped-vs-unscoped split): `view`, `diff`, `change`,
- *     `changeAt`, `merge` (partial). These genuinely do different things on
- *     root vs sub (re-scope, filter patches, delegate scoped mutations
- *     through `sub-handle-ops`). Candidates for per-method helper
- *     extraction if the split grows further.
- *
- *   Bucket 3 (root-only lifecycle no-ops): `update`, `doneLoading`,
- *     `unavailable`, `request`, `unload`, `reload`, `delete`. The Repo
- *     calls these on the root; sub-handles short-circuit. Cleanest fix is
- *     "don't expose them on the sub handle" (e.g. a distinct sub-handle
- *     interface), but that's a larger API change.
+ * The remaining `if (this.#root)` sites are the "scoped vs unscoped" ones
+ * (`view`, `change`, `changeAt`, the value/path accessors) plus the
+ * lifecycle no-ops (`doneLoading`, `unavailable`, `request`, `unload`,
+ * `reload`, `delete`, `update`, `merge`). The lifecycle methods preserve
+ * their root-only short-circuit because Repo contracts expect them to
+ * no-op on sub-handles; if/when that API changes (e.g. a distinct sub-
+ * handle interface) these guards go away too.
  */
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #log: debug.Debugger
 
-  /** The XState actor running our state machine. Undefined on sub-handles. */
-  #machine: ReturnType<typeof createActor<any>> | undefined
-
-  /** If set, this handle will only show the document at these heads (root handles only). */
+  /**
+   * If set, this handle shows the document at these specific heads rather
+   * than the latest. Stored per-handle (not on `DocumentState`) so that a
+   * sub-handle can be pinned to arbitrary heads independent of its root -
+   * e.g. a historical view of a sub-tree while the root tracks head.
+   */
   #fixedHeads?: UrlHeads
 
-  /** The last known state of our document. */
-  #prevDocState: T = A.init<T>()
-
-  /** How long to wait before giving up on a document. (Note that a document will be marked
-   * unavailable much sooner if all known peers respond that they don't have it.) */
-  #timeoutDelay = 60_000
-
-  /** A dictionary mapping each peer to the last known heads we have. */
-  #syncInfoByStorageId: Record<StorageId, SyncInfo> = {}
-
   /**
-   * Shared container for state that is logically owned by the root document
-   * rather than by this individual handle instance. Every `DocHandle` holds a
-   * direct reference: root handles own their `DocumentState`; sub-handles
-   * share their root's `DocumentState` so that `this.#documentState.<field>`
-   * reaches the same object regardless of whether `this` is a root or a sub.
-   *
-   * Initialised in the constructor.
+   * Every DocHandle into a given Automerge document shares the same
+   * `DocumentState`. The container owns the XState machine, the underlying
+   * doc, remote sync info, and the sub-handle registry. Root handles
+   * construct their own; sub-handles and view-handles share it.
    */
-  #documentState!: DocumentState
+  readonly documentState: DocumentState
 
   /**
-   * If set, this handle is a sub-handle scoped to a location within a root document handle.
-   * When undefined, this is a root handle that owns the underlying Automerge document.
+   * If set, this handle is a sub-handle scoped to a location within a root
+   * document handle. When undefined, this is a root handle.
+   *
+   * Note: "root" is a semantic distinction (empty path, no range), not a
+   * lifetime one - both root and sub-handles share the same
+   * `DocumentState` and outlive each other via WeakRef caches.
    */
   #root?: DocHandle<any>
 
@@ -134,24 +139,17 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   ) {
     super()
 
-    if ("timeoutDelay" in options && options.timeoutDelay) {
-      this.#timeoutDelay = options.timeoutDelay
-    }
-
-    if ("heads" in options) {
+    if ("heads" in options && options.heads) {
       this.#fixedHeads = options.heads
     }
 
-    // Sub-handle initialization: bypass the state machine and delegate to root.
-    // Root-wide event subscriptions are installed once on the root the first
-    // time a sub-handle is created (see `#installRootDispatcher`), so we do
-    // not attach any per-sub-handle listeners here.
+    // Sub-handle initialisation: share the parent's DocumentState,
+    // normalise the path inputs, optionally pin to caller-supplied heads.
+    // Sub-handles receive events through the registry's trie walk against
+    // the shared DocumentState; no per-sub listeners are attached here.
     if ("root" in options && options.root) {
       this.#root = options.root
-      // Share the root's DocumentState. Every sub-handle points at the same
-      // container so any `this.#documentState.<x>` access behaves identically
-      // on root and sub.
-      this.#documentState = options.root.#documentState
+      this.documentState = options.root.documentState
       this.#log = debug(
         `automerge-repo:dochandle:${this.documentId.slice(0, 5)}:sub`
       )
@@ -165,219 +163,66 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return
     }
 
-    this.#documentState = new DocumentState()
-
-    const doc = A.init<T>()
-
+    // Root-handle construction: allocate a fresh `DocumentState` and
+    // subscribe ourselves to its document-level events so user listeners
+    // on this handle continue to fire. The registry also subscribes
+    // directly in its own constructor; the two subscriptions are
+    // independent (root translates to `{ handle, ... }`, registry walks
+    // the trie to sub-handle terminals).
+    this.documentState = new DocumentState(documentId, {
+      timeoutDelay:
+        "timeoutDelay" in options ? options.timeoutDelay : undefined,
+    })
     this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
-    const delay = this.#timeoutDelay
-    const machine = setup({
-      types: {
-        context: {} as DocHandleContext<T>,
-        events: {} as DocHandleEvent<T>,
-      },
-      actions: {
-        /** Update the doc using the given callback and put the modified doc in context */
-        onUpdate: assign(({ context, event }) => {
-          const oldDoc = context.doc
-          assertEvent(event, UPDATE)
-          const { callback } = event.payload
-          const doc = callback(oldDoc)
-          return { doc }
-        }),
-        onDelete: assign(() => {
-          this.emit("delete", { handle: this })
-          return { doc: A.init() }
-        }),
-        onUnavailable: assign(() => {
-          return { doc: A.init() }
-        }),
-        onUnload: assign(() => {
-          return { doc: A.init() }
-        }),
-      },
-    }).createMachine({
-      /** @xstate-layout N4IgpgJg5mDOIC5QAoC2BDAxgCwJYDswBKAYgFUAFAEQEEAVAUQG0AGAXUVAAcB7WXAC64e+TiAAeiAOwAOAKwA6ACxSAzKqks1ATjlTdAGhABPRAFolAJksKN2y1KtKAbFLla5AX09G0WPISkVAwAMgyMrBxIILz8QiJikggAjCzOijKqLEqqybJyLizaRqYIFpbJtro5Uo7J2o5S3r4YOATECrgQADZgJADCAEoM9MzsYrGCwqLRSeoyCtra8pa5adquySXmDjY5ac7JljLJeepKzSB+bYGdPX0AYgCSAHJUkRN8UwmziM7HCgqyVcUnqcmScmcMm2ZV2yiyzkOx1OalUFx8V1aAQ63R46AgBCgJGGAEUyAwAMp0D7RSbxGagJKHFgKOSWJTJGRSCosCpKaEmRCqbQKU5yXINeTaer6LwY67YogKXH4wkkKgAeX6AH1hjQqABNGncL70xKIJQ5RY5BHOJag6wwpRyEWImQVeT1aWrVSXBXtJUqgn4Ik0ADqNCedG1L3CYY1gwA0saYqbpuaEG4pKLksKpFDgcsCjDhTnxTKpTLdH6sQGFOgAO7oKYhl5gAQNngAJwA1iRY3R40ndSNDSm6enfpm5BkWAVkvy7bpuTCKq7ndZnfVeSwuTX-HWu2AAI4AVzgQhD6q12rILxoADVIyEaAAhMLjtM-RmIE4LVSQi4nLLDIGzOCWwLKA0cgyLBoFWNy+43B0R5nheaqajqepjuMtJfgyEh-FoixqMCoKqOyhzgYKCDOq6UIeuCSxHOoSGKgop74OgABuzbdOgABGvTXlho5GrhJpxJOP4pLulT6KoMhpJY2hzsWNF0QobqMV6LG+pc+A8BAcBiP6gSfFJ36EQgKksksKxrHamwwmY7gLKB85QjBzoAWxdZdL0FnfARST8ooLC7qoTnWBU4pyC5ViVMKBQaHUDQuM4fm3EGhJBWaU7-CysEAUp3LpEpWw0WYRw2LmqzgqciIsCxWUdI2zaXlAbYdt2PZ5dJ1n5jY2iJY1ikOIcMJHCyUWHC62hRZkUVNPKta3Kh56wJ1-VWUyzhFc64JWJCtQNBBzhQW4cHwbsrVKpxPF8YJgV4ZZIWIKkiKiiNSkqZYWjzCWaQ5hFh0AcCuR3QoR74qUknBRmzholpv3OkpRQNNRpTzaKTWKbIWR5FDxm9AIkA7e9skUYCWayLILBZGoLkUSKbIyIdpxHPoyTeN4QA */
+    this.documentState.on("change", payload =>
+      this.emit("change", { handle: this, ...payload })
+    )
+    this.documentState.on("heads-changed", payload =>
+      this.emit("heads-changed", { handle: this, ...payload })
+    )
+    this.documentState.on("delete", () =>
+      this.emit("delete", { handle: this })
+    )
+    this.documentState.on("remote-heads", payload =>
+      this.emit("remote-heads", payload)
+    )
+    this.documentState.on("ephemeral-message", payload =>
+      this.emit("ephemeral-message", { handle: this, ...payload })
+    )
+    this.documentState.on("ephemeral-message-outbound", payload =>
+      this.emit("ephemeral-message-outbound", { handle: this, ...payload })
+    )
 
-      // You can use the XState extension for VS Code to visualize this machine.
-      // Or, you can see this static visualization (last updated April 2024): https://stately.ai/registry/editor/d7af9b58-c518-44f1-9c36-92a238b04a7a?machineId=91c387e7-0f01-42c9-a21d-293e9bf95bb7
-
-      initial: "idle",
-      context: { documentId, doc },
-      on: {
-        UPDATE: { actions: "onUpdate" },
-        UNLOAD: ".unloaded",
-        DELETE: ".deleted",
-      },
-      states: {
-        idle: {
-          on: {
-            BEGIN: "loading",
-          },
-        },
-        loading: {
-          on: {
-            REQUEST: "requesting",
-            DOC_READY: "ready",
-          },
-          after: { [delay]: "unavailable" },
-        },
-        requesting: {
-          on: {
-            DOC_UNAVAILABLE: "unavailable",
-            DOC_READY: "ready",
-          },
-          after: { [delay]: "unavailable" },
-        },
-        unavailable: {
-          entry: "onUnavailable",
-          on: { DOC_READY: "ready" },
-        },
-        ready: {},
-        unloaded: {
-          entry: "onUnload",
-          on: {
-            RELOAD: "loading",
-          },
-        },
-        deleted: { entry: "onDelete", type: "final" },
-      },
-    })
-
-    // Instantiate the state machine
-    this.#machine = createActor(machine)
-
-    // Listen for state transitions
-    this.#machine.subscribe(state => {
-      const before = this.#prevDocState
-      const after = state.context.doc
-      this.#log(`→ ${state.value} %o`, after)
-      // if the document has changed, emit a change event
-      this.#checkForChanges(before, after)
-    })
-
-    // Start the machine, and send a create or find event to get things going
-    this.#machine.start()
     this.begin()
   }
 
   // PRIVATE
 
-  /** Returns the current full document (root doc), regardless of state */
+  /** The current underlying root document, shared via `DocumentState`. */
   get #doc(): A.Doc<any> {
-    if (this.#root) {
-      return this.#root.#doc
-    }
-    return this.#machine!.getSnapshot().context.doc as A.Doc<any>
+    return this.documentState.doc()
   }
 
-  /** Returns the docHandle's state (READY, etc.) */
-  get #state(): HandleState {
-    if (this.#root) {
-      return this.#root.#state
-    }
-    return this.#machine!.getSnapshot().value as HandleState
-  }
-
-  /** True when this handle is a sub-handle scoped to a location within a root document. */
+  /** True when this handle is scoped to a path/range within the root. */
   get #isSubHandle(): boolean {
     return this.#root !== undefined
   }
 
-  /** Expose #fixedHeads for use by sub-handles (through #effectiveFixedHeads). */
+  /** Expose `#fixedHeads` for use by sub-handles' `#effectiveFixedHeads`. */
   get _fixedHeadsForRef(): UrlHeads | undefined {
     return this.#fixedHeads
   }
 
-  /** The effective fixed heads for this handle (own or inherited from root). */
+  /**
+   * The fixed heads this handle reads at, if any. Uses the handle's own
+   * `#fixedHeads` if set, otherwise inherits from its root handle. This
+   * lets `handle.view(heads)` produce a root-view pinned to those heads
+   * while `handle.ref("x").viewAt(heads2)` produces a sub-handle with its
+   * own `heads2` that takes precedence over the root's.
+   */
   get #effectiveFixedHeads(): UrlHeads | undefined {
     return this.#fixedHeads ?? this.#root?._fixedHeadsForRef
-  }
-
-  /**
-   * Returns a promise that resolves when the docHandle is in one of the given states
-   *
-   * @param awaitStates - HandleState or HandleStates to wait for
-   * @param signal - Optional AbortSignal to cancel the waiting operation
-   */
-  #statePromise(
-    awaitStates: HandleState | HandleState[],
-    options?: AbortOptions
-  ) {
-    const awaitStatesArray = Array.isArray(awaitStates)
-      ? awaitStates
-      : [awaitStates]
-    return waitFor(
-      this.#machine!,
-      s => awaitStatesArray.some(state => s.matches(state)),
-      // use a longer delay here so as not to race with other delays
-      { timeout: this.#timeoutDelay * 2, ...options }
-    )
-  }
-
-  /**
-   * Update the document with whatever the result of callback is
-   *
-   * This is necessary instead of directly calling
-   * `this.#machine.send({ type: UPDATE, payload: { callback } })` because we
-   * want to catch any exceptions that the callback might throw, then rethrow
-   * them after the state machine has processed the update.
-   */
-  #sendUpdate(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    // This is kind of awkward. we have to pass the callback to xstate and wait for it to run it.
-    // We're relying here on the fact that xstate runs everything synchronously, so by the time
-    // `send` returns we know that the callback will have been run and so `thrownException`  will
-    // be set if the callback threw an error.
-    let thrownException: null | Error = null
-    this.#machine!.send({
-      type: UPDATE,
-      payload: {
-        callback: (doc: A.Doc<T>) => {
-          try {
-            return callback(doc)
-          } catch (e) {
-            thrownException = e as Error
-            return doc
-          }
-        },
-      },
-    } as any)
-    if (thrownException) {
-      // If the callback threw an error, we throw it here so the caller can handle it
-      throw thrownException
-    }
-  }
-
-  /**
-   * Called after state transitions. If the document has changed, emits a change event. If we just
-   * received the document for the first time, signal that our request has been completed.
-   */
-  #checkForChanges(before: A.Doc<T>, after: A.Doc<T>) {
-    const beforeHeads = A.getHeads(before)
-    const afterHeads = A.getHeads(after)
-    const docChanged = !headsAreSame(
-      encodeHeads(afterHeads),
-      encodeHeads(beforeHeads)
-    )
-    if (docChanged) {
-      this.emit("heads-changed", { handle: this, doc: after })
-
-      const patches = A.diff(after, beforeHeads, afterHeads)
-      if (patches.length > 0) {
-        this.emit("change", {
-          handle: this,
-          doc: after,
-          patches,
-          // TODO: pass along the source (load/change/network)
-          patchInfo: { before, after, source: "change" },
-        })
-      }
-
-      // If we didn't have the document yet, signal that we now do
-      if (!this.isReady()) this.#machine!.send({ type: DOC_READY })
-    }
-    this.#prevDocState = after
   }
 
   // PUBLIC
@@ -434,14 +279,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns true if the handle is in one of the given states.
    */
   inState = (states: HandleState[]): boolean => {
-    if (this.#root) return this.#root.inState(states)
-    return states.some(s => this.#machine!.getSnapshot().matches(s))
+    return this.documentState.inState(states)
   }
 
   /** @hidden */
   get state(): HandleState {
-    if (this.#root) return this.#root.state
-    return this.#machine!.getSnapshot().value as HandleState
+    return this.documentState.state()
   }
 
   /**
@@ -459,18 +302,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     awaitStates: HandleState[] = ["ready"],
     options?: AbortOptions
   ): Promise<void> {
-    if (this.#root) {
-      return this.#root.whenReady(awaitStates, options)
-    }
     try {
-      await withTimeout(
-        this.#statePromise(awaitStates, options),
-        this.#timeoutDelay
-      )
+      await this.documentState.whenInState(awaitStates, options)
     } catch (error) {
-      if (isAbortErrorLike(error)) {
-        throw new AbortError() //throw new error for stack trace
-      }
       console.log(
         `error waiting for ${
           this.documentId
@@ -527,19 +361,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns the current document's heads, or undefined if the document is not ready
    */
   heads(): UrlHeads {
-    if (this.#root) {
-      return this.#root.heads()
-    }
     if (!this.isReady()) throw new Error("DocHandle is not ready")
-    if (this.#fixedHeads) {
-      return this.#fixedHeads
-    }
+    const heads = this.#effectiveFixedHeads
+    if (heads) return heads
     return encodeHeads(A.getHeads(this.#doc))
   }
 
   begin() {
     if (this.#root) return
-    this.#machine!.send({ type: BEGIN })
+    this.documentState.begin()
   }
 
   /**
@@ -625,33 +455,41 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       )
     }
 
-    // For sub-handles, delegate to the root's view and then re-scope to the same path.
+    // Sub-handle: return a sub-handle sharing the same DocumentState but
+    // with its own `#fixedHeads`. This is the per-handle heads contract:
+    // a sub can be pinned to arbitrary heads independently of its root.
+    // We intentionally don't cache sub-view handles; callers that want
+    // identity stability should memoise externally.
     if (this.#root) {
-      const rootView = this.#root.view(heads)
       const segs: AnyPathInput[] = this.#range
         ? [...this.#path, this.#range]
         : [...this.#path]
-      return (rootView.ref as (...s: AnyPathInput[]) => DocHandle<T>)(...segs)
+      return new DocHandle<T>(this.documentId, {
+        root: this.#root,
+        pathInputs: segs,
+        heads,
+      } as DocHandleOptions<T>)
     }
 
+    // Root-view: share the same DocumentState with a handle whose own
+    // `#fixedHeads` is set. Reads go through `A.view(doc, heads)` via
+    // `doc()`; no cloning required. Cached per-heads for identity stability.
     const cacheKey = JSON.stringify(heads)
-    const cached = this.#documentState.viewCache.get(cacheKey)?.deref() as
+    const cached = this.documentState.viewCache.get(cacheKey)?.deref() as
       | DocHandle<T>
       | undefined
     if (cached) return cached
-    // Dead WeakRef entries are pruned on the way out.
-    if (this.#documentState.viewCache.has(cacheKey)) {
-      this.#documentState.viewCache.delete(cacheKey)
+    if (this.documentState.viewCache.has(cacheKey)) {
+      this.documentState.viewCache.delete(cacheKey)
     }
 
     const handle = new DocHandle<T>(this.documentId, {
+      root: this as DocHandle<any>,
+      pathInputs: [],
       heads,
-      timeoutDelay: this.#timeoutDelay,
-    })
-    handle.update(() => A.clone(this.#doc))
-    handle.doneLoading()
+    } as DocHandleOptions<T>)
 
-    this.#documentState.viewCache.set(cacheKey, new WeakRef(handle))
+    this.documentState.viewCache.set(cacheKey, new WeakRef(handle))
     return handle
   }
 
@@ -669,45 +507,20 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns Automerge patches that go from one document state to the other
    */
   diff(first: UrlHeads | DocHandle<T>, second?: UrlHeads): A.Patch[] {
-    if (this.#root) {
-      // Compute the full diff on the root, then scope it to this sub-
-      // handle's path. Correctness: resolve the symbolic path against
-      // *both* endpoint snapshots so patches that create or destroy the
-      // target (pattern resolves only before / only after) are included.
-      const allPatches = this.#root.diff(first as any, second) as A.Patch[]
-      if (this.#path.length === 0 && !this.#range) return allPatches
-
-      const rootDoc = this.#root.doc()!
-      let fromHeads: UrlHeads
-      let toHeads: UrlHeads
-      if (first instanceof DocHandle) {
-        fromHeads = (this.#root.heads() || []) as UrlHeads
-        toHeads = (first.heads() || []) as UrlHeads
-      } else {
-        fromHeads = second ? first : ((this.#root.heads() || []) as UrlHeads)
-        toHeads = second ? second : first
-      }
-      const fromDoc = A.view(rootDoc, decodeHeads(fromHeads)) as A.Doc<any>
-      const toDoc = A.view(rootDoc, decodeHeads(toHeads)) as A.Doc<any>
-      const fromPath = resolvePropPathAt(fromDoc, this.#path)
-      const toPath = resolvePropPathAt(toDoc, this.#path)
-      if (!fromPath && !toPath) return []
-      return allPatches.filter(
-        p =>
-          (fromPath !== undefined && pathsOverlap(p.path, fromPath)) ||
-          (toPath !== undefined && pathsOverlap(p.path, toPath))
-      )
-    }
     if (!this.isReady()) {
       throw new Error(
         `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before calling diff().`
       )
     }
 
-    const doc = this.#doc
-    if (!doc) throw new Error("Document not available")
+    // Determine from/to heads, using the handle's own (possibly fixed)
+    // heads as the `from` side when absent. This lets a view-at-heads
+    // handle diff "from its pinned heads to X" correctly, rather than
+    // always starting from root's latest.
+    let fromHeads: UrlHeads
+    let toHeads: UrlHeads
+    let diffDoc: A.Doc<any>
 
-    // If first argument is a DocHandle
     if (first instanceof DocHandle) {
       if (!first.isReady()) {
         throw new Error("Cannot diff against a handle that isn't ready")
@@ -715,20 +528,44 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       const otherHeads = first.heads()
       if (!otherHeads) throw new Error("Other document's heads not available")
 
-      // Create a temporary merged doc to verify shared history and compute diff
-      const mergedDoc = A.merge(A.clone(doc), first.doc()!)
-      // Use the merged doc to compute the diff
-      return A.diff(
-        mergedDoc,
-        decodeHeads(this.heads()!),
-        decodeHeads(otherHeads)
-      )
+      fromHeads = this.heads()
+      toHeads = otherHeads
+
+      if (this.documentId === first.documentId) {
+        // Same document (possibly different handles) - share the doc, no clone.
+        diffDoc = this.documentState.doc()
+      } else {
+        // Different documents: merge them first to verify shared history.
+        diffDoc = A.merge(A.clone(this.documentState.doc()), first.doc()!)
+      }
+    } else {
+      fromHeads = second ? first : this.heads()
+      toHeads = second ? second : first
+      diffDoc = this.documentState.doc()
     }
 
-    // Otherwise treat as heads
-    const from = second ? first : ((this.heads() || []) as UrlHeads)
-    const to = second ? second : first
-    return A.diff(doc, decodeHeads(from), decodeHeads(to))
+    const allPatches = A.diff(
+      diffDoc,
+      decodeHeads(fromHeads),
+      decodeHeads(toHeads)
+    )
+
+    // No path scoping: return the full diff.
+    if (this.#path.length === 0 && !this.#range) return allPatches
+
+    // Sub-handle: filter to patches that overlap the sub's symbolic path,
+    // resolved against both endpoint snapshots so create/destroy patches
+    // (target present before or after only) are both captured.
+    const fromDoc = A.view(diffDoc, decodeHeads(fromHeads)) as A.Doc<any>
+    const toDoc = A.view(diffDoc, decodeHeads(toHeads)) as A.Doc<any>
+    const fromPath = resolvePropPathAt(fromDoc, this.#path)
+    const toPath = resolvePropPathAt(toDoc, this.#path)
+    if (!fromPath && !toPath) return []
+    return allPatches.filter(
+      p =>
+        (fromPath !== undefined && pathsOverlap(p.path, fromPath)) ||
+        (toPath !== undefined && pathsOverlap(p.path, toPath))
+    )
   }
 
   /**
@@ -743,19 +580,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    */
   metadata(change?: string): A.DecodedChange | undefined {
-    if (this.#root) return this.#root.metadata(change)
-    if (!this.isReady()) {
-      return undefined
-    }
-
-    if (!change) {
-      change = this.heads()![0]
-    }
-    // we return undefined instead of null by convention in this API
-    return (
-      A.inspectChange(this.#doc, decodeHeads([change] as UrlHeads)[0]) ||
-      undefined
-    )
+    return this.documentState.metadata(change)
   }
 
   /**
@@ -768,7 +593,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if (this.#root) {
       throw new Error("update() can only be called on root handles")
     }
-    this.#sendUpdate(callback)
+    this.documentState.update(callback as (doc: A.Doc<any>) => A.Doc<any>)
   }
 
   /**
@@ -778,7 +603,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    */
   doneLoading() {
     if (this.#root) return
-    this.#machine!.send({ type: DOC_READY })
+    this.documentState.doneLoading()
   }
 
   /**
@@ -786,16 +611,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    */
   setSyncInfo(storageId: StorageId, syncInfo: SyncInfo): void {
-    if (this.#root) {
-      this.#root.setSyncInfo(storageId, syncInfo)
-      return
-    }
-    this.#syncInfoByStorageId[storageId] = syncInfo
-    this.emit("remote-heads", {
-      storageId,
-      heads: syncInfo.lastHeads,
-      timestamp: syncInfo.lastSyncTimestamp,
-    })
+    this.documentState.setSyncInfo(storageId, syncInfo)
   }
 
   /** Returns the heads of the storageId.
@@ -803,14 +619,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @deprecated Use getSyncInfo instead.
    */
   getRemoteHeads(storageId: StorageId): UrlHeads | undefined {
-    if (this.#root) return this.#root.getRemoteHeads(storageId)
-    return this.#syncInfoByStorageId[storageId]?.lastHeads
+    return this.documentState.getRemoteHeads(storageId)
   }
 
   /** Returns the heads and the timestamp of the last update for the storageId. */
   getSyncInfo(storageId: StorageId): SyncInfo | undefined {
-    if (this.#root) return this.#root.getSyncInfo(storageId)
-    return this.#syncInfoByStorageId[storageId]
+    return this.documentState.getSyncInfo(storageId)
   }
 
   /**
@@ -852,7 +666,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       const fn = (
         typeof callback === "function" ? callback : () => callback
       ) as RefChangeFn<T>
-      this.#root!.change(
+      this.documentState.change(
         ((doc: A.Doc<any>) => this.#applyScopedChange(doc, fn)) as A.ChangeFn<
           any
         >,
@@ -861,7 +675,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return
     }
 
-    this.#sendUpdate(doc => A.change(doc, options, callback as A.ChangeFn<T>))
+    this.documentState.change(
+      callback as A.ChangeFn<any>,
+      options as A.ChangeOptions<any>
+    )
   }
   /**
    * Makes a change as if the document were at `heads`.
@@ -873,10 +690,21 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     callback: A.ChangeFn<T>,
     options: A.ChangeOptions<T> = {}
   ): UrlHeads | undefined {
-    if (this.#root) {
-      // For sub-handles, delegate the concurrent-change semantics to the root while
-      // scoping the callback to this handle's path.
-      return this.#root.changeAt(
+    if (!this.isReady()) {
+      throw new Error(
+        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
+      )
+    }
+    if (this.#effectiveFixedHeads) {
+      throw new Error(
+        `DocHandle#${this.documentId} is in view-only mode at specific heads. Use clone() to create a new document from this state.`
+      )
+    }
+
+    if (this.#isSubHandle || this.#range) {
+      // Scope the callback to this handle's path; DocumentState handles
+      // the concurrent-change semantics.
+      return this.documentState.changeAt(
         heads,
         ((doc: A.Doc<any>) =>
           this.#applyScopedChange(doc, callback as RefChangeFn<T>)) as A.ChangeFn<
@@ -886,26 +714,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       )
     }
 
-    if (!this.isReady()) {
-      throw new Error(
-        `DocHandle#${this.documentId} is not ready. Check \`handle.isReady()\` before accessing the document.`
-      )
-    }
-    if (this.#fixedHeads) {
-      throw new Error(
-        `DocHandle#${this.documentId} is in view-only mode at specific heads. Use clone() to create a new document from this state.`
-      )
-    }
-
-    let resultHeads: UrlHeads | undefined = undefined
-    this.#sendUpdate(doc => {
-      const result = A.changeAt(doc, decodeHeads(heads), options, callback)
-      resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
-      return result.newDoc
-    })
-
-    // the callback above will always run before we get here, so this should always contain the new heads
-    return resultHeads
+    return this.documentState.changeAt(
+      heads,
+      callback as A.ChangeFn<any>,
+      options as A.ChangeOptions<any>
+    )
   }
 
   /**
@@ -919,8 +732,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns boolean indicating whether changes are possible
    */
   isReadOnly(): boolean {
-    if (this.#root) return this.#root.isReadOnly()
-    return !!this.#fixedHeads
+    return !!this.#effectiveFixedHeads
   }
 
   /**
@@ -961,7 +773,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    */
   unavailable() {
     if (this.#root) return
-    this.#machine!.send({ type: DOC_UNAVAILABLE })
+    this.documentState.unavailable()
   }
 
   /**
@@ -970,25 +782,25 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * */
   request() {
     if (this.#root) return
-    if (this.#state === "loading") this.#machine!.send({ type: REQUEST })
+    this.documentState.request()
   }
 
   /** Called by the repo to free memory used by the document. */
   unload() {
     if (this.#root) return
-    this.#machine!.send({ type: UNLOAD })
+    this.documentState.unload()
   }
 
   /** Called by the repo to reuse an unloaded handle. */
   reload() {
     if (this.#root) return
-    this.#machine!.send({ type: RELOAD })
+    this.documentState.reload()
   }
 
   /** Called by the repo when the document is deleted. */
   delete() {
     if (this.#root) return
-    this.#machine!.send({ type: DELETE })
+    this.documentState.delete()
   }
 
   /**
@@ -999,18 +811,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * must have a unique PeerId.
    */
   broadcast(message: unknown): void {
-    if (this.#root) {
-      this.#root.broadcast(message)
-      return
-    }
-    this.emit("ephemeral-message-outbound", {
-      handle: this,
-      data: new Uint8Array(encode(message)),
-    })
+    this.documentState.broadcast(message)
   }
 
   metrics(): { numOps: number; numChanges: number } {
-    return A.stats(this.#doc)
+    return this.documentState.metrics()
   }
 
   /**
@@ -1096,16 +901,22 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * Automerge heads (hex strings, as returned by `Automerge.getHeads(doc)`).
    */
   viewAt(heads: UrlHeads | A.Heads): DocHandle<T> {
-    const rootHandle = this.#root ?? this
     const urlHeads = normalizeToUrlHeads(heads)
-    const rootView = rootHandle.view(urlHeads)
-    if (this.#path.length === 0 && !this.#range) {
-      return rootView as unknown as DocHandle<T>
-    }
+    // Root handle: delegate to `view()` for cache identity.
+    if (!this.#root) return this.view(urlHeads)
+
+    // Sub-handle: produce a fresh sub-handle sharing the root's
+    // `DocumentState` but pinned to `heads`. We bypass `refCache` here
+    // deliberately - two refs at the same path differing only in fixed
+    // heads are distinct handles, and we don't want cache collisions.
     const segs: AnyPathInput[] = this.#range
       ? [...this.#path, this.#range]
       : [...this.#path]
-    return (rootView.ref as (...s: AnyPathInput[]) => DocHandle<T>)(...segs)
+    return new DocHandle<T>(this.documentId, {
+      root: this.#root,
+      pathInputs: segs,
+      heads: urlHeads,
+    } as DocHandleOptions<T>)
   }
 
   /** Removes the value at this sub-handle's path from the underlying document. */
@@ -1220,27 +1031,25 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return this
     }
 
-    // Compose path relative to root
+    // Compose path relative to root. The new sub inherits any fixedHeads
+    // from this handle: `view(heads).ref("x")` and `ref("x").viewAt(heads)`
+    // both produce a sub at path ["x"] pinned to `heads`.
     const rootHandle = this.#root ?? this
     const combined: AnyPathInput[] = this.#range
       ? [...inputsFromPath(this.#path), this.#range, ...segments]
       : [...inputsFromPath(this.#path), ...segments]
+    const inheritedHeads = this.#effectiveFixedHeads
 
-    const cacheKey = pathToCacheKey(combined)
-    const existing = this.#documentState.refCache.get(cacheKey)?.deref()
+    const cacheKey = subHandleCacheKey(combined, inheritedHeads)
+    const existing = this.documentState.refCache.get(cacheKey)?.deref()
     if (existing) return existing
-
-    // Lazily attach the root's centralised event dispatcher the first time
-    // any sub-handle is created. After that, new sub-handles simply join
-    // the registry and receive events through its trie walk.
-    this.#documentState.registry.attachTo(rootHandle)
 
     const newHandle = new DocHandle<any>(rootHandle.documentId, {
       root: rootHandle,
       pathInputs: combined,
-      timeoutDelay: this.#timeoutDelay,
+      heads: inheritedHeads,
     } as DocHandleOptions<any>)
-    this.#documentState.refCache.set(cacheKey, new WeakRef(newHandle))
+    this.documentState.refCache.set(cacheKey, new WeakRef(newHandle))
     return newHandle
   }
 
@@ -1392,7 +1201,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    */
   #updateSubHandleRetention(): void {
     if (!this.#root) return
-    const registry = this.#documentState.registry
+    const registry = this.documentState.registry
     if (this.eventNames().length > 0) {
       registry.insert(this)
     } else {
@@ -1488,7 +1297,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * have at least one listener attached. Used by tests.
    */
   get _subHandleRetainerSize(): number {
-    return this.#documentState.subHandleRetainers.size
+    return this.documentState.subHandleRetainers.size
   }
 
   /** @internal The sub-handle's symbolic path segments. Empty for root handles. */
@@ -1513,7 +1322,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * has computed which patches concern this sub-handle.
    */
   _emitFilteredChange(
-    payload: DocHandleChangePayload<any>,
+    payload: DocumentChangePayload,
     filtered: A.Patch[]
   ): void {
     if (filtered.length === 0) return
@@ -1525,8 +1334,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
-  /** @internal Forward a root `change` event, filtered to this sub-handle's path. */
-  _dispatchRootChange(payload: DocHandleChangePayload<any>): void {
+  /** @internal Forward a document-level `change` event, filtered to this sub-handle's path. */
+  _dispatchRootChange(payload: DocumentChangePayload): void {
     // Keep segment props (indices resolved from patterns, etc.) fresh.
     this.#updatePropsFromRoot()
     const propPath = this.#getPropPath()
@@ -1535,10 +1344,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       pathsOverlap(p.path, propPath)
     )
     if (filtered.length === 0) return
-    // `doc` on the sub-handle payload is the full root doc (see
-    // `DocHandleChangePayload.doc`). We forward the root payload's `doc`
-    // directly rather than the scoped `value()` so both root and sub
-    // subscribers see the same document snapshot.
     this.emit("change", {
       handle: this as unknown as DocHandle<T>,
       doc: payload.doc,
@@ -1547,29 +1352,27 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
-  /** @internal Forward a root `heads-changed` event. */
-  _dispatchRootHeadsChanged(
-    payload: DocHandleEncodedChangePayload<any>
-  ): void {
+  /** @internal Forward a document-level `heads-changed` event. */
+  _dispatchRootHeadsChanged(payload: DocumentHeadsChangedPayload): void {
     this.emit("heads-changed", {
       handle: this as unknown as DocHandle<T>,
       doc: payload.doc,
     })
   }
 
-  /** @internal Forward a root `delete` event. */
+  /** @internal Forward a document-level `delete` event. */
   _dispatchRootDelete(): void {
     this.emit("delete", { handle: this as unknown as DocHandle<T> })
   }
 
-  /** @internal Forward a root `remote-heads` event (payload is already document-level). */
-  _dispatchRootRemoteHeads(payload: DocHandleRemoteHeadsPayload): void {
+  /** @internal Forward a document-level `remote-heads` event. */
+  _dispatchRootRemoteHeads(payload: DocumentRemoteHeadsPayload): void {
     this.emit("remote-heads", payload)
   }
 
-  /** @internal Forward a root `ephemeral-message` event with this sub-handle as the handle. */
+  /** @internal Forward a document-level `ephemeral-message` event. */
   _dispatchRootEphemeralMessage(
-    payload: DocHandleEphemeralMessagePayload<any>
+    payload: DocumentEphemeralMessagePayload
   ): void {
     this.emit("ephemeral-message", {
       ...payload,
@@ -1602,6 +1405,22 @@ function pathToCacheKey(segments: readonly AnyPathInput[]): string {
     .join("/")
 }
 
+/**
+ * Cache key for sub-handle identity. Distinct (path, heads) pairs produce
+ * distinct cache entries: `root.ref("x")` and `root.ref("x").viewAt(h)`
+ * must return different handles, because they read at different heads.
+ * Sub-handles with no fixed heads (the common case) collapse to just their
+ * path key.
+ */
+function subHandleCacheKey(
+  segments: readonly AnyPathInput[],
+  heads: UrlHeads | undefined
+): string {
+  const pathKey = pathToCacheKey(segments)
+  if (!heads || heads.length === 0) return pathKey
+  return `${pathKey}#${heads.join(",")}`
+}
+
 function inputsFromPath(path: readonly PathSegment[]): AnyPathInput[] {
   return path.map(s => s as AnyPathInput)
 }
@@ -1626,11 +1445,6 @@ function pathsOverlap(a: readonly Prop[], b: readonly Prop[]): boolean {
 }
 
 //  TYPES
-
-export type SyncInfo = {
-  lastHeads: UrlHeads
-  lastSyncTimestamp: number
-}
 
 /** @hidden */
 export type DocHandleOptions<T> =
@@ -1742,65 +1556,6 @@ export interface DocHandleRemoteHeadsPayload {
   timestamp: number
 }
 
-// STATE MACHINE TYPES & CONSTANTS
-
-// state
-
-/**
- * Possible internal states for a DocHandle
- */
-export const HandleState = {
-  /** The handle has been created but not yet loaded or requested */
-  IDLE: "idle",
-  /** We are waiting for storage to finish loading */
-  LOADING: "loading",
-  /** We are waiting for someone in the network to respond to a sync request */
-  REQUESTING: "requesting",
-  /** The document is available */
-  READY: "ready",
-  /** The document has been unloaded from the handle, to free memory usage */
-  UNLOADED: "unloaded",
-  /** The document has been deleted from the repo */
-  DELETED: "deleted",
-  /** The document was not available in storage or from any connected peers */
-  UNAVAILABLE: "unavailable",
-} as const
-export type HandleState = (typeof HandleState)[keyof typeof HandleState]
-
-export const {
-  IDLE,
-  LOADING,
-  REQUESTING,
-  READY,
-  UNLOADED,
-  DELETED,
-  UNAVAILABLE,
-} = HandleState
-
-// context
-
-interface DocHandleContext<T> {
-  documentId: DocumentId
-  doc: A.Doc<T>
-}
-
-// events
-
-/** These are the (internal) events that can be sent to the state machine */
-type DocHandleEvent<T> =
-  | { type: typeof BEGIN }
-  | { type: typeof REQUEST }
-  | { type: typeof DOC_READY }
-  | {
-      type: typeof UPDATE
-      payload: { callback: (doc: A.Doc<T>) => A.Doc<T> }
-    }
-  | { type: typeof UNLOAD }
-  | { type: typeof RELOAD }
-  | { type: typeof DELETE }
-  | { type: typeof TIMEOUT }
-  | { type: typeof DOC_UNAVAILABLE }
-
 /**
  * Accept either base58-encoded `UrlHeads` or raw hex-string Automerge `Heads` and return
  * the `UrlHeads` form. Raw heads produced by `Automerge.getHeads(doc)` are hex strings,
@@ -1813,13 +1568,3 @@ function normalizeToUrlHeads(heads: UrlHeads | A.Heads): UrlHeads {
   )
   return (isHex ? encodeHeads(heads as A.Heads) : heads) as UrlHeads
 }
-
-const BEGIN = "BEGIN"
-const REQUEST = "REQUEST"
-const DOC_READY = "DOC_READY"
-const UPDATE = "UPDATE"
-const UNLOAD = "UNLOAD"
-const RELOAD = "RELOAD"
-const DELETE = "DELETE"
-const TIMEOUT = "TIMEOUT"
-const DOC_UNAVAILABLE = "DOC_UNAVAILABLE"

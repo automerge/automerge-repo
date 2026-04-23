@@ -1637,10 +1637,16 @@ describe("Ref", () => {
       const currentRef = handle.ref("value")
       const pastRef = currentRef.viewAt(heads)
 
+      // Distinct handles: same symbolic path but different fixed heads.
       expect(pastRef).not.toBe(currentRef)
-      // pastRef is on a view handle, not the same handle
-      expect(pastRef.docHandle).not.toBe(currentRef.docHandle)
+      // Both share the same underlying root document handle - sub-handles
+      // with per-handle heads do not fork a new root.
+      expect(pastRef.docHandle).toBe(currentRef.docHandle)
       expect(pastRef.docHandle.documentId).toBe(currentRef.docHandle.documentId)
+      // The pinned sub-handle reads at the given heads; the live one tracks
+      // latest.
+      expect(pastRef.isReadOnly()).toBe(true)
+      expect(currentRef.isReadOnly()).toBe(false)
     })
 
     it("should preserve path", () => {
