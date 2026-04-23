@@ -188,6 +188,106 @@ describe("unified DocHandle / Ref", () => {
     })
   })
 
+  describe("sub-handle retention", () => {
+    it("retains sub-handles with listeners attached", () => {
+      handle.change(d => {
+        d.title = "Old"
+      })
+
+      expect((handle as any)._subHandleRetainerSize).toBe(0)
+
+      const sub = handle.ref("title")
+      const unsubscribe = sub.onChange(() => {})
+
+      expect((handle as any)._subHandleRetainerSize).toBe(1)
+
+      unsubscribe()
+      expect((handle as any)._subHandleRetainerSize).toBe(0)
+    })
+
+    it("retains a sub-handle even if the caller drops its local reference", () => {
+      handle.change(d => {
+        d.title = "Old"
+      })
+
+      const events: (string | undefined)[] = []
+      // Attach a listener without keeping a reference to the sub-handle.
+      ;(() => {
+        handle
+          .ref("title")
+          .onChange(v => events.push(v as string | undefined))
+      })()
+
+      expect((handle as any)._subHandleRetainerSize).toBe(1)
+
+      handle.change(d => {
+        d.title = "New"
+      })
+
+      expect(events).toEqual(["New"])
+    })
+
+    it("releases retention on removeAllListeners", () => {
+      handle.change(d => {
+        d.title = "Old"
+      })
+
+      const sub = handle.ref("title")
+      sub.on("change", () => {})
+      sub.on("heads-changed", () => {})
+      expect((handle as any)._subHandleRetainerSize).toBe(1)
+
+      sub.removeAllListeners()
+      expect((handle as any)._subHandleRetainerSize).toBe(0)
+    })
+
+    it("releases retention after a once() listener fires", () => {
+      handle.change(d => {
+        d.title = "Old"
+      })
+
+      const sub = handle.ref("title")
+      sub.once("change", () => {})
+      expect((handle as any)._subHandleRetainerSize).toBe(1)
+
+      handle.change(d => {
+        d.title = "New"
+      })
+      expect((handle as any)._subHandleRetainerSize).toBe(0)
+    })
+
+    it("survives garbage collection if listeners are attached", async () => {
+      // This only runs when the test process was started with --expose-gc
+      // (e.g. `pnpm test --exec "node --expose-gc"`). Otherwise skip quietly.
+      const gc = (globalThis as any).gc as (() => void) | undefined
+      if (typeof gc !== "function") return
+
+      handle.change(d => {
+        d.title = "Old"
+      })
+
+      const events: (string | undefined)[] = []
+      let weak: WeakRef<DocHandle<any>> | undefined
+      ;(() => {
+        const sub = handle.ref("title")
+        weak = new WeakRef(sub)
+        sub.onChange(v => events.push(v as string | undefined))
+      })()
+
+      for (let i = 0; i < 10; i++) {
+        gc()
+        await new Promise(r => setTimeout(r, 5))
+      }
+
+      expect(weak!.deref()).toBeDefined()
+
+      handle.change(d => {
+        d.title = "New"
+      })
+      expect(events).toEqual(["New"])
+    })
+  })
+
   describe("value() vs doc()", () => {
     it("doc() returns the full document on sub-handles", () => {
       handle.change(d => {

@@ -84,6 +84,18 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #refCache: Map<string, WeakRef<DocHandle<any>>> = new Map()
 
   /**
+   * Root-only: strong references to sub-handles that currently have at least
+   * one listener attached. Sub-handles are otherwise held only as `WeakRef`s
+   * in `#refCache`, so without this set a user who calls
+   * `handle.ref(...).on("change", cb)` without keeping a local reference to
+   * the sub-handle could see the sub-handle (and their listener) silently
+   * garbage-collected between events. Populated by
+   * {@link DocHandle.#updateSubHandleRetention} via the overridden listener
+   * methods below.
+   */
+  #subHandleRetainers: Set<DocHandle<any>> = new Set()
+
+  /**
    * If set, this handle is a sub-handle scoped to a location within a root document handle.
    * When undefined, this is a root handle that owns the underlying Automerge document.
    */
@@ -1336,6 +1348,109 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
+  // ---------------- Listener retention (sub-handles only) ----------------
+  //
+  // Sub-handles are held on the root as `WeakRef`s (see `#refCache`), so they
+  // can be garbage-collected whenever no one else references them. That's
+  // usually what we want — but users who call
+  // `handle.ref(...).on("change", cb)` without keeping a local variable for
+  // the sub-handle would see their listener silently stop firing as soon as
+  // the sub-handle was collected. To prevent that, the root keeps a strong
+  // reference to any sub-handle that currently has ≥1 listener attached, and
+  // drops it as soon as the last listener is removed.
+  //
+  // We implement this by overriding every EventEmitter method that can
+  // change the listener count and re-checking `eventNames().length` after.
+  // `emit` is overridden too so that `once()` handlers, which auto-remove
+  // themselves after firing, are accounted for without needing an explicit
+  // off() call.
+
+  /**
+   * Sub-handle only: sync our root-retainer status with whether we currently
+   * have any listeners attached. Cheap enough to call from every listener
+   * mutation (and from every emit, to catch `once` auto-removal).
+   */
+  #updateSubHandleRetention(): void {
+    if (!this.#root) return
+    const retainers = this.#root.#subHandleRetainers
+    if (this.eventNames().length > 0) {
+      retainers.add(this)
+    } else {
+      retainers.delete(this)
+    }
+  }
+
+  on<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
+    event: E,
+    fn: EventEmitter.EventListener<DocHandleEvents<T>, E>,
+    context?: any
+  ): this {
+    super.on(event, fn, context)
+    this.#updateSubHandleRetention()
+    return this
+  }
+
+  addListener<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
+    event: E,
+    fn: EventEmitter.EventListener<DocHandleEvents<T>, E>,
+    context?: any
+  ): this {
+    super.addListener(event, fn, context)
+    this.#updateSubHandleRetention()
+    return this
+  }
+
+  once<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
+    event: E,
+    fn: EventEmitter.EventListener<DocHandleEvents<T>, E>,
+    context?: any
+  ): this {
+    super.once(event, fn, context)
+    this.#updateSubHandleRetention()
+    return this
+  }
+
+  off<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
+    event: E,
+    fn?: EventEmitter.EventListener<DocHandleEvents<T>, E>,
+    context?: any,
+    once?: boolean
+  ): this {
+    super.off(event, fn, context, once)
+    this.#updateSubHandleRetention()
+    return this
+  }
+
+  removeListener<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
+    event: E,
+    fn?: EventEmitter.EventListener<DocHandleEvents<T>, E>,
+    context?: any,
+    once?: boolean
+  ): this {
+    super.removeListener(event, fn, context, once)
+    this.#updateSubHandleRetention()
+    return this
+  }
+
+  removeAllListeners(
+    event?: EventEmitter.EventNames<DocHandleEvents<T>>
+  ): this {
+    super.removeAllListeners(event)
+    this.#updateSubHandleRetention()
+    return this
+  }
+
+  emit<E extends EventEmitter.EventNames<DocHandleEvents<T>>>(
+    event: E,
+    ...args: EventEmitter.EventArgs<DocHandleEvents<T>, E>
+  ): boolean {
+    const result = super.emit(event, ...args)
+    // `once` listeners auto-remove themselves during emit; re-check so the
+    // root can release its strong grip if that was our last listener.
+    this.#updateSubHandleRetention()
+    return result
+  }
+
   // ---------------- Sub-handle dispatch hooks (invoked from root) ---------------
   // These are internal to DocHandle.ts. They exist because the root dispatcher
   // lives on one DocHandle instance but needs to fan out events into every live
@@ -1348,6 +1463,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.#log
   }
 
+  /**
+   * @internal Number of sub-handles this root currently retains because they
+   * have at least one listener attached. Used by tests.
+   */
+  get _subHandleRetainerSize(): number {
+    return this.#subHandleRetainers.size
+  }
+
   /** @internal Forward a root `change` event, filtered to this sub-handle's path. */
   _dispatchRootChange(payload: DocHandleChangePayload<any>): void {
     // Keep segment props (indices resolved from patterns, etc.) fresh.
@@ -1358,10 +1481,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       pathsOverlap(p.path, propPath)
     )
     if (filtered.length === 0) return
-    const scopedDoc = this.isReady() ? (this.doc() as T) : (undefined as any)
+    // `doc` on the sub-handle payload is the full root doc (see
+    // `DocHandleChangePayload.doc`). We forward the root payload's `doc`
+    // directly rather than the scoped `value()` so both root and sub
+    // subscribers see the same document snapshot.
     this.emit("change", {
       handle: this as unknown as DocHandle<T>,
-      doc: scopedDoc as A.Doc<T>,
+      doc: payload.doc,
       patches: filtered,
       patchInfo: payload.patchInfo,
     })
@@ -1373,7 +1499,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   ): void {
     this.emit("heads-changed", {
       handle: this as unknown as DocHandle<T>,
-      doc: payload.doc as A.Doc<T>,
+      doc: payload.doc,
     })
   }
 
@@ -1519,19 +1645,40 @@ export interface DocHandleEvents<T> {
 /** Emitted when this document's heads have changed */
 export interface DocHandleEncodedChangePayload<T> {
   handle: DocHandle<T>
-  doc: A.Doc<T>
+  /**
+   * The full root Automerge document after the change.
+   *
+   * Note: even on sub-handles (`DocHandle<SubT>` where `SubT` is the scoped
+   * value type) this is the whole root document, not the scoped value. The
+   * type is `A.Doc<any>` rather than `A.Doc<T>` so we don't lie about that
+   * on sub-handles; if you want the scoped value, use `handle.value()`.
+   */
+  doc: A.Doc<any>
 }
 
 /** Emitted when this document has changed */
 export interface DocHandleChangePayload<T> {
-  /** The handle that changed */
+  /** The handle that changed. For sub-handles, this is the sub-handle itself. */
   handle: DocHandle<T>
-  /** The value of the document after the change */
-  doc: A.Doc<T>
-  /** The patches representing the change that occurred */
+  /**
+   * The full root Automerge document after the change.
+   *
+   * Note: even on sub-handles (`DocHandle<SubT>` where `SubT` is the scoped
+   * value type) this is the whole root document, not the scoped value — use
+   * `handle.value()` (or the first argument to `handle.onChange`) for the
+   * scoped value.
+   */
+  doc: A.Doc<any>
+  /**
+   * The patches representing the change that occurred. On sub-handles, these
+   * are filtered to patches whose path overlaps the sub-handle's path.
+   */
   patches: A.Patch[]
-  /** Information about the change */
-  patchInfo: A.PatchInfo<T>
+  /**
+   * Information about the change, carrying `before`/`after` snapshots of the
+   * whole root document.
+   */
+  patchInfo: A.PatchInfo<any>
 }
 
 /** Emitted when this document is deleted */
