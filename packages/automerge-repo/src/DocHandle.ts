@@ -17,7 +17,6 @@ import {
   AbortOptions,
   isAbortErrorLike,
 } from "./helpers/abortable.js"
-import { RefImpl } from "./refs/ref.js"
 import type { PathInput, InferRefType, Ref } from "./refs/types.js"
 
 /**
@@ -58,12 +57,24 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** Cache for ref instances, keyed by serialized path */
   #refCache: Map<string, WeakRef<Ref<any>>> = new Map()
 
+  /** Factory for creating Ref instances, injected by Repo to avoid circular imports */
+  #refConstructor: <TDoc, TPath extends readonly PathInput[]>(
+    handle: DocHandle<TDoc>,
+    path: [...TPath]
+  ) => Ref<any>
+
   /** @hidden */
   constructor(
     public documentId: DocumentId,
+    refConstructor: <TDoc, TPath extends readonly PathInput[]>(
+      handle: DocHandle<TDoc>,
+      path: [...TPath]
+    ) => Ref<any>,
     options: DocHandleOptions<T> = {}
   ) {
     super()
+
+    this.#refConstructor = refConstructor
 
     if ("timeoutDelay" in options && options.timeoutDelay) {
       this.#timeoutDelay = options.timeoutDelay
@@ -446,7 +457,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     }
 
     // Create a new handle with the same documentId but fixed heads
-    const handle = new DocHandle<T>(this.documentId, {
+    const handle = new DocHandle<T>(this.documentId, this.#refConstructor, {
       heads,
       timeoutDelay: this.#timeoutDelay,
     })
@@ -757,7 +768,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     }
 
     // Create new ref and cache it
-    const newRef = new RefImpl<T, TPath>(this, segments as [...TPath])
+    const newRef = this.#refConstructor<T, TPath>(this, segments as [...TPath])
     this.#refCache.set(cacheKey, new WeakRef(newRef))
 
     return newRef as Ref<InferRefType<T, TPath>>
@@ -791,15 +802,14 @@ export type SyncInfo = {
 
 /** @hidden */
 export type DocHandleOptions<T> =
-  // NEW DOCUMENTS
-  | {
+  | // NEW DOCUMENTS
+  {
       /** If we know this is a new document (because we're creating it) this should be set to true. */
       isNew: true
 
       /** The initial value of the document. */
       initialValue?: T
-    }
-  // EXISTING DOCUMENTS
+    } // EXISTING DOCUMENTS
   | {
       isNew?: false
 

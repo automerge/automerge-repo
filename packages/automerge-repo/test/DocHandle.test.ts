@@ -11,13 +11,21 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
+import { RefImpl } from "../src/refs/ref.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
   const setup = (options?) => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, options)
-    handle.update(() => A.init())
-    handle.doneLoading()
+    const { quick, ...rest } = options ?? {}
+    const handle = new DocHandle<TestDoc>(
+      TEST_ID,
+      (handle, path) => new RefImpl(handle, path),
+      rest
+    )
+    if (!quick) {
+      handle.update(() => A.init())
+      handle.doneLoading()
+    }
     return handle
   }
 
@@ -26,12 +34,12 @@ describe("DocHandle", () => {
   }
 
   it("should take the UUID passed into it", () => {
-    const handle = new DocHandle(TEST_ID)
+    const handle = setup({ quick: true })
     assert.equal(handle.documentId, TEST_ID)
   })
 
   it("should become ready when a document is loaded", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
@@ -43,7 +51,7 @@ describe("DocHandle", () => {
   })
 
   it("should allow sync access to the doc", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
@@ -55,12 +63,12 @@ describe("DocHandle", () => {
   })
 
   it("should throw an exception if we access the doc before ready", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
     assert.throws(() => handle.doc())
   })
 
   it("should not return a doc until ready", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
     assert.equal(handle.isReady(), false)
 
     // simulate loading from storage
@@ -92,7 +100,7 @@ describe("DocHandle", () => {
   })
 
   it("should throw an if the heads aren't loaded", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
     assert.equal(handle.isReady(), false)
     expect(() => handle.heads()).toThrow("DocHandle is not ready")
   })
@@ -126,7 +134,7 @@ describe("DocHandle", () => {
     handle.change(d => (d.foo = "one"))
 
     const history = handle.history()
-    const viewHandle = new DocHandle<TestDoc>(TEST_ID, { heads: history[0] })
+    const viewHandle = setup({ quick: true, heads: history[0] })
     viewHandle.update(() => A.clone(handle.doc()!))
     viewHandle.doneLoading()
 
@@ -256,7 +264,7 @@ describe("DocHandle", () => {
     vi.useFakeTimers()
     const timerCount = vi.getTimerCount()
 
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
     assert.equal(handle.isReady(), false)
 
     assert(vi.getTimerCount() > timerCount)
@@ -270,7 +278,7 @@ describe("DocHandle", () => {
   })
 
   it("should block changes until ready()", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
 
     // can't make changes in LOADING state
     assert.equal(handle.isReady(), false)
@@ -288,7 +296,7 @@ describe("DocHandle", () => {
   })
 
   it("should not be ready while requesting from the network", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
 
     // we don't have it in storage, so we request it from the network
     handle.request()
@@ -301,7 +309,7 @@ describe("DocHandle", () => {
   })
 
   it("should become ready if the document is updated by the network", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID)
+    const handle = setup({ quick: true })
 
     // we don't have it in storage, so we request it from the network
     handle.request()
@@ -422,14 +430,14 @@ describe("DocHandle", () => {
 
   it("should be undefined if loading the document times out", async () => {
     // set docHandle time out after 5 ms
-    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
+    const handle = setup({ quick: true, timeoutDelay: 5 })
 
     expect(() => handle.doc()).toThrowError("DocHandle is not ready")
   })
 
   it("should not time out if the document is loaded in time", async () => {
     // set docHandle time out after 5 ms
-    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
+    const handle = setup({ quick: true, timeoutDelay: 5 })
 
     // simulate loading from storage before the timeout expires
     handle.update(doc => docFromMockStorage(doc))
@@ -441,7 +449,7 @@ describe("DocHandle", () => {
 
   it("should throw an exception if loading from the network times out", async () => {
     // set docHandle time out after 5 ms
-    const handle = new DocHandle<TestDoc>(TEST_ID, { timeoutDelay: 5 })
+    const handle = setup({ quick: true, timeoutDelay: 5 })
 
     // simulate requesting from the network
     handle.request()
@@ -595,7 +603,7 @@ describe("DocHandle", () => {
     })
 
     it("should return false for a newly created document handle", () => {
-      const handle = new DocHandle<TestDoc>(TEST_ID)
+      const handle = setup({ quick: true })
       expect(handle.isReadOnly()).toBe(false)
     })
 
@@ -618,7 +626,7 @@ describe("DocHandle", () => {
       })
 
       const heads = handle.heads()
-      const fixedHeadsHandle = new DocHandle<TestDoc>(TEST_ID, { heads })
+      const fixedHeadsHandle = setup({ quick: true, heads })
       fixedHeadsHandle.update(() => A.clone(handle.doc()!))
       fixedHeadsHandle.doneLoading()
 
