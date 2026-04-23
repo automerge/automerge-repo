@@ -186,6 +186,50 @@ describe("unified DocHandle / Ref", () => {
       const selfHistory = handle.ref().history()
       expect(selfHistory).toEqual(rootHistory)
     })
+
+    it(
+      "includes history steps where a pattern's target existed at a " +
+        "different index than it does now",
+      () => {
+        // Step 1: create items with target "b" at index 1.
+        handle.change(d => {
+          d.items = [
+            { id: "a", value: 1 },
+            { id: "b", value: 2 },
+            { id: "c", value: 3 },
+          ]
+        })
+        // Step 2: touch b.value at index 1 (target at index 1 here).
+        handle.change(d => {
+          d.items[1].value = 20
+        })
+        // Step 3: shift - b moves to index 0.
+        handle.change(d => {
+          d.items.shift()
+        })
+        // Step 4: touch b.value at index 0 (target at index 0 here).
+        handle.change(d => {
+          d.items[0].value = 200
+        })
+        // Step 5: unrelated change (should not appear in sub history).
+        handle.change(d => {
+          d.unrelated = "x"
+        })
+
+        const ref = handle.ref("items", { id: "b" }, "value")
+        const subHistory = ref.history()
+        expect(subHistory).toBeDefined()
+
+        // We expect: the creating change (step 1), step 2 (touched at 1),
+        // step 3 (reshape that moved b), and step 4 (touched at 0). Step 5
+        // does not touch the pattern's current OR previous position and
+        // should be excluded. Before the Phase 4 fix, current-heads
+        // resolution would see `prop = 0` and miss step 2 (patches at
+        // items[1]); resolving against each step fixes that.
+        expect(subHistory!.length).toBe(4)
+        expect(subHistory!.length).toBeLessThan(handle.history()!.length)
+      }
+    )
   })
 
   describe("sub-handle retention", () => {

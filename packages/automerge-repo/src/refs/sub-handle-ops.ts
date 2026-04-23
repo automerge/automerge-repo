@@ -1,8 +1,10 @@
 import type * as A from "@automerge/automerge/slim"
 import type { Prop, ChangeFn } from "@automerge/automerge/slim"
 import { next as Automerge } from "@automerge/automerge/slim"
-import type { CursorRange, PathSegment } from "./types.js"
+import type { CursorRange, PathSegment, Pattern } from "./types.js"
+import { KIND } from "./types.js"
 import { MutableText } from "./mutable-text.js"
+import { matchesPattern } from "./utils.js"
 
 // Alias: mirror the "RefChangeFn" name used in DocHandle for symmetry with the
 // historical Ref.change signature. Functionally identical to Automerge's ChangeFn.
@@ -153,19 +155,92 @@ export function applyScopedRemove(
 }
 
 /**
+ * Resolve a single path segment against the value at its parent position.
+ *
+ *  - `key`: always returns the segment's static key.
+ *  - `index`: always returns the segment's static index.
+ *  - `match`: scans the parent array (if any) for the first item matching
+ *    the segment's pattern, returning its index. Returns `undefined` if
+ *    the parent is not an array or no item matches.
+ *
+ * Pure - does not mutate the segment. Use
+ * {@link updatePropsFromRoot} when you want to write the resolution back
+ * onto `segment.prop`.
+ */
+export function resolveSegmentProp(
+  container: unknown,
+  segment: PathSegment
+): string | number | undefined {
+  if (container === undefined || container === null) return undefined
+  switch ((segment as any)[KIND]) {
+    case "key":
+      return (segment as any).key
+    case "index":
+      return (segment as any).index
+    case "match": {
+      if (!Array.isArray(container)) return undefined
+      const match = (segment as any).match as Pattern
+      const idx = (container as unknown[]).findIndex(item =>
+        matchesPattern(item, match)
+      )
+      return idx !== -1 ? idx : undefined
+    }
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Resolve a sub-handle's symbolic path segments against a specific document
+ * snapshot, returning the concrete numeric/string prop path or `undefined`
+ * if any segment fails to resolve (e.g. a pattern has no matching item in
+ * that snapshot).
+ *
+ * Pure: does not mutate any segment `.prop`. Used by `history()` and
+ * `diff()` to scope patches to what the sub-handle's path meant *at the
+ * historical state the patches describe*, rather than the current state -
+ * this is the correctness fix for pattern-based sub-handles whose resolved
+ * index changes over time.
+ */
+export function resolvePropPathAt(
+  doc: A.Doc<any> | undefined,
+  segments: readonly PathSegment[]
+): Prop[] | undefined {
+  if (!doc) return undefined
+  const out: Prop[] = []
+  let cursor: unknown = doc
+  for (const seg of segments) {
+    const prop = resolveSegmentProp(cursor, seg)
+    if (prop === undefined) return undefined
+    out.push(prop)
+    cursor =
+      cursor === null || cursor === undefined
+        ? undefined
+        : (cursor as any)[prop as any]
+  }
+  return out
+}
+
+/**
  * Re-resolve the `prop` on each segment against the current document state. This
  * mutates each segment's `prop` in place so match patterns (and any other
  * kind-specific resolution) track the latest document.
+ *
+ * The optional `resolver` parameter exists so callers can inject an
+ * alternative resolution policy; by default we use {@link resolveSegmentProp}.
  */
 export function updatePropsFromRoot(
   rootDoc: A.Doc<any> | undefined,
   segments: readonly PathSegment[],
-  resolveSegmentProp: (cursor: unknown, segment: PathSegment) => Prop | undefined
+  resolver: (
+    cursor: unknown,
+    segment: PathSegment
+  ) => Prop | undefined = resolveSegmentProp
 ): void {
   if (!rootDoc) return
   let cursor: unknown = rootDoc
   for (const segment of segments) {
-    const prop = resolveSegmentProp(cursor, segment)
+    const prop = resolver(cursor, segment)
     ;(segment as any).prop = prop
     if (prop !== undefined && cursor !== undefined && cursor !== null) {
       cursor = (cursor as any)[prop as any]

@@ -13,6 +13,7 @@ import { headsAreSame } from "./helpers/headsAreSame.js"
 import { withTimeout } from "./helpers/withTimeout.js"
 import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
 import { StorageId } from "./storage/types.js"
+import { DocumentState } from "./DocumentState.js"
 import {
   AbortError,
   AbortOptions,
@@ -24,6 +25,8 @@ import {
   applyScopedChange as applyScopedChangeOp,
   applyScopedRemove as applyScopedRemoveOp,
   getPropPath as getPropPathFromSegments,
+  resolvePropPathAt,
+  resolveSegmentProp,
   scopedValue as scopedValueOp,
   updatePropsFromRoot as updatePropsFromRootOp,
 } from "./refs/sub-handle-ops.js"
@@ -51,6 +54,36 @@ import { KIND } from "./refs/types.js"
  * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some change has occured and
  * the `Repo` will save any new changes to the attached {@link StorageAdapter} and send sync
  * messages to connected peers.
+ *
+ * ---
+ *
+ * Worklist: remaining `if (this.#root)` branching for the next refactor pass.
+ * Each sub-handle-aware method on DocHandle falls into one of three buckets
+ * today. They are _not_ bugs - they're a natural consequence of the fact that
+ * a `DocHandle` represents both "the root document" and "a scoped view into
+ * it". The registry refactor localised dispatch but did not attempt to
+ * eliminate this branching; the follow-up DocumentState extraction (moving
+ * the XState machine, `#doc`, `#fixedHeads`, and sync state off DocHandle)
+ * will let us delete most of these branches mechanically.
+ *
+ *   Bucket 1 (pure delegation): `inState`, `state`, `whenReady`, `heads`,
+ *     `metadata`, `getRemoteHeads`, `getSyncInfo`, `setSyncInfo`,
+ *     `isReadOnly`, `broadcast`. Each body is `if (this.#root) return
+ *     this.#root.<method>(args)`; once the underlying state-machine-owning
+ *     fields live on DocumentState, these can redirect through the
+ *     container with no special-casing.
+ *
+ *   Bucket 2 (scoped-vs-unscoped split): `view`, `diff`, `change`,
+ *     `changeAt`, `merge` (partial). These genuinely do different things on
+ *     root vs sub (re-scope, filter patches, delegate scoped mutations
+ *     through `sub-handle-ops`). Candidates for per-method helper
+ *     extraction if the split grows further.
+ *
+ *   Bucket 3 (root-only lifecycle no-ops): `update`, `doneLoading`,
+ *     `unavailable`, `request`, `unload`, `reload`, `delete`. The Repo
+ *     calls these on the root; sub-handles short-circuit. Cleanest fix is
+ *     "don't expose them on the sub handle" (e.g. a distinct sub-handle
+ *     interface), but that's a larger API change.
  */
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #log: debug.Debugger
@@ -72,28 +105,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #syncInfoByStorageId: Record<StorageId, SyncInfo> = {}
 
   /**
-   * Cache for view handles, keyed by the stringified heads (root handles only).
+   * Shared container for state that is logically owned by the root document
+   * rather than by this individual handle instance. Every `DocHandle` holds a
+   * direct reference: root handles own their `DocumentState`; sub-handles
+   * share their root's `DocumentState` so that `this.#documentState.<field>`
+   * reaches the same object regardless of whether `this` is a root or a sub.
    *
-   * Uses `WeakRef` so that time-travel UIs that open many `handle.view(heads)`
-   * snapshots don't pin every historical handle in memory indefinitely. Entries
-   * are pruned lazily on access.
+   * Initialised in the constructor.
    */
-  #viewCache: Map<string, WeakRef<DocHandle<T>>> = new Map()
-
-  /** Cache for sub-handles, keyed by serialized path (root handles only) */
-  #refCache: Map<string, WeakRef<DocHandle<any>>> = new Map()
-
-  /**
-   * Root-only: strong references to sub-handles that currently have at least
-   * one listener attached. Sub-handles are otherwise held only as `WeakRef`s
-   * in `#refCache`, so without this set a user who calls
-   * `handle.ref(...).on("change", cb)` without keeping a local reference to
-   * the sub-handle could see the sub-handle (and their listener) silently
-   * garbage-collected between events. Populated by
-   * {@link DocHandle.#updateSubHandleRetention} via the overridden listener
-   * methods below.
-   */
-  #subHandleRetainers: Set<DocHandle<any>> = new Set()
+  #documentState!: DocumentState
 
   /**
    * If set, this handle is a sub-handle scoped to a location within a root document handle.
@@ -106,13 +126,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Cursor range for text-range sub-handles. */
   #range?: CursorRange
-
-  /**
-   * Root-only: true once this root handle has installed its centralised
-   * sub-handle event dispatcher. We do this lazily the first time a sub-handle
-   * is created so root handles that are never scoped into pay no cost.
-   */
-  #rootDispatcherInstalled = false
 
   /** @hidden */
   constructor(
@@ -135,6 +148,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     // not attach any per-sub-handle listeners here.
     if ("root" in options && options.root) {
       this.#root = options.root
+      // Share the root's DocumentState. Every sub-handle points at the same
+      // container so any `this.#documentState.<x>` access behaves identically
+      // on root and sub.
+      this.#documentState = options.root.#documentState
       this.#log = debug(
         `automerge-repo:dochandle:${this.documentId.slice(0, 5)}:sub`
       )
@@ -147,6 +164,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       this.#range = range
       return
     }
+
+    this.#documentState = new DocumentState()
 
     const doc = A.init<T>()
 
@@ -546,17 +565,40 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return topo.map(h => encodeHeads([h])) as UrlHeads[]
     }
 
-    const propPath = this.#getPropPath()
-    if (!propPath) {
-      return []
-    }
-
+    // Correctness: for sub-handles whose path contains pattern (match)
+    // segments, the resolved prop path can change over history. Resolving
+    // once against current heads would misattribute patches across steps
+    // where the pattern pointed to a different index (or didn't resolve at
+    // all). Instead, resolve the symbolic path independently against each
+    // historical snapshot - both "before" and "after", so patches that
+    // create the target (only resolvable after) or destroy it (only
+    // resolvable before) are both captured.
+    const segments = this.#path
     const out: UrlHeads[] = []
     for (let i = 0; i < topo.length; i++) {
       const after = [topo[i]]
       const before = i === 0 ? [] : [topo[i - 1]]
       const patches = A.diff(this.#doc, before, after)
-      if (patches.some(p => pathsOverlap(p.path, propPath))) {
+
+      const beforePath =
+        before.length === 0
+          ? undefined
+          : resolvePropPathAt(
+              A.view(this.#doc, before) as A.Doc<any>,
+              segments
+            )
+      const afterPath = resolvePropPathAt(
+        A.view(this.#doc, after) as A.Doc<any>,
+        segments
+      )
+      if (!beforePath && !afterPath) continue
+
+      const overlaps = patches.some(
+        p =>
+          (beforePath !== undefined && pathsOverlap(p.path, beforePath)) ||
+          (afterPath !== undefined && pathsOverlap(p.path, afterPath))
+      )
+      if (overlaps) {
         out.push(encodeHeads([topo[i]]) as UrlHeads)
       }
     }
@@ -593,10 +635,14 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     }
 
     const cacheKey = JSON.stringify(heads)
-    const cached = this.#viewCache.get(cacheKey)?.deref()
+    const cached = this.#documentState.viewCache.get(cacheKey)?.deref() as
+      | DocHandle<T>
+      | undefined
     if (cached) return cached
     // Dead WeakRef entries are pruned on the way out.
-    if (this.#viewCache.has(cacheKey)) this.#viewCache.delete(cacheKey)
+    if (this.#documentState.viewCache.has(cacheKey)) {
+      this.#documentState.viewCache.delete(cacheKey)
+    }
 
     const handle = new DocHandle<T>(this.documentId, {
       heads,
@@ -605,7 +651,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     handle.update(() => A.clone(this.#doc))
     handle.doneLoading()
 
-    this.#viewCache.set(cacheKey, new WeakRef(handle))
+    this.#documentState.viewCache.set(cacheKey, new WeakRef(handle))
     return handle
   }
 
@@ -624,7 +670,33 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    */
   diff(first: UrlHeads | DocHandle<T>, second?: UrlHeads): A.Patch[] {
     if (this.#root) {
-      return this.#root.diff(first as any, second) as A.Patch[]
+      // Compute the full diff on the root, then scope it to this sub-
+      // handle's path. Correctness: resolve the symbolic path against
+      // *both* endpoint snapshots so patches that create or destroy the
+      // target (pattern resolves only before / only after) are included.
+      const allPatches = this.#root.diff(first as any, second) as A.Patch[]
+      if (this.#path.length === 0 && !this.#range) return allPatches
+
+      const rootDoc = this.#root.doc()!
+      let fromHeads: UrlHeads
+      let toHeads: UrlHeads
+      if (first instanceof DocHandle) {
+        fromHeads = (this.#root.heads() || []) as UrlHeads
+        toHeads = (first.heads() || []) as UrlHeads
+      } else {
+        fromHeads = second ? first : ((this.#root.heads() || []) as UrlHeads)
+        toHeads = second ? second : first
+      }
+      const fromDoc = A.view(rootDoc, decodeHeads(fromHeads)) as A.Doc<any>
+      const toDoc = A.view(rootDoc, decodeHeads(toHeads)) as A.Doc<any>
+      const fromPath = resolvePropPathAt(fromDoc, this.#path)
+      const toPath = resolvePropPathAt(toDoc, this.#path)
+      if (!fromPath && !toPath) return []
+      return allPatches.filter(
+        p =>
+          (fromPath !== undefined && pathsOverlap(p.path, fromPath)) ||
+          (toPath !== undefined && pathsOverlap(p.path, toPath))
+      )
     }
     if (!this.isReady()) {
       throw new Error(
@@ -1155,20 +1227,20 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       : [...inputsFromPath(this.#path), ...segments]
 
     const cacheKey = pathToCacheKey(combined)
-    const existing = rootHandle.#refCache.get(cacheKey)?.deref()
+    const existing = this.#documentState.refCache.get(cacheKey)?.deref()
     if (existing) return existing
 
-    // Lazily attach the root's centralised event dispatcher the first time any
-    // sub-handle is created. After that, new sub-handles simply join the
-    // weak-keyed registry and receive events through the root's iteration.
-    rootHandle.#installRootDispatcher()
+    // Lazily attach the root's centralised event dispatcher the first time
+    // any sub-handle is created. After that, new sub-handles simply join
+    // the registry and receive events through its trie walk.
+    this.#documentState.registry.attachTo(rootHandle)
 
     const newHandle = new DocHandle<any>(rootHandle.documentId, {
       root: rootHandle,
       pathInputs: combined,
       timeoutDelay: this.#timeoutDelay,
     } as DocHandleOptions<any>)
-    rootHandle.#refCache.set(cacheKey, new WeakRef(newHandle))
+    this.#documentState.refCache.set(cacheKey, new WeakRef(newHandle))
     return newHandle
   }
 
@@ -1295,62 +1367,10 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     )
   }
 
-  /**
-   * Install centralised sub-handle event dispatch on this root handle. Called at most
-   * once per root, the first time a sub-handle is requested. We subscribe a *single*
-   * listener per event type and iterate the root's `#refCache` of live sub-handles on
-   * each event, rather than having every sub-handle subscribe its own listeners.
-   *
-   * Sub-handles that have been garbage-collected are transparently pruned from the
-   * cache on each pass.
-   */
-  #installRootDispatcher(): void {
-    if (this.#rootDispatcherInstalled) return
-    this.#rootDispatcherInstalled = true
-
-    const forEachLiveSubHandle = (
-      fn: (sub: DocHandle<any>) => void
-    ): void => {
-      for (const [key, weak] of this.#refCache) {
-        const sub = weak.deref()
-        if (!sub) {
-          this.#refCache.delete(key)
-          continue
-        }
-        try {
-          fn(sub)
-        } catch (e) {
-          sub._log?.("error in sub-handle dispatch: %o", e)
-        }
-      }
-    }
-
-    this.on("change", payload => {
-      // Single pass: let each live sub-handle re-resolve its props and decide
-      // whether the patch list affects it.
-      forEachLiveSubHandle(sub => sub._dispatchRootChange(payload))
-    })
-
-    this.on("heads-changed", payload => {
-      forEachLiveSubHandle(sub => sub._dispatchRootHeadsChanged(payload))
-    })
-
-    this.on("delete", () => {
-      forEachLiveSubHandle(sub => sub._dispatchRootDelete())
-    })
-
-    this.on("remote-heads", payload => {
-      forEachLiveSubHandle(sub => sub._dispatchRootRemoteHeads(payload))
-    })
-
-    this.on("ephemeral-message", payload => {
-      forEachLiveSubHandle(sub => sub._dispatchRootEphemeralMessage(payload))
-    })
-  }
-
   // ---------------- Listener retention (sub-handles only) ----------------
   //
-  // Sub-handles are held on the root as `WeakRef`s (see `#refCache`), so they
+  // Sub-handles are held on the shared DocumentState as `WeakRef`s (see
+  // `DocumentState.refCache`), so they
   // can be garbage-collected whenever no one else references them. That's
   // usually what we want — but users who call
   // `handle.ref(...).on("change", cb)` without keeping a local variable for
@@ -1372,11 +1392,11 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    */
   #updateSubHandleRetention(): void {
     if (!this.#root) return
-    const retainers = this.#root.#subHandleRetainers
+    const registry = this.#documentState.registry
     if (this.eventNames().length > 0) {
-      retainers.add(this)
+      registry.insert(this)
     } else {
-      retainers.delete(this)
+      registry.remove(this)
     }
   }
 
@@ -1456,7 +1476,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   // lives on one DocHandle instance but needs to fan out events into every live
   // sub-handle instance. Using explicit methods (rather than subscribing N
   // listeners on the root) keeps both the per-event and per-sub-handle cost to
-  // a single predictable pass through `#refCache`.
+  // a single predictable pass through `DocumentState.refCache`.
 
   /** @internal Logger accessor used by the root dispatcher. */
   get _log(): debug.Debugger {
@@ -1468,7 +1488,41 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * have at least one listener attached. Used by tests.
    */
   get _subHandleRetainerSize(): number {
-    return this.#subHandleRetainers.size
+    return this.#documentState.subHandleRetainers.size
+  }
+
+  /** @internal The sub-handle's symbolic path segments. Empty for root handles. */
+  get _pathSegments(): readonly PathSegment[] {
+    return this.#path
+  }
+
+  /**
+   * @internal Resolved numeric/string prop path at the current document state,
+   * or `undefined` if any segment fails to resolve (e.g. a pattern has no
+   * matching item). Used by the registry to key the literal trie and to
+   * filter patches on pattern-path sub-handles.
+   */
+  _propPath(): Prop[] | undefined {
+    return this.#getPropPath()
+  }
+
+  /**
+   * @internal Emit a pre-filtered `change` event directly on this sub-handle,
+   * skipping the re-resolve + filter pass that `_dispatchRootChange` does.
+   * Called by the registry for literal-path sub-handles once the trie walk
+   * has computed which patches concern this sub-handle.
+   */
+  _emitFilteredChange(
+    payload: DocHandleChangePayload<any>,
+    filtered: A.Patch[]
+  ): void {
+    if (filtered.length === 0) return
+    this.emit("change", {
+      handle: this as unknown as DocHandle<T>,
+      doc: payload.doc,
+      patches: filtered,
+      patchInfo: payload.patchInfo,
+    })
   }
 
   /** @internal Forward a root `change` event, filtered to this sub-handle's path. */
@@ -1561,29 +1615,6 @@ function resolveSegment(cursor: unknown, segment: PathSegment): unknown {
   const prop = (segment as any).prop
   if (prop === undefined) return undefined
   return (cursor as any)[prop]
-}
-
-function resolveSegmentProp(
-  container: unknown,
-  segment: PathSegment
-): string | number | undefined {
-  if (container === undefined || container === null) return undefined
-  switch ((segment as any)[KIND]) {
-    case "key":
-      return (segment as any).key
-    case "index":
-      return (segment as any).index
-    case "match": {
-      if (!Array.isArray(container)) return undefined
-      const match = (segment as any).match as Pattern
-      const idx = (container as unknown[]).findIndex(item =>
-        matchesPattern(item, match)
-      )
-      return idx !== -1 ? idx : undefined
-    }
-    default:
-      return undefined
-  }
 }
 
 function pathsOverlap(a: readonly Prop[], b: readonly Prop[]): boolean {
