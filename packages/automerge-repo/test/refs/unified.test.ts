@@ -243,7 +243,7 @@ describe("unified DocHandle / Ref", () => {
       expect(pinnedTitle.value()).toBe("First")
     })
 
-    it("sub-handles throw informative errors on root-only lifecycle methods", () => {
+    it("sub-handles throw informative errors on lifecycle methods that only apply to the root handle", () => {
       handle.change(d => {
         d.value = 1
       })
@@ -376,20 +376,28 @@ describe("unified DocHandle / Ref", () => {
   })
 
   describe("sub-handle retention", () => {
+    // Baseline: the root handle is always in the retainer set when the
+    // Repo has attached its own listeners (`heads-changed` for autosave).
+    // Tests assert deltas against this baseline rather than absolute counts.
+    let baseline: number
+    beforeEach(() => {
+      baseline = (handle as any)._handleRetainerSize
+    })
+
     it("retains sub-handles with listeners attached", () => {
       handle.change(d => {
         d.title = "Old"
       })
 
-      expect((handle as any)._subHandleRetainerSize).toBe(0)
+      expect((handle as any)._handleRetainerSize).toBe(baseline)
 
       const sub = handle.ref("title")
       const unsubscribe = sub.onChange(() => {})
 
-      expect((handle as any)._subHandleRetainerSize).toBe(1)
+      expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
 
       unsubscribe()
-      expect((handle as any)._subHandleRetainerSize).toBe(0)
+      expect((handle as any)._handleRetainerSize).toBe(baseline)
     })
 
     it("retains a sub-handle even if the caller drops its local reference", () => {
@@ -405,7 +413,7 @@ describe("unified DocHandle / Ref", () => {
           .onChange(v => events.push(v as string | undefined))
       })()
 
-      expect((handle as any)._subHandleRetainerSize).toBe(1)
+      expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
 
       handle.change(d => {
         d.title = "New"
@@ -422,10 +430,10 @@ describe("unified DocHandle / Ref", () => {
       const sub = handle.ref("title")
       sub.on("change", () => {})
       sub.on("heads-changed", () => {})
-      expect((handle as any)._subHandleRetainerSize).toBe(1)
+      expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
 
       sub.removeAllListeners()
-      expect((handle as any)._subHandleRetainerSize).toBe(0)
+      expect((handle as any)._handleRetainerSize).toBe(baseline)
     })
 
     it("releases retention after a once() listener fires", () => {
@@ -435,12 +443,12 @@ describe("unified DocHandle / Ref", () => {
 
       const sub = handle.ref("title")
       sub.once("change", () => {})
-      expect((handle as any)._subHandleRetainerSize).toBe(1)
+      expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
 
       handle.change(d => {
         d.title = "New"
       })
-      expect((handle as any)._subHandleRetainerSize).toBe(0)
+      expect((handle as any)._handleRetainerSize).toBe(baseline)
     })
 
     it("survives garbage collection if listeners are attached", async () => {

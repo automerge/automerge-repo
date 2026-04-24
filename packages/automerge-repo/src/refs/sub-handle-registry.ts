@@ -4,6 +4,7 @@ import type { DocHandle, DocHandleEvents } from "../DocHandle.js"
 import type {
   DocumentChangePayload,
   DocumentEphemeralMessagePayload,
+  DocumentEphemeralMessageOutboundPayload,
   DocumentHeadsChangedPayload,
   DocumentRemoteHeadsPayload,
   DocumentState,
@@ -13,13 +14,15 @@ import type { PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
 
 /**
- * Internal: centralised dispatcher + retention tracker for the sub-handles
- * belonging to a single document.
+ * Internal: centralised dispatcher + retention tracker for every handle
+ * (root, sub, view) belonging to a single document.
  *
- * Trie-indexed by symbolic paths of *retained* sub-handles (those with at
- * least one listener attached). A patch dispatch walks the trie from the
- * root along the patch's path, gathering terminals it passes through and
- * BFS-expanding the subtree where the patch terminates above a node.
+ * Trie-indexed by symbolic paths of *retained* handles (those with at
+ * least one listener attached). The root handle lives at the root of
+ * the trie (path `[]`), so all patches naturally fan out to it without
+ * any special-casing. A `change` dispatch walks the trie once per patch,
+ * gathering terminals it passes through and BFS-expanding the subtree
+ * where the patch terminates above a node.
  *
  * Pattern segments (`{ id: "x" }`) live as a separate set of edges at
  * array-valued nodes. When a walk reaches an array node with pattern
@@ -29,19 +32,19 @@ import { matchesPattern } from "./utils.js"
  * contributing segment so observers of `ref.path[i].prop` see fresh
  * values.
  *
- * Sub-handles with no listeners are not tracked here at all (they live in
+ * Handles with no listeners are not tracked here at all (they live in
  * `DocumentState.handleCache` for identity only). Their `segment.prop`
  * values are refreshed lazily by `scopedValue` / `applyScopedChange` /
  * `applyScopedRemove` on first read after a change.
  *
- * All five document events (`change`, `heads-changed`, `delete`,
- * `remote-heads`, `ephemeral-message`) dispatch only to retained
- * sub-handles: a sub-handle with zero listeners is by definition
- * uninterested in events.
+ * All six document events (`change`, `heads-changed`, `delete`,
+ * `remote-heads`, `ephemeral-message`, `ephemeral-message-outbound`)
+ * dispatch only to retained handles: a handle with zero listeners is by
+ * definition uninterested in events.
  */
 export class SubHandleRegistry {
   /**
-   * Subscribes to all five `DocumentState` events. `DocumentState`
+   * Subscribes to all six `DocumentState` events. `DocumentState`
    * instantiates the registry eagerly so dispatch is wired up the moment
    * the document exists.
    */
@@ -52,6 +55,9 @@ export class SubHandleRegistry {
     state.on("remote-heads", payload => this.dispatchRemoteHeads(payload))
     state.on("ephemeral-message", payload =>
       this.dispatchEphemeral(payload)
+    )
+    state.on("ephemeral-message-outbound", payload =>
+      this.dispatchEphemeralOutbound(payload)
     )
   }
 
@@ -171,6 +177,17 @@ export class SubHandleRegistry {
   dispatchEphemeral(payload: DocumentEphemeralMessagePayload): void {
     for (const sub of this.state.subHandleRetainers) {
       this.#safeEmit(sub, "ephemeral-message", { handle: sub, ...payload })
+    }
+  }
+
+  dispatchEphemeralOutbound(
+    payload: DocumentEphemeralMessageOutboundPayload
+  ): void {
+    for (const sub of this.state.subHandleRetainers) {
+      this.#safeEmit(sub, "ephemeral-message-outbound", {
+        handle: sub,
+        ...payload,
+      })
     }
   }
 
