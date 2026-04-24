@@ -37,7 +37,6 @@ import {
   resolvePropPathAt,
   resolveSegmentProp,
   scopedValue as scopedValueOp,
-  updatePropsFromRoot as updatePropsFromRootOp,
 } from "./refs/sub-handle-ops.js"
 import type {
   AnyPathInput,
@@ -235,6 +234,21 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return this.#root === undefined ? undefined : this.#root.#fixedHeads
   }
 
+  /**
+   * Enforce that a lifecycle method is being called on a root handle.
+   * Sub-handles don't drive the document's lifecycle - the Repo does, and
+   * it always holds the root. A user who has only a sub-handle reference
+   * and tries to unload/delete/etc. the document gets this clear error
+   * rather than a silent no-op, which historically was a footgun.
+   */
+  #requireRoot(method: string): void {
+    if (this.#root) {
+      throw new Error(
+        `${method}() is only valid on root document handles; use \`handle.docHandle\` to get the root.`
+      )
+    }
+  }
+
   // PUBLIC
 
   /** This handle's URL. For root handles this is `automerge:<docId>[#heads]`; for sub-handles
@@ -378,7 +392,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   begin() {
-    if (this.#root) return
+    this.#requireRoot("begin")
     this.documentState.begin()
   }
 
@@ -568,9 +582,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    if (this.#root) {
-      throw new Error("update() can only be called on root handles")
-    }
+    this.#requireRoot("update")
     this.documentState.update(callback as (doc: A.Doc<any>) => A.Doc<any>)
   }
 
@@ -580,7 +592,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * or that it was loaded from storage, or that it was received from a peer.
    */
   doneLoading() {
-    if (this.#root) return
+    this.#requireRoot("doneLoading")
     this.documentState.doneLoading()
   }
 
@@ -725,11 +737,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     /** the handle of the document to merge into this one */
     otherHandle: DocHandle<T>
   ) {
-    if (this.#root) {
-      throw new Error(
-        "merge() is only supported on root handles; merge through the root document handle instead."
-      )
-    }
+    this.#requireRoot("merge")
     if (!this.isReady() || !otherHandle.isReady()) {
       throw new Error("Both handles must be ready to merge")
     }
@@ -750,7 +758,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    */
   unavailable() {
-    if (this.#root) return
+    this.#requireRoot("unavailable")
     this.documentState.unavailable()
   }
 
@@ -759,25 +767,25 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @hidden
    * */
   request() {
-    if (this.#root) return
+    this.#requireRoot("request")
     this.documentState.request()
   }
 
   /** Called by the repo to free memory used by the document. */
   unload() {
-    if (this.#root) return
+    this.#requireRoot("unload")
     this.documentState.unload()
   }
 
   /** Called by the repo to reuse an unloaded handle. */
   reload() {
-    if (this.#root) return
+    this.#requireRoot("reload")
     this.documentState.reload()
   }
 
   /** Called by the repo when the document is deleted. */
   delete() {
-    if (this.#root) return
+    this.#requireRoot("delete")
     this.documentState.delete()
   }
 
@@ -1276,39 +1284,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     })
   }
 
-  /**
-   * @internal Forward a document-level `change` event, filtered to this
-   * sub-handle's path.
-   *
-   * TODO: this method exists primarily so dormant (listener-less) pattern
-   * sub-handles get their `segment.prop` refreshed on every change - so
-   * that reading `ref.path[i].prop` on a never-listened-to ref always
-   * returns the current resolution. It's the last per-sub-per-change
-   * cost in the dispatch path. The cleaner alternative is to make
-   * `scopedValue` write `.prop` back as a side-effect of resolution
-   * (lazy refresh: stale until read, never stale after read), at which
-   * point dormant subs need no per-dispatch work and we can delete this
-   * method along with the `if (this.#subRecords.has(sub)) ... else ...`
-   * branch in the registry's `dispatchChange`. See `scopedValue` in
-   * `refs/sub-handle-ops.ts`.
-   */
-  _dispatchRootChange(payload: DocumentChangePayload): void {
-    // Keep segment props (indices resolved from patterns, etc.) fresh.
-    this.#updatePropsFromRoot()
-    const propPath = this.#getPropPath()
-    if (!propPath) return
-    const filtered = payload.patches.filter(p =>
-      pathsOverlap(p.path, propPath)
-    )
-    if (filtered.length === 0) return
-    this.emit("change", {
-      handle: this as unknown as DocHandle<T>,
-      doc: payload.doc,
-      patches: filtered,
-      patchInfo: payload.patchInfo,
-    })
-  }
-
   /** @internal Forward a document-level `heads-changed` event. */
   _dispatchRootHeadsChanged(payload: DocumentHeadsChangedPayload): void {
     this.emit("heads-changed", {
@@ -1335,12 +1310,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       ...payload,
       handle: this as unknown as DocHandle<T>,
     })
-  }
-
-  /** Re-resolve the `prop` on each path segment against the current document state. */
-  #updatePropsFromRoot() {
-    const rootDoc = this.#root?.isReady() ? this.#root.doc() : undefined
-    updatePropsFromRootOp(rootDoc, this.#path, resolveSegmentProp)
   }
 }
 

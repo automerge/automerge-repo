@@ -30,16 +30,17 @@ import { matchesPattern } from "./utils.js"
  * observers of `ref.path[i].prop` stay accurate.
  *
  * Sub-handles that have never been retained (no listener ever attached) are
- * still tracked weakly in `DocumentState.handleCache`. They do not enter
- * the trie; instead they continue to receive `change` events through the
- * per-sub `_dispatchRootChange` forwarder, which refreshes their segment
- * `.prop` values via `#updatePropsFromRoot` - the same mechanism used
- * today. This keeps `ref.path[i].prop` observations well-defined on
- * listener-less refs without forcing them into the trie.
+ * tracked weakly in `DocumentState.handleCache` for identity but do not
+ * participate in dispatch at all. Their `segment.prop` values stay stale
+ * until someone calls `value()` / `change()` / `remove()`, at which point
+ * `scopedValue` / `applyScopedChange` / `applyScopedRemove` refresh them
+ * lazily against the live doc. This is how "thousands of dormant refs are
+ * free" works - we don't pay anything per change for refs that no one is
+ * listening to.
  *
  * Non-`change` events (`heads-changed`, `delete`, `remote-heads`,
- * `ephemeral-message`) are not path-filtered, so they iterate the live
- * sub-handle cache and call the sub's per-event forwarding method.
+ * `ephemeral-message`) also dispatch only to retained sub-handles: a
+ * sub-handle with zero listeners is by definition uninterested in events.
  */
 export class SubHandleRegistry {
   /**
@@ -108,58 +109,38 @@ export class SubHandleRegistry {
   // ---------------- Dispatch ----------------
 
   /**
-   * Fan out a root `change` event to every affected sub-handle.
+   * Fan out a document-level `change` event to every retained sub-handle.
    *
-   * Retained subs receive their filtered patch list via a trie walk per
-   * patch, with per-dispatch memoisation of pattern re-resolution. Dormant
-   * subs (no listeners, not in the trie) continue through the legacy
-   * per-sub dispatch path, which keeps their segment `.prop` values fresh
-   * via `#updatePropsFromRoot`.
+   * Walks the trie once per patch, memoising pattern re-resolution per
+   * dispatch, then emits a filtered patch list on each affected sub-handle.
+   * Dormant (never-listened-to) sub-handles are not iterated; their
+   * `segment.prop` values refresh lazily in `scopedValue` the next time
+   * anyone reads them. Sub-handles pinned to fixed heads are frozen
+   * snapshots whose content cannot change, so `change` emissions on them
+   * are suppressed.
    */
   dispatchChange(payload: DocumentChangePayload): void {
     const perSubPatches = new Map<DocHandle<any>, A.Patch[]>()
     const resolvedNodes = new Set<TrieNode>()
-
-    const doc = payload.doc
 
     for (const patch of payload.patches) {
       this.#collectForPatch(
         this.#root,
         patch.path,
         0,
-        doc,
+        payload.doc,
         patch,
         perSubPatches,
         resolvedNodes
       )
     }
 
-    for (const [key, weak] of this.state.handleCache) {
-      const sub = weak.deref()
-      if (!sub) {
-        this.state.handleCache.delete(key)
-        continue
-      }
-      // Sub-handles pinned to fixed heads are frozen snapshots: their
-      // value never changes as the live document moves forward, so we
-      // suppress `change` emissions on them. Lifecycle and ephemeral
-      // events still flow through (see dispatchDelete / dispatchEphemeral).
+    for (const sub of this.state.subHandleRetainers) {
       if (sub.isReadOnly()) continue
+      const filtered = perSubPatches.get(sub)
+      if (!filtered || filtered.length === 0) continue
       try {
-        if (this.#subRecords.has(sub)) {
-          const filtered = perSubPatches.get(sub)
-          if (filtered && filtered.length > 0) {
-            sub._emitFilteredChange(payload, filtered)
-          }
-        } else {
-          // Dormant sub (no listeners). We still call the legacy per-sub
-          // dispatch so its segment `.prop`s stay fresh for external
-          // observers of `ref.path[i].prop`; the `emit` call at the end
-          // is a no-op because there are no listeners.
-          // TODO: replace this with lazy `.prop` refresh in `scopedValue`
-          // - see the TODO on `DocHandle._dispatchRootChange`.
-          sub._dispatchRootChange(payload)
-        }
+        sub._emitFilteredChange(payload, filtered)
       } catch (e) {
         sub._log?.("error in sub-handle dispatch: %o", e)
       }
@@ -167,24 +148,27 @@ export class SubHandleRegistry {
   }
 
   dispatchHeadsChanged(payload: DocumentHeadsChangedPayload): void {
-    this.#forEachLiveSubHandle(sub => {
-      // Same reasoning as `dispatchChange`: a frozen sub-handle's heads
-      // are fixed by definition and cannot change.
+    this.#forEachRetainedSubHandle(sub => {
+      // A frozen sub-handle's heads are fixed by definition; suppress.
       if (sub.isReadOnly()) return
       sub._dispatchRootHeadsChanged(payload)
     })
   }
 
   dispatchDelete(): void {
-    this.#forEachLiveSubHandle(sub => sub._dispatchRootDelete())
+    this.#forEachRetainedSubHandle(sub => sub._dispatchRootDelete())
   }
 
   dispatchRemoteHeads(payload: DocumentRemoteHeadsPayload): void {
-    this.#forEachLiveSubHandle(sub => sub._dispatchRootRemoteHeads(payload))
+    this.#forEachRetainedSubHandle(sub =>
+      sub._dispatchRootRemoteHeads(payload)
+    )
   }
 
   dispatchEphemeral(payload: DocumentEphemeralMessagePayload): void {
-    this.#forEachLiveSubHandle(sub => sub._dispatchRootEphemeralMessage(payload))
+    this.#forEachRetainedSubHandle(sub =>
+      sub._dispatchRootEphemeralMessage(payload)
+    )
   }
 
   // ---------------- Internals ----------------
@@ -384,13 +368,14 @@ export class SubHandleRegistry {
     }
   }
 
-  #forEachLiveSubHandle(fn: (sub: DocHandle<any>) => void): void {
-    for (const [key, weak] of this.state.handleCache) {
-      const sub = weak.deref()
-      if (!sub) {
-        this.state.handleCache.delete(key)
-        continue
-      }
+  /**
+   * Iterate the retained (listener-having) sub-handles. Dormant sub-handles
+   * are intentionally skipped: they have no listeners so dispatching to
+   * them would be a no-op anyway, and skipping them is what makes dormant
+   * refs genuinely free of per-change cost.
+   */
+  #forEachRetainedSubHandle(fn: (sub: DocHandle<any>) => void): void {
+    for (const sub of this.state.subHandleRetainers) {
       try {
         fn(sub)
       } catch (e) {

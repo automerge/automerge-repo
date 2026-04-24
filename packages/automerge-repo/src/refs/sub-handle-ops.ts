@@ -36,24 +36,13 @@ export function getPropPath(
 /**
  * Get the current scoped value (value at path, or substring for a range handle).
  *
- * TODO: lazy `.prop` refresh. Today this function reads the cached
- * `segment.prop` values produced by the most recent `updatePropsFromRoot`
- * pass. That pass is run for every dormant sub-handle on every change
- * (via `DocHandle._dispatchRootChange`), which is the last per-sub-per-
- * change cost in the dispatch path - the thing standing between us and
- * "many thousands of refs are free".
- *
- * The cleaner alternative is to walk segments here against the live
- * `rootView`, resolving each segment with `resolveSegmentProp(cursor, seg)`
- * and writing the result back to `seg.prop` as a side-effect. Then:
- *   - `scopedValue` returns are always up-to-date with the doc passed in.
- *   - `ref.path[i].prop` observations are correct after any `value()` call.
- *   - The dispatch-time `_dispatchRootChange`/`updatePropsFromRoot` path
- *     for dormant subs goes away entirely.
- *
- * The trade-off is "stale `.prop` until you read." Probably fine - users
- * who care about `.prop` either listen for changes (retained) or just
- * called `value()` (which would now refresh).
+ * Before reading, re-resolves every segment's `.prop` against the passed-in
+ * `rootView` as a side-effect. This is the lazy-refresh path for
+ * `segment.prop`: writes happen here and in `applyScoped{Change,Remove}`
+ * so reads are always consistent with the doc they were resolved against,
+ * and dispatch no longer has to eagerly refresh dormant sub-handles on
+ * every change. `ref.path[i].prop` observations are correct after any
+ * `value()` / `change()` / `remove()` call.
  */
 export function scopedValue(
   rootView: A.Doc<any>,
@@ -61,6 +50,7 @@ export function scopedValue(
   range: CursorRange | undefined,
   rangePositions: () => [number, number] | undefined
 ): unknown {
+  updatePropsFromRoot(rootView, segments)
   const propPath = getPropPath(segments)
   if (!propPath) return undefined
   let cursor: unknown = rootView
@@ -80,6 +70,10 @@ export function scopedValue(
  * Apply a scoped change callback to a mutable view of the document. Mirrors the
  * semantics of the old `Ref.change`: mutations are made in place, and returning a
  * new value from the callback replaces the value at the path.
+ *
+ * As with `scopedValue`, re-resolves segment `.prop` values against the
+ * passed-in (mutable) doc before reading so pattern-based paths compute
+ * against the current document state rather than stale cached indices.
  */
 export function applyScopedChange(
   doc: A.Doc<any>,
@@ -88,6 +82,7 @@ export function applyScopedChange(
   rangePositions: () => [number, number] | undefined,
   fn: RefChangeFn<any>
 ): A.Doc<any> {
+  updatePropsFromRoot(doc, segments)
   const propPath = getPropPath(segments)
   if (!propPath) return doc
   if (segments.length === 0 && !range) {
@@ -145,13 +140,18 @@ export function applyScopedChange(
   return doc
 }
 
-/** Remove the value at this handle's path from the mutable document proxy. */
+/**
+ * Remove the value at this handle's path from the mutable document proxy.
+ * Re-resolves segment `.prop` values against the passed-in doc before
+ * reading (see `scopedValue` for the rationale).
+ */
 export function applyScopedRemove(
   doc: A.Doc<any>,
   segments: readonly PathSegment[],
   range: CursorRange | undefined,
   rangePositions: () => [number, number] | undefined
 ): A.Doc<any> {
+  updatePropsFromRoot(doc, segments)
   const propPath = getPropPath(segments)
   if (!propPath || propPath.length === 0) return doc
 
@@ -178,27 +178,28 @@ export function applyScopedRemove(
 /**
  * Resolve a single path segment against the value at its parent position.
  *
- *  - `key`: always returns the segment's static key.
- *  - `index`: always returns the segment's static index.
- *  - `match`: scans the parent array (if any) for the first item matching
- *    the segment's pattern, returning its index. Returns `undefined` if
- *    the parent is not an array or no item matches.
+ *  - `key`: always returns the segment's static key, regardless of whether
+ *    the parent actually exists in the document. The prop is a symbolic
+ *    name, not a value lookup - a segment for `"title"` resolves to
+ *    `"title"` even if the intermediate path doesn't reach an object.
+ *  - `index`: always returns the segment's static index, same reasoning.
+ *  - `match`: needs a real parent array to scan. Returns `undefined` if
+ *    the parent is missing, not an array, or has no matching item.
  *
- * Pure - does not mutate the segment. Use
- * {@link updatePropsFromRoot} when you want to write the resolution back
- * onto `segment.prop`.
+ * Pure - does not mutate the segment. Use {@link updatePropsFromRoot} when
+ * you want to write the resolution back onto `segment.prop`.
  */
 export function resolveSegmentProp(
   container: unknown,
   segment: PathSegment
 ): string | number | undefined {
-  if (container === undefined || container === null) return undefined
   switch ((segment as any)[KIND]) {
     case "key":
       return (segment as any).key
     case "index":
       return (segment as any).index
     case "match": {
+      if (container === undefined || container === null) return undefined
       if (!Array.isArray(container)) return undefined
       const match = (segment as any).match as Pattern
       const idx = (container as unknown[]).findIndex(item =>

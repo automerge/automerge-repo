@@ -242,6 +242,54 @@ describe("unified DocHandle / Ref", () => {
       expect(events).toEqual([])
       expect(pinnedTitle.value()).toBe("First")
     })
+
+    it("sub-handles throw informative errors on root-only lifecycle methods", () => {
+      handle.change(d => {
+        d.value = 1
+      })
+      const sub = handle.ref("value")
+
+      // All of these previously silently no-op'd on sub-handles. The
+      // silent no-op was a footgun; we now throw informatively.
+      expect(() => sub.begin()).toThrow(/root document handle/)
+      expect(() => sub.doneLoading()).toThrow(/root document handle/)
+      expect(() => sub.unavailable()).toThrow(/root document handle/)
+      expect(() => sub.request()).toThrow(/root document handle/)
+      expect(() => sub.unload()).toThrow(/root document handle/)
+      expect(() => sub.reload()).toThrow(/root document handle/)
+      expect(() => sub.delete()).toThrow(/root document handle/)
+      expect(() => sub.update(() => ({}))).toThrow(/root document handle/)
+      expect(() => sub.merge(handle)).toThrow(/root document handle/)
+    })
+
+    it("a dormant pattern ref refreshes .prop lazily on value()", () => {
+      // No listener attached anywhere. This ref is dormant - not in the
+      // registry's trie, not in `subHandleRetainers`. Without lazy refresh
+      // its `segment.prop` would be stale forever until GC.
+      handle.change(d => {
+        d.items = [
+          { id: "a", value: 1 },
+          { id: "b", value: 2 },
+          { id: "c", value: 3 },
+        ]
+      })
+
+      const ref = handle.ref("items", { id: "b" }, "value")
+      // Initial resolution (from #normalizePath at construction): b is at 1.
+      expect(ref.path[1].prop).toBe(1)
+      expect(ref.value()).toBe(2)
+
+      // Shift the array so b moves to 0. No listeners on ref, so nothing
+      // refreshes during dispatch. This tests the "dormant refs are free"
+      // path.
+      handle.change(d => {
+        d.items.shift()
+      })
+
+      // value() triggers lazy refresh via scopedValue -> updatePropsFromRoot.
+      expect(ref.value()).toBe(2)
+      expect(ref.path[1].prop).toBe(0)
+    })
   })
 
   describe("history() filtering on sub-handles", () => {
