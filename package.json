@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-monorepo",
-  "version": "2.6.0-subduction.14",
+  "version": "2.6.0-subduction.15",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
   "repository": "https://github.com/automerge/automerge-repo",
@@ -36,8 +36,8 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "^3.2.5",
-    "@automerge/automerge-subduction": "0.7.0",
+    "@automerge/automerge": "^3.2.6",
+    "@automerge/automerge-subduction": "0.8.1",
     "@manypkg/cli": "^0.21.4",
     "@playwright/test": "^1.57.0",
     "@types/debug": "^4.1.12",
@@ -80,7 +80,7 @@
   "pnpm": {
     "overrides": {
       "semver": "^7.5.2",
-      "@automerge/automerge": "3.2.5"
+      "@automerge/automerge": "3.2.6"
     }
   }
 }
