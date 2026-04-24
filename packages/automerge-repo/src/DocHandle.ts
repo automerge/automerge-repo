@@ -1,6 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
-import debug from "debug"
 import { EventEmitter } from "eventemitter3"
 import {
   decodeHeads,
@@ -21,10 +20,6 @@ import {
   UNAVAILABLE,
 } from "./DocumentState.js"
 import type {
-  DocumentChangePayload,
-  DocumentEphemeralMessagePayload,
-  DocumentHeadsChangedPayload,
-  DocumentRemoteHeadsPayload,
   SyncInfo,
 } from "./DocumentState.js"
 import { AbortOptions } from "./helpers/abortable.js"
@@ -85,8 +80,6 @@ export type { SyncInfo }
  * range, and any handle can pin to fixed heads independently of its root.
  */
 export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
-  #log: debug.Debugger
-
   /**
    * If set, this handle shows the document at these specific heads rather
    * than the latest. Stored per-handle (not on `DocumentState`) so that a
@@ -133,9 +126,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if ("root" in options && options.root) {
       this.#root = options.root
       this.documentState = options.root.documentState
-      this.#log = debug(
-        `automerge-repo:dochandle:${this.documentId.slice(0, 5)}:sub`
-      )
       const rootDoc = options.root.isReady() ? options.root.doc() : undefined
       const { path, range } = this.#normalizePath(
         rootDoc as A.Doc<any>,
@@ -153,7 +143,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       timeoutDelay:
         "timeoutDelay" in options ? options.timeoutDelay : undefined,
     })
-    this.#log = debug(`automerge-repo:dochandle:${this.documentId.slice(0, 5)}`)
 
     // Frozen handles (those pinned to `#fixedHeads`) suppress `change` and
     // `heads-changed`: their `value()` can never reflect a future change.
@@ -1193,15 +1182,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     return result
   }
 
-  // ---------------- Registry-facing internals -----------------
-  // Methods the sub-handle registry calls when fanning out a document
-  // event to a sub-handle. Each translates a document-level payload to a
-  // handle-shaped one and re-emits.
-
-  /** @internal Logger accessor for the registry's error reporting. */
-  get _log(): debug.Debugger {
-    return this.#log
-  }
+  // ---------------- Internal accessors (registry / tests) -----------------
 
   /** @internal Number of strongly-retained sub-handles. Used by tests. */
   get _subHandleRetainerSize(): number {
@@ -1211,48 +1192,6 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** @internal Symbolic path of this sub-handle. Empty on root handles. */
   get _pathSegments(): readonly PathSegment[] {
     return this.#path
-  }
-
-  /** @internal Emit a `change` event with a pre-filtered patch list. */
-  _emitFilteredChange(
-    payload: DocumentChangePayload,
-    filtered: A.Patch[]
-  ): void {
-    if (filtered.length === 0) return
-    this.emit("change", {
-      handle: this as unknown as DocHandle<T>,
-      doc: payload.doc,
-      patches: filtered,
-      patchInfo: payload.patchInfo,
-    })
-  }
-
-  /** @internal Re-emit `heads-changed` as a handle-scoped event. */
-  _dispatchRootHeadsChanged(payload: DocumentHeadsChangedPayload): void {
-    this.emit("heads-changed", {
-      handle: this as unknown as DocHandle<T>,
-      doc: payload.doc,
-    })
-  }
-
-  /** @internal Re-emit `delete` as a handle-scoped event. */
-  _dispatchRootDelete(): void {
-    this.emit("delete", { handle: this as unknown as DocHandle<T> })
-  }
-
-  /** @internal Re-emit `remote-heads` (document-shaped, no translation). */
-  _dispatchRootRemoteHeads(payload: DocumentRemoteHeadsPayload): void {
-    this.emit("remote-heads", payload)
-  }
-
-  /** @internal Re-emit `ephemeral-message` as a handle-scoped event. */
-  _dispatchRootEphemeralMessage(
-    payload: DocumentEphemeralMessagePayload
-  ): void {
-    this.emit("ephemeral-message", {
-      ...payload,
-      handle: this as unknown as DocHandle<T>,
-    })
   }
 }
 

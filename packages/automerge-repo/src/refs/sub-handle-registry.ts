@@ -1,6 +1,6 @@
 import type * as A from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
-import type { DocHandle } from "../DocHandle.js"
+import type { DocHandle, DocHandleEvents } from "../DocHandle.js"
 import type {
   DocumentChangePayload,
   DocumentEphemeralMessagePayload,
@@ -131,35 +131,40 @@ export class SubHandleRegistry {
       if (sub.isReadOnly()) continue
       const filtered = perSubPatches.get(sub)
       if (!filtered || filtered.length === 0) continue
-      try {
-        sub._emitFilteredChange(payload, filtered)
-      } catch (e) {
-        sub._log?.("error in sub-handle dispatch: %o", e)
-      }
+      this.#safeEmit(sub, "change", {
+        handle: sub,
+        doc: payload.doc,
+        patches: filtered,
+        patchInfo: payload.patchInfo,
+      })
     }
   }
 
   dispatchHeadsChanged(payload: DocumentHeadsChangedPayload): void {
-    this.#forEachRetainedSubHandle(sub => {
-      if (sub.isReadOnly()) return
-      sub._dispatchRootHeadsChanged(payload)
-    })
+    for (const sub of this.state.subHandleRetainers) {
+      if (sub.isReadOnly()) continue
+      this.#safeEmit(sub, "heads-changed", { handle: sub, doc: payload.doc })
+    }
   }
 
   dispatchDelete(): void {
-    this.#forEachRetainedSubHandle(sub => sub._dispatchRootDelete())
+    for (const sub of this.state.subHandleRetainers) {
+      this.#safeEmit(sub, "delete", { handle: sub })
+    }
   }
 
   dispatchRemoteHeads(payload: DocumentRemoteHeadsPayload): void {
-    this.#forEachRetainedSubHandle(sub =>
-      sub._dispatchRootRemoteHeads(payload)
-    )
+    // `remote-heads` is the only event that's already document-shaped on
+    // both sides (no `handle` translation needed).
+    for (const sub of this.state.subHandleRetainers) {
+      this.#safeEmit(sub, "remote-heads", payload)
+    }
   }
 
   dispatchEphemeral(payload: DocumentEphemeralMessagePayload): void {
-    this.#forEachRetainedSubHandle(sub =>
-      sub._dispatchRootEphemeralMessage(payload)
-    )
+    for (const sub of this.state.subHandleRetainers) {
+      this.#safeEmit(sub, "ephemeral-message", { handle: sub, ...payload })
+    }
   }
 
   // ---------------- Internals ----------------
@@ -350,14 +355,19 @@ export class SubHandleRegistry {
     }
   }
 
-  /** Iterate retained sub-handles. Dormant ones have no listeners. */
-  #forEachRetainedSubHandle(fn: (sub: DocHandle<any>) => void): void {
-    for (const sub of this.state.subHandleRetainers) {
-      try {
-        fn(sub)
-      } catch (e) {
-        sub._log?.("error in sub-handle dispatch: %o", e)
-      }
+  /**
+   * Emit `event` on `sub`, swallowing exceptions so a single bad listener
+   * doesn't block the rest of the dispatch fan-out.
+   */
+  #safeEmit<E extends keyof DocHandleEvents<any>>(
+    sub: DocHandle<any>,
+    event: E,
+    payload: Parameters<DocHandleEvents<any>[E]>[0]
+  ): void {
+    try {
+      ;(sub.emit as any)(event, payload)
+    } catch (e) {
+      this.state.log("error in sub-handle dispatch: %o", e)
     }
   }
 }
