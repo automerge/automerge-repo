@@ -6,19 +6,14 @@ import { KIND } from "./types.js"
 import { MutableText } from "./mutable-text.js"
 import { matchesPattern } from "./utils.js"
 
-// Alias: mirror the "RefChangeFn" name used in DocHandle for symmetry with the
-// historical Ref.change signature. Functionally identical to Automerge's ChangeFn.
+// Type alias for change callbacks; matches Automerge's `ChangeFn`.
 type RefChangeFn<T> = ChangeFn<T>
 
 /**
- * Pure helpers that encapsulate the "sub-handle"-specific behaviour on a `DocHandle`:
- * resolving the current prop path, reading the scoped value, and applying scoped
- * mutations.
- *
- * Keeping these in one module (rather than as private methods scattered across
- * `DocHandle`) makes the set of operations that a sub-handle adds over a root
- * handle explicit, and makes it cheap to evolve the scoped-mutation semantics
- * without having to re-find every call site.
+ * Path-scoped operations on a document: resolve a path, read the value at
+ * the path, apply a change to the value at the path, remove the slot at
+ * the path. Used by `DocHandle` (which carries the path/range) to drive
+ * sub-handle reads and mutations through the shared underlying doc.
  */
 
 /** The resolved numeric/string prop path for use with Automerge APIs. */
@@ -34,15 +29,10 @@ export function getPropPath(
 }
 
 /**
- * Get the current scoped value (value at path, or substring for a range handle).
- *
- * Before reading, re-resolves every segment's `.prop` against the passed-in
- * `rootView` as a side-effect. This is the lazy-refresh path for
- * `segment.prop`: writes happen here and in `applyScoped{Change,Remove}`
- * so reads are always consistent with the doc they were resolved against,
- * and dispatch no longer has to eagerly refresh dormant sub-handles on
- * every change. `ref.path[i].prop` observations are correct after any
- * `value()` / `change()` / `remove()` call.
+ * Read the value at a sub-handle's path (or the substring within a cursor
+ * range). Re-resolves each segment's `.prop` against `rootView` as a
+ * side-effect first, so the returned value and any subsequent
+ * `ref.path[i].prop` observation are consistent with the doc passed in.
  */
 export function scopedValue(
   rootView: A.Doc<any>,
@@ -67,13 +57,14 @@ export function scopedValue(
 }
 
 /**
- * Apply a scoped change callback to a mutable view of the document. Mirrors the
- * semantics of the old `Ref.change`: mutations are made in place, and returning a
- * new value from the callback replaces the value at the path.
+ * Apply a change callback to the value at a sub-handle's path. Mutations
+ * are made in place; returning a non-`undefined` primitive value from the
+ * callback replaces the slot. Strings are wrapped in {@link MutableText}
+ * so callbacks can `.splice` / `.updateText` for CRDT-safe edits.
  *
- * As with `scopedValue`, re-resolves segment `.prop` values against the
- * passed-in (mutable) doc before reading so pattern-based paths compute
- * against the current document state rather than stale cached indices.
+ * As with {@link scopedValue}, re-resolves segment `.prop`s against the
+ * passed-in (mutable) doc first so pattern paths compute against current
+ * document state rather than stale cached indices.
  */
 export function applyScopedChange(
   doc: A.Doc<any>,
@@ -141,9 +132,8 @@ export function applyScopedChange(
 }
 
 /**
- * Remove the value at this handle's path from the mutable document proxy.
- * Re-resolves segment `.prop` values against the passed-in doc before
- * reading (see `scopedValue` for the rationale).
+ * Remove the value at a sub-handle's path. Re-resolves segment `.prop`s
+ * against the passed-in (mutable) doc first (see {@link scopedValue}).
  */
 export function applyScopedRemove(
   doc: A.Doc<any>,
@@ -213,16 +203,14 @@ export function resolveSegmentProp(
 }
 
 /**
- * Resolve a sub-handle's symbolic path segments against a specific document
- * snapshot, returning the concrete numeric/string prop path or `undefined`
- * if any segment fails to resolve (e.g. a pattern has no matching item in
- * that snapshot).
+ * Resolve symbolic path segments against a given document snapshot.
+ * Returns the concrete prop path, or `undefined` if any segment fails to
+ * resolve (e.g. a pattern with no matching item).
  *
- * Pure: does not mutate any segment `.prop`. Used by `history()` and
- * `diff()` to scope patches to what the sub-handle's path meant *at the
- * historical state the patches describe*, rather than the current state -
- * this is the correctness fix for pattern-based sub-handles whose resolved
- * index changes over time.
+ * Pure - does not mutate `segment.prop`. Used by `history()` and `diff()`
+ * to scope patches to what the path meant at the *historical* state the
+ * patches describe, since pattern-based segments can resolve to different
+ * indices at different points in history.
  */
 export function resolvePropPathAt(
   doc: A.Doc<any> | undefined,
@@ -244,12 +232,11 @@ export function resolvePropPathAt(
 }
 
 /**
- * Re-resolve the `prop` on each segment against the current document state. This
- * mutates each segment's `prop` in place so match patterns (and any other
- * kind-specific resolution) track the latest document.
- *
- * The optional `resolver` parameter exists so callers can inject an
- * alternative resolution policy; by default we use {@link resolveSegmentProp}.
+ * Re-resolve `segment.prop` for each segment against `rootDoc` and write
+ * the result back to the segment. The mutating counterpart of
+ * {@link resolvePropPathAt}; called by {@link scopedValue} /
+ * {@link applyScopedChange} / {@link applyScopedRemove} so reads always
+ * see up-to-date pattern resolutions for the doc passed in.
  */
 export function updatePropsFromRoot(
   rootDoc: A.Doc<any> | undefined,

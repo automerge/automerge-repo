@@ -14,40 +14,36 @@ import { matchesPattern } from "./utils.js"
 
 /**
  * Internal: centralised dispatcher + retention tracker for the sub-handles
- * belonging to a single root document.
+ * belonging to a single document.
  *
- * The registry is a trie-inspired index over the symbolic paths of
- * sub-handles that have at least one listener attached (retained). A patch
- * dispatch walks the trie from the root along the patch's path, gathering
- * terminals it passes through and BFS-expanding the subtree where the patch
- * terminates above a node. Pattern segments (`{ id: "x" }`) become a
- * separate set of edges at array-valued nodes; whenever a walk reaches an
- * array node with pattern edges, all of its patterns are re-resolved in a
- * single O(|array| x |unresolvedPatterns|) inverted-loop pass, memoised per
- * dispatch. The bulk-resolver also writes resolved indices back to each
- * retained sub-handle's own segment `.prop` field (edges track every
- * contributing segment) so that `value()`, `history()`, and external
- * observers of `ref.path[i].prop` stay accurate.
+ * Trie-indexed by symbolic paths of *retained* sub-handles (those with at
+ * least one listener attached). A patch dispatch walks the trie from the
+ * root along the patch's path, gathering terminals it passes through and
+ * BFS-expanding the subtree where the patch terminates above a node.
  *
- * Sub-handles that have never been retained (no listener ever attached) are
- * tracked weakly in `DocumentState.handleCache` for identity but do not
- * participate in dispatch at all. Their `segment.prop` values stay stale
- * until someone calls `value()` / `change()` / `remove()`, at which point
- * `scopedValue` / `applyScopedChange` / `applyScopedRemove` refresh them
- * lazily against the live doc. This is how "thousands of dormant refs are
- * free" works - we don't pay anything per change for refs that no one is
- * listening to.
+ * Pattern segments (`{ id: "x" }`) live as a separate set of edges at
+ * array-valued nodes. When a walk reaches an array node with pattern
+ * edges, all of its patterns are re-resolved in a single
+ * O(|array| × |unresolvedPatterns|) inverted-loop pass, memoised per
+ * dispatch. The bulk-resolver writes resolved indices back to each
+ * contributing segment so observers of `ref.path[i].prop` see fresh
+ * values.
  *
- * Non-`change` events (`heads-changed`, `delete`, `remote-heads`,
- * `ephemeral-message`) also dispatch only to retained sub-handles: a
- * sub-handle with zero listeners is by definition uninterested in events.
+ * Sub-handles with no listeners are not tracked here at all (they live in
+ * `DocumentState.handleCache` for identity only). Their `segment.prop`
+ * values are refreshed lazily by `scopedValue` / `applyScopedChange` /
+ * `applyScopedRemove` on first read after a change.
+ *
+ * All five document events (`change`, `heads-changed`, `delete`,
+ * `remote-heads`, `ephemeral-message`) dispatch only to retained
+ * sub-handles: a sub-handle with zero listeners is by definition
+ * uninterested in events.
  */
 export class SubHandleRegistry {
   /**
-   * Subscribes to `DocumentState` events directly in the constructor so
-   * the registry comes online as soon as the document exists, without a
-   * separate "attach" step. The DocumentState constructor instantiates us
-   * eagerly for the same reason.
+   * Subscribes to all five `DocumentState` events. `DocumentState`
+   * instantiates the registry eagerly so dispatch is wired up the moment
+   * the document exists.
    */
   constructor(private readonly state: DocumentState) {
     state.on("change", payload => this.dispatchChange(payload))
@@ -110,14 +106,10 @@ export class SubHandleRegistry {
 
   /**
    * Fan out a document-level `change` event to every retained sub-handle.
-   *
    * Walks the trie once per patch, memoising pattern re-resolution per
    * dispatch, then emits a filtered patch list on each affected sub-handle.
-   * Dormant (never-listened-to) sub-handles are not iterated; their
-   * `segment.prop` values refresh lazily in `scopedValue` the next time
-   * anyone reads them. Sub-handles pinned to fixed heads are frozen
-   * snapshots whose content cannot change, so `change` emissions on them
-   * are suppressed.
+   * Frozen (fixed-heads) sub-handles are skipped: their content can't
+   * change so they have nothing to fire.
    */
   dispatchChange(payload: DocumentChangePayload): void {
     const perSubPatches = new Map<DocHandle<any>, A.Patch[]>()
@@ -149,7 +141,6 @@ export class SubHandleRegistry {
 
   dispatchHeadsChanged(payload: DocumentHeadsChangedPayload): void {
     this.#forEachRetainedSubHandle(sub => {
-      // A frozen sub-handle's heads are fixed by definition; suppress.
       if (sub.isReadOnly()) return
       sub._dispatchRootHeadsChanged(payload)
     })
@@ -175,14 +166,11 @@ export class SubHandleRegistry {
 
   /**
    * Follow or create the trie edge for a single segment during insertion.
-   *
-   * Literal segments use the `children` map; pattern segments use the
-   * `patternEdges` list, deduplicating by shallow pattern-equality so that
-   * `handle.ref("tasks", {id:"x"})` and `handle.ref("tasks", {id:"x"}, "title")`
-   * share the same pattern edge. The sub's own `segment` for a match kind
-   * is recorded on the edge so that bulk-resolve can write the resolved
-   * index back to every contributing segment (each sub has its own segment
-   * instances even when they share the same pattern value).
+   * Literal segments key into `children`; pattern segments key into
+   * `patternEdges` (linear search by shallow pattern equality), so refs
+   * with the same pattern share an edge. Each sub's own `match`-kind
+   * `segment` is recorded on the shared edge so bulk-resolve can write
+   * resolved indices back to every contributing segment instance.
    */
   #descendForInsert(
     node: TrieNode,
@@ -235,9 +223,9 @@ export class SubHandleRegistry {
   }
 
   /**
-   * Walk the trie along a single patch's path, collecting terminals that
-   * the patch affects. Bulk-resolves pattern edges at each array node the
-   * walk actually visits, using the inverted-loop resolver below.
+   * Walk the trie along one patch's path, collecting affected terminals.
+   * Refreshes pattern edges (via `#maybeResolve`) at each array node the
+   * walk visits.
    */
   #collectForPatch(
     node: TrieNode,
@@ -249,16 +237,12 @@ export class SubHandleRegistry {
     resolvedNodes: Set<TrieNode>
   ): void {
     addPatchFor(node.terminals, patch, out)
-
-    // If cursor is an array and we have pattern edges here, refresh their
-    // resolvedIndex (and each contributing segment's .prop) in one pass.
-    // Memoised per-dispatch.
     this.#maybeResolve(node, cursor, resolvedNodes)
 
     if (i >= patchPath.length) {
-      // Patch terminates at or above this node. Fire all descendants.
-      // Descendant pattern edges' indices stay as they were (descendant
-      // arrays are below the patch path, so their contents didn't change).
+      // Patch terminates at or above this node. Everything below is
+      // affected; descendant pattern indices stay valid because their
+      // arrays weren't touched.
       this.#collectDescendants(node, patch, out)
       return
     }
@@ -298,10 +282,9 @@ export class SubHandleRegistry {
   }
 
   /**
-   * BFS over a node's descendants, adding every terminal's patch reference.
-   * We don't re-resolve pattern edges during this walk: the patch did not
-   * descend into those arrays, so their contents are unchanged and any
-   * previously-cached resolvedIndex remains correct.
+   * BFS over a node's descendants, adding every terminal to `out`. Does
+   * not re-resolve pattern edges; descendant arrays weren't touched by
+   * this patch, so their cached resolvedIndex values are still valid.
    */
   #collectDescendants(
     node: TrieNode,
@@ -322,15 +305,14 @@ export class SubHandleRegistry {
   /**
    * Inverted-loop bulk resolver for pattern edges at a single array node.
    *
-   * Iterate the array once, carrying a set of as-yet-unresolved pattern
-   * edges. For each item we check remaining patterns and, on a match,
-   * record the index and remove the pattern from the working set. Early
-   * exit when the set is empty. Unresolved patterns at the end of the pass
-   * get `undefined` for their resolvedIndex (and contributing segment
+   * Iterates the array once, carrying a set of as-yet-unresolved pattern
+   * edges. For each item, checks remaining patterns and on a match
+   * records the index and drops the pattern from the working set. Early-
+   * exits when the set is empty. Unresolved patterns at the end get
+   * `undefined` for their resolvedIndex (and their contributing segment
    * `.prop` values).
    *
-   * Cost per array: O(|array| x |unresolvedPatterns|) with early exit,
-   * vs. today's O(|array| x |patterns|) per pattern (no sharing).
+   * Cost per array: O(|array| × |unresolvedPatterns|) with early exit.
    */
   #maybeResolve(
     node: TrieNode,
@@ -368,12 +350,7 @@ export class SubHandleRegistry {
     }
   }
 
-  /**
-   * Iterate the retained (listener-having) sub-handles. Dormant sub-handles
-   * are intentionally skipped: they have no listeners so dispatching to
-   * them would be a no-op anyway, and skipping them is what makes dormant
-   * refs genuinely free of per-change cost.
-   */
+  /** Iterate retained sub-handles. Dormant ones have no listeners. */
   #forEachRetainedSubHandle(fn: (sub: DocHandle<any>) => void): void {
     for (const sub of this.state.subHandleRetainers) {
       try {
@@ -399,9 +376,9 @@ type PatternEdge = {
   pattern: Pattern
   node: TrieNode
   /**
-   * Every segment instance from retained subs whose path passes through
-   * this edge. Bulk-resolve writes back to each of them so any sub reading
-   * `ref.path[i].prop` or `value()` sees fresh values.
+   * Every `match`-kind segment instance from retained subs that pass
+   * through this edge. Bulk-resolve writes the resolved index back to
+   * each of them so observers of `ref.path[i].prop` see fresh values.
    */
   segments: Set<PathSegment>
   resolvedIndex: number | undefined

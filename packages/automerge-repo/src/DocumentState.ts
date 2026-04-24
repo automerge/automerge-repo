@@ -17,25 +17,22 @@ import {
 import { SubHandleRegistry } from "./refs/sub-handle-registry.js"
 
 /**
- * `DocumentState` owns everything that belongs to "the document itself":
- * the XState lifecycle machine, the underlying Automerge document, the
- * change-detection plumbing, remote sync bookkeeping, and the shared
- * sub-handle registry. It is the single authoritative home for document-
- * level state; every `DocHandle` into the document (root or scoped) holds
- * a reference to the same `DocumentState` and delegates lifecycle,
- * doc-reads, and mutations through it.
+ * Owns everything that belongs to a document itself: the XState lifecycle
+ * machine, the underlying Automerge document, change detection, remote
+ * sync bookkeeping, and the sub-handle registry. Every `DocHandle` into
+ * the document (root or scoped) holds a reference to the same
+ * `DocumentState` and delegates lifecycle, doc-reads, and mutations
+ * through it.
  *
- * This split exists because `DocHandle` conflates two orthogonal things:
- * "this is a reference to a document" and "this is a specific scoped view
- * into it". The "which document" half lives here; the "which view" half
- * stays on `DocHandle` (path, range, optional per-handle fixed heads).
+ * `DocHandle` represents a specific view (path, range, optional fixed
+ * heads); `DocumentState` represents the document.
  *
- * Events emitted here are *document-level*: they carry no `handle`
- * reference. `DocHandle`s (and the sub-handle registry) subscribe to these
- * events and translate them into handle-shaped payloads for their own
+ * Events emitted here are *document-level* and carry no `handle`
+ * reference. Subscribers (the root `DocHandle` and the sub-handle
+ * registry) translate them into handle-shaped payloads for their own
  * listeners.
  *
- * This class is internal; consumers only ever see `DocHandle`.
+ * Internal; consumers only ever see `DocHandle`.
  *
  * @hidden
  */
@@ -87,10 +84,9 @@ export class DocumentState extends EventEmitter<DocumentStateEvents> {
 
     const delay = this.timeoutDelay
 
-    // The XState machine intentionally mirrors the DocHandle machine from
-    // before this extraction so the document's lifecycle is observably
-    // unchanged. Actions that need to emit (e.g. `onDelete`) reach back to
-    // `this` via the closure.
+    // Lifecycle: idle -> loading -> {ready, unavailable} -> {unloaded,
+    // deleted}. Actions reach back to `this` via the closure to emit
+    // document-level events (e.g. `onDelete` -> `this.emit("delete")`).
     const machine = setup({
       types: {
         context: {} as DocumentContext,
