@@ -23,24 +23,26 @@ import type {
   SyncInfo,
 } from "./DocumentState.js"
 import { AbortOptions } from "./helpers/abortable.js"
+import { arraysAreEqual } from "./helpers/arraysAreEqual.js"
 import { isCursorMarker, isPattern, isSegment } from "./refs/guards.js"
 import { matchesPattern } from "./refs/utils.js"
 import {
-  applyScopedChange as applyScopedChangeOp,
-  applyScopedRemove as applyScopedRemoveOp,
-  getPropPath as getPropPathFromSegments,
+  applyScopedChange,
+  applyScopedRemove,
+  getPropPath,
   resolvePropPathAt,
   resolveSegmentProp,
-  scopedValue as scopedValueOp,
+  scopedValue,
+  updatePropsFromRoot,
 } from "./refs/sub-handle-ops.js"
 import type {
   AnyPathInput,
-  ChangeFn as RefChangeFn,
   CursorRange,
   InferRefType,
   PathInput,
   PathSegment,
   Pattern,
+  RefChangeFn,
   Segment,
 } from "./refs/types.js"
 import { KIND } from "./refs/types.js"
@@ -108,6 +110,20 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Cursor range for text-range sub-handles. */
   #range?: CursorRange
+
+  /**
+   * Heads of the doc state that `#path`'s `segment.prop` values were last
+   * resolved against. Used by `#refreshIfStale` to skip pattern
+   * re-resolution when the doc hasn't moved since the last resolve. We
+   * key on heads rather than doc identity because heads are the
+   * semantic identity of doc state - robust to wrappers, clones, and
+   * intermediate `A.view` wrappers that may produce new doc references
+   * for the same logical state.
+   *
+   * For frozen handles (`#fixedHeads` set), the heads are constant by
+   * definition; we set this once on first read and never invalidate.
+   */
+  #lastResolvedHeads?: A.Heads
 
   /** @hidden */
   constructor(
@@ -989,7 +1005,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
           throw new Error("cursor() can only be used on string values")
         }
         if (rootDoc) {
-          const propPath = getPropPathFromSegments(path)
+          const propPath = getPropPath(path)
           if (propPath) {
             const startCursor = A.getCursor(rootDoc, propPath, input.start)
             const endCursor = A.getCursor(rootDoc, propPath, input.end)
@@ -1054,12 +1070,45 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** The resolved numeric/string prop path for use with Automerge APIs. */
   #getPropPath(): Prop[] | undefined {
-    return getPropPathFromSegments(this.#path)
+    return getPropPath(this.#path)
+  }
+
+  /**
+   * Ensure `segment.prop` values are resolved against `doc` before any
+   * read or scoped mutation. Skipped when the doc's heads match the heads
+   * we last resolved against. Frozen handles resolve at most once because
+   * their view never changes.
+   *
+   * `_tagResolvedHeads` (called by the registry after dispatch) lets
+   * retained sub-handles skip this entirely on the first read after a
+   * change: the registry's bulk-resolve already wrote to their pattern
+   * segments and recorded the doc's new heads.
+   */
+  #refreshIfStale(doc: A.Doc<any>): void {
+    // Frozen view: contents at #fixedHeads are immutable. Resolve once,
+    // store the decoded heads, then every subsequent call short-circuits.
+    if (this.#fixedHeads) {
+      if (this.#lastResolvedHeads !== undefined) return
+      updatePropsFromRoot(doc, this.#path, resolveSegmentProp)
+      this.#lastResolvedHeads = decodeHeads(this.#fixedHeads)
+      return
+    }
+    // Live view: resolve when the doc's heads have moved.
+    const currentHeads = A.getHeads(doc)
+    if (
+      this.#lastResolvedHeads &&
+      arraysAreEqual(this.#lastResolvedHeads, currentHeads)
+    ) {
+      return
+    }
+    updatePropsFromRoot(doc, this.#path, resolveSegmentProp)
+    this.#lastResolvedHeads = currentHeads
   }
 
   /** Get the current scoped value (value at #path, or substring for a range handle). */
   #scopedValue(rootView: A.Doc<any>): unknown {
-    return scopedValueOp(
+    this.#refreshIfStale(rootView)
+    return scopedValue(
       rootView,
       this.#path,
       this.#range,
@@ -1069,7 +1118,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Apply a scoped change callback to a mutable view of the document. */
   #applyScopedChange(doc: A.Doc<any>, fn: RefChangeFn<any>): A.Doc<any> {
-    return applyScopedChangeOp(
+    this.#refreshIfStale(doc)
+    return applyScopedChange(
       doc,
       this.#path,
       this.#range,
@@ -1080,7 +1130,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Remove the value at this handle's path from the mutable document proxy. */
   #applyScopedRemove(doc: A.Doc<any>): A.Doc<any> {
-    return applyScopedRemoveOp(
+    this.#refreshIfStale(doc)
+    return applyScopedRemove(
       doc,
       this.#path,
       this.#range,
@@ -1192,6 +1243,22 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** @internal Symbolic path of this sub-handle. Empty on root handles. */
   get _pathSegments(): readonly PathSegment[] {
     return this.#path
+  }
+
+  /**
+   * @internal Mark this handle's `segment.prop` cache as fresh for the
+   * doc state at `heads`. Called by the registry after dispatch so
+   * retained sub-handles skip `#refreshIfStale`'s work on the first
+   * read post-change: the registry's bulk-resolve has already written to
+   * any pattern segments it visited, and segments not visited are still
+   * valid because their parent arrays didn't change.
+   *
+   * No-op for frozen handles - their cache is set on first read and
+   * never invalidated.
+   */
+  _tagResolvedHeads(heads: A.Heads): void {
+    if (this.#fixedHeads) return
+    this.#lastResolvedHeads = heads
   }
 }
 

@@ -118,7 +118,7 @@ export type {
   MutableText,
   InferRefType,
   Pattern,
-  ChangeFn as RefChangeFn,
+  RefChangeFn,
 } from "./refs/types.js"
 export { cursor } from "./refs/utils.js"
 

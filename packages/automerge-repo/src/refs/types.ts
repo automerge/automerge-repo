@@ -83,15 +83,19 @@ export interface MutableText extends String {
 }
 
 /**
- * Return a new value to update primitive values, or void to skip the update.
- * For strings, receives a MutableText object with splice/updateText methods.
+ * Change callback for a sub-handle's `change()`. Mutate primitives by
+ * returning a new value; mutate objects and arrays in place. Strings
+ * receive a {@link MutableText} wrapper exposing CRDT-safe `splice` and
+ * `updateText` methods.
  *
- * Note: Objects and arrays should be mutated in place (not returned).
- * Returning non-primitives will trigger a runtime warning.
+ * Distinct from `Automerge.ChangeFn` (which is unscoped and operates on
+ * the whole document). Re-exported from the package as `RefChangeFn`.
  *
  * @experimental This API is experimental and may change in future versions.
  */
-export type ChangeFn<T> = (val: T extends string ? MutableText : T) => T | void
+export type RefChangeFn<T> = (
+  val: T extends string ? MutableText : T
+) => T | void
 
 type GetSegmentValue<TObj, TSegment> = TSegment extends string
   ? TSegment extends keyof TObj

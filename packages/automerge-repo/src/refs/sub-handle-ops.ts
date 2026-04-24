@@ -1,13 +1,10 @@
 import type * as A from "@automerge/automerge/slim"
-import type { Prop, ChangeFn } from "@automerge/automerge/slim"
+import type { Prop } from "@automerge/automerge/slim"
 import { next as Automerge } from "@automerge/automerge/slim"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { KIND } from "./types.js"
 import { MutableText } from "./mutable-text.js"
 import { matchesPattern } from "./utils.js"
-
-// Type alias for change callbacks; matches Automerge's `ChangeFn`.
-type RefChangeFn<T> = ChangeFn<T>
 
 /**
  * Path-scoped operations on a document: resolve a path, read the value at
@@ -30,9 +27,10 @@ export function getPropPath(
 
 /**
  * Read the value at a sub-handle's path (or the substring within a cursor
- * range). Re-resolves each segment's `.prop` against `rootView` as a
- * side-effect first, so the returned value and any subsequent
- * `ref.path[i].prop` observation are consistent with the doc passed in.
+ * range). Pure read: assumes `segment.prop` values are already fresh for
+ * `rootView`. Callers are responsible for refreshing first - DocHandle
+ * does this with a doc-identity cache (see `#refreshIfStale`) so reads
+ * are O(pathLen) when the underlying doc hasn't moved.
  */
 export function scopedValue(
   rootView: A.Doc<any>,
@@ -40,7 +38,6 @@ export function scopedValue(
   range: CursorRange | undefined,
   rangePositions: () => [number, number] | undefined
 ): unknown {
-  updatePropsFromRoot(rootView, segments)
   const propPath = getPropPath(segments)
   if (!propPath) return undefined
   let cursor: unknown = rootView
@@ -62,18 +59,16 @@ export function scopedValue(
  * callback replaces the slot. Strings are wrapped in {@link MutableText}
  * so callbacks can `.splice` / `.updateText` for CRDT-safe edits.
  *
- * As with {@link scopedValue}, re-resolves segment `.prop`s against the
- * passed-in (mutable) doc first so pattern paths compute against current
- * document state rather than stale cached indices.
+ * Pure read of `segment.prop`s; callers must ensure segments are fresh
+ * for the passed-in doc (see {@link scopedValue}).
  */
 export function applyScopedChange(
   doc: A.Doc<any>,
   segments: readonly PathSegment[],
   range: CursorRange | undefined,
   rangePositions: () => [number, number] | undefined,
-  fn: RefChangeFn<any>
+  fn: A.ChangeFn<any>
 ): A.Doc<any> {
-  updatePropsFromRoot(doc, segments)
   const propPath = getPropPath(segments)
   if (!propPath) return doc
   if (segments.length === 0 && !range) {
@@ -132,8 +127,8 @@ export function applyScopedChange(
 }
 
 /**
- * Remove the value at a sub-handle's path. Re-resolves segment `.prop`s
- * against the passed-in (mutable) doc first (see {@link scopedValue}).
+ * Remove the value at a sub-handle's path. Pure read of `segment.prop`s;
+ * callers must ensure segments are fresh (see {@link scopedValue}).
  */
 export function applyScopedRemove(
   doc: A.Doc<any>,
@@ -141,7 +136,6 @@ export function applyScopedRemove(
   range: CursorRange | undefined,
   rangePositions: () => [number, number] | undefined
 ): A.Doc<any> {
-  updatePropsFromRoot(doc, segments)
   const propPath = getPropPath(segments)
   if (!propPath || propPath.length === 0) return doc
 

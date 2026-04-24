@@ -1,4 +1,4 @@
-import type * as A from "@automerge/automerge/slim"
+import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
 import type { DocHandle, DocHandleEvents } from "../DocHandle.js"
 import type {
@@ -127,8 +127,15 @@ export class SubHandleRegistry {
       )
     }
 
+    // Compute heads once and tag every retained sub so its segment cache
+    // skips the next `#refreshIfStale`. The trie walk's bulk-resolve has
+    // written to any pattern segments it visited; segments it didn't
+    // visit are still correct because their parent arrays didn't change.
+    const docHeads = A.getHeads(payload.doc)
+
     for (const sub of this.state.subHandleRetainers) {
       if (sub.isReadOnly()) continue
+      sub._tagResolvedHeads(docHeads)
       const filtered = perSubPatches.get(sub)
       if (!filtered || filtered.length === 0) continue
       this.#safeEmit(sub, "change", {
