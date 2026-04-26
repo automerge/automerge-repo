@@ -347,6 +347,10 @@ export class SubductionSource implements DocumentSource {
     return this.#connectionManagers.some(mgr => mgr.isConnecting())
   }
 
+  getSubduction(): Promise<Subduction> {
+    return this.#subduction
+  }
+
   #connectionGeneration(): number {
     let total = 0
     for (const mgr of this.#connectionManagers) {
