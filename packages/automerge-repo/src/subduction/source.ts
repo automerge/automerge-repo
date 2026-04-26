@@ -13,6 +13,7 @@ import {
   Topic,
   setSubductionLogLevel,
   type Policy,
+  type Transport,
 } from "@automerge/automerge-subduction/slim"
 import { DocumentSource } from "../DocumentSource.js"
 import { DocumentQuery } from "../DocumentQuery.js"
@@ -30,6 +31,7 @@ import { SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
 import { SyncScheduler, toTimeoutBigInt } from "./SyncScheduler.js"
 import { AdapterConnections } from "./AdapterConnections.js"
+import { InjectedTransportConnections } from "./InjectedTransportConnections.js"
 
 export type { OnHealExhausted } from "./SyncScheduler.js"
 
@@ -192,6 +194,18 @@ export interface SubductionSourceOptions {
     serviceName: string
     role?: "connect" | "accept"
   }[]
+  /**
+   * Pre-built subduction transports owned by the caller. Each is registered
+   * via `subduction.connectTransport(transport, serviceName)` exactly once.
+   * No reconnect is attempted on close. Use this to share a single physical
+   * connection (e.g., a multiplexed WebSocket) between subduction and another
+   * protocol layer.
+   */
+  injectedTransports?: {
+    transport: Transport
+    serviceName: string
+    onConnected?: () => void
+  }[]
   onRemoteHeadsChanged?: OnRemoteHeadsChanged
   onEphemeral?: OnEphemeral
   onHealExhausted?: (documentId: DocumentId) => void
@@ -219,6 +233,7 @@ export class SubductionSource implements DocumentSource {
     signer,
     websocketEndpoints,
     adapters,
+    injectedTransports,
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
@@ -262,7 +277,9 @@ export class SubductionSource implements DocumentSource {
         }
       : undefined
 
-    if (websocketEndpoints.length > 0 || adapters.length > 0) {
+    const hasInjected =
+      injectedTransports !== undefined && injectedTransports.length > 0
+    if (websocketEndpoints.length > 0 || adapters.length > 0 || hasInjected) {
       // Full hydration: load persisted sedimentrees from storage so
       // fingerprint-based sync can resume where it left off.
       this.#log("starting hydrate...")
@@ -317,6 +334,14 @@ export class SubductionSource implements DocumentSource {
       adapterConnections.addAdapter(adapter, serviceName, role ?? "connect")
     }
     this.#connectionManagers.push(adapterConnections)
+
+    if (hasInjected) {
+      const injected = new InjectedTransportConnections(this.#subduction)
+      for (const { transport, serviceName, onConnected } of injectedTransports!) {
+        injected.addTransport(transport, serviceName, onConnected)
+      }
+      this.#connectionManagers.push(injected)
+    }
 
     for (const mgr of this.#connectionManagers) {
       mgr.onChange(() => this.#recompute())
