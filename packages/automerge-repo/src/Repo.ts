@@ -40,13 +40,16 @@ import { AbortOptions, AbortError } from "./helpers/abortable.js"
 import {
   MemorySigner,
   set_subduction_logger,
+  type Subduction,
 } from "@automerge/automerge-subduction/slim"
 import { SubductionStorageBridge } from "./subduction/storage.js"
 import {
   SubductionSource,
   type SubductionTimeouts,
 } from "./subduction/source.js"
-import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
+import type {
+  Policy as SubductionPolicy,
+} from "@automerge/automerge-subduction/slim"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { encode, decode } from "cbor-x"
 import type { EphemeralMessage } from "./network/messages.js"
@@ -507,6 +510,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#shareConfig = config
   }
 
+  get subduction(): Promise<Subduction> {
+    if (!this.#subductionSource) {
+      return Promise.reject(new Error("Repo has no SubductionSource"))
+    }
+    return this.#subductionSource.getSubduction()
+  }
+
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
     return this.peerMetadataByPeerId[peerId]?.storageId
   }
@@ -910,6 +920,7 @@ export interface RepoConfig {
    * are optional; sensible defaults apply.
    */
   subductionTimeouts?: SubductionTimeouts
+
 }
 
 /** A function that determines whether we should share a document with a peer
