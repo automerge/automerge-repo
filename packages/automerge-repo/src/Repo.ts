@@ -19,7 +19,7 @@ import {
 } from "./DocHandle.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
-import { throttle } from "./helpers/throttle.js"
+import { asyncThrottle } from "./helpers/throttle.js"
 import {
   NetworkAdapterInterface,
   type PeerMetadata,
@@ -44,6 +44,9 @@ import type {
 import { abortable, AbortOptions, AbortError } from "./helpers/abortable.js"
 import { FindProgress } from "./FindProgress.js"
 import { RefImpl } from "./refs/ref.js"
+import { foreverPromise } from "./helpers/foreverPromise.js"
+import { noop } from "./helpers/noop.js"
+import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
@@ -89,8 +92,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   synchronizer: CollectionSynchronizer
 
   #shareConfig: ShareConfig = {
-    announce: async () => true,
-    access: async () => true,
+    announce: truePromiseFactory,
+    access: truePromiseFactory,
   }
 
   /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
@@ -102,7 +105,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #progressCache: Record<DocumentId, FindProgress<any>> = {}
   #saveFns: Record<
     DocumentId,
-    (payload: DocHandleEncodedChangePayload<any>) => void
+    (payload: DocHandleEncodedChangePayload<any>) => Promise<void>
   > = {}
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
 
@@ -130,7 +133,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (sharePolicy) {
       this.#shareConfig = {
         announce: sharePolicy,
-        access: async () => true,
+        access: truePromiseFactory,
       }
     }
     if (shareConfig) {
@@ -190,18 +193,19 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#saveFn = ({ handle, doc }: DocHandleEncodedChangePayload<any>) => {
         let fn = this.#saveFns[handle.documentId]
         if (!fn) {
-          fn = throttle(
-            ({ doc, handle }: DocHandleEncodedChangePayload<any>) => {
-              void this.storageSubsystem!.saveDoc(handle.documentId, doc)
-            },
+          fn = this.#saveFns[handle.documentId] = asyncThrottle(
+            ({
+              doc,
+              handle,
+            }: DocHandleEncodedChangePayload<any>): Promise<void> =>
+              this.storageSubsystem!.saveDoc(handle.documentId, doc),
             this.#saveDebounceRate
           )
-          this.#saveFns[handle.documentId] = fn
         }
-        fn({ handle, doc })
+        void fn({ handle, doc })
       }
     } else {
-      this.#saveFn = () => {}
+      this.#saveFn = noop
     }
 
     // NETWORK
@@ -364,7 +368,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #throttledSaveSyncStateHandlers: Record<
     StorageId,
-    (payload: SyncStatePayload) => void
+    (payload: SyncStatePayload) => Promise<void>
   > = {}
 
   /** saves sync state throttled per storage id, if a peer doesn't have a storage id it's sync state is not persisted */
@@ -382,19 +386,18 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     let handler = this.#throttledSaveSyncStateHandlers[storageId]
     if (!handler) {
-      handler = this.#throttledSaveSyncStateHandlers[storageId] = throttle(
-        ({ documentId, syncState }: SyncStatePayload) => {
-          void this.storageSubsystem!.saveSyncState(
+      handler = this.#throttledSaveSyncStateHandlers[storageId] = asyncThrottle(
+        ({ documentId, syncState }: SyncStatePayload) =>
+          this.storageSubsystem!.saveSyncState(
             documentId,
             storageId,
             syncState
-          )
-        },
+          ),
         this.#saveDebounceRate
       )
     }
 
-    handler(payload)
+    void handler(payload)
   }
 
   /** Returns an existing handle if we have it; creates one otherwise. */
@@ -642,7 +645,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
       handle,
       progressSignal,
-      signal ? abortable(new Promise(() => {}), signal) : new Promise(() => {})
+      //IMPORTANT: Reuse foreverPromise. Don't keep re-creating promises that never settle like `new Promise(() => {})`
+      signal ? abortable(foreverPromise, signal) : foreverPromise
     )
 
     const result = {

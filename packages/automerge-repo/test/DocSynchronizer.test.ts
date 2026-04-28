@@ -8,6 +8,7 @@ import {
 } from "../src/AutomergeUrl.js"
 import { DocHandle } from "../src/DocHandle.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
+import { pause } from "../src/helpers/pause.js"
 import {
   DocumentUnavailableMessage,
   MessageContents,
@@ -79,6 +80,51 @@ describe("DocSynchronizer", () => {
       encodeHeads(message2.syncState.lastSentHeads),
       handle.heads()
     )
+  })
+
+  it("asyncThrottle on the 'change' handler serializes #syncWithPeers (never re-entered while in flight)", async () => {
+    const { handle, docSynchronizer } = setup()
+    docSynchronizer.beginSync([alice])
+    // Wait for the initial beginSync message so any whenReady calls inside
+    // beginSync have settled before we install the measurement patch.
+    await eventPromise(docSynchronizer, "message")
+
+    // #syncWithPeers starts with `await this.#handle.whenReady()`. By patching
+    // whenReady on this specific handle to be slow, we make each run of
+    // #syncWithPeers take measurable time. asyncThrottle wraps the 'change'
+    // handler's `() => this.#syncWithPeers()`, so if it correctly awaits the
+    // prior run before scheduling the next, whenReady must never be concurrent.
+    const origWhenReady = handle.whenReady.bind(handle)
+    let concurrent = 0
+    let maxConcurrent = 0
+    let whenReadyCalls = 0
+    handle.whenReady = async (...args: Parameters<typeof origWhenReady>) => {
+      concurrent++
+      whenReadyCalls++
+      maxConcurrent = Math.max(maxConcurrent, concurrent)
+      try {
+        await origWhenReady(...args)
+        await pause(80)
+      } finally {
+        concurrent--
+      }
+    }
+
+    // Fire rapid changes spaced so later ones land while a prior run is still
+    // in #syncWithPeers (waiting on the slow whenReady).
+    for (let i = 0; i < 6; i++) {
+      handle.change(doc => {
+        doc.foo = `v${i}`
+      })
+      await pause(30)
+    }
+    await pause(600)
+
+    assert(
+      whenReadyCalls > 0,
+      `expected #syncWithPeers to call whenReady, got ${whenReadyCalls}`
+    )
+    assert.equal(maxConcurrent, 1)
   })
 
   it("still syncs with a peer after it disconnects and reconnects", async () => {

@@ -38,6 +38,7 @@ export const isAbortErrorLike = (candidate: unknown): boolean => {
  * @remarks
  * This utility wraps a Promise and rejects when the provided AbortSignal is aborted.
  * It's designed to make Promise awaits abortable.
+ * It is unnecessary for async APIs like `fetch()` that support abort already
  *
  * @example
  * ```typescript
@@ -52,6 +53,8 @@ export const isAbortErrorLike = (candidate: unknown): boolean => {
  *   }
  * }
  *
+ * // fetch already supports signal; so abortable() is NOT needed:
+ * const a = await fetch(url, { signal });
  * ```
  *
  * @param p - A Promise to wrap
@@ -64,17 +67,15 @@ export function abortable<T>(
   p: Promise<T>,
   signal: AbortSignal | undefined
 ): Promise<T> {
+  if (signal?.aborted) return Promise.reject(signal.reason)
   let settled = false
   return new Promise((resolve, reject) => {
-    signal?.addEventListener(
-      "abort",
-      () => {
-        if (!settled) {
-          reject(new AbortError())
-        }
-      },
-      { once: true }
-    )
+    const onAbort = () => {
+      if (!settled) {
+        reject(new AbortError())
+      }
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
     p.then(result => {
       resolve(result)
     })
@@ -83,6 +84,9 @@ export function abortable<T>(
       })
       .finally(() => {
         settled = true
+        //listener is added with `{ once: true }`, but this is not enough if signal never receives abort.
+        //onAbort is noop once settled, but it is important to cleanup because of closure to Promise's reject
+        signal?.removeEventListener("abort", onAbort)
       })
   })
 }
