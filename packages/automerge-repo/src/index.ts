@@ -122,7 +122,13 @@ export type {
   RefUrl,
   ChangeFn as RefChangeFn,
 } from "./refs/types.js"
-export { cursor, findRef, refFromUrl, refFromString } from "./refs/utils.js"
+export {
+  cursor,
+  findRef,
+  refFromUrl,
+  refFromString,
+  refFromObject,
+} from "./refs/utils.js"
 
 // Automerge re-exports
 //
