@@ -39,12 +39,14 @@
  * committed entry is atomic: readers never see partial bytes for any
  * single key.
  *
- * ## Windows
+ * ## Portability
  *
- * Replacing an existing file with `rename` can fail with `EPERM`,
- * `EACCES`, or `EBUSY` when another process briefly locks the target
- * (Defender, indexer, sync clients). The rename helper retries those
- * errors with backoff for up to 60 seconds (see `WIN32_RENAME_RETRY_MS`).
+ * On every platform except Windows, the final step is a single
+ * `fs.promises.rename` (no timers, no retry loop). On Windows only,
+ * replacing an existing file can fail with `EPERM`, `EACCES`, or `EBUSY`
+ * when another process briefly locks the target (Defender, indexer,
+ * sync clients). In that case we retry those errors with backoff for up
+ * to `RENAME_RETRY_CAP_MS` (60s) before surfacing the error.
  */
 
 import {
@@ -58,31 +60,35 @@ import os from "node:os"
 import path from "node:path"
 import { rimraf } from "rimraf"
 
-const IS_POSIX = os.platform() !== "win32"
+/** Only `win32` uses the rename retry path; all other platforms get one `rename` call. */
+const IS_WINDOWS = os.platform() === "win32"
 
-/** Match common practice (e.g. graceful-fs) for transient Windows rename failures. */
-const WIN32_RENAME_RETRY_MS = 60_000
+/** Upper bound for transient Windows rename retries (similar to graceful-fs). */
+const RENAME_RETRY_CAP_MS = 60_000
 
-const TRANSIENT_WIN32_RENAME_CODES = new Set([
+/** Errno codes retried on Windows only (see `renameOntoTarget`). */
+const WINDOWS_TRANSIENT_RENAME_CODES = new Set([
   "EPERM",
   "EACCES",
   "EBUSY",
 ])
 
 /**
- * `fs.rename` from a temp file onto the final path. On Windows, retry
- * when the target is briefly locked (AV, search indexer, etc.).
+ * Atomically replace `targetPath` by renaming `tmpPath` onto it.
+ * Non-Windows: one `fs.promises.rename`. Windows: same, but retry on
+ * transient lock errors so behavior stays aligned with other platforms
+ * under brief AV/indexer interference.
  */
-async function renameRetryingOnWin32(
+async function renameOntoTarget(
   tmpPath: string,
   targetPath: string
 ): Promise<void> {
-  if (IS_POSIX) {
+  if (!IS_WINDOWS) {
     await fs.promises.rename(tmpPath, targetPath)
     return
   }
 
-  const deadline = Date.now() + WIN32_RENAME_RETRY_MS
+  const deadline = Date.now() + RENAME_RETRY_CAP_MS
   let delayMs = 5
 
   for (;;) {
@@ -91,7 +97,7 @@ async function renameRetryingOnWin32(
       return
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException)?.code
-      if (!code || !TRANSIENT_WIN32_RENAME_CODES.has(code)) {
+      if (!code || !WINDOWS_TRANSIENT_RENAME_CODES.has(code)) {
         throw err
       }
       if (Date.now() >= deadline) {
@@ -290,7 +296,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     // Phase 2: Commit
     const commitResults = await Promise.all(
       tmpPaths.map((tmpPath, i) =>
-        renameRetryingOnWin32(tmpPath, targetPaths[i]).then(
+        renameOntoTarget(tmpPath, targetPaths[i]).then(
           () => ({ ok: true as const }),
           err => ({ ok: false as const, err })
         )
@@ -530,7 +536,7 @@ const atomicWrite = async (
   }
 
   try {
-    await renameRetryingOnWin32(tmpPath, targetPath)
+    await renameOntoTarget(tmpPath, targetPath)
   } catch (err) {
     // If the rename failed, the tmp file is still lying around. Same
     // best-effort cleanup semantics as above.
@@ -615,7 +621,7 @@ const stageToTmp = async (
  * `fsync` a directory so that recent `rename(2)` calls into it are durable.
  */
 const fsyncDir = async (dir: string): Promise<void> => {
-  if (!IS_POSIX) return
+  if (IS_WINDOWS) return
   let fh: fs.promises.FileHandle | undefined
   try {
     fh = await fs.promises.open(dir, "r")
