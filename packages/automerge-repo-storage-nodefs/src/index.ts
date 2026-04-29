@@ -41,12 +41,10 @@
  *
  * ## Portability
  *
- * On every platform except Windows, the final step is a single
- * `fs.promises.rename` (no timers, no retry loop). On Windows only,
- * replacing an existing file can fail with `EPERM`, `EACCES`, or `EBUSY`
- * when another process briefly locks the target (Defender, indexer,
- * sync clients). In that case we retry those errors with backoff for up
- * to `RENAME_RETRY_CAP_MS` (60s) before surfacing the error.
+ * The final `rename(tmp, target)` uses [`graceful-fs`](https://github.com/isaacs/node-graceful-fs):
+ * on Windows it applies the same transient-retry policy npm relies on for
+ * `EPERM` / `EACCES` / `EBUSY` from AV/indexers; elsewhere it forwards to
+ * Node's `fs.rename` unchanged.
  */
 
 import {
@@ -56,58 +54,15 @@ import {
 } from "@automerge/automerge-repo/slim"
 import crypto from "node:crypto"
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
+import { promisify } from "node:util"
+import gracefulFs from "graceful-fs"
 import { rimraf } from "rimraf"
 
-/** Only `win32` uses the rename retry path; all other platforms get one `rename` call. */
-const IS_WINDOWS = os.platform() === "win32"
-
-/** Upper bound for transient Windows rename retries (similar to graceful-fs). */
-const RENAME_RETRY_CAP_MS = 60_000
-
-/** Errno codes retried on Windows only (see `renameOntoTarget`). */
-const WINDOWS_TRANSIENT_RENAME_CODES = new Set([
-  "EPERM",
-  "EACCES",
-  "EBUSY",
-])
-
-/**
- * Atomically replace `targetPath` by renaming `tmpPath` onto it.
- * Non-Windows: one `fs.promises.rename`. Windows: same, but retry on
- * transient lock errors so behavior stays aligned with other platforms
- * under brief AV/indexer interference.
- */
-async function renameOntoTarget(
+const renameOntoTarget = promisify(gracefulFs.rename).bind(gracefulFs) as (
   tmpPath: string,
   targetPath: string
-): Promise<void> {
-  if (!IS_WINDOWS) {
-    await fs.promises.rename(tmpPath, targetPath)
-    return
-  }
-
-  const deadline = Date.now() + RENAME_RETRY_CAP_MS
-  let delayMs = 5
-
-  for (;;) {
-    try {
-      await fs.promises.rename(tmpPath, targetPath)
-      return
-    } catch (err: unknown) {
-      const code = (err as NodeJS.ErrnoException)?.code
-      if (!code || !WINDOWS_TRANSIENT_RENAME_CODES.has(code)) {
-        throw err
-      }
-      if (Date.now() >= deadline) {
-        throw err
-      }
-      await new Promise<void>(resolve => setTimeout(resolve, delayMs))
-      delayMs = Math.min(delayMs + 15, 250)
-    }
-  }
-}
+) => Promise<void>
 
 export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
@@ -621,7 +576,7 @@ const stageToTmp = async (
  * `fsync` a directory so that recent `rename(2)` calls into it are durable.
  */
 const fsyncDir = async (dir: string): Promise<void> => {
-  if (IS_WINDOWS) return
+  if (process.platform === "win32") return
   let fh: fs.promises.FileHandle | undefined
   try {
     fh = await fs.promises.open(dir, "r")
