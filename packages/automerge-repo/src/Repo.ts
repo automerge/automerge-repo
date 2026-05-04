@@ -396,8 +396,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (this.#subductionSource) {
       const subductionSource = this.#subductionSource
       query.handle.on("ephemeral-message-outbound", ({ data }) => {
-        console.log(
-          `[repo] ephemeral outbound for ${documentId.slice(0, 8)}, ${
+        this.#log(
+          `ephemeral outbound for ${documentId.slice(0, 8)}, ${
             data.byteLength
           } bytes`
         )
