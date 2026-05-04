@@ -252,6 +252,98 @@ describe("makeDocumentProjection", () => {
     return Promise.all([arrayDotThree, projectZeroItemZeroTitle])
   })
 
+  it("should fall back to reconciliation when patches are corrupted", async () => {
+    const { handle } = setup()
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    // intercept the handle's on method to wrap change listeners with
+    // patch corruption
+    const originalOn = handle.on.bind(handle)
+    handle.on = ((event: string, callback: Function) => {
+      if (event === "change") {
+        return originalOn(event, (payload: any) => {
+          callback({
+            ...payload,
+            patches: [
+              // put into a path that doesn't exist
+              {
+                action: "put",
+                path: ["nonexistent", 999, "garbage"],
+                value: "corrupted",
+              },
+              // splice a number into a string property
+              {
+                action: "splice",
+                path: ["key", 0],
+                value: 12345,
+              },
+              // delete a path that doesn't exist
+              {
+                action: "del",
+                path: ["does", "not", "exist"],
+              },
+              // splice into an object as if it were an array
+              {
+                action: "splice",
+                path: ["projects", 0, "title", 0],
+                value: "wat",
+              },
+              // put with an empty path (replace root)
+              {
+                action: "put",
+                path: [],
+                value: null,
+              },
+              // completely made-up action
+              {
+                action: "explode",
+                path: ["key"],
+                value: undefined,
+              },
+              // insert at a negative index
+              {
+                action: "insert",
+                path: ["array", -1],
+                values: [999],
+              },
+              // del with a fractional index
+              {
+                action: "del",
+                path: ["array", 1.5],
+              },
+            ],
+          })
+        })
+      }
+      return originalOn(event, callback)
+    }) as typeof handle.on
+
+    return createRoot(() => {
+      const doc = makeDocumentProjection<ExampleDoc>(handle)
+
+      return testEffect(done => {
+        createEffect((run: number = 0) => {
+          if (run == 0) {
+            expect(doc.key).toBe("value")
+            handle.change(doc => {
+              doc.key = "updated via reconcile"
+              doc.array.push(4)
+            })
+          } else if (run == 1) {
+            // the store should have the correct state via reconciliation
+            // even though the patches were garbage
+            expect(doc.key).toBe("updated via reconcile")
+            expect(doc.array).toEqual([1, 2, 3, 4])
+            expect(warnSpy).toHaveBeenCalled()
+            warnSpy.mockRestore()
+            done()
+          }
+          return run + 1
+        })
+      })
+    })
+  })
+
   it("should remain reactive on an mount, unmount, and then remount of the same doc handle", async () => {
     const { handle } = setup()
 
