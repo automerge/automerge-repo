@@ -308,6 +308,7 @@ export class DocSynchronizer extends Synchronizer {
     this.#log(`removing peer ${peerId}`)
     this.#peers = this.#peers.filter(p => p !== peerId)
     delete this.#peerDocumentStatuses[peerId]
+    delete this.#syncStates[peerId]
     this.#checkDocUnavailable()
   }
 
