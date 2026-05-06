@@ -20,8 +20,8 @@ importers:
         specifier: 3.2.6
         version: 3.2.6
       '@automerge/automerge-subduction':
-        specifier: 0.8.1
-        version: 0.8.1
+        specifier: 0.9.0
+        version: 0.9.0
       '@manypkg/cli':
         specifier: ^0.21.4
         version: 0.21.4
@@ -292,8 +292,8 @@ importers:
         specifier: 3.2.6
         version: 3.2.6
       '@automerge/automerge-subduction':
-        specifier: 0.8.1
-        version: 0.8.1
+        specifier: 0.9.0
+        version: 0.9.0
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -532,8 +532,8 @@ packages:
   '@asamuzakjp/nwsapi@2.3.9':
     resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
 
-  '@automerge/automerge-subduction@0.8.1':
-    resolution: {integrity: sha512-xUiVrdDwGgkwUV6z3MS6iofkC6Ub13F5xf6egllA6xECzWj5pdUEI8TVAEi4vk4QExbOUqZg78iwAh53LI3wFA==}
+  '@automerge/automerge-subduction@0.9.0':
+    resolution: {integrity: sha512-UO/qhcm4wFdLwbeJz2PNqc3oKjF7B9nGjB4gtYOkgFJmUzNp7Rp6X3uSTW2QR8rwMwtdyQ9cAxoM5wunswaAPw==}
 
   '@automerge/automerge@3.2.6':
     resolution: {integrity: sha512-9/GXXfYYWNVGpnbRrGQzTNU4fWZ3XaEMeEg0OrpK4pvlQSpkmUBoirEb/4TMK6BwMysZGV5Yeneq3wwc7RNGfg==}
@@ -7208,7 +7208,7 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
-  '@automerge/automerge-subduction@0.8.1': {}
+  '@automerge/automerge-subduction@0.9.0': {}
 
   '@automerge/automerge@3.2.6': {}
 
