@@ -84,6 +84,21 @@ describe("DocSynchronizer", () => {
 
   it("asyncThrottle on the 'change' handler serializes #syncWithPeers (never re-entered while in flight)", async () => {
     const { handle, docSynchronizer } = setup()
+
+    // asyncThrottle is configured with docSynchronizer.syncDebounceRate as
+    // its delay. The pauses below are tuned relative to that, not arbitrary:
+    //  - CHANGE_INTERVAL_MS < THROTTLE_MS so multiple changes coalesce into
+    //    one throttle window.
+    //  - SLOW_WHEN_READY_MS > CHANGE_INTERVAL_MS so each #syncWithPeers run
+    //    spans multiple change firings — without serialization this would
+    //    expose re-entry.
+    //  - DRAIN_MS is generous enough for all throttled and queued work to
+    //    settle before we assert.
+    const THROTTLE_MS = docSynchronizer.syncDebounceRate
+    const CHANGE_INTERVAL_MS = THROTTLE_MS * 0.3
+    const SLOW_WHEN_READY_MS = THROTTLE_MS * 0.8
+    const DRAIN_MS = THROTTLE_MS * 6
+
     docSynchronizer.beginSync([alice])
     // Wait for the initial beginSync message so any whenReady calls inside
     // beginSync have settled before we install the measurement patch.
@@ -104,7 +119,7 @@ describe("DocSynchronizer", () => {
       maxConcurrent = Math.max(maxConcurrent, concurrent)
       try {
         await origWhenReady(...args)
-        await pause(80)
+        await pause(SLOW_WHEN_READY_MS)
       } finally {
         concurrent--
       }
@@ -116,9 +131,9 @@ describe("DocSynchronizer", () => {
       handle.change(doc => {
         doc.foo = `v${i}`
       })
-      await pause(30)
+      await pause(CHANGE_INTERVAL_MS)
     }
-    await pause(600)
+    await pause(DRAIN_MS)
 
     assert(
       whenReadyCalls > 0,
