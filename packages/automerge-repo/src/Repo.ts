@@ -960,6 +960,15 @@ export class Repo extends EventEmitter<RepoEvents> {
           `WARN: removeFromCache called but handle for documentId: ${documentId} in unexpected state: ${handle.state}`
         )
       }
+      // Notes:
+      // - The parent's #viewCache uses WeakValueMap, so cached view handles
+      //   become eligible for GC as soon as nothing outside the parent holds
+      //   them.
+      // - this method does not currently detach the listeners
+      //   that DocSynchronizer and #saveFn attached to the handle, so the
+      //   parent itself may continue to be retained by those listener
+      //   closures. Treat this as "stop tracking", not "fully tear down".
+      // - TODO: If immediate handle reclamation is needed, that requires an additional step (e.g. handle.removeAllListeners())
       delete this.#handleCache[documentId]
       delete this.#progressCache[documentId]
       delete this.#saveFns[documentId]
