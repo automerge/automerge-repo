@@ -19,6 +19,7 @@ import {
 } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
+import { flushGC } from "./helpers/flushGC.js"
 import {
   AnyDocumentId,
   UrlHeads,
@@ -653,6 +654,43 @@ describe("Repo", () => {
         const handleCacheSize = Object.keys(repo.handles).length
         await repo.removeFromCache(badDocumentId)
         assert(Object.keys(repo.handles).length === handleCacheSize)
+      })
+
+      // Skipped: removeFromCache today does not detach the listeners that
+      // DocSynchronizer and Repo.#saveFn add to the handle. Those listener
+      // closures form a cycle (DocHandle.events → closure → DocSynchronizer
+      // → DocSynchronizer.#handle → DocHandle), and combined with internal
+      // state — pending throttle timers, the XState actor, the saveDoc
+      // promise chain — the cycle does not get reclaimed even after a long
+      // pause and many GC cycles. Making this pass would require an
+      // explicit teardown step in removeFromCache (e.g. handle.removeAll
+      // Listeners() once the synchronizer/storage subsystems are detached).
+      // That's a behavior change with potential user-visible implications,
+      // so it's deliberately out of scope here. The WeakValueMap migration
+      // of #viewCache is still correct (see the view() GC test in
+      // DocHandle.test.ts which passes).
+      it.skip("removeFromCache lets the parent + view handle become GC-eligible", async () => {
+        const { repo } = setup()
+
+        // Scope strong references inside an inner function so they don't
+        // pin the values via the test stack frame after we drop them.
+        const { parentRef, viewRef, documentId } = (() => {
+          const handle = repo.create<TestDoc>({ foo: "bar" })
+          handle.change(d => (d.foo = "baz"))
+          const view = handle.view(handle.heads()!)
+          return {
+            parentRef: new WeakRef(handle),
+            viewRef: new WeakRef(view),
+            documentId: handle.documentId,
+          }
+        })()
+
+        await repo.removeFromCache(documentId)
+        await pause(500)
+        await flushGC(10)
+
+        expect(parentRef.deref()).toBeUndefined()
+        expect(viewRef.deref()).toBeUndefined()
       })
     })
 

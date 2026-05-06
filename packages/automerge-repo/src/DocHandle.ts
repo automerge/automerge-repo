@@ -18,6 +18,7 @@ import {
   isAbortErrorLike,
 } from "./helpers/abortable.js"
 import type { PathInput, InferRefType, Ref } from "./refs/types.js"
+import { WeakValueMap } from "./helpers/WeakValueMap.js"
 
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
@@ -51,11 +52,13 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /** A dictionary mapping each peer to the last known heads we have. */
   #syncInfoByStorageId: Record<StorageId, SyncInfo> = {}
 
-  /** Cache for view handles, keyed by the stringified heads */
-  #viewCache: Map<string, DocHandle<T>> = new Map()
+  /** Cache for view handles, keyed by the stringified heads. Values are
+   * held weakly so unused views are eligible for GC. */
+  #viewCache = new WeakValueMap<string, DocHandle<T>>()
 
-  /** Cache for ref instances, keyed by serialized path */
-  #refCache: Map<string, WeakRef<Ref<any>>> = new Map()
+  /** Cache for ref instances, keyed by serialized path. Values are held
+   * weakly so unused refs are eligible for GC. */
+  #refCache = new WeakValueMap<string, Ref<any>>()
 
   /** Factory for creating Ref instances, injected by Repo to avoid circular imports */
   #refConstructor: <TDoc, TPath extends readonly PathInput[]>(
@@ -447,27 +450,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       )
     }
 
-    // Create a cache key from the heads
-    const cacheKey = JSON.stringify(heads)
-
-    // Check if we have a cached handle for these heads
-    const cachedHandle = this.#viewCache.get(cacheKey)
-    if (cachedHandle) {
-      return cachedHandle
-    }
-
-    // Create a new handle with the same documentId but fixed heads
-    const handle = new DocHandle<T>(this.documentId, this.#refConstructor, {
-      heads,
-      timeoutDelay: this.#timeoutDelay,
+    return this.#viewCache.getOrCompute(JSON.stringify(heads), () => {
+      const handle = new DocHandle<T>(this.documentId, this.#refConstructor, {
+        heads,
+        timeoutDelay: this.#timeoutDelay,
+      })
+      handle.update(() => A.clone(this.#doc))
+      handle.doneLoading()
+      return handle
     })
-    handle.update(() => A.clone(this.#doc))
-    handle.doneLoading()
-
-    // Store in cache
-    this.#viewCache.set(cacheKey, handle)
-
-    return handle
   }
 
   /**
@@ -760,18 +751,9 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   ref<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
   ): Ref<InferRefType<T, TPath>> {
-    const cacheKey = this.#pathToCacheKey(segments)
-    const existingRef = this.#refCache.get(cacheKey)?.deref()
-
-    if (existingRef) {
-      return existingRef as Ref<InferRefType<T, TPath>>
-    }
-
-    // Create new ref and cache it
-    const newRef = this.#refConstructor<T, TPath>(this, segments as [...TPath])
-    this.#refCache.set(cacheKey, new WeakRef(newRef))
-
-    return newRef as Ref<InferRefType<T, TPath>>
+    return this.#refCache.getOrCompute(this.#pathToCacheKey(segments), () =>
+      this.#refConstructor<T, TPath>(this, segments as [...TPath])
+    ) as Ref<InferRefType<T, TPath>>
   }
 
   /**
