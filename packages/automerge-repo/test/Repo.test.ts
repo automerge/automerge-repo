@@ -656,6 +656,67 @@ describe("Repo", () => {
       })
     })
 
+    describe("idle eviction", () => {
+      it("does not evict any handles when idleEvictionMs/idleScanIntervalMs are unset", async () => {
+        const { repo } = setup()
+        const handle = repo.create<TestDoc>()
+        await pause(50)
+        assert(repo.handles[handle.documentId])
+        await repo.shutdown()
+      })
+
+      it("evicts an idle handle once idleEvictionMs has elapsed", async () => {
+        const repo = new Repo({
+          idleEvictionMs: 30,
+          idleScanIntervalMs: 10,
+        })
+        const handle = repo.create<TestDoc>()
+        assert(repo.handles[handle.documentId])
+        // Wait long enough for the handle to idle past idleEvictionMs and
+        // for at least one scan tick to fire.
+        await pause(80)
+        assert.equal(repo.handles[handle.documentId], undefined)
+        await repo.shutdown()
+      })
+
+      it("treats a cached find as activity", async () => {
+        const repo = new Repo({
+          idleEvictionMs: 80,
+          idleScanIntervalMs: 10,
+        })
+        const handle = repo.create<TestDoc>()
+        await pause(50)
+        await repo.find<TestDoc>(handle.url)
+        await pause(50)
+        assert(repo.handles[handle.documentId])
+        await pause(80)
+        assert.equal(repo.handles[handle.documentId], undefined)
+        await repo.shutdown()
+      })
+
+      it("does not evict a handle that has at least one active peer", async () => {
+        const repo = new Repo({
+          idleEvictionMs: 30,
+          idleScanIntervalMs: 10,
+        })
+        const handle = repo.create<TestDoc>()
+        // Pretend a peer is actively syncing this doc. The eviction scan must
+        // skip handles with peers regardless of idleness.
+        repo.synchronizer.addPeer("fake-peer" as PeerId)
+        await pause(80)
+        assert(repo.handles[handle.documentId])
+        await repo.shutdown()
+      })
+
+      it("does not enable activity tracking when eviction is disabled", () => {
+        const { repo } = setup()
+        const handle = repo.create<TestDoc>()
+        // No touchOnHeadsChanged listener should be attached when eviction is off.
+        // setup() registers exactly one heads-changed listener (the save fn).
+        assert.equal(handle.listenerCount("heads-changed"), 1)
+      })
+    })
+
     describe("registerHandleWithSubsystems", () => {
       it("registers document with synchronizer when creating a new document", async () => {
         const { repo } = setup()
