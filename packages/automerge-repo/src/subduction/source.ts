@@ -243,7 +243,7 @@ export class SubductionSource implements DocumentSource {
 
   // ── Storage events ──────────────────────────────────────────────────
 
-  #handleDataFound(id: SedimentreeId, _commitId: CommitId, blob: Uint8Array) {
+  #handleDataFound(id: SedimentreeId, commitId: CommitId, blob: Uint8Array) {
     const entry = this.#entries.get(id.toString())
     if (!entry) return
 
@@ -253,6 +253,16 @@ export class SubductionSource implements DocumentSource {
     // from a partial load, triggering DocumentQuery to resolve whenReady()
     // before the full document is available).
     if (entry.syncState === "initializing") return
+
+    // If we just persisted this commit ourselves (it originated from a
+    // local `handle.change()`), the handle already contains it.
+    // `loadIncremental` of an already-applied commit is O(doc size)
+    // wasted work — running it once per local commit during a flush
+    // turns the save loop into O(N²) for N local writes. Skip the
+    // re-application; `recentlySavedHashes` is populated synchronously
+    // at the start of `#saveNewCommits`, so the hash is present before
+    // the `commit-saved` event ever fires.
+    if (entry.recentlySavedHashes.has(commitId.toHexString())) return
 
     this.#log(`handleDataFound ${id}`)
     entry.handle.update(d => Automerge.loadIncremental(d, blob))
@@ -277,12 +287,14 @@ export class SubductionSource implements DocumentSource {
     // Resolve immediately — no save is in-progress yet.
     resolveSaveSettled()
 
+    // Save throttle. Per-entry serialization is enforced inside
+    // `#save` itself (it awaits any in-flight save before reading
+    // heads), so the throttle just needs to coalesce rapid
+    // `heads-changed` events into a single save attempt.
     const throttledSave = throttle(() => {
       const entry = this.#entries.get(sidStr)
       if (!entry) return
-      const doc = entry.handle.doc()
-      if (!doc) return
-      this.#save(entry, doc)
+      void this.#save(entry)
     }, 100)
 
     this.#entries.set(sidStr, {
@@ -550,25 +562,66 @@ export class SubductionSource implements DocumentSource {
 
   // ── Saving local changes to subduction ──────────────────────────────
 
-  async #save<T>(entry: SedimentreeEntry, doc: Automerge.Doc<T>) {
-    const currentHeads = Automerge.getHeads(doc)
-    const currentSet = new Set(currentHeads)
+  /**
+   * Persist any new local commits for `entry` into Subduction.
+   *
+   * Per-entry serialization via promise-chain handoff: each `#save`
+   * captures the previous `entry.saveSettled` synchronously, installs
+   * its own, then awaits its predecessor before reading any state.
+   * This guarantees that only one `#save` is in its critical section
+   * at a time per entry.
+   *
+   * Why we need strict serialization rather than head-based dedup:
+   * `Automerge.Doc<T>` in this version doesn't fully isolate read
+   * operations on a captured doc reference. Even without an explicit
+   * `handle.change()`, calling `getChangesMetaSince` or
+   * `getChangeByHash` on a doc — which `#saveNewCommits` does for
+   * every change being saved — can shift the value subsequently
+   * returned by `Automerge.getHeads(doc)`. The "snapshot" abstraction
+   * is leaky. Two concurrent `#save` calls therefore observe
+   * different `currentHeads` for the same logical document state and
+   * can't reliably dedupe via head equality, fail to early-return at
+   * the fast-path, and end up reprocessing overlapping change sets.
+   * Running them strictly in series avoids the leak: the second
+   * `#save` reads the doc only after the first has fully completed
+   * all wasm interactions, at which point `getHeads(doc)` returns a
+   * stable value matching `lastSavedHeads` and the fast-path fires.
+   *
+   * `entry.saveSettled` is also read by `#doSync()` and `shutdown()`
+   * so they can wait for in-flight saves before reading state or
+   * disconnecting transports.
+   */
+  async #save(entry: SedimentreeEntry) {
+    // Capture our predecessor before installing our own saveSettled.
+    // The next `#save` call will wait on us in turn.
+    const previousSaveSettled = entry.saveSettled
 
-    if (
-      currentSet.size === entry.lastSavedHeads.size &&
-      [...currentSet].every(h => entry.lastSavedHeads.has(h))
-    ) {
-      return
-    }
-
-    // Replace the save-settled promise so that #doSync can await this
-    // save completing before starting a network sync round.
     let resolveSaveSettled!: () => void
     entry.saveSettled = new Promise<void>(r => {
       resolveSaveSettled = r
     })
 
     try {
+      // Wait for our predecessor to finish before reading any state.
+      // After this point we have exclusive access to the entry's
+      // save-related fields (lastSavedHeads, recentlySavedHashes,
+      // pendingFragmentRequests).
+      await previousSaveSettled
+
+      const doc = entry.handle.doc()
+      if (!doc) return
+
+      const currentHeads = Automerge.getHeads(doc)
+      const currentSet = new Set(currentHeads)
+
+      // Fast-path: heads unchanged since the predecessor's save.
+      if (
+        currentSet.size === entry.lastSavedHeads.size &&
+        [...currentSet].every(h => entry.lastSavedHeads.has(h))
+      ) {
+        return
+      }
+
       const previousHeads = entry.lastSavedHeads
       entry.lastSavedHeads = currentSet
 
