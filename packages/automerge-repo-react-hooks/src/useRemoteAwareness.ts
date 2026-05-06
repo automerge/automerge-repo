@@ -25,8 +25,6 @@ export type PeerStates = Record<string, any>
 /** A map from peer ID to their last heartbeat timestamp */
 export type Heartbeats = Record<string, number>
 
-// {@link @microsoft/my-control-library/lib/Button#Button | the Button class}
-
 /**
  * @deprecated use the usePresence hook instead
  *
