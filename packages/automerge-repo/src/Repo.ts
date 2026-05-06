@@ -84,6 +84,12 @@ export class Repo extends EventEmitter<RepoEvents> {
   #saveFn: (payload: DocHandleEncodedChangePayload<any>) => void
 
   #handleCache: Record<DocumentId, DocHandle<any>> = {}
+  #lastActivity: Record<DocumentId, number> = {}
+  #evictionIntervalId: ReturnType<typeof setInterval> | null = null
+  #evictionInFlight = false
+  #touchOnHeadsChanged = ({ handle }: DocHandleEncodedChangePayload<any>) => {
+    this.#touch(handle.documentId)
+  }
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
@@ -117,6 +123,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     idFactory,
+    idleEvictionMs,
+    idleScanIntervalMs,
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
@@ -253,6 +261,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     this.synchronizer.on("sync-state", message => {
+      this.#touch(message.documentId)
       this.#saveSyncState(message)
 
       const handle = this.#handleCache[message.documentId]
@@ -322,6 +331,17 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
       )
     }
+
+    if ((idleEvictionMs ?? 0) > 0 && (idleScanIntervalMs ?? 0) > 0) {
+      const interval = setInterval(() => {
+        void this.#evictIdleHandles(idleEvictionMs!)
+      }, idleScanIntervalMs)
+      // Don't keep the event loop alive for the eviction timer.
+      if (typeof interval === "object" && "unref" in interval) {
+        interval.unref()
+      }
+      this.#evictionIntervalId = interval
+    }
   }
 
   // The `document` event is fired by the DocCollection any time we create a new document or look
@@ -333,6 +353,17 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (!existingListeners.some(listener => listener === this.#saveFn)) {
         // Save when the document changes
         handle.on("heads-changed", this.#saveFn)
+      }
+    }
+
+    // Touch lastActivity on every doc change so local edits with no peers
+    // (offline writers) keep the handle alive against idle eviction.
+    if (this.#evictionIntervalId !== null) {
+      const headsListeners = handle.listeners("heads-changed")
+      if (
+        !headsListeners.some(listener => listener === this.#touchOnHeadsChanged)
+      ) {
+        handle.on("heads-changed", this.#touchOnHeadsChanged)
       }
     }
 
@@ -404,6 +435,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     /** The documentId of the handle to look up or create */
     documentId: DocumentId /** If we know we're creating a new document, specify this so we can have access to it immediately */
   }) {
+    this.#touch(documentId)
+
     // If we have the handle cached, return it
     if (this.#handleCache[documentId]) return this.#handleCache[documentId]
 
@@ -415,6 +448,45 @@ export class Repo extends EventEmitter<RepoEvents> {
     )
     this.#handleCache[documentId] = handle
     return handle
+  }
+
+  #touch(documentId: DocumentId) {
+    if (this.#evictionIntervalId !== null) {
+      this.#lastActivity[documentId] = Date.now()
+    }
+  }
+
+  async #evictIdleHandles(idleMs: number) {
+    // Single-flight: skip this tick if a previous tick is still running.
+    // Without this, a stalled removeFromCache (e.g., handle stuck in
+    // REQUESTING) lets ticks stack and race over #handleCache.
+    if (this.#evictionInFlight) return
+    this.#evictionInFlight = true
+    try {
+      const cutoff = Date.now() - idleMs
+      const MAX_EVICTIONS_PER_SCAN = 100
+      let evicted = 0
+      for (const documentId of Object.keys(this.#handleCache) as DocumentId[]) {
+        if (evicted >= MAX_EVICTIONS_PER_SCAN) break
+        const lastActive = this.#lastActivity[documentId]
+        if (lastActive === undefined || lastActive > cutoff) continue
+        const docSync = this.synchronizer.docSynchronizers[documentId]
+        if (
+          docSync &&
+          this.synchronizer.peers.some(peerId => docSync.hasPeer(peerId))
+        ) {
+          continue
+        }
+        try {
+          await this.removeFromCache(documentId)
+        } catch (err) {
+          this.#log("idle-eviction failed", { documentId, err })
+        }
+        if (!this.#handleCache[documentId]) evicted++
+      }
+    } finally {
+      this.#evictionInFlight = false
+    }
   }
 
   /** Returns all the handles we have cached. */
@@ -565,6 +637,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const { documentId, heads } = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
       : { documentId: interpretAsDocumentId(id), heads: undefined }
+    this.#touch(documentId)
 
     // Check handle cache first - return plain FindStep for terminal states
     if (this.#handleCache[documentId]) {
@@ -775,6 +848,8 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Loads a document without waiting for ready state
    */
   async #loadDocument<T>(documentId: DocumentId): Promise<DocHandle<T>> {
+    this.#touch(documentId)
+
     // If we have the handle cached, return it
     if (this.#handleCache[documentId]) {
       return this.#handleCache[documentId]
@@ -842,6 +917,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     delete this.#handleCache[documentId]
     delete this.#progressCache[documentId]
     delete this.#saveFns[documentId]
+    delete this.#lastActivity[documentId]
     this.emit("delete-document", { documentId })
   }
 
@@ -948,7 +1024,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
       return
     }
-    const handle = this.#getHandle({ documentId })
+    const handle = this.#handleCache[documentId]
     await handle.whenReady([READY, UNLOADED, DELETED, UNAVAILABLE])
     const doc = handle.doc()
     // because this is an internal-ish function, we'll be extra careful about undefined docs here
@@ -963,6 +1039,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       delete this.#handleCache[documentId]
       delete this.#progressCache[documentId]
       delete this.#saveFns[documentId]
+      delete this.#lastActivity[documentId]
       this.synchronizer.removeDocument(documentId)
     } else {
       this.#log(
@@ -972,6 +1049,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   shutdown(): Promise<void> {
+    if (this.#evictionIntervalId !== null) {
+      clearInterval(this.#evictionIntervalId)
+      this.#evictionIntervalId = null
+    }
     this.networkSubsystem.adapters.forEach(adapter => {
       adapter.disconnect()
     })
@@ -1034,6 +1115,24 @@ export interface RepoConfig {
    * The debounce rate in milliseconds for saving documents. Defaults to 100ms.
    */
   saveDebounceRate?: number
+
+  /**
+   * If set, a cached DocHandle is eligible for idle eviction after this many
+   * ms with no activity (no `#getHandle` access, no `sync-state` event, no
+   * local `heads-changed`). Both `idleEvictionMs` and `idleScanIntervalMs`
+   * must be set for eviction to be enabled. Handles with at least one peer
+   * actively syncing are never evicted.
+   *
+   * Useful for long-running sync servers that would otherwise hold every doc
+   * they have ever seen in memory.
+   */
+  idleEvictionMs?: number
+
+  /**
+   * Period in ms between idle-eviction scans. Both `idleEvictionMs` and
+   * `idleScanIntervalMs` must be set for eviction to be enabled.
+   */
+  idleScanIntervalMs?: number
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation
