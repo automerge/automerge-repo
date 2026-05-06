@@ -645,7 +645,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       documentId,
       handle,
       progressSignal,
-      //IMPORTANT: Reuse foreverPromise. Don't keep re-creating promises that never settle like `new Promise(() => {})`
       signal ? abortable(foreverPromise, signal) : foreverPromise
     )
 
