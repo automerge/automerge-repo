@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { WeakValueMap } from "../src/helpers/WeakValueMap.js"
-import { flushGC, gcAvailable } from "./helpers/flushGC.js"
+import { flushGC, gcAvailable, waitForGC } from "./helpers/flushGC.js"
 
 const itGC = gcAvailable ? it : it.skip
 
@@ -75,9 +75,7 @@ describe("WeakValueMap — GC behavior", () => {
       probe = new WeakRef(v)
     })()
 
-    await flushGC()
-
-    expect(probe.deref()).toBeUndefined()
+    expect(await waitForGC(probe)).toBe(true)
     expect(m.get("k")).toBeUndefined()
     // Observable proof the entry is gone: the factory runs again.
     let factoryCalled = false
@@ -94,6 +92,9 @@ describe("WeakValueMap — GC behavior", () => {
     const kept = new Box(1)
     m.set("k", kept)
 
+    // Negative assertion: the value is strongly held, so a best-effort GC
+    // should NOT collect it. waitForGC would always time out here, so use
+    // the fixed-rounds variant.
     await flushGC()
 
     expect(m.get("k")).toBe(kept)
@@ -105,15 +106,15 @@ describe("WeakValueMap — GC behavior", () => {
     // though v2 is still alive.
     const m = new WeakValueMap<string, Box>()
     const v2 = new Box(2)
-
+    let v1Probe!: WeakRef<Box>
     ;(() => {
       const v1 = new Box(1)
       m.set("k", v1)
       m.set("k", v2)
+      v1Probe = new WeakRef(v1)
     })()
 
-    await flushGC()
-
+    expect(await waitForGC(v1Probe)).toBe(true)
     expect(m.get("k")).toBe(v2)
   })
 
@@ -129,10 +130,10 @@ describe("WeakValueMap — GC behavior", () => {
       }
     })()
 
-    await flushGC()
-
-    const alive = probes.filter(r => r.deref() !== undefined).length
-    expect(alive).toBe(0)
+    // 1000 entries — give the engine a wider budget than the default 1s.
+    expect(
+      await waitForGC(() => probes.every(r => r.deref() === undefined), 5000)
+    ).toBe(true)
     // Observable proof keys are gone: factory runs for every key.
     let factoryCalls = 0
     for (let i = 0; i < 1000; i++) {
