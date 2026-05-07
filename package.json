@@ -39,7 +39,7 @@
     "@eslint/eslintrc": "^3.3.0",
     "@eslint/js": "^9.5.0",
     "@automerge/automerge": "^3.2.5",
-    "@automerge/automerge-subduction": "0.6.1",
+    "@automerge/automerge-subduction": "0.6.4",
     "@manypkg/cli": "^0.21.4",
     "@playwright/test": "^1.57.0",
     "@types/debug": "^4.1.12",

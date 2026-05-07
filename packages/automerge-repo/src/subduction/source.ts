@@ -9,6 +9,7 @@ import {
   Topic,
   setSubductionLogLevel,
   type FragmentRequested,
+  type Policy,
 } from "@automerge/automerge-subduction/slim"
 import { DocumentSource } from "../DocumentSource.js"
 import { DocumentQuery, SourcePriority } from "../DocumentQuery.js"
@@ -94,6 +95,8 @@ export interface SubductionSourceOptions {
   onEphemeral?: OnEphemeral
   onHealExhausted?: (documentId: DocumentId) => void
 
+  policy?: Policy
+
   /**
    * Interval in ms for per-document periodic sync. Each open document is
    * synced individually (skipping those already in heal-backoff).
@@ -135,6 +138,7 @@ export class SubductionSource implements DocumentSource {
     onEphemeral,
     onHealExhausted,
     priority = 2,
+    policy,
     periodicSyncInterval = 30_000,
     batchSyncInterval = 300_000,
   }: SubductionSourceOptions) {
@@ -180,7 +184,8 @@ export class SubductionSource implements DocumentSource {
         undefined, // service_name
         undefined, // hash_metric_override
         undefined, // max_pending_blob_requests
-        undefined, // policy
+        policy,
+        undefined, // ephemeral_policy
         onRemoteHeads,
         onEphemeral
       ).then(s => {
@@ -203,7 +208,8 @@ export class SubductionSource implements DocumentSource {
           undefined, // service_name
           undefined, // hash_metric_override
           undefined, // max_pending_blob_requests
-          undefined, // policy
+          policy,
+          undefined, // ephemeral_policy
           onRemoteHeads,
           onEphemeral
         )
@@ -217,10 +223,7 @@ export class SubductionSource implements DocumentSource {
     }
     this.#connectionManagers.push(wsConnections)
 
-    const adapterConnections = new AdapterConnections(
-      this.#subduction,
-      peerId
-    )
+    const adapterConnections = new AdapterConnections(this.#subduction, peerId)
     for (const { adapter, serviceName, role } of adapters) {
       adapterConnections.addAdapter(adapter, serviceName, role ?? "connect")
     }
@@ -516,9 +519,7 @@ export class SubductionSource implements DocumentSource {
       entry.syncState = "running"
 
       if (entry.handle.heads().length === 0) {
-        if (
-          !this.#anyConnectionManagerConnecting()
-        ) {
+        if (!this.#anyConnectionManagerConnecting()) {
           // No data after a successful sync and no pending connections —
           // the document is genuinely unavailable. If data arrives later
           // via #handleDataFound, it calls sourcePending to re-enter
@@ -584,8 +585,7 @@ export class SubductionSource implements DocumentSource {
         `[subduction] #save ${sid}: setting needsResync=true (sync in flight)`
       )
       entry.needsResync = true
-    } else {
-      console.log(`[subduction] #save ${sid}: setting lastSyncResult=null`)
+    } else if (entry.lastSyncResult !== "no-peers") {
       entry.lastSyncResult = null
     }
     this.#recompute()
