@@ -95,12 +95,33 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   /**
    * Wait for pending save operations to complete.
    *
-   * If `sids` is provided, only waits for saves whose sedimentree id
-   * appears in `sids`. Otherwise waits for every in-flight save in the
-   * bridge.
+   * # Snapshot semantics
    *
-   * Resolves immediately if there's nothing pending in the targeted
-   * scope.
+   * The set of saves awaited is a *snapshot taken at call time*: the
+   * waiter remembers how many in-flight saves match its scope and
+   * resolves once that many have completed. New saves that start
+   * after the call are NOT awaited, even if they target the same
+   * sedimentree(s).
+   *
+   * This is the right semantic for `flush()`-style callers, which
+   * already pumped their throttles and awaited their per-entry
+   * `saveSettled` before calling — so by the time they invoke this
+   * method, every save they care about has already registered with
+   * `pendingPerSid`.
+   *
+   * For "drain everything for this sid forever" semantics, callers
+   * would need to loop on `awaitSettled` until the count stays 0
+   * across a full microtask, which this method does not do.
+   *
+   * # Scope
+   *
+   * - `sids === undefined`: snapshot all currently in-flight saves
+   *   across every sedimentree the bridge is tracking, then await
+   *   them.
+   * - `sids` provided: snapshot only saves whose sedimentree id is in
+   *   `sids`, then await them.
+   *
+   * Resolves immediately when the snapshotted scope is empty.
    */
   async awaitSettled(sids?: Iterable<string>): Promise<void> {
     if (sids === undefined) {

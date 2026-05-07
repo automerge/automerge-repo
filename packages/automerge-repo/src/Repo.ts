@@ -702,9 +702,21 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Writes Documents to a disk.
+   * Drains pending writes for the given documents (or all documents
+   * when `documents` is omitted) so they are durable in storage.
+   *
+   * The legacy storage subsystem persists each ready document's
+   * latest Automerge bytes via `saveDoc`. Independently, every
+   * registered {@link DocumentSource} that implements `flush`
+   * (notably {@link SubductionSource}) is asked to drain its own
+   * buffered writes. The promise resolves once every step has
+   * settled.
+   *
+   * Resolves immediately for documents that are not yet ready or
+   * that have no registered source-level buffering.
+   *
    * @hidden this API is experimental and may change.
-   * @param documents - if provided, only writes the specified documents.
+   * @param documents - if provided, only flushes the specified documents.
    * @returns Promise<void>
    */
   async flush(documents?: DocumentId[]): Promise<void> {

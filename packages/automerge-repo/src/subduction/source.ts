@@ -701,6 +701,19 @@ export class SubductionSource implements DocumentSource {
    * a constant-cost early-return, dropping the chain overhead in
    * the common case where one save can serve multiple incoming
    * triggers.
+   *
+   * # Implication for callers
+   *
+   * Multiple synchronous triggers in a single throttle window
+   * collapse into one save pass. Callers that need per-trigger
+   * completion confirmation (i.e. "my exact change set is durable")
+   * MUST call `entry.flushSave.flush()` themselves *before* awaiting
+   * `entry.saveSettled`, so that the trigger they care about is the
+   * one that armed the next save. Without that pre-flush, the gate
+   * may have absorbed the trigger into an earlier in-flight pass,
+   * and `saveSettled` could resolve based on a save that started
+   * before the caller's change was visible. `#doSync`, `flush()`,
+   * and `shutdown()` already follow this pattern.
    */
   async #save(entry: SedimentreeEntry) {
     if (entry.saveInProgress) return
@@ -726,8 +739,13 @@ export class SubductionSource implements DocumentSource {
         return
       }
 
+      // NOTE: do NOT advance `entry.lastSavedHeads` to `currentSet`
+      // before `#saveNewCommits` succeeds. If the underlying
+      // `addBatch` rejects, the next `#save` must observe the
+      // pre-failure baseline so it can retry the same change set
+      // (plus any newer changes). Advancing eagerly would let the
+      // fast-path above swallow the retry.
       const previousHeads = entry.lastSavedHeads
-      entry.lastSavedHeads = currentSet
 
       const subduction = await this.#subduction
       const sid = entry.sedimentreeId.toString().slice(0, 8)
@@ -739,23 +757,52 @@ export class SubductionSource implements DocumentSource {
         `#save ${sid}: ${changeCount} change(s), ` +
           `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
       )
-      await this.#saveNewCommits(entry, doc, subduction, previousHeads)
 
-      // If new commits arrived during the await (typical when the
-      // user kept calling `handle.change` while we were saving), the
-      // `heads-changed` listener has already armed the throttle, so
-      // a follow-up `#save` is queued. We don't need to do anything
-      // extra. But if `#doc` was reassigned without a head change
-      // (which we observe in the integrated bench — the wasm-side
-      // representation can churn without `heads-changed` firing),
-      // explicitly re-arm so the new state gets persisted.
+      try {
+        await this.#saveNewCommits(entry, doc, subduction, previousHeads)
+      } catch (e) {
+        // `#saveNewCommits` already logged the underlying cause. Leave
+        // `entry.lastSavedHeads` at `previousHeads` so the next save
+        // retries the same baseline.
+        this.#log(
+          `#save ${sid}: persistence failed; will retry on next trigger`
+        )
+        return
+      }
+
+      // Persistence succeeded. Now safe to advance the baseline.
+      // Copy `currentSet` instead of aliasing so future mutations to
+      // either side stay isolated. Cheap: 32-byte hashes × small N.
+      entry.lastSavedHeads = new Set(currentSet)
+
+      // If new `handle.change()` calls arrived during the await, the
+      // `heads-changed` listener has already armed the throttle and a
+      // follow-up `#save` is queued — nothing to do.
+      //
+      // Separately, calls to `getChangeByHash` inside `#saveNewCommits`
+      // can shift the value `Automerge.getHeads(doc)` returns on
+      // subsequent reads of the same doc reference (a known
+      // wasm-bindgen interaction in this Automerge version, called out
+      // in commit 6ff00c821). After the await, we re-sample heads via
+      // `getChangesMetaSince(currentDoc, currentSet)`: if the count is
+      // > 0, the post-`await` view of the doc has changes the
+      // pre-`await` view didn't surface and `heads-changed` did NOT
+      // fire (no `update()` call happened to trigger it). We then
+      // re-arm the throttle explicitly so the missed delta gets
+      // persisted on the next save pass.
       const currentDoc = entry.handle.doc()
       if (currentDoc) {
         const newSinceCurrent = Automerge.getChangesMetaSince(
           currentDoc,
-          Array.from(currentSet),
+          Array.from(currentSet)
         ).length
         if (newSinceCurrent > 0) {
+          this.#log(
+            `#save ${entry.sedimentreeId
+              .toString()
+              .slice(0, 8)}: post-save delta of ${newSinceCurrent} change(s) ` +
+              `without heads-changed; re-arming throttle`
+          )
           entry.flushSave()
         }
       }
@@ -789,11 +836,11 @@ export class SubductionSource implements DocumentSource {
     const changes = Automerge.getChangesMetaSince(doc, Array.from(sinceHeads))
     if (changes.length === 0) return
 
-    // Build all CommitInputs synchronously. Skip any commit whose hash
-    // is already in the recentlySavedHashes ring — that prevents
-    // duplicate inserts within a flush AND short-circuits
-    // `#handleDataFound` from re-applying our own commits via
-    // `loadIncremental` when the matching `commit-saved` event fires.
+    // Build all CommitInputs synchronously. Skip any change whose
+    // hash is already in `recentlySavedHashes` — those represent
+    // commits we have already started persisting on a previous (still
+    // in-flight) save round. Hashes for *this* round are added to the
+    // ring AFTER `addBatch` succeeds (see below).
     //
     // As of subduction 0.11.0 the wasm `LooseCommit`,
     // `SedimentreeId`, and `CommitId` constructors take their
@@ -803,10 +850,11 @@ export class SubductionSource implements DocumentSource {
     // `commitDepth` lookup.
     const meta = automergeMeta(doc)
     const heads: CommitId[] = []
+    const acceptedHashes: string[] = []
     const commitInputs: CommitInput[] = []
 
     for (const change of changes) {
-      if (!entry.recentlySavedHashes.add(change.hash)) continue
+      if (entry.recentlySavedHashes.has(change.hash)) continue
 
       try {
         const commitBytes = meta.getChangeByHash(change.hash)
@@ -819,6 +867,7 @@ export class SubductionSource implements DocumentSource {
         )
         commitInputs.push(new CommitInput(looseCommit, commitBytes))
         heads.push(head)
+        acceptedHashes.push(change.hash)
       } catch (e) {
         console.warn(
           `[SubductionSource] commit input prep failed for ${change.hash}:`,
@@ -831,6 +880,9 @@ export class SubductionSource implements DocumentSource {
 
     // One batched insert: one minimize, one broadcast, one
     // `Storage::save_batch_all` instead of N per-commit round-trips.
+    //
+    // Errors propagate to `#save`, which keeps `entry.lastSavedHeads`
+    // at its previous value so the next save retries this batch.
     try {
       await subduction.addBatch(entry.sedimentreeId, commitInputs, [])
     } catch (e) {
@@ -840,7 +892,22 @@ export class SubductionSource implements DocumentSource {
           .slice(0, 8)} (${commitInputs.length} commits):`,
         e
       )
-      return
+      throw e
+    }
+
+    // Persistence succeeded. NOW record the hashes in the
+    // recentlySavedHashes set so that the matching `commit-saved`
+    // events (about to fire from the storage bridge, if they haven't
+    // already) short-circuit `#handleDataFound`'s `loadIncremental`
+    // path on our own commits.
+    //
+    // Timing safety: bridge `commit-saved` events fire from the same
+    // task as the `addBatch` await resolution. Nothing else has had a
+    // chance to drain the microtask queue between the await above and
+    // this synchronous loop, so any matching `#handleDataFound` calls
+    // queued by those events run AFTER this loop completes.
+    for (const hash of acceptedHashes) {
+      entry.recentlySavedHashes.add(hash)
     }
 
     // Derive fragment-boundary requests post-batch. With per-commit

@@ -201,6 +201,81 @@ describe("SubductionSource #save resilience", () => {
   )
 
   it(
+    "transient addBatch rejection does not lose commits — retry persists everything",
+    async () => {
+      // GIVEN a Repo whose subduction storage rejects the first two
+      // batched writes and then succeeds. This exercises the F1
+      // correctness invariants:
+      //
+      //   - `entry.lastSavedHeads` does not advance until `addBatch`
+      //     succeeds, so the next `#save` sees the failed batch's
+      //     changes as still-pending.
+      //   - `entry.recentlySavedHashes.add(...)` is deferred until
+      //     after `addBatch` succeeds, so the next save's
+      //     `getChangesMetaSince(...)` walk doesn't skip them.
+      //
+      // If either invariant regresses, the rejected commits become
+      // permanently invisible to subduction storage even though the
+      // doc still has them in memory.
+      const storage = new TransientlyRejectingStorageAdapter("subduction", 2)
+      const repo = new Repo({ storage, network: [] })
+
+      try {
+        const handle = repo.create<{ count: number }>({ count: 0 })
+        await handle.whenReady()
+        handle.change(d => {
+          d.count = 1
+        })
+
+        // Wait until both rejections have happened. With a 100ms
+        // throttle and at least one mutation per tick, two consecutive
+        // `#save` invocations should hit and reject within a few
+        // hundred ms.
+        //
+        // We force the second save by issuing another mutation after
+        // the first rejection lands.
+        await waitForCondition(() => storage.rejectionCount >= 1, 5_000)
+
+        handle.change(d => {
+          d.count = 2
+        })
+
+        await waitForCondition(() => storage.rejectionCount >= 2, 5_000)
+
+        // After two rejections the gate flips and subsequent writes
+        // succeed. A final mutation triggers a save that lands.
+        handle.change(d => {
+          d.count = 3
+        })
+        await repo.flush()
+
+        // The bytes for ALL three changes (count=1, count=2, count=3)
+        // must now be present in the underlying storage. We verify by
+        // counting commit-prefix keys: if any of the previously
+        // rejected commits had been silently abandoned, the count
+        // would be too low.
+        //
+        // 1 commit per change(); plus the initial "create" commit
+        // (`Automerge.from` creates a single commit on construct).
+        // 3 user changes ⇒ at least 3 commits. The exact count can
+        // vary by Automerge version (the initial empty change may or
+        // may not be present), so we assert ≥3 to keep the test
+        // stable.
+        const commitCount = await storage.innerCount(["subduction", "commits"])
+        expect(commitCount).toBeGreaterThanOrEqual(3)
+
+        // And the in-memory doc reflects every change.
+        expect(handle.doc()!.count).toBe(3)
+      } finally {
+        // Drop the gate so shutdown can flush.
+        storage.acceptAll()
+        await repo.shutdown()
+      }
+    },
+    15_000
+  )
+
+  it(
     "burst mutations all persist and shutdown completes in bounded time",
     async () => {
       // GIVEN a Repo with normal storage. We trigger a burst of
@@ -243,6 +318,55 @@ describe("SubductionSource #save resilience", () => {
       }
     },
     30_000
+  )
+
+  it(
+    "n=200 burst flush+shutdown stays well under the linear baseline",
+    async () => {
+      // Always-on guard against re-introducing the per-commit O(N²)
+      // shape in `#saveNewCommits` (or the equivalent in any future
+      // batched insert path). With the addBatch refactor in place,
+      // this run takes ~50–100ms in CI; before it took 2-3 seconds
+      // for the same workload. We assert <2s with comfortable
+      // headroom for slow CI.
+      //
+      // If this test starts failing, the algorithmic shape of the
+      // save path has likely regressed — check `#saveNewCommits` and
+      // `saveBatchAll` for accidentally-introduced per-commit work.
+      const storage = new DummyStorageAdapter()
+      const repo = new Repo({ storage, network: [] })
+
+      try {
+        const handle = repo.create<{ items: number[] }>({ items: [] })
+        await handle.whenReady()
+
+        const N = 200
+        for (let i = 0; i < N; i++) {
+          handle.change(d => {
+            d.items.push(i)
+          })
+        }
+
+        const t0 = performance.now()
+        await repo.flush()
+        await repo.shutdown()
+        const elapsed = performance.now() - t0
+
+        // 2_000 ms gives ~20× headroom over the post-refactor median
+        // (~100 ms). If we drift much above that, we want to know.
+        expect(elapsed).toBeLessThan(2_000)
+      } catch (e) {
+        // If the test failed *before* shutdown completed, we still
+        // need to drain the repo so vitest doesn't leak handles.
+        try {
+          await repo.shutdown()
+        } catch {
+          /* ignore */
+        }
+        throw e
+      }
+    },
+    10_000
   )
 })
 
@@ -291,6 +415,68 @@ class SelectivelyRejectingStorageAdapter implements StorageAdapterInterface {
     if (entries.some(([k]) => this.#shouldReject(k))) {
       this.rejectionCount++
       throw new Error("simulated storage failure")
+    }
+    return this.#inner.saveBatch(entries)
+  }
+}
+
+/**
+ * Storage adapter that rejects the first `rejectionLimit` writes
+ * targeting `rejectPrefix`, then accepts everything afterwards.
+ * Models a transient backend failure that recovers.
+ */
+class TransientlyRejectingStorageAdapter implements StorageAdapterInterface {
+  rejectionCount = 0
+  #inner = new DummyStorageAdapter()
+  #rejectPrefix: string
+  #rejectionLimit: number
+  #acceptAll = false
+
+  constructor(rejectPrefix: string, rejectionLimit: number) {
+    this.#rejectPrefix = rejectPrefix
+    this.#rejectionLimit = rejectionLimit
+  }
+
+  acceptAll() {
+    this.#acceptAll = true
+  }
+
+  // Pass-through to the inner adapter's `loadRange` for assertions
+  // about what actually landed in storage.
+  async innerCount(prefix: StorageKey): Promise<number> {
+    const chunks = await this.#inner.loadRange(prefix)
+    return chunks.filter(c => c.data !== undefined).length
+  }
+
+  #shouldReject(key: StorageKey): boolean {
+    if (this.#acceptAll) return false
+    if (key[0] !== this.#rejectPrefix) return false
+    return this.rejectionCount < this.#rejectionLimit
+  }
+
+  async loadRange(prefix: StorageKey): Promise<Chunk[]> {
+    return this.#inner.loadRange(prefix)
+  }
+  async removeRange(prefix: StorageKey): Promise<void> {
+    return this.#inner.removeRange(prefix)
+  }
+  async load(key: StorageKey): Promise<Uint8Array | undefined> {
+    return this.#inner.load(key)
+  }
+  async save(key: StorageKey, data: Uint8Array): Promise<void> {
+    if (this.#shouldReject(key)) {
+      this.rejectionCount++
+      throw new Error("simulated transient storage failure")
+    }
+    return this.#inner.save(key, data)
+  }
+  async remove(key: StorageKey): Promise<void> {
+    return this.#inner.remove(key)
+  }
+  async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
+    if (entries.some(([k]) => this.#shouldReject(k))) {
+      this.rejectionCount++
+      throw new Error("simulated transient storage failure")
     }
     return this.#inner.saveBatch(entries)
   }

@@ -28,7 +28,9 @@ export interface SyncSchedulerOptions {
 
   /**
    * Timeout passed to `subduction.syncWithAllPeers(...)` for heal
-   * retries. Falsy / undefined → pass `null` (subduction's default).
+   * retries. Any number (including `0`) is forwarded as a `bigint`;
+   * `undefined` (or omitted) passes `null` so subduction applies its
+   * own default timeout.
    */
   syncTimeoutMs?: number
 
