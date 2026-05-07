@@ -65,6 +65,10 @@ interface SedimentreeEntry {
   flushSave: ThrottledFunction<() => void>
   /** Resolves when any in-progress `#save` completes. */
   saveSettled: Promise<void>
+  /** True while a `#save` is in its critical section. Concurrent
+   * invocations early-return; the throttle's next firing picks up
+   * any state that landed during the in-flight save. */
+  saveInProgress: boolean
 
   // Fragment processing — decoupled from saves, deduped by head+depth
   pendingFragmentRequests: Map<string, FragmentRequested>
@@ -287,10 +291,11 @@ export class SubductionSource implements DocumentSource {
     // Resolve immediately — no save is in-progress yet.
     resolveSaveSettled()
 
-    // Save throttle. Per-entry serialization is enforced inside
-    // `#save` itself (it awaits any in-flight save before reading
-    // heads), so the throttle just needs to coalesce rapid
-    // `heads-changed` events into a single save attempt.
+    // Save throttle. Concurrency is enforced inside `#save` itself
+    // (the `saveInProgress` gate makes concurrent invocations
+    // early-return), so the throttle just needs to coalesce rapid
+    // `heads-changed` events into a single save attempt per 100ms
+    // window.
     const throttledSave = throttle(() => {
       const entry = this.#entries.get(sidStr)
       if (!entry) return
@@ -312,6 +317,7 @@ export class SubductionSource implements DocumentSource {
       recentlySavedHashes: new HashRing(RECENTLY_SAVED_CACHE_SIZE),
       flushSave: throttledSave,
       saveSettled,
+      saveInProgress: false,
       pendingFragmentRequests: new Map(),
       processingFragments: false,
     })
@@ -565,36 +571,53 @@ export class SubductionSource implements DocumentSource {
   /**
    * Persist any new local commits for `entry` into Subduction.
    *
-   * Per-entry serialization via promise-chain handoff: each `#save`
-   * captures the previous `entry.saveSettled` synchronously, installs
-   * its own, then awaits its predecessor before reading any state.
-   * This guarantees that only one `#save` is in its critical section
-   * at a time per entry.
+   * # Concurrency model: gate, no chain, no inner loop
    *
-   * Why we need strict serialization rather than head-based dedup:
-   * `Automerge.Doc<T>` in this version doesn't fully isolate read
-   * operations on a captured doc reference. Even without an explicit
-   * `handle.change()`, calling `getChangesMetaSince` or
-   * `getChangeByHash` on a doc — which `#saveNewCommits` does for
-   * every change being saved — can shift the value subsequently
-   * returned by `Automerge.getHeads(doc)`. The "snapshot" abstraction
-   * is leaky. Two concurrent `#save` calls therefore observe
-   * different `currentHeads` for the same logical document state and
-   * can't reliably dedupe via head equality, fail to early-return at
-   * the fast-path, and end up reprocessing overlapping change sets.
-   * Running them strictly in series avoids the leak: the second
-   * `#save` reads the doc only after the first has fully completed
-   * all wasm interactions, at which point `getHeads(doc)` returns a
-   * stable value matching `lastSavedHeads` and the fast-path fires.
+   * At most one `#save` runs at a time per entry. Concurrent
+   * invocations early-return immediately rather than queueing
+   * (no promise-chain handoff). The throttle's next firing picks
+   * up any state that landed during the in-flight save.
    *
-   * `entry.saveSettled` is also read by `#doSync()` and `shutdown()`
-   * so they can wait for in-flight saves before reading state or
-   * disconnecting transports.
+   * We deliberately do NOT loop within a single `#save` invocation
+   * to drain newly-arrived changes. An earlier design had a
+   * `do { ... } while (saveAgainAfter)` loop that ran iter2 within
+   * the same call; under streaming mutation patterns it caused a
+   * 3× shutdown slowdown vs serialization, with no correctness
+   * benefit. The slowdown stemmed from `loadIncremental`
+   * side-effects in `#handleDataFound` reassigning `#doc` between
+   * iterations, which made the reconcile check think new commits
+   * had arrived even when the logical state was unchanged.
+   *
+   * Instead, after each save we check `getChangesMetaSince(handle,
+   * [...currentSet])` and, if changes have genuinely landed,
+   * explicitly re-arm the throttle via `entry.flushSave()`. The
+   * throttle's next firing handles them as a fresh `#save`. This
+   * matches the original `serialize` design's pattern of "one save
+   * per invocation, throttle for the rest" while preserving the
+   * gate's slightly-faster concurrent-call semantics.
+   *
+   * # Coordination with `#doSync()` and `shutdown()`
+   *
+   * `entry.saveSettled` is the promise readers wait on to know that
+   * any in-flight save has completed. `#doSync` awaits it before
+   * reading state for sync; `shutdown` awaits it after
+   * `flushSave.flush()` to drain pending work before disconnecting
+   * transports.
+   *
+   * # Why not the old promise-chain handoff?
+   *
+   * The original (`subductionjs` branch) design used
+   * `await previousSaveSettled` to chain concurrent calls in
+   * sequence. That's also correct, but heavier: each concurrent
+   * call holds a slot in the chain, so N concurrent invocations
+   * yield N sequential save passes. The gate replaces that with
+   * a constant-cost early-return, dropping the chain overhead in
+   * the common case where one save can serve multiple incoming
+   * triggers.
    */
   async #save(entry: SedimentreeEntry) {
-    // Capture our predecessor before installing our own saveSettled.
-    // The next `#save` call will wait on us in turn.
-    const previousSaveSettled = entry.saveSettled
+    if (entry.saveInProgress) return
+    entry.saveInProgress = true
 
     let resolveSaveSettled!: () => void
     entry.saveSettled = new Promise<void>(r => {
@@ -602,12 +625,6 @@ export class SubductionSource implements DocumentSource {
     })
 
     try {
-      // Wait for our predecessor to finish before reading any state.
-      // After this point we have exclusive access to the entry's
-      // save-related fields (lastSavedHeads, recentlySavedHashes,
-      // pendingFragmentRequests).
-      await previousSaveSettled
-
       const doc = entry.handle.doc()
       if (!doc) return
 
@@ -636,7 +653,27 @@ export class SubductionSource implements DocumentSource {
           `state=${entry.syncState}, syncInFlight=${entry.syncInFlight}`
       )
       await this.#saveNewCommits(entry, doc, subduction, previousHeads)
+
+      // If new commits arrived during the await (typical when the
+      // user kept calling `handle.change` while we were saving), the
+      // `heads-changed` listener has already armed the throttle, so
+      // a follow-up `#save` is queued. We don't need to do anything
+      // extra. But if `#doc` was reassigned without a head change
+      // (which we observe in the integrated bench — the wasm-side
+      // representation can churn without `heads-changed` firing),
+      // explicitly re-arm so the new state gets persisted.
+      const currentDoc = entry.handle.doc()
+      if (currentDoc) {
+        const newSinceCurrent = Automerge.getChangesMetaSince(
+          currentDoc,
+          Array.from(currentSet),
+        ).length
+        if (newSinceCurrent > 0) {
+          entry.flushSave()
+        }
+      }
     } finally {
+      entry.saveInProgress = false
       resolveSaveSettled()
     }
 
