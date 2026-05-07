@@ -63,33 +63,110 @@ export interface StorageBridgeEvents {
  *
  * Supports event callbacks via `on()` for commit-saved and fragment-saved events.
  */
+/**
+ * A pending settle waiter. If `sids` is `undefined`, the waiter cares
+ * about all in-flight saves. Otherwise it cares only about saves whose
+ * sedimentree id is in `sids`.
+ *
+ * `remaining` counts how many tracked pending saves the waiter is still
+ * blocked on. When it reaches 0, `resolve()` is called and the entry is
+ * dropped from the resolver list.
+ */
+interface SettleWaiter {
+  sids: Set<string> | undefined
+  remaining: number
+  resolve: () => void
+}
+
 export class SubductionStorageBridge implements SedimentreeStorage {
   private adapter: StorageAdapterInterface
   private listeners: {
     [K in keyof StorageBridgeEvents]?: StorageBridgeEvents[K][]
   } = {}
-  private pendingSaves = 0
-  private settleResolvers: (() => void)[] = []
+
+  /** Per-sedimentree pending-save counts. Absent ⇒ 0. */
+  private pendingPerSid: Map<string, number> = new Map()
+  private settleWaiters: SettleWaiter[] = []
 
   constructor(adapter: StorageAdapterInterface) {
     this.adapter = adapter
   }
 
   /**
-   * Wait for all pending save operations to complete.
-   * Useful for ensuring sync operations have fully persisted.
+   * Wait for in-scope save operations to drain.
+   *
+   * Counter-based: the waiter snapshots how many saves are pending
+   * for the targeted scope at call time and resolves once that many
+   * matching saves complete. Saves that start after registration
+   * count toward the same total — fine for `flush()`-style callers
+   * that have already pumped their throttles, but means a new save
+   * completing before an older one can resolve the waiter while the
+   * older save is still pending. Don't add call patterns that race
+   * here.
+   *
+   * `sids === undefined` waits on every in-flight save; otherwise
+   * waits on saves whose sedimentree id is in `sids`. Resolves
+   * immediately when the matching scope is empty.
    */
-  async awaitSettled(): Promise<void> {
-    if (this.pendingSaves === 0) return
-    return new Promise(r => this.settleResolvers.push(r))
+  async awaitSettled(sids?: Iterable<string>): Promise<void> {
+    if (sids === undefined) {
+      const total = this.totalPending()
+      if (total === 0) return
+      return new Promise(resolve =>
+        this.settleWaiters.push({
+          sids: undefined,
+          remaining: total,
+          resolve,
+        })
+      )
+    }
+
+    const sidSet = sids instanceof Set ? sids : new Set(sids)
+    let remaining = 0
+    for (const sid of sidSet) {
+      remaining += this.pendingPerSid.get(sid) ?? 0
+    }
+    if (remaining === 0) return
+
+    return new Promise(resolve =>
+      this.settleWaiters.push({ sids: sidSet, remaining, resolve })
+    )
   }
 
-  private decrementPending(): void {
-    this.pendingSaves--
-    if (this.pendingSaves === 0) {
-      this.settleResolvers.forEach(r => r())
-      this.settleResolvers = []
+  private totalPending(): number {
+    let total = 0
+    for (const n of this.pendingPerSid.values()) total += n
+    return total
+  }
+
+  private incrementPending(sid: string): void {
+    this.pendingPerSid.set(sid, (this.pendingPerSid.get(sid) ?? 0) + 1)
+  }
+
+  private decrementPending(sid: string): void {
+    const n = this.pendingPerSid.get(sid) ?? 0
+    if (n <= 1) {
+      this.pendingPerSid.delete(sid)
+    } else {
+      this.pendingPerSid.set(sid, n - 1)
     }
+
+    if (this.settleWaiters.length === 0) return
+
+    // Decrement counters for any waiter that cares about this sid.
+    // Resolve and drop those that reach 0.
+    const stillWaiting: SettleWaiter[] = []
+    for (const w of this.settleWaiters) {
+      if (w.sids === undefined || w.sids.has(sid)) {
+        w.remaining--
+        if (w.remaining <= 0) {
+          w.resolve()
+          continue
+        }
+      }
+      stillWaiting.push(w)
+    }
+    this.settleWaiters = stillWaiting
   }
 
   /**
@@ -165,10 +242,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const commitCopy = new Uint8Array(commitBytes)
     const blobCopy = new Uint8Array(blob)
 
-    this.pendingSaves++
+    const sid = sedimentreeId.toString()
+    this.incrementPending(sid)
     try {
       const idHex = commitId.toHexString()
-      const sid = sedimentreeId.toString()
       const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
@@ -190,7 +267,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         )
       }
     } finally {
-      this.decrementPending()
+      this.decrementPending(sid)
     }
   }
 
@@ -294,10 +371,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const fragmentCopy = new Uint8Array(fragmentBytes)
     const blobCopy = new Uint8Array(blob)
 
-    this.pendingSaves++
+    const sid = sedimentreeId.toString()
+    this.incrementPending(sid)
     try {
       const idHex = fragmentHead.toHexString()
-      const sid = sedimentreeId.toString()
       const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
@@ -317,7 +394,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         )
       }
     } finally {
-      this.decrementPending()
+      this.decrementPending(sid)
     }
   }
 
@@ -412,18 +489,19 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   /**
    * Save a batch of commits and fragments.
    *
-   * Called from Subduction's Wasm `save_batch` during sync ingestion.
-   * Instead of N individual `saveCommit`/`saveFragment` calls (each
-   * creating its own underlying transaction), this issues at most three
-   * `adapter.saveBatch()` calls (blobs, metadata, sedimentree ID marker)
-   * in order.
+   * Issues three sequential `adapter.saveBatch()` calls — blobs,
+   * then metadata, then the ID marker — to preserve crash-prefix
+   * consistency on adapters whose `saveBatch` is per-entry-atomic
+   * but not all-or-nothing across the batch (e.g. NodeFS).
    *
-   * The three-phase structure enforces write-ahead ordering so that any
-   * crash-prefix state is consistent: orphan blobs (harmless), or blobs
-   * + metadata without the ID marker (invisible to enumeration).
-   *
-   * For 50 commits this reduces ~100 round-trips to 3 on adapters
-   * that override the default `saveBatch` with a native batch path.
+   * Crash invariants:
+   *   - Crash during/after blobs only:  orphan blobs. Harmless.
+   *   - Crash during/after metadata:    blobs + meta, no marker.
+   *                                     Invisible to enumeration.
+   *   - Crash after marker:             fully visible (only state
+   *                                     in which this sedimentree
+   *                                     appears in
+   *                                     `loadAllSedimentreeIds`).
    */
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
@@ -440,31 +518,25 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<number> {
     const sid = sedimentreeId.toString()
 
-    const blobEntries: Array<[string[], Uint8Array]> = []
-    const metaEntries: Array<[string[], Uint8Array]> = []
-
     // Retain copies of each blob so we can emit them after the save.
     const commitBlobCopies: Uint8Array[] = []
     const fragmentBlobCopies: Uint8Array[] = []
 
+    const blobEntries: Array<[string[], Uint8Array]> = []
+    const metaEntries: Array<[string[], Uint8Array]> = []
+
     for (const { commitId, signedCommit, blob } of commits) {
       const idHex = commitId.toHexString()
-      const commitBytes = signedCommit.encode()
-      // Copy from Wasm memory before any async work
-      const commitCopy = new Uint8Array(commitBytes)
       const blobCopy = new Uint8Array(blob)
-
+      const commitCopy = new Uint8Array(signedCommit.encode())
       blobEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
       metaEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
       commitBlobCopies.push(blobCopy)
     }
-
     for (const { fragmentHead, signedFragment, blob } of fragments) {
       const idHex = fragmentHead.toHexString()
-      const fragBytes = signedFragment.encode()
-      const fragCopy = new Uint8Array(fragBytes)
       const blobCopy = new Uint8Array(blob)
-
+      const fragCopy = new Uint8Array(signedFragment.encode())
       blobEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
       metaEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
       fragmentBlobCopies.push(blobCopy)
@@ -475,8 +547,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       ID_MARKER,
     ]
 
-    this.pendingSaves++
+    this.incrementPending(sid)
     try {
+      // Three sequential phases for crash-prefix safety; see the
+      // class docstring above for the full state-machine analysis.
       if (blobEntries.length > 0) {
         await this.adapter.saveBatch(blobEntries)
       }
@@ -507,7 +581,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         })
       }
     } finally {
-      this.decrementPending()
+      this.decrementPending(sid)
     }
 
     return commits.length + fragments.length
