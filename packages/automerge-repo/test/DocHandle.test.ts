@@ -11,7 +11,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { TestDoc } from "./types.js"
 import { RefImpl } from "../src/refs/ref.js"
-import { flushGC, gcAvailable } from "./helpers/flushGC.js"
+import { gcAvailable, waitForGC } from "./helpers/flushGC.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -658,9 +658,7 @@ describe("DocHandle", () => {
         return new WeakRef(r)
       })()
 
-      await flushGC()
-
-      expect(probe.deref()).toBeUndefined()
+      expect(await waitForGC(probe)).toBe(true)
       const fresh = handle.ref("foo")
       expect(fresh).not.toBe(probe.deref())
     })
@@ -677,9 +675,7 @@ describe("DocHandle", () => {
           return new WeakRef(v)
         })()
 
-        await flushGC()
-
-        expect(probe.deref()).toBeUndefined()
+        expect(await waitForGC(probe)).toBe(true)
         const fresh = handle.view(heads)
         expect(fresh).not.toBe(probe.deref())
       }

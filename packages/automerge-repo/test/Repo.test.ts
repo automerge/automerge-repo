@@ -14,7 +14,7 @@ import {
 import { DocMetrics, Repo, ShareConfig } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
-import { flushGC } from "./helpers/flushGC.js"
+import { waitForGC } from "./helpers/flushGC.js"
 import {
   AnyDocumentId,
   UrlHeads,
@@ -709,10 +709,14 @@ describe("Repo", () => {
 
         await repo.removeFromCache(documentId)
         await pause(500)
-        await flushGC(10)
 
-        expect(parentRef.deref()).toBeUndefined()
-        expect(viewRef.deref()).toBeUndefined()
+        expect(
+          await waitForGC(
+            () =>
+              parentRef.deref() === undefined && viewRef.deref() === undefined,
+            5000
+          )
+        ).toBe(true)
       })
     })
 
