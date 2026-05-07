@@ -28,7 +28,7 @@ import { HashRing } from "../helpers/HashRing.js"
 import debug from "debug"
 import { SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
-import { SyncScheduler } from "./SyncScheduler.js"
+import { SyncScheduler, toTimeoutBigInt } from "./SyncScheduler.js"
 import { AdapterConnections } from "./AdapterConnections.js"
 
 export type { OnHealExhausted } from "./SyncScheduler.js"
@@ -119,6 +119,12 @@ interface SedimentreeEntry {
   // Fragment processing — decoupled from saves, deduped by head+depth
   pendingFragmentRequests: Map<string, FragmentRequested>
   processingFragments: boolean
+  /**
+   * Resolves when the current `#processFragmentRequests` run
+   * finishes; `null` when no run is in flight. `flush()` awaits this
+   * to ensure fragment work is drained before returning.
+   */
+  fragmentProcessingPromise: Promise<void> | null
 }
 
 /** Callback for remote heads changes from subduction peers. */
@@ -205,6 +211,7 @@ export class SubductionSource implements DocumentSource {
   #connectionManagers: ConnectionManager[] = []
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
+  #syncTimeout: bigint | null
 
   constructor({
     peerId,
@@ -219,6 +226,12 @@ export class SubductionSource implements DocumentSource {
     timeouts,
   }: SubductionSourceOptions) {
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
+    // Validate + coerce once at construction so the wasm boundary
+    // never sees a non-integer / NaN / negative bigint conversion.
+    this.#syncTimeout = toTimeoutBigInt(
+      this.#syncTimeoutMs,
+      "subductionTimeouts.syncMs"
+    )
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
     // Rust tracing filter so the messages actually reach the JS logger.
@@ -419,6 +432,7 @@ export class SubductionSource implements DocumentSource {
       lastSaveError: null,
       pendingFragmentRequests: new Map(),
       processingFragments: false,
+      fragmentProcessingPromise: null,
     })
 
     query.sourcePending("subduction")
@@ -464,7 +478,7 @@ export class SubductionSource implements DocumentSource {
     // Fragment processing runs independently of sync state
     if (entry.pendingFragmentRequests.size > 0 && !entry.processingFragments) {
       entry.processingFragments = true
-      void this.#processFragmentRequests(entry)
+      entry.fragmentProcessingPromise = this.#processFragmentRequests(entry)
     }
 
     switch (entry.syncState) {
@@ -540,7 +554,7 @@ export class SubductionSource implements DocumentSource {
       const peerResultMap = await subduction.syncWithAllPeers(
         sedimentreeId,
         true,
-        BigInt(this.#syncTimeoutMs)
+        this.#syncTimeout
       )
 
       const results = peerResultMap.entries()
@@ -734,14 +748,33 @@ export class SubductionSource implements DocumentSource {
         )
       }
 
+      let result: { prepFailures: number }
       try {
-        await this.#saveNewCommits(entry, doc, subduction, previousHeads)
+        result = await this.#saveNewCommits(
+          entry,
+          doc,
+          subduction,
+          previousHeads
+        )
       } catch (e) {
         // `#saveNewCommits` already logged the cause. Record the
         // error so `flush()` can surface it; leave `lastSavedHeads`
         // unchanged so the next save retries the same baseline.
         entry.lastSaveError = e
         this.#log(`#save ${sid}: persistence failed; will retry`)
+        return
+      }
+
+      // If any commits failed to prep, leave `lastSavedHeads` at the
+      // previous baseline so the next save's `getChangesMetaSince`
+      // walk includes the failed commits and retries them.
+      // `lastSaveError` was already populated inside
+      // `#saveNewCommits`.
+      if (result.prepFailures > 0) {
+        this.#log(
+          `#save ${sid}: ${result.prepFailures} prep failure(s); ` +
+            `baseline unchanged for retry`
+        )
         return
       }
 
@@ -801,17 +834,24 @@ export class SubductionSource implements DocumentSource {
     doc: Automerge.Doc<T>,
     subduction: Subduction,
     sinceHeads: Set<string>
-  ): Promise<void> {
+  ): Promise<{ prepFailures: number }> {
     const changes = Automerge.getChangesMetaSince(doc, Array.from(sinceHeads))
-    if (changes.length === 0) return
+    if (changes.length === 0) return { prepFailures: 0 }
 
     // Build all CommitInputs synchronously. Skip any change whose
     // hash is already in `recentlySavedHashes` — those represent
     // commits already persisted (or in flight) on a previous round.
+    //
+    // Per-change failures are collected rather than thrown so we can
+    // still persist the successfully-prepped subset. The caller uses
+    // the returned `prepFailures` count to decide whether to advance
+    // its save baseline (it must not, since the failed commits would
+    // otherwise be skipped on the next save).
     const meta = automergeMeta(doc)
     const heads: CommitId[] = []
     const acceptedHashes: string[] = []
     const commitInputs: CommitInput[] = []
+    const prepErrors: unknown[] = []
 
     for (const change of changes) {
       if (entry.recentlySavedHashes.has(change.hash)) continue
@@ -833,10 +873,26 @@ export class SubductionSource implements DocumentSource {
           `[SubductionSource] commit input prep failed for ${change.hash}:`,
           e
         )
+        prepErrors.push(e)
       }
     }
 
-    if (commitInputs.length === 0) return
+    // Surface accumulated prep failures via `entry.lastSaveError` so
+    // `flush()` can report them. `#save` reads `prepFailures` to
+    // decide whether to advance `lastSavedHeads`.
+    if (prepErrors.length > 0) {
+      entry.lastSaveError =
+        prepErrors.length === 1
+          ? prepErrors[0]
+          : new AggregateError(
+              prepErrors,
+              `${prepErrors.length} commits failed to prepare`
+            )
+    }
+
+    if (commitInputs.length === 0) {
+      return { prepFailures: prepErrors.length }
+    }
 
     // Record hashes in the ring BEFORE `addBatch` so that the
     // synchronous `commit-saved` events fired from the storage
@@ -880,6 +936,8 @@ export class SubductionSource implements DocumentSource {
         )
       }
     }
+
+    return { prepFailures: prepErrors.length }
   }
 
   // ── Heal / scheduler delegation ─────────────────────────────────────
@@ -892,14 +950,18 @@ export class SubductionSource implements DocumentSource {
   // ── Flush ───────────────────────────────────────────────────────────
 
   /**
-   * Drain pending writes so that all known commits / fragments for
+   * Drain pending writes so that all known commits and fragments for
    * the given documents are durable in storage.
    *
-   * Per entry, force the throttled save to run, await it, repeat
-   * until no entry re-arms a follow-up save, then await the storage
-   * bridge for the targeted sedimentree ids. If `documentIds` is
-   * `undefined`, every entry is flushed and the bridge wait covers
-   * every pending write. Unknown document ids are silently skipped.
+   * Each round: force the throttled save to fire, await
+   * `saveSettled`, kick off any fragment processing accumulated by
+   * that save, await it. Loops until no entry has a re-armed save,
+   * pending fragment requests, or fragment processing in flight.
+   * Then awaits the storage bridge for the targeted sids.
+   *
+   * If `documentIds` is `undefined`, every entry is flushed and the
+   * bridge wait covers every pending write. Unknown document ids
+   * are silently skipped.
    *
    * Rejects with the underlying error from any targeted entry whose
    * last save attempt failed and has not since succeeded; multiple
@@ -920,15 +982,32 @@ export class SubductionSource implements DocumentSource {
       bridgeSids = sids
     }
 
-    // Loop while any entry's last `#save` re-armed the throttle for
-    // a follow-up pass (`saveDeltaPending`). Bounded so a
-    // pathological mutation pattern can't trap `flush()` forever.
+    // Bounded so pathological mutation/fragmentation patterns can't
+    // trap `flush()` forever.
     const MAX_FLUSH_ROUNDS = 8
     for (let round = 0; round < MAX_FLUSH_ROUNDS; round++) {
+      // 1. Drain any in-flight commits.
       for (const entry of targets) entry.flushSave.flush()
       await Promise.all(targets.map(e => e.saveSettled))
 
-      const anyPending = targets.some(e => e.saveDeltaPending)
+      // 2. Drain fragment processing kicked off by that save (or
+      //    still pending from earlier). `#recomputeEntry` starts
+      //    `#processFragmentRequests` if there's work to do and
+      //    nothing already in flight; the resulting promise is
+      //    captured on the entry.
+      for (const entry of targets) this.#recomputeEntry(entry)
+      await Promise.all(
+        targets.map(e => e.fragmentProcessingPromise ?? Promise.resolve())
+      )
+
+      // 3. Stable iff no entry has saves to retry, fragments queued,
+      //    or fragment processing still running.
+      const anyPending = targets.some(
+        e =>
+          e.saveDeltaPending ||
+          e.pendingFragmentRequests.size > 0 ||
+          e.processingFragments
+      )
       if (!anyPending) break
 
       if (round === MAX_FLUSH_ROUNDS - 1) {
@@ -1015,21 +1094,20 @@ export class SubductionSource implements DocumentSource {
   // ── Fragment processing ─────────────────────────────────────────────
 
   async #processFragmentRequests(entry: SedimentreeEntry): Promise<void> {
-    const subduction = await this.#subduction
-    const doc = entry.handle.doc()
-    if (!doc) {
-      entry.processingFragments = false
-      return
-    }
+    try {
+      const subduction = await this.#subduction
+      const doc = entry.handle.doc()
+      if (!doc) return
 
-    const requests = Array.from(entry.pendingFragmentRequests.values())
-    entry.pendingFragmentRequests.clear()
+      const requests = Array.from(entry.pendingFragmentRequests.values())
+      entry.pendingFragmentRequests.clear()
 
-    const validHeads = requests
-      .map(r => r.head)
-      .filter(head => head && (head as any).__wbg_ptr)
+      const validHeads = requests
+        .map(r => r.head)
+        .filter(head => head && (head as any).__wbg_ptr)
 
-    if (validHeads.length > 0) {
+      if (validHeads.length === 0) return
+
       const innerDoc = automergeMeta(doc)
       const sam = new SedimentreeAutomerge(innerDoc)
       const fragmentStates = sam.buildFragmentStore(
@@ -1061,9 +1139,10 @@ export class SubductionSource implements DocumentSource {
           )
         }
       }
+    } finally {
+      entry.processingFragments = false
+      entry.fragmentProcessingPromise = null
+      this.#recompute()
     }
-
-    entry.processingFragments = false
-    this.#recompute()
   }
 }

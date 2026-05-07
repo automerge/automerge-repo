@@ -228,7 +228,7 @@ export class SyncScheduler {
  * values throw a `RangeError` naming `fieldName` so the caller knows
  * which config field is at fault.
  */
-function toTimeoutBigInt(
+export function toTimeoutBigInt(
   ms: number | undefined,
   fieldName: string
 ): bigint | null {

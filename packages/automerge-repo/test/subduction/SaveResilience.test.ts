@@ -22,7 +22,7 @@
  * production hangs at worst.
  */
 
-import { beforeAll, describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it } from "vitest"
 
 import { Repo } from "../../src/Repo.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"

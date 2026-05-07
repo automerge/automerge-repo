@@ -753,11 +753,11 @@ describe("Repo", () => {
           // If this save's path was already resumed by the test, don't
           // block at all.
           if (!matchesResumed(args[0])) {
-            await new Promise<void>(resolve => {
+            await new Promise<void>(unblock => {
               const blockedSave = {
                 path: args[0],
                 resolve: () => {
-                  resolve()
+                  unblock()
                   blockedSaves.delete(blockedSave)
                 },
               }
