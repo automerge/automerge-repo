@@ -785,9 +785,15 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async shutdown() {
-    await this.flush()
-    this.#subductionSource?.shutdown()
+    // Quiesce Subduction first — stops reconnect loops, flushes pending
+    // saves, awaits storage writes, disconnects transports, frees Wasm
+    await this.#subductionSource?.shutdown()
+
+    // Stop traditional sync network connections
     this.networkSubsystem.disconnect()
+
+    // Flush final Automerge document state to storage
+    await this.flush()
   }
 
   metrics(): { documents: { [key: string]: any } } {

@@ -28,4 +28,10 @@ export interface ConnectionManager {
    * use this to schedule a recompute.
    */
   onChange(callback: () => void): void
+
+  /**
+   * Stop managing connections. Breaks reconnect loops and prevents new
+   * transports from being established.
+   */
+  shutdown(): void
 }
