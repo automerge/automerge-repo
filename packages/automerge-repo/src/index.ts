@@ -42,9 +42,11 @@ export { Repo } from "./Repo.js"
 export { Presence } from "./presence/Presence.js"
 export { PeerStateView } from "./presence/PeerStateView.js"
 export type {
+  DeviceId,
   PeerState,
-  PresenceState,
   PresenceConfig,
+  PresenceState,
+  UserId,
 } from "./presence/types.js"
 
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
