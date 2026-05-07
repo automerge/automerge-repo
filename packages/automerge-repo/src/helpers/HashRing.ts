@@ -1,6 +1,6 @@
 export class HashRing {
   #ring: (string | null)[]
-  #seen = new Set<string>()
+  #slotByHash = new Map<string, number>()
   #focus = 0
 
   constructor(private capacity: number) {
@@ -8,15 +8,15 @@ export class HashRing {
   }
 
   has(hash: string): boolean {
-    return this.#seen.has(hash)
+    return this.#slotByHash.has(hash)
   }
 
   add(hash: string): boolean {
     if (this.has(hash)) return false
 
     const toEvict = this.#ring[this.#focus]
-    if (toEvict !== null) this.#seen.delete(toEvict)
-    this.#seen.add(hash)
+    if (toEvict !== null) this.#slotByHash.delete(toEvict)
+    this.#slotByHash.set(hash, this.#focus)
 
     this.#ring[this.#focus] = hash
     this.#focus = (this.#focus + 1) % this.#ring.length
@@ -24,7 +24,16 @@ export class HashRing {
     return true
   }
 
+  /** Remove `hash` from the ring if present. Returns true if it was. */
+  delete(hash: string): boolean {
+    const slot = this.#slotByHash.get(hash)
+    if (slot === undefined) return false
+    this.#slotByHash.delete(hash)
+    this.#ring[slot] = null
+    return true
+  }
+
   size() {
-    return this.#seen.size
+    return this.#slotByHash.size
   }
 }
