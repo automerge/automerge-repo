@@ -30,7 +30,39 @@ import { AdapterConnections } from "./AdapterConnections.js"
 
 export type { OnHealExhausted } from "./SyncScheduler.js"
 
-const RECENTLY_SAVED_CACHE_SIZE = 256
+/**
+ * Default timeout for `subduction.syncWithAllPeers(...)`. Bounds how
+ * long we wait for a single sync round before giving up.
+ *
+ * Override per-Repo via `RepoConfig.subductionTimeouts.syncMs`.
+ */
+const DEFAULT_SYNC_TIMEOUT_MS = 60_000
+
+/**
+ * Capacity of the per-entry `recentlySavedHashes` ring used to
+ * short-circuit `#handleDataFound` for our own self-saved commits.
+ *
+ * Sizing rationale: a synchronous burst of N `handle.change` calls
+ * results in N `addCommit` calls running concurrently in
+ * `Promise.all` inside `#saveNewCommits`. The hash for each commit
+ * is added to the ring synchronously *before* its `addCommit`
+ * await; later, `commit-saved` events fire in roughly the same
+ * order as the addCommit completions and route to
+ * `#handleDataFound`, which checks the ring.
+ *
+ * If the ring evicts an entry before its `commit-saved` event
+ * arrives, `#handleDataFound` falls through to `loadIncremental`
+ * on the already-applied commit — O(doc-size) wasted work per
+ * evicted entry, turning the flush into O(N²).
+ *
+ * 16384 covers DXOS-style bursts with comfortable headroom. At
+ * ~64 bytes per hash string, that's ~1 MB per entry — fine.
+ *
+ * (Replacing the ring with an unbounded `Set<string>` would be
+ * simpler and remove the silent O(N²) cliff entirely; left as a
+ * follow-up because measurements at the time were inconclusive.)
+ */
+const RECENTLY_SAVED_CACHE_SIZE = 16384
 
 // ── Per-sedimentree state ───────────────────────────────────────────────
 //
@@ -89,6 +121,47 @@ export type OnEphemeral = (
   payload: Uint8Array
 ) => void
 
+/**
+ * Tunable timeouts for Subduction's sync and heal-retry behaviour.
+ *
+ * All fields are optional. Sensible defaults apply where omitted.
+ */
+export interface SubductionTimeouts {
+  /**
+   * Timeout passed to `subduction.syncWithAllPeers(...)` (the third
+   * argument, `timeout_milliseconds`). Bounds how long we wait for a
+   * single sync round to a peer set before giving up. Used both for
+   * the regular sync path in `SubductionSource` and for the
+   * heal-retry path in `SyncScheduler`.
+   *
+   * Default: 60_000 (60 s).
+   */
+  syncMs?: number
+
+  /**
+   * Initial delay before the first heal retry after a failed sync.
+   * Doubles per retry up to `healMaxDelayMs`.
+   *
+   * Default: 2_000 (2 s).
+   */
+  healInitialDelayMs?: number
+
+  /**
+   * Cap for the heal-retry exponential backoff.
+   *
+   * Default: 60_000 (60 s).
+   */
+  healMaxDelayMs?: number
+
+  /**
+   * Maximum number of heal-retry attempts before giving up and
+   * notifying via `onHealExhausted`.
+   *
+   * Default: 10.
+   */
+  healMaxAttempts?: number
+}
+
 export interface SubductionSourceOptions {
   peerId: PeerId
   storage: SubductionStorageBridge
@@ -104,6 +177,9 @@ export interface SubductionSourceOptions {
   onHealExhausted?: (documentId: DocumentId) => void
 
   policy?: Policy
+
+  /** Tunable timeouts for sync and heal-retry. See {@link SubductionTimeouts}. */
+  timeouts?: SubductionTimeouts
 }
 
 export class SubductionSource implements DocumentSource {
@@ -114,6 +190,7 @@ export class SubductionSource implements DocumentSource {
   #log: debug.Debugger
   #connectionManagers: ConnectionManager[] = []
   #scheduler: SyncScheduler
+  #syncTimeoutMs: number
 
   constructor({
     peerId,
@@ -125,7 +202,9 @@ export class SubductionSource implements DocumentSource {
     onEphemeral,
     onHealExhausted,
     policy,
+    timeouts,
   }: SubductionSourceOptions) {
+    this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
     // Rust tracing filter so the messages actually reach the JS logger.
@@ -230,6 +309,10 @@ export class SubductionSource implements DocumentSource {
         }
       },
       onHealExhausted,
+      syncTimeoutMs: this.#syncTimeoutMs,
+      healInitialDelayMs: timeouts?.healInitialDelayMs,
+      healMaxDelayMs: timeouts?.healMaxDelayMs,
+      healMaxAttempts: timeouts?.healMaxAttempts,
     })
   }
 
@@ -440,7 +523,8 @@ export class SubductionSource implements DocumentSource {
       this.#log(`doSync ${sid} (state=${entry.syncState})`)
       const peerResultMap = await subduction.syncWithAllPeers(
         sedimentreeId,
-        true
+        true,
+        BigInt(this.#syncTimeoutMs)
       )
 
       const results = peerResultMap.entries()

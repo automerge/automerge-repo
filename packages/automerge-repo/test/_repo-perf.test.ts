@@ -15,6 +15,9 @@
  *   - `nodefs`  : `NodeFSStorageAdapter` over a `mkdtemp` directory
  *                 with the standard write-to-temp + fsync + rename
  *                 atomic-write pattern
+ *   - `idb`     : `IndexedDBStorageAdapter` against an in-memory
+ *                 `fake-indexeddb` shim (per-iteration unique DB
+ *                 name to keep iterations isolated)
  *
  * This file is _not_ part of the regular test suite. It is gated on
  * the `RUN_PERF` env var so it doesn't slow down `pnpm test`. Run it
@@ -24,12 +27,17 @@
  *     vitest run --no-file-parallelism test/_repo-perf.test.ts
  */
 
+// Install fake-indexeddb's globals (`indexedDB`, `IDBKeyRange`, ...)
+// so that `IndexedDBStorageAdapter` can run under Node + happy-dom.
+import "fake-indexeddb/auto"
+
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 
 import { beforeAll, describe, test } from "vitest"
 
+import { IndexedDBStorageAdapter } from "../../automerge-repo-storage-indexeddb/src/index.js"
 import { NodeFSStorageAdapter } from "../../automerge-repo-storage-nodefs/src/index.js"
 import { Repo } from "../src/Repo.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
@@ -66,6 +74,30 @@ const nodefsHarness = (): StorageHarness => {
     storage: new NodeFSStorageAdapter(dir),
     teardown: async () => {
       fs.rmSync(dir, { force: true, recursive: true })
+    },
+  }
+}
+
+// Each iteration gets a fresh DB name so previous iterations' data
+// doesn't pollute timing. fake-indexeddb retains state across opens
+// of the same database name within a process.
+let idbCounter = 0
+const idbHarness = (): StorageHarness => {
+  const dbName = `automerge-repo-perf-${process.pid}-${idbCounter++}`
+  const adapter = new IndexedDBStorageAdapter(dbName, "documents")
+  return {
+    label: "idb",
+    storage: adapter,
+    teardown: async () => {
+      // Best-effort: drop the database so memory doesn't grow across
+      // iterations. fake-indexeddb is in-memory; deleteDatabase
+      // releases the storage.
+      await new Promise<void>(resolve => {
+        const req = indexedDB.deleteDatabase(dbName)
+        req.onsuccess = () => resolve()
+        req.onerror = () => resolve()
+        req.onblocked = () => resolve()
+      })
     },
   }
 }
@@ -165,13 +197,23 @@ maybeDescribe("automerge-repo perf (no networks, just storage)", () => {
     }
   })
 
+  test("idb: mutation count scaling", { timeout: PERF_TIMEOUT }, async () => {
+    // Warm up (Wasm init, JIT, fake-indexeddb shim).
+    await measure(idbHarness, "warmup", 10)
+    // eslint-disable-next-line no-console
+    console.log("---")
+    for (const n of SCALE) {
+      await measure(idbHarness, "bench", n)
+    }
+  })
+
   // Shutdown-focused micro-benchmark: every iteration boots a fresh
   // repo, applies `n` mutations, flushes, and then times _only_ the
   // shutdown call. Useful when investigating regressions in the
   // shutdown sequence (Subduction quiesce, final flush, storage
   // close) without flush time bleeding into the number.
   test("shutdown isolation", { timeout: PERF_TIMEOUT }, async () => {
-    for (const factory of [memoryHarness, nodefsHarness]) {
+    for (const factory of [memoryHarness, nodefsHarness, idbHarness]) {
       // eslint-disable-next-line no-console
       console.log(`--- shutdown isolation (${factory().label}) ---`)
       for (const n of SCALE) {

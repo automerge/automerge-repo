@@ -38,7 +38,10 @@ import {
   set_subduction_logger,
 } from "@automerge/automerge-subduction/slim"
 import { SubductionStorageBridge } from "./subduction/storage.js"
-import { SubductionSource } from "./subduction/source.js"
+import {
+  SubductionSource,
+  type SubductionTimeouts,
+} from "./subduction/source.js"
 import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { encode, decode } from "cbor-x"
@@ -107,6 +110,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionPolicy,
     subductionWebsocketEndpoints,
     subductionAdapters,
+    subductionTimeouts,
   }: RepoConfig = {}) {
     super()
     this.#peerId = peerId
@@ -174,6 +178,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       websocketEndpoints: subductionWebsocketEndpoints ?? [],
       adapters: subductionAdapters ?? [],
       policy: subductionPolicy,
+      timeouts: subductionTimeouts,
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
         ? (documentId, storageId, heads) => {
             this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
@@ -829,6 +834,13 @@ export interface RepoConfig {
      *  handshake for peers on this adapter. Defaults to "connect". */
     role?: "connect" | "accept"
   }[]
+
+  /**
+   * Tunable timeouts for the Subduction sync engine and its
+   * heal-retry scheduler. See {@link SubductionTimeouts}. All fields
+   * are optional; sensible defaults apply.
+   */
+  subductionTimeouts?: SubductionTimeouts
 }
 
 /** A function that determines whether we should share a document with a peer
