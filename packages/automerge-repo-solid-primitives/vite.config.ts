@@ -28,6 +28,7 @@ export default defineConfig({
       external: [
         "solid-js",
         "@automerge/automerge",
+        "@automerge/automerge/slim",
         "cabbages",
         "solid-js/store",
       ],
