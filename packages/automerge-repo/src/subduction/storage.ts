@@ -485,16 +485,30 @@ export class SubductionStorageBridge implements SedimentreeStorage {
    *
    * Called from Subduction's Wasm `save_batch` during sync ingestion.
    * Instead of N individual `saveCommit`/`saveFragment` calls (each
-   * creating its own underlying transaction), this issues at most three
-   * `adapter.saveBatch()` calls (blobs, metadata, sedimentree ID marker)
-   * in order.
+   * creating its own underlying transaction), this issues a single
+   * `adapter.saveBatch()` containing every entry (blobs, metadata,
+   * and the sedimentree ID marker) in one shot.
    *
-   * The three-phase structure enforces write-ahead ordering so that any
-   * crash-prefix state is consistent: orphan blobs (harmless), or blobs
-   * + metadata without the ID marker (invisible to enumeration).
+   * # Crash-prefix consistency
    *
-   * For 50 commits this reduces ~100 round-trips to 3 on adapters
-   * that override the default `saveBatch` with a native batch path.
+   * Entries are appended in a deliberate order — blobs, then metadata,
+   * then the ID marker last. On adapters that provide true batch
+   * atomicity (IndexedDB single transaction, NodeFS staged-rename
+   * with all-or-nothing commit) the entire batch lands or none of it
+   * does, which is strictly safer than the previous three-phase
+   * structure.
+   *
+   * On adapters that fall back to `StorageAdapter`'s default sequential
+   * `save()` loop, ordering still preserves the original invariants:
+   *
+   *   - Crash after blobs:           orphan blobs (harmless).
+   *   - Crash after blobs + meta:    visible data, no marker
+   *                                  (invisible to enumeration).
+   *   - Crash after marker:          everything visible.
+   *
+   * For 50 commits this reduces ~100 round-trips to 1 on
+   * batch-capable adapters; on the default fallback the work is the
+   * same N saves either way.
    */
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
@@ -511,50 +525,48 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<number> {
     const sid = sedimentreeId.toString()
 
-    const blobEntries: Array<[string[], Uint8Array]> = []
-    const metaEntries: Array<[string[], Uint8Array]> = []
-
     // Retain copies of each blob so we can emit them after the save.
     const commitBlobCopies: Uint8Array[] = []
     const fragmentBlobCopies: Uint8Array[] = []
 
-    for (const { commitId, signedCommit, blob } of commits) {
-      const idHex = commitId.toHexString()
-      const commitBytes = signedCommit.encode()
-      // Copy from Wasm memory before any async work
-      const commitCopy = new Uint8Array(commitBytes)
-      const blobCopy = new Uint8Array(blob)
+    // Order matters for the sequential-fallback adapter: blobs first,
+    // then metadata, then the ID marker last. Batch-atomic adapters
+    // (IDB, NodeFS) ignore intra-batch ordering — the all-or-nothing
+    // guarantee alone gives crash-prefix consistency.
+    const allEntries: Array<[string[], Uint8Array]> = []
 
-      blobEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
-      metaEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
+    // Pass 1: every blob (commit blobs first, then fragment blobs).
+    for (const { commitId, blob } of commits) {
+      const idHex = commitId.toHexString()
+      const blobCopy = new Uint8Array(blob)
+      allEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
       commitBlobCopies.push(blobCopy)
     }
-
-    for (const { fragmentHead, signedFragment, blob } of fragments) {
+    for (const { fragmentHead, blob } of fragments) {
       const idHex = fragmentHead.toHexString()
-      const fragBytes = signedFragment.encode()
-      const fragCopy = new Uint8Array(fragBytes)
       const blobCopy = new Uint8Array(blob)
-
-      blobEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
-      metaEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
+      allEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
       fragmentBlobCopies.push(blobCopy)
     }
 
-    const markerEntry: [string[], Uint8Array] = [
-      [PREFIX, IDS_PREFIX, sid],
-      ID_MARKER,
-    ]
+    // Pass 2: every metadata record.
+    for (const { commitId, signedCommit } of commits) {
+      const idHex = commitId.toHexString()
+      const commitCopy = new Uint8Array(signedCommit.encode())
+      allEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
+    }
+    for (const { fragmentHead, signedFragment } of fragments) {
+      const idHex = fragmentHead.toHexString()
+      const fragCopy = new Uint8Array(signedFragment.encode())
+      allEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
+    }
+
+    // Pass 3: the sedimentree ID marker, last.
+    allEntries.push([[PREFIX, IDS_PREFIX, sid], ID_MARKER])
 
     this.incrementPending(sid)
     try {
-      if (blobEntries.length > 0) {
-        await this.adapter.saveBatch(blobEntries)
-      }
-      if (metaEntries.length > 0) {
-        await this.adapter.saveBatch(metaEntries)
-      }
-      await this.adapter.saveBatch([markerEntry])
+      await this.adapter.saveBatch(allEntries)
 
       // Defensive copy per event; see comment in saveCommit.
       if (this.listeners["commit-saved"]?.length) {
