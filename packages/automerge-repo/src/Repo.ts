@@ -115,6 +115,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     idFactory,
     signer,
     subductionWebsocketEndpoints,
+    subductionAdapters,
     periodicSyncInterval,
     batchSyncInterval,
   }: RepoConfig = {}) {
@@ -182,6 +183,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       storage: subductionStorage,
       signer: signer ?? new MemorySigner(),
       websocketEndpoints: subductionWebsocketEndpoints ?? [],
+      adapters: subductionAdapters ?? [],
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
         ? (documentId, storageId, heads) => {
             this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
@@ -864,6 +866,14 @@ export interface RepoConfig {
   signer?: unknown
 
   subductionWebsocketEndpoints?: string[]
+
+  subductionAdapters?: {
+    adapter: NetworkAdapterInterface
+    serviceName: string
+    /** Whether to initiate ("connect") or accept ("accept") the subduction
+     *  handshake for peers on this adapter. Defaults to "connect". */
+    role?: "connect" | "accept"
+  }[]
 
   /**
    * Interval in ms for per-document periodic sync via Subduction. Each open
