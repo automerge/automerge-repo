@@ -11,6 +11,7 @@ export class AdapterConnections implements ConnectionManager {
   #onChangeCallback: (() => void) | null = null
   #pendingTransports = 0
   #generation = 0
+  #isShutdown = false
 
   constructor(subduction: Promise<Subduction>, localPeerId: PeerId) {
     this.#subduction = subduction
@@ -34,6 +35,11 @@ export class AdapterConnections implements ConnectionManager {
     this.#onChangeCallback = callback
   }
 
+  shutdown(): void {
+    this.#isShutdown = true
+    this.#onChangeCallback = null
+  }
+
   // ── Adapter management ──────────────────────────────────────────────
 
   addAdapter(
@@ -43,6 +49,7 @@ export class AdapterConnections implements ConnectionManager {
   ) {
     this.#adapters.push(adapter)
     adapter.on("peer-candidate", ({ peerId }) => {
+      if (this.#isShutdown) return
       // Increment synchronously so isConnecting() returns true
       // before the async handshake begins.
       this.#pendingTransports++
