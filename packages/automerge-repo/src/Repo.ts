@@ -708,19 +708,30 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @returns Promise<void>
    */
   async flush(documents?: DocumentId[]): Promise<void> {
-    if (!this.storageSubsystem) {
-      return
+    const tasks: Promise<unknown>[] = []
+
+    // Flush the legacy storage subsystem (Automerge doc snapshots) for
+    // ready documents. No-op if no storage adapter is configured.
+    if (this.storageSubsystem) {
+      const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
+      tasks.push(
+        Promise.all(
+          ids.map(async id => {
+            const state = this.#queries[id]?.peek()
+            if (state?.state === "ready") {
+              await this.storageSubsystem!.saveDoc(id, state.handle.doc())
+            }
+          })
+        )
+      )
     }
 
-    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
-    await Promise.all(
-      ids.map(async id => {
-        const state = this.#queries[id]?.peek()
-        if (state?.state === "ready") {
-          await this.storageSubsystem!.saveDoc(id, state.handle.doc())
-        }
-      })
-    )
+    // Flush any source that buffers writes (e.g. SubductionSource).
+    for (const source of this.#sources) {
+      if (source.flush) tasks.push(source.flush(documents))
+    }
+
+    await Promise.all(tasks)
   }
 
   /**

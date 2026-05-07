@@ -39,6 +39,7 @@ import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
 import { DocumentProgress } from "../src/DocumentQuery.js"
 import { AbortError } from "../src/helpers/abortable.js"
+import { toSedimentreeId } from "../src/subduction/helpers.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -707,28 +708,62 @@ describe("Repo", () => {
   describe("flush behaviour", () => {
     const setup = () => {
       let blockedSaves = new Set<{ path: StorageKey; resolve: () => void }>()
+      // Sticky resume: once `resume(ids)` is called for a set of doc ids
+      // (or `resume()` for all), any *future* save matching the filter
+      // also passes through without blocking. Without this, saves that
+      // arrive after the test's `resume()` call (e.g. from
+      // SubductionSource flushing into the same storage adapter) would
+      // hang forever even though the test has already declared them
+      // safe to proceed.
+      let resumedAll = false
+      let resumedDocIds = new Set<string>()
+      // Subduction stores by SedimentreeId-hex, not DocumentId, so we
+      // need both forms when matching paths.
+      let resumedSedimentreeIds = new Set<string>()
+
+      const matchesResumed = (path: StorageKey) => {
+        if (resumedAll) return true
+        for (const id of resumedDocIds) {
+          if (path.includes(id)) return true
+        }
+        for (const sid of resumedSedimentreeIds) {
+          if (path.includes(sid)) return true
+        }
+        return false
+      }
+
       let resume = (documentIds?: DocumentId[]) => {
-        const savesToUnblock = documentIds
-          ? Array.from(blockedSaves).filter(({ path }) =>
-              documentIds.some(documentId => path.includes(documentId))
-            )
-          : Array.from(blockedSaves)
+        if (documentIds === undefined) {
+          resumedAll = true
+        } else {
+          for (const id of documentIds) {
+            resumedDocIds.add(id)
+            resumedSedimentreeIds.add(toSedimentreeId(id).toString())
+          }
+        }
+        const savesToUnblock = Array.from(blockedSaves).filter(({ path }) =>
+          matchesResumed(path)
+        )
         savesToUnblock.forEach(({ resolve }) => resolve())
       }
       const pausedStorage = new DummyStorageAdapter()
       {
         const originalSave = pausedStorage.save.bind(pausedStorage)
         pausedStorage.save = async (...args) => {
-          await new Promise<void>(resolve => {
-            const blockedSave = {
-              path: args[0],
-              resolve: () => {
-                resolve()
-                blockedSaves.delete(blockedSave)
-              },
-            }
-            blockedSaves.add(blockedSave)
-          })
+          // If this save's path was already resumed by the test, don't
+          // block at all.
+          if (!matchesResumed(args[0])) {
+            await new Promise<void>(resolve => {
+              const blockedSave = {
+                path: args[0],
+                resolve: () => {
+                  resolve()
+                  blockedSaves.delete(blockedSave)
+                },
+              }
+              blockedSaves.add(blockedSave)
+            })
+          }
           await pause(0)
           // otherwise all the save promises resolve together
           // which prevents testing flushing a single docID

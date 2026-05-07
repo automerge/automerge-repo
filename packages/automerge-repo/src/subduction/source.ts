@@ -1,14 +1,17 @@
 import * as Automerge from "@automerge/automerge/slim"
 import {
+  BlobMeta,
   CommitId,
-  SedimentreeId,
-  Subduction,
-  SedimentreeAutomerge,
+  CommitInput,
+  FragmentRequested,
   FragmentStateStore,
   HashMetric,
+  LooseCommit,
+  SedimentreeAutomerge,
+  SedimentreeId,
+  Subduction,
   Topic,
   setSubductionLogLevel,
-  type FragmentRequested,
   type Policy,
 } from "@automerge/automerge-subduction/slim"
 import { DocumentSource } from "../DocumentSource.js"
@@ -784,35 +787,83 @@ export class SubductionSource implements DocumentSource {
     sinceHeads: Set<string>
   ): Promise<void> {
     const changes = Automerge.getChangesMetaSince(doc, Array.from(sinceHeads))
+    if (changes.length === 0) return
 
-    await Promise.all(
-      changes.map(async meta => {
-        try {
-          if (!entry.recentlySavedHashes.add(meta.hash)) return
+    // Build all CommitInputs synchronously. Skip any commit whose hash
+    // is already in the recentlySavedHashes ring — that prevents
+    // duplicate inserts within a flush AND short-circuits
+    // `#handleDataFound` from re-applying our own commits via
+    // `loadIncremental` when the matching `commit-saved` event fires.
+    //
+    // As of subduction 0.11.0 the wasm `LooseCommit`,
+    // `SedimentreeId`, and `CommitId` constructors take their
+    // arguments by reference (no longer by value), so a single
+    // `entry.sedimentreeId` and one `head: CommitId` per change can be
+    // reused across `LooseCommit` construction and the post-batch
+    // `commitDepth` lookup.
+    const meta = automergeMeta(doc)
+    const heads: CommitId[] = []
+    const commitInputs: CommitInput[] = []
 
-          const commitBytes = automergeMeta(doc).getChangeByHash(meta.hash)
-          const head = CommitId.fromHexString(meta.hash)
-          const parents = meta.deps.map(dep => CommitId.fromHexString(dep))
+    for (const change of changes) {
+      if (!entry.recentlySavedHashes.add(change.hash)) continue
 
-          const result = await subduction.addCommit(
-            entry.sedimentreeId,
-            head,
-            parents,
-            commitBytes
-          )
+      try {
+        const commitBytes = meta.getChangeByHash(change.hash)
+        const head = CommitId.fromHexString(change.hash)
+        const looseCommit = new LooseCommit(
+          entry.sedimentreeId,
+          head,
+          change.deps.map(dep => CommitId.fromHexString(dep)),
+          new BlobMeta(commitBytes)
+        )
+        commitInputs.push(new CommitInput(looseCommit, commitBytes))
+        heads.push(head)
+      } catch (e) {
+        console.warn(
+          `[SubductionSource] commit input prep failed for ${change.hash}:`,
+          e
+        )
+      }
+    }
 
-          if (result !== undefined) {
-            const key = `${result.head.toString()}:${result.depth.value}`
-            entry.pendingFragmentRequests.set(key, result)
-          }
-        } catch (e) {
-          console.warn(
-            `[SubductionSource] save commit failed for ${meta.hash}:`,
-            e
-          )
+    if (commitInputs.length === 0) return
+
+    // One batched insert: one minimize, one broadcast, one
+    // `Storage::save_batch_all` instead of N per-commit round-trips.
+    try {
+      await subduction.addBatch(entry.sedimentreeId, commitInputs, [])
+    } catch (e) {
+      console.warn(
+        `[SubductionSource] addBatch failed for ${entry.sedimentreeId
+          .toString()
+          .slice(0, 8)} (${commitInputs.length} commits):`,
+        e
+      )
+      return
+    }
+
+    // Derive fragment-boundary requests post-batch. With per-commit
+    // `addCommit` we got a `FragmentRequested | undefined` back per
+    // call. With `addBatch` (which returns void) we instead query
+    // `commitDepth(head).isBoundary` for each freshly-inserted commit
+    // and synthesize the same `FragmentRequested` value when the
+    // depth boundary check passes.
+    for (const head of heads) {
+      try {
+        const depth = subduction.commitDepth(head)
+        if (depth.isBoundary) {
+          const fr = new FragmentRequested(head, depth)
+          const key = `${fr.head.toString()}:${fr.depth.value}`
+          entry.pendingFragmentRequests.set(key, fr)
         }
-      })
-    )
+      } catch (e) {
+        console.warn(
+          `[SubductionSource] commitDepth check failed for ${head.toHexString()}:`,
+          e
+        )
+      }
+    }
   }
 
   // ── Heal / scheduler delegation ─────────────────────────────────────
@@ -820,6 +871,55 @@ export class SubductionSource implements DocumentSource {
   /** Check whether a sedimentree is currently in heal-backoff. */
   isHealing(sedimentreeId: SedimentreeId): boolean {
     return this.#scheduler.isHealing(sedimentreeId)
+  }
+
+  // ── Flush ───────────────────────────────────────────────────────────
+
+  /**
+   * Drain pending writes so that all known commits / fragments for the
+   * given documents are durable in storage.
+   *
+   * For each targeted entry:
+   *   1. Force any throttled `#save` to fire now (`flushSave.flush()`).
+   *   2. Await the in-flight `#save` (`saveSettled`), which drains
+   *      `addCommit` / `addFragment` calls into wasm.
+   *
+   * Then await the storage bridge for the targeted sedimentree ids so
+   * that wasm-side storage callbacks (IndexedDB / FS writes) have
+   * landed on disk for those docs specifically. Concurrent writes for
+   * other docs are not awaited.
+   *
+   * If `documentIds` is `undefined`, every entry is flushed and the
+   * bridge wait covers every pending write.
+   *
+   * Unknown / not-yet-attached document IDs are silently skipped:
+   * there's nothing buffered for them, so they're already "flushed".
+   */
+  async flush(documentIds?: DocumentId[]): Promise<void> {
+    let targets: SedimentreeEntry[]
+    let bridgeSids: string[] | undefined
+
+    if (documentIds === undefined) {
+      targets = Array.from(this.#entries.values())
+      bridgeSids = undefined // bridge-global wait
+    } else {
+      const sids = documentIds.map(id => toSedimentreeId(id).toString())
+      targets = sids
+        .map(sid => this.#entries.get(sid))
+        .filter((e): e is SedimentreeEntry => e !== undefined)
+      bridgeSids = sids
+    }
+
+    // 1. Force throttled saves to start running now.
+    for (const entry of targets) entry.flushSave.flush()
+
+    // 2. Wait for the per-entry #save to drain into wasm.
+    await Promise.all(targets.map(e => e.saveSettled))
+
+    // 3. Wait for the storage bridge writes for the targeted sids to
+    //    land on disk. When `bridgeSids` is undefined, every pending
+    //    write is awaited.
+    await this.#storage.awaitSettled(bridgeSids)
   }
 
   // ── Shutdown ────────────────────────────────────────────────────────

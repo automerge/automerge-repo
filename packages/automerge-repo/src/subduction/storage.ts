@@ -63,33 +63,104 @@ export interface StorageBridgeEvents {
  *
  * Supports event callbacks via `on()` for commit-saved and fragment-saved events.
  */
+/**
+ * A pending settle waiter. If `sids` is `undefined`, the waiter cares
+ * about all in-flight saves. Otherwise it cares only about saves whose
+ * sedimentree id is in `sids`.
+ *
+ * `remaining` counts how many tracked pending saves the waiter is still
+ * blocked on. When it reaches 0, `resolve()` is called and the entry is
+ * dropped from the resolver list.
+ */
+interface SettleWaiter {
+  sids: Set<string> | undefined
+  remaining: number
+  resolve: () => void
+}
+
 export class SubductionStorageBridge implements SedimentreeStorage {
   private adapter: StorageAdapterInterface
   private listeners: {
     [K in keyof StorageBridgeEvents]?: StorageBridgeEvents[K][]
   } = {}
-  private pendingSaves = 0
-  private settleResolvers: (() => void)[] = []
+
+  /** Per-sedimentree pending-save counts. Absent ⇒ 0. */
+  private pendingPerSid: Map<string, number> = new Map()
+  private settleWaiters: SettleWaiter[] = []
 
   constructor(adapter: StorageAdapterInterface) {
     this.adapter = adapter
   }
 
   /**
-   * Wait for all pending save operations to complete.
-   * Useful for ensuring sync operations have fully persisted.
+   * Wait for pending save operations to complete.
+   *
+   * If `sids` is provided, only waits for saves whose sedimentree id
+   * appears in `sids`. Otherwise waits for every in-flight save in the
+   * bridge.
+   *
+   * Resolves immediately if there's nothing pending in the targeted
+   * scope.
    */
-  async awaitSettled(): Promise<void> {
-    if (this.pendingSaves === 0) return
-    return new Promise(r => this.settleResolvers.push(r))
+  async awaitSettled(sids?: Iterable<string>): Promise<void> {
+    if (sids === undefined) {
+      const total = this.totalPending()
+      if (total === 0) return
+      return new Promise(resolve =>
+        this.settleWaiters.push({
+          sids: undefined,
+          remaining: total,
+          resolve,
+        })
+      )
+    }
+
+    const sidSet = sids instanceof Set ? sids : new Set(sids)
+    let remaining = 0
+    for (const sid of sidSet) {
+      remaining += this.pendingPerSid.get(sid) ?? 0
+    }
+    if (remaining === 0) return
+
+    return new Promise(resolve =>
+      this.settleWaiters.push({ sids: sidSet, remaining, resolve })
+    )
   }
 
-  private decrementPending(): void {
-    this.pendingSaves--
-    if (this.pendingSaves === 0) {
-      this.settleResolvers.forEach(r => r())
-      this.settleResolvers = []
+  private totalPending(): number {
+    let total = 0
+    for (const n of this.pendingPerSid.values()) total += n
+    return total
+  }
+
+  private incrementPending(sid: string): void {
+    this.pendingPerSid.set(sid, (this.pendingPerSid.get(sid) ?? 0) + 1)
+  }
+
+  private decrementPending(sid: string): void {
+    const n = this.pendingPerSid.get(sid) ?? 0
+    if (n <= 1) {
+      this.pendingPerSid.delete(sid)
+    } else {
+      this.pendingPerSid.set(sid, n - 1)
     }
+
+    if (this.settleWaiters.length === 0) return
+
+    // Decrement counters for any waiter that cares about this sid.
+    // Resolve and drop those that reach 0.
+    const stillWaiting: SettleWaiter[] = []
+    for (const w of this.settleWaiters) {
+      if (w.sids === undefined || w.sids.has(sid)) {
+        w.remaining--
+        if (w.remaining <= 0) {
+          w.resolve()
+          continue
+        }
+      }
+      stillWaiting.push(w)
+    }
+    this.settleWaiters = stillWaiting
   }
 
   /**
@@ -165,10 +236,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const commitCopy = new Uint8Array(commitBytes)
     const blobCopy = new Uint8Array(blob)
 
-    this.pendingSaves++
+    const sid = sedimentreeId.toString()
+    this.incrementPending(sid)
     try {
       const idHex = commitId.toHexString()
-      const sid = sedimentreeId.toString()
       const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
 
@@ -190,7 +261,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         )
       }
     } finally {
-      this.decrementPending()
+      this.decrementPending(sid)
     }
   }
 
@@ -294,10 +365,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const fragmentCopy = new Uint8Array(fragmentBytes)
     const blobCopy = new Uint8Array(blob)
 
-    this.pendingSaves++
+    const sid = sedimentreeId.toString()
+    this.incrementPending(sid)
     try {
       const idHex = fragmentHead.toHexString()
-      const sid = sedimentreeId.toString()
       const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
       const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
@@ -317,7 +388,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         )
       }
     } finally {
-      this.decrementPending()
+      this.decrementPending(sid)
     }
   }
 
@@ -475,7 +546,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       ID_MARKER,
     ]
 
-    this.pendingSaves++
+    this.incrementPending(sid)
     try {
       if (blobEntries.length > 0) {
         await this.adapter.saveBatch(blobEntries)
@@ -507,7 +578,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
         })
       }
     } finally {
-      this.decrementPending()
+      this.decrementPending(sid)
     }
 
     return commits.length + fragments.length
