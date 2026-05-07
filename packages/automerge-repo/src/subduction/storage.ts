@@ -514,9 +514,3 @@ const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from({ length: hex.length / 2 }, (_, i) =>
     parseInt(hex.slice(i * 2, i * 2 + 2), 16)
   )
-
-/**
- * Convert Uint8Array to hex string.
- */
-const bytesToHex = (bytes: Uint8Array): string =>
-  Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")
