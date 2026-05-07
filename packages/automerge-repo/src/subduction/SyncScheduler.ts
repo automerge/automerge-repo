@@ -3,10 +3,10 @@ import { DocumentId } from "../types.js"
 import { toDocumentId } from "./helpers.js"
 import debug from "debug"
 
-// ── Self-healing sync constants ─────────────────────────────────────────
-const HEAL_INITIAL_DELAY_MS = 2_000
-const HEAL_MAX_DELAY_MS = 60_000
-const HEAL_MAX_ATTEMPTS = 10
+// ── Self-healing sync defaults ──────────────────────────────────────────
+const DEFAULT_HEAL_INITIAL_DELAY_MS = 2_000
+const DEFAULT_HEAL_MAX_DELAY_MS = 60_000
+const DEFAULT_HEAL_MAX_ATTEMPTS = 10
 
 /** Callback when heal sync gives up after all retry attempts. */
 export type OnHealExhausted = (documentId: DocumentId) => void
@@ -25,6 +25,24 @@ export interface SyncSchedulerOptions {
   ) => Promise<void>
 
   onHealExhausted?: OnHealExhausted
+
+  /**
+   * Timeout passed to `subduction.syncWithAllPeers(...)` for heal
+   * retries. Any finite, non-negative number (including `0`) is
+   * truncated to an integer and forwarded as a `bigint`. `undefined`
+   * (or omitted) passes `null` so subduction applies its own default
+   * timeout. Non-finite or negative values throw at construction.
+   */
+  syncTimeoutMs?: number
+
+  /** Initial delay before the first heal retry. Default 2_000 ms. */
+  healInitialDelayMs?: number
+
+  /** Cap for heal-retry exponential backoff. Default 60_000 ms. */
+  healMaxDelayMs?: number
+
+  /** Maximum heal-retry attempts before giving up. Default 10. */
+  healMaxAttempts?: number
 }
 
 /**
@@ -59,11 +77,25 @@ export class SyncScheduler {
   #healAttempts = new Map<string, number>()
   #isShutdown = false
 
+  // ── Tunable bounds ──────────────────────────────────────────────────
+  #syncTimeout: bigint | null
+  #healInitialDelayMs: number
+  #healMaxDelayMs: number
+  #healMaxAttempts: number
+
   constructor(options: SyncSchedulerOptions) {
     this.#subduction = options.subduction
     this.#log = options.log
     this.#onSyncDataReceived = options.onSyncDataReceived
     this.#onHealExhausted = options.onHealExhausted
+    this.#syncTimeout = toTimeoutBigInt(
+      options.syncTimeoutMs,
+      "subductionTimeouts.syncMs"
+    )
+    this.#healInitialDelayMs =
+      options.healInitialDelayMs ?? DEFAULT_HEAL_INITIAL_DELAY_MS
+    this.#healMaxDelayMs = options.healMaxDelayMs ?? DEFAULT_HEAL_MAX_DELAY_MS
+    this.#healMaxAttempts = options.healMaxAttempts ?? DEFAULT_HEAL_MAX_ATTEMPTS
   }
 
   // ── Self-healing sync ────────────────────────────────────────────────
@@ -78,7 +110,7 @@ export class SyncScheduler {
     const key = sedimentreeId.toString()
     const attempts = this.#healAttempts.get(key) ?? 0
 
-    if (attempts >= HEAL_MAX_ATTEMPTS) {
+    if (attempts >= this.#healMaxAttempts) {
       console.warn(
         `[subduction] heal EXHAUSTED for ${key.slice(
           0,
@@ -93,11 +125,11 @@ export class SyncScheduler {
     const existing = this.#healTimers.get(key)
     if (existing !== undefined) clearTimeout(existing)
 
-    const delay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
+    const delay = this.#healBackoff.get(key) ?? this.#healInitialDelayMs
 
     this.#log(
       `scheduling heal for ${key.slice(0, 8)} in ${delay}ms ` +
-        `(attempt ${attempts + 1}/${HEAL_MAX_ATTEMPTS})`
+        `(attempt ${attempts + 1}/${this.#healMaxAttempts})`
     )
 
     const timer = setTimeout(() => {
@@ -117,7 +149,8 @@ export class SyncScheduler {
       const subduction = await this.#subduction
       const peerResultMap = await subduction.syncWithAllPeers(
         sedimentreeId,
-        true
+        true,
+        this.#syncTimeout
       )
 
       const results = peerResultMap.entries()
@@ -144,8 +177,9 @@ export class SyncScheduler {
       }
 
       if (anyFailed || results.length === 0) {
-        const currentDelay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
-        const nextDelay = Math.min(currentDelay * 2, HEAL_MAX_DELAY_MS)
+        const currentDelay =
+          this.#healBackoff.get(key) ?? this.#healInitialDelayMs
+        const nextDelay = Math.min(currentDelay * 2, this.#healMaxDelayMs)
         this.#healBackoff.set(key, nextDelay)
         this.scheduleHealSync(sedimentreeId)
       } else {
@@ -154,8 +188,9 @@ export class SyncScheduler {
       }
     } catch (e) {
       this.#log(`heal sync threw for ${key.slice(0, 8)}: %O`, e)
-      const currentDelay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
-      const nextDelay = Math.min(currentDelay * 2, HEAL_MAX_DELAY_MS)
+      const currentDelay =
+        this.#healBackoff.get(key) ?? this.#healInitialDelayMs
+      const nextDelay = Math.min(currentDelay * 2, this.#healMaxDelayMs)
       this.#healBackoff.set(key, nextDelay)
       this.scheduleHealSync(sedimentreeId)
     }
@@ -185,4 +220,23 @@ export class SyncScheduler {
     this.#healBackoff.clear()
     this.#healAttempts.clear()
   }
+}
+
+/**
+ * Coerce a millisecond timeout to a `bigint` for the wasm boundary.
+ * `undefined` → `null` (subduction default). Non-finite or negative
+ * values throw a `RangeError` naming `fieldName` so the caller knows
+ * which config field is at fault.
+ */
+export function toTimeoutBigInt(
+  ms: number | undefined,
+  fieldName: string
+): bigint | null {
+  if (ms === undefined) return null
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw new RangeError(
+      `${fieldName} must be a finite, non-negative number; got ${ms}`
+    )
+  }
+  return BigInt(Math.trunc(ms))
 }
