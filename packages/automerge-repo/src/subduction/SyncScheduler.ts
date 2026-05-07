@@ -88,7 +88,10 @@ export class SyncScheduler {
     this.#log = options.log
     this.#onSyncDataReceived = options.onSyncDataReceived
     this.#onHealExhausted = options.onHealExhausted
-    this.#syncTimeout = toTimeoutBigInt(options.syncTimeoutMs)
+    this.#syncTimeout = toTimeoutBigInt(
+      options.syncTimeoutMs,
+      "subductionTimeouts.syncMs"
+    )
     this.#healInitialDelayMs =
       options.healInitialDelayMs ?? DEFAULT_HEAL_INITIAL_DELAY_MS
     this.#healMaxDelayMs = options.healMaxDelayMs ?? DEFAULT_HEAL_MAX_DELAY_MS
@@ -222,13 +225,17 @@ export class SyncScheduler {
 /**
  * Coerce a millisecond timeout to a `bigint` for the wasm boundary.
  * `undefined` → `null` (subduction default). Non-finite or negative
- * values throw with a clearer error than `BigInt`'s default.
+ * values throw a `RangeError` naming `fieldName` so the caller knows
+ * which config field is at fault.
  */
-function toTimeoutBigInt(ms: number | undefined): bigint | null {
+function toTimeoutBigInt(
+  ms: number | undefined,
+  fieldName: string
+): bigint | null {
   if (ms === undefined) return null
   if (!Number.isFinite(ms) || ms < 0) {
     throw new RangeError(
-      `subductionTimeouts.syncMs must be a finite, non-negative number; got ${ms}`
+      `${fieldName} must be a finite, non-negative number; got ${ms}`
     )
   }
   return BigInt(Math.trunc(ms))

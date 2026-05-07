@@ -767,8 +767,16 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Stop traditional sync network connections
     this.networkSubsystem.disconnect()
 
-    // Flush final Automerge document state to storage
-    await this.flush()
+    // Flush final Automerge document state to storage. Shutdown is
+    // best-effort cleanup: persistent storage failures are logged
+    // here but should not prevent the rest of the teardown from
+    // completing. Callers that need to observe persistence errors
+    // should call `repo.flush()` explicitly before `shutdown()`.
+    try {
+      await this.flush()
+    } catch (e) {
+      this.#log("flush() during shutdown failed: %O", e)
+    }
   }
 
   metrics(): { documents: { [key: string]: any } } {
