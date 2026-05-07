@@ -89,11 +89,10 @@ interface SedimentreeEntry {
   /** Resolves when any in-progress `#save` completes. */
   saveSettled: Promise<void>
   /**
-   * Error from the most recent `#save` attempt that failed to
-   * persist, or `null` if the most recent save succeeded (or none
-   * have run). Reset to `null` whenever a `#save` completes
-   * successfully. `flush()` reports this back to its caller so
-   * persistent storage failures aren't silently swallowed.
+   * Error from the most recent failed `#save`, or `null` if the
+   * most recent save succeeded (or none have run). `flush()`
+   * surfaces this so persistent storage failures aren't silently
+   * swallowed.
    */
   lastSaveError: unknown
   /**
@@ -101,21 +100,19 @@ interface SedimentreeEntry {
    * invocations early-return; the throttle's next firing picks up
    * any state that landed during the in-flight save.
    *
-   * Intentionally a bool, not a timestamp-with-expiry: an
+   * Must be a strict bool, not a timestamp-with-expiry: an
    * auto-releasing gate would let two `#save` bodies run
-   * concurrently when one outruns the deadline, re-introducing the
-   * bug fixed in 6ff00c821. The `try/finally` already releases on
-   * every throw; for genuinely-stuck awaits, add a timeout to the
-   * specific call instead.
+   * concurrently and reprocess overlapping change sets. The
+   * `try/finally` in `#save` already releases this on every throw;
+   * for genuinely-stuck awaits, add a timeout to the specific call
+   * instead.
    */
   saveInProgress: boolean
   /**
-   * Set true by `#save` when its post-save delta check detects
-   * heads that were not visible before the `addBatch` await (the
-   * `getChangeByHash` / `getHeads` interaction noted on commit
-   * 6ff00c821). Cleared at the start of each `#save`. `flush()`
-   * uses this to decide whether another save round is needed
-   * before resolving.
+   * Set by `#save` when its post-await heads observation differs
+   * from the heads it sampled before the `addBatch` await. Cleared
+   * at the start of each `#save`. `flush()` uses this to decide
+   * whether another save round is needed before resolving.
    */
   saveDeltaPending: boolean
 
@@ -674,69 +671,27 @@ export class SubductionSource implements DocumentSource {
   /**
    * Persist any new local commits for `entry` into Subduction.
    *
-   * # Concurrency model: gate, no chain, no inner loop
+   * Single-flight per entry: concurrent invocations early-return on
+   * the `saveInProgress` gate (no promise-chain queue). Each pass
+   * processes whatever has accumulated since `entry.lastSavedHeads`
+   * and runs at most one `addBatch` round-trip; if the post-await
+   * heads check detects a delta, it re-arms the throttle for a
+   * follow-up save rather than looping inline.
    *
-   * At most one `#save` runs at a time per entry. Concurrent
-   * invocations early-return immediately rather than queueing
-   * (no promise-chain handoff). The throttle's next firing picks
-   * up any state that landed during the in-flight save.
+   * `entry.saveSettled` resolves when any in-flight pass completes.
    *
-   * We deliberately do NOT loop within a single `#save` invocation
-   * to drain newly-arrived changes. An earlier design had a
-   * `do { ... } while (saveAgainAfter)` loop that ran iter2 within
-   * the same call; under streaming mutation patterns it caused a
-   * 3× shutdown slowdown vs serialization, with no correctness
-   * benefit. The slowdown stemmed from `loadIncremental`
-   * side-effects in `#handleDataFound` reassigning `#doc` between
-   * iterations, which made the reconcile check think new commits
-   * had arrived even when the logical state was unchanged.
-   *
-   * Instead, after each save we check `getChangesMetaSince(handle,
-   * [...currentSet])` and, if changes have genuinely landed,
-   * explicitly re-arm the throttle via `entry.flushSave()`. The
-   * throttle's next firing handles them as a fresh `#save`. This
-   * matches the original `serialize` design's pattern of "one save
-   * per invocation, throttle for the rest" while preserving the
-   * gate's slightly-faster concurrent-call semantics.
-   *
-   * # Coordination with `#doSync()` and `shutdown()`
-   *
-   * `entry.saveSettled` is the promise readers wait on to know that
-   * any in-flight save has completed. `#doSync` awaits it before
-   * reading state for sync; `shutdown` awaits it after
-   * `flushSave.flush()` to drain pending work before disconnecting
-   * transports.
-   *
-   * # Why not the old promise-chain handoff?
-   *
-   * The original (`subductionjs` branch) design used
-   * `await previousSaveSettled` to chain concurrent calls in
-   * sequence. That's also correct, but heavier: each concurrent
-   * call holds a slot in the chain, so N concurrent invocations
-   * yield N sequential save passes. The gate replaces that with
-   * a constant-cost early-return, dropping the chain overhead in
-   * the common case where one save can serve multiple incoming
-   * triggers.
-   *
-   * # Implication for callers
-   *
-   * Multiple synchronous triggers in a single throttle window
-   * collapse into one save pass. Callers that need per-trigger
-   * completion confirmation (i.e. "my exact change set is durable")
-   * MUST call `entry.flushSave.flush()` themselves *before* awaiting
-   * `entry.saveSettled`, so that the trigger they care about is the
-   * one that armed the next save. Without that pre-flush, the gate
-   * may have absorbed the trigger into an earlier in-flight pass,
-   * and `saveSettled` could resolve based on a save that started
-   * before the caller's change was visible. `#doSync`, `flush()`,
-   * and `shutdown()` already follow this pattern.
+   * Callers that need per-trigger durability (i.e. "my exact change
+   * set is durable") MUST call `entry.flushSave.flush()` themselves
+   * before awaiting `entry.saveSettled`, otherwise the gate may have
+   * absorbed their trigger into an earlier in-flight pass that
+   * predates their change. `#doSync`, `flush()`, and `shutdown()`
+   * follow this pattern.
    */
   async #save(entry: SedimentreeEntry) {
     if (entry.saveInProgress) return
     entry.saveInProgress = true
-    // Reset the post-save-delta flag at the start of every save. If
-    // this run's tail-end check detects a delta, it'll be re-set
-    // below; otherwise it stays false and `flush()` won't loop.
+    // Cleared on every entry; the post-save delta check below
+    // re-sets it if a follow-up save is needed.
     entry.saveDeltaPending = false
 
     let resolveSaveSettled!: () => void
@@ -759,19 +714,15 @@ export class SubductionSource implements DocumentSource {
         return
       }
 
-      // NOTE: do NOT advance `entry.lastSavedHeads` to `currentSet`
-      // before `#saveNewCommits` succeeds. If the underlying
-      // `addBatch` rejects, the next `#save` must observe the
-      // pre-failure baseline so it can retry the same change set
-      // (plus any newer changes). Advancing eagerly would let the
-      // fast-path above swallow the retry.
+      // `entry.lastSavedHeads` advances only after `#saveNewCommits`
+      // succeeds (see below). On rejection the next save must see
+      // the pre-failure baseline so it can retry.
       const previousHeads = entry.lastSavedHeads
 
       const subduction = await this.#subduction
       const sid = entry.sedimentreeId.toString().slice(0, 8)
-      // `getChangesMetaSince` is O(N); only compute it when logs are
-      // actually enabled. The same call inside `#saveNewCommits` is
-      // load-bearing and runs regardless.
+      // `getChangesMetaSince` is O(N) — skip it when nobody is
+      // listening for the log message.
       if (this.#log.enabled) {
         const changeCount = Automerge.getChangesMetaSince(
           doc,
@@ -786,43 +737,28 @@ export class SubductionSource implements DocumentSource {
       try {
         await this.#saveNewCommits(entry, doc, subduction, previousHeads)
       } catch (e) {
-        // `#saveNewCommits` already logged the underlying cause. Leave
-        // `entry.lastSavedHeads` at `previousHeads` so the next save
-        // retries the same baseline. Record the error so `flush()`
-        // surfaces it to its caller instead of silently resolving.
+        // `#saveNewCommits` already logged the cause. Record the
+        // error so `flush()` can surface it; leave `lastSavedHeads`
+        // unchanged so the next save retries the same baseline.
         entry.lastSaveError = e
-        this.#log(
-          `#save ${sid}: persistence failed; will retry on next trigger`
-        )
+        this.#log(`#save ${sid}: persistence failed; will retry`)
         return
       }
 
-      // Persistence succeeded. Clear any prior error and advance the
-      // baseline. Copy `currentSet` instead of aliasing so future
-      // mutations to either side stay isolated.
+      // Persistence succeeded. Copy `currentSet` instead of aliasing
+      // so future mutations to either side stay isolated.
       entry.lastSaveError = null
       entry.lastSavedHeads = new Set(currentSet)
 
-      // If new `handle.change()` calls arrived during the await, the
-      // `heads-changed` listener has already armed the throttle and a
-      // follow-up `#save` is queued — nothing to do.
-      //
-      // Separately, calls to `getChangeByHash` inside `#saveNewCommits`
-      // can shift the value `Automerge.getHeads(doc)` returns on
-      // subsequent reads of the same doc reference (a known
-      // wasm-bindgen interaction in this Automerge version, called out
-      // in commit 6ff00c821). After the await, we re-sample heads via
-      // `getChangesMetaSince(currentDoc, currentSet)`: if the count is
-      // > 0, the post-`await` view of the doc has changes the
-      // pre-`await` view didn't surface and `heads-changed` did NOT
-      // fire (no `update()` call happened to trigger it). We then
-      // re-arm the throttle explicitly so the missed delta gets
-      // persisted on the next save pass.
+      // Detect a post-save delta the `heads-changed` listener didn't
+      // fire on. `getChangeByHash` calls inside `#saveNewCommits` can
+      // shift what `getHeads` returns for the same doc reference on
+      // subsequent reads, so the heads we sampled before the await
+      // may be stale by the time it resolves. If the current heads
+      // differ, re-arm the throttle and signal `flush()` to wait for
+      // the next round.
       const currentDoc = entry.handle.doc()
       if (currentDoc) {
-        // Cheap pre-check: compare current heads to the heads we just
-        // persisted (`currentSet`). If they match, nothing has shifted
-        // and we skip the more expensive `getChangesMetaSince` walk.
         const headsNow = Automerge.getHeads(currentDoc)
         const headsMatch =
           headsNow.length === currentSet.size &&
@@ -834,12 +770,6 @@ export class SubductionSource implements DocumentSource {
             Array.from(currentSet)
           ).length
           if (newSinceCurrent > 0) {
-            this.#log(
-              `#save ${entry.sedimentreeId
-                .toString()
-                .slice(0, 8)}: post-save delta of ${newSinceCurrent} change(s) ` +
-                `without heads-changed; re-arming throttle`
-            )
             entry.saveDeltaPending = true
             entry.flushSave()
           }
@@ -878,13 +808,6 @@ export class SubductionSource implements DocumentSource {
     // Build all CommitInputs synchronously. Skip any change whose
     // hash is already in `recentlySavedHashes` — those represent
     // commits already persisted (or in flight) on a previous round.
-    //
-    // As of subduction 0.11.0 the wasm `LooseCommit`,
-    // `SedimentreeId`, and `CommitId` constructors take their
-    // arguments by reference (no longer by value), so a single
-    // `entry.sedimentreeId` and one `head: CommitId` per change can be
-    // reused across `LooseCommit` construction and the post-batch
-    // `commitDepth` lookup.
     const meta = automergeMeta(doc)
     const heads: CommitId[] = []
     const acceptedHashes: string[] = []
@@ -915,20 +838,15 @@ export class SubductionSource implements DocumentSource {
 
     if (commitInputs.length === 0) return
 
-    // Add hashes to the ring BEFORE `addBatch`. The bridge fires
-    // `commit-saved` events synchronously inside its storage write,
-    // which routes to `#handleDataFound` *before* `addBatch` resolves.
-    // Without the hash already in the ring at that point,
-    // `#handleDataFound` falls through to `loadIncremental` on a
-    // commit we're already in the process of persisting.
+    // Record hashes in the ring BEFORE `addBatch` so that the
+    // synchronous `commit-saved` events fired from the storage
+    // bridge (which run before `addBatch` resolves) find them and
+    // skip the `#handleDataFound` `loadIncremental` path.
     for (const hash of acceptedHashes) entry.recentlySavedHashes.add(hash)
 
-    // One batched insert: one minimize, one broadcast, one
-    // `Storage::save_batch_all` instead of N per-commit round-trips.
-    //
-    // On failure, roll back the ring entries so a future save retries
-    // them. Errors propagate to `#save`, which keeps
-    // `entry.lastSavedHeads` at its previous value.
+    // On failure, roll the ring entries back so the next save can
+    // retry. `#save` separately keeps `entry.lastSavedHeads` at its
+    // previous value when this rejects.
     try {
       await subduction.addBatch(entry.sedimentreeId, commitInputs, [])
     } catch (e) {
@@ -944,12 +862,9 @@ export class SubductionSource implements DocumentSource {
       throw e
     }
 
-    // Derive fragment-boundary requests post-batch. With per-commit
-    // `addCommit` we got a `FragmentRequested | undefined` back per
-    // call. With `addBatch` (which returns void) we instead query
-    // `commitDepth(head).isBoundary` for each freshly-inserted commit
-    // and synthesize the same `FragmentRequested` value when the
-    // depth boundary check passes.
+    // Derive fragment-boundary requests by checking each
+    // freshly-inserted commit's depth and synthesising a
+    // `FragmentRequested` for any that lands on a boundary.
     for (const head of heads) {
       try {
         const depth = subduction.commitDepth(head)
@@ -977,32 +892,18 @@ export class SubductionSource implements DocumentSource {
   // ── Flush ───────────────────────────────────────────────────────────
 
   /**
-   * Drain pending writes so that all known commits / fragments for the
-   * given documents are durable in storage.
+   * Drain pending writes so that all known commits / fragments for
+   * the given documents are durable in storage.
    *
-   * Flow per entry:
-   *   1. Force the throttled `#save` to fire now (`flushSave.flush()`).
-   *   2. Await `saveSettled`, which resolves once the in-flight `#save`
-   *      finishes its `addBatch` round.
-   *   3. `#save` may detect a post-save delta (heads observed AFTER
-   *      the await differ from heads sampled BEFORE) and re-arm the
-   *      throttle for another save 100ms later. Repeat steps 1-2
-   *      until heads stabilise so that re-armed work doesn't escape
-   *      the flush.
-   *   4. Await the storage bridge for the targeted sedimentree ids,
-   *      so wasm-side storage callbacks have landed on disk.
+   * Per entry, force the throttled save to run, await it, repeat
+   * until no entry re-arms a follow-up save, then await the storage
+   * bridge for the targeted sedimentree ids. If `documentIds` is
+   * `undefined`, every entry is flushed and the bridge wait covers
+   * every pending write. Unknown document ids are silently skipped.
    *
-   * If `documentIds` is `undefined`, every entry is flushed and the
-   * bridge wait covers every pending write.
-   *
-   * Unknown / not-yet-attached document IDs are silently skipped.
-   *
-   * # Errors
-   *
-   * Rejects with the most recent `addBatch` error from any targeted
-   * entry whose last save attempt failed and has not subsequently
-   * succeeded. The error is the underlying storage / wasm failure,
-   * wrapped in an `AggregateError` if multiple entries failed.
+   * Rejects with the underlying error from any targeted entry whose
+   * last save attempt failed and has not since succeeded; multiple
+   * failures are wrapped in an `AggregateError`.
    */
   async flush(documentIds?: DocumentId[]): Promise<void> {
     let targets: SedimentreeEntry[]
@@ -1019,12 +920,9 @@ export class SubductionSource implements DocumentSource {
       bridgeSids = sids
     }
 
-    // Loop while any targeted entry's last `#save` re-armed the
-    // throttle for a follow-up pass (the `saveDeltaPending` flag).
-    // The flag is cleared at the start of every `#save`, so a pass
-    // that doesn't re-arm leaves it `false` and the loop exits.
-    // Bounded by `MAX_FLUSH_ROUNDS` so a pathological mutation
-    // pattern can't trap `flush()` forever.
+    // Loop while any entry's last `#save` re-armed the throttle for
+    // a follow-up pass (`saveDeltaPending`). Bounded so a
+    // pathological mutation pattern can't trap `flush()` forever.
     const MAX_FLUSH_ROUNDS = 8
     for (let round = 0; round < MAX_FLUSH_ROUNDS; round++) {
       for (const entry of targets) entry.flushSave.flush()

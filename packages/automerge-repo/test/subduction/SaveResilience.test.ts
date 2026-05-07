@@ -203,20 +203,15 @@ describe("SubductionSource #save resilience", () => {
   it(
     "transient addBatch rejection does not lose commits — retry persists everything",
     async () => {
-      // GIVEN a Repo whose subduction storage rejects the first two
-      // batched writes and then succeeds. This exercises the F1
-      // correctness invariants:
+      // Storage rejects the first two batched writes, then succeeds.
+      // Exercises the invariants that prevent commits from being lost
+      // on transient persistence failure:
       //
-      //   - `entry.lastSavedHeads` does not advance until `addBatch`
-      //     succeeds, so the next `#save` sees the failed batch's
-      //     changes as still-pending.
-      //   - `entry.recentlySavedHashes.add(...)` is deferred until
-      //     after `addBatch` succeeds, so the next save's
-      //     `getChangesMetaSince(...)` walk doesn't skip them.
-      //
-      // If either invariant regresses, the rejected commits become
-      // permanently invisible to subduction storage even though the
-      // doc still has them in memory.
+      //   - `entry.lastSavedHeads` only advances after `addBatch`
+      //     succeeds, so the next `#save` retries from the same
+      //     baseline.
+      //   - `entry.recentlySavedHashes` rolls back ring entries on
+      //     rejection, so the retry doesn't skip them.
       const storage = new TransientlyRejectingStorageAdapter("subduction", 2)
       const repo = new Repo({ storage, network: [] })
 
@@ -323,16 +318,10 @@ describe("SubductionSource #save resilience", () => {
   it(
     "n=200 burst flush+shutdown stays well under the linear baseline",
     async () => {
-      // Always-on guard against re-introducing the per-commit O(N²)
-      // shape in `#saveNewCommits` (or the equivalent in any future
-      // batched insert path). With the addBatch refactor in place,
-      // this run takes ~50–100ms in CI; before it took 2-3 seconds
-      // for the same workload. We assert <2s with comfortable
-      // headroom for slow CI.
-      //
-      // If this test starts failing, the algorithmic shape of the
-      // save path has likely regressed — check `#saveNewCommits` and
-      // `saveBatchAll` for accidentally-introduced per-commit work.
+      // Always-on guard against re-introducing per-commit O(N²) work
+      // in the save path. Threshold is generous (~20× the typical
+      // run); failures here mean `#saveNewCommits` or `saveBatchAll`
+      // grew accidentally per-commit work.
       const storage = new DummyStorageAdapter()
       const repo = new Repo({ storage, network: [] })
 
@@ -352,8 +341,6 @@ describe("SubductionSource #save resilience", () => {
         await repo.shutdown()
         const elapsed = performance.now() - t0
 
-        // 2_000 ms gives ~20× headroom over the post-refactor median
-        // (~100 ms). If we drift much above that, we want to know.
         expect(elapsed).toBeLessThan(2_000)
       } catch (e) {
         // If the test failed *before* shutdown completed, we still

@@ -702,28 +702,20 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Drains pending writes for the given documents (or all documents
+   * Drain pending writes for the given documents (or all documents
    * when `documents` is omitted) so they are durable in storage.
    *
-   * The legacy storage subsystem persists each ready document's
-   * latest Automerge bytes via `saveDoc`. Independently, every
-   * registered {@link DocumentSource} that implements `flush`
-   * (notably {@link SubductionSource}) is asked to drain its own
-   * buffered writes. The promise resolves once every step has
-   * settled.
-   *
-   * Resolves immediately for documents that are not yet ready or
-   * that have no registered source-level buffering.
+   * Saves each ready document's Automerge bytes via the
+   * `StorageSubsystem`'s snapshot path and asks every registered
+   * {@link DocumentSource} that implements `flush` to drain its own
+   * buffered writes. Resolves once everything has settled.
    *
    * @hidden this API is experimental and may change.
    * @param documents - if provided, only flushes the specified documents.
-   * @returns Promise<void>
    */
   async flush(documents?: DocumentId[]): Promise<void> {
     const tasks: Promise<unknown>[] = []
 
-    // Flush the legacy storage subsystem (Automerge doc snapshots) for
-    // ready documents. No-op if no storage adapter is configured.
     if (this.storageSubsystem) {
       const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
       tasks.push(
@@ -738,7 +730,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
     }
 
-    // Flush any source that buffers writes (e.g. SubductionSource).
     for (const source of this.#sources) {
       if (source.flush) tasks.push(source.flush(documents))
     }
@@ -767,11 +758,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Stop traditional sync network connections
     this.networkSubsystem.disconnect()
 
-    // Flush final Automerge document state to storage. Shutdown is
-    // best-effort cleanup: persistent storage failures are logged
-    // here but should not prevent the rest of the teardown from
-    // completing. Callers that need to observe persistence errors
-    // should call `repo.flush()` explicitly before `shutdown()`.
+    // Best-effort flush: log persistence errors but don't propagate,
+    // so the rest of teardown still runs. Call `repo.flush()`
+    // explicitly before `shutdown()` if you need to observe them.
     try {
       await this.flush()
     } catch (e) {

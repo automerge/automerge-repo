@@ -95,27 +95,18 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   /**
    * Wait for in-scope save operations to drain.
    *
-   * Implementation: counter-based. The waiter snapshots `remaining`
-   * at registration time and decrements on every matching save
-   * completion, regardless of whether that save was already in flight
-   * at call time or started after. This is fast and adequate for
-   * `flush()`-style callers, which always pump their throttles and
-   * await per-entry `saveSettled` before reaching here — so by the
-   * time `awaitSettled` is called, no new saves will start before it
-   * returns and the snapshot equals the in-flight set.
+   * Counter-based: the waiter snapshots how many saves are pending
+   * for the targeted scope at call time and resolves once that many
+   * matching saves complete. Saves that start after registration
+   * count toward the same total — fine for `flush()`-style callers
+   * that have already pumped their throttles, but means a new save
+   * completing before an older one can resolve the waiter while the
+   * older save is still pending. Don't add call patterns that race
+   * here.
    *
-   * Caveat: if a NEW save for a tracked sid starts after the waiter
-   * registers AND completes before an older one, the waiter can
-   * resolve while an older save is still pending. Don't add such
-   * call patterns; if you need stronger semantics, track per-save
-   * promises instead.
-   *
-   * Scope:
-   *   - `sids === undefined`: every in-flight save across all
-   *     sedimentrees.
-   *   - `sids` provided: saves whose sedimentree id is in `sids`.
-   *
-   * Resolves immediately when the matching scope is empty.
+   * `sids === undefined` waits on every in-flight save; otherwise
+   * waits on saves whose sedimentree id is in `sids`. Resolves
+   * immediately when the matching scope is empty.
    */
   async awaitSettled(sids?: Iterable<string>): Promise<void> {
     if (sids === undefined) {
@@ -498,32 +489,19 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   /**
    * Save a batch of commits and fragments.
    *
-   * Called from Subduction's Wasm `save_batch` during sync ingestion.
-   * Issues three sequential `adapter.saveBatch()` calls — blobs, then
-   * metadata, then the ID marker — to preserve crash-prefix
-   * consistency on adapters whose `saveBatch` is per-entry-atomic but
-   * NOT all-or-nothing across the batch (e.g. NodeFS commits renames
-   * in parallel and a mid-commit crash can leave any subset
-   * observable).
+   * Issues three sequential `adapter.saveBatch()` calls — blobs,
+   * then metadata, then the ID marker — to preserve crash-prefix
+   * consistency on adapters whose `saveBatch` is per-entry-atomic
+   * but not all-or-nothing across the batch (e.g. NodeFS).
    *
    * Crash invariants:
-   *   - Crash during blobs:        partial orphan blobs, no metadata,
-   *                                no marker. Harmless; invisible.
-   *   - Crash after blobs only:    orphan blobs. Harmless.
-   *   - Crash during metadata:     blobs + partial metadata, no
-   *                                marker. Invisible to enumeration.
-   *   - Crash after blobs+meta:    visible data, no marker.
-   *                                Invisible to enumeration.
-   *   - Crash after marker:        everything visible (the only
-   *                                state in which this sedimentree
-   *                                shows up in `loadAllSedimentreeIds`).
-   *
-   * On adapters that DO provide all-or-nothing batch atomicity
-   * (IndexedDB single transaction), this still works correctly — the
-   * three transactions land in order, and a crash between them stops
-   * at one of the safe boundaries above. The cost is ~3 transactions
-   * per batch instead of one; acceptable for the durability win on
-   * the non-atomic adapters.
+   *   - Crash during/after blobs only:  orphan blobs. Harmless.
+   *   - Crash during/after metadata:    blobs + meta, no marker.
+   *                                     Invisible to enumeration.
+   *   - Crash after marker:             fully visible (only state
+   *                                     in which this sedimentree
+   *                                     appears in
+   *                                     `loadAllSedimentreeIds`).
    */
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
