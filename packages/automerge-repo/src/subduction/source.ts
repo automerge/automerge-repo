@@ -45,25 +45,13 @@ const DEFAULT_SYNC_TIMEOUT_MS = 60_000
  * Capacity of the per-entry `recentlySavedHashes` ring used to
  * short-circuit `#handleDataFound` for our own self-saved commits.
  *
- * Sizing rationale: a synchronous burst of N `handle.change` calls
- * results in N `addCommit` calls running concurrently in
- * `Promise.all` inside `#saveNewCommits`. The hash for each commit
- * is added to the ring synchronously *before* its `addCommit`
- * await; later, `commit-saved` events fire in roughly the same
- * order as the addCommit completions and route to
- * `#handleDataFound`, which checks the ring.
+ * If the ring evicts a hash before its matching `commit-saved` event
+ * arrives, `#handleDataFound` falls through to `loadIncremental` on
+ * the already-applied commit — O(doc-size) wasted work per evicted
+ * entry, turning the flush into O(N²).
  *
- * If the ring evicts an entry before its `commit-saved` event
- * arrives, `#handleDataFound` falls through to `loadIncremental`
- * on the already-applied commit — O(doc-size) wasted work per
- * evicted entry, turning the flush into O(N²).
- *
- * 16384 covers DXOS-style bursts with comfortable headroom. At
- * ~64 bytes per hash string, that's ~1 MB per entry — fine.
- *
- * (Replacing the ring with an unbounded `Set<string>` would be
- * simpler and remove the silent O(N²) cliff entirely; left as a
- * follow-up because measurements at the time were inconclusive.)
+ * 16384 covers realistic synchronous bursts with comfortable
+ * headroom. At ~64 bytes per hash string, that's ~1 MB per entry.
  */
 const RECENTLY_SAVED_CACHE_SIZE = 16384
 
