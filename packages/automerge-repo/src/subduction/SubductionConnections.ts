@@ -14,6 +14,8 @@ export class SubductionConnections implements ConnectionManager {
   #subduction: Promise<Subduction>
   #onChangeCallback: (() => void) | null = null
   #generation = 0
+  #isShutdown = false
+  #pendingSleeps = new Map<ReturnType<typeof setTimeout>, () => void>()
 
   constructor(subduction: Promise<Subduction>) {
     this.#subduction = subduction
@@ -42,29 +44,52 @@ export class SubductionConnections implements ConnectionManager {
     const serviceName = new URL(url).host
     let backoff = RECONNECT_BASE_MS
 
-    while (true) {
+    while (!this.#isShutdown) {
       this.#setConnectionState(url, "connecting")
-      console.log(`[subduction] connecting to ${url}...`)
+      this.#log(`connecting to ${url}...`)
 
       try {
         const transport = await WebSocketTransport.connect(url)
+
+        if (this.#isShutdown) {
+          transport.disconnect()
+          break
+        }
+
         const subduction = await this.#subduction
         await subduction.connectTransport(transport, serviceName)
         this.#setConnectionState(url, "running")
-        console.log(`[subduction] connected to ${url}`)
+        this.#log(`connected to ${url}`)
         backoff = RECONNECT_BASE_MS
 
         await transport.closed()
-        console.log(`[subduction] disconnected from ${url}`)
+        this.#log(`disconnected from ${url}`)
       } catch (e) {
         console.warn(`[subduction] connection to ${url} failed:`, e)
       }
 
+      if (this.#isShutdown) break
+
       this.#setConnectionState(url, "awaiting-reconnect")
-      console.log(`[subduction] reconnecting to ${url} in ${backoff}ms`)
-      await new Promise(r => setTimeout(r, backoff))
+      this.#log(`reconnecting to ${url} in ${backoff}ms`)
+      await new Promise<void>(r => {
+        const timer = setTimeout(() => {
+          this.#pendingSleeps.delete(timer)
+          r()
+        }, backoff)
+        this.#pendingSleeps.set(timer, r)
+      })
       backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
     }
+  }
+
+  shutdown(): void {
+    this.#isShutdown = true
+    for (const [timer, resolve] of this.#pendingSleeps) {
+      clearTimeout(timer)
+      resolve()
+    }
+    this.#pendingSleeps.clear()
   }
 
   #setConnectionState(url: string, state: ConnectionState) {

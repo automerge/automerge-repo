@@ -77,6 +77,7 @@ export class SyncScheduler {
   #healTimers = new Map<string, ReturnType<typeof setTimeout>>()
   #healBackoff = new Map<string, number>()
   #healAttempts = new Map<string, number>()
+  #isShutdown = false
 
   // ── Periodic sync state ───────────────────────────────────────────
   #periodicSyncTimer: ReturnType<typeof setInterval> | null = null
@@ -111,6 +112,7 @@ export class SyncScheduler {
   // onHealExhausted callback.
 
   scheduleHealSync(sedimentreeId: SedimentreeId): void {
+    if (this.#isShutdown) return
     const key = sedimentreeId.toString()
     const attempts = this.#healAttempts.get(key) ?? 0
 
@@ -131,8 +133,8 @@ export class SyncScheduler {
 
     const delay = this.#healBackoff.get(key) ?? HEAL_INITIAL_DELAY_MS
 
-    console.log(
-      `[subduction] scheduling heal for ${key.slice(0, 8)} in ${delay}ms ` +
+    this.#log(
+      `scheduling heal for ${key.slice(0, 8)} in ${delay}ms ` +
         `(attempt ${attempts + 1}/${HEAL_MAX_ATTEMPTS})`
     )
 
@@ -195,7 +197,7 @@ export class SyncScheduler {
   // ── Periodic background sync ────────────────────────────────────────
 
   async #runPeriodicSync(): Promise<void> {
-    if (this.#periodicSyncInProgress) return
+    if (this.#isShutdown || this.#periodicSyncInProgress) return
     this.#periodicSyncInProgress = true
 
     try {
@@ -205,8 +207,8 @@ export class SyncScheduler {
       const healingCount = sedimentreeIds.filter(id =>
         this.#healTimers.has(id.toString())
       ).length
-      console.log(
-        `[subduction] periodic sync: ${sedimentreeIds.length} entries, ` +
+      this.#log(
+        `periodic sync: ${sedimentreeIds.length} entries, ` +
           `${healingCount} healing (skipped)`
       )
 
@@ -262,7 +264,7 @@ export class SyncScheduler {
   }
 
   async #runBatchSync(): Promise<void> {
-    if (this.#batchSyncInProgress) return
+    if (this.#isShutdown || this.#batchSyncInProgress) return
     this.#batchSyncInProgress = true
     this.#log("starting batch sync (all open handles)")
 
@@ -318,6 +320,7 @@ export class SyncScheduler {
   // ── Shutdown ────────────────────────────────────────────────────────
 
   shutdown(): void {
+    this.#isShutdown = true
     if (this.#periodicSyncTimer !== null) {
       clearInterval(this.#periodicSyncTimer)
       this.#periodicSyncTimer = null
