@@ -64,7 +64,7 @@ export interface AdapterState {
    * it changes. Note that the current state is not yielded; only state
    * transitions are emitted.
    */
-  watch(): AsyncIterator<"ready" | "connecting">
+  watch(): AsyncIterable<"ready" | "connecting">
 }
 
 // events & payloads
