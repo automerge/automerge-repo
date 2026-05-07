@@ -353,6 +353,9 @@ describe("StorageSubsystem", () => {
       async removeRange(keyPrefix: StorageKey) {
         return this.#inner.removeRange(keyPrefix)
       }
+      async saveBatch(entries: Array<[StorageKey, Uint8Array]>) {
+        return this.#inner.saveBatch(entries)
+      }
       keys() {
         return this.#inner.keys()
       }
@@ -451,6 +454,9 @@ describe("StorageSubsystem", () => {
         }
         async removeRange(keyPrefix: StorageKey) {
           return this.#inner.removeRange(keyPrefix)
+        }
+        async saveBatch(entries: Array<[StorageKey, Uint8Array]>) {
+          return this.#inner.saveBatch(entries)
         }
       }
 
