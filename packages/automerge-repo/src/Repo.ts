@@ -34,14 +34,28 @@ import type {
   BinaryDocumentId,
   DocumentId,
   PeerId,
+  SessionId,
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
+import {
+  Subduction,
+  MemorySigner,
+  SedimentreeStorage,
+  set_subduction_logger,
+} from "@automerge/automerge-subduction/slim"
+import { SubductionStorageBridge } from "./subduction/storage.js"
+import { SubductionSource } from "./subduction/source.js"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { encode, decode } from "cbor-x"
+import type { EphemeralMessage } from "./network/messages.js"
 export { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
 import { RefImpl } from "./refs/ref.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 
 export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
+
+let subductionLoggingEnabled = false
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -82,7 +96,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   #syncStateTracker: SyncStateTracker
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
+  #subductionSource: SubductionSource | null = null
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
+  #peerId: PeerId
 
   constructor({
     storage,
@@ -95,8 +111,13 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     idFactory,
+    signer,
+    subductionWebsocketEndpoints,
+    periodicSyncInterval,
+    batchSyncInterval,
   }: RepoConfig = {}) {
     super()
+    this.#peerId = peerId
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
     this.#log = debug(`automerge-repo:repo`)
 
@@ -128,6 +149,62 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.emit("doc-metrics", { type: "doc-saved", ...event })
       )
     }
+
+    if (!subductionLoggingEnabled) {
+      subductionLoggingEnabled = true
+      set_subduction_logger(
+        (level: string, target: string, message: string, fields: any) => {
+          // Create a debug logger for this Rust module
+          const log = debug(`automerge-repo:subduction:${target}`)
+
+          // Format the message with fields if present
+          const hasFields = fields && Object.keys(fields).length > 0
+          const formattedMessage = hasFields
+            ? `${message} ${JSON.stringify(fields)}`
+            : message
+
+          // Log at the appropriate level (debug supports arbitrary namespaces, not levels,
+          // so we prefix with the level for visibility)
+          log(`[${level}] ${formattedMessage}`)
+        }
+      )
+    }
+    let subductionStorage: SubductionStorageBridge
+    if (storage) {
+      subductionStorage = new SubductionStorageBridge(storage)
+    } else {
+      subductionStorage = new SubductionStorageBridge(new DummyStorageAdapter())
+    }
+    const subductionSource = new SubductionSource({
+      peerId,
+      storage: subductionStorage,
+      signer: signer ?? new MemorySigner(),
+      websocketEndpoints: subductionWebsocketEndpoints ?? [],
+      onRemoteHeadsChanged: enableRemoteHeadsGossiping
+        ? (documentId, storageId, heads) => {
+            this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+              documentId,
+              storageId,
+              heads
+            )
+          }
+        : undefined,
+      onEphemeral: (sedimentreeId, _senderId, payload) => {
+        try {
+          const msg = decode(new Uint8Array(payload)) as EphemeralMessage
+          this.synchronizer.receiveMessage(msg)
+        } catch (e) {
+          this.#log("failed to decode inbound subduction ephemeral: %O", e)
+        }
+      },
+      onHealExhausted: documentId => {
+        this.emit("heal-exhausted", { documentId })
+      },
+      periodicSyncInterval,
+      batchSyncInterval,
+    })
+    this.#subductionSource = subductionSource
+    this.#sources.set("subduction", subductionSource)
 
     this.storageSubsystem = storageSubsystem
     this.#syncStateTracker = new SyncStateTracker(
@@ -179,6 +256,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.synchronizer.on("message", message => {
       this.#log(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
+    })
+
+    // Tunnel inbound ephemeral messages from network adapters through
+    // subduction, so they reach peers connected via websocket transport.
+    networkSubsystem.on("message", message => {
+      if (message.type === "ephemeral" && this.#subductionSource) {
+        const payload = new Uint8Array(encode(message))
+        this.#subductionSource.publishEphemeral(message.documentId, payload)
+      }
     })
 
     // Forward sync metrics events
@@ -325,6 +411,31 @@ export class Repo extends EventEmitter<RepoEvents> {
     // from the start.
     for (const source of this.#sources.values()) {
       source.attach(query)
+    }
+
+    // Bridge outbound ephemeral messages to Subduction.
+    // This fires once per DocHandle.broadcast() call, independent of
+    // whether there are any old-protocol sync peers.
+    if (this.#subductionSource) {
+      const subductionSource = this.#subductionSource
+      query.handle.on("ephemeral-message-outbound", ({ data }) => {
+        console.log(
+          `[repo] ephemeral outbound for ${documentId.slice(0, 8)}, ${
+            data.byteLength
+          } bytes`
+        )
+        const fullMsg: EphemeralMessage = {
+          type: "ephemeral",
+          senderId: this.#peerId,
+          targetId: this.#peerId, // not meaningful for pub/sub
+          documentId,
+          data,
+          count: 0,
+          sessionId: "subduction-bridge" as SessionId,
+        }
+        const payload = new Uint8Array(encode(fullMsg))
+        subductionSource.publishEphemeral(documentId, payload)
+      })
     }
 
     return query
@@ -672,6 +783,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   async shutdown() {
     await this.flush()
+    this.#subductionSource?.shutdown()
     this.networkSubsystem.disconnect()
   }
 
@@ -738,6 +850,30 @@ export interface RepoConfig {
    * @hidden
    */
   idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
+
+  /**
+   * Signer used for Subduction commit signatures and peer identity.
+   * Defaults to a fresh `MemorySigner` (ephemeral key, lost on restart).
+   * Pass a `WebCryptoSigner` (via `await WebCryptoSigner.setup()`) for
+   * persistent identity across page loads.
+   */
+  signer?: unknown
+
+  subductionWebsocketEndpoints?: string[]
+
+  /**
+   * Interval in ms for per-document periodic sync via Subduction. Each open
+   * document is synced individually (skipping those in heal-backoff).
+   * Set to 0 to disable. Default: 10_000 (10s).
+   */
+  periodicSyncInterval?: number
+
+  /**
+   * Interval in ms for a full batch sync across all open documents via
+   * Subduction. On success, all heal state is reset.
+   * Set to 0 to disable. Default: 300_000 (5 min).
+   */
+  batchSyncInterval?: number
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -802,4 +938,6 @@ export interface RepoEvents {
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (payload: DeleteDocumentPayload) => void
   "doc-metrics": (payload: DocMetrics) => void
+  /** Self-healing sync gave up after all retry attempts for a document */
+  "heal-exhausted": (payload: { documentId: DocumentId }) => void
 }

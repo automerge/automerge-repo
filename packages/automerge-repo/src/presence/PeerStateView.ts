@@ -1,31 +1,7 @@
-import { PeerState, PeerStatesValue, PresenceState } from "./types.js"
+import { unique } from "../helpers/array.js"
+import { PeerId } from "../types.js"
+import { DeviceId, PeerStatesValue, PresenceState, UserId } from "./types.js"
 
-export type GetStatesOpts<State extends PresenceState, SummaryState> = {
-  /**
-   * Function to derive a grouping key from a peer state. This can be used to
-   * group peers and consider presence activity by an arbitrary attribute of the
-   * presence state (e.g., user or device) rather than by peer.
-   *
-   * This is useful when a user has multiple devices, or multiple peers (e.g.,
-   * tabs) on a single device.
-   *
-   * @param state state of a peer
-   * @returns key that should be used to consolidate activity from that peer
-   */
-  groupingFn?: (state: PeerState<State>) => PropertyKey
-  /**
-   * Function to summarize the presence activity from several different peers in
-   * a group.
-   *
-   * @param states states of all peers in a group, as grouped by {@param keyFn}
-   * @returns a value summarizing presence for this group
-   */
-  summaryFn?: (states: PeerState<State>[]) => SummaryState
-}
-
-/**
- * A grouped view of peer states.
- */
 export class PeerStateView<State extends PresenceState> {
   readonly value
 
@@ -33,94 +9,96 @@ export class PeerStateView<State extends PresenceState> {
     this.value = value
   }
 
-  /**
-   * Get the presence state of all peers. By default, each peer is its own
-   * group, but presence activity can be aggregated by arbitrary criteria.
-   *
-   * @param opts
-   * @returns presence state for all groups
-   */
-  getStates<SummaryState = PeerState<State>>(
-    opts?: GetStatesOpts<State, SummaryState>
-  ) {
-    const groupingFn = opts?.groupingFn ?? peerIdentity
-    const summaryFn =
-      opts?.summaryFn ??
-      (getLastActivePeer as (states: PeerState<State>[]) => SummaryState)
-    const statesByKey = Object.values(this.value).reduce((byKey, curr) => {
-      const key = groupingFn(curr)
-      if (!(key in byKey)) {
-        byKey[key] = []
-      }
-      byKey[key].push(curr)
-
-      return byKey
-    }, {} as Record<PropertyKey, PeerState<State>[]>)
-    return Object.entries(statesByKey).reduce((result, [key, states]) => {
-      result[key] = summaryFn(states)
-      return result
-    }, {} as Record<PropertyKey, SummaryState>)
+  /** All distinct users across peers. */
+  get users() {
+    const userIds = unique(
+      Object.values(this.value).map(peerState => peerState.userId)
+    )
+    return userIds.map(u => this.getUserState(u))
   }
-}
 
-/**
- * Get the peerId of this peer.
- *
- * @param peer
- * @returns peer id
- */
-export function peerIdentity<State extends PresenceState>(
-  peer: PeerState<State>
-) {
-  return peer.peerId
-}
+  /** All distinct devices across peers. */
+  get devices() {
+    const deviceIds = unique(
+      Object.values(this.value).map(peerState => peerState.deviceId)
+    )
+    return deviceIds.map(d => this.getDeviceState(d))
+  }
 
-/**
- * Find the peer that most recently sent a state update.
- *
- * @param peers
- * @returns id of most recently active peer
- */
-export function getLastActivePeer<State extends PresenceState>(
-  peers: PeerState<State>[]
-) {
-  let freshestLastActiveAt: number
-  return peers.reduce((freshest, curr) => {
-    const lastActiveAt = curr.lastActiveAt
-    if (!lastActiveAt) {
+  /** All peer states. */
+  get peers() {
+    return Object.values(this.value)
+  }
+
+  /** Peer IDs belonging to a given user. */
+  getUserPeers(userId: UserId) {
+    return Object.values(this.value)
+      .filter(peerState => peerState.userId === userId)
+      .map(peerState => peerState.peerId)
+  }
+
+  /** Peer IDs belonging to a given device. */
+  getDevicePeers(deviceId: DeviceId) {
+    return Object.values(this.value)
+      .filter(peerState => peerState.deviceId === deviceId)
+      .map(peerState => peerState.peerId)
+  }
+
+  /** Most recently seen peer from a set of peer IDs. */
+  getLastSeenPeer(peers: PeerId[]) {
+    let freshestLastSeenAt: number
+    return peers.reduce((freshest: PeerId | undefined, curr) => {
+      const lastSeenAt = this.value[curr]?.lastUpdateAt
+      if (!lastSeenAt) {
+        return freshest
+      }
+
+      if (!freshest || lastSeenAt > freshestLastSeenAt) {
+        freshestLastSeenAt = lastSeenAt
+        return curr
+      }
+
       return freshest
-    }
+    }, undefined)
+  }
 
-    if (!freshest || lastActiveAt > freshestLastActiveAt) {
-      freshestLastActiveAt = lastActiveAt
-      return curr
-    }
+  /** Peer from a set that most recently sent a state update. */
+  getLastActivePeer(peers: PeerId[]) {
+    let freshestLastActiveAt: number
+    return peers.reduce((freshest: PeerId | undefined, curr) => {
+      const lastActiveAt = this.value[curr]?.lastActiveAt
+      if (!lastActiveAt) {
+        return freshest
+      }
 
-    return freshest
-  }, undefined as PeerState<State> | undefined)
-}
+      if (!freshest || lastActiveAt > freshestLastActiveAt) {
+        freshestLastActiveAt = lastActiveAt
+        return curr
+      }
 
-/**
- * Find the peer that most recently sent a heartbeat.
- *
- * @param peers
- * @returns id of most recently seen peer
- */
-export function getLastSeenPeer<State extends PresenceState>(
-  peers: PeerState<State>[]
-) {
-  let freshestLastSeenAt: number
-  return peers.reduce((freshest, curr) => {
-    const lastSeenAt = curr.lastSeenAt
-    if (!lastSeenAt) {
       return freshest
-    }
+    }, undefined)
+  }
 
-    if (!freshest || lastSeenAt > freshestLastSeenAt) {
-      freshestLastSeenAt = lastSeenAt
-      return curr
-    }
+  /** State of the most recently active peer for a user. */
+  getUserState(userId: UserId) {
+    const peers = this.getUserPeers(userId)
+    if (!peers) return undefined
 
-    return freshest
-  }, undefined as PeerState<State> | undefined)
+    const peer = this.getLastActivePeer(peers)
+    if (!peer) return undefined
+
+    return this.value[peer]
+  }
+
+  /** State of the most recently active peer for a device. */
+  getDeviceState(deviceId: DeviceId) {
+    const peers = this.getDevicePeers(deviceId)
+    if (!peers) return undefined
+
+    const peer = this.getLastActivePeer(peers)
+    if (!peer) return undefined
+
+    return this.value[peer]
+  }
 }
