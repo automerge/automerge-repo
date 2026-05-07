@@ -2,7 +2,7 @@ import { next as A, Heads } from "@automerge/automerge"
 import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import assert from "assert"
 import * as Uuid from "uuid"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   encodeHeads,
   getHeadsFromUrl,
@@ -658,54 +658,98 @@ describe("Repo", () => {
 
     describe("idle eviction", () => {
       it("does not evict any handles when idleEvictionMs/idleScanIntervalMs are unset", async () => {
+        vi.useFakeTimers()
         const { repo } = setup()
-        const handle = repo.create<TestDoc>()
-        await pause(50)
-        assert(repo.handles[handle.documentId])
-        await repo.shutdown()
+        try {
+          const handle = repo.create<TestDoc>()
+          await vi.advanceTimersByTimeAsync(100)
+          assert(repo.handles[handle.documentId])
+        } finally {
+          try {
+            await repo.shutdown()
+          } finally {
+            vi.useRealTimers()
+          }
+        }
       })
 
       it("evicts an idle handle once idleEvictionMs has elapsed", async () => {
+        vi.useFakeTimers()
+        const idleEvictionMs = 30
+        const idleScanIntervalMs = 10
         const repo = new Repo({
-          idleEvictionMs: 30,
-          idleScanIntervalMs: 10,
+          idleEvictionMs,
+          idleScanIntervalMs,
         })
-        const handle = repo.create<TestDoc>()
-        assert(repo.handles[handle.documentId])
-        // Wait long enough for the handle to idle past idleEvictionMs and
-        // for at least one scan tick to fire.
-        await pause(80)
-        assert.equal(repo.handles[handle.documentId], undefined)
-        await repo.shutdown()
+        try {
+          const handle = repo.create<TestDoc>()
+          assert(repo.handles[handle.documentId])
+
+          await vi.advanceTimersByTimeAsync(idleEvictionMs)
+          assert.equal(repo.handles[handle.documentId], undefined)
+        } finally {
+          try {
+            await repo.shutdown()
+          } finally {
+            vi.useRealTimers()
+          }
+        }
       })
 
       it("does not evict a handle that find() touched within idleEvictionMs", async () => {
+        vi.useFakeTimers()
+        const idleEvictionMs = 80
+        const idleScanIntervalMs = 10
+        const almostIdleMs = idleEvictionMs - idleScanIntervalMs
         const repo = new Repo({
-          idleEvictionMs: 80,
-          idleScanIntervalMs: 10,
+          idleEvictionMs,
+          idleScanIntervalMs,
         })
-        const handle = repo.create<TestDoc>()
-        await pause(50)
-        await repo.find<TestDoc>(handle.url)
-        await pause(50)
-        assert(repo.handles[handle.documentId])
-        await pause(80)
-        assert.equal(repo.handles[handle.documentId], undefined)
-        await repo.shutdown()
+        try {
+          const handle = repo.create<TestDoc>()
+
+          await vi.advanceTimersByTimeAsync(almostIdleMs)
+          await repo.find<TestDoc>(handle.url)
+
+          await vi.advanceTimersByTimeAsync(almostIdleMs)
+          assert(repo.handles[handle.documentId])
+
+          await vi.advanceTimersByTimeAsync(idleScanIntervalMs)
+          assert.equal(repo.handles[handle.documentId], undefined)
+        } finally {
+          try {
+            await repo.shutdown()
+          } finally {
+            vi.useRealTimers()
+          }
+        }
       })
 
       it("does not evict a handle that has at least one active peer", async () => {
+        vi.useFakeTimers()
+        const idleEvictionMs = 30
+        const idleScanIntervalMs = 10
         const repo = new Repo({
-          idleEvictionMs: 30,
-          idleScanIntervalMs: 10,
+          idleEvictionMs,
+          idleScanIntervalMs,
         })
-        const handle = repo.create<TestDoc>()
-        // Pretend a peer is actively syncing this doc. The eviction scan must
-        // skip handles with peers regardless of idleness.
-        repo.synchronizer.addPeer("fake-peer" as PeerId)
-        await pause(80)
-        assert(repo.handles[handle.documentId])
-        await repo.shutdown()
+        try {
+          const handle = repo.create<TestDoc>()
+          const peerId = "fake-peer" as PeerId
+          const peerOpened = eventPromise(repo.synchronizer, "open-doc")
+
+          repo.synchronizer.addPeer(peerId)
+          await peerOpened
+
+          await vi.advanceTimersByTimeAsync(idleEvictionMs + idleScanIntervalMs)
+          assert(repo.handles[handle.documentId])
+        } finally {
+          try {
+            await repo.shutdown()
+          } finally {
+            vi.useRealTimers()
+          }
+        }
       })
 
       it("does not enable activity tracking when eviction is disabled", () => {
