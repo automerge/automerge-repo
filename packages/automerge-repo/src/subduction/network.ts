@@ -86,7 +86,15 @@ export class NetworkAdapterTransport implements Transport {
   #handleMessage = (msg: RepoMessage) => {
     this.#log("handling message", msg)
     if (msg.targetId != this.#localPeerId) {
-      this.#log("message targetId mismatch", msg.targetId, this.#remotePeerId)
+      this.#log("message targetId mismatch", msg.targetId, this.#localPeerId)
+      return
+    }
+
+    // Filter by sender so that on shared adapters (e.g. a server adapter
+    // handling multiple clients) each transport only sees messages from its
+    // specific remote peer.
+    if (msg.senderId != this.#remotePeerId) {
+      this.#log("message senderId mismatch", msg.senderId, this.#remotePeerId)
       return
     }
 
@@ -162,6 +170,10 @@ export class NetworkAdapterTransport implements Transport {
     if (this.#disconnected) {
       return Promise.reject(new Error("Connection is disconnected"))
     }
+
+    // Drain any message that arrived before this call.
+    const queued = this.#messageQueue.shift()
+    if (queued) return Promise.resolve(queued)
 
     return new Promise<Uint8Array>((resolve, reject) => {
       if (this.#disconnected) {
