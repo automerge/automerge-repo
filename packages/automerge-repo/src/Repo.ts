@@ -42,7 +42,10 @@ import {
   set_subduction_logger,
 } from "@automerge/automerge-subduction/slim"
 import { SubductionStorageBridge } from "./subduction/storage.js"
-import { SubductionSource } from "./subduction/source.js"
+import {
+  SubductionSource,
+  type SubductionTimeouts,
+} from "./subduction/source.js"
 import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { encode, decode } from "cbor-x"
@@ -113,6 +116,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionPolicy,
     subductionWebsocketEndpoints,
     subductionAdapters,
+    subductionTimeouts,
   }: RepoConfig = {}) {
     super()
     this.#peerId = peerId
@@ -180,6 +184,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       websocketEndpoints: subductionWebsocketEndpoints ?? [],
       adapters: subductionAdapters ?? [],
       policy: subductionPolicy,
+      timeouts: subductionTimeouts,
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
         ? (documentId, storageId, heads) => {
             this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
@@ -743,25 +748,39 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Writes Documents to a disk.
+   * Drain pending writes for the given documents (or all documents
+   * when `documents` is omitted) so they are durable in storage.
+   *
+   * Saves each ready document's Automerge bytes via the
+   * `StorageSubsystem`'s snapshot path and asks every registered
+   * {@link DocumentSource} that implements `flush` to drain its own
+   * buffered writes. Resolves once everything has settled.
+   *
    * @hidden this API is experimental and may change.
-   * @param documents - if provided, only writes the specified documents.
-   * @returns Promise<void>
+   * @param documents - if provided, only flushes the specified documents.
    */
   async flush(documents?: DocumentId[]): Promise<void> {
-    if (!this.storageSubsystem) {
-      return
+    const tasks: Promise<unknown>[] = []
+
+    if (this.storageSubsystem) {
+      const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
+      tasks.push(
+        Promise.all(
+          ids.map(async id => {
+            const state = this.#queries[id]?.peek()
+            if (state?.state === "ready") {
+              await this.storageSubsystem!.saveDoc(id, state.handle.doc())
+            }
+          })
+        )
+      )
     }
 
-    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
-    await Promise.all(
-      ids.map(async id => {
-        const state = this.#queries[id]?.peek()
-        if (state?.state === "ready") {
-          await this.storageSubsystem!.saveDoc(id, state.handle.doc())
-        }
-      })
-    )
+    for (const source of this.#sources.values()) {
+      if (source.flush) tasks.push(source.flush(documents))
+    }
+
+    await Promise.all(tasks)
   }
 
   /**
@@ -785,8 +804,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Stop traditional sync network connections
     this.networkSubsystem.disconnect()
 
-    // Flush final Automerge document state to storage
-    await this.flush()
+    // Best-effort flush: log persistence errors but don't propagate,
+    // so the rest of teardown still runs. Call `repo.flush()`
+    // explicitly before `shutdown()` if you need to observe them.
+    try {
+      await this.flush()
+    } catch (e) {
+      this.#log("flush() during shutdown failed: %O", e)
+    }
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -875,6 +900,13 @@ export interface RepoConfig {
      *  handshake for peers on this adapter. Defaults to "connect". */
     role?: "connect" | "accept"
   }[]
+
+  /**
+   * Tunable timeouts for the Subduction sync engine and its
+   * heal-retry scheduler. See {@link SubductionTimeouts}. All fields
+   * are optional; sensible defaults apply.
+   */
+  subductionTimeouts?: SubductionTimeouts
 }
 
 /** A function that determines whether we should share a document with a peer
