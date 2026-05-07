@@ -84,6 +84,8 @@ export type {
 } from "./Repo.js"
 
 export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export type { DocumentSource } from "./DocumentSource.js"
+export type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 
 export type {
   FindProgress,

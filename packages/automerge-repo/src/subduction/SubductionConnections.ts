@@ -1,6 +1,6 @@
 import debug from "debug"
 import { WebSocketTransport } from "./websocket-transport.js"
-import { Subduction } from "@automerge/automerge-subduction"
+import { Subduction } from "@automerge/automerge-subduction/slim"
 import { ConnectionManager } from "./ConnectionManager.js"
 
 export type ConnectionState = "connecting" | "running" | "awaiting-reconnect"

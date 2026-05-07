@@ -23,11 +23,7 @@ import type {
   PeerId,
   Message as RepoMessage,
 } from "../index.js"
-import {
-  Nonce,
-  RequestId,
-  type Transport,
-} from "@automerge/automerge-subduction/slim"
+import type { Transport } from "@automerge/automerge-subduction/slim"
 
 /**
  * A connection that wraps an `automerge-repo` `NetworkAdapter` to implement
