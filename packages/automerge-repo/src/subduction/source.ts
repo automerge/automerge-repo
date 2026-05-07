@@ -88,9 +88,18 @@ interface SedimentreeEntry {
   flushSave: ThrottledFunction<() => void>
   /** Resolves when any in-progress `#save` completes. */
   saveSettled: Promise<void>
-  /** True while a `#save` is in its critical section. Concurrent
+  /**
+   * True while `#save` is in its critical section. Concurrent
    * invocations early-return; the throttle's next firing picks up
-   * any state that landed during the in-flight save. */
+   * any state that landed during the in-flight save.
+   *
+   * Intentionally a bool, not a timestamp-with-expiry: an
+   * auto-releasing gate would let two `#save` bodies run
+   * concurrently when one outruns the deadline, re-introducing the
+   * bug fixed in 6ff00c821. The `try/finally` already releases on
+   * every throw; for genuinely-stuck awaits, add a timeout to the
+   * specific call instead.
+   */
   saveInProgress: boolean
 
   // Fragment processing — decoupled from saves, deduped by head+depth
@@ -826,9 +835,7 @@ export class SubductionSource implements DocumentSource {
 
     // Build all CommitInputs synchronously. Skip any change whose
     // hash is already in `recentlySavedHashes` — those represent
-    // commits we have already started persisting on a previous (still
-    // in-flight) save round. Hashes for *this* round are added to the
-    // ring AFTER `addBatch` succeeds (see below).
+    // commits already persisted (or in flight) on a previous round.
     //
     // As of subduction 0.11.0 the wasm `LooseCommit`,
     // `SedimentreeId`, and `CommitId` constructors take their
@@ -866,14 +873,26 @@ export class SubductionSource implements DocumentSource {
 
     if (commitInputs.length === 0) return
 
+    // Add hashes to the ring BEFORE `addBatch`. The bridge fires
+    // `commit-saved` events synchronously inside its storage write,
+    // which routes to `#handleDataFound` *before* `addBatch` resolves.
+    // Without the hash already in the ring at that point,
+    // `#handleDataFound` falls through to `loadIncremental` on a
+    // commit we're already in the process of persisting.
+    for (const hash of acceptedHashes) entry.recentlySavedHashes.add(hash)
+
     // One batched insert: one minimize, one broadcast, one
     // `Storage::save_batch_all` instead of N per-commit round-trips.
     //
-    // Errors propagate to `#save`, which keeps `entry.lastSavedHeads`
-    // at its previous value so the next save retries this batch.
+    // On failure, roll back the ring entries so a future save retries
+    // them. Errors propagate to `#save`, which keeps
+    // `entry.lastSavedHeads` at its previous value.
     try {
       await subduction.addBatch(entry.sedimentreeId, commitInputs, [])
     } catch (e) {
+      for (const hash of acceptedHashes) {
+        entry.recentlySavedHashes.delete(hash)
+      }
       console.warn(
         `[SubductionSource] addBatch failed for ${entry.sedimentreeId
           .toString()
@@ -881,21 +900,6 @@ export class SubductionSource implements DocumentSource {
         e
       )
       throw e
-    }
-
-    // Persistence succeeded. NOW record the hashes in the
-    // recentlySavedHashes set so that the matching `commit-saved`
-    // events (about to fire from the storage bridge, if they haven't
-    // already) short-circuit `#handleDataFound`'s `loadIncremental`
-    // path on our own commits.
-    //
-    // Timing safety: bridge `commit-saved` events fire from the same
-    // task as the `addBatch` await resolution. Nothing else has had a
-    // chance to drain the microtask queue between the await above and
-    // this synchronous loop, so any matching `#handleDataFound` calls
-    // queued by those events run AFTER this loop completes.
-    for (const hash of acceptedHashes) {
-      entry.recentlySavedHashes.add(hash)
     }
 
     // Derive fragment-boundary requests post-batch. With per-commit

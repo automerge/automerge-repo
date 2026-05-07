@@ -27,9 +27,9 @@
  *     vitest run --no-file-parallelism test/_repo-perf.test.ts
  */
 
-// Install fake-indexeddb's globals (`indexedDB`, `IDBKeyRange`, ...)
-// so that `IndexedDBStorageAdapter` can run under Node + happy-dom.
-import "fake-indexeddb/auto"
+// `fake-indexeddb/auto` is loaded dynamically in `beforeAll` (gated on
+// RUN_PERF=1) rather than statically here, so its global IDB shims do
+// not leak into the regular `pnpm test` run.
 
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -158,6 +158,12 @@ const measure = async (
 // ── Test suite ───────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  if (SHOULD_RUN) {
+    // Install fake-indexeddb's globals (`indexedDB`, `IDBKeyRange`,
+    // ...) for the IDB harness only when we're actually running the
+    // benchmark, so the regular test suite doesn't inherit them.
+    await import("fake-indexeddb/auto")
+  }
   await initSubduction()
 })
 

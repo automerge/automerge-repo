@@ -93,35 +93,29 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   }
 
   /**
-   * Wait for pending save operations to complete.
+   * Wait for in-scope save operations to drain.
    *
-   * # Snapshot semantics
+   * Implementation: counter-based. The waiter snapshots `remaining`
+   * at registration time and decrements on every matching save
+   * completion, regardless of whether that save was already in flight
+   * at call time or started after. This is fast and adequate for
+   * `flush()`-style callers, which always pump their throttles and
+   * await per-entry `saveSettled` before reaching here — so by the
+   * time `awaitSettled` is called, no new saves will start before it
+   * returns and the snapshot equals the in-flight set.
    *
-   * The set of saves awaited is a *snapshot taken at call time*: the
-   * waiter remembers how many in-flight saves match its scope and
-   * resolves once that many have completed. New saves that start
-   * after the call are NOT awaited, even if they target the same
-   * sedimentree(s).
+   * Caveat: if a NEW save for a tracked sid starts after the waiter
+   * registers AND completes before an older one, the waiter can
+   * resolve while an older save is still pending. Don't add such
+   * call patterns; if you need stronger semantics, track per-save
+   * promises instead.
    *
-   * This is the right semantic for `flush()`-style callers, which
-   * already pumped their throttles and awaited their per-entry
-   * `saveSettled` before calling — so by the time they invoke this
-   * method, every save they care about has already registered with
-   * `pendingPerSid`.
+   * Scope:
+   *   - `sids === undefined`: every in-flight save across all
+   *     sedimentrees.
+   *   - `sids` provided: saves whose sedimentree id is in `sids`.
    *
-   * For "drain everything for this sid forever" semantics, callers
-   * would need to loop on `awaitSettled` until the count stays 0
-   * across a full microtask, which this method does not do.
-   *
-   * # Scope
-   *
-   * - `sids === undefined`: snapshot all currently in-flight saves
-   *   across every sedimentree the bridge is tracking, then await
-   *   them.
-   * - `sids` provided: snapshot only saves whose sedimentree id is in
-   *   `sids`, then await them.
-   *
-   * Resolves immediately when the snapshotted scope is empty.
+   * Resolves immediately when the matching scope is empty.
    */
   async awaitSettled(sids?: Iterable<string>): Promise<void> {
     if (sids === undefined) {
@@ -505,31 +499,31 @@ export class SubductionStorageBridge implements SedimentreeStorage {
    * Save a batch of commits and fragments.
    *
    * Called from Subduction's Wasm `save_batch` during sync ingestion.
-   * Instead of N individual `saveCommit`/`saveFragment` calls (each
-   * creating its own underlying transaction), this issues a single
-   * `adapter.saveBatch()` containing every entry (blobs, metadata,
-   * and the sedimentree ID marker) in one shot.
+   * Issues three sequential `adapter.saveBatch()` calls — blobs, then
+   * metadata, then the ID marker — to preserve crash-prefix
+   * consistency on adapters whose `saveBatch` is per-entry-atomic but
+   * NOT all-or-nothing across the batch (e.g. NodeFS commits renames
+   * in parallel and a mid-commit crash can leave any subset
+   * observable).
    *
-   * # Crash-prefix consistency
+   * Crash invariants:
+   *   - Crash during blobs:        partial orphan blobs, no metadata,
+   *                                no marker. Harmless; invisible.
+   *   - Crash after blobs only:    orphan blobs. Harmless.
+   *   - Crash during metadata:     blobs + partial metadata, no
+   *                                marker. Invisible to enumeration.
+   *   - Crash after blobs+meta:    visible data, no marker.
+   *                                Invisible to enumeration.
+   *   - Crash after marker:        everything visible (the only
+   *                                state in which this sedimentree
+   *                                shows up in `loadAllSedimentreeIds`).
    *
-   * Entries are appended in a deliberate order — blobs, then metadata,
-   * then the ID marker last. On adapters that provide true batch
-   * atomicity (IndexedDB single transaction, NodeFS staged-rename
-   * with all-or-nothing commit) the entire batch lands or none of it
-   * does, which is strictly safer than the previous three-phase
-   * structure.
-   *
-   * On adapters that fall back to `StorageAdapter`'s default sequential
-   * `save()` loop, ordering still preserves the original invariants:
-   *
-   *   - Crash after blobs:           orphan blobs (harmless).
-   *   - Crash after blobs + meta:    visible data, no marker
-   *                                  (invisible to enumeration).
-   *   - Crash after marker:          everything visible.
-   *
-   * For 50 commits this reduces ~100 round-trips to 1 on
-   * batch-capable adapters; on the default fallback the work is the
-   * same N saves either way.
+   * On adapters that DO provide all-or-nothing batch atomicity
+   * (IndexedDB single transaction), this still works correctly — the
+   * three transactions land in order, and a crash between them stops
+   * at one of the safe boundaries above. The cost is ~3 transactions
+   * per batch instead of one; acceptable for the durability win on
+   * the non-atomic adapters.
    */
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
@@ -550,44 +544,42 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const commitBlobCopies: Uint8Array[] = []
     const fragmentBlobCopies: Uint8Array[] = []
 
-    // Order matters for the sequential-fallback adapter: blobs first,
-    // then metadata, then the ID marker last. Batch-atomic adapters
-    // (IDB, NodeFS) ignore intra-batch ordering — the all-or-nothing
-    // guarantee alone gives crash-prefix consistency.
-    const allEntries: Array<[string[], Uint8Array]> = []
+    const blobEntries: Array<[string[], Uint8Array]> = []
+    const metaEntries: Array<[string[], Uint8Array]> = []
 
-    // Pass 1: every blob (commit blobs first, then fragment blobs).
-    for (const { commitId, blob } of commits) {
+    for (const { commitId, signedCommit, blob } of commits) {
       const idHex = commitId.toHexString()
       const blobCopy = new Uint8Array(blob)
-      allEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
+      const commitCopy = new Uint8Array(signedCommit.encode())
+      blobEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
+      metaEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
       commitBlobCopies.push(blobCopy)
     }
-    for (const { fragmentHead, blob } of fragments) {
+    for (const { fragmentHead, signedFragment, blob } of fragments) {
       const idHex = fragmentHead.toHexString()
       const blobCopy = new Uint8Array(blob)
-      allEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
+      const fragCopy = new Uint8Array(signedFragment.encode())
+      blobEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
+      metaEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
       fragmentBlobCopies.push(blobCopy)
     }
 
-    // Pass 2: every metadata record.
-    for (const { commitId, signedCommit } of commits) {
-      const idHex = commitId.toHexString()
-      const commitCopy = new Uint8Array(signedCommit.encode())
-      allEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
-    }
-    for (const { fragmentHead, signedFragment } of fragments) {
-      const idHex = fragmentHead.toHexString()
-      const fragCopy = new Uint8Array(signedFragment.encode())
-      allEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
-    }
-
-    // Pass 3: the sedimentree ID marker, last.
-    allEntries.push([[PREFIX, IDS_PREFIX, sid], ID_MARKER])
+    const markerEntry: [string[], Uint8Array] = [
+      [PREFIX, IDS_PREFIX, sid],
+      ID_MARKER,
+    ]
 
     this.incrementPending(sid)
     try {
-      await this.adapter.saveBatch(allEntries)
+      // Three sequential phases for crash-prefix safety; see the
+      // class docstring above for the full state-machine analysis.
+      if (blobEntries.length > 0) {
+        await this.adapter.saveBatch(blobEntries)
+      }
+      if (metaEntries.length > 0) {
+        await this.adapter.saveBatch(metaEntries)
+      }
+      await this.adapter.saveBatch([markerEntry])
 
       // Defensive copy per event; see comment in saveCommit.
       if (this.listeners["commit-saved"]?.length) {

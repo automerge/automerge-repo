@@ -28,9 +28,10 @@ export interface SyncSchedulerOptions {
 
   /**
    * Timeout passed to `subduction.syncWithAllPeers(...)` for heal
-   * retries. Any number (including `0`) is forwarded as a `bigint`;
-   * `undefined` (or omitted) passes `null` so subduction applies its
-   * own default timeout.
+   * retries. Any finite, non-negative number (including `0`) is
+   * truncated to an integer and forwarded as a `bigint`. `undefined`
+   * (or omitted) passes `null` so subduction applies its own default
+   * timeout. Non-finite or negative values throw at construction.
    */
   syncTimeoutMs?: number
 
@@ -87,8 +88,7 @@ export class SyncScheduler {
     this.#log = options.log
     this.#onSyncDataReceived = options.onSyncDataReceived
     this.#onHealExhausted = options.onHealExhausted
-    this.#syncTimeout =
-      options.syncTimeoutMs !== undefined ? BigInt(options.syncTimeoutMs) : null
+    this.#syncTimeout = toTimeoutBigInt(options.syncTimeoutMs)
     this.#healInitialDelayMs =
       options.healInitialDelayMs ?? DEFAULT_HEAL_INITIAL_DELAY_MS
     this.#healMaxDelayMs = options.healMaxDelayMs ?? DEFAULT_HEAL_MAX_DELAY_MS
@@ -217,4 +217,19 @@ export class SyncScheduler {
     this.#healBackoff.clear()
     this.#healAttempts.clear()
   }
+}
+
+/**
+ * Coerce a millisecond timeout to a `bigint` for the wasm boundary.
+ * `undefined` → `null` (subduction default). Non-finite or negative
+ * values throw with a clearer error than `BigInt`'s default.
+ */
+function toTimeoutBigInt(ms: number | undefined): bigint | null {
+  if (ms === undefined) return null
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw new RangeError(
+      `subductionTimeouts.syncMs must be a finite, non-negative number; got ${ms}`
+    )
+  }
+  return BigInt(Math.trunc(ms))
 }
