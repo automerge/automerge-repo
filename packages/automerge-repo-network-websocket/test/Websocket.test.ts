@@ -454,6 +454,71 @@ describe("Websocket adapters", () => {
       })
     })
 
+    it("should ignore messages from a socket replaced by a same-peer-ID reconnect", async () => {
+      const { serverSocket, server, serverUrl } = await setupServer()
+      const serverAdapter = new WebSocketServerAdapter(serverSocket)
+      const serverSideSockets: WebSocket[] = []
+      serverSocket.on("connection", socket => {
+        serverSideSockets.push(socket)
+      })
+      serverAdapter.connect(serverPeerId, {
+        storageId: undefined,
+        isEphemeral: true,
+      })
+
+      const firstSocket = new WebSocket(serverUrl)
+      await once(firstSocket, "open")
+      firstSocket.send(
+        CBOR.encode({
+          type: "join",
+          senderId: browserPeerId,
+          supportedProtocolVersions: ["1"],
+        })
+      )
+      await messageOrTimeout(firstSocket)
+
+      const secondSocket = new WebSocket(serverUrl)
+      await once(secondSocket, "open")
+      secondSocket.send(
+        CBOR.encode({
+          type: "join",
+          senderId: browserPeerId,
+          supportedProtocolVersions: ["1"],
+        })
+      )
+      await messageOrTimeout(secondSocket)
+
+      let staleMessageReceived = false
+      serverAdapter.once("message", message => {
+        if (message.senderId === browserPeerId) {
+          staleMessageReceived = true
+        }
+      })
+
+      // Simulate a late message event from the old server-side socket. The
+      // client socket has already been closed by the reconnect handling, so
+      // using the captured server socket lets this test exercise the adapter's
+      // stale-socket guard directly.
+      serverSideSockets[0].emit(
+        "message",
+        CBOR.encode({
+          type: "sync",
+          senderId: browserPeerId,
+          targetId: serverPeerId,
+          documentId,
+          data: new Uint8Array([1]),
+        })
+      )
+
+      await pause(100)
+      firstSocket.close()
+      secondSocket.close()
+      serverSocket.close()
+      server.close()
+
+      assert.equal(staleMessageReceived, false)
+    })
+
     it("should disconnect existing peers on reconnect before announcing them", async () => {
       // This test exercises a sync loop which is exposed in the following
       // sequence of events:
