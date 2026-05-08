@@ -36,6 +36,7 @@ import { AbortOptions, AbortError } from "./helpers/abortable.js"
 import {
   MemorySigner,
   set_subduction_logger,
+  type Subduction,
 } from "@automerge/automerge-subduction/slim"
 import { SubductionStorageBridge } from "./subduction/storage.js"
 import {
@@ -44,7 +45,6 @@ import {
 } from "./subduction/source.js"
 import type {
   Policy as SubductionPolicy,
-  Transport as SubductionTransport,
 } from "@automerge/automerge-subduction/slim"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { encode, decode } from "cbor-x"
@@ -114,7 +114,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionWebsocketEndpoints,
     subductionAdapters,
     subductionTimeouts,
-    subductionTransports,
   }: RepoConfig = {}) {
     super()
     this.#peerId = peerId
@@ -181,7 +180,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       signer: signer ?? new MemorySigner(),
       websocketEndpoints: subductionWebsocketEndpoints ?? [],
       adapters: subductionAdapters ?? [],
-      injectedTransports: subductionTransports,
       policy: subductionPolicy,
       timeouts: subductionTimeouts,
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
@@ -488,6 +486,13 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   set shareConfig(config: ShareConfig) {
     this.#shareConfig = config
+  }
+
+  get subduction(): Promise<Subduction> {
+    if (!this.#subductionSource) {
+      return Promise.reject(new Error("Repo has no SubductionSource"))
+    }
+    return this.#subductionSource.getSubduction()
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
@@ -867,17 +872,6 @@ export interface RepoConfig {
    */
   subductionTimeouts?: SubductionTimeouts
 
-  /**
-   * Pre-built subduction transports owned by the caller. Each is registered
-   * with subduction exactly once. No reconnect is attempted on close. Use
-   * this to share a single physical connection (e.g., a multiplexed
-   * WebSocket) between subduction and another protocol layer.
-   */
-  subductionTransports?: {
-    transport: SubductionTransport
-    serviceName: string
-    onConnected?: () => void
-  }[]
 }
 
 /** A function that determines whether we should share a document with a peer
