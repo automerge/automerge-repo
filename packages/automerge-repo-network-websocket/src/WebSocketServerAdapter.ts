@@ -175,6 +175,9 @@ export class WebSocketServerAdapter extends NetworkAdapter {
         })
       }
     } else {
+      if (this.sockets[senderId] !== socket) {
+        return
+      }
       this.emit("message", message)
     }
   }
