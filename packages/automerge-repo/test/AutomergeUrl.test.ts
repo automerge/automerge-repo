@@ -8,12 +8,12 @@ import {
   isValidAutomergeUrl,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
-  UrlHeads,
 } from "../src/AutomergeUrl.js"
 import type {
   AutomergeUrl,
   BinaryDocumentId,
   DocumentId,
+  UrlHeads,
 } from "../src/types.js"
 import { interpretAsDocumentId } from "../src/AutomergeUrl.js"
 

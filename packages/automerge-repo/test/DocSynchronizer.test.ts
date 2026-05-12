@@ -1,5 +1,5 @@
 import assert from "assert"
-import { describe, it } from "vitest"
+import { describe, it, vi } from "vitest"
 import { next as Automerge } from "@automerge/automerge"
 import {
   encodeHeads,
@@ -8,6 +8,7 @@ import {
 } from "../src/AutomergeUrl.js"
 import { DocHandle } from "../src/DocHandle.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
+import { pause } from "../src/helpers/pause.js"
 import {
   DocumentUnavailableMessage,
   MessageContents,
@@ -79,6 +80,73 @@ describe("DocSynchronizer", () => {
       encodeHeads(message2.syncState.lastSentHeads),
       handle.heads()
     )
+  })
+
+  it("asyncThrottle on the 'change' handler serializes #syncWithPeers (never re-entered while in flight)", async () => {
+    vi.useFakeTimers()
+    try {
+      const { handle, docSynchronizer } = setup()
+
+      // asyncThrottle is configured with docSynchronizer.syncDebounceRate as
+      // its delay. The advances below are tuned relative to that, not arbitrary:
+      //  - CHANGE_INTERVAL_MS < THROTTLE_MS so multiple changes coalesce into
+      //    one throttle window.
+      //  - SLOW_WHEN_READY_MS > CHANGE_INTERVAL_MS so each #syncWithPeers run
+      //    spans multiple change firings — without serialization this would
+      //    expose re-entry.
+      //  - DRAIN_MS is generous enough for all throttled and queued work to
+      //    settle before we assert.
+      const THROTTLE_MS = docSynchronizer.syncDebounceRate
+      const CHANGE_INTERVAL_MS = THROTTLE_MS * 0.3
+      const SLOW_WHEN_READY_MS = THROTTLE_MS * 0.8
+      const DRAIN_MS = THROTTLE_MS * 6
+
+      docSynchronizer.beginSync([alice])
+      // Wait for the initial beginSync message so any whenReady calls inside
+      // beginSync have settled before we install the measurement patch.
+      // beginSync's whenReady chain is microtask-driven (handle is doneLoading),
+      // so the message emits without needing the clock to advance.
+      await eventPromise(docSynchronizer, "message")
+
+      // #syncWithPeers starts with `await this.#handle.whenReady()`. By patching
+      // whenReady on this specific handle to be slow, we make each run of
+      // #syncWithPeers take measurable time. asyncThrottle wraps the 'change'
+      // handler's `() => this.#syncWithPeers()`, so if it correctly awaits the
+      // prior run before scheduling the next, whenReady must never be concurrent.
+      const origWhenReady = handle.whenReady.bind(handle)
+      let concurrent = 0
+      let maxConcurrent = 0
+      let whenReadyCalls = 0
+      handle.whenReady = async (...args: Parameters<typeof origWhenReady>) => {
+        concurrent++
+        whenReadyCalls++
+        maxConcurrent = Math.max(maxConcurrent, concurrent)
+        try {
+          await origWhenReady(...args)
+          await pause(SLOW_WHEN_READY_MS)
+        } finally {
+          concurrent--
+        }
+      }
+
+      // Fire rapid changes spaced so later ones land while a prior run is still
+      // in #syncWithPeers (waiting on the slow whenReady).
+      for (let i = 0; i < 6; i++) {
+        handle.change(doc => {
+          doc.foo = `v${i}`
+        })
+        await vi.advanceTimersByTimeAsync(CHANGE_INTERVAL_MS)
+      }
+      await vi.advanceTimersByTimeAsync(DRAIN_MS)
+
+      assert(
+        whenReadyCalls > 0,
+        `expected #syncWithPeers to call whenReady, got ${whenReadyCalls}`
+      )
+      assert.equal(maxConcurrent, 1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("still syncs with a peer after it disconnects and reconnects", async () => {

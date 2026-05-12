@@ -733,6 +733,112 @@ describe("Repo", () => {
         await pause(10)
         assert.equal(handle.listenerCount("heads-changed"), 1)
       })
+
+      it("saveDoc never has two concurrent saves in flight for the same document (asyncThrottle serialization)", async () => {
+        const storageAdapter = new DummyStorageAdapter()
+        const repo = new Repo({ storage: storageAdapter, saveDebounceRate: 20 })
+
+        let concurrent = 0
+        let maxConcurrent = 0
+        const originalSaveDoc = repo.storageSubsystem!.saveDoc.bind(
+          repo.storageSubsystem
+        )
+        repo.storageSubsystem!.saveDoc = async (documentId, doc) => {
+          concurrent++
+          maxConcurrent = Math.max(maxConcurrent, concurrent)
+          // saveDoc is deliberately slower than the debounce rate so a second
+          // asyncThrottled call arrives while the first is still saving.
+          await pause(80)
+          try {
+            return await originalSaveDoc(documentId, doc)
+          } finally {
+            concurrent--
+          }
+        }
+
+        const handle = repo.create<TestDoc>()
+        for (let i = 0; i < 10; i++) {
+          handle.change(d => {
+            d.foo = `v${i}`
+          })
+          await pause(15)
+        }
+        await pause(500)
+
+        assert.equal(maxConcurrent, 1)
+      })
+
+      it("saveSyncState never has two concurrent saves in flight for the same storageId (asyncThrottle serialization)", async () => {
+        const aliceStorage = new DummyStorageAdapter()
+        const bobStorage = new DummyStorageAdapter()
+        const alice = new Repo({
+          peerId: "alice" as PeerId,
+          storage: aliceStorage,
+          saveDebounceRate: 20,
+        })
+        const bob = new Repo({
+          peerId: "bob" as PeerId,
+          storage: bobStorage,
+          saveDebounceRate: 20,
+        })
+
+        // Count concurrent sync-state saves by intercepting the adapter's
+        // save method and filtering by the sync-state key prefix. The Repo
+        // wraps StorageSubsystem.saveSyncState with asyncThrottle keyed by
+        // storageId, so even across many rapid events the adapter should
+        // never see two sync-state saves in flight for the same storageId.
+        let concurrent = 0
+        let maxConcurrent = 0
+        let syncStateSaveCalls = 0
+        const originalBobSave = bobStorage.save.bind(bobStorage)
+        bobStorage.save = async (key, binary) => {
+          const isSyncState = key[1] === "sync-state"
+          if (isSyncState) {
+            concurrent++
+            syncStateSaveCalls++
+            maxConcurrent = Math.max(maxConcurrent, concurrent)
+          }
+          try {
+            if (isSyncState) await pause(80)
+            return await originalBobSave(key, binary)
+          } finally {
+            if (isSyncState) concurrent--
+          }
+        }
+
+        await connectRepos(alice, bob)
+
+        // DummyNetworkAdapter does not transmit the remote peer's metadata
+        // (see peerCandidate in DummyNetworkAdapter); without it, Repo's
+        // #saveSyncState early-returns because there is no storageId for the
+        // peer. Populate it manually so the asyncThrottle path we want to
+        // exercise is actually reached.
+        const aliceStorageId = await aliceStorage
+          .load(["storage-adapter-id"])
+          .then(bytes => new TextDecoder().decode(bytes!) as StorageId)
+        bob.peerMetadataByPeerId["alice" as PeerId] = {
+          storageId: aliceStorageId,
+          isEphemeral: false,
+        }
+
+        const aliceHandle = alice.create<TestDoc>({ foo: "init" })
+        await bob.find(aliceHandle.url)
+        await pause(20) // let the initial sync settle
+
+        for (let i = 0; i < 15; i++) {
+          aliceHandle.change(d => {
+            d.foo = `v${i}`
+          })
+          await pause(15)
+        }
+        await pause(800)
+
+        assert(
+          syncStateSaveCalls > 0,
+          `expected sync-state saves to be triggered, got ${syncStateSaveCalls}`
+        )
+        assert.equal(maxConcurrent, 1)
+      })
     })
   })
 
