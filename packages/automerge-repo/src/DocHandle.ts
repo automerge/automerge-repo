@@ -10,6 +10,7 @@ import { headsAreSame } from "./helpers/headsAreSame.js"
 import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
 import { StorageId } from "./storage/types.js"
 import type { PathInput, InferRefType, Ref } from "./refs/types.js"
+import { makeLogger } from "./Logger.js"
 
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
@@ -37,6 +38,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   #refCache = new Map<string, WeakRef<Ref<any>>>()
 
   #deleted = false
+
+  #log = makeLogger("automerge-repo:dochandle")
 
   // Injected by Repo so `getSyncInfo()` / `getRemoteHeads()` can delegate
   // to the central SyncStateTracker.
@@ -193,7 +196,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @deprecated Use doc() instead.
    */
   docSync() {
-    console.warn(
+    this.#log.warn(
       "docSync is deprecated. Use doc() instead. This function will be removed as part of the 2.0 release."
     )
     return this.doc()

@@ -1,6 +1,6 @@
 import { next as A } from "@automerge/automerge/slim"
 import { decode } from "cbor-x"
-import debug from "debug"
+import { makeLogger, Logger } from "../Logger.js"
 import { EventEmitter } from "eventemitter3"
 import {
   DocHandle,
@@ -90,7 +90,7 @@ interface DocSynchronizerEvents {
  * 6. Handle updates from other sources → send sync to interested peers.
  */
 export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
-  #log: debug.Debugger
+  #log: Logger
   syncDebounceRate = 100
 
   #peers: Map<PeerId, PeerState> = new Map()
@@ -134,7 +134,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     })
 
     const docId = handle.documentId.slice(0, 5)
-    this.#log = debug(`automerge-repo:docsync:${docId}`)
+    this.#log = makeLogger(`automerge-repo:docsync:${docId}`)
 
     handle.on(
       "change",
@@ -227,7 +227,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
         this.#activatePeer(peerId, peer, isNewPeer, syncState, sharePolicyState)
       )
       .catch(err => {
-        this.#log(
+        this.#log.error(
           `Error loading sync state or share policy for ${peerId}: ${err}`
         )
         this.#activatePeer(peerId, peer, isNewPeer, undefined, "denied")
@@ -235,7 +235,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   }
 
   removePeer(peerId: PeerId): void {
-    this.#log(`removing peer ${peerId}`)
+    this.#log.debug(`removing peer ${peerId}`)
     this.#peers.delete(peerId)
     this.emit("peer-status", {
       peerId,
@@ -294,7 +294,9 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
           this.#evaluate()
         })
         .catch(e => {
-          this.#log(`error loading share policy in reevaluateSharePolicy: ${e}`)
+          this.#log.error(
+            `error loading share policy in reevaluateSharePolicy: ${e}`
+          )
         })
     }
   }
@@ -613,7 +615,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   // SYNC PROTOCOL
 
   #sendSyncMessage(peerId: PeerId, peer: PeerState, doc: A.Doc<unknown>): void {
-    this.#log(`sendSyncMessage ->${peerId}`)
+    this.#log.debug(`sendSyncMessage ->${peerId}`)
 
     const syncState = peer.syncState!
     const isNew = A.getHeads(doc).length === 0
@@ -746,7 +748,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   #broadcastToPeers({
     data,
   }: DocHandleOutboundEphemeralMessagePayload<unknown>): void {
-    this.#log(`broadcastToPeers`, Array.from(this.#peers.keys()))
+    this.#log.debug(`broadcastToPeers`, Array.from(this.#peers.keys()))
     for (const [peerId, peer] of this.#peers) {
       if (
         peer.sharePolicyState === "denied" ||
@@ -761,7 +763,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   }
 
   #sendEphemeralMessage(peerId: PeerId, data: Uint8Array): void {
-    this.#log(`sendEphemeralMessage ->${peerId}`)
+    this.#log.debug(`sendEphemeralMessage ->${peerId}`)
     const message: MessageContents<EphemeralMessage> = {
       type: "ephemeral",
       targetId: peerId,

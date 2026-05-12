@@ -18,6 +18,7 @@ import { isSegment, isPattern } from "./guards.js"
 import { matchesPattern } from "./utils.js"
 import { isCursorMarker } from "./guards.js"
 import type { CursorMarker } from "./types.js"
+import { makeLogger } from "../Logger.js"
 import { stringifyRefUrl } from "./parser.js"
 import { MutableText } from "./mutable-text.js"
 
@@ -50,6 +51,7 @@ export class RefImpl<
 
   #onChangeCallbacks = new Set<(payload: DocHandleChangePayload<any>) => void>()
   #updateHandler: () => void
+  #log = makeLogger("automerge-repo:ref")
 
   constructor(docHandle: DocHandle<TDoc>, segments: readonly [...TPath]) {
     this.docHandle = docHandle
@@ -163,7 +165,7 @@ export class RefImpl<
           typeof newValue === "bigint"
         )
       ) {
-        console.warn(
+        this.#log.warn(
           "Ref.change() returned a non-primitive value. For objects and arrays, " +
             "you should mutate them in place rather than returning a new instance. " +
             "Returning new instances loses granular change tracking."

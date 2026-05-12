@@ -1,5 +1,5 @@
 import { next as Automerge, Heads } from "@automerge/automerge/slim"
-import debug from "debug"
+import { makeLogger } from "./Logger.js"
 import { EventEmitter } from "eventemitter3"
 import {
   binaryToDocumentId,
@@ -58,7 +58,7 @@ function randomPeerId() {
  * obtain {@link DocHandle}s.
  */
 export class Repo extends EventEmitter<RepoEvents> {
-  #log: debug.Debugger
+  #log = makeLogger("automerge-repo:repo")
 
   /** @hidden */
   networkSubsystem: NetworkSubsystem
@@ -100,7 +100,6 @@ export class Repo extends EventEmitter<RepoEvents> {
   }: RepoConfig = {}) {
     super()
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
-    this.#log = debug(`automerge-repo:repo`)
 
     this.#idFactory = idFactory || null
     // Handle legacy sharePolicy
@@ -179,7 +178,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // When the synchronizer emits messages, send them to peers
     this.synchronizer.on("message", message => {
-      this.#log(`sending ${message.type} message to ${message.targetId}`)
+      this.#log.debug(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
     })
 
@@ -195,7 +194,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
-      this.#log("peer connected", { peerId })
+      this.#log.debug("peer connected", { peerId })
 
       if (peerMetadata) {
         this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
@@ -209,7 +208,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           }
         })
         .catch(err => {
-          this.#log("error in share policy", { err })
+          this.#log.error("error in share policy", { err })
         })
 
       this.synchronizer.addPeer(peerId)
@@ -262,7 +261,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       })
 
       this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
-        this.#log("change-remote-subs", message)
+        this.#log.debug("change-remote-subs", message)
         for (const peer of message.peers) {
           this.networkSubsystem.send({
             type: "remote-subscription-change",
@@ -560,7 +559,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     if (this.storageSubsystem) {
       this.storageSubsystem.removeDoc(documentId).catch(err => {
-        this.#log("error deleting document from storage", { documentId, err })
+        this.#log.error("error deleting document from storage", {
+          documentId,
+          err,
+        })
       })
     }
 
@@ -622,11 +624,11 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   subscribeToRemotes = (remotes: StorageId[]) => {
     if (this.#remoteHeadsGossipingEnabled) {
-      this.#log("subscribeToRemotes", { remotes })
+      this.#log.debug("subscribeToRemotes", { remotes })
       this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
     } else {
-      this.#log(
-        "WARN: subscribeToRemotes called but remote heads gossiping is not enabled"
+      this.#log.warn(
+        "subscribeToRemotes called but remote heads gossiping is not enabled"
       )
     }
   }

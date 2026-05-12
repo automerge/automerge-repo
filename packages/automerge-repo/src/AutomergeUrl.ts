@@ -15,6 +15,9 @@ import {
 } from "./helpers/bufferFromHex.js"
 
 import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
+import { makeLogger } from "./Logger.js"
+
+const log = makeLogger("automerge-repo:url")
 
 export const urlPrefix = "automerge:"
 
@@ -196,7 +199,7 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 
   // legacy UUID
   if (isValidUuid(id)) {
-    console.warn(
+    log.warn(
       "Future versions will not support UUIDs as document IDs; use Automerge URLs instead."
     )
     const binaryDocumentID = Uuid.parse(id) as BinaryDocumentId

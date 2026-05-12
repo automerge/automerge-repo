@@ -1,4 +1,4 @@
-import debug from "debug"
+import { makeLogger, Logger } from "../Logger.js"
 import { EventEmitter } from "eventemitter3"
 import { PeerId, SessionId } from "../types.js"
 import type {
@@ -20,7 +20,7 @@ const getEphemeralMessageSource = (message: EphemeralMessage) =>
   `${message.senderId}:${message.sessionId}` as EphemeralMessageSource
 
 export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
-  #log: debug.Debugger
+  #log: Logger
   #adaptersByPeer: Record<PeerId, NetworkAdapterInterface> = {}
 
   #count = 0
@@ -34,7 +34,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     private peerMetadata: Promise<PeerMetadata>
   ) {
     super()
-    this.#log = debug(`automerge-repo:network:${this.peerId}`)
+    this.#log = makeLogger(`automerge-repo:network:${this.peerId}`)
     adapters.forEach(a => this.addNetworkAdapter(a))
   }
 
@@ -50,7 +50,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     this.adapters.push(networkAdapter)
 
     networkAdapter.on("peer-candidate", ({ peerId, peerMetadata }) => {
-      this.#log(`peer candidate: ${peerId} `)
+      this.#log.debug(`peer candidate: ${peerId} `)
       // TODO: This is where authentication would happen
 
       // A new candidate for an existing peer ID is a replacement connection.
@@ -61,7 +61,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     })
 
     networkAdapter.on("peer-disconnected", ({ peerId }) => {
-      this.#log(`peer disconnected: ${peerId} `)
+      this.#log.debug(`peer disconnected: ${peerId} `)
       if (this.#adaptersByPeer[peerId] !== networkAdapter) return
       delete this.#adaptersByPeer[peerId]
       this.emit("peer-disconnected", { peerId })
@@ -69,11 +69,11 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
 
     networkAdapter.on("message", msg => {
       if (!isRepoMessage(msg)) {
-        this.#log(`invalid message: ${JSON.stringify(msg)}`)
+        this.#log.warn(`invalid message: ${JSON.stringify(msg)}`)
         return
       }
 
-      this.#log(`message from ${msg.senderId}`)
+      this.#log.debug(`message from ${msg.senderId}`)
 
       if (isEphemeralMessage(msg)) {
         const source = getEphemeralMessageSource(msg)
@@ -92,7 +92,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         this.#adaptersByPeer[msg.senderId] &&
         this.#adaptersByPeer[msg.senderId] !== networkAdapter
       ) {
-        this.#log(`ignoring stale message from ${msg.senderId}`)
+        this.#log.debug(`ignoring stale message from ${msg.senderId}`)
         return
       }
 
@@ -100,7 +100,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     })
 
     networkAdapter.on("close", () => {
-      this.#log("adapter closed")
+      this.#log.debug("adapter closed")
       Object.entries(this.#adaptersByPeer).forEach(([peerId, other]) => {
         if (other === networkAdapter) {
           delete this.#adaptersByPeer[peerId as PeerId]
@@ -114,7 +114,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
         networkAdapter.connect(this.peerId, peerMetadata)
       })
       .catch(err => {
-        this.#log("error connecting to network", err)
+        this.#log.error("error connecting to network", err)
       })
   }
 
@@ -128,7 +128,9 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
   send(message: MessageContents) {
     const peer = this.#adaptersByPeer[message.targetId]
     if (!peer) {
-      this.#log(`Tried to send message but peer not found: ${message.targetId}`)
+      this.#log.warn(
+        `Tried to send message but peer not found: ${message.targetId}`
+      )
       return
     }
 
@@ -159,7 +161,7 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
     }
 
     const outbound = prepareMessage(message)
-    this.#log("sending message %o", outbound)
+    this.#log.debug("sending message %o", outbound)
     peer.send(outbound as RepoMessage)
   }
 
