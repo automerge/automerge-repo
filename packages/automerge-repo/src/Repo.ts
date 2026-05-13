@@ -65,7 +65,19 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   storageSubsystem?: StorageSubsystem
 
-  #queries: Record<DocumentId, DocumentQuery<any>> = {}
+  // Document query storage:
+  // - Split is what enables GC: primary keyed by handle so it can be a
+  //   WeakMap; a single documentId-keyed map couldn't be weak (primitive
+  //   keys) and would pin every query for the repo's lifetime.
+  // - `#queriesByHandle`: keyed weakly by `DocHandle`. The query holds a
+  //   strong ref back to the handle, but per spec that cycle is internal
+  //   to the entry and doesn't pin — so dropping the handle GCs both.
+  // - `#queryHandleByDocumentId`: secondary index for documentId-based
+  //   lookups (sync messages, removeFromCache). Holds the handle weakly.
+  //   TODO: switch to `WeakValueMap<DocumentId, DocHandle<any>>` when
+  //   that helper lands — same shape, with active cleanup.
+  #queriesByHandle = new WeakMap<DocHandle<any>, DocumentQuery<any>>()
+  #queryHandleByDocumentId: Record<DocumentId, WeakRef<DocHandle<any>>> = {}
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
@@ -227,7 +239,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     this.synchronizer.on("sync-state", message => {
-      const handle = this.#queries[message.documentId]?.handle
+      const handle = this.#getQuery(message.documentId)?.handle
       if (!handle) return
 
       const peerMeta = this.peerMetadataByPeerId[message.peerId]
@@ -276,7 +288,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#remoteHeadsSubscriptions.on(
         "remote-heads-changed",
         ({ documentId, storageId, remoteHeads, timestamp }) => {
-          const handle = this.#queries[documentId]?.handle
+          const handle = this.#getQuery(documentId)?.handle
           if (!handle) return
           this.#syncStateTracker.handleRemoteHeadsChanged(
             documentId,
@@ -287,6 +299,41 @@ export class Repo extends EventEmitter<RepoEvents> {
           )
         }
       )
+    }
+  }
+
+  /** Look up a query by documentId. Returns undefined if the document
+   *  was never registered, or was registered but its DocHandle has been
+   *  garbage-collected since (no live consumer reference remains). */
+  #getQuery<T>(documentId: DocumentId): DocumentQuery<T> | undefined {
+    const handle = this.#queryHandleByDocumentId[documentId]?.deref()
+    if (!handle) return undefined
+    return this.#queriesByHandle.get(handle) as DocumentQuery<T> | undefined
+  }
+
+  /** Register a freshly-created query in both stores. */
+  #registerQuery(query: DocumentQuery<unknown>): void {
+    this.#queriesByHandle.set(query.handle, query)
+    this.#queryHandleByDocumentId[query.documentId] = new WeakRef(query.handle)
+  }
+
+  /** Explicit-removal path. The WeakMap entry auto-cleans when the
+   *  handle is GC'd; this is used by `delete` and `removeFromCache`
+   *  to remove eagerly. */
+  #unregisterQuery(documentId: DocumentId): void {
+    const handle = this.#queryHandleByDocumentId[documentId]?.deref()
+    if (handle) this.#queriesByHandle.delete(handle)
+    delete this.#queryHandleByDocumentId[documentId]
+  }
+
+  /** Iterate currently-alive `(documentId, query)` pairs. Skips entries
+   *  whose handle has been collected. */
+  *#aliveQueries(): IterableIterator<[DocumentId, DocumentQuery<any>]> {
+    for (const id of Object.keys(
+      this.#queryHandleByDocumentId
+    ) as DocumentId[]) {
+      const query = this.#getQuery(id)
+      if (query) yield [id, query]
     }
   }
 
@@ -304,7 +351,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     documentId: DocumentId,
     initialDoc?: Automerge.Doc<unknown>
   ): DocumentQuery<unknown> {
-    const existing = this.#queries[documentId]
+    const existing = this.#getQuery(documentId)
     if (existing) {
       return existing
     }
@@ -319,7 +366,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       handle.update(() => initialDoc)
     }
     const query = new DocumentQuery(handle, this.#sources)
-    this.#queries[documentId] = query
+    this.#registerQuery(query)
 
     // Attach all sources. Each source calls sourcePending/sourceUnavailable
     // as appropriate and sets up its own listeners. When initialDoc is
@@ -356,9 +403,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Returns all the handles we have cached. */
   get handles(): Record<DocumentId, DocHandle<any>> {
     const result: Record<DocumentId, DocHandle<any>> = {}
-    for (const [id, query] of Object.entries(this.#queries)) {
+    for (const [id, query] of this.#aliveQueries()) {
       if (query.handle) {
-        result[id as DocumentId] = query.handle
+        result[id] = query.handle
       }
     }
     return result
@@ -499,10 +546,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // ensureQuery creates the query, handle, sets up all sources, and
     // registers with the sync layer (no-ops if already added).
-    if (!this.#queries[documentId]) {
-      this.#ensureQuery(documentId)
+    let query = this.#getQuery<T>(documentId)
+    if (!query) {
+      query = this.#ensureQuery(documentId) as DocumentQuery<T>
     }
-    const query = this.#queries[documentId] as DocumentQuery<T>
 
     if (!heads) return query
     return progressAtHeads(query, heads)
@@ -544,14 +591,14 @@ export class Repo extends EventEmitter<RepoEvents> {
   delete(id: AnyDocumentId) {
     const documentId = interpretAsDocumentId(id)
 
-    const query = this.#queries[documentId]
+    const query = this.#getQuery(documentId)
     if (query?.handle) {
       query.handle.emit("delete", { handle: query.handle })
     }
     if (query) {
       query.fail(new Error(`Document ${documentId} was deleted`))
     }
-    delete this.#queries[documentId]
+    this.#unregisterQuery(documentId)
 
     for (const source of this.#sources.values()) {
       source.detach(documentId)
@@ -599,7 +646,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const docId = args?.docId
     if (docId != null) {
       // Check if we already have a handle for this document
-      const existing = this.#queries[docId]?.handle as DocHandle<T> | null
+      const existing = this.#getQuery(docId)?.handle as DocHandle<T> | null
       if (existing) {
         existing.update(doc => Automerge.loadIncremental(doc, binary))
         return existing
@@ -650,10 +697,11 @@ export class Repo extends EventEmitter<RepoEvents> {
       return
     }
 
-    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
+    const ids =
+      documents ?? (Object.keys(this.#queryHandleByDocumentId) as DocumentId[])
     await Promise.all(
       ids.map(async id => {
-        const state = this.#queries[id]?.peek()
+        const state = this.#getQuery(id)?.peek()
         if (state?.state === "ready") {
           await this.storageSubsystem!.saveDoc(id, state.handle.doc())
         }
@@ -670,7 +718,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     for (const source of this.#sources.values()) {
       source.detach(documentId)
     }
-    delete this.#queries[documentId]
+    this.#unregisterQuery(documentId)
     this.#syncStateTracker.delete(documentId)
   }
 
