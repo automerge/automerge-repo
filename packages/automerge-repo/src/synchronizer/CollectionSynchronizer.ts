@@ -1,7 +1,6 @@
 import { next as A } from "@automerge/automerge/slim"
 import debug from "debug"
 import { EventEmitter } from "eventemitter3"
-import { DocHandle } from "../DocHandle.js"
 import { parseAutomergeUrl } from "../AutomergeUrl.js"
 import {
   DocMessage,
@@ -99,7 +98,7 @@ export class CollectionSynchronizer
   attach(query: DocumentQuery<unknown>): void {
     if (this.#docSynchronizers[query.documentId]) return
 
-    const docSync = this.#initDocSynchronizer(query.handle, query)
+    const docSync = this.#initDocSynchronizer(query)
     this.#docSynchronizers[query.documentId] = docSync
 
     for (const peerId of this.#peers) {
@@ -218,12 +217,8 @@ export class CollectionSynchronizer
 
   // PRIVATE
 
-  #initDocSynchronizer(
-    handle: DocHandle<unknown>,
-    query: DocumentQuery<unknown>
-  ): DocSynchronizer {
+  #initDocSynchronizer(query: DocumentQuery<unknown>): DocSynchronizer {
     const docSync = new DocSynchronizer({
-      handle,
       query,
       networkReady: this.#networkReady,
       shareConfig: this.#config.shareConfig,
