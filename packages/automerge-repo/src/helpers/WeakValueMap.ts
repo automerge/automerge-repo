@@ -65,4 +65,32 @@ export class WeakValueMap<K extends number | string, V extends WeakKey> {
     this.set(key, value)
     return value
   }
+
+  // Iteration matches `Map`'s shape (`entries`, `keys`, `values`,
+  // `[Symbol.iterator]`). Dead entries are silently skipped — there's
+  // no way to observe one, and the only way for a value to be in the
+  // underlying map is to be alive at the moment we yield it.
+  //
+  // No `size` — it would lie. The count can change between calls
+  // without any mutation, just from GC, so any single read would be
+  // immediately stale.
+
+  *entries(): IterableIterator<[K, V]> {
+    for (const [key, ref] of this.#map) {
+      const value = ref.deref()
+      if (value !== undefined) yield [key, value]
+    }
+  }
+
+  [Symbol.iterator](): IterableIterator<[K, V]> {
+    return this.entries()
+  }
+
+  *keys(): IterableIterator<K> {
+    for (const [k] of this.entries()) yield k
+  }
+
+  *values(): IterableIterator<V> {
+    for (const [, v] of this.entries()) yield v
+  }
 }

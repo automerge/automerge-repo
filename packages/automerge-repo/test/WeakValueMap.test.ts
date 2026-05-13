@@ -60,6 +60,58 @@ describe("WeakValueMap — synchronous behavior", () => {
     expect(a).toBe(b)
     expect(calls).toBe(1)
   })
+
+  it("entries yields [key, value] for each entry", () => {
+    const m = new WeakValueMap<string, Box>()
+    const a = new Box(1)
+    const b = new Box(2)
+    m.set("a", a)
+    m.set("b", b)
+
+    const entries = Array.from(m.entries())
+    expect(entries).toHaveLength(2)
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        ["a", a],
+        ["b", b],
+      ])
+    )
+  })
+
+  it("keys yields the key for each entry", () => {
+    const m = new WeakValueMap<string, Box>()
+    m.set("a", new Box(1))
+    m.set("b", new Box(2))
+    expect([...m.keys()].sort()).toEqual(["a", "b"])
+  })
+
+  it("values yields the value for each entry", () => {
+    const m = new WeakValueMap<string, Box>()
+    const a = new Box(1)
+    const b = new Box(2)
+    m.set("a", a)
+    m.set("b", b)
+    const values = [...m.values()]
+    expect(values).toHaveLength(2)
+    expect(values).toEqual(expect.arrayContaining([a, b]))
+  })
+
+  it("is iterable via Symbol.iterator and yields [key, value]", () => {
+    const m = new WeakValueMap<string, Box>()
+    const a = new Box(1)
+    m.set("a", a)
+    const collected: [string, Box][] = []
+    for (const entry of m) collected.push(entry)
+    expect(collected).toEqual([["a", a]])
+  })
+
+  it("iteration reflects deletions", () => {
+    const m = new WeakValueMap<string, Box>()
+    m.set("a", new Box(1))
+    m.set("b", new Box(2))
+    m.delete("a")
+    expect([...m.keys()]).toEqual(["b"])
+  })
 })
 
 describe("WeakValueMap — GC behavior", () => {

@@ -41,6 +41,7 @@ import { RefImpl } from "./refs/ref.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
+import { WeakValueMap } from "./helpers/WeakValueMap.js"
 
 export type { DocumentProgress } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
@@ -73,11 +74,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   //   strong ref back to the handle, but per spec that cycle is internal
   //   to the entry and doesn't pin — so dropping the handle GCs both.
   // - `#queryHandleByDocumentId`: secondary index for documentId-based
-  //   lookups (sync messages, removeFromCache). Holds the handle weakly.
-  //   TODO: switch to `WeakValueMap<DocumentId, DocHandle<any>>` when
-  //   that helper lands — same shape, with active cleanup.
+  //   lookups (sync messages, removeFromCache). WeakValueMap holds the
+  //   handle weakly and self-evicts dead entries via FinalizationRegistry.
   #queriesByHandle = new WeakMap<DocHandle<any>, DocumentQuery<any>>()
-  #queryHandleByDocumentId: Record<DocumentId, WeakRef<DocHandle<any>>> = {}
+  #queryHandleByDocumentId = new WeakValueMap<DocumentId, DocHandle<any>>()
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
@@ -306,7 +306,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    *  was never registered, or was registered but its DocHandle has been
    *  garbage-collected since (no live consumer reference remains). */
   #getQuery<T>(documentId: DocumentId): DocumentQuery<T> | undefined {
-    const handle = this.#queryHandleByDocumentId[documentId]?.deref()
+    const handle = this.#queryHandleByDocumentId.get(documentId)
     if (!handle) return undefined
     return this.#queriesByHandle.get(handle) as DocumentQuery<T> | undefined
   }
@@ -314,25 +314,23 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Register a freshly-created query in both stores. */
   #registerQuery(query: DocumentQuery<unknown>): void {
     this.#queriesByHandle.set(query.handle, query)
-    this.#queryHandleByDocumentId[query.documentId] = new WeakRef(query.handle)
+    this.#queryHandleByDocumentId.set(query.documentId, query.handle)
   }
 
-  /** Explicit-removal path. The WeakMap entry auto-cleans when the
-   *  handle is GC'd; this is used by `delete` and `removeFromCache`
-   *  to remove eagerly. */
+  /** Explicit-removal path. Both stores auto-clean when the handle is
+   *  GC'd; this is used by `delete` and `removeFromCache` to remove
+   *  eagerly. */
   #unregisterQuery(documentId: DocumentId): void {
-    const handle = this.#queryHandleByDocumentId[documentId]?.deref()
+    const handle = this.#queryHandleByDocumentId.get(documentId)
     if (handle) this.#queriesByHandle.delete(handle)
-    delete this.#queryHandleByDocumentId[documentId]
+    this.#queryHandleByDocumentId.delete(documentId)
   }
 
   /** Iterate currently-alive `(documentId, query)` pairs. Skips entries
    *  whose handle has been collected. */
   *#aliveQueries(): IterableIterator<[DocumentId, DocumentQuery<any>]> {
-    for (const id of Object.keys(
-      this.#queryHandleByDocumentId
-    ) as DocumentId[]) {
-      const query = this.#getQuery(id)
+    for (const [id, handle] of this.#queryHandleByDocumentId) {
+      const query = this.#queriesByHandle.get(handle)
       if (query) yield [id, query]
     }
   }
@@ -404,9 +402,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   get handles(): Record<DocumentId, DocHandle<any>> {
     const result: Record<DocumentId, DocHandle<any>> = {}
     for (const [id, query] of this.#aliveQueries()) {
-      if (query.handle) {
-        result[id] = query.handle
-      }
+      result[id] = query.handle
     }
     return result
   }
@@ -686,27 +682,33 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
   }
 
+  /** Generator yielding save promises for currently-ready docs only.
+   *  Single-pass over the documentId index; no intermediate arrays. */
+  *#saveTasks(documents?: Iterable<DocumentId>): IterableIterator<Promise<void>> {
+    const ids = documents ?? this.#queryHandleByDocumentId.keys()
+    for (const id of ids) {
+      const state = this.#getQuery(id)?.peek()
+      if (state?.state === "ready") {
+        yield this.storageSubsystem!.saveDoc(id, state.handle.doc())
+      }
+    }
+  }
+
   /**
    * Writes Documents to a disk.
    * @hidden this API is experimental and may change.
    * @param documents - if provided, only writes the specified documents.
    * @returns Promise<void>
    */
-  async flush(documents?: DocumentId[]): Promise<void> {
+  async flush(documents?: Iterable<DocumentId>): Promise<void> {
     if (!this.storageSubsystem) {
       return
     }
 
-    const ids =
-      documents ?? (Object.keys(this.#queryHandleByDocumentId) as DocumentId[])
-    await Promise.all(
-      ids.map(async id => {
-        const state = this.#getQuery(id)?.peek()
-        if (state?.state === "ready") {
-          await this.storageSubsystem!.saveDoc(id, state.handle.doc())
-        }
-      })
-    )
+    // Yield save promises one-at-a-time to Promise.all so we never
+    // materialize the ids array or an intermediate promise array, and
+    // skip non-ready docs without wrapping them in an async no-op.
+    await Promise.all(this.#saveTasks(documents))
   }
 
   /**
