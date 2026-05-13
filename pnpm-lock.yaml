@@ -20,8 +20,8 @@ importers:
         specifier: 3.2.6
         version: 3.2.6
       '@automerge/automerge-subduction':
-        specifier: 0.11.0
-        version: 0.11.0
+        specifier: 0.12.0
+        version: 0.12.0
       '@eslint/eslintrc':
         specifier: ^3.3.0
         version: 3.3.5
@@ -301,8 +301,8 @@ importers:
         specifier: 3.2.6
         version: 3.2.6
       '@automerge/automerge-subduction':
-        specifier: 0.11.0
-        version: 0.11.0
+        specifier: 0.12.0
+        version: 0.12.0
       bs58check:
         specifier: ^3.0.1
         version: 3.0.1
@@ -541,8 +541,8 @@ packages:
   '@asamuzakjp/nwsapi@2.3.9':
     resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
 
-  '@automerge/automerge-subduction@0.11.0':
-    resolution: {integrity: sha512-Af/xHgqG2rldEfVNYh83ktQWmsIPCHubFhE5BgYNkGzJWJNy3vU4AE1OQRlnNMeF1G7B4bEXa/LWOOSYXzNlpA==}
+  '@automerge/automerge-subduction@0.12.0':
+    resolution: {integrity: sha512-6guXcwChiiL9DpivO90vHLMSL3BMOqb9EpLhOdWke+AkzDrlaX4Jw5ptk0qkBzudv6mF5qnBbAUk1Jy/9PBXUw==}
 
   '@automerge/automerge@3.2.6':
     resolution: {integrity: sha512-9/GXXfYYWNVGpnbRrGQzTNU4fWZ3XaEMeEg0OrpK4pvlQSpkmUBoirEb/4TMK6BwMysZGV5Yeneq3wwc7RNGfg==}
@@ -7217,7 +7217,7 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
-  '@automerge/automerge-subduction@0.11.0': {}
+  '@automerge/automerge-subduction@0.12.0': {}
 
   '@automerge/automerge@3.2.6': {}
 
