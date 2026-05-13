@@ -93,7 +93,7 @@ describe("CollectionSynchronizer", () => {
         reject(new Error("Should not have sent a message"))
       })
       synchronizer.addPeer(alice)
-      setTimeout(done)
+      queueMicrotask(done)
     }))
 
   it("should not synchronize a document which is excluded from the share policy", () =>
@@ -115,7 +115,7 @@ describe("CollectionSynchronizer", () => {
         reject(new Error("Should not have sent a message"))
       })
       synchronizer.attach(query)
-      setTimeout(done)
+      queueMicrotask(done)
     }))
 
   it("removes document", async () => {
