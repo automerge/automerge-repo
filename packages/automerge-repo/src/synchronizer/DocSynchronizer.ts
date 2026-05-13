@@ -88,32 +88,73 @@ interface DocSynchronizerEvents {
  *    requests to other peers — avoid duplicate work.
  * 5. New peer after unavailable → re-request (if share policy allows).
  * 6. Handle updates from other sources → send sync to interested peers.
+ *
+ * ## Lifetime / GC contract
+ *
+ * The synchronizer never pins its handle. The reverse holds:
+ *
+ * - `#query` is a {@link WeakRef}. The handle is reached via
+ *   {@link DocumentQuery.handle}, so dropping the handle on the consumer
+ *   side lets the WeakMap entry in Repo collect both query and handle as
+ *   a unit.
+ * - Listeners attached to the handle (`"change"`,
+ *   `"ephemeral-message-outbound"`) capture only `this`. They live inside
+ *   the handle's `EventEmitter`, so the only reference direction is
+ *   `handle → events → closure → this` — they don't pin the handle. When
+ *   the handle dies, listeners die with it.
+ * - {@link DocumentId} is cached at construction (`#documentId`) so that
+ *   message routing, log messages, and event payloads don't require a
+ *   handle deref. The `get documentId()` accessor stays stable through
+ *   collection.
+ * - Hot paths ({@link #evaluate}, {@link #updateAvailability},
+ *   {@link #receiveSyncMessage}, {@link #receiveEphemeralMessage},
+ *   {@link metrics}) deref the WeakRef at the top and bail if dead. The
+ *   synchronizer goes inert after consumer drop.
+ *
+ * The one subtle case: a pending {@link asyncThrottle} timer is held
+ * strongly by the host timer queue and pins `this` for up to
+ * `syncDebounceRate` milliseconds after the handle is gone. The handle
+ * is *not* on that chain, so its GC is not blocked — the synchronizer
+ * just outlives the handle briefly. When the timer fires, `#evaluate`
+ * derefs the dead query and bails, and the asyncThrottle `finally`
+ * block clears its state.
+ *
+ * Reclaiming the DocSynchronizer itself requires
+ * {@link CollectionSynchronizer} to remove the entry from
+ * `docSynchronizers[id]`. Today that's the explicit `removeFromCache(id)`
+ * path; a planned `FinalizationRegistry` on the handle will make it
+ * automatic as part of handle collection.
  */
 export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   #log: debug.Debugger
   syncDebounceRate = 100
 
   #peers: Map<PeerId, PeerState> = new Map()
-  #handle: DocHandle<unknown>
-  #query: DocumentQuery<unknown>
+  // documentId is cached at construction so accessors and event payloads
+  // don't need to deref the query. Stable for the lifetime of the
+  // DocSynchronizer (handles never change their documentId).
+  #documentId: DocumentId
+  // #query held weakly: consumer drops handle → WeakMap entry in Repo
+  // collects key+value together → this WeakRef goes dead. The
+  // synchronizer no longer pins the handle through the query.
+  #query: WeakRef<DocumentQuery<unknown>>
   #shareConfig: ShareConfig
   #seenEphemeralMessages = new HashRing(1000)
   #networkReady: boolean = false
 
   constructor({
-    handle,
     query,
     networkReady,
     shareConfig,
   }: {
-    handle: DocHandle<unknown>
     query: DocumentQuery<unknown>
     networkReady: Promise<void>
     shareConfig: ShareConfig
   }) {
     super()
-    this.#handle = handle
-    this.#query = query
+    const handle = query.handle
+    this.#documentId = handle.documentId
+    this.#query = new WeakRef(query)
     this.#shareConfig = shareConfig
     query.sourcePending("automerge-sync")
 
@@ -159,12 +200,21 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       .catch(() => {})
   }
 
-  get query(): DocumentQuery<unknown> {
-    return this.#query
+  /** Returns the query if it's still alive (consumer is still holding
+   *  the handle, or some other strong path to the query exists), or
+   *  undefined if the handle has been collected. */
+  get query(): DocumentQuery<unknown> | undefined {
+    return this.#query.deref()
+  }
+
+  /** Returns the handle if it's still alive, or undefined if the consumer
+   *  has dropped it. Derefs through the weak query. */
+  get handle(): DocHandle<unknown> | undefined {
+    return this.#query.deref()?.handle
   }
 
   get documentId(): DocumentId {
-    return this.#handle.documentId
+    return this.#documentId
   }
 
   // PUBLIC API
@@ -218,8 +268,9 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
     // If we don't have data yet, a new peer might provide it — re-mark
     // the sync source as pending to prevent premature unavailability.
-    if (this.#query.peek().state !== "ready") {
-      this.#query.sourcePending("automerge-sync")
+    const query = this.#query.deref()
+    if (query && query.peek().state !== "ready") {
+      query.sourcePending("automerge-sync")
     }
 
     Promise.all([syncState, this.#resolveSharePolicy(peerId)])
@@ -308,9 +359,10 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   }
 
   metrics(): { peers: PeerId[]; size: { numOps: number; numChanges: number } } {
+    const handle = this.handle
     return {
       peers: Array.from(this.#peers.keys()),
-      size: A.stats(this.#handle.doc()),
+      size: handle ? A.stats(handle.doc()) : { numOps: 0, numChanges: 0 },
     }
   }
 
@@ -338,7 +390,14 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
    * 3. Whether to send doc-unavailable to wanting peers
    */
   #evaluate(): void {
-    const doc = this.#handle.doc()
+    // Deref the weak query and obtain the handle through it. If the consumer
+    // has dropped the handle, the synchronizer goes inert — there's no doc
+    // to inspect and nowhere to publish availability.
+    const query = this.#query.deref()
+    const handle = query?.handle
+    if (!query || !handle) return
+
+    const doc = handle.doc()
     const weHaveData = A.getHeads(doc).length > 0
     const supplierExists = this.#anyActivePeerOfType("has")
 
@@ -365,7 +424,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       if (
         !weHaveData &&
         peer.status.type === "unknown" &&
-        this.#query.shouldDeferAvailability("automerge-sync")
+        query.shouldDeferAvailability("automerge-sync")
       ) {
         continue
       }
@@ -396,7 +455,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // Only fires when the query has settled to unavailable/failed
     // and we have no data. The "unavailable-notified" status ensures each
     // peer is only told once.
-    const queryState = this.#query.peek()
+    const queryState = query.peek()
     if (
       !weHaveData &&
       (queryState.state === "unavailable" || queryState.state === "failed")
@@ -406,7 +465,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
           this.#setPeerStatus(peerId, { type: "unavailable-notified" })
           this.emit("message", {
             type: "doc-unavailable",
-            documentId: this.#handle.documentId,
+            documentId: this.documentId,
             targetId: peerId,
           } as MessageContents<DocumentUnavailableMessage>)
         }
@@ -457,42 +516,46 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   #updateAvailability(): void {
     if (!this.#networkReady) return
 
+    const query = this.#query.deref()
+    const handle = query?.handle
+    if (!query || !handle) return
+
     if (this.#peers.size === 0) {
-      this.#query.sourceUnavailable("automerge-sync")
+      query.sourceUnavailable("automerge-sync")
       return
     }
 
     // If any peer's share policy is still being evaluated, we don't yet
     // know the full set of peers — stay pending.
     if (this.#anyPeerWithSharePolicy("loading")) {
-      this.#query.sourcePending("automerge-sync")
+      query.sourcePending("automerge-sync")
       return
     }
 
     // If any non-denied peer is still unknown, we might get data — stay pending.
     if (this.#anyActivePeerOfType("unknown")) {
-      this.#query.sourcePending("automerge-sync")
+      query.sourcePending("automerge-sync")
       return
     }
 
     // If at least one `has` peer's advertised heads are already present
     // in our doc, we have a complete copy from a supplier — ready, even
     // if other suppliers have additional heads we haven't reached yet.
-    if (this.#hasCaughtUpToAnySupplier(this.#handle.doc())) {
-      this.#query.sourceReady("automerge-sync")
+    if (this.#hasCaughtUpToAnySupplier(handle.doc())) {
+      query.sourceReady("automerge-sync")
       return
     }
 
     // There's at least one `has` peer but we haven't caught up to any of
     // them yet — stay pending.
     if (this.#anyActivePeerOfType("has")) {
-      this.#query.sourcePending("automerge-sync")
+      query.sourcePending("automerge-sync")
       return
     }
 
     // No peer ever advertised the doc — all are unavailable / wants /
     // denied.
-    this.#query.sourceUnavailable("automerge-sync")
+    query.sourceUnavailable("automerge-sync")
   }
 
   // STATE MUTATION HELPERS
@@ -529,7 +592,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     this.emit("sync-state", {
       peerId,
       syncState: state,
-      documentId: this.#handle.documentId,
+      documentId: this.documentId,
     })
 
     peer.sharePolicyState = sharePolicyState
@@ -623,7 +686,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     const end = performance.now()
     this.emit("metrics", {
       type: "generate-sync-message",
-      documentId: this.#handle.documentId,
+      documentId: this.documentId,
       durationMillis: end - start,
       forPeer: peerId,
     })
@@ -632,7 +695,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     this.emit("sync-state", {
       peerId,
       syncState: newSyncState,
-      documentId: this.#handle.documentId,
+      documentId: this.documentId,
     })
 
     if (!message) return
@@ -646,7 +709,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       this.emit("message", {
         type: "request",
         targetId: peerId,
-        documentId: this.#handle.documentId,
+        documentId: this.documentId,
         data: message,
       } as RequestMessage)
     } else {
@@ -654,20 +717,20 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
         type: "sync",
         targetId: peerId,
         data: message,
-        documentId: this.#handle.documentId,
+        documentId: this.documentId,
       } as SyncMessage)
     }
   }
 
   #receiveSyncMessage(message: SyncMessage | RequestMessage): void {
-    if (message.documentId !== this.#handle.documentId)
+    if (message.documentId !== this.documentId)
       throw new Error(`channelId doesn't match documentId`)
 
     const peer = this.#peers.get(message.senderId)
     if (!peer) {
       throw new Error(
         `No peer state for ${message.senderId} on document ` +
-          `${this.#handle.documentId}. This indicates a logic error: ` +
+          `${this.documentId}. This indicates a logic error: ` +
           `addPeer must be called before receiving messages from a peer.`
       )
     }
@@ -705,13 +768,18 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     if (peer.sharePolicyState === "denied") {
       this.emit("message", {
         type: "doc-unavailable",
-        documentId: this.#handle.documentId,
+        documentId: this.documentId,
         targetId: message.senderId,
       } as MessageContents<DocumentUnavailableMessage>)
       return
     }
 
-    this.#handle.update(doc => {
+    // Consumer may have dropped the handle since this message was received —
+    // there's nothing to update in that case.
+    const handle = this.handle
+    if (!handle) return
+
+    handle.update(doc => {
       const start = performance.now()
       const [newDoc, newSyncState] = A.receiveSyncMessage(
         doc,
@@ -721,7 +789,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       const end = performance.now()
       this.emit("metrics", {
         type: "receive-sync-message",
-        documentId: this.#handle.documentId,
+        documentId: this.documentId,
         durationMillis: end - start,
         fromPeer: message.senderId,
         ...A.stats(doc),
@@ -731,7 +799,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       this.emit("sync-state", {
         peerId: message.senderId,
         syncState: newSyncState,
-        documentId: this.#handle.documentId,
+        documentId: this.documentId,
       })
 
       // Mark this peer dirty so #evaluate sends a response.
@@ -765,14 +833,14 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     const message: MessageContents<EphemeralMessage> = {
       type: "ephemeral",
       targetId: peerId,
-      documentId: this.#handle.documentId,
+      documentId: this.documentId,
       data,
     }
     this.emit("message", message)
   }
 
   #receiveEphemeralMessage(message: EphemeralMessage): void {
-    if (message.documentId !== this.#handle.documentId)
+    if (message.documentId !== this.documentId)
       throw new Error(`channelId doesn't match documentId`)
 
     const { senderId, sessionId, count, data } = message
@@ -783,9 +851,15 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // Only emit and forward it once per unique sender/session/count.
     if (!isNewMessage) return
 
+    // Consumer may have dropped the handle — there's no local listener to
+    // deliver to, so skip emit (and mesh forwarding, since the synchronizer
+    // is effectively inert when the handle is gone).
+    const handle = this.handle
+    if (!handle) return
+
     const contents = decode(new Uint8Array(data))
-    this.#handle.emit("ephemeral-message", {
-      handle: this.#handle,
+    handle.emit("ephemeral-message", {
+      handle,
       senderId,
       message: contents,
     })
