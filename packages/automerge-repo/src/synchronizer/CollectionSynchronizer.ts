@@ -138,6 +138,19 @@ export class CollectionSynchronizer extends Synchronizer {
     const handle = await this.repo.find(documentId, {
       allowableStates: ["ready", "unavailable", "requesting"],
     })
+
+    // Race guard: removeFromCache may have unloaded the handle during the
+    // await above. Without this, fetchDocSynchronizer would install a fresh
+    // DocSynchronizer capturing an UNLOADED handle, queuing the message in
+    // #pendingSyncMessages forever — the peer is silently cut off from the
+    // doc until restart. Drop the message; the peer's next attempt will
+    // create a fresh handle.
+    if (handle.isUnloaded() || this.repo.handles[documentId] !== handle) {
+      log(`dropping sync message for evicted document ${documentId}`)
+      delete this.#docSetUp[documentId]
+      return
+    }
+
     const docSynchronizer = this.#fetchDocSynchronizer(handle)
 
     docSynchronizer.receiveMessage(message)
