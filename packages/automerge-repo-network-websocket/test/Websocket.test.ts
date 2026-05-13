@@ -572,7 +572,7 @@ describe("Websocket adapters", () => {
         const handle = silentRepo.create()
         handle.update(() => A.clone(doc))
         const { documentId } = parseAutomergeUrl(handle.url)
-        await pause(150)
+        await silentRepo.flush([documentId])
         return {
           url: handle.url,
           doc,
