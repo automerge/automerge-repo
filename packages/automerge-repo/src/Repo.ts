@@ -40,7 +40,7 @@ export { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
 import { RefImpl } from "./refs/ref.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 
-export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export type { DocumentProgress } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
 
 function randomPeerId() {
