@@ -350,4 +350,47 @@ describe("Subduction WebSocket sync", () => {
 
     expect(handle2.doc()!.items).toEqual(["first", "second", "third"])
   }, 15_000)
+
+  // Regression: receivers dedup on `(senderId, sessionId, count)` in
+  // `DocSynchronizer.#receiveEphemeralMessage`. The Subduction bridge in
+  // `Repo.ts` used to hard-code `count: 0`, so every message after the
+  // first from a given sender looked like a duplicate and was silently
+  // dropped on the receiver side. This guards against re-introducing
+  // that — without the per-Repo monotonic counter the second and third
+  // broadcasts never make it past dedup.
+  it("delivers multiple successive ephemeral broadcasts from the same sender", async () => {
+    const server = await startSubductionServer()
+    cleanups.push(() => server.close())
+
+    // Mirror the setup used by "two clients sync through a server":
+    // create the doc on client1, give it time to reach the server,
+    // then have client2 connect and find it.
+    const client1 = createClientRepo("client-1", server.url)
+    const handle1 = client1.create<{ value: string }>()
+    handle1.change(d => {
+      d.value = "shared"
+    })
+    await pause(500)
+
+    const client2 = createClientRepo("client-2", server.url)
+    const handle2 = await client2.find<{ value: string }>(handle1.url)
+    await handle2.whenReady()
+
+    // Settle: peers must be exchanged and ephemeral subscriptions
+    // registered on the server before broadcasts will be relayed.
+    await pause(500)
+
+    const received: unknown[] = []
+    handle2.on("ephemeral-message", ({ message }) => {
+      received.push(message)
+    })
+
+    handle1.broadcast({ seq: 1 })
+    handle1.broadcast({ seq: 2 })
+    handle1.broadcast({ seq: 3 })
+
+    await waitForCondition(() => received.length >= 3, 3000)
+
+    expect(received).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }])
+  }, 10_000)
 })

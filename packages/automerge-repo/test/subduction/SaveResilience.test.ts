@@ -97,264 +97,241 @@ class GatedStorageAdapter implements StorageAdapterInterface {
 }
 
 describe("SubductionSource #save resilience", () => {
-  it(
-    "saveInProgress is cleared after a hung-then-released storage write",
-    async () => {
-      // GIVEN a Repo with a storage adapter that holds writes until
-      // we release them.
-      const storage = new GatedStorageAdapter()
-      const repo = new Repo({ storage, network: [] })
+  it("saveInProgress is cleared after a hung-then-released storage write", async () => {
+    // GIVEN a Repo with a storage adapter that holds writes until
+    // we release them.
+    const storage = new GatedStorageAdapter()
+    const repo = new Repo({ storage, network: [] })
 
-      try {
-        // WHEN the user creates a doc and applies a change. The
-        // throttle (~100ms) and `#save` will fire; `subduction
-        // .addCommit` will hang on `storage.saveBatch`.
-        const handle = repo.create<{ count: number }>({ count: 0 })
-        await handle.whenReady()
-        handle.change(d => {
-          d.count = 1
-        })
+    try {
+      // WHEN the user creates a doc and applies a change. The
+      // throttle (~100ms) and `#save` will fire; `subduction
+      // .addCommit` will hang on `storage.saveBatch`.
+      const handle = repo.create<{ count: number }>({ count: 0 })
+      await handle.whenReady()
+      handle.change(d => {
+        d.count = 1
+      })
 
-        // Wait until at least one save attempt has been made — we
-        // detect that by polling for pending storage writes.
-        await waitForCondition(() => storage.pendingCount() > 0, 5_000)
+      // Wait until at least one save attempt has been made — we
+      // detect that by polling for pending storage writes.
+      await waitForCondition(() => storage.pendingCount() > 0, 5_000)
 
-        // THEN releasing the storage allows the save to drain. If
-        // `saveInProgress` were leaking (e.g., because `try/finally`
-        // didn't cover the await chain), `repo.flush()` would block
-        // forever and the test would time out.
-        storage.release()
-        await repo.flush()
+      // THEN releasing the storage allows the save to drain. If
+      // `saveInProgress` were leaking (e.g., because `try/finally`
+      // didn't cover the await chain), `repo.flush()` would block
+      // forever and the test would time out.
+      storage.release()
+      await repo.flush()
 
-        // AND a subsequent change can be saved without issue. If the
-        // entry's `saveInProgress` were still stuck `true`, the
-        // throttle's next firing would early-return and this final
-        // change would never be persisted. We assert that we make it
-        // through `flush` again within the timeout.
-        handle.change(d => {
-          d.count = 2
-        })
-        await repo.flush()
-      } finally {
-        // Clean up — release any in-flight writes to avoid hanging
-        // shutdown.
-        storage.release()
-        await repo.shutdown()
-      }
-    },
-    15_000
-  )
+      // AND a subsequent change can be saved without issue. If the
+      // entry's `saveInProgress` were still stuck `true`, the
+      // throttle's next firing would early-return and this final
+      // change would never be persisted. We assert that we make it
+      // through `flush` again within the timeout.
+      handle.change(d => {
+        d.count = 2
+      })
+      await repo.flush()
+    } finally {
+      // Clean up — release any in-flight writes to avoid hanging
+      // shutdown.
+      storage.release()
+      await repo.shutdown()
+    }
+  }, 15_000)
 
-  it(
-    "saveInProgress is cleared even if subduction storage writes reject",
-    async () => {
-      // GIVEN a Repo with a storage adapter that fails ONLY on the
-      // `subduction` key prefix (the path that goes through
-      // `SubductionStorageBridge.saveCommit` / `saveBatchAll`).
-      // Other storage operations succeed so the regular Repo
-      // machinery (StorageSubsystem) works.
+  it("saveInProgress is cleared even if subduction storage writes reject", async () => {
+    // GIVEN a Repo with a storage adapter that fails ONLY on the
+    // `subduction` key prefix (the path that goes through
+    // `SubductionStorageBridge.saveCommit` / `saveBatchAll`).
+    // Other storage operations succeed so the regular Repo
+    // machinery (StorageSubsystem) works.
+    //
+    // This isolates the test to the SubductionSource `#save` flow:
+    // the throw inside `subduction.addCommit` should propagate up
+    // through `#saveNewCommits` -> `#save` and trigger the
+    // `finally` block that clears `saveInProgress`.
+    const storage = new SelectivelyRejectingStorageAdapter("subduction")
+    const repo = new Repo({ storage, network: [] })
+
+    try {
+      const handle = repo.create<{ count: number }>({ count: 0 })
+      await handle.whenReady()
+      handle.change(d => {
+        d.count = 1
+      })
+
+      // Wait for at least one rejection to confirm we're actually
+      // exercising the rejection path.
+      await waitForCondition(() => storage.rejectionCount > 0, 5_000)
+
+      // Make a SECOND change. If `saveInProgress` were stuck `true`
+      // from the first failed save, the throttle's next firing
+      // would early-return without saving and we'd never see
+      // additional rejection attempts. By contrast, if `finally`
+      // correctly cleared the flag, the second change triggers a
+      // fresh `#save` and produces another rejection.
+      const rejectionsBeforeSecondChange = storage.rejectionCount
+      handle.change(d => {
+        d.count = 2
+      })
+      await waitForCondition(
+        () => storage.rejectionCount > rejectionsBeforeSecondChange,
+        5_000
+      )
+
+      expect(storage.rejectionCount).toBeGreaterThan(
+        rejectionsBeforeSecondChange
+      )
+    } finally {
+      await repo.shutdown()
+    }
+  }, 15_000)
+
+  it("transient addBatch rejection does not lose commits — retry persists everything", async () => {
+    // Storage rejects the first two batched writes, then succeeds.
+    // Exercises the invariants that prevent commits from being lost
+    // on transient persistence failure:
+    //
+    //   - `entry.lastSavedHeads` only advances after `addBatch`
+    //     succeeds, so the next `#save` retries from the same
+    //     baseline.
+    //   - `entry.recentlySavedHashes` rolls back ring entries on
+    //     rejection, so the retry doesn't skip them.
+    const storage = new TransientlyRejectingStorageAdapter("subduction", 2)
+    const repo = new Repo({ storage, network: [] })
+
+    try {
+      const handle = repo.create<{ count: number }>({ count: 0 })
+      await handle.whenReady()
+      handle.change(d => {
+        d.count = 1
+      })
+
+      // Wait until both rejections have happened. With a 100ms
+      // throttle and at least one mutation per tick, two consecutive
+      // `#save` invocations should hit and reject within a few
+      // hundred ms.
       //
-      // This isolates the test to the SubductionSource `#save` flow:
-      // the throw inside `subduction.addCommit` should propagate up
-      // through `#saveNewCommits` -> `#save` and trigger the
-      // `finally` block that clears `saveInProgress`.
-      const storage = new SelectivelyRejectingStorageAdapter("subduction")
-      const repo = new Repo({ storage, network: [] })
+      // We force the second save by issuing another mutation after
+      // the first rejection lands.
+      await waitForCondition(() => storage.rejectionCount >= 1, 5_000)
 
-      try {
-        const handle = repo.create<{ count: number }>({ count: 0 })
-        await handle.whenReady()
-        handle.change(d => {
-          d.count = 1
-        })
+      handle.change(d => {
+        d.count = 2
+      })
 
-        // Wait for at least one rejection to confirm we're actually
-        // exercising the rejection path.
-        await waitForCondition(
-          () => storage.rejectionCount > 0,
-          5_000
-        )
+      await waitForCondition(() => storage.rejectionCount >= 2, 5_000)
 
-        // Make a SECOND change. If `saveInProgress` were stuck `true`
-        // from the first failed save, the throttle's next firing
-        // would early-return without saving and we'd never see
-        // additional rejection attempts. By contrast, if `finally`
-        // correctly cleared the flag, the second change triggers a
-        // fresh `#save` and produces another rejection.
-        const rejectionsBeforeSecondChange = storage.rejectionCount
-        handle.change(d => {
-          d.count = 2
-        })
-        await waitForCondition(
-          () => storage.rejectionCount > rejectionsBeforeSecondChange,
-          5_000
-        )
+      // After two rejections the gate flips and subsequent writes
+      // succeed. A final mutation triggers a save that lands.
+      handle.change(d => {
+        d.count = 3
+      })
+      await repo.flush()
 
-        expect(storage.rejectionCount).toBeGreaterThan(
-          rejectionsBeforeSecondChange,
-        )
-      } finally {
-        await repo.shutdown()
-      }
-    },
-    15_000
-  )
-
-  it(
-    "transient addBatch rejection does not lose commits — retry persists everything",
-    async () => {
-      // Storage rejects the first two batched writes, then succeeds.
-      // Exercises the invariants that prevent commits from being lost
-      // on transient persistence failure:
+      // The bytes for ALL three changes (count=1, count=2, count=3)
+      // must now be present in the underlying storage. We verify by
+      // counting commit-prefix keys: if any of the previously
+      // rejected commits had been silently abandoned, the count
+      // would be too low.
       //
-      //   - `entry.lastSavedHeads` only advances after `addBatch`
-      //     succeeds, so the next `#save` retries from the same
-      //     baseline.
-      //   - `entry.recentlySavedHashes` rolls back ring entries on
-      //     rejection, so the retry doesn't skip them.
-      const storage = new TransientlyRejectingStorageAdapter("subduction", 2)
-      const repo = new Repo({ storage, network: [] })
+      // 1 commit per change(); plus the initial "create" commit
+      // (`Automerge.from` creates a single commit on construct).
+      // 3 user changes ⇒ at least 3 commits. The exact count can
+      // vary by Automerge version (the initial empty change may or
+      // may not be present), so we assert ≥3 to keep the test
+      // stable.
+      const commitCount = await storage.innerCount(["subduction", "commits"])
+      expect(commitCount).toBeGreaterThanOrEqual(3)
 
-      try {
-        const handle = repo.create<{ count: number }>({ count: 0 })
-        await handle.whenReady()
+      // And the in-memory doc reflects every change.
+      expect(handle.doc()!.count).toBe(3)
+    } finally {
+      // Drop the gate so shutdown can flush.
+      storage.acceptAll()
+      await repo.shutdown()
+    }
+  }, 15_000)
+
+  it("burst mutations all persist and shutdown completes in bounded time", async () => {
+    // GIVEN a Repo with normal storage. We trigger a burst of
+    // mutations that arm the throttle in rapid succession, and
+    // verify that:
+    //   - All mutations persist (no work is lost).
+    //   - `flush` and `shutdown` complete within a generous
+    //     timeout (no `entry.saveSettled` hang).
+    //
+    // The previous design had a `do { } while (saveAgainAfter)`
+    // loop in `#save` that, under pathological mutation patterns
+    // where new commits arrived during each iter's await window,
+    // could hold `saveSettled` unresolved while iterating. The
+    // current single-iter design re-arms the throttle for the
+    // next firing instead — `#save` returns promptly, downstream
+    // callers waiting on `saveSettled` aren't blocked, and the
+    // throttle handles outstanding work.
+    const storage = new DummyStorageAdapter()
+    const repo = new Repo({ storage, network: [] })
+
+    try {
+      const handle = repo.create<{ items: number[] }>({ items: [] })
+      await handle.whenReady()
+
+      const N = 200
+      for (let i = 0; i < N; i++) {
         handle.change(d => {
-          d.count = 1
+          d.items.push(i)
         })
+      }
 
-        // Wait until both rejections have happened. With a 100ms
-        // throttle and at least one mutation per tick, two consecutive
-        // `#save` invocations should hit and reject within a few
-        // hundred ms.
-        //
-        // We force the second save by issuing another mutation after
-        // the first rejection lands.
-        await waitForCondition(() => storage.rejectionCount >= 1, 5_000)
+      await repo.flush()
 
+      const finalDoc = handle.doc()
+      expect(finalDoc!.items.length).toBe(N)
+      expect(finalDoc!.items[0]).toBe(0)
+      expect(finalDoc!.items[N - 1]).toBe(N - 1)
+    } finally {
+      await repo.shutdown()
+    }
+  }, 30_000)
+
+  it("n=200 burst flush+shutdown stays well under the linear baseline", async () => {
+    // Always-on guard against re-introducing per-commit O(N²) work
+    // in the save path. Threshold is generous (~20× the typical
+    // run); failures here mean `#saveNewCommits` or `saveBatchAll`
+    // grew accidentally per-commit work.
+    const storage = new DummyStorageAdapter()
+    const repo = new Repo({ storage, network: [] })
+
+    try {
+      const handle = repo.create<{ items: number[] }>({ items: [] })
+      await handle.whenReady()
+
+      const N = 200
+      for (let i = 0; i < N; i++) {
         handle.change(d => {
-          d.count = 2
+          d.items.push(i)
         })
-
-        await waitForCondition(() => storage.rejectionCount >= 2, 5_000)
-
-        // After two rejections the gate flips and subsequent writes
-        // succeed. A final mutation triggers a save that lands.
-        handle.change(d => {
-          d.count = 3
-        })
-        await repo.flush()
-
-        // The bytes for ALL three changes (count=1, count=2, count=3)
-        // must now be present in the underlying storage. We verify by
-        // counting commit-prefix keys: if any of the previously
-        // rejected commits had been silently abandoned, the count
-        // would be too low.
-        //
-        // 1 commit per change(); plus the initial "create" commit
-        // (`Automerge.from` creates a single commit on construct).
-        // 3 user changes ⇒ at least 3 commits. The exact count can
-        // vary by Automerge version (the initial empty change may or
-        // may not be present), so we assert ≥3 to keep the test
-        // stable.
-        const commitCount = await storage.innerCount(["subduction", "commits"])
-        expect(commitCount).toBeGreaterThanOrEqual(3)
-
-        // And the in-memory doc reflects every change.
-        expect(handle.doc()!.count).toBe(3)
-      } finally {
-        // Drop the gate so shutdown can flush.
-        storage.acceptAll()
-        await repo.shutdown()
       }
-    },
-    15_000
-  )
 
-  it(
-    "burst mutations all persist and shutdown completes in bounded time",
-    async () => {
-      // GIVEN a Repo with normal storage. We trigger a burst of
-      // mutations that arm the throttle in rapid succession, and
-      // verify that:
-      //   - All mutations persist (no work is lost).
-      //   - `flush` and `shutdown` complete within a generous
-      //     timeout (no `entry.saveSettled` hang).
-      //
-      // The previous design had a `do { } while (saveAgainAfter)`
-      // loop in `#save` that, under pathological mutation patterns
-      // where new commits arrived during each iter's await window,
-      // could hold `saveSettled` unresolved while iterating. The
-      // current single-iter design re-arms the throttle for the
-      // next firing instead — `#save` returns promptly, downstream
-      // callers waiting on `saveSettled` aren't blocked, and the
-      // throttle handles outstanding work.
-      const storage = new DummyStorageAdapter()
-      const repo = new Repo({ storage, network: [] })
+      const t0 = performance.now()
+      await repo.flush()
+      await repo.shutdown()
+      const elapsed = performance.now() - t0
 
+      expect(elapsed).toBeLessThan(2_000)
+    } catch (e) {
+      // If the test failed *before* shutdown completed, we still
+      // need to drain the repo so vitest doesn't leak handles.
       try {
-        const handle = repo.create<{ items: number[] }>({ items: [] })
-        await handle.whenReady()
-
-        const N = 200
-        for (let i = 0; i < N; i++) {
-          handle.change(d => {
-            d.items.push(i)
-          })
-        }
-
-        await repo.flush()
-
-        const finalDoc = handle.doc()
-        expect(finalDoc!.items.length).toBe(N)
-        expect(finalDoc!.items[0]).toBe(0)
-        expect(finalDoc!.items[N - 1]).toBe(N - 1)
-      } finally {
         await repo.shutdown()
+      } catch {
+        /* ignore */
       }
-    },
-    30_000
-  )
-
-  it(
-    "n=200 burst flush+shutdown stays well under the linear baseline",
-    async () => {
-      // Always-on guard against re-introducing per-commit O(N²) work
-      // in the save path. Threshold is generous (~20× the typical
-      // run); failures here mean `#saveNewCommits` or `saveBatchAll`
-      // grew accidentally per-commit work.
-      const storage = new DummyStorageAdapter()
-      const repo = new Repo({ storage, network: [] })
-
-      try {
-        const handle = repo.create<{ items: number[] }>({ items: [] })
-        await handle.whenReady()
-
-        const N = 200
-        for (let i = 0; i < N; i++) {
-          handle.change(d => {
-            d.items.push(i)
-          })
-        }
-
-        const t0 = performance.now()
-        await repo.flush()
-        await repo.shutdown()
-        const elapsed = performance.now() - t0
-
-        expect(elapsed).toBeLessThan(2_000)
-      } catch (e) {
-        // If the test failed *before* shutdown completed, we still
-        // need to drain the repo so vitest doesn't leak handles.
-        try {
-          await repo.shutdown()
-        } catch {
-          /* ignore */
-        }
-        throw e
-      }
-    },
-    10_000
-  )
+      throw e
+    }
+  }, 10_000)
 })
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -472,7 +449,7 @@ class TransientlyRejectingStorageAdapter implements StorageAdapterInterface {
 async function waitForCondition(
   fn: () => boolean,
   timeoutMs: number,
-  intervalMs = 25,
+  intervalMs = 25
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
