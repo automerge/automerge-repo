@@ -2,6 +2,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import type { Doc, Prop, Heads } from "@automerge/automerge/slim"
 import type { DocHandle, DocHandleChangePayload } from "../DocHandle.js"
 import { encodeHeads, decodeHeads } from "../AutomergeUrl.js"
+import { noop } from "../helpers/noop.js"
 import type {
   Segment,
   PathSegment,
@@ -21,14 +22,10 @@ import type { CursorMarker } from "./types.js"
 import { stringifyRefUrl } from "./parser.js"
 import { MutableText } from "./mutable-text.js"
 
-/**
- * FinalizationRegistry for automatic cleanup of Ref instances.
- * This ensures subscriptions are cleaned up when Refs are garbage collected,
- * even if dispose() is never called.
- */
-const refCleanupRegistry = new FinalizationRegistry<() => void>(cleanup =>
-  cleanup()
-)
+// Refs and their handles form an internal cycle (handle → events →
+// listener → this → docHandle → handle) that's collected as a unit
+// when both are dropped — no FinalizationRegistry needed. For
+// releasing a Ref while keeping the handle alive, use `dispose()`.
 
 /**
  * Internal implementation of the Ref interface.
@@ -67,13 +64,31 @@ export class RefImpl<
       this.#updateProps(currentDoc)
     }
     this.docHandle.on("change", this.#updateHandler)
-
-    // Register for automatic cleanup when this Ref is garbage collected
-    refCleanupRegistry.register(this, () => this.#cleanup(), this)
   }
 
-  #cleanup(): void {
+  /**
+   * Detach this Ref from its `DocHandle`: remove the internal
+   * `"change"` listener and any `onChange` callbacks, and release the
+   * field-side reference to the original arrow function so it can be
+   * GC'd.
+   *
+   * Optional. If you drop both the handle and the Ref together, the
+   * natural internal cycle handles cleanup. Call `dispose()` only
+   * when you want to release a Ref while keeping the handle alive —
+   * e.g. you've created Refs for many positions and want to release
+   * them without dropping the handle.
+   *
+   * After `dispose()`, `value()` may return stale results for paths
+   * containing array indices that shift (cached `segment.prop`
+   * indices are no longer refreshed on `change`), and `onChange`
+   * callbacks no longer fire.
+   */
+  dispose(): void {
     this.docHandle.off("change", this.#updateHandler)
+    // After .off() has removed the handler from the handle's
+    // EventEmitter, drop the field-side reference too so the original
+    // arrow function (which captured `this`) can be GC'd.
+    this.#updateHandler = noop
     for (const callback of this.#onChangeCallbacks) {
       this.docHandle.off("change", callback)
     }

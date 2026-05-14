@@ -376,6 +376,22 @@ export interface Ref<TValue = unknown> {
   ): () => void
 
   /**
+   * Detach this Ref from its `DocHandle`: remove the internal `change`
+   * listener and any `onChange` callbacks.
+   *
+   * Optional. If you drop both the handle and the Ref together, the
+   * natural internal cycle (`handle → events → listener → this →
+   * docHandle → handle`) is collected as a unit. Call `dispose()` only
+   * when you want to release the listener while keeping the handle
+   * alive for other uses.
+   *
+   * After `dispose()`, `value()` may return stale results for
+   * array-shifting paths (cached `segment.prop` indices are no longer
+   * refreshed) and `onChange` callbacks no longer fire.
+   */
+  dispose(): void
+
+  /**
    * Check if this ref is equal to another ref.
    * Two refs are equal if they have the same URL (document, path, and heads).
    */
