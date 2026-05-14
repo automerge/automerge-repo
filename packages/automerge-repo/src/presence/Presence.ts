@@ -183,6 +183,19 @@ export class Presence<
    * or
    * {@link https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event | "visibilitychange"}
    * to stop sending and receiving updates when not active.
+   *
+   * **You must call `stop()` to release a `Presence` instance.** Dropping the
+   * reference is not enough: the heartbeat / pruning `setInterval` timers
+   * scheduled in {@link start} are registered with the host timer queue,
+   * which is an external GC root. As long as those intervals are running,
+   * the timer callbacks (which capture `this`) keep this `Presence` alive,
+   * which in turn keeps its `DocHandle` alive via `this.#handle`.
+   *
+   * In a browser this is usually a non-issue because `Presence` is tied to
+   * a long-lived page; pair `stop()` with `pagehide` / `visibilitychange`
+   * for clean teardown. In a longer-running JS process that creates and
+   * tears down many `Presence` instances over time, forgetting `stop()`
+   * leaks per-instance state and pins the associated handle.
    */
   stop() {
     if (!this.#running) {
