@@ -107,7 +107,7 @@ const idbHarness = (): StorageHarness => {
 const measure = async (
   harnessFactory: () => StorageHarness,
   label: string,
-  mutationCount: number,
+  mutationCount: number
 ) => {
   const harness = harnessFactory()
 
@@ -136,8 +136,7 @@ const measure = async (
     await repo.shutdown()
     const tShutdown = performance.now()
 
-    const fmt = (ms: number, width = 4) =>
-      ms.toFixed(0).padStart(width)
+    const fmt = (ms: number, width = 4) => ms.toFixed(0).padStart(width)
 
     // eslint-disable-next-line no-console
     console.log(
@@ -148,7 +147,7 @@ const measure = async (
         `mutate=${fmt(tMutated - tDocReady)}ms  ` +
         `flush=${fmt(tFlushed - tMutated, 5)}ms  ` +
         `shutdown=${fmt(tShutdown - tFlushed, 5)}ms  ` +
-        `TOTAL=${fmt(tShutdown - tCreate0, 5)}ms`,
+        `TOTAL=${fmt(tShutdown - tCreate0, 5)}ms`
     )
   } finally {
     await harness.teardown()
@@ -183,25 +182,33 @@ const SCALE = process.env.PERF_SCALE
 const PERF_TIMEOUT = 30 * 60 * 1000
 
 maybeDescribe("automerge-repo perf (no networks, just storage)", () => {
-  test("memory: mutation count scaling", { timeout: PERF_TIMEOUT }, async () => {
-    // Warm up (Wasm init, JIT, allocator).
-    await measure(memoryHarness, "warmup", 10)
-    // eslint-disable-next-line no-console
-    console.log("---")
-    for (const n of SCALE) {
-      await measure(memoryHarness, "bench", n)
+  test(
+    "memory: mutation count scaling",
+    { timeout: PERF_TIMEOUT },
+    async () => {
+      // Warm up (Wasm init, JIT, allocator).
+      await measure(memoryHarness, "warmup", 10)
+      // eslint-disable-next-line no-console
+      console.log("---")
+      for (const n of SCALE) {
+        await measure(memoryHarness, "bench", n)
+      }
     }
-  })
+  )
 
-  test("nodefs: mutation count scaling", { timeout: PERF_TIMEOUT }, async () => {
-    // Warm up (Wasm init, JIT, fs cache).
-    await measure(nodefsHarness, "warmup", 10)
-    // eslint-disable-next-line no-console
-    console.log("---")
-    for (const n of SCALE) {
-      await measure(nodefsHarness, "bench", n)
+  test(
+    "nodefs: mutation count scaling",
+    { timeout: PERF_TIMEOUT },
+    async () => {
+      // Warm up (Wasm init, JIT, fs cache).
+      await measure(nodefsHarness, "warmup", 10)
+      // eslint-disable-next-line no-console
+      console.log("---")
+      for (const n of SCALE) {
+        await measure(nodefsHarness, "bench", n)
+      }
     }
-  })
+  )
 
   test("idb: mutation count scaling", { timeout: PERF_TIMEOUT }, async () => {
     // Warm up (Wasm init, JIT, fake-indexeddb shim).
@@ -241,8 +248,9 @@ maybeDescribe("automerge-repo perf (no networks, just storage)", () => {
           const t1 = performance.now()
           // eslint-disable-next-line no-console
           console.log(
-            `[${harness.label.padEnd(6)}] mutations=${String(n).padStart(5)}  ` +
-              `shutdown=${(t1 - t0).toFixed(1).padStart(7)}ms`,
+            `[${harness.label.padEnd(6)}] mutations=${String(n).padStart(
+              5
+            )}  ` + `shutdown=${(t1 - t0).toFixed(1).padStart(7)}ms`
           )
         } finally {
           await harness.teardown()

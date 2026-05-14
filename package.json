@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-monorepo",
-  "version": "2.6.0-subduction.19",
+  "version": "2.6.0-subduction.20",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
   "repository": "https://github.com/automerge/automerge-repo",
@@ -39,7 +39,7 @@
     "@eslint/eslintrc": "^3.3.0",
     "@eslint/js": "^9.5.0",
     "@automerge/automerge": "^3.2.6",
-    "@automerge/automerge-subduction": "0.12.0",
+    "@automerge/automerge-subduction": "0.12.1",
     "@manypkg/cli": "^0.21.4",
     "@playwright/test": "^1.57.0",
     "@types/debug": "^4.1.12",
