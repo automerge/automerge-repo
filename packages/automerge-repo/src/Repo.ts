@@ -82,11 +82,16 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   // When the consumer's last strong reference to a handle goes away
   // and the handle is collected, the registry callback runs cleanup
-  // for coordination state that doesn't self-clean. Both targets are
-  // idempotent: `removeFromCache(id)` can run before GC and call
-  // these explicitly, and the registry firing afterwards is a no-op.
+  // for coordination state that doesn't self-clean. This mirrors the
+  // explicit `removeFromCache(id)` path so consumers see the same
+  // outcome whether they trigger eviction by dropping the handle or
+  // by calling the API. All targets are idempotent — if
+  // `removeFromCache(id)` runs first, the registry firing afterwards
+  // is a no-op.
   #handleCleanupRegistry = new FinalizationRegistry<DocumentId>(documentId => {
-    this.synchronizer.detach(documentId)
+    for (const source of this.#sources.values()) {
+      source.detach(documentId)
+    }
     this.#syncStateTracker.delete(documentId)
   })
 
