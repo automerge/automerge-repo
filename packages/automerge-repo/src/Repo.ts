@@ -47,9 +47,7 @@ import {
   SubductionSource,
   type SubductionTimeouts,
 } from "./subduction/source.js"
-import type {
-  Policy as SubductionPolicy,
-} from "@automerge/automerge-subduction/slim"
+import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { encode, decode } from "cbor-x"
 import type { EphemeralMessage } from "./network/messages.js"
@@ -102,6 +100,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
   #subductionSource: SubductionSource | null = null
+  #subductionEphemeralCount = 0
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
   #peerId: PeerId
 
@@ -437,7 +436,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           targetId: this.#peerId, // not meaningful for pub/sub
           documentId,
           data,
-          count: 0,
+          count: this.#subductionEphemeralCount++,
           sessionId: "subduction-bridge" as SessionId,
         }
         const payload = new Uint8Array(encode(fullMsg))
@@ -681,7 +680,10 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     if (this.storageSubsystem) {
       this.storageSubsystem.removeDoc(documentId).catch(err => {
-        this.#log("error deleting document from storage", { documentId, err })
+        this.#log("error deleting document from storage", {
+          documentId,
+          err,
+        })
       })
     }
 
@@ -920,7 +922,6 @@ export interface RepoConfig {
    * are optional; sensible defaults apply.
    */
   subductionTimeouts?: SubductionTimeouts
-
 }
 
 /** A function that determines whether we should share a document with a peer
