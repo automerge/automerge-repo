@@ -1065,22 +1065,22 @@ export class SubductionSource implements DocumentSource {
     // 2. Stop any pending heal-retry timers and prevent new schedules
     this.#scheduler.shutdown()
 
-    // 3. Flush all pending throttled saves so they start executing
+    // 3. Flush pending throttled saves; each may fire an in-flight
+    //    `subduction.addBatch(...)` awaiting a remote ack.
     for (const entry of this.#entries.values()) {
       entry.flushSave.flush()
     }
 
-    // 4. Wait for all in-flight #save() calls to complete
-    await Promise.all(
-      Array.from(this.#entries.values()).map(e => e.saveSettled)
-    )
-
-    // 5. Wait for SubductionStorageBridge writes to land on disk
-    await this.#storage.awaitSettled()
-
-    // 6. Disconnect all Wasm-side transports gracefully.
-    //    If hydration failed, this.#subduction is a rejected promise —
-    //    treat that as a no-op (nothing to disconnect).
+    // 4. Disconnect transports BEFORE awaiting `saveSettled`. If the
+    //    remote peer is also shutting down, an in-flight `addBatch`
+    //    otherwise blocks on the Rust-side per-request timeout
+    //    (`subduction_core/src/connection/managed.rs:278`, ~30s).
+    //    Tearing down our own transport fails the request fast (paired
+    //    with the `recvBytes` rejection in `network.ts#teardown`).
+    //
+    //    Trade-off: an in-flight push may not be delivered. Local
+    //    commits are already on disk before peers are notified, so we
+    //    only lose the remote push — acceptable for shutdown.
     let subduction: Subduction | null = null
     try {
       subduction = await this.#subduction
@@ -1093,6 +1093,14 @@ export class SubductionSource implements DocumentSource {
     } catch (e) {
       this.#log("error disconnecting subduction transports: %O", e)
     }
+
+    // 5. In-flight #save() calls now settle quickly (see step 4).
+    await Promise.all(
+      Array.from(this.#entries.values()).map(e => e.saveSettled)
+    )
+
+    // 6. Wait for SubductionStorageBridge writes to land on disk.
+    await this.#storage.awaitSettled()
   }
 
   // ── Ephemeral messaging ──────────────────────────────────────────────
