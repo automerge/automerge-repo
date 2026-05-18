@@ -2,7 +2,7 @@ import { next as A, Heads } from "@automerge/automerge"
 import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import assert from "assert"
 import * as Uuid from "uuid"
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   encodeHeads,
   getHeadsFromUrl,
@@ -1977,6 +1977,58 @@ describe("Repo", () => {
 
       const openDocs = Object.keys(server.metrics().documents).length
       assert.deepEqual(openDocs, 0)
+    })
+  })
+
+  describe("storage persistence", () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    const storedKeysFor = (
+      storage: DummyStorageAdapter,
+      handle: DocHandle<any>
+    ) => storage.keys().filter(key => key.includes(handle.documentId))
+
+    it("should persist created handle with an empty object as the initial value", async () => {
+      const storage = new DummyStorageAdapter()
+      const repo = new Repo({ storage })
+
+      const handle = repo.create({})
+
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(handle.doc()).toEqual({})
+      expect(storedKeysFor(storage, handle)).toHaveLength(1)
+    })
+
+    it("should persist created handle when no initial value is provided", async () => {
+      const storage = new DummyStorageAdapter()
+      const repo = new Repo({ storage })
+
+      const handle = repo.create()
+
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(handle.doc()).toEqual({})
+      expect(storedKeysFor(storage, handle)).toHaveLength(1)
+    })
+
+    it("should persist created handle when a non-empty initial value is provided", async () => {
+      const storage = new DummyStorageAdapter()
+      const repo = new Repo({ storage })
+      const initialValue = { foo: "bar" }
+
+      const handle = repo.create(initialValue)
+
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(handle.doc()).toEqual(initialValue)
+      expect(storedKeysFor(storage, handle)).toHaveLength(1)
     })
   })
 })
