@@ -176,8 +176,14 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
       this.#log("Tried to send on a disconnected socket.")
       return
     }
-    if (this.socket.readyState !== WebSocket.OPEN)
-      throw new Error(`Websocket not ready (${this.socket.readyState})`)
+    if (this.socket.readyState !== WebSocket.OPEN) {
+      // CONNECTING / CLOSING / CLOSED. Drop silently — sync state and
+      // reconnect logic will replay once the socket is OPEN again.
+      this.#log(
+        `Tried to send on a non-OPEN socket (readyState=${this.socket.readyState}); dropping.`
+      )
+      return
+    }
 
     const encoded = cbor.encode(message)
     this.socket.send(toArrayBuffer(encoded))

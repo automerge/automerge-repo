@@ -174,7 +174,13 @@ describe("Websocket adapters", () => {
       assert.throws(sendNoData, /zero/)
     })
 
-    it("should throw an error if asked to send before ready", async () => {
+    it("should silently drop sends before the socket is ready", async () => {
+      // Earlier versions of the adapter threw a "Websocket not ready"
+      // error here. That throw surfaced as an uncaught exception via
+      // automerge-repo's event machinery, crashing the host process
+      // (see issue #297). The current contract is to drop the message
+      // silently; sync state and reconnect logic will replay once the
+      // socket is OPEN.
       const port = await getPort()
 
       const serverUrl = `ws://localhost:${port}`
@@ -208,7 +214,7 @@ describe("Websocket adapters", () => {
           targetId: serverPeerId,
         })
       }
-      assert.throws(sendMessage, /not ready/)
+      assert.doesNotThrow(sendMessage)
 
       // once the server is ready, we can send
       await eventPromise(browser, "peer-candidate")
@@ -278,6 +284,48 @@ describe("Websocket adapters", () => {
       await browserRepo.networkSubsystem.whenReady()
 
       assert.deepStrictEqual(browserRepo.peers, ["server" as PeerId])
+    })
+
+    it("should not throw when send() is called on a non-OPEN socket", async () => {
+      const {
+        serverAdapter,
+        server,
+        serverUrl,
+        clients: [browser],
+      } = await setup()
+
+      const _serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+      const browserRepo = new Repo({
+        network: [browser],
+        peerId: browserPeerId,
+      })
+
+      await browserRepo.networkSubsystem.whenReady()
+
+      // Close the underlying socket out from under the adapter. The next
+      // send() (e.g. the automatic "leave" on disconnect()) should not
+      // throw — previously this surfaced as an uncaught exception via
+      // automerge-repo's event machinery.
+      assert.ok(browser.socket)
+      browser.socket.close()
+      while (browser.socket && browser.socket.readyState !== WebSocket.CLOSED) {
+        await pause(5)
+      }
+
+      assert.doesNotThrow(() => {
+        browser.send({
+          type: "sync",
+          senderId: browserPeerId,
+          targetId: serverPeerId,
+          documentId,
+          data: new Uint8Array([1]),
+        })
+      })
+
+      server.close()
     })
   })
 
@@ -452,6 +500,46 @@ describe("Websocket adapters", () => {
         targetId: "browser",
         selectedProtocolVersion: "1",
       })
+    })
+
+    it("should not throw when send() targets a peer whose socket is non-OPEN", async () => {
+      const { serverSocket, server, serverUrl } = await setupServer()
+      const serverAdapter = new WebSocketServerAdapter(serverSocket)
+      serverAdapter.connect(serverPeerId, {
+        storageId: undefined,
+        isEphemeral: true,
+      })
+
+      const browserSocket = new WebSocket(serverUrl)
+      await once(browserSocket, "open")
+      browserSocket.send(
+        CBOR.encode({
+          type: "join",
+          senderId: browserPeerId,
+          supportedProtocolVersions: ["1"],
+        })
+      )
+      await messageOrTimeout(browserSocket)
+
+      // Close the underlying socket out from under the server adapter
+      // without giving it a chance to clean up its sockets map. The next
+      // send() to that peer must not throw — previously the underlying
+      // ws.send threw and the exception escaped uncaught.
+      browserSocket.terminate()
+      await pause(50)
+
+      assert.doesNotThrow(() => {
+        serverAdapter.send({
+          type: "sync",
+          senderId: serverPeerId,
+          targetId: browserPeerId,
+          documentId,
+          data: new Uint8Array([1]),
+        })
+      })
+
+      serverSocket.close()
+      server.close()
     })
 
     it("should ignore messages from a socket replaced by a same-peer-ID reconnect", async () => {

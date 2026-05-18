@@ -116,6 +116,15 @@ export class WebSocketServerAdapter extends NetworkAdapter {
       return
     }
 
+    if (socket.readyState !== WebSocket.OPEN) {
+      // Peer's socket is CONNECTING / CLOSING / CLOSED. Drop silently —
+      // once the peer reconnects and rejoins, normal sync state resumes.
+      log(
+        `Tried to send to peer ${message.targetId} with non-OPEN socket (readyState=${socket.readyState}); dropping.`
+      )
+      return
+    }
+
     const encoded = encode(message)
     const arrayBuf = toArrayBuffer(encoded)
 
