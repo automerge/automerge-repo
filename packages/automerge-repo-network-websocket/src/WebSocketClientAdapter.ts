@@ -179,8 +179,6 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
     if (this.socket.readyState !== WebSocket.OPEN) {
       // CONNECTING / CLOSING / CLOSED. Drop silently — sync state and
       // reconnect logic will replay once the socket is OPEN again.
-      // Throwing here previously surfaced as an uncaught exception
-      // through automerge-repo's event machinery (see issue #297).
       this.#log(
         `Tried to send on a non-OPEN socket (readyState=${this.socket.readyState}); dropping.`
       )

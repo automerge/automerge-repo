@@ -118,10 +118,7 @@ export class WebSocketServerAdapter extends NetworkAdapter {
 
     if (socket.readyState !== WebSocket.OPEN) {
       // Peer's socket is CONNECTING / CLOSING / CLOSED. Drop silently —
-      // the underlying `ws.send()` would throw, and the throw escapes
-      // through automerge-repo's event machinery as an uncaught
-      // exception that crashes the process. Once the peer reconnects
-      // and rejoins, normal sync state resumes.
+      // once the peer reconnects and rejoins, normal sync state resumes.
       log(
         `Tried to send to peer ${message.targetId} with non-OPEN socket (readyState=${socket.readyState}); dropping.`
       )
