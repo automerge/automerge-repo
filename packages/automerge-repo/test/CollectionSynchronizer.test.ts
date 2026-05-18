@@ -137,7 +137,7 @@ describe("CollectionSynchronizer", () => {
       const originalFind = repo.find.bind(repo)
       vi.spyOn(repo, "find").mockImplementation(async (id, options) => {
         if (typeof id === "string" && id === documentId) {
-          return handle as never
+          return handle as unknown as ReturnType<typeof repo.find>
         }
         return originalFind(id, options)
       })
