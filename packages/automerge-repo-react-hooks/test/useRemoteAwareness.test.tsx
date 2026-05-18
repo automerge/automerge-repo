@@ -130,52 +130,57 @@ describe("useRemoteAwareness", () => {
     })
 
     it("should prune offline peers after timeout", async () => {
-      const { handleA, wrapper } = setup()
-      let currentTime = 1000
-      const mockGetTime = vi.fn(() => currentTime)
+      vi.useFakeTimers()
+      try {
+        const { handleA, wrapper } = setup()
+        let currentTime = 1000
+        const mockGetTime = vi.fn(() => currentTime)
 
-      const ComponentWithTime = () => {
-        const [peerStates] = useRemoteAwareness({
+        const ComponentWithTime = () => {
+          const [peerStates] = useRemoteAwareness({
+            handle: handleA,
+            localUserId: "local-user",
+            offlineTimeout: 100, // Short timeout for testing
+            getTime: mockGetTime,
+          })
+          return (
+            <div>
+              <div data-testid="peer-states">{JSON.stringify(peerStates)}</div>
+            </div>
+          )
+        }
+
+        const { getByTestId } = render(<ComponentWithTime />, { wrapper })
+
+        // Simulate receiving a message
+        const mockEvent = {
           handle: handleA,
-          localUserId: "local-user",
-          offlineTimeout: 100, // Short timeout for testing
-          getTime: mockGetTime,
+          message: ["remote-user", { status: "online" }],
+        }
+
+        // @ts-ignore - accessing private emit for testing
+        await React.act(async () => {
+          handleA.emit("ephemeral-message", mockEvent)
         })
-        return (
-          <div>
-            <div data-testid="peer-states">{JSON.stringify(peerStates)}</div>
-          </div>
-        )
-      }
 
-      const { getByTestId } = render(<ComponentWithTime />, { wrapper })
-
-      // Simulate receiving a message
-      const mockEvent = {
-        handle: handleA,
-        message: ["remote-user", { status: "online" }],
-      }
-
-      // @ts-ignore - accessing private emit for testing
-      React.act(() => {
-        handleA.emit("ephemeral-message", mockEvent)
-      })
-
-      // Should have the peer
-      await waitFor(() => {
+        // Should have the peer
         expect(getByTestId("peer-states")).toHaveTextContent(
           JSON.stringify({ "remote-user": { status: "online" } })
         )
-      })
 
-      // Advance time past the offline timeout
-      currentTime = 1200
+        // Advance simulated time past the offline timeout, then fire the
+        // pruner's setInterval(100ms) tick. act() flushes the React
+        // re-render that follows the setState inside the pruner.
+        currentTime = 1200
+        await React.act(async () => {
+          await vi.advanceTimersByTimeAsync(100)
+        })
 
-      // Wait for the pruning interval to run (it runs every 100ms)
-      await new Promise(resolve => setTimeout(resolve, 150))
-
-      // Should now be pruned
-      expect(getByTestId("peer-states")).toHaveTextContent("{}")
+        // Should now be pruned
+        expect(getByTestId("peer-states")).toHaveTextContent("{}")
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it("should cleanup listeners on unmount", async () => {
