@@ -47,6 +47,8 @@ import { RefImpl } from "./refs/ref.js"
 import { foreverPromise } from "./helpers/foreverPromise.js"
 import { noop } from "./helpers/noop.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
+import { isPlainObject } from "./helpers/isPlainObject.js"
+import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
 
 export type FindProgressWithMethods<T> = FindProgress<T> & {
   untilReady: (allowableStates: string[]) => Promise<DocHandle<T>>
@@ -465,7 +467,9 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   create<T>(initialValue?: T): DocHandle<T> {
     let initialDoc: Automerge.Doc<T>
-    if (initialValue) {
+
+    // If the initial value is an empty object, use the empty change initialisation path instead of the from path
+    if (isPlainObject(initialValue) && hasAtLeastOneKey(initialValue)) {
       initialDoc = Automerge.from(initialValue)
     } else {
       initialDoc = Automerge.emptyChange(Automerge.init())
