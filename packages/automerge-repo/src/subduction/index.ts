@@ -19,8 +19,14 @@
 
 import type { StorageAdapterInterface } from "@automerge/automerge-repo/slim"
 import { Subduction } from "@automerge/automerge-subduction/slim"
-export { SubductionSource, type OnRemoteHeadsChanged } from "./source.js"
+export {
+  SubductionSource,
+  type OnRemoteHeadsChanged,
+  type OnSubductionPeerBound,
+  type SubductionPeerBinding,
+} from "./source.js"
 export type {
+  PeerId as SubductionPeerId,
   Policy as SubductionPolicy,
   Transport as SubductionTransport,
 } from "@automerge/automerge-subduction/slim"

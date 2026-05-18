@@ -86,8 +86,14 @@ export type {
 
 export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
 export type { DocumentSource } from "./DocumentSource.js"
-export type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
-export type { SubductionTimeouts } from "./subduction/source.js"
+export type {
+  Policy as SubductionPolicy,
+  PeerId as SubductionPeerId,
+} from "@automerge/automerge-subduction/slim"
+export type {
+  SubductionPeerBinding,
+  SubductionTimeouts,
+} from "./subduction/source.js"
 
 export type {
   FindProgress,

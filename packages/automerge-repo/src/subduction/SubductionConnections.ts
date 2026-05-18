@@ -1,6 +1,9 @@
 import debug from "debug"
 import { WebSocketTransport } from "./websocket-transport.js"
-import { Subduction } from "@automerge/automerge-subduction/slim"
+import {
+  PeerId as SubductionPeerId,
+  Subduction,
+} from "@automerge/automerge-subduction/slim"
 import { ConnectionManager } from "./ConnectionManager.js"
 
 export type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
@@ -8,17 +11,34 @@ export type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
 
+/**
+ * Invoked once per successful subduction handshake on a websocket
+ * transport. `subductionPeerId` is the value returned by
+ * `connectTransport`. The websocket path does not surface an
+ * automerge-repo PeerId — see `SubductionSource` for the shared
+ * `OnSubductionPeerBound` shape.
+ */
+export type OnWebSocketPeerBound = (binding: {
+  subductionPeerId: SubductionPeerId
+  url: string
+}) => void
+
 export class SubductionConnections implements ConnectionManager {
   #connectionStates = new Map<string, ConnectionState>()
   #log: debug.Debugger = debug("automerge-repo:subduction:connections")
   #subduction: Promise<Subduction>
   #onChangeCallback: (() => void) | null = null
+  #onPeerBound: OnWebSocketPeerBound | null
   #generation = 0
   #isShutdown = false
   #pendingSleeps = new Map<ReturnType<typeof setTimeout>, () => void>()
 
-  constructor(subduction: Promise<Subduction>) {
+  constructor(
+    subduction: Promise<Subduction>,
+    onPeerBound?: OnWebSocketPeerBound
+  ) {
     this.#subduction = subduction
+    this.#onPeerBound = onPeerBound ?? null
   }
 
   // ── ConnectionManager interface ─────────────────────────────────────
@@ -57,10 +77,25 @@ export class SubductionConnections implements ConnectionManager {
         }
 
         const subduction = await this.#subduction
-        await subduction.connectTransport(transport, serviceName)
+        const subductionPeerId = await subduction.connectTransport(
+          transport,
+          serviceName
+        )
         this.#setConnectionState(url, "running")
         this.#log(`connected to ${url}`)
         backoff = RECONNECT_BASE_MS
+
+        // Notify after the connection state has flipped to "running"
+        // so consumers reading repo state from inside the listener see
+        // the settled value. Throws from the listener must not abort
+        // the reconnect loop or cancel the live transport.
+        if (this.#onPeerBound !== null) {
+          try {
+            this.#onPeerBound({ subductionPeerId, url })
+          } catch (e) {
+            this.#log("onPeerBound threw for %s: %O", url, e)
+          }
+        }
 
         await transport.closed()
         this.#log(`disconnected from ${url}`)
@@ -85,6 +120,7 @@ export class SubductionConnections implements ConnectionManager {
 
   shutdown(): void {
     this.#isShutdown = true
+    this.#onPeerBound = null
     for (const [timer, resolve] of this.#pendingSleeps) {
       clearTimeout(timer)
       resolve()

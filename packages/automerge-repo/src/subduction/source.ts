@@ -7,6 +7,7 @@ import {
   FragmentStateStore,
   HashMetric,
   LooseCommit,
+  PeerId as SubductionPeerId,
   SedimentreeAutomerge,
   SedimentreeId,
   Subduction,
@@ -142,6 +143,52 @@ export type OnEphemeral = (
 ) => void
 
 /**
+ * Describes a successful subduction handshake — the moment when
+ * `acceptTransport` / `connectTransport` resolves with a verified
+ * peer identity.
+ *
+ * The `source` discriminant distinguishes the two bridge-managed
+ * transport types:
+ *
+ * - `adapter`: the binding originated from a `NetworkAdapterInterface`
+ *   registered via `subductionAdapters`. The `repoPeerId` is the value
+ *   from that adapter's `peer-candidate` event.
+ * - `websocket`: the binding originated from a URL registered via
+ *   `subductionWebsocketEndpoints`. There is no automerge-repo PeerId
+ *   for the remote, so `repoPeerId` is omitted from this arm.
+ *
+ * The binding is an upsert, not a one-shot: reconnects and re-issued
+ * `peer-candidate` events each produce a fresh binding. Consumers
+ * should treat each occurrence as "the binding now in effect" for the
+ * given source rather than assuming one-per-peer.
+ */
+export type SubductionPeerBinding =
+  | {
+      subductionPeerId: SubductionPeerId
+      source: {
+        kind: "adapter"
+        adapter: NetworkAdapterInterface
+        serviceName: string
+        role: "connect" | "accept"
+      }
+      repoPeerId: PeerId
+    }
+  | {
+      subductionPeerId: SubductionPeerId
+      source: { kind: "websocket"; url: string }
+    }
+
+/**
+ * Invoked synchronously after the subduction handshake completes and
+ * after the bridge has finished its own bookkeeping for the
+ * connection. Throws from the listener are caught and logged via the
+ * `automerge-repo:subduction:adapters` /
+ * `automerge-repo:subduction:connections` debug namespaces — they do
+ * not abort the handshake or interfere with reconnect.
+ */
+export type OnSubductionPeerBound = (binding: SubductionPeerBinding) => void
+
+/**
  * Tunable timeouts for Subduction's sync and heal-retry behaviour.
  *
  * All fields are optional. Sensible defaults apply where omitted.
@@ -196,6 +243,14 @@ export interface SubductionSourceOptions {
   onEphemeral?: OnEphemeral
   onHealExhausted?: (documentId: DocumentId) => void
 
+  /**
+   * Invoked once per successful subduction handshake for both the
+   * adapter-managed and websocket-managed transports. See
+   * {@link SubductionPeerBinding} for the shape and lifetime
+   * semantics.
+   */
+  onPeerBound?: OnSubductionPeerBound
+
   policy?: Policy
 
   /**
@@ -229,6 +284,7 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
+    onPeerBound,
     priority = 2,
     policy,
     timeouts,
@@ -319,13 +375,33 @@ export class SubductionSource implements DocumentSource {
     }
 
     // ── Connection managers ─────────────────────────────────────────
-    const wsConnections = new SubductionConnections(this.#subduction)
+    const wsConnections = new SubductionConnections(
+      this.#subduction,
+      onPeerBound
+        ? ({ subductionPeerId, url }) =>
+            onPeerBound({
+              subductionPeerId,
+              source: { kind: "websocket", url },
+            })
+        : undefined
+    )
     for (const url of websocketEndpoints) {
       wsConnections.manageConnection(url)
     }
     this.#connectionManagers.push(wsConnections)
 
-    const adapterConnections = new AdapterConnections(this.#subduction, peerId)
+    const adapterConnections = new AdapterConnections(
+      this.#subduction,
+      peerId,
+      onPeerBound
+        ? ({ subductionPeerId, repoPeerId, adapter, serviceName, role }) =>
+            onPeerBound({
+              subductionPeerId,
+              repoPeerId,
+              source: { kind: "adapter", adapter, serviceName, role },
+            })
+        : undefined
+    )
     for (const { adapter, serviceName, role } of adapters) {
       adapterConnections.addAdapter(adapter, serviceName, role ?? "connect")
     }

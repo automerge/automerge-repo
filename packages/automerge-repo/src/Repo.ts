@@ -45,6 +45,7 @@ import {
 import { SubductionStorageBridge } from "./subduction/storage.js"
 import {
   SubductionSource,
+  type SubductionPeerBinding,
   type SubductionTimeouts,
 } from "./subduction/source.js"
 import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
@@ -209,6 +210,13 @@ export class Repo extends EventEmitter<RepoEvents> {
       },
       onHealExhausted: documentId => {
         this.emit("heal-exhausted", { documentId })
+      },
+      onPeerBound: binding => {
+        try {
+          this.emit("subduction-peer-bound", binding)
+        } catch (e) {
+          this.#log("subduction-peer-bound listener threw: %O", e)
+        }
       },
     })
     this.#subductionSource = subductionSource
@@ -992,4 +1000,6 @@ export interface RepoEvents {
   "doc-metrics": (payload: DocMetrics) => void
   /** Self-healing sync gave up after all retry attempts for a document */
   "heal-exhausted": (payload: { documentId: DocumentId }) => void
+  /** A subduction handshake completed and surfaced a verified peer identity. */
+  "subduction-peer-bound": (payload: SubductionPeerBinding) => void
 }
