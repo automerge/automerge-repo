@@ -1,4 +1,4 @@
-import * as A from "@automerge/automerge/next"
+import { next as A } from "@automerge/automerge/slim"
 import assert from "assert"
 import { describe, it } from "vitest"
 import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
@@ -17,15 +17,17 @@ import { TestDoc } from "./types.js"
 import { pause } from "../src/helpers/pause.js"
 import { truePromiseFactory } from "../src/helpers/truePromiseFactory.js"
 import { falsePromiseFactory } from "../src/helpers/falsePromiseFactory.js"
-import { testRefConstructor } from "./helpers/refConstructor.js"
+import { Document } from "../src/Document.js"
 
 describe("DocHandle.remoteHeads", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   it("should allow to listen for remote head changes", async () => {
-    const handle = new DocHandle<TestDoc>(TEST_ID, testRefConstructor, {
-      isNew: true,
-    })
+    const document = new Document<TestDoc>(
+      TEST_ID,
+      A.emptyChange(A.init<TestDoc>())
+    )
+    const handle = new DocHandle<TestDoc>(document)
     const bobRepo = new Repo({
       peerId: "bob" as PeerId,
       network: [],

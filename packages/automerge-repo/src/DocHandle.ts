@@ -1,15 +1,35 @@
 import { next as A } from "@automerge/automerge/slim"
-import { EventEmitter } from "eventemitter3"
+import type { Prop } from "@automerge/automerge/slim"
 import {
   decodeHeads,
   encodeHeads,
   stringifyAutomergeUrl,
 } from "./AutomergeUrl.js"
+import { Document } from "./Document.js"
 import { encode } from "./helpers/cbor.js"
-import { headsAreSame } from "./helpers/headsAreSame.js"
 import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
 import { StorageId } from "./storage/types.js"
-import type { PathInput, InferRefType, Ref } from "./refs/types.js"
+import { isCursorMarker, isPattern, isSegment } from "./refs/guards.js"
+import { matchesPattern } from "./refs/utils.js"
+import {
+  applyScopedChange,
+  applyScopedRemove,
+  resolvePropPath,
+  resolveSegmentProp,
+  scopedValue,
+} from "./refs/path-ops.js"
+import type {
+  AnyPathInput,
+  CursorRange,
+  InferRefType,
+  PathInput,
+  PathSegment,
+  Pattern,
+  RefChangeFn,
+  ResolvedPathSegment,
+  Segment,
+} from "./refs/types.js"
+import { KIND } from "./refs/types.js"
 
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
@@ -24,101 +44,76 @@ import type { PathInput, InferRefType, Ref } from "./refs/types.js"
  * the `Repo` will save any new changes to the attached {@link StorageAdapter} and send sync
  * messages to connected peers.
  */
-export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
-  /** If set, this handle will only show the document at these heads */
+export class DocHandle<T> {
+  /**
+   * If set, this handle reads at these specific heads rather than the
+   * latest. Per-handle (not on `Document`) so a sub-handle can pin to
+   * arbitrary heads independent of other handles into the same document.
+   */
   #fixedHeads?: UrlHeads
 
-  #doc: A.Doc<T>
+  /**
+   * Shared per-document state (data + registry). Every handle into the
+   * same document - root, sub, view - references the same `Document`.
+   */
+  readonly #document: Document<T>
 
-  /** Cache for view handles, keyed by the stringified heads */
-  #viewCache: Map<string, DocHandle<T>> = new Map()
+  /**
+   * Symbolic path segments for sub-handles; empty array on root handles.
+   * Immutable. The currently-resolved concrete prop path is computed on
+   * demand via the registry (which caches pattern resolutions).
+   */
+  #path: PathSegment[] = []
 
-  /** Cache for ref instances, keyed by serialized path */
-  #refCache = new Map<string, WeakRef<Ref<any>>>()
+  /** Cursor range for text-range sub-handles. */
+  #range?: CursorRange
 
-  #deleted = false
-
-  // Injected by Repo so `getSyncInfo()` / `getRemoteHeads()` can delegate
-  // to the central SyncStateTracker.
-  #syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
-
-  /** Factory for creating Ref instances, injected by Repo to avoid circular imports */
-  #refConstructor: <TDoc, TPath extends readonly PathInput[]>(
-    handle: DocHandle<TDoc>,
-    path: [...TPath]
-  ) => Ref<any>
+  /** The document this handle reads from. */
+  get documentId(): DocumentId {
+    return this.#document.documentId
+  }
 
   /** @hidden */
-  constructor(
-    public documentId: DocumentId,
-    refConstructor: <TDoc, TPath extends readonly PathInput[]>(
-      handle: DocHandle<TDoc>,
-      path: [...TPath]
-    ) => Ref<any>,
-    options: DocHandleOptions<T> = {},
-    /**
-     * @hidden
-     */
-    syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
-  ) {
-    super()
-    this.#refConstructor = refConstructor
+  constructor(document: Document<T>, options: DocHandleOptions<T> = {}) {
+    this.#document = document
 
-    if ("isNew" in options && options.isNew) {
-      this.#doc = A.emptyChange(A.init<T>())
-    } else {
-      this.#doc = A.init<T>()
-    }
-    // TODO: remove this in the next major. Callers should use
-    // `repo.find(urlWithHeads)` or `handle.view(heads)` instead.
     if ("heads" in options && options.heads) {
       this.#fixedHeads = options.heads
     }
-    this.#syncInfoLookup = syncInfoLookup
-    // Registered first so any user-attached `delete` listener observes
-    // `isDeleted() === true`.
-    this.on("delete", () => {
-      this.#deleted = true
-    })
-  }
+    if ("pathSegments" in options && options.pathSegments) {
+      this.#path = options.pathSegments
+    }
+    if ("range" in options && options.range) {
+      this.#range = options.range
+    }
 
-  // PRIVATE
+    // Register this handle in the per-document trie so dispatch can
+    // find it. Variant key is (range + fixedHeads); root + sub + view
+    // all share the same registration mechanism.
+    const node = this.#document.registry.getOrCreateNode(this.#path)
+    this.#document.registry.cacheHandle(
+      node,
+      this.#range,
+      this.#fixedHeads,
+      this
+    )
+  }
 
   /**
-   * Called after state transitions. If the document has changed, emits a change event. If we just
-   * received the document for the first time, signal that our request has been completed.
-   */
-  #emitChanges(before: A.Doc<T>, after: A.Doc<T>) {
-    const beforeHeads = A.getHeads(before)
-    const afterHeads = A.getHeads(after)
-    const docChanged = !headsAreSame(
-      encodeHeads(afterHeads),
-      encodeHeads(beforeHeads)
-    )
-    if (docChanged) {
-      this.emit("heads-changed", { handle: this, doc: after })
-
-      const patches = A.diff(after, beforeHeads, afterHeads)
-      if (patches.length > 0) {
-        this.emit("change", {
-          handle: this,
-          doc: after,
-          patches,
-          // TODO: pass along the source (load/change/network)
-          patchInfo: { before, after, source: "change" },
-        })
-      }
-    }
-  }
-
-  // PUBLIC
-
-  /** Our documentId in Automerge URL form.
+   * This handle's URL. Root handles produce `automerge:<docId>[#heads]`;
+   * sub-/view-handles include their path segments and any fixed heads.
    */
   get url(): AutomergeUrl {
+    const segments: Segment[] | undefined =
+      this.#path.length > 0 || this.#range
+        ? this.#range
+          ? [...(this.#path as Segment[]), this.#range]
+          : (this.#path as Segment[])
+        : undefined
     return stringifyAutomergeUrl({
       documentId: this.documentId,
       heads: this.#fixedHeads,
+      segments,
     })
   }
 
@@ -131,7 +126,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * handles that already have data, so this is `true` from construction
    * unless `delete()` is called.
    */
-  isReady = () => !this.#deleted
+  isReady = () => !this.#document.deleted
 
   /**
    * @returns true if the document has been unloaded.
@@ -141,7 +136,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /**
    * @returns true if the document has been marked as deleted.
    */
-  isDeleted = () => this.#deleted
+  isDeleted = () => this.#document.deleted
 
   /**
    * @returns true if the document is currently unavailable.
@@ -158,7 +153,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** @hidden */
   get state(): HandleState {
-    return this.#deleted ? "deleted" : "ready"
+    return this.#document.deleted ? "deleted" : "ready"
   }
 
   /**
@@ -179,14 +174,33 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   }
 
   /**
-   * Returns the current state of the Automerge document this handle manages.
+   * Returns the current Automerge document this handle reads from.
    *
-   * @returns the current document
-   * @throws on deleted and unavailable documents
-   *
+   * For all handles (root, sub, view) this is the *whole* underlying
+   * document (at this handle's fixed heads, if any). To get the value at
+   * a sub-handle's path - e.g. the items at `handle.ref("items")` - use
+   * {@link value} instead.
    */
   doc(): A.Doc<T> {
-    return this.#doc
+    const heads = this.#fixedHeads
+    const underlying = this.#document.doc
+    return (heads
+      ? A.view(underlying, decodeHeads(heads))
+      : underlying) as A.Doc<T>
+  }
+
+  /**
+   * Returns the scoped value this handle points to. For a root handle
+   * this is identical to {@link doc}; for a sub-handle it returns the
+   * value at the path (or the substring within a cursor range). Returns
+   * `undefined` if the path doesn't resolve.
+   */
+  value(): T | undefined {
+    const doc = this.doc()
+    if (this.#path.length === 0 && !this.#range) {
+      return doc as T
+    }
+    return this.#scopedValue(doc) as T | undefined
   }
 
   /**
@@ -201,11 +215,15 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /**
    * Returns the current "heads" of the document, akin to a git commit.
-   * This precisely defines the state of a document.
-   * @returns the current document's heads, or undefined if the document is not ready
+   * For sub-handles this returns the underlying document's heads (heads
+   * are a document-level concept). For view-pinned handles this returns
+   * the pinned heads. To find heads where this handle's path changed,
+   * use {@link history}.
    */
   heads(): UrlHeads {
-    return encodeHeads(A.getHeads(this.#doc))
+    const heads = this.#fixedHeads
+    if (heads) return heads
+    return encodeHeads(A.getHeads(this.#document.doc))
   }
 
   /** @hidden */
@@ -226,9 +244,48 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns UrlHeads[] - The individual heads for every change in the document. Each item is a tagged string[1].
    */
   history(): UrlHeads[] {
-    return A.topoHistoryTraversal(this.#doc).map(h =>
-      encodeHeads([h])
-    ) as UrlHeads[]
+    const topo = A.topoHistoryTraversal(this.#document.doc)
+
+    if (this.#path.length === 0 && !this.#range) {
+      return topo.map(h => encodeHeads([h])) as UrlHeads[]
+    }
+
+    // For sub-handles the resolved prop path can change over history
+    // (pattern segments match different items at different states).
+    // Resolve the symbolic path against each step's snapshot - both
+    // "before" and "after" - so patches that create the target
+    // (resolvable only after) or destroy it (only before) are both
+    // captured.
+    const segments = this.#path
+    const out: UrlHeads[] = []
+    for (let i = 0; i < topo.length; i++) {
+      const after = [topo[i]]
+      const before = i === 0 ? [] : [topo[i - 1]]
+      const patches = A.diff(this.#document.doc, before, after)
+
+      const beforePath =
+        before.length === 0
+          ? undefined
+          : resolvePropPath(
+              A.view(this.#document.doc, before) as A.Doc<any>,
+              segments
+            )
+      const afterPath = resolvePropPath(
+        A.view(this.#document.doc, after) as A.Doc<any>,
+        segments
+      )
+      if (!beforePath && !afterPath) continue
+
+      const overlaps = patches.some(
+        p =>
+          (beforePath !== undefined && pathsOverlap(p.path, beforePath)) ||
+          (afterPath !== undefined && pathsOverlap(p.path, afterPath))
+      )
+      if (overlaps) {
+        out.push(encodeHeads([topo[i]]) as UrlHeads)
+      }
+    }
+    return out
   }
 
   /**
@@ -245,29 +302,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns DocHandle<T> at the time of `heads`
    */
   view(heads: UrlHeads): DocHandle<T> {
-    // Create a cache key from the heads
-    const cacheKey = JSON.stringify(heads)
-
-    // Check if we have a cached handle for these heads
-    const cachedHandle = this.#viewCache.get(cacheKey)
-    if (cachedHandle) {
-      return cachedHandle
-    }
-
-    // Create a new handle with the same documentId but fixed heads
-    const handle = new DocHandle<T>(
-      this.documentId,
-      this.#refConstructor,
-      {},
-      this.#syncInfoLookup
-    )
-    handle.#doc = A.view(this.#doc, decodeHeads(heads))
-    handle.#fixedHeads = heads
-
-    // Store in cache
-    this.#viewCache.set(cacheKey, handle)
-
-    return handle
+    // A view-at-heads is the same handle pinned to `heads`. Routing
+    // through `#createSubHandle` (with no path change, just heads)
+    // gives stable identity via the registry trie and shares the
+    // underlying Document - reads project at `heads` on demand rather
+    // than cloning the doc.
+    return this.#createSubHandle([], { heads }) as DocHandle<T>
   }
 
   /**
@@ -284,26 +324,48 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @returns Automerge patches that go from one document state to the other
    */
   diff(first: UrlHeads | DocHandle<T>, second?: UrlHeads): A.Patch[] {
-    const doc = this.#doc
+    let fromHeads: UrlHeads
+    let toHeads: UrlHeads
+    let diffDoc: A.Doc<any>
 
-    // If first argument is a DocHandle
     if (first instanceof DocHandle) {
       const otherHeads = first.heads()
-
-      // Create a temporary merged doc to verify shared history and compute diff
-      const mergedDoc = A.merge(A.clone(doc), first.doc())
-      // Use the merged doc to compute the diff
-      return A.diff(
-        mergedDoc,
-        decodeHeads(this.heads()),
-        decodeHeads(otherHeads)
-      )
+      fromHeads = this.heads()
+      toHeads = otherHeads
+      if (this.documentId === first.documentId) {
+        // Same document - share the doc, no clone needed.
+        diffDoc = this.#document.doc
+      } else {
+        // Different documents: merge to verify shared history.
+        diffDoc = A.merge(A.clone(this.#document.doc), first.doc()!)
+      }
+    } else {
+      fromHeads = second ? first : this.heads()
+      toHeads = second ? second : first
+      diffDoc = this.#document.doc
     }
 
-    // Otherwise treat as heads
-    const from = second ? first : (this.heads() as UrlHeads)
-    const to = second ? second : first
-    return A.diff(doc, decodeHeads(from), decodeHeads(to))
+    const allPatches = A.diff(
+      diffDoc,
+      decodeHeads(fromHeads),
+      decodeHeads(toHeads)
+    )
+
+    if (this.#path.length === 0 && !this.#range) return allPatches
+
+    // Sub-handle: filter to patches overlapping the path, resolved
+    // against both endpoint snapshots so patches that create or destroy
+    // the target (present in only one endpoint) are both captured.
+    const fromDoc = A.view(diffDoc, decodeHeads(fromHeads)) as A.Doc<any>
+    const toDoc = A.view(diffDoc, decodeHeads(toHeads)) as A.Doc<any>
+    const fromPath = resolvePropPath(fromDoc, this.#path)
+    const toPath = resolvePropPath(toDoc, this.#path)
+    if (!fromPath && !toPath) return []
+    return allPatches.filter(
+      p =>
+        (fromPath !== undefined && pathsOverlap(p.path, fromPath)) ||
+        (toPath !== undefined && pathsOverlap(p.path, toPath))
+    )
   }
 
   /**
@@ -324,7 +386,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     if (!change) return undefined
     // we return undefined instead of null by convention in this API
     return (
-      A.inspectChange(this.#doc, decodeHeads([change] as UrlHeads)[0]) ||
+      A.inspectChange(this.#document.doc, decodeHeads([change] as UrlHeads)[0]) ||
       undefined
     )
   }
@@ -332,19 +394,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
   /**
    * `update` is called any time we have a new document state; could be
    * from a local change, a remote change, or a new document from storage.
-   * Does not cause state changes.
+   * Routes through `Document.applyMutation` which atomically updates the
+   * doc and dispatches `change` / `heads-changed` via the registry.
    * @hidden
    */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
-    const oldDoc = this.#doc
-    const newDoc = callback(oldDoc)
-    // For fixed-heads handles (e.g. constructed with `{ heads }` and
-    // populated via `update`), persist the snapshot at those heads so
-    // doc() / heads() reflect the pinned point in time.
-    this.#doc = this.#fixedHeads
-      ? A.view(newDoc, decodeHeads(this.#fixedHeads))
-      : newDoc
-    this.#emitChanges(oldDoc, this.#doc)
+    this.#document.applyMutation(callback as (doc: A.Doc<any>) => A.Doc<any>)
   }
 
   #throwIfFixedHeads(operation: string) {
@@ -371,12 +426,12 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @deprecated Use {@link DocHandle.getSyncInfo} instead. Will be removed in the next major.
    */
   getRemoteHeads(storageId: StorageId): UrlHeads | undefined {
-    return this.#syncInfoLookup?.(storageId)?.lastHeads
+    return this.#document.syncInfoLookup?.(storageId)?.lastHeads
   }
 
   /** Returns the heads and the timestamp of the last update for the storageId. */
   getSyncInfo(storageId: StorageId): SyncInfo | undefined {
-    return this.#syncInfoLookup?.(storageId)
+    return this.#document.syncInfoLookup?.(storageId)
   }
 
   /**
@@ -394,9 +449,29 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * @param callback - A function that takes the current document and mutates it.
    *
    */
-  change(callback: A.ChangeFn<T>, options: A.ChangeOptions<T> = {}) {
+  change(
+    callback: A.ChangeFn<T> | RefChangeFn<T> | T,
+    options: A.ChangeOptions<T> = {}
+  ) {
     this.#throwIfFixedHeads("change")
-    this.update(doc => A.change(doc, options, callback))
+    if (this.#path.length === 0 && !this.#range) {
+      this.#document.applyMutation(doc =>
+        A.change(doc as A.Doc<T>, options, callback as A.ChangeFn<T>)
+      )
+      return
+    }
+    // Sub-/range-handle: coerce direct value to a function, then route
+    // through `applyScopedChange` (which knows how to splice text, write
+    // primitives, mutate objects, etc.) inside an `A.change` block so
+    // mutations land on the change proxy rather than the raw doc.
+    const fn = (
+      typeof callback === "function" ? callback : () => callback
+    ) as RefChangeFn<T>
+    this.#document.applyMutation(doc =>
+      A.change(doc as A.Doc<T>, options, mutable => {
+        this.#applyScopedChange(mutable as A.Doc<any>, fn)
+      })
+    )
   }
 
   /**
@@ -410,9 +485,21 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
     options: A.ChangeOptions<T> = {}
   ): UrlHeads | undefined {
     this.#throwIfFixedHeads("changeAt")
-    let resultHeads: UrlHeads | undefined = undefined
-    this.update(doc => {
-      const result = A.changeAt(doc, decodeHeads(heads), options, callback)
+    const decoded = decodeHeads(heads)
+    let resultHeads: UrlHeads | undefined
+
+    const inner: A.ChangeFn<T> =
+      this.#path.length === 0 && !this.#range
+        ? callback
+        : (d => {
+            this.#applyScopedChange(
+              d as A.Doc<any>,
+              callback as RefChangeFn<T>
+            )
+          }) as A.ChangeFn<T>
+
+    this.#document.applyMutation(doc => {
+      const result = A.changeAt(doc as A.Doc<T>, decoded, options, inner)
       resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
       return result.newDoc
     })
@@ -477,7 +564,8 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
 
   /** Called by the repo when the document is deleted. */
   delete() {
-    this.emit("delete", { handle: this })
+    this.#document.deleted = true
+    this.#document.registry.dispatchDelete()
   }
 
   /**
@@ -488,20 +576,33 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * must have a unique PeerId.
    */
   broadcast(message: unknown) {
-    this.emit("ephemeral-message-outbound", {
-      handle: this,
-      data: new Uint8Array(encode(message)),
-    })
+    this.#document.registry.dispatchEphemeralOutbound(
+      new Uint8Array(encode(message))
+    )
   }
 
   metrics(): { numOps: number; numChanges: number } {
-    return A.stats(this.#doc)
+    return A.stats(this.#document.doc)
+  }
+
+  /** Remove the value at this sub-handle's path from the underlying document. */
+  remove(): void {
+    if (this.#path.length === 0 && !this.#range) {
+      throw new Error("Cannot remove the root document")
+    }
+    this.#throwIfFixedHeads("remove")
+    this.#document.applyMutation(doc =>
+      A.change(doc as A.Doc<T>, mutable => {
+        this.#applyScopedRemove(mutable as A.Doc<any>)
+      })
+    )
   }
 
   /**
-   * Create a ref to a location in this document.
+   * Create a sub-handle scoped to a location inside this document.
    *
-   * Returns the same ref instance for the same path, ensuring referential equality.
+   * Returns the same DocHandle instance for the same path, ensuring
+   * referential equality via the per-document registry trie.
    *
    * @experimental This API is experimental and may change in future versions.
    *
@@ -510,44 +611,543 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * const titleRef = handle.ref('todos', 0, 'title');
    * titleRef.value(); // string | undefined
    *
-   * // Same ref instance is returned for same path
    * const sameRef = handle.ref('todos', 0, 'title');
    * titleRef === sameRef; // true
    * ```
    */
   ref<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
-  ): Ref<InferRefType<T, TPath>> {
-    const cacheKey = this.#pathToCacheKey(segments)
-    const existingRef = this.#refCache.get(cacheKey)?.deref()
+  ): DocHandle<InferRefType<T, TPath>> {
+    return this.#createSubHandle(segments) as DocHandle<
+      InferRefType<T, TPath>
+    >
+  }
 
-    if (existingRef) {
-      return existingRef as Ref<InferRefType<T, TPath>>
+  // ---------------- Path / range introspection ----------------
+
+  /**
+   * The root document handle (the path-[]/no-range/no-heads handle into
+   * this document). On the root, returns `this`. On sub-/view-handles,
+   * returns the canonical root in the registry - the one Repo holds
+   * and to which document-level lifecycle methods apply.
+   */
+  get docHandle(): DocHandle<any> {
+    if (this.#path.length === 0 && !this.#range && !this.#fixedHeads) {
+      return this
     }
-
-    // Create new ref and cache it
-    const newRef = this.#refConstructor<T, TPath>(this, segments as [...TPath])
-    this.#refCache.set(cacheKey, new WeakRef(newRef))
-
-    return newRef as Ref<InferRefType<T, TPath>>
+    const root = this.#document.registry.cachedHandle(
+      this.#document.registry.root,
+      undefined,
+      undefined
+    )
+    if (!root) {
+      throw new Error(
+        `No root handle registered for document ${this.documentId}`
+      )
+    }
+    return root
   }
 
   /**
-   * Create a stable cache key from path segments.
-   * Serializes the path to a string for comparison.
+   * Snapshot of this handle's path segments with currently-resolved
+   * `prop` values. Each call returns a fresh snapshot built against
+   * the current doc state (or this handle's fixed heads). Empty on
+   * the root.
+   *
+   * The internal symbolic path is immutable; the returned segments
+   * are a read-time projection so observers see the resolved index a
+   * pattern matches against right now.
    */
-  #pathToCacheKey(segments: readonly PathInput[]): string {
-    return segments
-      .map(seg => {
-        if (typeof seg === "string") return `s:${seg}`
-        if (typeof seg === "number") return `n:${seg}`
-        if (typeof seg === "object" && seg !== null) {
-          // Pattern or CursorMarker
-          return `o:${JSON.stringify(seg)}`
+  get path(): ResolvedPathSegment[] {
+    if (this.#path.length === 0) return []
+    const doc = this.doc()
+    return snapshotSegments(this.#path, doc)
+  }
+
+  /** The cursor range for this handle, if any. */
+  get range(): CursorRange | undefined {
+    return this.#range
+  }
+
+  /**
+   * Returns `[startIndex, endIndex]` for the current cursor range,
+   * resolved against the current text value, or `undefined` if this
+   * handle has no range.
+   */
+  rangePositions(): [number, number] | undefined {
+    if (!this.#range) return undefined
+    const rootDoc = this.doc()
+    const propPath = this.#getPropPath()
+    if (!propPath) return undefined
+    try {
+      const start = A.getCursorPosition(
+        rootDoc,
+        propPath,
+        this.#range.start as A.Cursor
+      )
+      const end = A.getCursorPosition(
+        rootDoc,
+        propPath,
+        this.#range.end as A.Cursor
+      )
+      return [start, end]
+    } catch {
+      return undefined
+    }
+  }
+
+  /** True if the other handle has the same URL as this one. */
+  equals(other: DocHandle<any>): boolean {
+    return this.url === other.url
+  }
+
+  /**
+   * True if this handle's path is a strict ancestor of `other`'s path,
+   * within the same document and view (heads).
+   */
+  contains(other: DocHandle<any>): boolean {
+    if (other === this) return false
+    if (this.documentId !== other.documentId) return false
+    const thisHeads = this.#fixedHeads
+    const otherHeads = (other as DocHandle<any>).#fixedHeads
+    if ((thisHeads?.toString() ?? "") !== (otherHeads?.toString() ?? "")) {
+      return false
+    }
+    const thisPath = this.#path
+    const otherPath = other._pathSegments
+    if (thisPath.length >= otherPath.length) return false
+    for (let i = 0; i < thisPath.length; i++) {
+      if (!segmentEquals(thisPath[i], otherPath[i])) return false
+    }
+    return true
+  }
+
+  /** True if this handle is a strict descendant of `other`. */
+  isChildOf(other: DocHandle<any>): boolean {
+    return other.contains(this)
+  }
+
+  /**
+   * True if this and `other` are both text-range handles on the same path
+   * whose ranges overlap in the current document.
+   */
+  overlaps(other: DocHandle<any>): boolean {
+    if (this.documentId !== other.documentId) return false
+    if (!this.#range || !other.range) return false
+    const thisPath = this.#path
+    const otherPath = other._pathSegments
+    if (thisPath.length !== otherPath.length) return false
+    for (let i = 0; i < thisPath.length; i++) {
+      if (!segmentEquals(thisPath[i], otherPath[i])) return false
+    }
+    const thisPos = this.rangePositions()
+    const otherPos = other.rangePositions?.()
+    if (!thisPos || !otherPos) return false
+    return thisPos[0] < otherPos[1] && otherPos[0] < thisPos[1]
+  }
+
+  /**
+   * Subscribe to changes affecting this handle's path; the callback
+   * receives `(value, payload)`. Returns an unsubscribe function.
+   */
+  onChange(
+    callback: (
+      value: T | undefined,
+      payload: DocHandleChangePayload<T>
+    ) => void
+  ): () => void {
+    const listener = (payload: DocHandleChangePayload<T>) => {
+      callback(this.value(), payload)
+    }
+    this.on("change", listener)
+    return () => this.off("change", listener)
+  }
+
+  // ---------------- Internal sub-handle helpers ----------------
+
+  /**
+   * Create or retrieve a cached sub-/view-handle at the given path
+   * inputs, relative to this handle. Identity is canonicalised through
+   * the registry trie (each `(path, range, heads)` returns the same
+   * DocHandle instance).
+   */
+  #createSubHandle(
+    segments: readonly AnyPathInput[],
+    options: { heads?: UrlHeads } = {}
+  ): DocHandle<any> {
+    const heads = options.heads ?? this.#fixedHeads
+
+    // Identity at "no segments added, no range, no heads override" →
+    // return this handle itself. Without the heads check, `root.view(h)`
+    // would hit this short-circuit and return the unpinned root.
+    if (segments.length === 0 && !this.#range && !heads) {
+      return this
+    }
+
+    // Compose path inputs relative to the root's path (which is empty).
+    const combined: AnyPathInput[] = this.#range
+      ? [...inputsFromPath(this.#path), this.#range, ...segments]
+      : [...inputsFromPath(this.#path), ...segments]
+
+    // Normalize combined inputs into symbolic path + optional range.
+    const { path, range } = this.#normalizePath(this.#document.doc, combined)
+
+    const registry = this.#document.registry
+    const node = registry.getOrCreateNode(path)
+    const cached = registry.cachedHandle(node, range, heads)
+    if (cached) return cached
+
+    // Constructor adds the new handle to the trie itself.
+    return new DocHandle<unknown>(this.#document, {
+      isNew: false,
+      pathSegments: path,
+      range,
+      heads,
+    })
+  }
+
+  /**
+   * Normalize a mix of path inputs into `(PathSegment[], CursorRange?)`.
+   * Patterns and keys/indices become symbolic segments; cursor markers
+   * are stabilised into a `CursorRange` against the current document.
+   */
+  #normalizePath(
+    rootDoc: A.Doc<any> | undefined,
+    inputs: AnyPathInput[]
+  ): { path: PathSegment[]; range?: CursorRange } {
+    const path: PathSegment[] = []
+    let range: CursorRange | undefined
+    let cursor: unknown = rootDoc
+
+    for (let i = 0; i < inputs.length; i++) {
+      const input = inputs[i]
+
+      if (isCursorMarker(input)) {
+        if (i !== inputs.length - 1) {
+          throw new Error("cursor() must be the last segment")
         }
-        return `?:${String(seg)}`
-      })
-      .join("/")
+        if (typeof cursor !== "string") {
+          throw new Error("cursor() can only be used on string values")
+        }
+        if (rootDoc) {
+          const propPath = resolvePropPath(rootDoc, path)
+          if (propPath) {
+            const startCursor = A.getCursor(rootDoc, propPath, input.start)
+            const endCursor = A.getCursor(rootDoc, propPath, input.end)
+            range = {
+              [KIND]: "cursors",
+              start: startCursor,
+              end: endCursor,
+            }
+          }
+        }
+        break
+      }
+
+      if (isSegment(input)) {
+        // If this is a cursor-range segment (from URL parsing), treat as range.
+        if ((input as any)[KIND] === "cursors") {
+          if (i !== inputs.length - 1) {
+            throw new Error("cursor range must be the last path segment")
+          }
+          range = input as CursorRange
+          break
+        }
+        const segment = symbolicOnly(input as PathSegment)
+        path.push(segment)
+        const prop = resolveSegmentProp(cursor, segment)
+        cursor =
+          prop === undefined || cursor === null || cursor === undefined
+            ? undefined
+            : (cursor as any)[prop]
+        continue
+      }
+
+      if (typeof input === "string") {
+        path.push({ [KIND]: "key", key: input })
+        cursor =
+          cursor === null || cursor === undefined
+            ? undefined
+            : (cursor as any)[input]
+        continue
+      }
+
+      if (typeof input === "number") {
+        path.push({ [KIND]: "index", index: input })
+        cursor =
+          cursor === null || cursor === undefined
+            ? undefined
+            : (cursor as any)[input]
+        continue
+      }
+
+      if (isPattern(input)) {
+        path.push({ [KIND]: "match", match: input as Pattern })
+        const idx = Array.isArray(cursor)
+          ? (cursor as unknown[]).findIndex(item =>
+              matchesPattern(item, input as Pattern)
+            )
+          : -1
+        cursor = idx >= 0 ? (cursor as unknown[])[idx] : undefined
+        continue
+      }
+
+      throw new Error(`Unsupported path input: ${String(input)}`)
+    }
+
+    return { path, range }
+  }
+
+  /**
+   * Resolve the symbolic path to a concrete prop path against the
+   * current view's doc. Uses the registry's cached pattern resolution.
+   * O(depth) when warm; O(depth + |array|) per cold pattern segment.
+   */
+  #getPropPath(): Prop[] | undefined {
+    if (this.#path.length === 0) return []
+    return this.#document.registry.resolvePropPath(
+      this.#path,
+      this.doc(),
+      this.#fixedHeads
+    )
+  }
+
+  /** Read the value at this handle's scope (path / range). */
+  #scopedValue(rootView: A.Doc<any>): unknown {
+    return scopedValue(
+      rootView,
+      this.#getPropPath(),
+      this.#range,
+      () => this.rangePositions()
+    )
+  }
+
+  /** Apply a scoped change callback to a mutable view of the document. */
+  #applyScopedChange(doc: A.Doc<any>, fn: RefChangeFn<any>): A.Doc<any> {
+    return applyScopedChange(
+      doc,
+      this.#getPropPath(),
+      this.#range,
+      () => this.rangePositions(),
+      fn
+    )
+  }
+
+  /** Remove the value at this handle's scope. */
+  #applyScopedRemove(doc: A.Doc<any>): A.Doc<any> {
+    return applyScopedRemove(
+      doc,
+      this.#getPropPath(),
+      this.#range,
+      () => this.rangePositions()
+    )
+  }
+
+  // ---------------- Event subscription ----------------
+  //
+  // DocHandle does not extend EventEmitter; listeners live in the
+  // registry, keyed by handle. The Map there holds handles strongly,
+  // so any handle with at least one listener is naturally retained
+  // (no separate "retainer" set). Dispatch fans events out via the
+  // registry's internal listener storage.
+
+  on<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    fn: DocHandleEvents<T>[E]
+  ): this {
+    this.#document.registry.addListener(this, event as string, fn as Function)
+    return this
+  }
+
+  addListener<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    fn: DocHandleEvents<T>[E]
+  ): this {
+    return this.on(event, fn)
+  }
+
+  once<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    fn: DocHandleEvents<T>[E]
+  ): this {
+    const reg = this.#document.registry
+    const wrapper = (payload: unknown) => {
+      reg.removeListener(this, event as string, wrapper)
+      ;(fn as any)(payload)
+    }
+    reg.addListener(this, event as string, wrapper)
+    return this
+  }
+
+  off<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    fn?: DocHandleEvents<T>[E]
+  ): this {
+    const reg = this.#document.registry
+    if (fn === undefined) reg.removeAllListenersForEvent(this, event as string)
+    else reg.removeListener(this, event as string, fn as Function)
+    return this
+  }
+
+  removeListener<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    fn?: DocHandleEvents<T>[E]
+  ): this {
+    return this.off(event, fn)
+  }
+
+  removeAllListeners<E extends keyof DocHandleEvents<T>>(event?: E): this {
+    const reg = this.#document.registry
+    if (event === undefined) reg.removeAllListenersForHandle(this)
+    else reg.removeAllListenersForEvent(this, event as string)
+    return this
+  }
+
+  /** Number of listeners attached for the given event. */
+  listenerCount<E extends keyof DocHandleEvents<T>>(event: E): number {
+    return this.#document.registry.listenerCountFor(this, event as string)
+  }
+
+  /** Snapshot of currently-registered listener functions for the given event. */
+  listeners<E extends keyof DocHandleEvents<T>>(
+    event: E
+  ): DocHandleEvents<T>[E][] {
+    return this.#document.registry.listenersFor(
+      this,
+      event as string
+    ) as DocHandleEvents<T>[E][]
+  }
+
+  /** Names of events with at least one listener attached. */
+  eventNames(): (keyof DocHandleEvents<T>)[] {
+    return this.#document.registry.eventNamesFor(this) as (keyof DocHandleEvents<T>)[]
+  }
+
+  /**
+   * Emit an event on this handle. Routed through the registry's
+   * listener storage. The `delete` event marks the document deleted as
+   * a side-effect, so observers on *this* emit see `isDeleted() === true`.
+   */
+  emit<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    payload: Parameters<DocHandleEvents<T>[E] & ((p: any) => any)>[0]
+  ): boolean {
+    if ((event as string) === "delete") this.#document.deleted = true
+    return this.#document.registry.emit(this, event as string, payload)
+  }
+
+  // ---------------- Internal accessors (registry / tests) ----------------
+
+  /** @internal Symbolic path of this handle. Empty on root handles. */
+  get _pathSegments(): readonly PathSegment[] {
+    return this.#path
+  }
+
+  /** @internal Number of handles with at least one listener attached. */
+  get _handleRetainerSize(): number {
+    return this.#document.registry.retainedCount
+  }
+
+  /**
+   * @internal Used by `DocSynchronizer` to inject inbound ephemeral
+   * messages. Fans out to every retained handle into this document via
+   * the registry.
+   */
+  _receiveInboundEphemeral(senderId: PeerId, message: unknown): void {
+    this.#document.registry.dispatchEphemeral(senderId, message)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Module-private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip any non-symbolic fields (e.g. legacy `prop`) from an incoming
+ * `PathSegment`, returning a pure symbolic segment for internal storage.
+ */
+function symbolicOnly(seg: PathSegment): PathSegment {
+  switch (seg[KIND]) {
+    case "key":
+      return { [KIND]: "key", key: seg.key }
+    case "index":
+      return { [KIND]: "index", index: seg.index }
+    case "match":
+      return { [KIND]: "match", match: seg.match }
+  }
+}
+
+/**
+ * Build the `ResolvedPathSegment[]` snapshot for `DocHandle.path`.
+ * Walks the symbolic path against `doc` resolving each pattern segment
+ * to its current matched index (or `undefined` if no match / parent
+ * doesn't resolve).
+ */
+function snapshotSegments(
+  symbolic: readonly PathSegment[],
+  doc: A.Doc<any> | undefined
+): ResolvedPathSegment[] {
+  const out: ResolvedPathSegment[] = []
+  let cursor: unknown = doc
+  for (const seg of symbolic) {
+    switch (seg[KIND]) {
+      case "key":
+        out.push({ [KIND]: "key", key: seg.key, prop: seg.key })
+        cursor = step(cursor, seg.key)
+        break
+      case "index":
+        out.push({ [KIND]: "index", index: seg.index, prop: seg.index })
+        cursor = step(cursor, seg.index)
+        break
+      case "match": {
+        const prop = resolveSegmentProp(cursor, seg) as number | undefined
+        out.push({ [KIND]: "match", match: seg.match, prop })
+        cursor = prop !== undefined ? step(cursor, prop) : undefined
+        break
+      }
+    }
+  }
+  return out
+}
+
+function step(cursor: unknown, prop: string | number): unknown {
+  if (cursor === null || cursor === undefined) return undefined
+  return (cursor as any)[prop as any]
+}
+
+function inputsFromPath(path: readonly PathSegment[]): AnyPathInput[] {
+  return path.map(s => s as AnyPathInput)
+}
+
+/** True iff one path is a prefix of the other (or they're equal). */
+function pathsOverlap(a: readonly Prop[], b: readonly Prop[]): boolean {
+  const len = Math.min(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+/**
+ * Structural equality for symbolic segments. Two segments are equal
+ * when they have the same kind and same literal/pattern data.
+ */
+function segmentEquals(a: PathSegment, b: PathSegment): boolean {
+  if (a[KIND] !== b[KIND]) return false
+  switch (a[KIND]) {
+    case "key":
+      return a.key === (b as { key: string }).key
+    case "index":
+      return a.index === (b as { index: number }).index
+    case "match": {
+      const am = a.match
+      const bm = (b as { match: Pattern }).match
+      const ka = Object.keys(am)
+      const kb = Object.keys(bm)
+      if (ka.length !== kb.length) return false
+      for (const k of ka) if (am[k] !== bm[k]) return false
+      return true
+    }
   }
 }
 
@@ -576,6 +1176,16 @@ export type DocHandleOptions<T> =
 
       /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
       timeoutDelay?: number
+
+      /**
+       * @hidden — internal: pre-normalized symbolic path segments for
+       * sub-handles. Set by `#createSubHandle`; the constructor adopts
+       * them as-is.
+       */
+      pathSegments?: PathSegment[]
+
+      /** @hidden — internal: pre-normalized cursor range. */
+      range?: CursorRange
     }
 
 // EXTERNAL EVENTS

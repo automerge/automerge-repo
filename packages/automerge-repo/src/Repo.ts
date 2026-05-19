@@ -37,7 +37,7 @@ import type {
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
 export { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
-import { RefImpl } from "./refs/ref.js"
+import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
@@ -309,15 +309,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       return existing
     }
 
-    const handle = new DocHandle(
+    const document = new Document(
       documentId,
-      (h, p) => new RefImpl(h, p),
-      {},
+      initialDoc ?? Automerge.init(),
       storageId => this.#syncStateTracker.getSyncInfo(documentId, storageId)
     )
-    if (initialDoc) {
-      handle.update(() => initialDoc)
-    }
+    const handle = new DocHandle(document, {})
     const query = new DocumentQuery(handle, this.#sources)
     this.#queries[documentId] = query
 
@@ -521,14 +518,25 @@ export class Repo extends EventEmitter<RepoEvents> {
       throw new AbortError()
     }
 
-    const { heads } = isValidAutomergeUrl(id)
-      ? parseAutomergeUrl(id)
-      : { heads: undefined }
+    // URLs may carry a path suffix (`/a/@0/b`) and/or fixed heads
+    // (`#h1|h2`). We pull both out here so we can descend into a
+    // sub-handle and / or pin to historical heads once the underlying
+    // document is ready.
+    const parsed = isValidAutomergeUrl(id) ? parseAutomergeUrl(id) : null
+    const heads = parsed?.heads
+    const segments = parsed?.segments
 
     const progress = this.findWithProgress<T>(id) as DocumentQuery<T>
+    const rootHandle = await progress.whenReady({ signal })
 
-    const handle = await progress.whenReady({ signal })
-    return heads ? handle.view(heads) : handle
+    let handle: DocHandle<any> = rootHandle
+    if (segments && segments.length > 0) {
+      handle = handle.ref(...(segments as any[]))
+    }
+    if (heads) {
+      handle = handle.view(heads)
+    }
+    return handle as DocHandle<T>
   }
 
   /**

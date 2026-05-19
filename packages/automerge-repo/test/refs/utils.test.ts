@@ -2,9 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
-import { cursor, findRef } from "../../src/refs/utils.js"
+import { cursor } from "../../src/refs/utils.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
-import type { RefUrl } from "../../src/refs/types.js"
 import { CURSOR_MARKER } from "../../src/refs/types.js"
 
 describe("utils", () => {
@@ -105,7 +104,7 @@ describe("utils", () => {
       const nameRef = handle.ref("user", "name")
       const url = nameRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("Alice")
       expect(foundRef.url).toBe(url)
     })
@@ -122,7 +121,7 @@ describe("utils", () => {
       const colorRef = handle.ref("app", "settings", "theme", "color")
       const url = colorRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("blue")
     })
 
@@ -143,7 +142,7 @@ describe("utils", () => {
       })
 
       // With numeric indices, ref still points to position 0 (now "zeroth")
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("zeroth")
     })
 
@@ -158,7 +157,7 @@ describe("utils", () => {
       const aliceRef = handle.ref("users", { id: "user1" }, "name")
       const url = aliceRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("Alice")
     })
 
@@ -170,7 +169,7 @@ describe("utils", () => {
       const rangeRef = handle.ref("text", cursor(0, 5))
       const url = rangeRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe("hello")
     })
 
@@ -196,17 +195,17 @@ describe("utils", () => {
       expect(url).toMatch(/^automerge:[^/]+\/counter#.+$/)
       expect(counterRef.value()).toBe(1) // Should see old value
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toBe(1) // Should see old value
       expect(foundRef.url).toBe(url)
     })
 
     it("should throw on invalid URL format", async () => {
-      await expect(findRef(repo, "not-a-valid-url" as RefUrl)).rejects.toThrow(
-        "Invalid ref URL"
+      await expect(repo.find("not-a-valid-url")).rejects.toThrow(
+        /Invalid (Automerge)?Url/i
       )
-      await expect(findRef(repo, "wrong:abc/path" as RefUrl)).rejects.toThrow(
-        "Invalid ref URL"
+      await expect(repo.find("wrong:abc/path")).rejects.toThrow(
+        /Invalid (Automerge)?Url/i
       )
     })
 
@@ -218,7 +217,7 @@ describe("utils", () => {
       const rootRef = handle.ref()
       const url = rootRef.url
 
-      const foundRef = await findRef(repo, url)
+      const foundRef = await repo.find(url)
       expect(foundRef.value()).toEqual({ value: 42 })
     })
   })

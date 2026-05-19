@@ -3,8 +3,26 @@ import { beforeEach, describe, expect, it } from "vitest"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
 import { KIND } from "../../src/refs/types.js"
-import { cursor, refFromUrl } from "../../src/refs/utils.js"
+import { cursor } from "../../src/refs/utils.js"
+import { encodeHeads, parseAutomergeUrl } from "../../src/AutomergeUrl.js"
 import { splice } from "../../src/index.js"
+
+/**
+ * Reconstruct a ref from its URL. In the pre-unification API this lived
+ * as `refFromUrl(handle, url)`; now we just parse the URL's segments and
+ * apply them via `handle.ref(...)`.
+ */
+function refFromUrl(h: DocHandle<any>, url: string): DocHandle<any> {
+  const parsed = parseAutomergeUrl(url as any)
+  if (parsed.documentId !== h.documentId) {
+    throw new Error(
+      `URL documentId "${parsed.documentId}" does not match handle's documentId "${h.documentId}"`
+    )
+  }
+  const segments = (parsed.segments ?? []) as any[]
+  const sub = h.ref(...segments)
+  return parsed.heads ? sub.view(parsed.heads) : sub
+}
 
 describe("Ref", () => {
   let repo: Repo
@@ -324,7 +342,7 @@ describe("Ref", () => {
       const pinnedRef = viewHandle.ref("value")
 
       expect(() => pinnedRef.remove()).toThrow(
-        "Cannot remove from a Ref on a read-only handle"
+        "Cannot remove on"
       )
     })
 
@@ -1627,7 +1645,7 @@ describe("Ref", () => {
       const currentRef = handle.ref("value")
       expect(currentRef.value()).toBe(2)
 
-      const pastRef = currentRef.viewAt(heads1)
+      const pastRef = currentRef.view(encodeHeads(heads1))
       expect(pastRef.value()).toBe(1)
 
       // Original ref should be unchanged
@@ -1647,7 +1665,7 @@ describe("Ref", () => {
       const currentRef = handle.ref("user", "name")
       expect(currentRef.value()).toBe("Bob")
 
-      const pastRef = currentRef.viewAt(heads1)
+      const pastRef = currentRef.view(encodeHeads(heads1))
       expect(pastRef.value()).toBe("Alice")
     })
 
@@ -1658,11 +1676,13 @@ describe("Ref", () => {
       const heads = Automerge.getHeads(handle.doc())
 
       const currentRef = handle.ref("value")
-      const pastRef = currentRef.viewAt(heads)
+      const pastRef = currentRef.view(encodeHeads(heads))
 
+      // The view-pinned ref is a different handle from the live one.
       expect(pastRef).not.toBe(currentRef)
-      // pastRef is on a view handle, not the same handle
-      expect(pastRef.docHandle).not.toBe(currentRef.docHandle)
+      // Both live in the same document, so `.docHandle` points at the
+      // same root - unification means there's one shared root handle.
+      expect(pastRef.docHandle).toBe(currentRef.docHandle)
       expect(pastRef.docHandle.documentId).toBe(currentRef.docHandle.documentId)
     })
 
@@ -1673,7 +1693,7 @@ describe("Ref", () => {
       const heads = Automerge.getHeads(handle.doc())
 
       const originalRef = handle.ref("nested", "deep", "value")
-      const viewRef = originalRef.viewAt(heads)
+      const viewRef = originalRef.view(encodeHeads(heads))
 
       expect(viewRef.path).toEqual(originalRef.path)
     })
@@ -1684,11 +1704,11 @@ describe("Ref", () => {
       })
       const heads1 = Automerge.getHeads(handle.doc())
 
-      const pastRef = handle.ref("value").viewAt(heads1)
+      const pastRef = handle.ref("value").view(encodeHeads(heads1))
 
       expect(() => {
         pastRef.change(() => 2)
-      }).toThrow("Cannot change a Ref on a read-only handle")
+      }).toThrow("Cannot change on")
     })
   })
 
@@ -1753,8 +1773,8 @@ describe("Ref", () => {
       })
       const heads2 = Automerge.getHeads(handle.doc())
 
-      const ref1 = handle.ref("value").viewAt(heads1)
-      const ref2 = handle.ref("value").viewAt(heads2)
+      const ref1 = handle.ref("value").view(encodeHeads(heads1))
+      const ref2 = handle.ref("value").view(encodeHeads(heads2))
 
       expect(ref1.contains(ref2)).toBe(false)
     })

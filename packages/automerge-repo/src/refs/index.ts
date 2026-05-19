@@ -1,11 +1,9 @@
 export type {
   PathInput,
   MutableText,
-  ChangeFn,
+  RefChangeFn,
   InferRefType,
   Pattern,
-  RefUrl,
-  Ref,
 } from "./types.js"
 
-export { cursor, findRef, refFromUrl, refFromString } from "./utils.js"
+export { cursor } from "./utils.js"

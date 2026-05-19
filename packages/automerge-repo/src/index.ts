@@ -121,17 +121,17 @@ export type {
 
 export * from "./types.js"
 
-// Refs - experimental API for referencing locations within documents
+// Path / ref helpers (experimental). Refs and DocHandles are now the
+// same type - `handle.ref(...)` returns a `DocHandle`. Path-related
+// types and the `cursor()` helper live here.
 export type {
-  Ref,
   PathInput,
   MutableText,
   InferRefType,
   Pattern,
-  RefUrl,
-  ChangeFn as RefChangeFn,
+  RefChangeFn,
 } from "./refs/types.js"
-export { cursor, findRef, refFromUrl, refFromString } from "./refs/utils.js"
+export { cursor } from "./refs/utils.js"
 
 // Automerge re-exports
 //

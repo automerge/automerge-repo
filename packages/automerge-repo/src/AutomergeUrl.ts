@@ -13,6 +13,11 @@ import {
   uint8ArrayFromHexString,
   uint8ArrayToHexString,
 } from "./helpers/bufferFromHex.js"
+import {
+  parsePath,
+  serializePath,
+} from "./refs/parser.js"
+import type { Segment } from "./refs/types.js"
 
 import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
 
@@ -27,21 +32,47 @@ interface ParsedAutomergeUrl {
   heads?: UrlHeads
   /** Optional hex array of heads, in Automerge core format */
   hexHeads?: string[] // AKA: heads
+  /**
+   * Optional path segments, parsed from the `/seg/seg/...` suffix on
+   * URLs that point at a sub-tree of the document. Undefined for plain
+   * document URLs.
+   */
+  segments?: Segment[]
 }
 
-/** Given an Automerge URL, returns the DocumentId in both base58check-encoded form and binary form */
+/**
+ * Parse an Automerge URL.
+ *
+ * Supported shapes:
+ *   - `automerge:<docId>`
+ *   - `automerge:<docId>#<heads>`              (heads `|`-joined)
+ *   - `automerge:<docId>/<path>`               (path `/`-joined segments)
+ *   - `automerge:<docId>/<path>#<heads>`
+ *
+ * `segments` is undefined when no path is present; otherwise it's the
+ * parsed `Segment[]`.
+ */
 export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
   const [baseUrl, headsSection, ...rest] = url.split("#")
   if (rest.length > 0) {
     throw new Error("Invalid URL: contains multiple heads sections")
   }
-  const regex = new RegExp(`^${urlPrefix}(\\w+)$`)
-  const [, docMatch] = baseUrl.match(regex) || []
+  const match = baseUrl.match(new RegExp(`^${urlPrefix}([^/]+)(?:\\/(.*))?$`))
+  if (!match) throw new Error("Invalid document URL: " + url)
+  const [, docMatch, pathStr] = match
   const documentId = docMatch as DocumentId
   const binaryDocumentId = documentIdToBinary(documentId)
 
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
-  if (headsSection === undefined) return { binaryDocumentId, documentId }
+
+  const segments =
+    pathStr !== undefined && pathStr.length > 0 ? parsePath(pathStr) : undefined
+
+  if (headsSection === undefined) {
+    return segments
+      ? { binaryDocumentId, documentId, segments }
+      : { binaryDocumentId, documentId }
+  }
 
   const heads = (headsSection === "" ? [] : headsSection.split("|")) as UrlHeads
   const hexHeads = heads.map(head => {
@@ -51,12 +82,16 @@ export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
       throw new Error(`Invalid head in URL: ${head}`)
     }
   })
-  return { binaryDocumentId, hexHeads, documentId, heads }
+  return segments
+    ? { binaryDocumentId, hexHeads, documentId, heads, segments }
+    : { binaryDocumentId, hexHeads, documentId, heads }
 }
 
 /**
- * Given a documentId in either binary or base58check-encoded form, returns an Automerge URL.
- * Throws on invalid input.
+ * Given a documentId in either binary or base58check-encoded form, returns
+ * an Automerge URL. Optionally accepts `segments` to construct a sub-tree
+ * URL (`automerge:<docId>/seg/seg/...`) and `heads` to pin the URL to a
+ * point in time. Throws on invalid input.
  */
 export const stringifyAutomergeUrl = (
   arg: UrlOptions | DocumentId | BinaryDocumentId
@@ -68,7 +103,7 @@ export const stringifyAutomergeUrl = (
         : arg)) as AutomergeUrl
   }
 
-  const { documentId, heads = undefined } = arg
+  const { documentId, heads = undefined, segments = undefined } = arg
 
   if (documentId === undefined)
     throw new Error("Invalid documentId: " + documentId)
@@ -79,6 +114,10 @@ export const stringifyAutomergeUrl = (
       : documentId
 
   let url = `${urlPrefix}${encodedDocumentId}`
+
+  if (segments !== undefined && segments.length > 0) {
+    url += "/" + serializePath(segments)
+  }
 
   if (heads !== undefined) {
     heads.forEach(head => {
@@ -212,4 +251,5 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
   heads?: UrlHeads
+  segments?: Segment[]
 }

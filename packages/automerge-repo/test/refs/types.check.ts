@@ -5,7 +5,7 @@
  */
 
 import type { DocHandle } from "../../src/DocHandle.js"
-import type { Ref, MutableText } from "../../src/refs/types.js"
+import type { MutableText } from "../../src/refs/types.js"
 
 type TestDoc = {
   title: string
@@ -179,7 +179,6 @@ const deepNumberValue = deepNumberRef.value()
 // Hover over deepNumberValue - should be: number | undefined
 
 // === String Path Type Inference Tests ===
-import { refFromString } from "../../src/refs/utils.js"
 import type {
   SegmentsFromString,
   InferRefTypeFromString,
@@ -212,22 +211,12 @@ type Test2 = InferRefTypeFromString<DocForStringTest, "todos/0/title">
 type Test3 = InferRefTypeFromString<DocForStringTest, "count">
 // Should be: number
 
-// Test refFromString function with type inference
-declare const stringTestHandle: DocHandle<DocForStringTest>
+// Note: in the pre-unification API there was a `refFromString(handle, "a/b/c")`
+// helper. Now `handle.ref(...)` takes variadic path inputs directly, so the
+// string-path types above are still useful for URL parsing but there is no
+// dedicated helper here.
 
-const stringTitleRef = refFromString(stringTestHandle, "title")
-const stringTitleValue = stringTitleRef.value()
-// Hover over stringTitleValue - should be: string | undefined
-
-const stringTodoTitleRef = refFromString(stringTestHandle, "todos/0/title")
-const stringTodoTitleValue = stringTodoTitleRef.value()
-// Hover over stringTodoTitleValue - should be: string | undefined
-
-const stringCountRef = refFromString(stringTestHandle, "count")
-const stringCountValue = stringCountRef.value()
-// Hover over stringCountValue - should be: number | undefined
-
-function doubleIt(ref: Ref<number>) {
+function doubleIt(ref: DocHandle<number>) {
   ref.change(n => n * 2)
 }
 

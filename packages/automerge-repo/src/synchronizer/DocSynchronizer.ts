@@ -784,11 +784,9 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     if (!isNewMessage) return
 
     const contents = decode(new Uint8Array(data))
-    this.#handle.emit("ephemeral-message", {
-      handle: this.#handle,
-      senderId,
-      message: contents,
-    })
+    // Inject the inbound message at the document level; the registry
+    // fans it out to every retained handle (root, sub, view).
+    this.#handle._receiveInboundEphemeral(senderId, contents)
 
     for (const [peerId, peer] of this.#peers) {
       if (peerId === senderId) continue
