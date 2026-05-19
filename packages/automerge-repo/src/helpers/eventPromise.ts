@@ -1,16 +1,22 @@
-import { EventEmitter } from "eventemitter3"
-
-// `EventEmitter<any, any>` is used here (rather than the default
-// `EventEmitter<string | symbol>`) so that subclasses which narrow their
-// event types — e.g. `DocHandle<T>` with `DocHandleEvents<T>` — remain
-// structurally assignable.
-type AnyEmitter = EventEmitter<any, any>
+/**
+ * Anything subscribable: `DocHandle`, `EventEmitter`, `Repo`,
+ * `NetworkSubsystem`, etc. Uses a structural shape rather than
+ * `EventEmitter` so non-EventEmitter subscribers like `DocHandle`
+ * (whose listeners live in the registry) remain compatible.
+ *
+ * `fn` is `(...args: any[]) => any` so subscribers with zero-arg
+ * events (e.g. `disconnect: () => void`) and multi-arg events both
+ * fit; the resolved value is the first arg (or `undefined`).
+ */
+type Onceable = {
+  once(event: any, fn: (...args: any[]) => any): unknown
+}
 
 /** Returns a promise that resolves when the given event is emitted on the given emitter. */
-export const eventPromise = (emitter: AnyEmitter, event: string) =>
+export const eventPromise = (emitter: Onceable, event: string) =>
   new Promise<any>(resolve => emitter.once(event, d => resolve(d)))
 
-export const eventPromises = (emitters: AnyEmitter[], event: string) => {
+export const eventPromises = (emitters: Onceable[], event: string) => {
   const promises = emitters.map(emitter => eventPromise(emitter, event))
   return Promise.all(promises)
 }

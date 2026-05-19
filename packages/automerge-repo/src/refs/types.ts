@@ -29,15 +29,34 @@ export interface CursorMarker {
   end: number
 }
 
-/** Path segments that have prop (non-terminal) */
+/**
+ * Symbolic path segments. A segment names a step into the document - by
+ * literal key, literal index, or pattern match against array items - and
+ * is *immutable* once constructed. Resolution of a pattern segment to a
+ * concrete numeric index happens elsewhere (the handle registry caches
+ * it; reads consult or compute it on demand).
+ *
+ * The matching `prop` value (key string for `"key"`, index number for
+ * `"index"` and `"match"`) is exposed via {@link DocHandle.path}, which
+ * builds a fresh snapshot on each read. It is *not* stored on the
+ * segment itself.
+ */
 export type PathSegment =
-  | { [KIND]: "key"; key: string; prop?: string } // Object property access by key name
-  | { [KIND]: "index"; index: number; prop?: number } // Array/list access by numeric index (position-based)
-  | {
-      [KIND]: "match"
-      match: Pattern
-      prop?: number
-    }
+  | { [KIND]: "key"; key: string }
+  | { [KIND]: "index"; index: number }
+  | { [KIND]: "match"; match: Pattern }
+
+/**
+ * Snapshot form of a {@link PathSegment} returned from {@link DocHandle.path}.
+ * Each segment carries the same symbolic fields as `PathSegment` plus a
+ * `prop` field with its currently-resolved lookup value (key string,
+ * literal index, or matched index for patterns; `undefined` for an
+ * unmatched pattern).
+ */
+export type ResolvedPathSegment =
+  | { [KIND]: "key"; key: string; prop: string }
+  | { [KIND]: "index"; index: number; prop: number }
+  | { [KIND]: "match"; match: Pattern; prop: number | undefined }
 
 /** Cursor range segment (always terminal) */
 export type CursorRange = { [KIND]: "cursors"; start: Cursor; end: Cursor }

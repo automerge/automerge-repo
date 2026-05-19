@@ -55,24 +55,11 @@ export class DocumentState extends EventEmitter<DocumentStateEvents> {
   #syncInfoByStorageId: Record<StorageId, SyncInfo> = {}
 
   /**
-   * WeakRef cache of every non-root handle into this document -
-   * sub-handles at a path, view-handles at fixed heads, and combinations
-   * of the two - keyed by `(path, heads)` (see {@link DocHandle.handleCacheKey}).
-   * The root handle is the only exception; it's owned by the `Repo`
-   * and reachable via {@link rootHandle}. Dead WeakRefs are pruned
-   * lazily during iteration.
+   * Per-document trie of handles. Owns identity caching (every distinct
+   * sub-/view-handle), pattern resolution caching, retention (handles
+   * with at least one listener), and event dispatch. Driven by
+   * `DocHandle`'s listener-mutating overrides.
    */
-  readonly handleCache: Map<string, WeakRef<DocHandle<any>>> = new Map()
-
-  /**
-   * Strong retainers for handles that currently have at least one
-   * listener attached - the root, sub-handles, and view-handles
-   * uniformly. Populated via the registry's `insert` / `remove` hooks
-   * from `DocHandle`'s listener overrides.
-   */
-  readonly subHandleRetainers: Set<DocHandle<any>> = new Set()
-
-  /** Per-document handle dispatcher and retention tracker. */
   readonly registry: SubHandleRegistry
 
   /**
