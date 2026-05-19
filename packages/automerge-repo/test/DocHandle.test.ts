@@ -16,9 +16,9 @@ describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   const setup = (options?: any) => {
-    const { quick, documentId, ...rest } = options ?? {}
+    const { quick, documentId, doc, ...rest } = options ?? {}
     let id = documentId ?? TEST_ID
-    const document = new Document<TestDoc>(id, A.init<TestDoc>())
+    const document = new Document<TestDoc>(id, doc ?? A.init<TestDoc>())
     const handle = new DocHandle<TestDoc>(document, rest)
     return handle
   }
@@ -36,6 +36,19 @@ describe("DocHandle", () => {
    * in a slightly more supportable set of APIs but should be
    * considered provisional: expect further improvements.
    */
+
+  it("survives a no-op change followed by a real change", () => {
+    // Regression: `applyMutation` previously skipped adopting the
+    // post-mutator snapshot when heads were unchanged, leaving the
+    // next mutation to run against a now-outdated reference (Automerge
+    // throws "Attempting to change an outdated document").
+    const handle = setup()
+    handle.change(() => {
+      /* no-op */
+    })
+    handle.change(d => (d.foo = "bar"))
+    assert.equal(handle.doc().foo, "bar")
+  })
 
   it("should return an empty doc initially", () => {
     const handle = setup()
@@ -87,9 +100,11 @@ describe("DocHandle", () => {
     handle.change(d => (d.foo = "one"))
 
     const history = handle.history()
-    const viewHandle = setup({ quick: true, heads: history[0] })
-    viewHandle.update(() => A.clone(handle.doc()!))
-    viewHandle.doneLoading()
+    const viewHandle = setup({
+      quick: true,
+      doc: A.clone(handle.doc()!),
+      heads: history[0],
+    })
 
     assert.deepEqual(viewHandle.doc(), { foo: "zero" })
   })
@@ -104,6 +119,9 @@ describe("DocHandle", () => {
       viewHandle.changeAt(handle.heads()!, d => (d.foo = "one"))
     )
     assert.throws(() => viewHandle.merge(handle))
+    // update() is the storage/network ingress path - it must not
+    // silently mutate the live doc through a view-pinned handle.
+    assert.throws(() => viewHandle.update(d => d))
   })
 
   it("should return fixed heads from heads()", async () => {
@@ -464,9 +482,11 @@ describe("DocHandle", () => {
       })
 
       const heads = handle.heads()
-      const fixedHeadsHandle = setup({ quick: true, heads })
-      fixedHeadsHandle.update(() => A.clone(handle.doc()!))
-      fixedHeadsHandle.doneLoading()
+      const fixedHeadsHandle = setup({
+        quick: true,
+        doc: A.clone(handle.doc()!),
+        heads,
+      })
 
       expect(fixedHeadsHandle.isReadOnly()).toBe(true)
     })
@@ -521,9 +541,9 @@ describe("DocHandle", () => {
       assert.equal(handle.inState(["ready"]), true)
     })
 
-    it("flips to deleted when delete is emitted", () => {
+    it("flips to deleted when delete() is called", () => {
       const handle = setup()
-      handle.emit("delete", { handle })
+      handle.delete()
       assert.equal(handle.state, "deleted")
       assert.equal(handle.isReady(), false)
       assert.equal(handle.isDeleted(), true)
@@ -535,7 +555,7 @@ describe("DocHandle", () => {
       const seenDeleted = new Promise<boolean>(resolve => {
         handle.once("delete", ({ handle: h }) => resolve(h.isDeleted()))
       })
-      handle.emit("delete", { handle })
+      handle.delete()
       assert.equal(await seenDeleted, true)
     })
 
@@ -547,7 +567,7 @@ describe("DocHandle", () => {
     it("whenReady(['deleted']) resolves on delete", async () => {
       const handle = setup()
       const p = handle.whenReady(["deleted"])
-      handle.emit("delete", { handle })
+      handle.delete()
       await p
       assert.equal(handle.isDeleted(), true)
     })

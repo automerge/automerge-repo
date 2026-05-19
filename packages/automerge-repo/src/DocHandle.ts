@@ -32,43 +32,43 @@ import type {
 import { KIND } from "./refs/types.js"
 
 /**
- * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
- * notify the network and storage of new changes.
+ * A scoped handle into an Automerge document. Every `DocHandle` references
+ * a single shared `Document` (the underlying Automerge data and its
+ * handle/listener registry) plus an optional `(path, range, heads)` scope.
+ *
+ * Conceptually a handle is just `(document, path, range?, heads?)`:
+ * - A **root** handle has no path, range, or heads - it points at the
+ *   whole live document. `Repo` only ever hands out root handles.
+ * - A **sub-handle** (from {@link DocHandle.ref}) has a non-empty path
+ *   into the document; reads / writes / change events are scoped to that
+ *   subtree.
+ * - A **view-pinned** handle (from {@link DocHandle.view}) has fixed
+ *   heads; it reads at that point in time and rejects mutations.
+ * - A **range** handle covers a span of text inside a string-valued
+ *   sub-handle.
+ *
+ * Handle identity is canonicalised by the per-document registry, so any
+ * two calls that name the same `(path, range, heads)` triple - even via
+ * different traversals - return the same `DocHandle` instance.
  *
  * @remarks
- * A `DocHandle` represents a document which is being managed by a {@link Repo}. You shouldn't ever
- * instantiate this yourself. To obtain `DocHandle` use {@link Repo.find} or {@link Repo.create}.
- *
- * To modify the underlying document use either {@link DocHandle.change} or
- * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some change has occured and
- * the `Repo` will save any new changes to the attached {@link StorageAdapter} and send sync
- * messages to connected peers.
+ * Mutations go through {@link DocHandle.change} or {@link DocHandle.changeAt};
+ * the `Repo` then persists them via the {@link StorageAdapter} and sends
+ * sync messages to connected peers.
  */
 export class DocHandle<T> {
-  /**
-   * If set, this handle reads at these specific heads rather than the
-   * latest. Per-handle (not on `Document`) so a sub-handle can pin to
-   * arbitrary heads independent of other handles into the same document.
-   */
+  /** If set, this handle reads at these heads; per-handle, not document-wide. */
   #fixedHeads?: UrlHeads
 
-  /**
-   * Shared per-document state (data + registry). Every handle into the
-   * same document - root, sub, view - references the same `Document`.
-   */
+  /** Shared per-document state. Every handle into the same doc shares one. */
   readonly #document: Document<T>
 
-  /**
-   * Symbolic path segments for sub-handles; empty array on root handles.
-   * Immutable. The currently-resolved concrete prop path is computed on
-   * demand via the registry (which caches pattern resolutions).
-   */
+  /** Symbolic path. Empty on root handles; pattern segments resolved via the registry. */
   #path: PathSegment[] = []
 
   /** Cursor range for text-range sub-handles. */
   #range?: CursorRange
 
-  /** The document this handle reads from. */
   get documentId(): DocumentId {
     return this.#document.documentId
   }
@@ -87,9 +87,7 @@ export class DocHandle<T> {
       this.#range = options.range
     }
 
-    // Register this handle in the per-document trie so dispatch can
-    // find it. Variant key is (range + fixedHeads); root + sub + view
-    // all share the same registration mechanism.
+    // Register in the per-document trie so dispatch can find us.
     const node = this.#document.registry.getOrCreateNode(this.#path)
     this.#document.registry.cacheHandle(
       node,
@@ -117,30 +115,24 @@ export class DocHandle<T> {
     })
   }
 
-  // TODO: remove the legacy state-machine accessors below in the next major.
-  // Handles are only handed out to consumers in the `ready` state, so the
-  // only meaningful transition that remains is ready → deleted.
+  // Legacy state-machine accessors: kept for source compatibility, gone next
+  // major. Only `ready → deleted` remains; Repo always hands out ready handles.
 
-  /**
-   * @returns true if the document has not been deleted. Repo only hands out
-   * handles that already have data, so this is `true` from construction
-   * unless `delete()` is called.
-   */
+  /** True until the document is deleted; always true at handle construction. */
   isReady = () => !this.#document.deleted
 
   /**
    * @returns true if the document has been unloaded.
+   * @deprecated Always returns false. Will be removed in the next major.
    */
   isUnloaded = () => false
 
-  /**
-   * @returns true if the document has been marked as deleted.
-   */
+  /** True after {@link DocHandle.delete} has been called on any handle for this document. */
   isDeleted = () => this.#document.deleted
 
   /**
    * @returns true if the document is currently unavailable.
-   * @deprecated Always returns false — `find()` rejects on unavailable docs
+   * @deprecated Always returns false - `find()` rejects on unavailable docs
    * rather than returning a handle. Will be removed in the next major.
    */
   isUnavailable = () => false
@@ -151,7 +143,7 @@ export class DocHandle<T> {
    */
   inState = (states: HandleState[]) => states.includes(this.state)
 
-  /** @hidden */
+  /** @hidden Either `"ready"` or `"deleted"` - see the class doc for context. */
   get state(): HandleState {
     return this.#document.deleted ? "deleted" : "ready"
   }
@@ -174,20 +166,22 @@ export class DocHandle<T> {
   }
 
   /**
-   * Returns the current Automerge document this handle reads from.
-   *
-   * For all handles (root, sub, view) this is the *whole* underlying
-   * document (at this handle's fixed heads, if any). To get the value at
-   * a sub-handle's path - e.g. the items at `handle.ref("items")` - use
-   * {@link value} instead.
+   * The whole Automerge document this handle reads from, at this handle's
+   * fixed heads if any. For a sub-handle's scoped value use {@link value}.
    */
   doc(): A.Doc<T> {
     const heads = this.#fixedHeads
     const underlying = this.#document.doc
-    return (heads
-      ? A.view(underlying, decodeHeads(heads))
-      : underlying) as A.Doc<T>
+    if (!heads) return underlying as A.Doc<T>
+    // Memoize per underlying snapshot - view-pinned handles get read a lot.
+    if (this.#cachedDocFor !== underlying) {
+      this.#cachedDocFor = underlying
+      this.#cachedDoc = A.view(underlying, decodeHeads(heads)) as A.Doc<T>
+    }
+    return this.#cachedDoc!
   }
+  #cachedDoc?: A.Doc<T>
+  #cachedDocFor?: A.Doc<any>
 
   /**
    * Returns the scoped value this handle points to. For a root handle
@@ -214,11 +208,9 @@ export class DocHandle<T> {
   }
 
   /**
-   * Returns the current "heads" of the document, akin to a git commit.
-   * For sub-handles this returns the underlying document's heads (heads
-   * are a document-level concept). For view-pinned handles this returns
-   * the pinned heads. To find heads where this handle's path changed,
-   * use {@link history}.
+   * Current heads of the underlying document, or this handle's fixed heads
+   * if view-pinned. Heads are document-level - to find heads where this
+   * handle's path changed, use {@link history}.
    */
   heads(): UrlHeads {
     const heads = this.#fixedHeads
@@ -226,10 +218,8 @@ export class DocHandle<T> {
     return encodeHeads(A.getHeads(this.#document.doc))
   }
 
-  /** @hidden */
-  begin() {
-    // noop - state machine removed
-  }
+  /** @hidden @deprecated No-op since the state machine was removed. */
+  begin() {}
 
   /**
    * Returns an array of all past "heads" for the document in topological order.
@@ -250,12 +240,9 @@ export class DocHandle<T> {
       return topo.map(h => encodeHeads([h])) as UrlHeads[]
     }
 
-    // For sub-handles the resolved prop path can change over history
-    // (pattern segments match different items at different states).
-    // Resolve the symbolic path against each step's snapshot - both
-    // "before" and "after" - so patches that create the target
-    // (resolvable only after) or destroy it (only before) are both
-    // captured.
+    // Pattern segments can resolve to different indices over history,
+    // so resolve against both "before" and "after" snapshots to catch
+    // patches that create or destroy the target.
     const segments = this.#path
     const out: UrlHeads[] = []
     for (let i = 0; i < topo.length; i++) {
@@ -278,8 +265,10 @@ export class DocHandle<T> {
 
       const overlaps = patches.some(
         p =>
-          (beforePath !== undefined && pathsOverlap(p.path, beforePath)) ||
-          (afterPath !== undefined && pathsOverlap(p.path, afterPath))
+          (beforePath !== undefined &&
+            isPathPrefixCompatible(p.path, beforePath)) ||
+          (afterPath !== undefined &&
+            isPathPrefixCompatible(p.path, afterPath))
       )
       if (overlaps) {
         out.push(encodeHeads([topo[i]]) as UrlHeads)
@@ -289,24 +278,13 @@ export class DocHandle<T> {
   }
 
   /**
-   * Creates a fixed "view" of an automerge document at the given point in time represented
-   * by the `heads` passed in. The return value is the same type as doc() and will return
-   * undefined if the object hasn't finished loading.
+   * Returns a read-only handle for this scope pinned at `heads`. Reads
+   * project the doc at those heads on demand (no cloning); mutations throw.
    *
-   * @remarks
-   * Note that our Typescript types do not consider change over time and the current version
-   * of Automerge doesn't check types at runtime, so if you go back to an old set of heads
-   * that doesn't match the heads here, Typescript will not save you.
-   *
-   * @argument heads - The heads to view the document at. See history().
-   * @returns DocHandle<T> at the time of `heads`
+   * @remarks Types are static - if `heads` predates a schema change, the
+   * stored shape may not match `T`. See {@link DocHandle.history}.
    */
   view(heads: UrlHeads): DocHandle<T> {
-    // A view-at-heads is the same handle pinned to `heads`. Routing
-    // through `#createSubHandle` (with no path change, just heads)
-    // gives stable identity via the registry trie and shares the
-    // underlying Document - reads project at `heads` on demand rather
-    // than cloning the doc.
     return this.#createSubHandle([], { heads }) as DocHandle<T>
   }
 
@@ -353,9 +331,8 @@ export class DocHandle<T> {
 
     if (this.#path.length === 0 && !this.#range) return allPatches
 
-    // Sub-handle: filter to patches overlapping the path, resolved
-    // against both endpoint snapshots so patches that create or destroy
-    // the target (present in only one endpoint) are both captured.
+    // Sub-handle: filter to patches overlapping the path, resolved against
+    // both endpoints so create-and-destroy patches are caught either way.
     const fromDoc = A.view(diffDoc, decodeHeads(fromHeads)) as A.Doc<any>
     const toDoc = A.view(diffDoc, decodeHeads(toHeads)) as A.Doc<any>
     const fromPath = resolvePropPath(fromDoc, this.#path)
@@ -363,19 +340,18 @@ export class DocHandle<T> {
     if (!fromPath && !toPath) return []
     return allPatches.filter(
       p =>
-        (fromPath !== undefined && pathsOverlap(p.path, fromPath)) ||
-        (toPath !== undefined && pathsOverlap(p.path, toPath))
+        (fromPath !== undefined && isPathPrefixCompatible(p.path, fromPath)) ||
+        (toPath !== undefined && isPathPrefixCompatible(p.path, toPath))
     )
   }
 
   /**
-   * `metadata(head?)` allows you to look at the metadata for a change
-   * this can be used to build history graphs to find commit messages and edit times.
-   * this interface.
+   * Look up the change metadata (commit message, timestamps, dependencies)
+   * for a single hash. Useful for building history graphs.
    *
    * @remarks
-   * I'm really not convinced this is the right way to surface this information so
-   * I'm leaving this API "hidden".
+   * We're not yet convinced this is the right shape to surface change
+   * metadata, so the API is left hidden for now.
    *
    * @hidden
    */
@@ -392,13 +368,12 @@ export class DocHandle<T> {
   }
 
   /**
-   * `update` is called any time we have a new document state; could be
-   * from a local change, a remote change, or a new document from storage.
-   * Routes through `Document.applyMutation` which atomically updates the
-   * doc and dispatches `change` / `heads-changed` via the registry.
+   * Ingress for new document state (storage, sync, local change). Routes
+   * through `Document.applyMutation`. Throws on view-pinned handles.
    * @hidden
    */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+    this.#throwIfFixedHeads("update")
     this.#document.applyMutation(callback as (doc: A.Doc<any>) => A.Doc<any>)
   }
 
@@ -410,15 +385,8 @@ export class DocHandle<T> {
     }
   }
 
-  /**
-   * `doneLoading` is called by the repo after it decides it has all the changes
-   * it's going to get during setup. This might mean it was created locally,
-   * or that it was loaded from storage, or that it was received from a peer.
-   * @hidden
-   */
-  doneLoading() {
-    // noop - state machine removed
-  }
+  /** @hidden @deprecated No-op since the state machine was removed. */
+  doneLoading() {}
 
   /** Returns the latest known heads for the given peer's storageId, or
    * undefined if we have not received sync info from that peer.
@@ -446,6 +414,10 @@ export class DocHandle<T> {
    * Local changes will be stored (by the StorageSubsystem) and synchronized (by the
    * DocSynchronizer) to any peers you are sharing it with.
    *
+   * On sub-handles a non-function `callback` is shorthand for "replace
+   * the value at this path" (e.g. `counterRef.change(42)`). Function-typed
+   * values can't use this shorthand - wrap them in `() => yourFunction`.
+   *
    * @param callback - A function that takes the current document and mutates it.
    *
    */
@@ -460,10 +432,8 @@ export class DocHandle<T> {
       )
       return
     }
-    // Sub-/range-handle: coerce direct value to a function, then route
-    // through `applyScopedChange` (which knows how to splice text, write
-    // primitives, mutate objects, etc.) inside an `A.change` block so
-    // mutations land on the change proxy rather than the raw doc.
+    // Coerce shorthand value to a fn, then route through `applyScopedChange`
+    // inside an `A.change` block so mutations land on the change proxy.
     const fn = (
       typeof callback === "function" ? callback : () => callback
     ) as RefChangeFn<T>
@@ -507,14 +477,14 @@ export class DocHandle<T> {
   }
 
   /**
-   * Check if the document can be change()ed. Currently, documents can be
-   * edited unless we are viewing a particular point in time.
+   * True if mutations on this handle will throw. View-pinned handles
+   * (those returned by {@link DocHandle.view} or constructed with `heads`)
+   * are read-only; root and sub-handles are not.
    *
-   * @remarks It is technically possible to back-date changes using changeAt(),
-   *          but we block it for usability reasons when viewing a particular point in time.
-   *          To make changes in the past, use the primary document handle with no heads set.
-   *
-   * @returns boolean indicating whether changes are possible
+   * @remarks
+   * `changeAt()` can technically back-date changes from any handle, but
+   * we still block it on view-pinned handles for clarity. To rewrite
+   * history at a specific point, use the live root handle with `changeAt`.
    */
   isReadOnly() {
     return !!this.#fixedHeads
@@ -536,33 +506,24 @@ export class DocHandle<T> {
     this.update(doc => A.merge(doc, otherHandle.doc()))
   }
 
+  /** @hidden @deprecated No-op since the state machine was removed. */
+  unavailable() {}
+
+  /** @hidden @deprecated No-op since the state machine was removed. */
+  request() {}
+
+  /** @hidden @deprecated No-op since the state machine was removed. */
+  unload() {}
+
+  /** @hidden @deprecated No-op since the state machine was removed. */
+  reload() {}
+
   /**
-   * Updates the internal state machine to mark the document unavailable.
-   * @hidden
+   * Marks the document deleted and fans `delete` out to every retained
+   * handle (root and subs alike). Calling on a sub-handle deletes the
+   * *whole document*; use {@link DocHandle.remove} to remove a subtree.
+   * Prefer {@link Repo.delete} from user code.
    */
-  unavailable() {
-    // noop - state machine removed
-  }
-
-  /**
-   * Called by the repo either when the document is not found in storage.
-   * @hidden
-   * */
-  request() {
-    // noop - state machine removed
-  }
-
-  /** Called by the repo to free memory used by the document. */
-  unload() {
-    // noop - state machine removed
-  }
-
-  /** Called by the repo to reuse an unloaded handle. */
-  reload() {
-    // noop - state machine removed
-  }
-
-  /** Called by the repo when the document is deleted. */
   delete() {
     this.#document.deleted = true
     this.#document.registry.dispatchDelete()
@@ -626,10 +587,9 @@ export class DocHandle<T> {
   // ---------------- Path / range introspection ----------------
 
   /**
-   * The root document handle (the path-[]/no-range/no-heads handle into
-   * this document). On the root, returns `this`. On sub-/view-handles,
-   * returns the canonical root in the registry - the one Repo holds
-   * and to which document-level lifecycle methods apply.
+   * The root handle for this document (path `[]`, no range, no heads) -
+   * the one Repo holds and document-level lifecycle methods apply to.
+   * Returns `this` on the root.
    */
   get docHandle(): DocHandle<any> {
     if (this.#path.length === 0 && !this.#range && !this.#fixedHeads) {
@@ -649,19 +609,20 @@ export class DocHandle<T> {
   }
 
   /**
-   * Snapshot of this handle's path segments with currently-resolved
-   * `prop` values. Each call returns a fresh snapshot built against
-   * the current doc state (or this handle's fixed heads). Empty on
-   * the root.
-   *
-   * The internal symbolic path is immutable; the returned segments
-   * are a read-time projection so observers see the resolved index a
-   * pattern matches against right now.
+   * Snapshot of this handle's segments with their currently-resolved
+   * `prop` values (key string / literal index / matched index). Fresh
+   * per call; empty on the root.
    */
   get path(): ResolvedPathSegment[] {
     if (this.#path.length === 0) return []
-    const doc = this.doc()
-    return snapshotSegments(this.#path, doc)
+    // Routes through the registry's resolver so pattern caching is shared
+    // with reads/writes. Unresolved trailing segments carry `prop: undefined`.
+    const resolved = this.#document.registry.resolvePropPath(
+      this.#path,
+      this.doc(),
+      this.#fixedHeads
+    )
+    return zipResolvedSegments(this.#path, resolved)
   }
 
   /** The cursor range for this handle, if any. */
@@ -708,13 +669,9 @@ export class DocHandle<T> {
   contains(other: DocHandle<any>): boolean {
     if (other === this) return false
     if (this.documentId !== other.documentId) return false
-    const thisHeads = this.#fixedHeads
-    const otherHeads = (other as DocHandle<any>).#fixedHeads
-    if ((thisHeads?.toString() ?? "") !== (otherHeads?.toString() ?? "")) {
-      return false
-    }
+    if (!sameFixedHeads(this.#fixedHeads, other.#fixedHeads)) return false
     const thisPath = this.#path
-    const otherPath = other._pathSegments
+    const otherPath = other.#path
     if (thisPath.length >= otherPath.length) return false
     for (let i = 0; i < thisPath.length; i++) {
       if (!segmentEquals(thisPath[i], otherPath[i])) return false
@@ -735,7 +692,7 @@ export class DocHandle<T> {
     if (this.documentId !== other.documentId) return false
     if (!this.#range || !other.range) return false
     const thisPath = this.#path
-    const otherPath = other._pathSegments
+    const otherPath = other.#path
     if (thisPath.length !== otherPath.length) return false
     for (let i = 0; i < thisPath.length; i++) {
       if (!segmentEquals(thisPath[i], otherPath[i])) return false
@@ -766,10 +723,9 @@ export class DocHandle<T> {
   // ---------------- Internal sub-handle helpers ----------------
 
   /**
-   * Create or retrieve a cached sub-/view-handle at the given path
-   * inputs, relative to this handle. Identity is canonicalised through
-   * the registry trie (each `(path, range, heads)` returns the same
-   * DocHandle instance).
+   * Get-or-create a sub-/view-handle at `segments` relative to this handle.
+   * Identity is canonicalised by the registry trie - each `(path, range, heads)`
+   * triple returns the same DocHandle instance.
    */
   #createSubHandle(
     segments: readonly AnyPathInput[],
@@ -777,19 +733,16 @@ export class DocHandle<T> {
   ): DocHandle<any> {
     const heads = options.heads ?? this.#fixedHeads
 
-    // Identity at "no segments added, no range, no heads override" →
-    // return this handle itself. Without the heads check, `root.view(h)`
-    // would hit this short-circuit and return the unpinned root.
+    // `root.view(h)` must not short-circuit to the unpinned root.
     if (segments.length === 0 && !this.#range && !heads) {
       return this
     }
 
-    // Compose path inputs relative to the root's path (which is empty).
+    // `PathSegment`s are valid `AnyPathInput`s; pass through unchanged.
     const combined: AnyPathInput[] = this.#range
-      ? [...inputsFromPath(this.#path), this.#range, ...segments]
-      : [...inputsFromPath(this.#path), ...segments]
+      ? [...this.#path, this.#range, ...segments]
+      : [...this.#path, ...segments]
 
-    // Normalize combined inputs into symbolic path + optional range.
     const { path, range } = this.#normalizePath(this.#document.doc, combined)
 
     const registry = this.#document.registry
@@ -797,7 +750,6 @@ export class DocHandle<T> {
     const cached = registry.cachedHandle(node, range, heads)
     if (cached) return cached
 
-    // Constructor adds the new handle to the trie itself.
     return new DocHandle<unknown>(this.#document, {
       isNew: false,
       pathSegments: path,
@@ -807,9 +759,8 @@ export class DocHandle<T> {
   }
 
   /**
-   * Normalize a mix of path inputs into `(PathSegment[], CursorRange?)`.
-   * Patterns and keys/indices become symbolic segments; cursor markers
-   * are stabilised into a `CursorRange` against the current document.
+   * Normalize mixed path inputs into `(PathSegment[], CursorRange?)`.
+   * Cursor markers stabilise into a `CursorRange` against `rootDoc`.
    */
   #normalizePath(
     rootDoc: A.Doc<any> | undefined,
@@ -898,11 +849,7 @@ export class DocHandle<T> {
     return { path, range }
   }
 
-  /**
-   * Resolve the symbolic path to a concrete prop path against the
-   * current view's doc. Uses the registry's cached pattern resolution.
-   * O(depth) when warm; O(depth + |array|) per cold pattern segment.
-   */
+  /** Resolve the symbolic path via the registry's cache. O(depth) warm. */
   #getPropPath(): Prop[] | undefined {
     if (this.#path.length === 0) return []
     return this.#document.registry.resolvePropPath(
@@ -943,19 +890,15 @@ export class DocHandle<T> {
     )
   }
 
-  // ---------------- Event subscription ----------------
-  //
-  // DocHandle does not extend EventEmitter; listeners live in the
-  // registry, keyed by handle. The Map there holds handles strongly,
-  // so any handle with at least one listener is naturally retained
-  // (no separate "retainer" set). Dispatch fans events out via the
-  // registry's internal listener storage.
+  // Event subscription. DocHandle doesn't extend EventEmitter; listeners
+  // live in the registry, keyed by handle. The Map there holds handles
+  // strongly, so any handle with a listener is naturally retained.
 
   on<E extends keyof DocHandleEvents<T>>(
     event: E,
     fn: DocHandleEvents<T>[E]
   ): this {
-    this.#document.registry.addListener(this, event as string, fn as Function)
+    this.#document.registry.addListener(this, event as string, fn as any)
     return this
   }
 
@@ -985,7 +928,7 @@ export class DocHandle<T> {
   ): this {
     const reg = this.#document.registry
     if (fn === undefined) reg.removeAllListenersForEvent(this, event as string)
-    else reg.removeListener(this, event as string, fn as Function)
+    else reg.removeListener(this, event as string, fn as any)
     return this
   }
 
@@ -1025,34 +968,24 @@ export class DocHandle<T> {
 
   /**
    * Emit an event on this handle. Routed through the registry's
-   * listener storage. The `delete` event marks the document deleted as
-   * a side-effect, so observers on *this* emit see `isDeleted() === true`.
+   * listener storage. Fires *only* this handle's listeners; use
+   * `delete()` to fan out the document-level lifecycle events.
    */
   emit<E extends keyof DocHandleEvents<T>>(
     event: E,
     payload: Parameters<DocHandleEvents<T>[E] & ((p: any) => any)>[0]
   ): boolean {
-    if ((event as string) === "delete") this.#document.deleted = true
     return this.#document.registry.emit(this, event as string, payload)
   }
 
   // ---------------- Internal accessors (registry / tests) ----------------
-
-  /** @internal Symbolic path of this handle. Empty on root handles. */
-  get _pathSegments(): readonly PathSegment[] {
-    return this.#path
-  }
 
   /** @internal Number of handles with at least one listener attached. */
   get _handleRetainerSize(): number {
     return this.#document.registry.retainedCount
   }
 
-  /**
-   * @internal Used by `DocSynchronizer` to inject inbound ephemeral
-   * messages. Fans out to every retained handle into this document via
-   * the registry.
-   */
+  /** @internal Used by `DocSynchronizer` to deliver inbound ephemerals. */
   _receiveInboundEphemeral(senderId: PeerId, message: unknown): void {
     this.#document.registry.dispatchEphemeral(senderId, message)
   }
@@ -1062,10 +995,7 @@ export class DocHandle<T> {
 // Module-private helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Strip any non-symbolic fields (e.g. legacy `prop`) from an incoming
- * `PathSegment`, returning a pure symbolic segment for internal storage.
- */
+/** Strip non-symbolic fields (e.g. legacy `prop`) from an incoming segment. */
 function symbolicOnly(seg: PathSegment): PathSegment {
   switch (seg[KIND]) {
     case "key":
@@ -1078,49 +1008,55 @@ function symbolicOnly(seg: PathSegment): PathSegment {
 }
 
 /**
- * Build the `ResolvedPathSegment[]` snapshot for `DocHandle.path`.
- * Walks the symbolic path against `doc` resolving each pattern segment
- * to its current matched index (or `undefined` if no match / parent
- * doesn't resolve).
+ * Build the `ResolvedPathSegment[]` snapshot for `DocHandle.path` by zipping
+ * symbolic segments with resolved props. Trailing segments after a failed
+ * pattern carry `prop: undefined`.
  */
-function snapshotSegments(
+function zipResolvedSegments(
   symbolic: readonly PathSegment[],
-  doc: A.Doc<any> | undefined
+  resolved: Prop[] | undefined
 ): ResolvedPathSegment[] {
   const out: ResolvedPathSegment[] = []
-  let cursor: unknown = doc
-  for (const seg of symbolic) {
+  const n = resolved?.length ?? 0
+  for (let i = 0; i < symbolic.length; i++) {
+    const seg = symbolic[i]
+    const prop = i < n ? (resolved as Prop[])[i] : undefined
     switch (seg[KIND]) {
       case "key":
         out.push({ [KIND]: "key", key: seg.key, prop: seg.key })
-        cursor = step(cursor, seg.key)
         break
       case "index":
         out.push({ [KIND]: "index", index: seg.index, prop: seg.index })
-        cursor = step(cursor, seg.index)
         break
-      case "match": {
-        const prop = resolveSegmentProp(cursor, seg) as number | undefined
-        out.push({ [KIND]: "match", match: seg.match, prop })
-        cursor = prop !== undefined ? step(cursor, prop) : undefined
+      case "match":
+        out.push({
+          [KIND]: "match",
+          match: seg.match,
+          prop: prop as number | undefined,
+        })
         break
-      }
     }
   }
   return out
 }
 
-function step(cursor: unknown, prop: string | number): unknown {
-  if (cursor === null || cursor === undefined) return undefined
-  return (cursor as any)[prop as any]
+/** True iff two `#fixedHeads` arrays describe the same view. */
+function sameFixedHeads(
+  a: UrlHeads | undefined,
+  b: UrlHeads | undefined
+): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
 }
 
-function inputsFromPath(path: readonly PathSegment[]): AnyPathInput[] {
-  return path.map(s => s as AnyPathInput)
-}
-
-/** True iff one path is a prefix of the other (or they're equal). */
-function pathsOverlap(a: readonly Prop[], b: readonly Prop[]): boolean {
+/** True iff one path prefixes the other (or they're equal). */
+function isPathPrefixCompatible(
+  a: readonly Prop[],
+  b: readonly Prop[]
+): boolean {
   const len = Math.min(a.length, b.length)
   for (let i = 0; i < len; i++) {
     if (a[i] !== b[i]) return false
@@ -1128,10 +1064,7 @@ function pathsOverlap(a: readonly Prop[], b: readonly Prop[]): boolean {
   return true
 }
 
-/**
- * Structural equality for symbolic segments. Two segments are equal
- * when they have the same kind and same literal/pattern data.
- */
+/** Structural equality for symbolic segments. */
 function segmentEquals(a: PathSegment, b: PathSegment): boolean {
   if (a[KIND] !== b[KIND]) return false
   switch (a[KIND]) {
@@ -1177,14 +1110,10 @@ export type DocHandleOptions<T> =
       /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
       timeoutDelay?: number
 
-      /**
-       * @hidden — internal: pre-normalized symbolic path segments for
-       * sub-handles. Set by `#createSubHandle`; the constructor adopts
-       * them as-is.
-       */
+      /** @hidden Pre-normalized symbolic path; set by `#createSubHandle`. */
       pathSegments?: PathSegment[]
 
-      /** @hidden — internal: pre-normalized cursor range. */
+      /** @hidden Pre-normalized cursor range. */
       range?: CursorRange
     }
 

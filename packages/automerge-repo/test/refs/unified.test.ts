@@ -88,6 +88,28 @@ describe("unified DocHandle / Ref", () => {
       expect(v1).toBe(v2)
     })
 
+    it("view-pinned doc() returns a stable identity (memoized per underlying)", () => {
+      handle.change(d => (d.value = 1))
+      const heads = handle.heads()
+      handle.change(d => (d.value = 2))
+
+      const v = handle.view(heads)
+      const d1 = v.doc()
+      const d2 = v.doc()
+      // Same underlying doc, same fixed heads => same snapshot identity.
+      expect(d1).toBe(d2)
+    })
+
+    it("view([h2,h1]) and view([h1,h2]) return the same handle", () => {
+      handle.change(d => (d.value = 1))
+      const a = handle.heads()![0]
+      handle.change(d => (d.value = 2))
+      const b = handle.heads()![0]
+      const v1 = handle.view([a, b] as any)
+      const v2 = handle.view([b, a] as any)
+      expect(v1).toBe(v2)
+    })
+
     it("different heads on the same path produce different handles", () => {
       handle.change(d => {
         d.value = 1
@@ -151,6 +173,35 @@ describe("unified DocHandle / Ref", () => {
 
       expect(resolved.value()).toBe(1)
       expect(resolved.isReadOnly()).toBe(true)
+    })
+  })
+
+  describe("document lifecycle", () => {
+    it("delete() on a sub-handle deletes the whole document", () => {
+      handle.change(d => (d.a = { x: 1 }))
+      const sub = handle.ref("a")
+      expect(handle.isDeleted()).toBe(false)
+      expect(sub.isDeleted()).toBe(false)
+
+      const events: DocHandle<any>[] = []
+      handle.on("delete", ({ handle: h }) => events.push(h))
+      sub.on("delete", ({ handle: h }) => events.push(h))
+
+      sub.delete()
+
+      // Both observers fire on a single delete().
+      expect(events.length).toBe(2)
+      // The document's deleted flag is now set, so every handle on it
+      // reports `isDeleted()` true.
+      expect(handle.isDeleted()).toBe(true)
+      expect(sub.isDeleted()).toBe(true)
+    })
+
+    it("emit('delete') is local-only (does not flip the document flag)", () => {
+      // emit() is a low-level local-dispatch primitive. Only delete()
+      // performs the document-level lifecycle transition.
+      handle.emit("delete", { handle })
+      expect(handle.isDeleted()).toBe(false)
     })
   })
 

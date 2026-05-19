@@ -75,9 +75,19 @@ const matchCodec: SegmentCodec<"match"> = {
       )
     }
   },
-  // URL-encode the JSON to protect slashes and other special characters
-  // from being interpreted as path separators
-  serialize: seg => encodeURIComponent(JSON.stringify(seg.match)),
+  // Serialize with sorted keys so `{a:1,b:2}` and `{b:2,a:1}` produce
+  // identical URLs (they're semantically the same pattern). Also URL-
+  // encode the JSON to protect `/` and other path-significant chars.
+  serialize: seg =>
+    encodeURIComponent(
+      JSON.stringify(
+        Object.fromEntries(
+          Object.keys(seg.match)
+            .sort()
+            .map(k => [k, (seg.match as any)[k]])
+        )
+      )
+    ),
 }
 
 const cursorsCodec: SegmentCodec<"cursors"> = {

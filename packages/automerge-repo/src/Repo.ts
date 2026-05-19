@@ -554,7 +554,9 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const query = this.#queries[documentId]
     if (query?.handle) {
-      query.handle.emit("delete", { handle: query.handle })
+      // Fans out to all retained handles (root + subs) via the registry
+      // and flips the document's `deleted` flag.
+      query.handle.delete()
     }
     if (query) {
       query.fail(new Error(`Document ${documentId} was deleted`))

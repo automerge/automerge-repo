@@ -369,9 +369,11 @@ describe("Edge Cases", () => {
         match: { id: "test", count: 42, active: true },
       }
       const serialized = serializeSegment(segment)
-      // Match patterns are URL-encoded to protect slashes and special characters
+      // Keys are sorted at serialize time so semantically equivalent
+      // patterns (regardless of property insertion order) produce
+      // identical URLs.
       expect(serialized).toBe(
-        encodeURIComponent('{"id":"test","count":42,"active":true}')
+        encodeURIComponent('{"active":true,"count":42,"id":"test"}')
       )
 
       const parsed = parseSegment(serialized)
@@ -381,6 +383,18 @@ describe("Edge Cases", () => {
         count: 42,
         active: true,
       })
+    })
+
+    it("serializes equivalently regardless of property insertion order", () => {
+      const a = serializeSegment({
+        [KIND]: "match" as const,
+        match: { id: "x", count: 1 },
+      })
+      const b = serializeSegment({
+        [KIND]: "match" as const,
+        match: { count: 1, id: "x" },
+      })
+      expect(a).toBe(b)
     })
   })
 

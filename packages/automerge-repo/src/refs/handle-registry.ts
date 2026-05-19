@@ -1,6 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
-import { encodeHeads } from "../AutomergeUrl.js"
 import type { UrlHeads, PeerId } from "../types.js"
 import type { StorageId } from "../storage/types.js"
 import type { Document } from "../Document.js"
@@ -9,51 +8,39 @@ import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
 
+/** Event listener stored in the registry. Payload shape is event-specific. */
+type Listener = (payload: any) => void
+
 /**
- * Per-document trie that owns handle identity, pattern resolution
- * caching, dispatch, and listener retention.
+ * Per-document trie that owns handle identity, pattern resolution caching,
+ * dispatch, and listener retention.
  *
- * Every distinct symbolic path is exactly one trie node. A node carries
- * a `handles` Map<variantKey, WeakRef<DocHandle>> covering all the
- * variants at that path (live, view-pinned, range, range+pinned).
- * Pattern segments live as a flat list of `PatternEdge`s on the parent
- * node; each carries a cached `(resolvedIndex, resolvedAtHeads)` pair -
- * the only place pattern resolutions are cached.
+ * Each symbolic path is exactly one trie node, carrying a
+ * `Map<variantKey, WeakRef<DocHandle>>` for all variants at that path
+ * (live / view-pinned / range / range+pinned). Pattern segments live as
+ * `PatternEdge`s on the parent node with a cached `(resolvedIndex,
+ * resolvedAtHeads)` pair - the sole pattern-resolution cache.
  *
- * Reads (`value`, `change`, `remove`) walk the symbolic path against the
- * trie. Pattern segments hit `edge.resolvedIndex` (warm) or run one
- * bulk-resolve over the parent array (cold). Reads are O(depth) when
- * warm.
- *
- * Change dispatch walks the trie once per patch, collecting affected
- * handles. Pattern edges crossed are bulk-resolved (single iteration of
- * the parent array, working set shrinks on match, early-exits when
- * empty) so N refs sharing a pattern at the same path cost no more than
- * one ref.
+ * Reads walk the trie: O(depth) warm, O(depth + |array|) per cold pattern.
+ * Dispatch walks the trie once per patch and bulk-resolves crossed pattern
+ * edges - N refs sharing a pattern at the same path cost the same as one.
  */
 export class HandleRegistry {
-  /** Trie root - represents the document at path `[]`. */
+  /** Trie root - the document at path `[]`. */
   readonly root: TrieNode = emptyNode()
 
   /**
-   * Per-handle listener storage: `handle → event name → callbacks`.
-   * The outer Map holds handles strongly, so any handle with at least
-   * one listener is retained for as long as the listener exists -
-   * structural retention, no separate Set.
+   * `handle → event → callbacks`. Strong on handles, so any handle with a
+   * listener is retained structurally - no separate retainer set.
    */
-  readonly #listeners: Map<
-    DocHandle<any>,
-    Map<string, Set<Function>>
-  > = new Map()
+  readonly #listeners: Map<DocHandle<any>, Map<string, Set<Listener>>> =
+    new Map()
 
   constructor(readonly document: Document<any>) {}
 
   // ---------------- Identity (trie-as-handle-cache) ----------------
 
-  /**
-   * Get-or-create the trie node for `symbolicPath`. Creates intermediate
-   * nodes and pattern edges as needed. O(depth).
-   */
+  /** Get-or-create the trie node for `symbolicPath`. O(depth). */
   getOrCreateNode(symbolicPath: readonly PathSegment[]): TrieNode {
     let node = this.root
     for (const seg of symbolicPath) {
@@ -62,11 +49,7 @@ export class HandleRegistry {
     return node
   }
 
-  /**
-   * Look up the canonical handle at `(node, range, fixedHeads)`. Returns
-   * `undefined` if no handle is currently cached or the cached one has
-   * been GC'd.
-   */
+  /** Canonical handle at `(node, range, fixedHeads)`, or `undefined` if GC'd. */
   cachedHandle(
     node: TrieNode,
     range: CursorRange | undefined,
@@ -88,16 +71,12 @@ export class HandleRegistry {
   // ---------------- Resolution (trie-as-pattern-cache) ----------------
 
   /**
-   * Walk `symbolicPath` against `doc`, resolving each segment to a
-   * concrete prop. Pattern segments consult / refresh the trie's
-   * pattern-edge cache: if `fixedHeads` is set we never touch the
-   * cache (view-pinned reads are at frozen heads, not the live state),
-   * otherwise we use cached resolution if `resolvedAtHeads` matches the
-   * current doc heads and refresh otherwise.
+   * Walk `symbolicPath` against `doc` to a concrete prop path. Pattern
+   * segments use the trie's cached resolution when the doc's heads match
+   * `resolvedAtHeads`; view-pinned reads bypass the cache. Returns
+   * `undefined` if any segment fails to resolve.
    *
-   * Returns `undefined` if any segment fails to resolve.
-   *
-   * O(depth) when the cache is warm. O(depth + |array|) per cold pattern.
+   * O(depth) warm; O(depth + |array|) per cold pattern.
    */
   resolvePropPath(
     symbolicPath: readonly PathSegment[],
@@ -105,10 +84,11 @@ export class HandleRegistry {
     fixedHeads: UrlHeads | undefined
   ): Prop[] | undefined {
     if (symbolicPath.length === 0) return []
+    // Raw hex key - no bs58 encoding on hot reads.
     const docHeadsKey =
       fixedHeads && fixedHeads.length > 0
         ? undefined
-        : headsKey(encodeHeads(A.getHeads(doc)))
+        : headsKey(A.getHeads(doc))
 
     let node: TrieNode | undefined = this.root
     let cursor: unknown = doc
@@ -157,13 +137,10 @@ export class HandleRegistry {
     return out
   }
 
-  // ---------------- Listener storage ----------------
-  //
-  // `DocHandle.on/off/once/...` delegate to these methods. Generic over
-  // the handle's value type purely so callers (with `this: DocHandle<T>`)
-  // can pass `this` without a cast; the storage erases to `any`.
+  // Listener storage. `DocHandle.on/off/once/...` delegate here.
+  // Generic over `T` so callers can pass `this` without casting; storage erases to any.
 
-  addListener<T>(handle: DocHandle<T>, event: string, fn: Function): void {
+  addListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
     let m = this.#listeners.get(handle)
     if (!m) {
       m = new Map()
@@ -177,7 +154,7 @@ export class HandleRegistry {
     s.add(fn)
   }
 
-  removeListener<T>(handle: DocHandle<T>, event: string, fn: Function): void {
+  removeListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
     const m = this.#listeners.get(handle)
     if (!m) return
     const s = m.get(event)
@@ -202,7 +179,7 @@ export class HandleRegistry {
     return this.#listeners.has(handle)
   }
 
-  listenersFor<T>(handle: DocHandle<T>, event: string): Function[] {
+  listenersFor<T>(handle: DocHandle<T>, event: string): Listener[] {
     const s = this.#listeners.get(handle)?.get(event)
     return s ? Array.from(s) : []
   }
@@ -222,9 +199,9 @@ export class HandleRegistry {
   }
 
   /**
-   * Deliver `event` on `handle` to its listeners. Snapshot the listener
-   * set before iterating so once-handlers (which remove themselves)
-   * don't perturb the loop. Swallows per-listener exceptions.
+   * Deliver `event` on `handle` to its listeners. Snapshots the set so
+   * once-handlers can self-remove without perturbing the loop. Swallows
+   * per-listener exceptions.
    */
   emit<T>(handle: DocHandle<T>, event: string, payload: unknown): boolean {
     const s = this.#listeners.get(handle)?.get(event)
@@ -242,10 +219,8 @@ export class HandleRegistry {
   // ---------------- Dispatch ----------------
 
   /**
-   * Fan out a `change` to every retained handle. Walks the trie once
-   * per patch, gathering affected handles and bulk-resolving any
-   * pattern edges crossed. Frozen (fixed-heads) handles are skipped:
-   * their content can't change so they have nothing to fire.
+   * Fan `change` out to writeable handles. One trie walk per patch;
+   * crossed pattern edges are bulk-resolved. Fixed-heads handles skipped.
    */
   dispatchChange(
     doc: A.Doc<any>,
@@ -254,7 +229,7 @@ export class HandleRegistry {
   ): void {
     const perHandle = new Map<DocHandle<any>, A.Patch[]>()
     const resolvedNodes = new Set<TrieNode>()
-    const docHeadsKey = headsKey(encodeHeads(A.getHeads(doc)))
+    const docHeadsKey = headsKey(A.getHeads(doc))
 
     for (const patch of patches) {
       collectForPatch(
@@ -282,6 +257,7 @@ export class HandleRegistry {
     }
   }
 
+  /** Fan `heads-changed` out to writeable handles (skips fixed-heads). */
   dispatchHeadsChanged(doc: A.Doc<any>): void {
     for (const handle of this.#listeners.keys()) {
       if (handle.isReadOnly()) continue
@@ -289,12 +265,14 @@ export class HandleRegistry {
     }
   }
 
+  /** Fan out a `delete` to every retained handle (read-only included). */
   dispatchDelete(): void {
     for (const handle of this.#listeners.keys()) {
       this.emit(handle, "delete", { handle })
     }
   }
 
+  /** Fan out a `remote-heads` notification (document-level event). */
   dispatchRemoteHeads(
     storageId: StorageId,
     heads: UrlHeads,
@@ -305,6 +283,7 @@ export class HandleRegistry {
     }
   }
 
+  /** Fan out an inbound ephemeral message to every retained handle. */
   dispatchEphemeral(senderId: PeerId, message: unknown): void {
     for (const handle of this.#listeners.keys()) {
       this.emit(handle, "ephemeral-message", {
@@ -315,6 +294,7 @@ export class HandleRegistry {
     }
   }
 
+  /** Fan out an outbound ephemeral broadcast (typically picked up by network adapters). */
   dispatchEphemeralOutbound(data: Uint8Array): void {
     for (const handle of this.#listeners.keys()) {
       this.emit(handle, "ephemeral-message-outbound", { handle, data })
@@ -327,15 +307,11 @@ export class HandleRegistry {
 // ---------------------------------------------------------------------------
 
 export type TrieNode = {
-  /** Literal-segment edges, keyed by the literal prop (string or number). */
+  /** Literal-segment edges keyed by the literal prop. */
   children: Map<Prop, TrieNode>
-  /** Pattern-segment edges. Linear search by structural pattern equality. */
+  /** Pattern-segment edges (linear search, structural equality). */
   patternEdges: PatternEdge[]
-  /**
-   * All distinct handles at this symbolic path, keyed by their variant
-   * discriminator (range + fixed heads). `""` is the canonical "live,
-   * no range" handle.
-   */
+  /** Handles at this path keyed by variant (range + fixed heads); `""` is the live, no-range handle. */
   handles: Map<string, WeakRef<DocHandle<any>>>
 }
 
@@ -344,7 +320,7 @@ export type PatternEdge = {
   node: TrieNode
   /** Cached matched index, valid as of `resolvedAtHeads`. */
   resolvedIndex: number | undefined
-  /** Doc heads (encoded) the cached `resolvedIndex` was computed against. */
+  /** Doc heads the cached `resolvedIndex` was computed against. */
   resolvedAtHeads: string | undefined
 }
 
@@ -427,13 +403,9 @@ function readStep(cursor: unknown, step: Prop): unknown {
 }
 
 /**
- * Bulk-resolve all pattern edges at a single array node in one pass.
- * Iterates the array carrying a working set of unresolved patterns;
- * matched patterns drop out; early-exits when the set is empty.
- *
- * Cost: O(|array| × |unresolvedPatterns|) with early exit. Two refs
- * sharing a pattern at the same path share an edge and so cost only
- * one comparison per array item.
+ * Resolve all pattern edges at one array node in a single pass. Carries
+ * a shrinking working set of unresolved patterns; early-exits on empty.
+ * Refs sharing a pattern share an edge so they cost one comparison total.
  */
 function bulkResolvePatternEdges(
   node: TrieNode,
@@ -468,10 +440,7 @@ function bulkResolvePatternEdges(
   }
 }
 
-/**
- * Walk the trie along one patch's path, collecting affected handles.
- * Refreshes pattern edges (bulk-resolve) at each array node visited.
- */
+/** Walk the trie along one patch path, collecting affected handles. */
 function collectForPatch(
   node: TrieNode,
   patchPath: readonly Prop[],
@@ -486,9 +455,7 @@ function collectForPatch(
   bulkResolvePatternEdges(node, cursor, resolvedNodes, docHeadsKey)
 
   if (i >= patchPath.length) {
-    // Patch terminates at or above this node. Everything below is
-    // affected; descendant pattern indices stay valid because their
-    // arrays weren't touched.
+    // Patch ends at/above this node - everything below is affected.
     collectDescendants(node, patch, out)
     return
   }
@@ -543,10 +510,7 @@ function collectDescendants(
   }
 }
 
-/**
- * Add `patch` to every writeable (non-fixed-heads) handle at `node`.
- * Read-only variants are skipped. Dead WeakRefs are pruned lazily.
- */
+/** Add `patch` to every writeable handle at `node`; prunes dead WeakRefs. */
 function addPatchForNode(
   node: TrieNode,
   patch: A.Patch,
@@ -566,9 +530,13 @@ function addPatchForNode(
   }
 }
 
-/** Canonical key for a `UrlHeads` array - comma-joined. */
-export function headsKey(heads: UrlHeads): string {
-  return heads.join(",")
+/**
+ * Canonical key for a heads array. Sorted so reordered inputs collide.
+ * Works on both `UrlHeads` (bs58check) and raw `A.Heads` (hex) - they're
+ * never compared against each other so they can't collide.
+ */
+function headsKey(heads: readonly string[]): string {
+  return [...heads].sort().join(",")
 }
 
 /**

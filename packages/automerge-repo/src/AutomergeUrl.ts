@@ -127,7 +127,9 @@ export const stringifyAutomergeUrl = (
         throw new Error(`Invalid head: ${head}`)
       }
     })
-    url += "#" + heads.join("|")
+    // Sort so two heads arrays with the same content in different
+    // orders produce identical URLs.
+    url += "#" + [...heads].sort().join("|")
   }
 
   return url as AutomergeUrl
