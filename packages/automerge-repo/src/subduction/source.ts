@@ -694,7 +694,7 @@ export class SubductionSource implements DocumentSource {
             entry.syncInFlight = true
             void this.#doSync(entry)
           } else if (
-            entry.handle.heads().length === 0 &&
+            Automerge.getHeads(entry.handle.fullDoc()).length === 0 &&
             !this.#anyConnectionManagerConnecting()
           ) {
             // All connections settled and sync failed — give up.
@@ -820,7 +820,9 @@ export class SubductionSource implements DocumentSource {
     this.#log(
       `loadBlobsIntoHandle ${sid}: ${
         allBlobs?.length ?? 0
-      } blob(s), ${totalBytes} bytes, heads=${entry.handle.heads().length}`
+      } blob(s), ${totalBytes} bytes, heads=${
+        Automerge.getHeads(entry.handle.fullDoc()).length
+      }`
     )
     if (!allBlobs || allBlobs.length === 0) return false
     allBlobs.sort((a, b) => b.byteLength - a.byteLength)
@@ -861,7 +863,7 @@ export class SubductionSource implements DocumentSource {
 
       entry.syncState = "running"
 
-      if (entry.handle.heads().length === 0) {
+      if (Automerge.getHeads(entry.handle.fullDoc()).length === 0) {
         if (!this.#anyConnectionManagerConnecting()) {
           // No data after a successful sync and no pending connections —
           // the document is genuinely unavailable. If data arrives later
@@ -927,7 +929,7 @@ export class SubductionSource implements DocumentSource {
     })
 
     try {
-      const doc = entry.handle.doc()
+      const doc = entry.handle.fullDoc()
       if (!doc) return
 
       const currentHeads = Automerge.getHeads(doc)
@@ -1295,16 +1297,15 @@ export class SubductionSource implements DocumentSource {
       for (const hex of staleFragments)
         entry.persistedFragmentHashes.delete(hex)
       this.#log(
-        `compacted ${sid.toString().slice(0, 8)}: -${staleCommits.length} commits, -${staleFragments.length} fragments`
+        `compacted ${sid.toString().slice(0, 8)}: -${
+          staleCommits.length
+        } commits, -${staleFragments.length} fragments`
       )
     } catch (e) {
       // A failed delete just means the data sticks around until the
       // next compaction attempt; nothing breaks on the read side
       // because automerge will simply re-apply the redundant bytes.
-      this.#log(
-        `compaction failed for ${sid.toString().slice(0, 8)}: %O`,
-        e
-      )
+      this.#log(`compaction failed for ${sid.toString().slice(0, 8)}: %O`, e)
     }
   }
 
@@ -1467,5 +1468,4 @@ export class SubductionSource implements DocumentSource {
       this.#log("ephemeral publish failed: %O", e)
     }
   }
-
 }
