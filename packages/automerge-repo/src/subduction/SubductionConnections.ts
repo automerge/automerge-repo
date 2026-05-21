@@ -52,7 +52,7 @@ export class SubductionConnections implements ConnectionManager {
         const transport = await WebSocketTransport.connect(url)
 
         if (this.#isShutdown) {
-          transport.disconnect()
+          void transport.disconnect()
           break
         }
 

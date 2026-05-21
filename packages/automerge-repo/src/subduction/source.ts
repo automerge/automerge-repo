@@ -321,7 +321,7 @@ export class SubductionSource implements DocumentSource {
     // ── Connection managers ─────────────────────────────────────────
     const wsConnections = new SubductionConnections(this.#subduction)
     for (const url of websocketEndpoints) {
-      wsConnections.manageConnection(url)
+      void wsConnections.manageConnection(url)
     }
     this.#connectionManagers.push(wsConnections)
 
@@ -471,7 +471,7 @@ export class SubductionSource implements DocumentSource {
     this.#recompute()
   }
 
-  detach(documentId: DocumentId): void {}
+  detach(_documentId: DocumentId): void {}
 
   shareConfigChanged(): void {
     for (const entry of this.#entries.values()) {

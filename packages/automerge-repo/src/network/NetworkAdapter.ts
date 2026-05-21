@@ -34,7 +34,7 @@ export abstract class NetworkAdapter
     // Defer to a microtask so subclass field initializers (which run after
     // super() returns) have completed before we call the overridden whenReady().
     queueMicrotask(() => {
-      this.whenReady().then(() => {
+      void this.whenReady().then(() => {
         this.#adapterState.set("ready")
       })
     })

@@ -53,9 +53,9 @@ export class AdapterConnections implements ConnectionManager {
       // Increment synchronously so isConnecting() returns true
       // before the async handshake begins.
       this.#pendingTransports++
-      this.#startTransport(adapter, serviceName, peerId, role)
+      void this.#startTransport(adapter, serviceName, peerId, role)
     })
-    this.#watchAdapter(adapter)
+    void this.#watchAdapter(adapter)
     adapter.connect(this.#localPeerId)
   }
 
