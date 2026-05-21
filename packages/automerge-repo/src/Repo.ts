@@ -46,6 +46,7 @@ import { SubductionStorageBridge } from "./subduction/storage.js"
 import {
   SubductionSource,
   type SubductionTimeouts,
+  type BlobInterceptor,
 } from "./subduction/source.js"
 import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
@@ -122,6 +123,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionWebsocketEndpoints,
     subductionAdapters,
     subductionTimeouts,
+    subductionBlobInterceptor,
   }: RepoConfig = {}) {
     super()
     this.#peerId = peerId
@@ -190,6 +192,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       adapters: subductionAdapters ?? [],
       policy: subductionPolicy,
       timeouts: subductionTimeouts,
+      blobInterceptor: subductionBlobInterceptor,
       onRemoteHeadsChanged: enableRemoteHeadsGossiping
         ? (documentId, storageId, heads) => {
             this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
@@ -926,6 +929,9 @@ export interface RepoConfig {
    * are optional; sensible defaults apply.
    */
   subductionTimeouts?: SubductionTimeouts
+
+  /** Optional interceptor for transforming incoming and outgoing blobs (e.g., for E2EE). */
+  subductionBlobInterceptor?: BlobInterceptor
 }
 
 /** A function that determines whether we should share a document with a peer
