@@ -182,6 +182,19 @@ export interface SubductionTimeouts {
   healMaxAttempts?: number
 }
 
+/** Intercepts and transforms incoming and outgoing blobs (e.g., for E2EE). */
+export interface BlobInterceptor {
+  transformOutgoing(
+    documentId: DocumentId,
+    blob: Uint8Array
+  ): Promise<Uint8Array>
+  /** Return null to skip the blob. */
+  transformIncoming(
+    documentId: DocumentId,
+    blob: Uint8Array
+  ): Promise<Uint8Array | null>
+}
+
 export interface SubductionSourceOptions {
   peerId: PeerId
   storage: SubductionStorageBridge
@@ -205,6 +218,8 @@ export interface SubductionSourceOptions {
 
   /** Tunable timeouts for sync and heal-retry. See {@link SubductionTimeouts}. */
   timeouts?: SubductionTimeouts
+
+  blobInterceptor?: BlobInterceptor
 }
 
 export class SubductionSource implements DocumentSource {
@@ -217,6 +232,7 @@ export class SubductionSource implements DocumentSource {
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
   #syncTimeout: bigint | null
+  #blobInterceptor?: BlobInterceptor
 
   readonly priority: SourcePriority
 
@@ -232,7 +248,9 @@ export class SubductionSource implements DocumentSource {
     priority = 2,
     policy,
     timeouts,
+    blobInterceptor,
   }: SubductionSourceOptions) {
+    this.#blobInterceptor = blobInterceptor
     this.priority = priority
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     // Validate + coerce once at construction so the wasm boundary
@@ -396,6 +414,21 @@ export class SubductionSource implements DocumentSource {
     if (entry.recentlySavedHashes.has(commitId.toHexString())) return
 
     this.#log(`handleDataFound ${id}`)
+
+    if (this.#blobInterceptor) {
+      void this.#blobInterceptor
+        .transformIncoming(entry.query.documentId, blob)
+        .then(result => {
+          if (!result) return
+          entry.handle.update(d => Automerge.loadIncremental(d, result))
+          entry.query.sourcePending("subduction")
+        })
+        .catch(e => {
+          this.#log("handleDataFound interceptor error: %O", e)
+        })
+      return
+    }
+
     entry.handle.update(d => Automerge.loadIncremental(d, blob))
 
     // If the query was previously marked unavailable (e.g. sync completed
@@ -651,9 +684,26 @@ export class SubductionSource implements DocumentSource {
     )
     if (!allBlobs || allBlobs.length === 0) return false
     allBlobs.sort((a, b) => b.byteLength - a.byteLength)
-    entry.handle.update(d =>
-      Automerge.loadIncremental(d, mergeArrays(allBlobs))
-    )
+
+    if (this.#blobInterceptor) {
+      const transformed: Uint8Array[] = []
+      for (const blob of allBlobs) {
+        const result = await this.#blobInterceptor.transformIncoming(
+          entry.query.documentId,
+          blob
+        )
+        if (result) transformed.push(result)
+      }
+      if (transformed.length > 0) {
+        entry.handle.update(d =>
+          Automerge.loadIncremental(d, mergeArrays(transformed))
+        )
+      }
+    } else {
+      entry.handle.update(d =>
+        Automerge.loadIncremental(d, mergeArrays(allBlobs))
+      )
+    }
 
     return true
   }
@@ -870,11 +920,18 @@ export class SubductionSource implements DocumentSource {
     const commitInputs: CommitInput[] = []
     const prepErrors: unknown[] = []
 
+    const documentId = entry.query.documentId
     for (const change of changes) {
       if (entry.recentlySavedHashes.has(change.hash)) continue
 
       try {
-        const commitBytes = meta.getChangeByHash(change.hash)
+        let commitBytes = meta.getChangeByHash(change.hash)
+        if (this.#blobInterceptor) {
+          commitBytes = await this.#blobInterceptor.transformOutgoing(
+            documentId,
+            commitBytes
+          )
+        }
         const head = CommitId.fromHexString(change.hash)
         const looseCommit = new LooseCommit(
           entry.sedimentreeId,
@@ -1139,7 +1196,14 @@ export class SubductionSource implements DocumentSource {
             .members()
             .map((commitId: CommitId): string => commitId.toHexString())
 
-          const fragmentBlob = Automerge.saveBundle(doc, members)
+          let fragmentBlob: Uint8Array = Automerge.saveBundle(doc, members)
+
+          if (this.#blobInterceptor) {
+            fragmentBlob = await this.#blobInterceptor.transformOutgoing(
+              entry.query.documentId,
+              fragmentBlob
+            )
+          }
 
           await subduction.addFragment(
             entry.sedimentreeId,
