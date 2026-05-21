@@ -271,7 +271,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     networkSubsystem.on("message", message => {
       if (message.type === "ephemeral" && this.#subductionSource) {
         const payload = new Uint8Array(encode(message))
-        this.#subductionSource.publishEphemeral(message.documentId, payload)
+        void this.#subductionSource.publishEphemeral(message.documentId, payload)
       }
     })
 
@@ -442,7 +442,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           sessionId: "subduction-bridge" as SessionId,
         }
         const payload = new Uint8Array(encode(fullMsg))
-        subductionSource.publishEphemeral(documentId, payload)
+        void subductionSource.publishEphemeral(documentId, payload)
       })
     }
 

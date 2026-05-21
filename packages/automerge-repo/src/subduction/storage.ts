@@ -13,7 +13,7 @@
  * ```
  */
 
-import type { StorageAdapterInterface } from "@automerge/automerge-repo"
+import type { StorageAdapterInterface } from "@automerge/automerge-repo/slim"
 // Type-only imports (don't trigger Wasm access)
 import type { SedimentreeStorage } from "@automerge/automerge-subduction/slim"
 import {

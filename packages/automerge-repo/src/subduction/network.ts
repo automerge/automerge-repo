@@ -202,4 +202,4 @@ export class NetworkAdapterTransport implements Transport {
  */
 export const SUBDUCTION_MESSAGE_TYPE = "subduction-connection"
 
-const log = debug("automerge-repo:subduction:network")
+const _log = debug("automerge-repo:subduction:network")
