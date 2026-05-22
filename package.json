@@ -83,7 +83,7 @@
   "pnpm": {
     "overrides": {
       "semver": "^7.5.2",
-      "@automerge/automerge": "3.2.6"
+      "@automerge/automerge": "3.3.0-fragments.1"
     }
   }
 }
