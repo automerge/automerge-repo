@@ -83,7 +83,8 @@
   "pnpm": {
     "overrides": {
       "semver": "^7.5.2",
-      "@automerge/automerge": "3.2.6"
+      "@automerge/automerge": "link:/Users/pvh/dev/automerge/javascript",
+      "@automerge/automerge-subduction": "link:/Users/pvh/dev/subduction/automerge_subduction_wasm"
     }
   }
 }
