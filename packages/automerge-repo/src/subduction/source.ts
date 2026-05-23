@@ -985,21 +985,61 @@ export class SubductionSource implements DocumentSource {
     // higher-level fragments. Automerge core owns the compaction
     // policy (which commits get absorbed into which fragments); we
     // just mirror that view into subduction. Once a fragment forms,
-    // its component commits stop appearing in `getCommits` and the
-    // fragment itself appears in `getFragments` — so the wire-level
+    // its component commits stop appearing at level 0 and the
+    // fragment itself appears at level ≥ 1 — so the wire-level
     // forward switches from "N LooseCommits" to "one Fragment bundle"
     // automatically.
-    const docCommits = Automerge.getCommits(doc)
-    const docFragments = Automerge.getFragments(doc)
+    //
+    // We deliberately avoid `Automerge.getCommits` / `getFragments`
+    // here: those eagerly bundle the bytes for EVERY commit and
+    // fragment in the doc, and bundling is O(N) per item — so calling
+    // them on every throttled save gives O(N × #items) work on each
+    // tick, of which we then throw 99% away by filtering against
+    // `knownHashes`. At ~12k changes that's ~30 s of wasted bundle
+    // work per tick, and the resulting allocation churn inside
+    // automerge_wasm reliably overflows its 4 GiB linear-memory heap
+    // (panics in `slab/writer.rs` / `change/collector.rs`) somewhere
+    // around 12k–15k changes.
+    //
+    // Instead, we read just the metadata (cheap: a few ms even at
+    // 12k changes), filter against `knownHashes` first, and bundle
+    // only the small handful of newly-formed commits/fragments per
+    // tick. See proposals/bundle-fragments-single-walk.md for the
+    // matching automerge-core fix.
+    const commitMetas = Automerge.getFragmentMetadata(doc, 0)
+    const fragmentMetas = Automerge.getFragmentMetadata(doc, { start: 1 })
 
-    const newCommits = docCommits.filter(c => !entry.knownHashes.has(c.head))
-    const newFragments = docFragments.filter(
-      f => !entry.knownHashes.has(f.head)
+    const newCommitMetas = commitMetas.filter(
+      m => !entry.knownHashes.has(m.head)
+    )
+    const newFragmentMetas = fragmentMetas.filter(
+      m => !entry.knownHashes.has(m.head)
     )
 
-    if (newCommits.length === 0 && newFragments.length === 0) {
+    if (newCommitMetas.length === 0 && newFragmentMetas.length === 0) {
       return { prepFailures: 0 }
     }
+
+    const newCommitBytes =
+      newCommitMetas.length === 0
+        ? []
+        : Automerge.bundleFragmentMetadata(doc, newCommitMetas)
+    const newFragmentBytes =
+      newFragmentMetas.length === 0
+        ? []
+        : Automerge.bundleFragmentMetadata(doc, newFragmentMetas)
+
+    const newCommits = newCommitMetas.map((m, i) => ({
+      head: m.head,
+      parents: m.boundary,
+      bytes: newCommitBytes[i],
+    }))
+    const newFragments = newFragmentMetas.map((m, i) => ({
+      head: m.head,
+      boundary: m.boundary,
+      checkpoints: m.checkpoints,
+      bytes: newFragmentBytes[i],
+    }))
 
     const acceptedHashes: string[] = []
     const commitInputs: CommitInput[] = []
@@ -1168,11 +1208,15 @@ export class SubductionSource implements DocumentSource {
     const doc = entry.handle.doc()
     if (!doc) return
 
+    // Metadata-only: we just need the hashes to compute the stale
+    // set, so avoid `getCommits` / `getFragments` which would
+    // re-bundle every item (O(N × #items) wasted work per compaction
+    // pass — same trap that bit `#saveNewCommits`).
     const liveCommits = new Set<string>(
-      Automerge.getCommits(doc).map(c => c.head)
+      Automerge.getFragmentMetadata(doc, 0).map(m => m.head)
     )
     const liveFragments = new Set<string>(
-      Automerge.getFragments(doc).map(f => f.head)
+      Automerge.getFragmentMetadata(doc, { start: 1 }).map(m => m.head)
     )
 
     const staleCommits: string[] = []
