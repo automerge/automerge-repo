@@ -531,6 +531,13 @@ export class SubductionSource implements DocumentSource {
       return
     }
 
+    // Inbound data may absorb older loose commits or lower-level
+    // fragments. Compaction otherwise only runs after a *local* save
+    // (via `#saveNewCommits`), so peer-pushed fragments that subsume
+    // our existing on-disk state would leave the now-defunct records
+    // on disk indefinitely.
+    this.#scheduleCompaction(entry)
+
     // If the query was previously marked unavailable (e.g. sync completed
     // before data arrived), re-trigger a recompute so the query detects the
     // newly-loaded heads and transitions to "ready". Fired once per flush.
@@ -600,6 +607,43 @@ export class SubductionSource implements DocumentSource {
         await subduction.subscribeEphemeral([Topic.fromBytes(sid.toBytes())])
       } catch (e) {
         this.#log("ephemeral subscribe failed: %O", e)
+      }
+    })()
+
+    // Seed `persistedCommitHashes` / `persistedFragmentHashes` from
+    // what's already on disk so the first compaction pass can clean
+    // up defunct records left over from a previous process. Without
+    // this, the sets would only ever reflect saves observed by this
+    // process; data hydrated from disk would be invisible to
+    // compaction even though it may be defunct relative to the
+    // current minimal sedimentree.
+    void (async () => {
+      try {
+        const entry = this.#entries.get(sidStr)
+        if (!entry) return
+        const [commitIds, fragmentIds] = await Promise.all([
+          this.#storage.listCommitIds(sid),
+          this.#storage.listFragmentIds(sid),
+        ])
+        for (const c of commitIds) {
+          entry.persistedCommitHashes.add(c.toHexString())
+        }
+        for (const f of fragmentIds) {
+          entry.persistedFragmentHashes.add(f.toHexString())
+        }
+        if (
+          entry.persistedCommitHashes.size > 0 ||
+          entry.persistedFragmentHashes.size > 0
+        ) {
+          // A compaction kick here is harmless if the handle isn't
+          // ready yet; `#compactAbsorbed` no-ops on an empty doc.
+          this.#scheduleCompaction(entry)
+        }
+      } catch (e) {
+        this.#log(
+          `failed to seed persistedHashes for ${sidStr.slice(0, 8)}: %O`,
+          e
+        )
       }
     })()
 
@@ -800,6 +844,12 @@ export class SubductionSource implements DocumentSource {
         Automerge.loadIncremental(d, mergeArrays(allBlobs))
       )
     }
+
+    // The bulk-loaded blobs may include fragments that absorb loose
+    // commits also persisted on disk, or earlier fragments superseded
+    // by later ones. Schedule a compaction pass so the storage view
+    // converges with the now-applied minimal sedimentree.
+    this.#scheduleCompaction(entry)
 
     return true
   }
