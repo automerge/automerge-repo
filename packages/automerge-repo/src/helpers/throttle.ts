@@ -129,7 +129,8 @@ export const asyncThrottle = <TArgs extends unknown[], TReturn>(
       clearTimeout(timeout)
     }
 
-    const wait = lastCall + delay - Date.now() //if negative, executes immediately
+    // If we get here early, make sure not to log warnings.
+    const wait = Math.max(0, lastCall + delay - Date.now())
 
     return new Promise<TReturn>((resolve, reject) => {
       timeout = setTimeout(async () => {
