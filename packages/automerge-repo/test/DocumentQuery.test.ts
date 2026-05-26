@@ -362,7 +362,7 @@ describe("DocumentQuery", () => {
 
       query.handle.update(() => v2)
       // Allow microtasks to flush.
-      await new Promise(r => setTimeout(r, 0))
+      await Promise.resolve()
       expect(states).toContain("ready")
     })
   })
