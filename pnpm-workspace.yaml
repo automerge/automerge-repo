@@ -2,3 +2,11 @@ packages:
   - packages/**
   - examples/**
   - "!packages/create-vite-app/template/**"
+onlyBuiltDependencies:
+  - "@swc/core"
+  - cbor-extract
+  - esbuild
+  - nx
+  - svelte-preprocess
+overrides:
+  semver: ^7.5.2
