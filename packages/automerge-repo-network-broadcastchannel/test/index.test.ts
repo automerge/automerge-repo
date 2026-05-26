@@ -9,11 +9,23 @@ import { pause } from "../../automerge-repo/src/helpers/pause.js"
 
 describe("BroadcastChannel", () => {
   const setup: SetupFn = async () => {
-    const a = new BroadcastChannelNetworkAdapter()
-    const b = new BroadcastChannelNetworkAdapter()
-    const c = new BroadcastChannelNetworkAdapter()
+    // Isolate each test on its own channel. A shared channel lets stale
+    // adapters from another test in the same process answer "arrive" with
+    // "welcome", which fires extra peer-candidate events for the same
+    // peerIds and resets per-peer sync state mid-test.
+    const channelName = `broadcast-${Math.random().toString(36).slice(2)}`
+    const a = new BroadcastChannelNetworkAdapter({ channelName })
+    const b = new BroadcastChannelNetworkAdapter({ channelName })
+    const c = new BroadcastChannelNetworkAdapter({ channelName })
 
-    return { adapters: [a, b, c] }
+    return {
+      adapters: [a, b, c],
+      teardown: () => {
+        a.disconnect()
+        b.disconnect()
+        c.disconnect()
+      },
+    }
   }
 
   runNetworkAdapterTests(setup)
