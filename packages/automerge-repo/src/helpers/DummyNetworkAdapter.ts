@@ -66,16 +66,25 @@ export class DummyNetworkAdapter extends NetworkAdapter {
     this.emit("message", message)
   }
 
-  static createConnectedPair({ latency = 10 }: { latency?: number } = {}) {
+  static createConnectedPair({ latency = 0 }: { latency?: number } = {}) {
+    // Default to microtask delivery. `setTimeout`-based delivery (any
+    // `latency > 0`) is subject to event-loop starvation under concurrent
+    // test load, which produces flaky round-trip-heavy tests. Callers that
+    // actually want to simulate latency can still pass a positive value.
+    const deliver =
+      latency === 0
+        ? (adapter: DummyNetworkAdapter, message: Message) =>
+            Promise.resolve().then(() => adapter.receive(message))
+        : (adapter: DummyNetworkAdapter, message: Message) =>
+            pause(latency).then(() => adapter.receive(message))
+
     const adapter1: DummyNetworkAdapter = new DummyNetworkAdapter({
       startReady: true,
-      sendMessage: (message: Message) =>
-        pause(latency).then(() => adapter2.receive(message)),
+      sendMessage: (message: Message) => deliver(adapter2, message),
     })
     const adapter2: DummyNetworkAdapter = new DummyNetworkAdapter({
       startReady: true,
-      sendMessage: (message: Message) =>
-        pause(latency).then(() => adapter1.receive(message)),
+      sendMessage: (message: Message) => deliver(adapter1, message),
     })
 
     return [adapter1, adapter2]
