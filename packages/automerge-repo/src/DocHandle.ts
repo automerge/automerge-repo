@@ -11,6 +11,7 @@ import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
 import { StorageId } from "./storage/types.js"
 import type { PathInput, InferRefType, Ref } from "./refs/types.js"
 import { makeLogger } from "./Logger.js"
+import { foreverPromise } from "./helpers/foreverPromise.js"
 
 /**
  * A DocHandle is a wrapper around a single Automerge document that lets us listen for changes and
@@ -178,7 +179,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
       return
     }
     // No path to other states from a handed-out handle.
-    return new Promise(() => {})
+    return foreverPromise
   }
 
   /**

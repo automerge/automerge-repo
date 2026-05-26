@@ -42,7 +42,7 @@ import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
 
-export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export type { DocumentProgress } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
 
 function randomPeerId() {

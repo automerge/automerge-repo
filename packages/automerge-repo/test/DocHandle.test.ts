@@ -247,7 +247,7 @@ describe("DocHandle", () => {
         reject(new Error("shouldn't have changed"))
       })
       handle.update(d => {
-        setTimeout(done, 0)
+        queueMicrotask(done)
         return d
       })
     }))
@@ -307,7 +307,7 @@ describe("DocHandle", () => {
       })
       handle.change(_doc => {
         // do nothing
-        setTimeout(done, 0)
+        queueMicrotask(done)
       })
     }))
 
