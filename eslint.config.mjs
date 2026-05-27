@@ -71,6 +71,7 @@ export default [
       "examples/**/*",
       "**/test/*",
       "**/dist/*",
+      "**/.svelte-kit/**",
       "**/node_modules/*",
       "**/.eslintrc.cjs",
       "packages/create-vite-app/**/*",
