@@ -31,6 +31,7 @@ catalog:
   "@testing-library/jest-dom": ^6.9.1
   "@types/node": ^22.19.19
   "@types/react": ^19.2.15
+  "@vitejs/plugin-react": ^6.0.2
   "@vitest/coverage-v8": ^4.1.7
   "@vitest/ui": ^4.1.7
   react: ^19.2.6
@@ -40,4 +41,5 @@ catalog:
   typescript: ^6.0.3
   vite: ^8.0.14
   vite-plugin-dts: ^5.0.1
+  vite-plugin-wasm: ^3.6.0
   vitest: ^4.1.7

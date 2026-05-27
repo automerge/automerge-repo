@@ -20,6 +20,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tsconfig/svelte": "^5.0.8",
     "svelte-check": "^4.4.8",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
   }
 }

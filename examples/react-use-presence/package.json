@@ -16,6 +16,8 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react-swc": "^4.3.1"
+    "@vitejs/plugin-react-swc": "^4.3.1",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
   }
 }

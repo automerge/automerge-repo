@@ -18,6 +18,9 @@
     "react-error-boundary": "catalog:"
   },
   "devDependencies": {
-    "tailwindcss": "^3.4.19"
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "^3.4.19",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
   }
 }

@@ -16,5 +16,10 @@
     "@automerge/react": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
   }
 }
