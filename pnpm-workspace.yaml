@@ -37,7 +37,6 @@ catalog:
   react-dom: ^18.3.1
   react-error-boundary: ^5.0.0
   rollup-plugin-visualizer: ^7.0.1
-  ts-node: ^10.9.2
   typescript: ^6.0.3
   vite: ^8.0.14
   vite-plugin-dts: ^5.0.1

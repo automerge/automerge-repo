@@ -1,5 +1,5 @@
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
-import * as Automerge from "@automerge/automerge/next"
+import * as Automerge from "@automerge/automerge"
 import assert from "assert"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"

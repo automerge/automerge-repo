@@ -12,15 +12,16 @@
     "watch": "npm-watch build",
     "test": "vitest",
     "test:watch": "npm-watch test",
-    "fuzz": "ts-node --esm --experimentalSpecifierResolution=node fuzz/fuzz.ts"
+    "fuzz": "tsx fuzz/fuzz.ts"
   },
   "browser": {
     "crypto": false
   },
   "devDependencies": {
+    "@automerge/automerge-repo-network-messagechannel": "workspace:*",
     "@types/node": "catalog:",
     "http-server": "^14.1.1",
-    "ts-node": "catalog:",
+    "tsx": "^4.22.3",
     "vite": "catalog:"
   },
   "dependencies": {
