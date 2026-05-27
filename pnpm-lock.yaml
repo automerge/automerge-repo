@@ -132,6 +132,18 @@ importers:
 
   examples/react-counter:
     dependencies:
+      '@automerge/automerge-repo':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo
+      '@automerge/automerge-repo-network-messagechannel':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-network-messagechannel
+      '@automerge/automerge-repo-network-websocket':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-network-websocket
+      '@automerge/automerge-repo-storage-indexeddb':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-storage-indexeddb
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react

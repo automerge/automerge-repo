@@ -9,6 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-network-messagechannel": "workspace:*",
+    "@automerge/automerge-repo-network-websocket": "workspace:*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "@automerge/react": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:"
