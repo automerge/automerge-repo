@@ -53,10 +53,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      happy-dom:
-        specifier: ^20.9.0
-        version: 20.9.0
     devDependencies:
       '@automerge/automerge':
         specifier: ^3.2.6
@@ -94,6 +90,9 @@ importers:
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
+      happy-dom:
+        specifier: ^20.9.0
+        version: 20.9.0
       lerna:
         specifier: ^9.0.7
         version: 9.0.7(@swc/core@1.15.40)(@types/node@22.19.19)
@@ -459,13 +458,13 @@ importers:
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
-      svelte:
-        specifier: ^3.0.0 || ^4.0.0 || ^5.0.0
-        version: 5.55.9
     devDependencies:
       '@sveltejs/package':
         specifier: ^2.5.7
         version: 2.5.7(svelte@5.55.9)(typescript@6.0.3)
+      svelte:
+        specifier: ^5.55.9
+        version: 5.55.9
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-demo-todo",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-todo",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-todo",
   "private": true,
   "version": "2.6.0-alpha.0",
   "type": "module",
