@@ -20,14 +20,14 @@
     "@automerge/automerge-repo-network-messagechannel": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-react-hooks": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
-    "react": "^18.3.1"
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
     "@types/react": "catalog:",
+    "react": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
