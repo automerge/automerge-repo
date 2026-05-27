@@ -24,14 +24,21 @@ import { Repo } from "../../src/Repo.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
 import { initSubduction } from "../../src/initSubduction.js"
 import { pause } from "../../src/helpers/pause.js"
-import { type AutomergeUrl, type PeerId } from "../../src/types.js"
+import { decodeHeads, parseAutomergeUrl } from "../../src/AutomergeUrl.js"
+import { toSedimentreeId } from "../../src/subduction/helpers.js"
+import {
+  type AutomergeUrl,
+  type DocumentId,
+  type PeerId,
+} from "../../src/types.js"
 import { SpyNetworkAdapter } from "../helpers/SpyNetworkAdapter.js"
 
-const NUMBER_DOCUMENTS = 10
+const NUMBER_DOCUMENTS = 100
 
 const SERVICE_NAME = "test-service"
 const HANDSHAKE_TIMEOUT_MS = 10_000
 const CONVERGENCE_TIMEOUT_MS = 50_000
+const QUIESCE_MS = 30_000
 
 beforeAll(async () => {
   await initSubduction()
@@ -136,7 +143,7 @@ describe("subduction network traffic accounting", () => {
       }
       await senderRepo.flush()
 
-      // ── Convergence ──────────────────────────────────────────────
+      // ── Convergence: ready state ─────────────────────────────────
       let readyCount = 0
       const converged = await waitForCondition(async () => {
         readyCount = 0
@@ -151,7 +158,58 @@ describe("subduction network traffic accounting", () => {
         return readyCount === NUMBER_DOCUMENTS
       }, CONVERGENCE_TIMEOUT_MS)
 
+      // ── Convergence: content equality ────────────────────────────
+      // `ready` only means the handle has *some* heads. Verify that
+      // every doc's content actually matches what the sender wrote.
+      // Mismatches here are a real replication bug, distinct from the
+      // heads-divergence representation mismatch we check later.
+      const contentMismatches: Array<{
+        url: AutomergeUrl
+        local?: { counter: number; name: string }
+        remote?: { counter: number; name: string }
+      }> = []
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i]
+        const senderHandle =
+          senderRepo.handles[parseAutomergeUrl(url).documentId]
+        const progress = receiverRepo.findWithProgress<{
+          counter: number
+          name: string
+        }>(url)
+        const state = progress.peek()
+        const remote = (
+          state.state === "ready" ? state.handle.doc() : undefined
+        ) as { counter: number; name: string } | undefined
+        const local = senderHandle?.doc() as
+          | { counter: number; name: string }
+          | undefined
+        if (
+          !remote ||
+          !local ||
+          remote.counter !== local.counter ||
+          remote.name !== local.name
+        ) {
+          contentMismatches.push({ url, local, remote })
+        }
+      }
+      console.log(
+        `content equality after ready: ${urls.length - contentMismatches.length}/${urls.length} docs match` +
+          (contentMismatches.length === 0
+            ? ""
+            : `; ${contentMismatches.length} mismatched (first: ${JSON.stringify(contentMismatches[0])})`)
+      )
+
       const wallClockMs = performance.now() - t0
+
+      // ── Quiesce ──────────────────────────────────────────────────
+      // Give Subduction's background work (fragment broadcast, sync
+      // completion callbacks, fragment store updates) a generous
+      // window before we sample heads. The bug we want to surface
+      // here is structural, not a timing race — but waiting 30s
+      // distinguishes "race" from "permanent representation
+      // mismatch".
+      console.log(`waiting ${QUIESCE_MS / 1000}s for subduction to quiesce...`)
+      await pause(QUIESCE_MS)
 
       // ── Snapshot + report ────────────────────────────────────────
       const totalSender = senderAdapter.snapshot()
@@ -222,6 +280,23 @@ describe("subduction network traffic accounting", () => {
       const human = formatSummary(summary)
       console.log("\n" + human + "\n")
 
+      // ── Heads-divergence soft check ──────────────────────────────
+      // Compares per-doc tip sets between the sender's automerge
+      // change graph (handle.heads()) and the receiver's sedimentree
+      // tip set (subduction.getAllHeads()). The sedimentree set can
+      // include fragment heads — depth-≥1 commit IDs that, by
+      // construction, start with one or more 0x00 bytes — which the
+      // automerge-side API never surfaces. This is a known
+      // representation mismatch between the two layers (see PR
+      // description for the writeup); we surface it here as
+      // diagnostic output but don't fail the test on it.
+      const headsReport = await collectHeadsDivergence(
+        senderRepo,
+        receiverRepo,
+        urls
+      )
+      console.log(formatHeadsReport(headsReport) + "\n")
+
       // ── Hard assertion ───────────────────────────────────────────
       if (readyCount !== NUMBER_DOCUMENTS) {
         throw new Error(
@@ -240,7 +315,7 @@ describe("subduction network traffic accounting", () => {
         pause(2000),
       ])
     },
-    HANDSHAKE_TIMEOUT_MS + CONVERGENCE_TIMEOUT_MS + 10_000
+    HANDSHAKE_TIMEOUT_MS + CONVERGENCE_TIMEOUT_MS + QUIESCE_MS + 10_000
   )
 })
 
@@ -295,5 +370,159 @@ function formatSummary(s: BudgetSummary): string {
     `control frames (arrive/welcome/leave): ${s.controlFrames}`,
     `convergence: ${s.readyCount}/${s.docCount}${s.converged ? "" : " (TIMED OUT)"}`,
   ]
+  return lines.join("\n")
+}
+
+// ── Heads-divergence helpers ──────────────────────────────────────────
+
+interface PerDocHeads {
+  documentId: DocumentId
+  /** Sender's automerge-graph tips (commit hashes only). */
+  local: string[]
+  /** Receiver's sedimentree tips (commits ∪ fragment heads). */
+  remote: string[]
+  /** Heads in `local` not present in `remote`. */
+  localOnly: string[]
+  /** Heads in `remote` not present in `local`. */
+  remoteOnly: string[]
+  /** Heads present on both sides. */
+  shared: string[]
+}
+
+interface HeadsDivergenceReport {
+  total: number
+  matching: number
+  divergent: PerDocHeads[]
+  /**
+   * Subset of `divergent` where the only "extra" tip on either side
+   * starts with `00` — i.e. consistent with the
+   * fragment-head-vs-commit-tip representation mismatch.
+   */
+  divergentDueToFragmentLikeHead: PerDocHeads[]
+  /** Divergent docs that don't fit the fragment-like pattern. */
+  divergentOther: PerDocHeads[]
+  /** Docs we couldn't compare (no handle on one side). */
+  uncompared: DocumentId[]
+}
+
+const startsWithZeroByte = (hex: string) => hex.startsWith("00")
+
+const allExtrasFragmentLike = (h: PerDocHeads) =>
+  (h.localOnly.length > 0 || h.remoteOnly.length > 0) &&
+  h.localOnly.every(startsWithZeroByte) &&
+  h.remoteOnly.every(startsWithZeroByte)
+
+async function collectHeadsDivergence(
+  senderRepo: Repo,
+  receiverRepo: Repo,
+  urls: AutomergeUrl[]
+): Promise<HeadsDivergenceReport> {
+  const subduction = await receiverRepo.subduction
+  const allHeads = await subduction.getAllHeads()
+  const remoteByDocId = new Map<string, string[]>()
+  for (const sh of allHeads) {
+    // SedimentreeId.toString() is keyed off the full 32-byte id;
+    // we match by that instead of converting back to DocumentId so
+    // we don't depend on the bs58 round-trip.
+    remoteByDocId.set(
+      sh.id.toString(),
+      sh.heads.map(h => h.toHexString())
+    )
+  }
+
+  const divergent: PerDocHeads[] = []
+  const uncompared: DocumentId[] = []
+  let matching = 0
+
+  for (const url of urls) {
+    const { documentId } = parseAutomergeUrl(url)
+    const senderHandle = senderRepo.handles[documentId]
+    if (!senderHandle) {
+      uncompared.push(documentId)
+      continue
+    }
+
+    // handle.heads() returns base58check-encoded `UrlHeads`; convert
+    // to lowercase hex to match `CommitId.toHexString()` returned by
+    // subduction.getAllHeads().
+    const local = decodeHeads(senderHandle.heads()).slice().sort()
+    const sid = toSedimentreeId(documentId)
+    const remote = (remoteByDocId.get(sid.toString()) ?? []).slice().sort()
+
+    const localSet = new Set(local)
+    const remoteSet = new Set(remote)
+    const shared = local.filter(h => remoteSet.has(h))
+    const localOnly = local.filter(h => !remoteSet.has(h))
+    const remoteOnly = remote.filter(h => !localSet.has(h))
+
+    if (localOnly.length === 0 && remoteOnly.length === 0) {
+      matching++
+    } else {
+      divergent.push({
+        documentId,
+        local,
+        remote,
+        localOnly,
+        remoteOnly,
+        shared,
+      })
+    }
+  }
+
+  const divergentDueToFragmentLikeHead = divergent.filter(allExtrasFragmentLike)
+  const divergentOther = divergent.filter(d => !allExtrasFragmentLike(d))
+
+  return {
+    total: urls.length,
+    matching,
+    divergent,
+    divergentDueToFragmentLikeHead,
+    divergentOther,
+    uncompared,
+  }
+}
+
+function formatHeadsReport(r: HeadsDivergenceReport): string {
+  const lines: string[] = [
+    `=== Heads divergence (sender handle.heads vs receiver subduction.getAllHeads) ===`,
+    `total docs:                    ${r.total}`,
+    `matching head sets:            ${r.matching}`,
+    `divergent:                     ${r.divergent.length}`,
+    `  with 00-prefixed extras:     ${r.divergentDueToFragmentLikeHead.length}  (suspected fragment-head bug)`,
+    `  other:                       ${r.divergentOther.length}`,
+    `uncompared (no sender handle): ${r.uncompared.length}`,
+  ]
+
+  const sample = r.divergent.slice(0, 3)
+  if (sample.length > 0) {
+    lines.push(`first ${sample.length} divergent doc(s):`)
+    for (const d of sample) {
+      lines.push(`  doc ${d.documentId}`)
+      lines.push(`    local  (handle.heads):       [${d.local.join(", ")}]`)
+      lines.push(`    remote (subduction heads):   [${d.remote.join(", ")}]`)
+      lines.push(`    shared:                      [${d.shared.join(", ")}]`)
+      lines.push(`    local-only:                  [${d.localOnly.join(", ")}]`)
+      lines.push(
+        `    remote-only:                 [${d.remoteOnly.join(", ")}]`
+      )
+    }
+  }
+
+  if (r.divergent.length > 0 && r.divergentDueToFragmentLikeHead.length > 0) {
+    lines.push(
+      `note: every "extra" head in the suspected-fragment bucket starts with 0x00,`
+    )
+    lines.push(
+      `      which is the fragment-head signature documented in the dxos/subduction`
+    )
+    lines.push(
+      `      readme. handle.heads() never returns fragment heads; subduction's`
+    )
+    lines.push(
+      `      getAllHeads() does. that's a known representation mismatch — not a`
+    )
+    lines.push(`      replication failure.`)
+  }
+
   return lines.join("\n")
 }
