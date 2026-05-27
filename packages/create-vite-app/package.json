@@ -21,6 +21,6 @@
     "access": "public"
   },
   "devDependencies": {
-    "execa": "^8.0.1"
+    "execa": "^9.6.1"
   }
 }
