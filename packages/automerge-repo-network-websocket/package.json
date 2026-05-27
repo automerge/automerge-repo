@@ -20,6 +20,11 @@
     "isomorphic-ws": "^5.0.0",
     "ws": "^8.21.0"
   },
+  "devDependencies": {
+    "@automerge/automerge": "^3.2.6",
+    "portfinder": "^1.0.38",
+    "vitest": "catalog:"
+  },
   "watch": {
     "build": {
       "patterns": "./src/**/*",

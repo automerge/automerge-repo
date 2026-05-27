@@ -16,7 +16,8 @@
     "@automerge/automerge-repo": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "catalog:"
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
   },
   "watch": {
     "build": {

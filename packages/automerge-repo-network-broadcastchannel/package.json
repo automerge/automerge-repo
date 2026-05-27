@@ -15,6 +15,9 @@
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*"
   },
+  "devDependencies": {
+    "vitest": "catalog:"
+  },
   "watch": {
     "build": {
       "patterns": "./src/**/*",

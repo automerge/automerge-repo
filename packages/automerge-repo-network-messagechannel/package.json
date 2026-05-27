@@ -17,6 +17,9 @@
     "debug": "^4.4.3",
     "eventemitter3": "^5.0.4"
   },
+  "devDependencies": {
+    "vitest": "catalog:"
+  },
   "watch": {
     "build": {
       "patterns": "./src/**/*",
