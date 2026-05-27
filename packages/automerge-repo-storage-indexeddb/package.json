@@ -9,24 +9,15 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch build"
+    "watch": "tsc --watch"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*"
-  },
-  "watch": {
-    "build": {
-      "patterns": "./src/**/*",
-      "extensions": [
-        ".ts"
-      ]
-    }
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "npm-watch": "catalog:",
     "typescript": "catalog:"
   }
 }

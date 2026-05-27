@@ -10,9 +10,9 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch build",
+    "watch": "tsc --watch",
     "test": "vitest",
-    "test:watch": "npm-watch test"
+    "test:watch": "vitest --watch"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
@@ -27,7 +27,6 @@
   },
   "devDependencies": {
     "@types/react": "catalog:",
-    "npm-watch": "catalog:",
     "react": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
@@ -35,24 +34,6 @@
   "exports": {
     ".": "./dist/index.js",
     "./slim": "./dist/slim.js"
-  },
-  "watch": {
-    "build": {
-      "patterns": "./src/**/*",
-      "extensions": [
-        ".ts"
-      ]
-    },
-    "test": {
-      "quiet": true,
-      "patterns": [
-        "./src/**/*",
-        "./test/**/*"
-      ],
-      "extensions": [
-        ".ts"
-      ]
-    }
   },
   "publishConfig": {
     "access": "public"
