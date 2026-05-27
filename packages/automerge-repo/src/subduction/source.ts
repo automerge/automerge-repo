@@ -76,7 +76,7 @@ interface SedimentreeEntry {
    *    this set so we never re-push something subduction already has.
    * 2. `#handleDataFound` short-circuits on a hit, both to avoid
    *    re-applying our own writes (the bridge fires `commit-saved`
-   *    synchronously inside `addBatch` for each save) and to dedupe
+   *    synchronously inside `addCommitsBatch`/`addFragmentsBatch` for each save) and to dedupe
    *    repeated deliveries when both backends carry the same change.
    *
    * Grows unboundedly with doc history (hex hash ≈ 64 B per entry).
@@ -90,7 +90,7 @@ interface SedimentreeEntry {
    * storage as loose-commit records (not as part of a fragment).
    *
    * Updated:
-   *  - After `addBatch` succeeds in `#saveNewCommits`, for each new
+   *  - After `addCommitsBatch` succeeds in `#saveNewCommits`, for each new
    *    commit we just wrote.
    *  - In the `commit-saved` event handler, for commits the bridge
    *    persisted on our behalf (typically inbound from peers).
@@ -112,8 +112,8 @@ interface SedimentreeEntry {
   /**
    * Promise for the in-flight `#compactAbsorbed` pass, or `null` if
    * none is running. Compaction is fire-and-forget from the save
-   * loop's perspective — the save returns as soon as `addBatch`
-   * resolves — but `flush()` awaits this so callers can observe a
+   * loop's perspective — the save returns as soon as `addCommitsBatch`/
+   * `addFragmentsBatch` resolves — but `flush()` awaits this so callers can observe a
    * consistent on-disk footprint after a quiescent point. The gate
    * also prevents two passes piling up on each other if saves are
    * bursting faster than the adapter can service deletes; the next
@@ -146,7 +146,7 @@ interface SedimentreeEntry {
   saveInProgress: boolean
   /**
    * Set by `#save` when its post-await heads observation differs
-   * from the heads it sampled before the `addBatch` await. Cleared
+   * from the heads it sampled before the `addCommitsBatch` await. Cleared
    * at the start of each `#save`. `flush()` uses this to decide
    * whether another save round is needed before resolving.
    */
@@ -451,7 +451,7 @@ export class SubductionSource implements DocumentSource {
 
     // If the hash is already recorded, this is either:
     //   (a) a self-save echo — `#saveNewCommits` added the hash before
-    //       calling `addBatch`; subduction then persisted and fired
+    //       calling `addCommitsBatch`; subduction then persisted and fired
     //       `commit-saved`. The handle already contains the change, so
     //       re-applying would be O(doc-size) wasted work.
     //   (b) a duplicate delivery (e.g. both sync backends delivered the
@@ -901,7 +901,7 @@ export class SubductionSource implements DocumentSource {
    * Single-flight per entry: concurrent invocations early-return on
    * the `saveInProgress` gate (no promise-chain queue). Each pass
    * processes whatever has accumulated since `entry.lastSavedHeads`
-   * and runs at most one `addBatch` round-trip; if the post-await
+   * and runs at most one `addCommitsBatch`/`addFragmentsBatch` round-trip; if the post-await
    * heads check detects a delta, it re-arms the throttle for a
    * follow-up save rather than looping inline.
    *
@@ -1168,28 +1168,28 @@ export class SubductionSource implements DocumentSource {
       return { prepFailures: prepErrors.length }
     }
 
-    // Record hashes BEFORE `addBatch` so the synchronous `commit-saved`
-    // / `fragment-saved` events fired from the storage bridge (which
-    // run before `addBatch` resolves) find them and skip the
+    // Record hashes BEFORE `addCommitsBatch`/`addFragmentsBatch` so the
+    // synchronous `commit-saved`/`fragment-saved` events fired from the
+    // storage bridge (which run before the awaits resolve) find them and skip the
     // `#handleDataFound` apply path.
     for (const hash of acceptedHashes) entry.knownHashes.add(hash)
 
     try {
-      await subduction.addBatch(
-        entry.sedimentreeId,
-        commitInputs,
-        fragmentInputs
-      )
+      if (commitInputs.length > 0) {
+        await subduction.addCommitsBatch(entry.sedimentreeId, commitInputs)
+      }
+      if (fragmentInputs.length > 0) {
+        await subduction.addFragmentsBatch(entry.sedimentreeId, fragmentInputs)
+      }
     } catch (e) {
-      // On failure, roll the set entries back so the next save can
-      // retry. `#save` separately keeps `entry.lastSavedHeads` at its
-      // previous value when this rejects.
+      // Rolling back knownHashes is safe even under partial success (e.g.
+      // addCommitsBatch ok, addFragmentsBatch threw): the next save re-pushes
+      // both arrays and subduction ignores duplicate commit writes.
       for (const hash of acceptedHashes) entry.knownHashes.delete(hash)
       console.warn(
-        `[SubductionSource] addBatch failed for ${entry.sedimentreeId
-          .toString()
-          .slice(0, 8)} (${commitInputs.length} commits, ` +
-          `${fragmentInputs.length} fragments):`,
+        `[SubductionSource] addCommitsBatch/addFragmentsBatch failed for ` +
+          `${entry.sedimentreeId.toString().slice(0, 8)} ` +
+          `(${commitInputs.length} commits, ${fragmentInputs.length} fragments):`,
         e
       )
       throw e
@@ -1205,10 +1205,10 @@ export class SubductionSource implements DocumentSource {
    *
    * Compaction is purely a storage-side garbage collection; nothing
    * downstream of `#saveNewCommits` (the throttled save, the sync
-   * scheduler, peers waiting on `addBatch`) cares whether the
+   * scheduler) cares whether the
    * already-absorbed commits are still on disk. So we deliberately
-   * don't await it — the next save returns as soon as `addBatch`
-   * resolves, and the deletes drain at whatever pace the adapter
+   * don't await it — the next save returns as soon as `addCommitsBatch`/
+   * `addFragmentsBatch` resolves, and the deletes drain at whatever pace the adapter
    * allows. Errors are logged but never propagated up; if a delete
    * fails the data sticks around until the next pass tries again.
    */
@@ -1225,18 +1225,18 @@ export class SubductionSource implements DocumentSource {
    * core has absorbed into higher-level fragments. Without this
    * subduction's storage grows roughly with `total history written`
    * rather than with `current minimal sedimentree`, since the wasm
-   * `Subduction.addBatch` writes new records but never deletes the
+   * `addCommitsBatch`/`addFragmentsBatch` writes new records but never deletes the
    * ones they supersede.
    *
    * We use automerge as the source of truth: any persisted hash that
    * is no longer in `getCommits` / `getFragments` is by definition
    * absorbed and safe to drop. Subduction core has already minimized
-   * its in-memory tree at the end of `addBatch`, so this only ever
+   * its in-memory tree at the end of the save, so this only ever
    * removes data that is provably redundant on the local node.
    *
    * IMPORTANT: we sample `handle.doc()` here rather than reusing the
    * snapshot from the save loop. Under concurrent writes the handle
-   * may have advanced between `addBatch` and this call; deleting
+   * may have advanced between the save and this call; deleting
    * against a stale snapshot would clobber freshly-persisted commits
    * that are still live at the level-0 layer, forcing the next save
    * to re-persist them and (a) wasting I/O, (b) inflating apparent
