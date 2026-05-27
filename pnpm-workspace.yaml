@@ -10,6 +10,9 @@ allowBuilds:
   svelte-preprocess: true
 overrides:
   semver: ^7.5.2
+  # tmp is only pulled transitively (lerna > nx); pin the patched line (older
+  # versions have a path-traversal flaw)
+  tmp: ^0.2.6
 # Supply-chain guard: wait 3 days (4320 minutes) after a version is published before
 # installing it, so a malicious or compromised release has time to be detected and
 # unpublished from the registry before it can land in our dependency tree.
@@ -32,4 +35,4 @@ catalog:
   rollup-plugin-visualizer: ^5.14.0
   ts-node: ^10.9.2
   typescript: ^5.9.3
-  vite-plugin-dts: ^3.9.1
+  vite-plugin-dts: ^5.0.1
