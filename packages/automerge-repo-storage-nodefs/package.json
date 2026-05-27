@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "rimraf": "^5.0.1"
+    "rimraf": "^5.0.10"
   },
   "watch": {
     "build": {

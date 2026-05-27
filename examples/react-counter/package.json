@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react": "catalog:",
+    "react-dom": "catalog:"
   }
 }

@@ -14,8 +14,8 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "debug": "^4.3.4",
-    "eventemitter3": "^5.0.1"
+    "debug": "^4.4.3",
+    "eventemitter3": "^5.0.4"
   },
   "watch": {
     "build": {

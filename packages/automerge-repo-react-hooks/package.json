@@ -14,22 +14,22 @@
     "visualize": "VISUALIZE=true vite build"
   },
   "dependencies": {
-    "@automerge/automerge": "2.2.8 - 3",
+    "@automerge/automerge": "^3.2.6",
     "@automerge/automerge-repo": "workspace:*",
-    "eventemitter3": "^5.0.1",
-    "react-usestateref": "^1.0.8"
+    "eventemitter3": "^5.0.4",
+    "react-usestateref": "^1.0.9"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^14.0.0",
-    "eslint-plugin-react-hooks": "^5.1.0",
-    "jsdom": "^27.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-error-boundary": "^5.0.0",
-    "rollup-plugin-visualizer": "^5.9.3",
-    "vite": "^6.0.7",
-    "vite-plugin-dts": "^3.9.1"
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "^14.3.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "jsdom": "^27.4.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-error-boundary": "catalog:",
+    "rollup-plugin-visualizer": "catalog:",
+    "vite": "^6.4.2",
+    "vite-plugin-dts": "catalog:"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

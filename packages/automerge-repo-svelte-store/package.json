@@ -28,8 +28,8 @@
     "@automerge/automerge-repo": "workspace:*"
   },
   "devDependencies": {
-    "@sveltejs/package": "^2.3.11",
-    "typescript": "^5.0.0"
+    "@sveltejs/package": "^2.5.7",
+    "typescript": "catalog:"
   },
   "watch": {
     "build": {
