@@ -48,9 +48,9 @@
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
     "@typescript-eslint/parser": "^8.60.0",
-    "@vitejs/plugin-react": "^5.2.0",
-    "@vitest/coverage-v8": "^4.1.7",
-    "@vitest/ui": "^4.1.7",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "catalog:",
+    "@vitest/ui": "catalog:",
     "c8": "^7.14.0",
     "cross-env": "^7.0.3",
     "dev-null-cli": "^2.0.0",
@@ -70,9 +70,9 @@
     "ts-node": "catalog:",
     "typedoc": "^0.28.19",
     "typescript": "catalog:",
-    "vite": "^7.3.3",
+    "vite": "catalog:",
     "vite-plugin-wasm": "^3.6.0",
-    "vitest": "^4.1.7"
+    "vitest": "catalog:"
   },
   "dependencies": {
     "happy-dom": "^20.9.0"

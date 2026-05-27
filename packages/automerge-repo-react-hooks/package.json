@@ -16,8 +16,7 @@
   "dependencies": {
     "@automerge/automerge": "^3.2.6",
     "@automerge/automerge-repo": "workspace:*",
-    "eventemitter3": "^5.0.4",
-    "react-usestateref": "^1.0.9"
+    "eventemitter3": "^5.0.4"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "catalog:",
@@ -28,7 +27,7 @@
     "react-dom": "catalog:",
     "react-error-boundary": "catalog:",
     "rollup-plugin-visualizer": "catalog:",
-    "vite": "^6.4.2",
+    "vite": "catalog:",
     "vite-plugin-dts": "catalog:"
   },
   "peerDependencies": {
