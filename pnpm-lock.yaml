@@ -9,6 +9,9 @@ catalogs:
     '@testing-library/jest-dom':
       specifier: ^6.9.1
       version: 6.9.1
+    '@types/node':
+      specifier: ^22.19.19
+      version: 22.19.19
     '@types/react':
       specifier: ^18.3.29
       version: 18.3.29
@@ -71,7 +74,7 @@ importers:
         specifier: ^4.1.13
         version: 4.1.13
       '@types/node':
-        specifier: ^22.19.19
+        specifier: 'catalog:'
         version: 22.19.19
       '@types/react':
         specifier: 'catalog:'
@@ -317,7 +320,7 @@ importers:
         version: 5.31.1
     devDependencies:
       '@types/node':
-        specifier: ^22.19.19
+        specifier: 'catalog:'
         version: 22.19.19
       http-server:
         specifier: ^14.1.1
@@ -451,7 +454,7 @@ importers:
         version: link:../automerge-repo
     devDependencies:
       '@types/node':
-        specifier: ^22.19.19
+        specifier: 'catalog:'
         version: 22.19.19
 
   packages/automerge-repo-svelte-store:
@@ -501,6 +504,9 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.19
       execa:
         specifier: ^9.6.1
         version: 9.6.1
@@ -511,6 +517,9 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.19
       execa:
         specifier: ^9.6.1
         version: 9.6.1

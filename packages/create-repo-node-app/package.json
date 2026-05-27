@@ -23,6 +23,7 @@
     "@clack/prompts": "^1.4.0"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "execa": "^9.6.1"
   }
 }

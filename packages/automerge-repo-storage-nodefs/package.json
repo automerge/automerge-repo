@@ -16,7 +16,7 @@
     "@automerge/automerge-repo": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.19.19"
+    "@types/node": "catalog:"
   },
   "watch": {
     "build": {
