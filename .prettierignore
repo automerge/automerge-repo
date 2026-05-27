@@ -4,3 +4,4 @@ pnpm-lock.yaml
 .svelte-kit
 playwright-report
 test-results
+coverage
