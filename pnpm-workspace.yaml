@@ -2,11 +2,34 @@ packages:
   - packages/**
   - examples/**
   - "!packages/create-vite-app/template/**"
-onlyBuiltDependencies:
-  - "@swc/core"
-  - cbor-extract
-  - esbuild
-  - nx
-  - svelte-preprocess
+allowBuilds:
+  "@swc/core": true
+  cbor-extract: true
+  esbuild: true
+  nx: true
+  svelte-preprocess: true
 overrides:
   semver: ^7.5.2
+# Supply-chain guard: wait 3 days (4320 minutes) after a version is published before
+# installing it, so a malicious or compromised release has time to be detected and
+# unpublished from the registry before it can land in our dependency tree.
+minimumReleaseAge: 4320
+# TEMPORARY (remove after re-running the update once the freshly-pulled transitive deps age
+# past the gate, ~2026-05-28): skip the pre-script deps check so build/test/lint can run in
+# the meantime. minimumReleaseAge above is still enforced on an explicit `pnpm install`.
+verifyDepsBeforeRun: false
+# Shared dependency versions kept in sync across the workspace via the `catalog:` protocol.
+# Only devDependencies and deps of private (unpublished) packages are cataloged: `lerna
+# publish` does NOT resolve `catalog:`, so a published package's runtime deps must stay as
+# literal ranges or consumers would receive a broken "catalog:" specifier. (Switching to
+# `pnpm publish`, which rewrites `catalog:`, would let the runtime deps be cataloged too.)
+catalog:
+  "@testing-library/jest-dom": ^6.9.1
+  "@types/react": ^18.3.29
+  react: ^18.3.1
+  react-dom: ^18.3.1
+  react-error-boundary: ^5.0.0
+  rollup-plugin-visualizer: ^5.14.0
+  ts-node: ^10.9.2
+  typescript: ^5.9.3
+  vite-plugin-dts: ^3.9.1
