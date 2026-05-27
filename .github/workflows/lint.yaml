@@ -33,8 +33,9 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
           cache: pnpm
-      - name: Install
+      - name: Install and Build
         run: |
           pnpm install
+          pnpm build
       - name: Lint
         run: pnpm lint
