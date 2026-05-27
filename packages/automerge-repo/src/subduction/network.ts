@@ -140,7 +140,7 @@ export class NetworkAdapterTransport implements Transport {
     this.#disconnected = true
     const err = new Error("Connection is disconnected")
     for (const waiter of this.#messageWaiters) {
-      try { waiter.reject(err) } catch {}
+      waiter.reject(err)
     }
     this.#messageWaiters.length = 0
     if (fireDisconnectCallback && this.#disconnectCallback) {
