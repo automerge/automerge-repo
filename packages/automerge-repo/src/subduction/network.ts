@@ -43,7 +43,7 @@ export class NetworkAdapterTransport implements Transport {
 
   // --- Post-handshake message queue (Phase 2) ---
   #messageQueue: Uint8Array[] = []
-  #messageWaiters: Array<(msg: Uint8Array) => void> = []
+  #messageWaiters: Array<{ resolve: (msg: Uint8Array) => void; reject: (err: Error) => void }> = []
   #log: debug.Debugger
   #disconnectCallback: (() => void) | null = null
 
@@ -109,7 +109,7 @@ export class NetworkAdapterTransport implements Transport {
     // Otherwise enqueue for recv().
     const waiter = this.#messageWaiters.shift()
     if (waiter) {
-      waiter(payload)
+      waiter.resolve(payload)
     } else {
       this.#messageQueue.push(payload)
     }
@@ -138,6 +138,11 @@ export class NetworkAdapterTransport implements Transport {
     this.#adapter.off("message", this.#handleMessage)
     this.#adapter.off("peer-disconnected", this.#handlePeerDisconnected)
     this.#disconnected = true
+    const err = new Error("Connection is disconnected")
+    for (const waiter of this.#messageWaiters) {
+      try { waiter.reject(err) } catch {}
+    }
+    this.#messageWaiters.length = 0
     if (fireDisconnectCallback && this.#disconnectCallback) {
       this.#disconnectCallback()
     }
@@ -176,7 +181,7 @@ export class NetworkAdapterTransport implements Transport {
         reject(new Error("Connection is disconnected"))
         return
       }
-      this.#messageWaiters.push(resolve)
+      this.#messageWaiters.push({ resolve, reject })
     })
   }
 
