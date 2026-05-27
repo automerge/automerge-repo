@@ -18,13 +18,14 @@
     "crypto": false
   },
   "devDependencies": {
+    "@types/node": "^22.19.19",
     "http-server": "^14.1.1",
     "ts-node": "catalog:",
     "vite": "catalog:"
   },
   "dependencies": {
     "@automerge/automerge": "^3.2.6",
-    "bs58check": "^3.0.1",
+    "bs58check": "^4.0.0",
     "cbor-x": "^1.6.4",
     "debug": "^4.4.3",
     "eventemitter3": "^5.0.4",
