@@ -14,7 +14,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-usestateref": "^1.0.9",
-    "uuid": "^9.0.1"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react-swc": "^3.11.0"
