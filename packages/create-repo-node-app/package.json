@@ -7,11 +7,22 @@
   "license": "MIT",
   "type": "module",
   "bin": "dist/index.js",
+  "files": [
+    "dist/index.js",
+    "template"
+  ],
   "scripts": {
     "build": "tsc",
-    "postbuild": "node postbuild.js"
+    "postbuild": "node postbuild.js",
+    "test": "node test.js"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.4.0"
+  },
+  "devDependencies": {
+    "execa": "^9.6.1"
   }
 }
