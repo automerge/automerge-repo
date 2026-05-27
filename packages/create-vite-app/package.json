@@ -20,6 +20,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@clack/prompts": "^1.4.0"
+  },
   "devDependencies": {
     "execa": "^9.6.1"
   }
