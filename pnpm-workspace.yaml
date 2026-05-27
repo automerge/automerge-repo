@@ -34,5 +34,5 @@ catalog:
   react-error-boundary: ^5.0.0
   rollup-plugin-visualizer: ^5.14.0
   ts-node: ^10.9.2
-  typescript: ^5.9.3
+  typescript: ^6.0.3
   vite-plugin-dts: ^5.0.1

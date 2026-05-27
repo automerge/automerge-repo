@@ -138,7 +138,14 @@ export default [
         {
           varsIgnorePattern: "^_",
           argsIgnorePattern: "^_",
+          caughtErrors: "none",
         },
+      ],
+      // Allow the `cond && fn()` short-circuit idiom as a statement (pause.ts,
+      // useLocalAwareness.ts) instead of requiring `if (cond) fn()`
+      "@typescript-eslint/no-unused-expressions": [
+        2,
+        { allowShortCircuit: true },
       ],
       "automerge-slimport/enforce-automerge-slim-import": 2,
     },
