@@ -20,7 +20,9 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "http-server": "^14.1.1",
+    "npm-watch": "catalog:",
     "tsx": "^4.22.3",
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   },

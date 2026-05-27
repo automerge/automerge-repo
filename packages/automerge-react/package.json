@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@types/react": "catalog:",
+    "npm-watch": "catalog:",
     "react": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

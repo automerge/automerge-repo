@@ -22,7 +22,9 @@
   },
   "devDependencies": {
     "@automerge/automerge": "^3.2.6",
+    "npm-watch": "catalog:",
     "portfinder": "^1.0.38",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "watch": {

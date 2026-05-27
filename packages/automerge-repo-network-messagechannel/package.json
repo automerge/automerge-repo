@@ -18,6 +18,8 @@
     "eventemitter3": "^5.0.4"
   },
   "devDependencies": {
+    "npm-watch": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "watch": {

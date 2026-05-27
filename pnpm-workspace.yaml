@@ -34,6 +34,7 @@ catalog:
   "@vitejs/plugin-react": ^6.0.2
   "@vitest/coverage-v8": ^4.1.7
   "@vitest/ui": ^4.1.7
+  npm-watch: ^0.13.0
   react: ^19.2.6
   react-dom: ^19.2.6
   react-error-boundary: ^6.1.2
