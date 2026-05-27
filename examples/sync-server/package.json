@@ -9,7 +9,6 @@
   "scripts": {
     "start": "node ./index.js"
   },
-  "bin": "./src/index.js",
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
@@ -20,8 +19,5 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.6"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }
