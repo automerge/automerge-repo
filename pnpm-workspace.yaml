@@ -30,12 +30,12 @@ verifyDepsBeforeRun: false
 catalog:
   "@testing-library/jest-dom": ^6.9.1
   "@types/node": ^22.19.19
-  "@types/react": ^18.3.29
+  "@types/react": ^19.2.15
   "@vitest/coverage-v8": ^4.1.7
   "@vitest/ui": ^4.1.7
-  react: ^18.3.1
-  react-dom: ^18.3.1
-  react-error-boundary: ^5.0.0
+  react: ^19.2.6
+  react-dom: ^19.2.6
+  react-error-boundary: ^6.1.2
   rollup-plugin-visualizer: ^7.0.1
   typescript: ^6.0.3
   vite: ^8.0.14
