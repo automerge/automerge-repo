@@ -10,7 +10,6 @@ import {
 } from "@automerge/automerge-repo/slim"
 import fs from "fs"
 import path from "path"
-import { rimraf } from "rimraf"
 
 export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
@@ -102,7 +101,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
     // remove from disk
     const dirPath = this.getFilePath(keyPrefix)
-    await rimraf(dirPath)
+    await fs.promises.rm(dirPath, { recursive: true, force: true })
   }
 
   private cachedKeys(keyPrefix: string[]): string[] {
