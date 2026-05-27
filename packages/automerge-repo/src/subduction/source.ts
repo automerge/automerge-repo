@@ -267,6 +267,12 @@ export class SubductionSource implements DocumentSource {
   #entries = new Map<string, SedimentreeEntry>()
   #log: debug.Debugger
   #connectionManagers: ConnectionManager[] = []
+  /**
+   * The `AdapterConnections` manager. Tracked separately from
+   * `#connectionManagers` so we can delegate runtime
+   * `addAdapter` calls to it without scanning the list.
+   */
+  #adapterConnections: AdapterConnections
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
   #syncTimeout: bigint | null
@@ -385,6 +391,7 @@ export class SubductionSource implements DocumentSource {
     for (const { adapter, serviceName, role } of adapters) {
       adapterConnections.addAdapter(adapter, serviceName, role ?? "connect")
     }
+    this.#adapterConnections = adapterConnections
     this.#connectionManagers.push(adapterConnections)
 
     for (const mgr of this.#connectionManagers) {
@@ -426,6 +433,34 @@ export class SubductionSource implements DocumentSource {
 
   getSubduction(): Promise<Subduction> {
     return this.#subduction
+  }
+
+  /**
+   * Add a {@link NetworkAdapterInterface} as a Subduction transport at
+   * runtime. Equivalent to passing the same adapter via
+   * {@link SubductionSourceOptions.adapters} at construction, but available
+   * after the source has been built — useful for adapters whose underlying
+   * channel (e.g. a `MessageChannel` to a service worker) only becomes
+   * available later in the boot sequence.
+   *
+   * The adapter is wrapped in a `NetworkAdapterTransport` and onboarded via
+   * `Subduction.connectTransport` (when `role === "connect"`) or
+   * `Subduction.acceptTransport` (when `role === "accept"`). Both ends of
+   * the channel must use this code path (or an equivalent that speaks the
+   * same tag-prefixed framing) and agree on `serviceName`.
+   *
+   * The adapter is tracked by the source's {@link AdapterConnections}
+   * manager, so its `state()` participates in the
+   * "are any connections still in progress?" check that gates
+   * `sourceUnavailable` calls — i.e. queries opened before the adapter
+   * comes up will wait rather than immediately resolving as unavailable.
+   */
+  addAdapter(
+    adapter: NetworkAdapterInterface,
+    serviceName: string,
+    role: "connect" | "accept" = "connect"
+  ): void {
+    this.#adapterConnections.addAdapter(adapter, serviceName, role)
   }
 
   #connectionGeneration(): number {

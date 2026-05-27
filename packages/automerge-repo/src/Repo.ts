@@ -521,6 +521,34 @@ export class Repo extends EventEmitter<RepoEvents> {
     return this.#subductionSource.getSubduction()
   }
 
+  /**
+   * Onboard a {@link NetworkAdapterInterface} as a Subduction transport at
+   * runtime. The adapter's wire frames are tagged and routed through
+   * Subduction's handshake + sync protocol, exactly as if it had been
+   * passed via {@link RepoConfig.subductionAdapters} at construction.
+   *
+   * Use this when the adapter's underlying channel (a `MessageChannel`
+   * port handed in from a service worker, a freshly-opened
+   * `BroadcastChannel`, etc.) only becomes available after the Repo has
+   * already been built. The adapter's connecting state is tracked by the
+   * SubductionSource so queries opened during the handshake won't be
+   * prematurely marked unavailable.
+   *
+   * Both ends of the channel must wire the same `serviceName` and use
+   * complementary roles (`"connect"` initiates the discovery handshake;
+   * `"accept"` responds).
+   */
+  addSubductionAdapter(
+    adapter: NetworkAdapterInterface,
+    serviceName: string,
+    role: "connect" | "accept" = "connect"
+  ): void {
+    if (!this.#subductionSource) {
+      throw new Error("Repo has no SubductionSource")
+    }
+    this.#subductionSource.addAdapter(adapter, serviceName, role)
+  }
+
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
     return this.peerMetadataByPeerId[peerId]?.storageId
   }

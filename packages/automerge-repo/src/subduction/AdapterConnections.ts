@@ -12,6 +12,17 @@ export class AdapterConnections implements ConnectionManager {
   #pendingTransports = 0
   #generation = 0
   #isShutdown = false
+  /**
+   * Track which (adapter, remote peer id) pairs we've already started a
+   * transport for. Some `NetworkAdapter` implementations emit
+   * `peer-candidate` more than once for a single logical connection (e.g.
+   * `MessageChannelNetworkAdapter` fires once on the `arrive` exchange and
+   * again on the `welcome` reply). Without this guard we'd spawn two
+   * concurrent Subduction handshakes over the same underlying channel,
+   * their handshake bytes would interleave, decoding would fail, and both
+   * connections would die.
+   */
+  #startedTransports = new WeakMap<NetworkAdapterInterface, Set<string>>()
 
   constructor(subduction: Promise<Subduction>, localPeerId: PeerId) {
     this.#subduction = subduction
@@ -48,8 +59,13 @@ export class AdapterConnections implements ConnectionManager {
     role: "connect" | "accept"
   ) {
     this.#adapters.push(adapter)
+    this.#startedTransports.set(adapter, new Set())
     adapter.on("peer-candidate", ({ peerId }) => {
       if (this.#isShutdown) return
+      // Dedupe per (adapter, peerId). See `#startedTransports` for why.
+      const seen = this.#startedTransports.get(adapter)
+      if (seen?.has(peerId)) return
+      seen?.add(peerId)
       // Increment synchronously so isConnecting() returns true
       // before the async handshake begins.
       this.#pendingTransports++
