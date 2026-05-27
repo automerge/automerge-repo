@@ -1,5 +1,5 @@
 {
-  "name": "automerge-use-awareness-example-project",
+  "name": "@automerge/automerge-repo-demo-use-presence",
   "version": "2.6.0-alpha.0",
   "private": true,
   "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-use-presence",
