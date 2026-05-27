@@ -358,9 +358,6 @@ importers:
         specifier: ^5.31.1
         version: 5.31.1
     devDependencies:
-      '@automerge/automerge-repo-network-messagechannel':
-        specifier: workspace:*
-        version: link:../automerge-repo-network-messagechannel
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.19

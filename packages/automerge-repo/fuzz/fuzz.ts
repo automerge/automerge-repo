@@ -1,4 +1,4 @@
-import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
+import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import * as Automerge from "@automerge/automerge"
 import assert from "assert"
 import { eventPromise } from "../src/helpers/eventPromise.js"

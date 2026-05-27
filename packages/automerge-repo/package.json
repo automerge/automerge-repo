@@ -18,7 +18,6 @@
     "crypto": false
   },
   "devDependencies": {
-    "@automerge/automerge-repo-network-messagechannel": "workspace:*",
     "@types/node": "catalog:",
     "http-server": "^14.1.1",
     "tsx": "^4.22.3",
