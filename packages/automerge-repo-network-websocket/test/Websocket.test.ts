@@ -837,9 +837,8 @@ const setup = async (options: SetupOptions = {}) => {
     port = await getPort(),
   } = options
 
-  const { server, serverAdapter, serverSocket, serverUrl } = await setupServer(
-    options
-  )
+  const { server, serverAdapter, serverSocket, serverUrl } =
+    await setupServer(options)
   const clients = await Promise.all(
     Array.from({ length: clientCount }).map(() =>
       setupClient({ retryInterval, port })

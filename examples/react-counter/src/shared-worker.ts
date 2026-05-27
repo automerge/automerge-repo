@@ -13,12 +13,10 @@ self.addEventListener("connect", (e: MessageEvent) => {
 // Ideally Chrome would fix this upstream but this isn't a terrible hack.
 const repoPromise = (async () => {
   const { Repo } = await import("@automerge/automerge-repo")
-  const { IndexedDBStorageAdapter } = await import(
-    "@automerge/automerge-repo-storage-indexeddb"
-  )
-  const { WebSocketClientAdapter } = await import(
-    "@automerge/automerge-repo-network-websocket"
-  )
+  const { IndexedDBStorageAdapter } =
+    await import("@automerge/automerge-repo-storage-indexeddb")
+  const { WebSocketClientAdapter } =
+    await import("@automerge/automerge-repo-network-websocket")
   return new Repo({
     storage: new IndexedDBStorageAdapter(),
     network: [new WebSocketClientAdapter("ws://sync.automerge.org")],
@@ -30,9 +28,8 @@ const repoPromise = (async () => {
 async function configureRepoNetworkPort(port: MessagePort) {
   const repo = await repoPromise
 
-  const { MessageChannelNetworkAdapter } = await import(
-    "@automerge/automerge-repo-network-messagechannel"
-  )
+  const { MessageChannelNetworkAdapter } =
+    await import("@automerge/automerge-repo-network-messagechannel")
   // be careful to not accidentally create a strong reference to port
   // that will prevent dead ports from being garbage collected
   repo.networkSubsystem.addNetworkAdapter(

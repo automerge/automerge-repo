@@ -41,9 +41,8 @@ const refCleanupRegistry = new FinalizationRegistry<() => void>(cleanup =>
  */
 export class RefImpl<
   TDoc = any,
-  TPath extends readonly AnyPathInput[] = AnyPathInput[]
-> implements Ref<InferRefType<TDoc, TPath>>
-{
+  TPath extends readonly AnyPathInput[] = AnyPathInput[],
+> implements Ref<InferRefType<TDoc, TPath>> {
   readonly docHandle: DocHandle<TDoc>
   readonly path: PathSegment[]
   readonly range?: CursorRange

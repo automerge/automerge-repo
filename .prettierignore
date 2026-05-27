@@ -1,7 +1,0 @@
-dist
-pnpm-lock.yaml
-/.nx/workspace-data
-.svelte-kit
-playwright-report
-test-results
-coverage

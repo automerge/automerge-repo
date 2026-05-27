@@ -47,19 +47,25 @@ export class PeerStateView<State extends PresenceState> {
     const summaryFn =
       opts?.summaryFn ??
       (getLastActivePeer as (states: PeerState<State>[]) => SummaryState)
-    const statesByKey = Object.values(this.value).reduce((byKey, curr) => {
-      const key = groupingFn(curr)
-      if (!(key in byKey)) {
-        byKey[key] = []
-      }
-      byKey[key].push(curr)
+    const statesByKey = Object.values(this.value).reduce(
+      (byKey, curr) => {
+        const key = groupingFn(curr)
+        if (!(key in byKey)) {
+          byKey[key] = []
+        }
+        byKey[key].push(curr)
 
-      return byKey
-    }, {} as Record<PropertyKey, PeerState<State>[]>)
-    return Object.entries(statesByKey).reduce((result, [key, states]) => {
-      result[key] = summaryFn(states)
-      return result
-    }, {} as Record<PropertyKey, SummaryState>)
+        return byKey
+      },
+      {} as Record<PropertyKey, PeerState<State>[]>
+    )
+    return Object.entries(statesByKey).reduce(
+      (result, [key, states]) => {
+        result[key] = summaryFn(states)
+        return result
+      },
+      {} as Record<PropertyKey, SummaryState>
+    )
   }
 }
 
@@ -85,19 +91,22 @@ export function getLastActivePeer<State extends PresenceState>(
   peers: PeerState<State>[]
 ) {
   let freshestLastActiveAt: number
-  return peers.reduce((freshest, curr) => {
-    const lastActiveAt = curr.lastActiveAt
-    if (!lastActiveAt) {
+  return peers.reduce(
+    (freshest, curr) => {
+      const lastActiveAt = curr.lastActiveAt
+      if (!lastActiveAt) {
+        return freshest
+      }
+
+      if (!freshest || lastActiveAt > freshestLastActiveAt) {
+        freshestLastActiveAt = lastActiveAt
+        return curr
+      }
+
       return freshest
-    }
-
-    if (!freshest || lastActiveAt > freshestLastActiveAt) {
-      freshestLastActiveAt = lastActiveAt
-      return curr
-    }
-
-    return freshest
-  }, undefined as PeerState<State> | undefined)
+    },
+    undefined as PeerState<State> | undefined
+  )
 }
 
 /**
@@ -110,17 +119,20 @@ export function getLastSeenPeer<State extends PresenceState>(
   peers: PeerState<State>[]
 ) {
   let freshestLastSeenAt: number
-  return peers.reduce((freshest, curr) => {
-    const lastSeenAt = curr.lastSeenAt
-    if (!lastSeenAt) {
+  return peers.reduce(
+    (freshest, curr) => {
+      const lastSeenAt = curr.lastSeenAt
+      if (!lastSeenAt) {
+        return freshest
+      }
+
+      if (!freshest || lastSeenAt > freshestLastSeenAt) {
+        freshestLastSeenAt = lastSeenAt
+        return curr
+      }
+
       return freshest
-    }
-
-    if (!freshest || lastSeenAt > freshestLastSeenAt) {
-      freshestLastSeenAt = lastSeenAt
-      return curr
-    }
-
-    return freshest
-  }, undefined as PeerState<State> | undefined)
+    },
+    undefined as PeerState<State> | undefined
+  )
 }

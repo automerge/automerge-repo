@@ -99,25 +99,25 @@ type GetSegmentValue<TObj, TSegment> = TSegment extends string
     ? TObj[TSegment]
     : unknown
   : TSegment extends number | Pattern
-  ? TObj extends readonly (infer E)[]
-    ? E
-    : unknown
-  : TSegment extends CursorMarker
-  ? TObj extends string
-    ? string
-    : unknown
-  : unknown
+    ? TObj extends readonly (infer E)[]
+      ? E
+      : unknown
+    : TSegment extends CursorMarker
+      ? TObj extends string
+        ? string
+        : unknown
+      : unknown
 
 /** Recursively infer type by traversing path through document */
 export type PathValue<TDoc, TPath extends readonly any[]> = TPath extends []
   ? TDoc
   : TPath extends readonly [infer First, ...infer Rest]
-  ? GetSegmentValue<TDoc, First> extends infer Next
-    ? Next extends never
-      ? unknown
-      : PathValue<Next, Rest>
+    ? GetSegmentValue<TDoc, First> extends infer Next
+      ? Next extends never
+        ? unknown
+        : PathValue<Next, Rest>
+      : unknown
     : unknown
-  : unknown
 
 export type InferRefType<TDoc, TPath extends readonly any[]> = PathValue<
   TDoc,
@@ -129,12 +129,12 @@ export type InferRefType<TDoc, TPath extends readonly any[]> = PathValue<
 /** Split a string by a delimiter into a tuple */
 type Split<
   S extends string,
-  D extends string = "/"
+  D extends string = "/",
 > = S extends `${infer Head}${D}${infer Tail}`
   ? [Head, ...Split<Tail, D>]
   : S extends ""
-  ? []
-  : [S]
+    ? []
+    : [S]
 
 /** Check if a string represents an index (@0, @42) */
 type IsIndex<S extends string> = S extends `@${infer N}`
@@ -155,11 +155,12 @@ type CursorRangeMarker = { __cursorRange: true }
  * - "[cursor]", "[start-end]" → CursorRangeMarker (text range → string value)
  * - "key", "123" → literal string (object key - numbers are keys now!)
  */
-type ParseSegment<S extends string> = IsCursorRange<S> extends true
-  ? CursorRangeMarker
-  : IsIndex<S> extends true
-  ? number
-  : S
+type ParseSegment<S extends string> =
+  IsCursorRange<S> extends true
+    ? CursorRangeMarker
+    : IsIndex<S> extends true
+      ? number
+      : S
 
 /** Convert a path string into a tuple of parsed segment types */
 export type SegmentsFromString<P extends string> =
@@ -175,35 +176,35 @@ type GetParsedSegmentValue<TObj, TSegment> = TSegment extends CursorRangeMarker
     ? string
     : unknown
   : TSegment extends number
-  ? TObj extends readonly (infer E)[]
-    ? E
-    : unknown
-  : TSegment extends string
-  ? TSegment extends keyof TObj
-    ? TObj[TSegment]
-    : unknown
-  : unknown
+    ? TObj extends readonly (infer E)[]
+      ? E
+      : unknown
+    : TSegment extends string
+      ? TSegment extends keyof TObj
+        ? TObj[TSegment]
+        : unknown
+      : unknown
 
 /** Recursively traverse document type using parsed path segments */
 type PathValueFromString<
   TDoc,
-  TPath extends readonly any[]
+  TPath extends readonly any[],
 > = TPath extends readonly []
   ? TDoc
   : TPath extends readonly [infer First, ...infer Rest]
-  ? GetParsedSegmentValue<TDoc, First> extends infer Next
-    ? Next extends unknown
-      ? Rest extends readonly any[]
-        ? PathValueFromString<Next, Rest>
+    ? GetParsedSegmentValue<TDoc, First> extends infer Next
+      ? Next extends unknown
+        ? Rest extends readonly any[]
+          ? PathValueFromString<Next, Rest>
+          : unknown
         : unknown
       : unknown
     : unknown
-  : unknown
 
 /** Infer the ref value type from a document type and path string */
 export type InferRefTypeFromString<
   TDoc,
-  P extends string
+  P extends string,
 > = PathValueFromString<TDoc, SegmentsFromString<P>>
 
 /**
