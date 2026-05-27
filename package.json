@@ -26,7 +26,8 @@
     "watch": "pnpm run --parallel --stream -r watch "
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.13",
+    "pnpm": "^11"
   },
   "packageManager": "pnpm@11.3.0",
   "devDependencies": {
