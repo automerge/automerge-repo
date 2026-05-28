@@ -27,5 +27,8 @@
     "@types/node": "catalog:",
     "execa": "^9.6.1",
     "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

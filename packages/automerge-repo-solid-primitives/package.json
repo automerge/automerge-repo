@@ -34,5 +34,8 @@
   "homepage": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-solid-primitives",
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

@@ -19,5 +19,8 @@
   },
   "devDependencies": {
     "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }
