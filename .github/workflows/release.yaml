@@ -14,7 +14,7 @@ jobs:
       version: ${{ steps.version-updated.outputs.current-version }}
       has_updated: ${{ steps.version-updated.outputs.current-version != steps.version-updated.outputs.previous-version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
       - uses: salsify/action-detect-and-tag-new-version@v2
@@ -30,7 +30,7 @@ jobs:
     if: |
       needs.check_if_version_upgraded.outputs.has_updated == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
           ref: ${{ github.ref }}
@@ -38,7 +38,7 @@ jobs:
         with:
           version: 11
           run_install: false
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
@@ -63,7 +63,7 @@ jobs:
     if: |
       needs.check_if_version_upgraded.outputs.has_updated == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
@@ -71,7 +71,7 @@ jobs:
         with:
           version: 11
           run_install: false
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
@@ -113,7 +113,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Tag release
         if: steps.tests.outcome == 'success'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: v${{ needs.check_if_version_upgraded.outputs.version }}
           tag_name: v${{ needs.check_if_version_upgraded.outputs.version }}
