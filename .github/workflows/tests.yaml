@@ -15,6 +15,14 @@ on:
       ]
     branches:
       - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   run-tests:
     if: github.event.pull_request.draft == false
@@ -27,8 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-          ref: ${{ github.ref }}
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
         with:
           version: 11
