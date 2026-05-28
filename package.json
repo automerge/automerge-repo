@@ -32,7 +32,7 @@
   },
   "packageManager": "pnpm@11.3.0",
   "devDependencies": {
-    "@automerge/automerge": "^3.2.6",
+    "@automerge/automerge": "catalog:",
     "@manypkg/cli": "^0.25.1",
     "@playwright/test": "^1.60.0",
     "@types/debug": "^4.1.13",

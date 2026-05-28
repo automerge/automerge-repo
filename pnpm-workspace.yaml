@@ -23,23 +23,28 @@ minimumReleaseAge: 4320
 # the meantime. minimumReleaseAge above is still enforced on an explicit `pnpm install`.
 verifyDepsBeforeRun: false
 # Shared dependency versions kept in sync across the workspace via the `catalog:` protocol.
-# Only devDependencies and deps of private (unpublished) packages are cataloged: `lerna
-# publish` does NOT resolve `catalog:`, so a published package's runtime deps must stay as
-# literal ranges or consumers would receive a broken "catalog:" specifier. (Switching to
-# `pnpm publish`, which rewrites `catalog:`, would let the runtime deps be cataloged too.)
+# Published runtime deps are cataloged too: release publishes via `pnpm -r publish` (see
+# release.yaml), which resolves `catalog:` to a real version in the published package.json.
+# Peer ranges stay literal — they're intentionally broader than the pinned dev/runtime version.
 catalog:
+  "@automerge/automerge": ^3.2.6
   "@testing-library/jest-dom": ^6.9.1
   "@types/node": ^22.19.19
   "@types/react": ^19.2.15
   "@vitejs/plugin-react": ^6.0.2
   "@vitest/coverage-v8": ^4.1.7
   "@vitest/ui": ^4.1.7
+  cbor-x: ^1.6.4
+  debug: ^4.4.3
+  eventemitter3: ^5.0.4
   react: ^19.2.6
   react-dom: ^19.2.6
   react-error-boundary: ^6.1.2
   rollup-plugin-visualizer: ^7.0.1
   typescript: ^6.0.3
+  uuid: ^14.0.0
   vite: ^8.0.14
   vite-plugin-dts: ^5.0.1
   vite-plugin-wasm: ^3.6.0
   vitest: ^4.1.7
+  ws: ^8.21.0

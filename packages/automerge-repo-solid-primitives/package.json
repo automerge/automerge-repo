@@ -13,7 +13,7 @@
   "author": "chee <chee@rabbits.computer>",
   "license": "MIT",
   "devDependencies": {
-    "@automerge/automerge": "^3.2.6",
+    "@automerge/automerge": "catalog:",
     "@automerge/automerge-repo": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "catalog:",

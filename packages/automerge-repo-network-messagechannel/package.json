@@ -14,8 +14,8 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "debug": "^4.4.3",
-    "eventemitter3": "^5.0.4"
+    "debug": "catalog:",
+    "eventemitter3": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",

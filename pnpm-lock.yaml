@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   default:
+    '@automerge/automerge':
+      specifier: ^3.2.6
+      version: 3.2.6
     '@testing-library/jest-dom':
       specifier: ^6.9.1
       version: 6.9.1
@@ -24,6 +27,15 @@ catalogs:
     '@vitest/ui':
       specifier: ^4.1.7
       version: 4.1.7
+    cbor-x:
+      specifier: ^1.6.4
+      version: 1.6.4
+    debug:
+      specifier: ^4.4.3
+      version: 4.4.3
+    eventemitter3:
+      specifier: ^5.0.4
+      version: 5.0.4
     react:
       specifier: ^19.2.6
       version: 19.2.6
@@ -39,6 +51,9 @@ catalogs:
     typescript:
       specifier: ^6.0.3
       version: 6.0.3
+    uuid:
+      specifier: ^14.0.0
+      version: 14.0.0
     vite:
       specifier: ^8.0.14
       version: 8.0.14
@@ -51,6 +66,9 @@ catalogs:
     vitest:
       specifier: ^4.1.7
       version: 4.1.7
+    ws:
+      specifier: ^8.21.0
+      version: 8.21.0
 
 overrides:
   semver: ^7.5.2
@@ -61,7 +79,7 @@ importers:
   .:
     devDependencies:
       '@automerge/automerge':
-        specifier: ^3.2.6
+        specifier: 'catalog:'
         version: 3.2.6
       '@manypkg/cli':
         specifier: ^0.25.1
@@ -210,7 +228,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-react
       eventemitter3:
-        specifier: ^5.0.4
+        specifier: 'catalog:'
         version: 5.0.4
       react:
         specifier: 'catalog:'
@@ -219,7 +237,7 @@ importers:
         specifier: 'catalog:'
         version: 19.2.6(react@19.2.6)
       uuid:
-        specifier: ^14.0.0
+        specifier: 'catalog:'
         version: 14.0.0
     devDependencies:
       '@vitejs/plugin-react-swc':
@@ -287,7 +305,7 @@ importers:
         specifier: ^15.1.3
         version: 15.1.3
       ws:
-        specifier: ^8.21.0
+        specifier: 'catalog:'
         version: 8.21.0
     devDependencies:
       '@types/express':
@@ -331,25 +349,25 @@ importers:
   packages/automerge-repo:
     dependencies:
       '@automerge/automerge':
-        specifier: ^3.2.6
+        specifier: 'catalog:'
         version: 3.2.6
       bs58check:
         specifier: ^4.0.0
         version: 4.0.0
       cbor-x:
-        specifier: ^1.6.4
+        specifier: 'catalog:'
         version: 1.6.4
       debug:
-        specifier: ^4.4.3
+        specifier: 'catalog:'
         version: 4.4.3
       eventemitter3:
-        specifier: ^5.0.4
+        specifier: 'catalog:'
         version: 5.0.4
       fast-sha256:
         specifier: ^1.3.0
         version: 1.3.0
       uuid:
-        specifier: ^14.0.0
+        specifier: 'catalog:'
         version: 14.0.0
       xstate:
         specifier: ^5.31.1
@@ -393,10 +411,10 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
       debug:
-        specifier: ^4.4.3
+        specifier: 'catalog:'
         version: 4.4.3
       eventemitter3:
-        specifier: ^5.0.4
+        specifier: 'catalog:'
         version: 5.0.4
     devDependencies:
       typescript:
@@ -412,20 +430,20 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
       cbor-x:
-        specifier: ^1.6.4
+        specifier: 'catalog:'
         version: 1.6.4
       debug:
-        specifier: ^4.4.3
+        specifier: 'catalog:'
         version: 4.4.3
       eventemitter3:
-        specifier: ^5.0.4
+        specifier: 'catalog:'
         version: 5.0.4
       ws:
-        specifier: ^8.21.0
+        specifier: 'catalog:'
         version: 8.21.0
     devDependencies:
       '@automerge/automerge':
-        specifier: ^3.2.6
+        specifier: 'catalog:'
         version: 3.2.6
       '@types/ws':
         specifier: ^8.18.1
@@ -443,13 +461,13 @@ importers:
   packages/automerge-repo-react-hooks:
     dependencies:
       '@automerge/automerge':
-        specifier: ^3.2.6
+        specifier: 'catalog:'
         version: 3.2.6
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
       eventemitter3:
-        specifier: ^5.0.4
+        specifier: 'catalog:'
         version: 5.0.4
     devDependencies:
       '@testing-library/dom':
@@ -489,7 +507,7 @@ importers:
   packages/automerge-repo-solid-primitives:
     devDependencies:
       '@automerge/automerge':
-        specifier: ^3.2.6
+        specifier: 'catalog:'
         version: 3.2.6
       '@automerge/automerge-repo':
         specifier: workspace:*

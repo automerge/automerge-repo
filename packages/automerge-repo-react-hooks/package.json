@@ -14,9 +14,9 @@
     "visualize": "VISUALIZE=true vite build"
   },
   "dependencies": {
-    "@automerge/automerge": "^3.2.6",
+    "@automerge/automerge": "catalog:",
     "@automerge/automerge-repo": "workspace:*",
-    "eventemitter3": "^5.0.4"
+    "eventemitter3": "catalog:"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.0.0",

@@ -14,13 +14,13 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "cbor-x": "^1.6.4",
-    "debug": "^4.4.3",
-    "eventemitter3": "^5.0.4",
-    "ws": "^8.21.0"
+    "cbor-x": "catalog:",
+    "debug": "catalog:",
+    "eventemitter3": "catalog:",
+    "ws": "catalog:"
   },
   "devDependencies": {
-    "@automerge/automerge": "^3.2.6",
+    "@automerge/automerge": "catalog:",
     "@types/ws": "^8.18.1",
     "portfinder": "^1.0.38",
     "typescript": "catalog:",
