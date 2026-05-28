@@ -3,6 +3,10 @@
   "entryPoints": ["./packages/*"],
   "entryPointStrategy": "packages",
   "includeVersion": true,
-  "exclude": ["examples/*"],
+  "exclude": [
+    "examples/*",
+    "packages/create-repo-node-app",
+    "packages/create-vite-app"
+  ],
   "readme": "./typedoc-readme.md"
 }
