@@ -1,5 +1,5 @@
 import { useDocument, useRepo, AutomergeUrl } from "@automerge/react"
-import cx from "classnames"
+import cx from "clsx"
 import { Suspense, useRef, useState } from "react"
 
 import { Todo } from "./Todo.js"
