@@ -33,7 +33,13 @@
     "node": ">=22.13",
     "pnpm": "^11"
   },
-  "packageManager": "pnpm@11.3.0",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11",
+      "onFail": "download"
+    }
+  },
   "devDependencies": {
     "@automerge/automerge": "catalog:",
     "@manypkg/cli": "^0.25.1",
