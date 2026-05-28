@@ -40,5 +40,9 @@
   },
   "engines": {
     "node": ">=22.13"
-  }
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
 }

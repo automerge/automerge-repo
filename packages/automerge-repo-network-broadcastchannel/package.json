@@ -35,5 +35,9 @@
       "default": "./dist/*.js"
     },
     "./package.json": "./package.json"
-  }
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
 }
