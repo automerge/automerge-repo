@@ -10,7 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "rootDir": "./src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "isolatedModules": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

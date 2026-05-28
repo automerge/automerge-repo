@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "isolatedModules": true
   },
   "include": [],
   "files": [],

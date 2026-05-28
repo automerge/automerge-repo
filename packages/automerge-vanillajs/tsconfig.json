@@ -12,7 +12,8 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "strictNullChecks": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "isolatedModules": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist"]
