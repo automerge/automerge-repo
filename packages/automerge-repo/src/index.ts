@@ -55,6 +55,12 @@ export type {
   PresenceEventGoodbye,
   PresenceEventPruning,
 } from "./presence/types.js"
+// Type-only re-export so the {@link DEFAULT_*} references in PresenceConfig
+// resolve in typedoc, without exposing the consts to the runtime API.
+export type {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_PEER_TTL_MS,
+} from "./presence/constants.js"
 
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.js"
