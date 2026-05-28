@@ -2,6 +2,7 @@ import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messa
 import * as Automerge from "@automerge/automerge"
 import assert from "assert"
 import { eventPromise } from "../src/helpers/eventPromise.js"
+import { headsAreSame } from "../src/helpers/headsAreSame.js"
 import { pause } from "../src/helpers/pause.js"
 import {
   DocHandle,
@@ -31,7 +32,7 @@ const setup = async () => {
     if (documentId === undefined) return false
 
     // make sure that charlie never gets excluded documents
-    if (excludedDocuments.includes(documentId) && peerId === "charlie")
+    if (excludedDocuments.includes(documentId) && peerId === "C")
       return false
 
     return true
@@ -90,7 +91,7 @@ const setup = async () => {
   }
 }
 
-const { aliceRepo, bobRepo, charlieRepo, teardown } = await setup()
+const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } = await setup()
 
 // HACK: yield to give repos time to get the one doc that aliceRepo created
 await pause(50)
@@ -106,12 +107,29 @@ for (let i = 0; i < 100000; i++) {
     d.foo = { bar: Math.random().toString() }
   })
 
-  await pause(0)
-  const a = (await aliceRepo.find(doc.url)).doc()
-  const b = (await bobRepo.find(doc.url)).doc()
-  const c = (await charlieRepo.find(doc.url)).doc()
+  // Deterministic sync wait: subscribe to each peer's handle and resolve
+  // only once its heads match the change we just made. Charlie is
+  // excluded from `notForCharlie` by sharePolicy, so skip its wait there.
+  const targetHeads = doc.heads()
+  const otherRepos = [aliceRepo, bobRepo, charlieRepo].filter(r => r !== repo)
+  await Promise.all(
+    otherRepos.map(async r => {
+      if (r === charlieRepo && doc.documentId === notForCharlie) return
+      const h = await r.find<TestDoc>(doc.url)
+      while (!headsAreSame(h.heads(), targetHeads)) {
+        await eventPromise(h, "change")
+      }
+    })
+  )
+
+  const a = (await aliceRepo.find<TestDoc>(doc.url)).doc()
+  const b = (await bobRepo.find<TestDoc>(doc.url)).doc()
   assert.deepStrictEqual(a, b, "A and B should be equal")
-  assert.deepStrictEqual(b, c, "B and C should be equal")
+  let c: Automerge.Doc<TestDoc> | undefined
+  if (doc.documentId !== notForCharlie) {
+    c = (await charlieRepo.find<TestDoc>(doc.url)).doc()
+    assert.deepStrictEqual(b, c, "B and C should be equal")
+  }
 
   const bin = Automerge.save(b)
   const load = Automerge.load(bin)
@@ -121,7 +139,7 @@ for (let i = 0; i < 100000; i++) {
     "Changes:",
     Automerge.getAllChanges(a).length,
     Automerge.getAllChanges(b).length,
-    Automerge.getAllChanges(c).length
+    c ? Automerge.getAllChanges(c).length : "-"
   )
 }
 
