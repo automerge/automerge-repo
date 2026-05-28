@@ -242,7 +242,7 @@ export class DocHandle<T> extends EventEmitter<DocHandleEvents<T>> {
    * of Automerge doesn't check types at runtime, so if you go back to an old set of heads
    * that doesn't match the heads here, Typescript will not save you.
    *
-   * @argument heads - The heads to view the document at. See history().
+   * @param heads - The heads to view the document at. See history().
    * @returns DocHandle<T> at the time of `heads`
    */
   view(heads: UrlHeads): DocHandle<T> {
