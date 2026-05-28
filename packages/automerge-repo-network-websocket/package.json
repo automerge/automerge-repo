@@ -17,11 +17,11 @@
     "cbor-x": "^1.6.4",
     "debug": "^4.4.3",
     "eventemitter3": "^5.0.4",
-    "isomorphic-ws": "^5.0.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
     "@automerge/automerge": "^3.2.6",
+    "@types/ws": "^8.18.1",
     "portfinder": "^1.0.38",
     "typescript": "catalog:",
     "vitest": "catalog:"
