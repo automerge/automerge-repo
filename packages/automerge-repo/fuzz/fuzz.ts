@@ -32,8 +32,7 @@ const setup = async () => {
     if (documentId === undefined) return false
 
     // make sure that charlie never gets excluded documents
-    if (excludedDocuments.includes(documentId) && peerId === "C")
-      return false
+    if (excludedDocuments.includes(documentId) && peerId === "C") return false
 
     return true
   }
@@ -91,7 +90,8 @@ const setup = async () => {
   }
 }
 
-const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } = await setup()
+const { aliceRepo, bobRepo, charlieRepo, notForCharlie, teardown } =
+  await setup()
 
 // HACK: yield to give repos time to get the one doc that aliceRepo created
 await pause(50)
