@@ -24,9 +24,24 @@
  *
  */
 export { useDocument } from "./useDocument.js"
+export type {
+  UseDocumentReturn,
+  UseDocumentSuspendingParams,
+  UseDocumentSynchronousParams,
+} from "./useDocument.js"
 export { useDocuments } from "./useDocuments.js"
+export type {
+  UseDocumentsOptions,
+  DocMap,
+  ChangeDocFn,
+} from "./useDocuments.js"
 export { useDocHandle } from "./useDocHandle.js"
+export type {
+  UseDocHandleSuspendingParams,
+  UseDocHandleSynchronousParams,
+} from "./useDocHandle.js"
 export { useDocHandles } from "./useDocHandles.js"
+export type { UseDocHandlesParams, DocHandleMap } from "./useDocHandles.js"
 export { RepoContext, useRepo } from "./useRepo.js"
 export {
   useLocalAwareness,
@@ -39,4 +54,8 @@ export {
   type UseRemoteAwarenessProps,
 } from "./useRemoteAwareness.js"
 
-export { usePresence, type UsePresenceResult } from "./usePresence.js"
+export {
+  usePresence,
+  type UsePresenceResult,
+  type UsePresenceConfig,
+} from "./usePresence.js"

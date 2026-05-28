@@ -3,14 +3,14 @@ import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
 import { useDocHandles } from "./useDocHandles.js"
 
-type DocMap<T> = Map<AutomergeUrl, Doc<T>>
-type ChangeDocFn<T> = (
+export type DocMap<T> = Map<AutomergeUrl, Doc<T>>
+export type ChangeDocFn<T> = (
   id: AutomergeUrl,
   changeFn: ChangeFn<T>,
   options?: ChangeOptions<T>
 ) => void
 
-interface UseDocumentsOptions {
+export interface UseDocumentsOptions {
   suspense?: boolean
 }
 

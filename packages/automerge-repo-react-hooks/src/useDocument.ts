@@ -25,10 +25,10 @@ import { useDocHandle } from "./useDocHandle.js"
  * ```
  */
 
-interface UseDocumentSuspendingParams {
+export interface UseDocumentSuspendingParams {
   suspense: true
 }
-interface UseDocumentSynchronousParams {
+export interface UseDocumentSynchronousParams {
   suspense: false
 }
 

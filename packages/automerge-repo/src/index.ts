@@ -38,13 +38,22 @@ export {
   encodeHeads,
   decodeHeads,
 } from "./AutomergeUrl.js"
+export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { Presence } from "./presence/Presence.js"
 export { PeerStateView } from "./presence/PeerStateView.js"
+export type { GetStatesOpts } from "./presence/PeerStateView.js"
 export type {
   PeerState,
   PresenceState,
   PresenceConfig,
+  PeerStatesValue,
+  PresenceEvents,
+  PresenceEventUpdate,
+  PresenceEventSnapshot,
+  PresenceEventHeartbeat,
+  PresenceEventGoodbye,
+  PresenceEventPruning,
 } from "./presence/types.js"
 
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
@@ -77,11 +86,18 @@ export type {
   DocumentPayload,
   RepoConfig,
   RepoEvents,
+  RepoFindOptions,
+  DocMetrics,
   ShareConfig,
   SharePolicy,
 } from "./Repo.js"
 
-export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export type {
+  DocumentProgress,
+  QueryState,
+  SourceState,
+} from "./DocumentQuery.js"
+export type { AbortOptions } from "./helpers/abortable.js"
 
 export type {
   FindProgress,

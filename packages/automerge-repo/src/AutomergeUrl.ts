@@ -18,7 +18,7 @@ import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
 
 export const urlPrefix = "automerge:"
 
-interface ParsedAutomergeUrl {
+export interface ParsedAutomergeUrl {
   /** unencoded DocumentId */
   binaryDocumentId: BinaryDocumentId
   /** bs58 encoded DocumentId */
@@ -209,7 +209,7 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 
 // TYPES
 
-type UrlOptions = {
+export type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
   heads?: UrlHeads
 }
