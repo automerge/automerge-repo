@@ -121,22 +121,33 @@ export function scopedValue(
 }
 
 /**
- * Apply a change callback to the value at the resolved `propPath`.
- * Mutations are made in place; returning a non-`undefined` primitive
- * value from the callback replaces the slot. Strings are wrapped in
- * {@link MutableText} so callbacks can `.splice` / `.updateText` for
- * CRDT-safe edits.
+ * Apply a change to the value at the resolved `propPath`.
+ *
+ * `fn` is either a mutator function or a plain replacement value, and that
+ * distinction alone decides the behavior - no caller flag needed:
+ *
+ * - A **function** is a mutator. Containers (objects/arrays) are mutated in
+ *   place and the return value is ignored, exactly like `A.change` on the root
+ *   document, so a stray arrow-expression return (`sub.change(d => (d.x = 1))`)
+ *   can't accidentally replace the whole container. Primitives have no in-place
+ *   proxy, so their callback's return value sets the slot. Strings are wrapped
+ *   in {@link MutableText} for CRDT-safe `.splice` / `.updateText` edits, or a
+ *   returned string replaces the text.
+ * - A **non-function value** is the shorthand replacement form
+ *   (`sub.change(newValue)`) and overwrites the slot - including containers.
  */
 export function applyScopedChange(
   doc: A.Doc<any>,
   propPath: Prop[] | undefined,
   range: CursorRange | undefined,
   rangePositions: () => [number, number] | undefined,
-  fn: A.ChangeFn<any>
+  fn: A.ChangeFn<any> | unknown
 ): A.Doc<any> {
+  // A function is a mutator; anything else is a replacement value.
+  const isReplacement = typeof fn !== "function"
+
   if (propPath !== undefined && propPath.length === 0 && !range) {
-    const result = (fn as any)(doc)
-    if (result !== undefined) {
+    if (isReplacement || (fn as any)(doc) !== undefined) {
       throw new Error(
         "Cannot return a new value for the root document; mutate it in place instead."
       )
@@ -155,7 +166,7 @@ export function applyScopedChange(
     if (!positions) return doc
     const [start, end] = positions
     const existingSubstring = currentValue.slice(start, end)
-    const result = (fn as any)(existingSubstring)
+    const result = isReplacement ? fn : (fn as any)(existingSubstring)
     if (typeof result === "string") {
       Automerge.splice(doc, propPath, start, end - start, result)
     }
@@ -166,14 +177,25 @@ export function applyScopedChange(
     currentValue !== null &&
     (typeof currentValue === "object" || Array.isArray(currentValue))
   ) {
-    const result = (fn as any)(currentValue)
-    if (result !== undefined) {
-      setAt(doc, propPath, result)
+    // Replacement overwrites the slot; a mutator runs in place and its return
+    // value is ignored (like `A.change` on the root document).
+    if (isReplacement) {
+      setAt(doc, propPath, fn)
+    } else {
+      ;(fn as any)(currentValue)
     }
     return doc
   }
 
   if (typeof currentValue === "string") {
+    if (isReplacement) {
+      if (typeof fn === "string") {
+        Automerge.updateText(doc, propPath, fn)
+      } else {
+        setAt(doc, propPath, fn)
+      }
+      return doc
+    }
     const mt = MutableText(doc, propPath, currentValue)
     const result = (fn as any)(mt)
     if (typeof result === "string") {
@@ -182,8 +204,9 @@ export function applyScopedChange(
     return doc
   }
 
-  // Primitive / undefined — callback's return value replaces the slot.
-  const result = (fn as any)(currentValue)
+  // Primitive / undefined slot - no in-place proxy, so the replacement value
+  // (or the mutator's return value) sets the slot.
+  const result = isReplacement ? fn : (fn as any)(currentValue)
   if (result !== undefined) {
     setAt(doc, propPath, result)
   }

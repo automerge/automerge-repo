@@ -969,16 +969,17 @@ describe("Ref", () => {
       expect(ref.doc()).toEqual({ enabled: true, count: 5 })
     })
 
-    it("should allow replacing entire objects", () => {
+    it("should allow replacing entire objects via the shorthand value form", () => {
       handle.change(d => {
         d.settings = { theme: "light" }
       })
 
       const ref = handle.sub("settings")
 
-      ref.change(() => {
-        return { theme: "dark", fontSize: 14 }
-      })
+      // The shorthand (non-function) form is the explicit way to overwrite a
+      // slot. A function callback that returns an object is ignored (mutate in
+      // place instead), consistent with root `change()`.
+      ref.change({ theme: "dark", fontSize: 14 } as any)
 
       expect(ref.doc()).toEqual({ theme: "dark", fontSize: 14 })
     })

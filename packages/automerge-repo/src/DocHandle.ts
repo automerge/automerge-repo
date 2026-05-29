@@ -404,6 +404,11 @@ export class DocHandle<T> {
    * the value at this path" (e.g. `counterSub.change(42)`). Function-typed
    * values can't use this shorthand - wrap them in `() => yourFunction`.
    *
+   * A function callback's return value is ignored (the document is mutated in
+   * place), consistent with root and sub-handles alike - so an accidental
+   * arrow-expression return won't replace a scoped object. Use the shorthand
+   * form to intentionally overwrite a slot.
+   *
    * @param callback - A function that takes the current document and mutates it.
    *
    */
@@ -418,14 +423,13 @@ export class DocHandle<T> {
       )
       return
     }
-    // Coerce shorthand value to a fn, then route through `applyScopedChange`
-    // inside an `A.change` block so mutations land on the change proxy.
-    const fn = (
-      typeof callback === "function" ? callback : () => callback
-    ) as SubChangeFn<T>
+    // Pass the callback through untouched: `applyScopedChange` distinguishes a
+    // mutator function from a shorthand replacement value itself. A function
+    // mutates in place (return value ignored, like root `change()`); a
+    // non-function value overwrites the slot.
     this.#document.applyMutation(doc =>
       A.change(doc as A.Doc<T>, options, mutable => {
-        this.#applyScopedChange(mutable as A.Doc<any>, fn)
+        this.#applyScopedChange(mutable as A.Doc<any>, callback)
       })
     )
   }
@@ -883,8 +887,11 @@ export class DocHandle<T> {
     )
   }
 
-  /** Apply a scoped change callback to a mutable view of the document. */
-  #applyScopedChange(doc: A.Doc<any>, fn: SubChangeFn<any>): A.Doc<any> {
+  /** Apply a scoped change to a mutable view: a mutator fn or a value. */
+  #applyScopedChange(
+    doc: A.Doc<any>,
+    fn: SubChangeFn<any> | unknown
+  ): A.Doc<any> {
     const propPath = this.#getPropPath(doc)
     this.#assertResolved(propPath, "change")
     return applyScopedChange(

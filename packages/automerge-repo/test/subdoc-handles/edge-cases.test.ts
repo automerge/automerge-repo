@@ -995,5 +995,103 @@ describe("Edge Cases", () => {
       const pinned = handle.view(oldHeads).sub("text", cursor(0, 5))
       expect(pinned.doc()).toBe("Hello")
     })
+
+    it("ignores a function callback's return value on an object scope (like root change)", () => {
+      handle.change(d => {
+        d.profile = { name: "ada", age: 36 }
+      })
+
+      const profile = handle.sub("profile")
+      // Arrow *expression* body: the callback returns the assigned value. As on
+      // a root handle, that return must be ignored - the object is mutated in
+      // place, not replaced with the string "ada".
+      profile.change(d => (d.name = "grace"))
+
+      expect(handle.doc().profile).toEqual({ name: "grace", age: 36 })
+    })
+
+    it("replaces via the shorthand value form on an object scope", () => {
+      handle.change(d => {
+        d.profile = { name: "ada", age: 36 }
+      })
+
+      // Non-function shorthand is an explicit replacement.
+      handle.sub("profile").change({ name: "grace", age: 0 } as any)
+
+      expect(handle.doc().profile).toEqual({ name: "grace", age: 0 })
+    })
+
+    it("uses a function callback's return value on a primitive scope", () => {
+      handle.change(d => {
+        d.count = 1
+      })
+
+      // Primitives have no in-place proxy, so the return value sets the slot -
+      // this is the one case where a function callback's return is consumed.
+      handle.sub("count").change((n: number) => n + 1)
+
+      expect(handle.doc().count).toBe(2)
+    })
+
+    it("ignores a function callback's return value on an array scope (push returns length)", () => {
+      handle.change(d => {
+        d.list = ["a"]
+      })
+
+      // `Array.push` returns the new length (a number). That return must be
+      // ignored - otherwise the array would be replaced by the number 2.
+      handle.sub("list").change((a: string[]) => a.push("b"))
+
+      expect(handle.doc().list).toEqual(["a", "b"])
+    })
+
+    it("replaces via the shorthand value form on an array scope", () => {
+      handle.change(d => {
+        d.list = ["a", "b"]
+      })
+
+      handle.sub("list").change(["x", "y", "z"] as any)
+
+      expect(handle.doc().list).toEqual(["x", "y", "z"])
+    })
+
+    it("replaces a string scope via a returned string (updateText)", () => {
+      handle.change(d => {
+        d.title = "hello"
+      })
+
+      // A function that returns a string replaces the text.
+      handle.sub("title").change(() => "HELLO")
+
+      expect(handle.doc().title).toBe("HELLO")
+    })
+
+    it("replaces a string scope via the shorthand value form", () => {
+      handle.change(d => {
+        d.title = "hello"
+      })
+
+      handle.sub("title").change("world" as any)
+
+      expect(handle.doc().title).toBe("world")
+    })
+
+    it("changeAt ignores a function callback's return value on an object scope", () => {
+      handle.change(d => {
+        d.profile = { name: "ada", age: 36 }
+      })
+      const oldHeads = handle.heads()
+      handle.change(d => {
+        d.profile.age = 37
+      })
+
+      // Arrow-expression return must be ignored on changeAt too (in-place),
+      // consistent with change() - the object stays an object.
+      handle.sub("profile").changeAt(oldHeads, (d: any) => (d.name = "grace"))
+
+      const profile = handle.doc().profile
+      expect(typeof profile).toBe("object")
+      expect(profile.name).toBe("grace")
+    })
   })
 })
