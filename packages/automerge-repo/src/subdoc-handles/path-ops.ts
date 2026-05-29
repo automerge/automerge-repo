@@ -166,7 +166,12 @@ export function applyScopedChange(
     if (!positions) return doc
     const [start, end] = positions
     const existingSubstring = currentValue.slice(start, end)
-    const result = isReplacement ? fn : (fn as any)(existingSubstring)
+    // Range scope receives the same boxed-String editor, offset to its span, so
+    // `splice`/`updateText` act within the range. A returned primitive string
+    // splices the new value into [start, end).
+    const result = isReplacement
+      ? fn
+      : (fn as any)(MutableText(doc, propPath, existingSubstring, { start }))
     if (typeof result === "string") {
       Automerge.splice(doc, propPath, start, end - start, result)
     }

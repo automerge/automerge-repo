@@ -85,11 +85,15 @@ export type PathInput = string | number | Pattern | CursorMarker
 export type AnyPathInput = PathInput | Segment
 
 /**
- * Mutable text wrapper that provides Automerge text operations.
- * Passed to change callbacks when the sub-handle points to a string value.
+ * Mutable text editor passed to a `change` callback when the sub-handle points
+ * to a string value (or a cursor range within one).
  *
- * Behaves like a string with two additional mutation methods.
- * Uses String (object type) because we proxy all string methods at runtime.
+ * At runtime this is a genuine boxed `String` (`new String(value)`) carrying
+ * two extra mutation methods, so it behaves as a real string everywhere
+ * (`instanceof String`, `.length`, indexing, every `String.prototype` method)
+ * - it extends `String`, not via a proxy. Note: as a boxed string `typeof` is
+ * `"object"` and `=== "literal"` is false; use `==`, template strings, or
+ * `valueOf()`. It is a snapshot of the value at callback entry.
  *
  * @experimental This API is experimental and may change in future versions.
  */

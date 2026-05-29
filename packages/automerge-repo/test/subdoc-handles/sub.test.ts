@@ -1047,6 +1047,117 @@ describe("Ref", () => {
     })
   })
 
+  describe("MutableText editor (boxed String)", () => {
+    beforeEach(() => {
+      handle.change(d => {
+        d.message = "Hello world"
+      })
+    })
+
+    it("behaves as a real String inside the callback", () => {
+      const ref = handle.sub("message")
+      ref.change((t: any) => {
+        expect(t instanceof String).toBe(true)
+        expect(t.length).toBe(11)
+        expect(t[0]).toBe("H")
+        expect(t.toUpperCase()).toBe("HELLO WORLD")
+        expect(t.slice(0, 5)).toBe("Hello")
+        expect(`${t}`).toBe("Hello world")
+        expect(t.valueOf()).toBe("Hello world")
+        expect(t == "Hello world").toBe(true)
+      })
+    })
+
+    it("does not expose splice/updateText as enumerable props", () => {
+      const ref = handle.sub("message")
+      ref.change((t: any) => {
+        expect(Object.keys(t)).not.toContain("splice")
+        expect(Object.keys(t)).not.toContain("updateText")
+        expect(typeof t.splice).toBe("function")
+        expect(typeof t.updateText).toBe("function")
+      })
+    })
+
+    it("splices text in place via the editor", () => {
+      const ref = handle.sub("message")
+      ref.change((t: any) => {
+        t.splice(0, 5, "Goodbye")
+      })
+      expect(handle.doc().message).toBe("Goodbye world")
+    })
+
+    it("updateText replaces the whole string via the editor", () => {
+      const ref = handle.sub("message")
+      ref.change((t: any) => {
+        t.updateText("Totally new content")
+      })
+      expect(handle.doc().message).toBe("Totally new content")
+    })
+
+    it("clamps out-of-range splice indices to the string length", () => {
+      const ref = handle.sub("message")
+      ref.change((t: any) => {
+        t.splice(100, 50, "!")
+      })
+      expect(handle.doc().message).toBe("Hello world!")
+    })
+
+    it("returning a primitive string replaces via updateText", () => {
+      const ref = handle.sub("message")
+      ref.change((t: any) => t.toUpperCase())
+      expect(handle.doc().message).toBe("HELLO WORLD")
+    })
+  })
+
+  describe("MutableText editor on a cursor range", () => {
+    beforeEach(() => {
+      handle.change(d => {
+        d.text = "Hello world"
+      })
+    })
+
+    it("receives a boxed String scoped to the substring", () => {
+      const ref = handle.sub("text", cursor(0, 5))
+      ref.change((t: any) => {
+        expect(t instanceof String).toBe(true)
+        expect(`${t}`).toBe("Hello")
+        expect(t.length).toBe(5)
+      })
+    })
+
+    it("splice on a range is offset into the span", () => {
+      const ref = handle.sub("text", cursor(0, 5))
+      ref.change((t: any) => {
+        // index 0 within the range == index 0 of "Hello"
+        t.splice(0, 5, "Hi")
+      })
+      expect(handle.doc().text).toBe("Hi world")
+    })
+
+    it("updateText on a range replaces only that span", () => {
+      const ref = handle.sub("text", cursor(6, 11))
+      ref.change((t: any) => {
+        t.updateText("there")
+      })
+      expect(handle.doc().text).toBe("Hello there")
+    })
+
+    it("clamps range splice into its own span", () => {
+      const ref = handle.sub("text", cursor(0, 5))
+      ref.change((t: any) => {
+        // deleteCount beyond the span is clamped to the span length
+        t.splice(0, 999, "Hey")
+      })
+      expect(handle.doc().text).toBe("Hey world")
+    })
+
+    it("returning a primitive string splices over the range", () => {
+      const ref = handle.sub("text", cursor(0, 5))
+      ref.change((t: any) => `${t}!`)
+      expect(handle.doc().text).toBe("Hello! world")
+    })
+  })
+
   describe("on('change') event listening", () => {
     it("should fire when the referenced value changes", async () => {
       handle.change(d => {
