@@ -1,6 +1,7 @@
 import assert from "assert"
 import { describe, expect, it } from "vitest"
 import {
+  DocumentId,
   generateAutomergeUrl,
   parseAutomergeUrl,
   PeerId,
@@ -9,6 +10,7 @@ import {
   StorageId,
 } from "../../index.js"
 import type { NetworkAdapterInterface } from "../../network/NetworkAdapterInterface.js"
+import type { PeerDocumentStatus } from "../../synchronizer/DocSynchronizer.js"
 import { eventPromise, eventPromises } from "../eventPromise.js"
 import { pause } from "../pause.js"
 
@@ -46,11 +48,23 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
         const aliceRepo = new Repo({ network: a, peerId: alice })
         const bobRepo = new Repo({ network: b, peerId: bob })
 
+        // Wait for the alice<->bob handshake to complete. Each repo sees
+        // one peer (the other) regardless of topology.
+        await Promise.all(
+          [aliceRepo, bobRepo].map(r =>
+            eventPromise(r.networkSubsystem, "peer")
+          )
+        )
+
         // Alice creates a document
         const aliceHandle = aliceRepo.create<TestDoc>()
 
-        // TODO: ... let connections complete. this shouldn't be necessary.
-        await pause(50)
+        // Wait for alice's docSync to confirm every direct peer has the
+        // doc before we call find() elsewhere. This is the deterministic
+        // version of "let the announce propagate": once a peer's status
+        // is "has" on alice's side it means the round-trip completed and
+        // that peer is ready to serve the doc to anyone who asks.
+        await waitForDocReceivedByAllPeers(aliceRepo, aliceHandle.documentId)
 
         const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
 
@@ -96,12 +110,30 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       const bobRepo = new Repo({ network: b, peerId: bob })
       const charlieRepo = new Repo({ network: c, peerId: charlie })
 
+      // Wait for the first peer event on each repo's networkSubsystem.
+      // In hub-and-spoke topologies the spokes never see each other so
+      // we can't wait for "all peers" without per-topology knowledge —
+      // but a single event per repo confirms the handshake started, and
+      // waitForDocReceivedByAllPeers below covers the remaining sync
+      // propagation.
+      await eventPromises(
+        [aliceRepo, bobRepo, charlieRepo].map(r => r.networkSubsystem),
+        "peer"
+      )
+
       // Alice creates a document
       const aliceHandle = aliceRepo.create<TestDoc>()
       const docUrl = aliceHandle.url
 
-      // Bob and Charlie receive the document
-      await pause(50)
+      // Wait for alice's docSync to confirm every direct peer has the
+      // doc. Critical in hub-and-spoke topologies: spokes have a single
+      // source (the hub), so if charlie.find() races ahead and sees the
+      // hub in "wants" status (because the hub hasn't synced from alice
+      // yet), the query's only source settles to "unavailable" and
+      // find() rejects. Waiting for alice's peers to all report "has"
+      // guarantees they have the doc before either spoke asks for it.
+      await waitForDocReceivedByAllPeers(aliceRepo, aliceHandle.documentId)
+
       const bobHandle = await bobRepo.find<TestDoc>(docUrl)
       const charlieHandle = await charlieRepo.find<TestDoc>(docUrl)
 
@@ -311,3 +343,47 @@ const toArray = <T>(x: T | T[]) => (Array.isArray(x) ? x : [x])
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId
 const charlie = "charlie" as PeerId
+
+/**
+ * Resolves once every direct peer of `repo` has been observed in `"has"`
+ * status for the given document — i.e. the per-peer sync round-trip has
+ * completed and each peer is ready to serve the doc.
+ *
+ * Subscribes synchronously: must be called in the same tick as the
+ * `create()` that produced the docSync, before yielding to the event
+ * loop, so no status transitions can fire before the handler is in
+ * place. (peer-status transitions away from the initial "unknown" only
+ * happen on incoming network messages, which arrive in later ticks.)
+ */
+const waitForDocReceivedByAllPeers = async (
+  repo: Repo,
+  documentId: DocumentId
+): Promise<void> => {
+  const docSync = repo.synchronizer.docSynchronizers[documentId]
+  if (!docSync) {
+    throw new Error(
+      `waitForDocReceivedByAllPeers: no DocSynchronizer for ${documentId}`
+    )
+  }
+  const expected = [...repo.synchronizer.peers]
+  if (expected.length === 0) return
+
+  await new Promise<void>(resolve => {
+    const seen = new Set<PeerId>()
+    const handler = ({
+      peerId,
+      status,
+    }: {
+      peerId: PeerId
+      status: PeerDocumentStatus
+    }) => {
+      if (status !== "has") return
+      seen.add(peerId)
+      if (expected.every(p => seen.has(p))) {
+        docSync.off("peer-status", handler)
+        resolve()
+      }
+    }
+    docSync.on("peer-status", handler)
+  })
+}
