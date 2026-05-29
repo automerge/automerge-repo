@@ -28,7 +28,7 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         text.splice(0, 5, "goodbye")
@@ -42,7 +42,7 @@ describe("RefContext", () => {
         d.doc = { title: "hello" }
       })
 
-      const titleRef = handle.ref("doc", "title")
+      const titleRef = handle.sub("doc", "title")
 
       titleRef.change(text => {
         text.splice(0, 0, "say ")
@@ -56,7 +56,7 @@ describe("RefContext", () => {
         d.items = [{ text: "first" }]
       })
 
-      const itemRef = handle.ref("items", 0, "text")
+      const itemRef = handle.sub("items", 0, "text")
 
       itemRef.change(text => {
         text.splice(5, 0, " item")
@@ -72,7 +72,7 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         text.updateText("goodbye")
@@ -86,7 +86,7 @@ describe("RefContext", () => {
         d.doc = { title: "old title" }
       })
 
-      const titleRef = handle.ref("doc", "title")
+      const titleRef = handle.sub("doc", "title")
 
       titleRef.change(text => {
         text.updateText("new title")
@@ -106,7 +106,7 @@ describe("RefContext", () => {
       })
 
       // Get stable ref using match pattern to find by id
-      const titleRef = handle.ref("todos", { id: "a" }, "title")
+      const titleRef = handle.sub("todos", { id: "a" }, "title")
 
       // Swap first two elements by inserting second at index 0 and deleting old second
       handle.change((d: any) => {
@@ -132,7 +132,7 @@ describe("RefContext", () => {
         ]
       })
 
-      const aliceRef = handle.ref("users", { id: "user1" }, "name")
+      const aliceRef = handle.sub("users", { id: "user1" }, "name")
 
       aliceRef.change(name => {
         name.updateText("Alice Smith")
@@ -149,7 +149,7 @@ describe("RefContext", () => {
         d.item = { title: "test", count: 0 }
       })
 
-      const itemRef = handle.ref("item")
+      const itemRef = handle.sub("item")
 
       itemRef.change(item => {
         item.count++
@@ -166,7 +166,7 @@ describe("RefContext", () => {
         d.count = 5
       })
 
-      const countRef = handle.ref("count")
+      const countRef = handle.sub("count")
 
       countRef.change(count => {
         return count + 1
@@ -180,7 +180,7 @@ describe("RefContext", () => {
         d.title = "hello"
       })
 
-      const titleRef = handle.ref("title")
+      const titleRef = handle.sub("title")
 
       titleRef.change(title => {
         // Should receive MutableText which has splice method
@@ -196,7 +196,7 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.toUpperCase()
@@ -210,7 +210,7 @@ describe("RefContext", () => {
         d.content = "HELLO WORLD"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.toLowerCase()
@@ -224,7 +224,7 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.slice(0, 5)
@@ -238,7 +238,7 @@ describe("RefContext", () => {
         d.content = "  hello  "
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.trim()
@@ -252,7 +252,7 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         expect(text.length).toBe(5)
@@ -264,7 +264,7 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         expect(text.charAt(0)).toBe("h")
@@ -277,7 +277,7 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         expect(text[0]).toBe("h")
@@ -290,7 +290,7 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.concat(" world")
@@ -304,7 +304,7 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.replace("world", "there")
@@ -318,7 +318,7 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       // First use a string method
       textRef.change(text => {

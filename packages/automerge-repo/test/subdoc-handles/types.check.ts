@@ -5,7 +5,7 @@
  */
 
 import type { DocHandle } from "../../src/DocHandle.js"
-import type { MutableText } from "../../src/refs/types.js"
+import type { MutableText } from "../../src/subdoc-handles/types.js"
 
 type TestDoc = {
   title: string
@@ -20,7 +20,7 @@ type TestDoc = {
 declare const handle: DocHandle<TestDoc>
 
 // String refs should receive MutableText
-const titleRef = handle.ref("title")
+const titleRef = handle.sub("title")
 titleRef.change(text => {
   // text should be MutableText
   text.splice(0, 5, "Hello")
@@ -30,7 +30,7 @@ titleRef.change(text => {
 })
 
 // Number refs should receive number
-const countRef = handle.ref("count")
+const countRef = handle.sub("count")
 countRef.change(count => {
   // count should be number
   const _n: typeof count = 0 // Should pass
@@ -38,7 +38,7 @@ countRef.change(count => {
 })
 
 // Object refs should receive the object
-const userRef = handle.ref("user")
+const userRef = handle.sub("user")
 userRef.change(user => {
   // user should be { name: string; email: string }
   user.name = "Alice"
@@ -47,7 +47,7 @@ userRef.change(user => {
 })
 
 // Nested string refs should receive MutableText
-const nameRef = handle.ref("user", "name")
+const nameRef = handle.sub("user", "name")
 nameRef.change(name => {
   // name should be MutableText
   name.splice(0, 0, "Dr. ")
@@ -55,7 +55,7 @@ nameRef.change(name => {
 })
 
 // Array element refs
-const todoRef = handle.ref("todos", 0)
+const todoRef = handle.sub("todos", 0)
 todoRef.change(todo => {
   // todo should be { title: string; done: boolean }
   todo.done = true
@@ -63,30 +63,30 @@ todoRef.change(todo => {
 })
 
 // Array element string field refs should receive MutableText
-const todoTitleRef = handle.ref("todos", 0, "title")
+const todoTitleRef = handle.sub("todos", 0, "title")
 todoTitleRef.change(title => {
   // title should be MutableText
   title.toUpperCase()
   const _t: typeof title = {} as MutableText // Should pass
 })
 
-// value() return types
-const titleValue = titleRef.value()
+// doc() return types
+const titleValue = titleRef.doc()
 // titleValue should be string | undefined
 const _tv: typeof titleValue = "" as string | undefined
 
-const countValue = countRef.value()
+const countValue = countRef.doc()
 // countValue should be number | undefined
 const _cv: typeof countValue = 0 as number | undefined
 
-const userValue = userRef.value()
+const userValue = userRef.doc()
 // userValue should be { name: string; email: string } | undefined
 const _uv: typeof userValue = { name: "", email: "" } as
   | { name: string; email: string }
   | undefined
 
 // Root document ref
-const rootRef = handle.ref()
+const rootRef = handle.sub()
 rootRef.change(doc => {
   // doc should be TestDoc
   doc.title = "New Title"
@@ -95,7 +95,7 @@ rootRef.change(doc => {
 })
 
 // Runtime warning: returning objects/arrays (no type error, just warning)
-const objectRef = handle.ref("user")
+const objectRef = handle.sub("user")
 
 // ✅ Correct: mutate in place
 objectRef.change(user => {
@@ -107,7 +107,7 @@ objectRef.change(user => {
   return { name: "Bob", email: "bob@example.com" } // Warning logged
 })
 
-const todosRef = handle.ref("todos")
+const todosRef = handle.sub("todos")
 
 // ✅ Correct: mutate in place
 todosRef.change(todos => {
@@ -120,12 +120,12 @@ todosRef.change(todos => {
 })
 
 // ✅ Can return primitives
-const countRef2 = handle.ref("count")
+const countRef2 = handle.sub("count")
 countRef2.change(count => {
   return count + 1 // ✅ Works fine
 })
 
-const titleRef2 = handle.ref("title")
+const titleRef2 = handle.sub("title")
 titleRef2.change(title => {
   return title.toUpperCase() // ✅ Works fine (MutableText is treated as primitive-like)
 })
@@ -134,18 +134,18 @@ titleRef2.change(title => {
 // Test where type inference should work vs fail
 
 // ✅ SHOULD WORK: Direct string key access
-const directKeyRef = handle.ref("user", "name")
-const directKeyValue = directKeyRef.value()
+const directKeyRef = handle.sub("user", "name")
+const directKeyValue = directKeyRef.doc()
 // Hover over directKeyValue - should be: string | undefined
 
 // ✅ SHOULD WORK: Numeric index on array
-const numericIndexRef = handle.ref("todos", 0, "title")
-const numericIndexValue = numericIndexRef.value()
+const numericIndexRef = handle.sub("todos", 0, "title")
+const numericIndexValue = numericIndexRef.doc()
 // Hover over numericIndexValue - should be: string | undefined
 
 // ❓ TEST: ID pattern lookup - does this infer correctly?
-const idPatternRef = handle.ref("todos", { done: true }, "title")
-const idPatternValue = idPatternRef.value()
+const idPatternRef = handle.sub("todos", { done: true }, "title")
+const idPatternValue = idPatternRef.doc()
 // Hover over idPatternValue - is this string | undefined or unknown?
 
 // ❓ TEST: Nested ID pattern - does this infer correctly?
@@ -159,13 +159,13 @@ type NestedDoc = {
 }
 declare const nestedHandle: DocHandle<NestedDoc>
 
-const nestedIdPatternRef = nestedHandle.ref(
+const nestedIdPatternRef = nestedHandle.sub(
   "users",
   { id: "123" },
   "profile",
   "name"
 )
-const nestedIdPatternValue = nestedIdPatternRef.value()
+const nestedIdPatternValue = nestedIdPatternRef.doc()
 // Hover over nestedIdPatternValue - is this string | undefined or unknown?
 
 // ✅ TEST: Deep nesting with literal keys (should work)
@@ -174,15 +174,15 @@ type DeepDoc = {
 }
 declare const deepHandle: DocHandle<DeepDoc>
 
-const deepNumberRef = deepHandle.ref("a", "b", "c", "d", "e")
-const deepNumberValue = deepNumberRef.value()
+const deepNumberRef = deepHandle.sub("a", "b", "c", "d", "e")
+const deepNumberValue = deepNumberRef.doc()
 // Hover over deepNumberValue - should be: number | undefined
 
 // === String Path Type Inference Tests ===
 import type {
   SegmentsFromString,
-  InferRefTypeFromString,
-} from "../../src/refs/types.js"
+  InferSubTypeFromString,
+} from "../../src/subdoc-handles/types.js"
 
 // Test PathFromString parsing
 type TestSplit1 = SegmentsFromString<"todos/0/title">
@@ -194,7 +194,7 @@ type TestSplit2 = SegmentsFromString<"text/[cursor1-cursor2]">
 type TestSplit3 = SegmentsFromString<"users">
 // Should be: ["users"]
 
-// Test InferRefTypeFromString
+// Test InferSubTypeFromString
 type DocForStringTest = {
   title: string
   count: number
@@ -202,17 +202,17 @@ type DocForStringTest = {
   content: string
 }
 
-type Test1 = InferRefTypeFromString<DocForStringTest, "title">
+type Test1 = InferSubTypeFromString<DocForStringTest, "title">
 // Should be: string
 
-type Test2 = InferRefTypeFromString<DocForStringTest, "todos/0/title">
+type Test2 = InferSubTypeFromString<DocForStringTest, "todos/0/title">
 // Should be: string
 
-type Test3 = InferRefTypeFromString<DocForStringTest, "count">
+type Test3 = InferSubTypeFromString<DocForStringTest, "count">
 // Should be: number
 
 // Note: in the pre-unification API there was a `refFromString(handle, "a/b/c")`
-// helper. Now `handle.ref(...)` takes variadic path inputs directly, so the
+// helper. Now `handle.sub(...)` takes variadic path inputs directly, so the
 // string-path types above are still useful for URL parsing but there is no
 // dedicated helper here.
 

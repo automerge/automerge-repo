@@ -121,17 +121,17 @@ export type {
 
 export * from "./types.js"
 
-// Path / ref helpers (experimental). Refs and DocHandles are now the
-// same type - `handle.ref(...)` returns a `DocHandle`. Path-related
-// types and the `cursor()` helper live here.
+// Sub-document handle helpers (experimental). A sub-handle is just a
+// `DocHandle` scoped to a path - `handle.sub(...)` returns a `DocHandle`.
+// Path-related types and the `cursor()` helper live here.
 export type {
   PathInput,
   MutableText,
-  InferRefType,
+  InferSubType,
   Pattern,
-  RefChangeFn,
-} from "./refs/types.js"
-export { cursor } from "./refs/utils.js"
+  SubChangeFn,
+} from "./subdoc-handles/types.js"
+export { cursor } from "./subdoc-handles/utils.js"
 
 // Automerge re-exports
 //

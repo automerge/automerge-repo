@@ -1,8 +1,8 @@
 export type {
   PathInput,
   MutableText,
-  RefChangeFn,
-  InferRefType,
+  SubChangeFn,
+  InferSubType,
   Pattern,
 } from "./types.js"
 

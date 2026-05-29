@@ -195,7 +195,7 @@ describe("DocHandle", () => {
 
     // A sub-handle scoped at `nested` reports the change to `items` with a
     // path relative to itself (`["items", 1]`, not `["nested", "items", 1]`).
-    const sub = handle.ref("nested") as unknown as DocHandle<{
+    const sub = handle.sub("nested") as unknown as DocHandle<{
       items: string[]
     }>
     const patches = sub.diff(before, handle.heads()!)

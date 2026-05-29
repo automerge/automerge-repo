@@ -3,6 +3,8 @@ import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
+import { splice } from "../../src/index.js"
+import { cursor } from "../../src/subdoc-handles/utils.js"
 
 /**
  * Tests for the unified DocHandle/Ref API. The idea: a "ref" is now just a
@@ -30,7 +32,7 @@ describe("unified DocHandle / Ref", () => {
         d.items = [{ title: "First" }, { title: "Second" }]
       })
 
-      const sub = handle.ref("items", 0, "title")
+      const sub = handle.sub("items", 0, "title")
       expect(sub.url).toBe(`${handle.url}/items/@0/title`)
     })
 
@@ -39,11 +41,11 @@ describe("unified DocHandle / Ref", () => {
         d.user = { name: "Alice" }
       })
 
-      const sub = handle.ref("user", "name")
+      const sub = handle.sub("user", "name")
       const url = sub.url
 
       // Re-derive a handle via the same ref path and compare URLs
-      const recreated = handle.ref("user", "name")
+      const recreated = handle.sub("user", "name")
       expect(recreated.url).toBe(url)
       expect(recreated.equals(sub)).toBe(true)
     })
@@ -58,7 +60,7 @@ describe("unified DocHandle / Ref", () => {
         d.value = 1
       })
       const heads = Automerge.getHeads(handle.doc())
-      const sub = handle.ref("value").view(encodeHeads(heads))
+      const sub = handle.sub("value").view(encodeHeads(heads))
       expect(sub.url).toContain("#")
     })
   })
@@ -70,8 +72,8 @@ describe("unified DocHandle / Ref", () => {
       })
       const heads = handle.heads()
 
-      const a = handle.view(heads).ref("value")
-      const b = handle.ref("value").view(heads)
+      const a = handle.view(heads).sub("value")
+      const b = handle.sub("value").view(heads)
 
       expect(a).toBe(b)
       expect(a.url).toBe(b.url)
@@ -120,8 +122,8 @@ describe("unified DocHandle / Ref", () => {
       })
       const heads2 = handle.heads()
 
-      const v1 = handle.ref("value").view(heads1)
-      const v2 = handle.ref("value").view(heads2)
+      const v1 = handle.sub("value").view(heads1)
+      const v2 = handle.sub("value").view(heads2)
       expect(v1).not.toBe(v2)
       expect(v1.doc()).toBe(1)
       expect(v2.doc()).toBe(2)
@@ -146,7 +148,7 @@ describe("unified DocHandle / Ref", () => {
         d.items = [{ title: "Hello" }, { title: "World" }]
       })
 
-      const titleRefUrl = created.ref("items", 0, "title").url
+      const titleRefUrl = created.sub("items", 0, "title").url
       const found = await repo.find<string>(titleRefUrl)
 
       expect(found.documentId).toBe(created.documentId)
@@ -168,7 +170,7 @@ describe("unified DocHandle / Ref", () => {
         d.value = 2
       })
 
-      const url = created.ref("value").view(encodeHeads(heads)).url
+      const url = created.sub("value").view(encodeHeads(heads)).url
       const resolved = await repo.find<number>(url)
 
       expect(resolved.doc()).toBe(1)
@@ -179,7 +181,7 @@ describe("unified DocHandle / Ref", () => {
   describe("document lifecycle", () => {
     it("delete() on a sub-handle deletes the whole document", () => {
       handle.change(d => (d.a = { x: 1 }))
-      const sub = handle.ref("a")
+      const sub = handle.sub("a")
       expect(handle.isDeleted()).toBe(false)
       expect(sub.isDeleted()).toBe(false)
 
@@ -212,7 +214,7 @@ describe("unified DocHandle / Ref", () => {
         d.b = { value: 1 }
       })
 
-      const subA = handle.ref("a")
+      const subA = handle.sub("a")
       const events: any[] = []
       subA.on("change", payload => events.push(payload))
 
@@ -233,7 +235,7 @@ describe("unified DocHandle / Ref", () => {
         d.title = "Old"
       })
 
-      const titleRef = handle.ref("title")
+      const titleRef = handle.sub("title")
       const observed: (string | undefined)[] = []
       titleRef.onChange(v => observed.push(v as string | undefined))
 
@@ -281,7 +283,7 @@ describe("unified DocHandle / Ref", () => {
       const pinnedHeads = handle.heads()
 
       // Pinned at the path AND at heads.
-      const pinnedTitle = handle.ref("title").view(pinnedHeads)
+      const pinnedTitle = handle.sub("title").view(pinnedHeads)
 
       const events: any[] = []
       pinnedTitle.on("change", p => events.push(p))
@@ -308,7 +310,7 @@ describe("unified DocHandle / Ref", () => {
         ]
       })
 
-      const ref = handle.ref("items", { id: "b" }, "value")
+      const ref = handle.sub("items", { id: "b" }, "value")
       // Initial resolution (from #normalizePath at construction): b is at 1.
       expect(ref.path[1].prop).toBe(1)
       expect(ref.doc()).toBe(2)
@@ -323,6 +325,254 @@ describe("unified DocHandle / Ref", () => {
       // value() triggers lazy refresh via scopedValue -> updatePropsFromRoot.
       expect(ref.doc()).toBe(2)
       expect(ref.path[1].prop).toBe(0)
+    })
+
+    it("sub-handle change payload.doc is the scoped value, not the whole doc", () => {
+      handle.change(d => {
+        d.user = { name: "Alice", age: 30 }
+        d.unrelated = "x"
+      })
+
+      const userRef = handle.sub("user")
+      const payloads: any[] = []
+      userRef.on("change", p => payloads.push(p))
+
+      handle.change(d => {
+        d.user.age = 31
+      })
+
+      expect(payloads.length).toBe(1)
+      // doc is scoped to the sub-handle's path...
+      expect(payloads[0].doc).toEqual({ name: "Alice", age: 31 })
+      // ...not the whole document.
+      expect(payloads[0].doc.unrelated).toBeUndefined()
+      // patches stay scoped too.
+      expect(payloads[0].patches.length).toBeGreaterThan(0)
+    })
+
+    it("sub-handle heads-changed payload.doc is the whole document", () => {
+      // Unlike `change` (scoped), `heads-changed` is a document-level event:
+      // heads move for the whole doc, so the payload carries the full doc.
+      handle.change(d => {
+        d.user = { name: "Alice" }
+        d.unrelated = "x"
+      })
+
+      const userRef = handle.sub("user")
+      const payloads: any[] = []
+      userRef.on("heads-changed", p => payloads.push(p))
+
+      handle.change(d => {
+        d.unrelated = "y"
+      })
+
+      expect(payloads.length).toBe(1)
+      expect(payloads[0].doc).toEqual({ user: { name: "Alice" }, unrelated: "y" })
+    })
+  })
+
+  describe("live vs historical resolution", () => {
+    it("changeAt resolves a pattern path against the historical doc, not the live one", () => {
+      handle.change(d => {
+        d.items = [
+          { id: "a", n: 1 },
+          { id: "b", n: 2 },
+        ]
+      })
+      const oldHeads = handle.heads()
+
+      // Insert a new item at the front in the live doc, shifting id "a"
+      // from index 0 to index 1.
+      handle.change(d => {
+        d.items.splice(0, 0, { id: "z", n: 0 })
+      })
+      expect(handle.doc().items.map((i: any) => i.id)).toEqual([
+        "z",
+        "a",
+        "b",
+      ])
+
+      // changeAt at the OLD heads, where id "a" is still at index 0. The
+      // pattern must resolve against that historical doc, not the live one
+      // (where index 1 historically held "b").
+      const aRef = handle.sub("items", { id: "a" })
+      aRef.changeAt(oldHeads, (item: any) => {
+        item.n = 99
+      })
+
+      const a = handle.doc().items.find((i: any) => i.id === "a")
+      const b = handle.doc().items.find((i: any) => i.id === "b")
+      expect(a.n).toBe(99)
+      expect(b.n).toBe(2)
+    })
+
+    it("cursor refs on a pinned view resolve against the historical text", () => {
+      handle.change(d => {
+        d.text = "hello world"
+      })
+      const oldHeads = handle.heads()
+
+      // Prepend to the live text so positions shift relative to the old view.
+      handle.change(d => {
+        splice(d, ["text"], 0, 0, ">>>")
+      })
+      expect(handle.doc().text).toBe(">>>hello world")
+
+      // The cursor range must be created from - and read back against - the
+      // pinned view's text ("hello world"), not the live text.
+      const pinned = handle.view(oldHeads)
+      const rangeRef = pinned.sub("text", cursor(0, 5))
+
+      expect(rangeRef.doc()).toBe("hello")
+    })
+  })
+
+  describe("unresolvable paths", () => {
+    it("pattern matching skips non-object array items instead of throwing", () => {
+      handle.change(d => {
+        // Mixed array: nulls and primitives alongside objects.
+        d.items = [null, 1, "x", { id: "a", n: 1 }, { id: "b", n: 2 }]
+      })
+
+      // Resolution must not throw on the null/primitive items.
+      const aRef = handle.sub("items", { id: "a" })
+      expect(aRef.doc()).toEqual({ id: "a", n: 1 })
+
+      // A non-matching pattern simply resolves to nothing.
+      const missing = handle.sub("items", { id: "nope" })
+      expect(missing.doc()).toBeUndefined()
+    })
+
+    it("reads on an unresolvable (no-match) path return undefined", () => {
+      handle.change(d => {
+        d.items = [{ id: "a" }]
+      })
+      expect(handle.sub("items", { id: "nope" }, "x").doc()).toBeUndefined()
+    })
+
+    it("change() on an unresolvable (no-match) path throws rather than no-op", () => {
+      handle.change(d => {
+        d.items = [{ id: "a", n: 1 }]
+      })
+
+      const ghost = handle.sub("items", { id: "nope" })
+      expect(() => ghost.change((v: any) => ({ ...v, n: 5 }))).toThrow(
+        /does not resolve/i
+      )
+      // The document is untouched.
+      expect(handle.doc().items).toEqual([{ id: "a", n: 1 }])
+    })
+
+    it("remove() on an unresolvable (no-match) path throws rather than no-op", () => {
+      handle.change(d => {
+        d.items = [{ id: "a", n: 1 }]
+      })
+
+      const ghost = handle.sub("items", { id: "nope" })
+      expect(() => ghost.remove()).toThrow(/does not resolve/i)
+      expect(handle.doc().items).toEqual([{ id: "a", n: 1 }])
+    })
+
+    it("change() can still create an absent literal key (keys resolve symbolically)", () => {
+      handle.change(d => {
+        d.data = {}
+      })
+      // "missing" doesn't exist yet, but a literal key always resolves -
+      // so this creates it rather than throwing.
+      handle.sub("data", "missing").change(() => "now exists")
+      expect(handle.doc().data.missing).toBe("now exists")
+    })
+  })
+
+  describe("pattern dispatch under array mutation", () => {
+    // A pattern sub-handle (`{ id }`) must be notified when its matched
+    // element's *presence* changes - appears, disappears, or is replaced -
+    // not only when its contents change. Dispatch that resolves patterns
+    // against the after-state only will miss disappearances (the element is
+    // gone, so nothing matches) and can misroute a sibling's patch.
+
+    it("fires a change when the matched element is deleted", () => {
+      handle.change(d => {
+        d.items = [
+          { id: "a", v: 1 },
+          { id: "b", v: 2 },
+        ]
+      })
+      const subB = handle.sub("items", { id: "b" })
+      const events: any[] = []
+      subB.on("change", p => events.push(p))
+
+      handle.change(d => {
+        d.items.deleteAt(1) // remove the { id: "b" } element
+      })
+
+      expect(events.length).toBeGreaterThan(0)
+      expect(events[events.length - 1].scopeReplaced).toBe(true)
+      expect(subB.doc()).toBeUndefined()
+    })
+
+    it("fires a change when the matched element stops matching", () => {
+      handle.change(d => {
+        d.items = [{ id: "b", v: 2 }]
+      })
+      const subB = handle.sub("items", { id: "b" })
+      const events: any[] = []
+      subB.on("change", p => events.push(p))
+
+      handle.change(d => {
+        d.items[0].id = "z" // { id: "b" } no longer matches anything
+      })
+
+      expect(events.length).toBeGreaterThan(0)
+      expect(subB.doc()).toBeUndefined()
+    })
+
+    it("fires a change when a matching element appears", () => {
+      handle.change(d => {
+        d.items = [{ id: "a" }]
+      })
+      const subZ = handle.sub("items", { id: "z" })
+      const events: any[] = []
+      subZ.on("change", p => events.push(p))
+
+      handle.change(d => {
+        d.items.push({ id: "z", v: 9 })
+      })
+
+      expect(events.length).toBeGreaterThan(0)
+      expect(subZ.doc()).toEqual({ id: "z", v: 9 })
+    })
+
+    it("deleting a sibling notifies the deleted element and preserves survivors", () => {
+      handle.change(d => {
+        d.items = [
+          { id: "a", v: 1 },
+          { id: "b", v: 2 },
+        ]
+      })
+      const subA = handle.sub("items", { id: "a" })
+      const subB = handle.sub("items", { id: "b" })
+      const aEvents: any[] = []
+      const bEvents: any[] = []
+      subA.on("change", p => aEvents.push(p))
+      subB.on("change", p => bEvents.push(p))
+
+      handle.change(d => {
+        d.items.deleteAt(0) // delete "a"; "b" shifts from index 1 -> 0
+      })
+
+      // The deleted element's handle must be notified (was missed before).
+      expect(aEvents.length).toBeGreaterThan(0)
+      expect(subA.doc()).toBeUndefined()
+
+      // The survivor's value must remain intact and uncorrupted - it must
+      // not receive "a"'s deletion as one of its own content patches.
+      expect(subB.doc()).toEqual({ id: "b", v: 2 })
+      for (const e of bEvents) {
+        for (const patch of e.patches) {
+          expect(patch.action).not.toBe("del")
+        }
+      }
     })
   })
 
@@ -343,7 +593,7 @@ describe("unified DocHandle / Ref", () => {
 
       const fullHistory = handle.history()
       expect(fullHistory).toBeDefined()
-      const subHistory = handle.ref("a").history()
+      const subHistory = handle.sub("a").history()
       expect(subHistory).toBeDefined()
       // Sub-history should be strictly smaller than full history because the
       // middle change only touched `b`.
@@ -360,7 +610,7 @@ describe("unified DocHandle / Ref", () => {
         d.b = 1
       })
       const rootHistory = handle.history()
-      const selfHistory = handle.ref().history()
+      const selfHistory = handle.sub().history()
       expect(selfHistory).toEqual(rootHistory)
     })
 
@@ -393,7 +643,7 @@ describe("unified DocHandle / Ref", () => {
           d.unrelated = "x"
         })
 
-        const ref = handle.ref("items", { id: "b" }, "value")
+        const ref = handle.sub("items", { id: "b" }, "value")
         const subHistory = ref.history()
         expect(subHistory).toBeDefined()
 
@@ -425,7 +675,7 @@ describe("unified DocHandle / Ref", () => {
 
       expect((handle as any)._handleRetainerSize).toBe(baseline)
 
-      const sub = handle.ref("title")
+      const sub = handle.sub("title")
       const unsubscribe = sub.onChange(() => {})
 
       expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
@@ -442,7 +692,7 @@ describe("unified DocHandle / Ref", () => {
       const events: (string | undefined)[] = []
       // Attach a listener without keeping a reference to the sub-handle.
       ;(() => {
-        handle.ref("title").onChange(v => events.push(v as string | undefined))
+        handle.sub("title").onChange(v => events.push(v as string | undefined))
       })()
 
       expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
@@ -459,7 +709,7 @@ describe("unified DocHandle / Ref", () => {
         d.title = "Old"
       })
 
-      const sub = handle.ref("title")
+      const sub = handle.sub("title")
       sub.on("change", () => {})
       sub.on("heads-changed", () => {})
       expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
@@ -473,7 +723,7 @@ describe("unified DocHandle / Ref", () => {
         d.title = "Old"
       })
 
-      const sub = handle.ref("title")
+      const sub = handle.sub("title")
       sub.once("change", () => {})
       expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
 
@@ -496,7 +746,7 @@ describe("unified DocHandle / Ref", () => {
       const events: (string | undefined)[] = []
       let weak: WeakRef<DocHandle<any>> | undefined
       ;(() => {
-        const sub = handle.ref("title")
+        const sub = handle.sub("title")
         weak = new WeakRef(sub)
         sub.onChange(v => events.push(v as string | undefined))
       })()
@@ -512,6 +762,36 @@ describe("unified DocHandle / Ref", () => {
         d.title = "New"
       })
       expect(events).toEqual(["New"])
+    })
+
+    it("prunes trie nodes for sub-handles that are garbage-collected", async () => {
+      // Only runs under --expose-gc; skip quietly otherwise.
+      const gc = (globalThis as any).gc as (() => void) | undefined
+      if (typeof gc !== "function") return
+
+      handle.change(d => {
+        d.items = [{ id: "seed", v: 0 }]
+      })
+      const baselineNodes = (handle as any)._trieNodeCount
+
+      // Create many transient sub-handles at distinct pattern paths, holding
+      // no references and attaching no listeners - they're weakly held only.
+      ;(() => {
+        for (let i = 0; i < 200; i++) {
+          handle.sub("items", { id: `transient-${i}` }).doc()
+        }
+      })()
+
+      expect((handle as any)._trieNodeCount).toBeGreaterThan(baselineNodes)
+
+      for (let i = 0; i < 10; i++) {
+        gc()
+        await new Promise(r => setTimeout(r, 5))
+      }
+
+      // Once the transient handles are collected, the finalizer prunes their
+      // nodes back toward the baseline (bounded by live handles).
+      expect((handle as any)._trieNodeCount).toBeLessThan(baselineNodes + 50)
     })
   })
 })

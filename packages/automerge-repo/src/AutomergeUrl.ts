@@ -16,8 +16,8 @@ import {
 import {
   parsePath,
   serializePath,
-} from "./refs/parser.js"
-import type { Segment } from "./refs/types.js"
+} from "./subdoc-handles/parser.js"
+import type { Segment } from "./subdoc-handles/types.js"
 
 import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
 

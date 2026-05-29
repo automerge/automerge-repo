@@ -3,7 +3,7 @@ import debug from "debug"
 import type { DocumentId } from "./types.js"
 import type { StorageId } from "./storage/types.js"
 import type { SyncInfo } from "./DocHandle.js"
-import { HandleRegistry } from "./refs/handle-registry.js"
+import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every

@@ -327,7 +327,7 @@ describe("useDocument", () => {
 
   it("should resolve a ref (sub-document) url to a scoped handle", async () => {
     const { handle, options } = setup()
-    const subUrl = handle.ref("projects", 0).url
+    const subUrl = handle.sub("projects", 0).url
     // index segments serialize as `@0`
     expect(subUrl).toBe(`${handle.url}/projects/@0`)
 
@@ -357,7 +357,7 @@ describe("useDocument", () => {
 
   it("should update a ref-url projection when an ancestor mutates the sub-tree", async () => {
     const { handle, options } = setup()
-    const subUrl = handle.ref("projects", 0, "items", 0).url
+    const subUrl = handle.sub("projects", 0, "items", 0).url
 
     await testEffect(done => {
       const [doc] = useDocument<{ title: string }>(subUrl, options)
@@ -375,6 +375,28 @@ describe("useDocument", () => {
     })
   })
 
+  it("clears a pattern-ref projection when its matched element is deleted", async () => {
+    const { handle, options } = setup()
+    // Pattern sub-URL: the element of `hellos` matching `{ hello: "hedgehog" }`.
+    const subUrl = handle.sub("hellos", { hello: "hedgehog" }).url
+
+    await testEffect(done => {
+      const [doc] = useDocument<{ hello: string }>(subUrl, options)
+      createEffect((run: number = 0) => {
+        if (run == 0) {
+          expect(doc()?.hello).toBe("hedgehog")
+          // Delete the matched element through the root handle.
+          handle.change(d => d.hellos.deleteAt(1))
+        } else if (run == 1) {
+          // The scoped projection must react to the disappearance.
+          expect(doc()?.hello).toBeUndefined()
+          done()
+        }
+        return run + 1
+      })
+    })
+  })
+
   it("should resolve a ref url pinned at heads (heads + path)", async () => {
     const { handle, options } = setup()
     // heads at the initial value, then mutate the scoped sub-tree
@@ -382,7 +404,7 @@ describe("useDocument", () => {
     handle.change(d => (d.projects[0].title = "two"))
 
     // URL carries both a path suffix and fixed heads
-    const pinnedSubUrl = handle.ref("projects", 0).view(headsAtOne).url
+    const pinnedSubUrl = handle.sub("projects", 0).view(headsAtOne).url
     expect(pinnedSubUrl).toContain("/projects/@0")
     expect(pinnedSubUrl).toContain("#")
 

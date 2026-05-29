@@ -285,7 +285,7 @@ describe("useDocument", () => {
       React.act(() => handleA.change(d => (d.nested = { value: "nested-A" })))
 
       // A ref URL carries a `/path` suffix (e.g. automerge:<id>/nested).
-      const subUrl = handleA.ref("nested").url
+      const subUrl = handleA.sub("nested").url
       expect(subUrl).toBe(`${handleA.url}/nested`)
 
       const onDoc = vi.fn()
@@ -304,7 +304,7 @@ describe("useDocument", () => {
     it("should update when the referenced sub-tree changes", async () => {
       const { wrapper, handleA } = setup()
       React.act(() => handleA.change(d => (d.nested = { value: "before" })))
-      const subUrl = handleA.ref("nested").url
+      const subUrl = handleA.sub("nested").url
 
       render(
         <Suspense fallback={<div data-testid="loading">Loading...</div>}>
@@ -324,6 +324,46 @@ describe("useDocument", () => {
       })
     })
 
+    it("updates to undefined when the referenced array element is deleted", async () => {
+      const { wrapper, handleA } = setup()
+      React.act(() =>
+        handleA.change(d => {
+          ;(d as any).items = [
+            { id: "a", value: "AA" },
+            { id: "b", value: "BB" },
+          ]
+        })
+      )
+      // A pattern sub-URL: the element of `items` matching `{ id: "b" }`.
+      const subUrl = (handleA as any).sub("items", { id: "b" }).url
+
+      const onDoc = vi.fn()
+      render(
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <NestedComponent url={subUrl} onDoc={onDoc} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId("content")).toHaveTextContent("BB")
+      )
+
+      // Delete the matched element via the root handle. The scoped sub-handle
+      // must be notified (dispatch resolves patterns against before+after),
+      // so the component re-renders to the now-undefined scope.
+      React.act(() =>
+        handleA.change(d => {
+          ;(d as any).items.deleteAt(1)
+        })
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId("content")).toHaveTextContent("")
+      )
+      expect(onDoc).toHaveBeenLastCalledWith(undefined)
+    })
+
     it("should resolve a ref URL pinned at heads (heads + path)", async () => {
       const { wrapper, handleA } = setup()
       React.act(() => handleA.change(d => (d.nested = { value: "v1" })))
@@ -331,7 +371,7 @@ describe("useDocument", () => {
       React.act(() => handleA.change(d => (d.nested!.value = "v2")))
 
       // URL carries both a path suffix and fixed heads.
-      const pinnedSubUrl = handleA.ref("nested").view(headsAtV1).url
+      const pinnedSubUrl = handleA.sub("nested").view(headsAtV1).url
       expect(pinnedSubUrl).toContain("/nested")
       expect(pinnedSubUrl).toContain("#")
 

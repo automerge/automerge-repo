@@ -2,17 +2,16 @@ import * as Automerge from "@automerge/automerge"
 import { beforeEach, describe, expect, it } from "vitest"
 import { Repo } from "../../src/Repo.js"
 import type { DocHandle } from "../../src/DocHandle.js"
-import { KIND } from "../../src/refs/types.js"
-import { cursor } from "../../src/refs/utils.js"
+import { KIND } from "../../src/subdoc-handles/types.js"
+import { cursor } from "../../src/subdoc-handles/utils.js"
 import { encodeHeads, parseAutomergeUrl } from "../../src/AutomergeUrl.js"
 import { splice } from "../../src/index.js"
 
 /**
- * Reconstruct a ref from its URL. In the pre-unification API this lived
- * as `refFromUrl(handle, url)`; now we just parse the URL's segments and
- * apply them via `handle.ref(...)`.
+ * Reconstruct a sub-handle from its URL: parse the URL's segments and
+ * apply them via `handle.sub(...)`.
  */
-function refFromUrl(h: DocHandle<any>, url: string): DocHandle<any> {
+function subFromUrl(h: DocHandle<any>, url: string): DocHandle<any> {
   const parsed = parseAutomergeUrl(url as any)
   if (parsed.documentId !== h.documentId) {
     throw new Error(
@@ -20,7 +19,7 @@ function refFromUrl(h: DocHandle<any>, url: string): DocHandle<any> {
     )
   }
   const segments = (parsed.segments ?? []) as any[]
-  const sub = h.ref(...segments)
+  const sub = h.sub(...segments)
   return parsed.heads ? sub.view(parsed.heads) : sub
 }
 
@@ -39,7 +38,7 @@ describe("Ref", () => {
         d.title = "Test Document"
       })
 
-      const ref = handle.ref("title")
+      const ref = handle.sub("title")
       expect(ref.doc()).toBe("Test Document")
     })
 
@@ -48,10 +47,10 @@ describe("Ref", () => {
         d.user = { name: "Alice", age: 30 }
       })
 
-      const nameRef = handle.ref("user", "name")
+      const nameRef = handle.sub("user", "name")
       expect(nameRef.doc()).toBe("Alice")
 
-      const ageRef = handle.ref("user", "age")
+      const ageRef = handle.sub("user", "age")
       expect(ageRef.doc()).toBe(30)
     })
 
@@ -63,10 +62,10 @@ describe("Ref", () => {
         ]
       })
 
-      const firstTodo = handle.ref("todos", 0)
+      const firstTodo = handle.sub("todos", 0)
       expect(firstTodo.doc()).toEqual({ title: "First", done: false })
 
-      const secondTitle = handle.ref("todos", 1, "title")
+      const secondTitle = handle.sub("todos", 1, "title")
       expect(secondTitle.doc()).toBe("Second")
     })
 
@@ -75,7 +74,7 @@ describe("Ref", () => {
         d.data = { foo: "bar" }
       })
 
-      const invalidRef = handle.ref("nonexistent", "path")
+      const invalidRef = handle.sub("nonexistent", "path")
       expect(invalidRef.doc()).toBeUndefined()
     })
 
@@ -84,7 +83,7 @@ describe("Ref", () => {
         d.items = ["a", "b", "c"]
       })
 
-      const ref = handle.ref("items", 99)
+      const ref = handle.sub("items", 99)
       expect(ref.doc()).toBeUndefined()
     })
   })
@@ -95,7 +94,7 @@ describe("Ref", () => {
         d.todo = { title: "Buy milk", done: false }
       })
 
-      const doneRef = handle.ref("todo", "done")
+      const doneRef = handle.sub("todo", "done")
       doneRef.change(() => {
         return true
       })
@@ -108,7 +107,7 @@ describe("Ref", () => {
         d.counter = 0
       })
 
-      const counterRef = handle.ref("counter")
+      const counterRef = handle.sub("counter")
       counterRef.change((n: any) => n + 1)
       expect(counterRef.doc()).toBe(1)
 
@@ -121,7 +120,7 @@ describe("Ref", () => {
         d.greeting = "hello"
       })
 
-      const ref = handle.ref("greeting")
+      const ref = handle.sub("greeting")
       ref.change((str: any) => str.toUpperCase())
       expect(ref.doc()).toBe("HELLO")
     })
@@ -131,7 +130,7 @@ describe("Ref", () => {
         d.user = { name: "Alice", settings: { theme: "light" } }
       })
 
-      const themeRef = handle.ref("user", "settings", "theme")
+      const themeRef = handle.sub("user", "settings", "theme")
       themeRef.change(() => "dark")
 
       expect(themeRef.doc()).toBe("dark")
@@ -143,7 +142,7 @@ describe("Ref", () => {
         d.message = "Hello world"
       })
 
-      const rangeRef = handle.ref("message", cursor(0, 5))
+      const rangeRef = handle.sub("message", cursor(0, 5))
       expect(rangeRef.doc()).toBe("Hello")
 
       rangeRef.change(() => "Hi")
@@ -161,7 +160,7 @@ describe("Ref", () => {
       })
 
       // Use cursor() to create cursor-based range
-      const rangeRef = handle.ref("text", cursor(0, 5))
+      const rangeRef = handle.sub("text", cursor(0, 5))
       expect(rangeRef.range?.[KIND]).toBe("cursors")
       expect(rangeRef.doc()).toBe("Hello")
 
@@ -183,7 +182,7 @@ describe("Ref", () => {
 
       expect(handle.doc().note).toBe("Prefix: Original text")
 
-      const rangeRef = handle.ref("note", cursor(8, 16))
+      const rangeRef = handle.sub("note", cursor(8, 16))
       expect(rangeRef.doc()).toBe("Original")
 
       rangeRef.change(() => "Modified")
@@ -196,7 +195,7 @@ describe("Ref", () => {
         d.text = "Hello world"
       })
 
-      const rangeRef = handle.ref("text", cursor(6, 11))
+      const rangeRef = handle.sub("text", cursor(6, 11))
       expect(rangeRef.doc()).toBe("world")
 
       rangeRef.change(() => "")
@@ -209,7 +208,7 @@ describe("Ref", () => {
         d.text = "Hello world"
       })
 
-      const rangeRef = handle.ref("text", cursor(6, 11))
+      const rangeRef = handle.sub("text", cursor(6, 11))
       rangeRef.change(() => "beautiful universe")
 
       expect(handle.doc().text).toBe("Hello beautiful universe")
@@ -222,7 +221,7 @@ describe("Ref", () => {
 
       // Error is thrown during ref creation, not during change()
       expect(() => {
-        handle.ref("items", cursor(0, 2))
+        handle.sub("items", cursor(0, 2))
       }).toThrow("cursor() can only be used on string values")
     })
 
@@ -231,7 +230,7 @@ describe("Ref", () => {
         d.counter = 5
       })
 
-      const rootRef = handle.ref()
+      const rootRef = handle.sub()
       rootRef.change((doc: any) => {
         doc.counter = 10
         doc.newField = "added"
@@ -249,7 +248,7 @@ describe("Ref", () => {
         d.user = { name: "Alice", age: 30 }
       })
 
-      const ageRef = handle.ref("user", "age")
+      const ageRef = handle.sub("user", "age")
       expect(ageRef.doc()).toBe(30)
 
       ageRef.remove()
@@ -263,7 +262,7 @@ describe("Ref", () => {
         d.todos = [{ title: "First" }, { title: "Second" }, { title: "Third" }]
       })
 
-      const secondRef = handle.ref("todos", 1)
+      const secondRef = handle.sub("todos", 1)
       expect(secondRef.doc()).toEqual({ title: "Second" })
 
       secondRef.remove()
@@ -279,7 +278,7 @@ describe("Ref", () => {
         d.items = ["a", "b", "c"]
       })
 
-      const firstRef = handle.ref("items", 0)
+      const firstRef = handle.sub("items", 0)
       firstRef.remove()
 
       expect(handle.doc().items).toEqual(["b", "c"])
@@ -290,7 +289,7 @@ describe("Ref", () => {
         d.items = ["a", "b", "c"]
       })
 
-      const lastRef = handle.ref("items", 2)
+      const lastRef = handle.sub("items", 2)
       lastRef.remove()
 
       expect(handle.doc().items).toEqual(["a", "b"])
@@ -306,7 +305,7 @@ describe("Ref", () => {
         }
       })
 
-      const themeRef = handle.ref("config", "settings", "theme")
+      const themeRef = handle.sub("config", "settings", "theme")
       themeRef.remove()
 
       expect(handle.doc().config.settings).toEqual({ fontSize: 14 })
@@ -319,14 +318,14 @@ describe("Ref", () => {
         }
       })
 
-      const columnRef = handle.ref("board", "columns", 0)
+      const columnRef = handle.sub("board", "columns", 0)
       columnRef.remove()
 
       expect(handle.doc().board.columns).toEqual([{ name: "Done" }])
     })
 
     it("should throw when removing root document", () => {
-      const rootRef = handle.ref()
+      const rootRef = handle.sub()
 
       expect(() => rootRef.remove()).toThrow("Cannot remove the root document")
     })
@@ -339,7 +338,7 @@ describe("Ref", () => {
       // Get heads and create a read-only view handle
       const heads = handle.heads()
       const viewHandle = handle.view(heads)
-      const pinnedRef = viewHandle.ref("value")
+      const pinnedRef = viewHandle.sub("value")
 
       expect(() => pinnedRef.remove()).toThrow("Cannot remove on")
     })
@@ -349,7 +348,7 @@ describe("Ref", () => {
         d.text = "Hello World"
       })
 
-      const rangeRef = handle.ref("text", cursor(0, 5))
+      const rangeRef = handle.sub("text", cursor(0, 5))
       expect(rangeRef.doc()).toBe("Hello")
 
       rangeRef.remove()
@@ -362,7 +361,7 @@ describe("Ref", () => {
         d.text = "Hello World"
       })
 
-      const rangeRef = handle.ref("text", cursor(6, 11))
+      const rangeRef = handle.sub("text", cursor(6, 11))
       expect(rangeRef.doc()).toBe("World")
 
       rangeRef.remove()
@@ -375,7 +374,7 @@ describe("Ref", () => {
         d.text = "Hello Beautiful World"
       })
 
-      const rangeRef = handle.ref("text", cursor(6, 16))
+      const rangeRef = handle.sub("text", cursor(6, 16))
       expect(rangeRef.doc()).toBe("Beautiful ")
 
       rangeRef.remove()
@@ -392,7 +391,7 @@ describe("Ref", () => {
         ]
       })
 
-      const bobRef = handle.ref("users", { id: "b" })
+      const bobRef = handle.sub("users", { id: "b" })
       bobRef.remove()
 
       expect(handle.doc().users).toEqual([
@@ -407,7 +406,7 @@ describe("Ref", () => {
         d.value = 42
       })
 
-      const nameRef = handle.ref("name")
+      const nameRef = handle.sub("name")
       nameRef.remove()
 
       expect(handle.doc().name).toBeUndefined()
@@ -421,7 +420,7 @@ describe("Ref", () => {
         d.title = "Test"
       })
 
-      const ref = handle.ref("title")
+      const ref = handle.sub("title")
       const url = ref.url
 
       expect(url).toContain("automerge:")
@@ -430,7 +429,7 @@ describe("Ref", () => {
     })
 
     it("should include nested paths in URL", () => {
-      const ref = handle.ref("user", "name")
+      const ref = handle.sub("user", "name")
       const url = ref.url
 
       expect(url).toContain("user")
@@ -438,14 +437,14 @@ describe("Ref", () => {
     })
 
     it("should format simple property path", () => {
-      const ref = handle.ref("counter")
+      const ref = handle.sub("counter")
       const url = ref.url
 
       expect(url).toBe(`automerge:${handle.documentId}/counter`)
     })
 
     it("should format nested property paths with slashes", () => {
-      const ref = handle.ref("user", "profile", "name")
+      const ref = handle.sub("user", "profile", "name")
       const url = ref.url
 
       expect(url).toBe(`automerge:${handle.documentId}/user/profile/name`)
@@ -456,7 +455,7 @@ describe("Ref", () => {
         d.items = ["a", "b", "c"]
       })
 
-      const ref = handle.ref("items", 1)
+      const ref = handle.sub("items", 1)
       const url = ref.url
 
       // Numeric index should use @n format
@@ -468,7 +467,7 @@ describe("Ref", () => {
         d.todos = [{ title: "First" }, { title: "Second" }]
       })
 
-      const ref = handle.ref("todos", 0)
+      const ref = handle.sub("todos", 0)
       const url = ref.url
 
       // Should have @n format for index
@@ -484,7 +483,7 @@ describe("Ref", () => {
         ]
       })
 
-      const ref = handle.ref("boards", 0, "columns", 1, "name")
+      const ref = handle.sub("boards", 0, "columns", 1, "name")
       const url = ref.url
 
       // Should have @n format for array indices
@@ -498,7 +497,7 @@ describe("Ref", () => {
         d.note = "Hello World"
       })
 
-      const ref = handle.ref("note", cursor(0, 5))
+      const ref = handle.sub("note", cursor(0, 5))
       const url = ref.url
 
       // Cursor range should use [start-end] bracket format
@@ -514,7 +513,7 @@ describe("Ref", () => {
         d.items = [{ id: "a" }, { id: "b" }]
       })
 
-      const ref = handle.ref("items", { id: "b" })
+      const ref = handle.sub("items", { id: "b" })
       const url = ref.url
 
       // Match clause should be URL-encoded JSON to protect special characters
@@ -537,7 +536,7 @@ describe("Ref", () => {
         }
       })
 
-      const ref = handle.ref("app", "users", 0, "posts", 1, "title")
+      const ref = handle.sub("app", "users", 0, "posts", 1, "title")
       const url = ref.url
 
       // Should have proper ObjectId formatting
@@ -553,8 +552,8 @@ describe("Ref", () => {
         d.todos = [{ title: "Task" }]
       })
 
-      const ref1 = handle.ref("todos", 0)
-      const ref2 = handle.ref("todos", 0)
+      const ref1 = handle.sub("todos", 0)
+      const ref2 = handle.sub("todos", 0)
 
       expect(ref1.url).toBe(ref2.url)
     })
@@ -564,8 +563,8 @@ describe("Ref", () => {
         d.todos = [{ title: "A" }, { title: "B" }]
       })
 
-      const ref1 = handle.ref("todos", 0)
-      const ref2 = handle.ref("todos", 1)
+      const ref1 = handle.sub("todos", 0)
+      const ref2 = handle.sub("todos", 1)
 
       expect(ref1.url).not.toBe(ref2.url)
     })
@@ -575,7 +574,7 @@ describe("Ref", () => {
         d.docs = [{ content: "Hello World" }]
       })
 
-      const ref = handle.ref("docs", 0, "content", cursor(0, 5))
+      const ref = handle.sub("docs", 0, "content", cursor(0, 5))
       const url = ref.url
 
       // Should have @n for index and [cursor-cursor] for range
@@ -589,7 +588,7 @@ describe("Ref", () => {
         d.items = [{ name: "A" }, { name: "B" }]
       })
 
-      const ref = handle.ref("items", 0)
+      const ref = handle.sub("items", 0)
 
       // Should use @n format for index
       expect(ref.url).toBe(`automerge:${handle.documentId}/items/@0`)
@@ -600,7 +599,7 @@ describe("Ref", () => {
         d.numbers = [1, 2, 3]
       })
 
-      const ref = handle.ref("numbers", 1)
+      const ref = handle.sub("numbers", 1)
       const url = ref.url
 
       // Should use @n format for index
@@ -615,11 +614,11 @@ describe("Ref", () => {
       })
 
       // Create ref and serialize to URL
-      const ref1 = handle.ref("todos", 0, "title")
+      const ref1 = handle.sub("todos", 0, "title")
       const url = ref1.url
 
       // Parse URL and create new ref
-      const ref2 = refFromUrl(handle, url)
+      const ref2 = subFromUrl(handle, url)
 
       // Both refs should have identical URLs
       expect(ref2.url).toBe(ref1.url)
@@ -634,11 +633,11 @@ describe("Ref", () => {
       })
 
       // Create ref with cursor range
-      const ref1 = handle.ref("note", cursor(0, 5))
+      const ref1 = handle.sub("note", cursor(0, 5))
       const url = ref1.url
 
       // Parse from URL
-      const ref2 = refFromUrl(handle, url)
+      const ref2 = subFromUrl(handle, url)
 
       // Should have same cursor range
       expect(ref2.url).toBe(ref1.url)
@@ -654,24 +653,24 @@ describe("Ref", () => {
       expect(ref2.doc()).toBe("Hello")
     })
 
-    it("should handle multiple refFromUrl round-trips without drift", () => {
+    it("should handle multiple subFromUrl round-trips without drift", () => {
       handle.change(d => {
         d.data = [{ value: 42 }]
       })
 
-      const ref1 = handle.ref("data", 0, "value")
+      const ref1 = handle.sub("data", 0, "value")
 
       // Round-trip 1
       const url1 = ref1.url
-      const ref2 = refFromUrl(handle, url1)
+      const ref2 = subFromUrl(handle, url1)
 
       // Round-trip 2
       const url2 = ref2.url
-      const ref3 = refFromUrl(handle, url2)
+      const ref3 = subFromUrl(handle, url2)
 
       // Round-trip 3
       const url3 = ref3.url
-      const ref4 = refFromUrl(handle, url3)
+      const ref4 = subFromUrl(handle, url3)
 
       // All URLs should be identical (this is the key invariant)
       expect(url1).toBe(url2)
@@ -694,11 +693,11 @@ describe("Ref", () => {
       const handle2 = repo.create()
 
       // Get URL from first handle
-      const ref1 = handle.ref("value")
+      const ref1 = handle.sub("value")
       const url = ref1.url
 
-      // Trying to use refFromUrl with a different handle should throw
-      expect(() => refFromUrl(handle2, url)).toThrow(
+      // Trying to use subFromUrl with a different handle should throw
+      expect(() => subFromUrl(handle2, url)).toThrow(
         /URL documentId .* does not match handle's documentId/
       )
     })
@@ -710,8 +709,8 @@ describe("Ref", () => {
         d.todos = [{ title: "A" }, { title: "B" }]
       })
 
-      const ref1 = handle.ref("todos", 0)
-      const ref2 = handle.ref("todos", 0)
+      const ref1 = handle.sub("todos", 0)
+      const ref2 = handle.sub("todos", 0)
 
       expect(ref1.equals(ref2)).toBe(true)
       expect(ref1.url).toBe(ref2.url)
@@ -722,15 +721,15 @@ describe("Ref", () => {
         d.todos = [{ title: "A" }, { title: "B" }]
       })
 
-      const ref1 = handle.ref("todos", 0)
-      const ref2 = handle.ref("todos", 1)
+      const ref1 = handle.sub("todos", 0)
+      const ref2 = handle.sub("todos", 1)
 
       expect(ref1.equals(ref2)).toBe(false)
     })
 
     it("should support valueOf for == comparison", () => {
-      const ref1 = handle.ref("title")
-      const ref2 = handle.ref("title")
+      const ref1 = handle.sub("title")
+      const ref2 = handle.sub("title")
 
       expect(ref1.valueOf()).toBe(ref2.valueOf())
     })
@@ -742,7 +741,7 @@ describe("Ref", () => {
         d.title = "Test"
       })
 
-      const ref = handle.ref("title")
+      const ref = handle.sub("title")
       const doc = ref.fullDoc()
 
       expect(doc).toBeDefined()
@@ -760,7 +759,7 @@ describe("Ref", () => {
         ]
       })
 
-      const ref = handle.ref("todos", { id: "b" })
+      const ref = handle.sub("todos", { id: "b" })
       expect(ref.doc()).toEqual({ id: "b", title: "Second" })
     })
 
@@ -769,7 +768,7 @@ describe("Ref", () => {
         d.todos = [{ id: "a", title: "First" }]
       })
 
-      const ref = handle.ref("todos", { id: "nonexistent" })
+      const ref = handle.sub("todos", { id: "nonexistent" })
       expect(ref.doc()).toBeUndefined()
     })
 
@@ -782,7 +781,7 @@ describe("Ref", () => {
         ]
       })
 
-      const ref = handle.ref("items", { type: "task", status: "done" })
+      const ref = handle.sub("items", { type: "task", status: "done" })
       expect(ref.doc()).toEqual({ type: "task", status: "done", title: "A" })
     })
   })
@@ -793,7 +792,7 @@ describe("Ref", () => {
         d.todos = [{ title: "A" }, { title: "B" }, { title: "C" }]
       })
 
-      const ref = (handle as DocHandle<Todo>).ref("todos", 1)
+      const ref = (handle as DocHandle<Todo>).sub("todos", 1)
       type Todo = {
         todos: Array<{
           title: string
@@ -809,7 +808,7 @@ describe("Ref", () => {
       })
 
       // Create ref to position 1
-      const ref = handle.ref("todos", 1, "title")
+      const ref = handle.sub("todos", 1, "title")
       expect(ref.doc()).toBe("B")
 
       // Remove first item - position 1 now has "C"
@@ -830,7 +829,7 @@ describe("Ref", () => {
       })
 
       // Match clause finds item by properties
-      const ref = handle.ref("items", { id: "b" }, "value")
+      const ref = handle.sub("items", { id: "b" }, "value")
 
       expect(ref.doc()).toBe(2)
 
@@ -849,7 +848,7 @@ describe("Ref", () => {
       })
 
       // Match clause finds item by id pattern
-      const ref = handle.ref("items", { id: "b" }, "value")
+      const ref = handle.sub("items", { id: "b" }, "value")
       expect(ref.doc()).toBe(2)
 
       // Move "b" to a different position by deleting first item
@@ -866,7 +865,7 @@ describe("Ref", () => {
         d.numbers = [1, 2, 3]
       })
 
-      const ref = handle.ref("numbers", 1)
+      const ref = handle.sub("numbers", 1)
       expect(ref.path[0][KIND]).toBe("key")
       expect((ref.path[0] as any).key).toBe("numbers")
       expect(ref.path[1][KIND]).toBe("index")
@@ -880,7 +879,7 @@ describe("Ref", () => {
       })
 
       // Use cursor() to create cursor-based range
-      const ref = handle.ref("note", cursor(0, 5))
+      const ref = handle.sub("note", cursor(0, 5))
 
       // Range should be cursor-based
       expect(ref.range?.[KIND]).toBe("cursors")
@@ -896,7 +895,7 @@ describe("Ref", () => {
       })
 
       // Create cursor-based range
-      const cursorRef = handle.ref("text", cursor(0, 5))
+      const cursorRef = handle.sub("text", cursor(0, 5))
       expect(cursorRef.range?.[KIND]).toBe("cursors")
       expect(cursorRef.doc()).toBe("Hello")
 
@@ -916,7 +915,7 @@ describe("Ref", () => {
         d.counter = 5
       })
 
-      const ref = handle.ref("counter")
+      const ref = handle.sub("counter")
 
       let receivedValue: number | undefined
       ref.change((val: any) => {
@@ -931,7 +930,7 @@ describe("Ref", () => {
         d.data = { value: 10 }
       })
 
-      const ref = handle.ref("data", "value")
+      const ref = handle.sub("data", "value")
 
       ref.change(() => {
         // Return void - no update
@@ -945,7 +944,7 @@ describe("Ref", () => {
         d.counter = 0
       })
 
-      const ref = handle.ref("counter")
+      const ref = handle.sub("counter")
 
       ref.change((val: any) => val + 10)
       expect(ref.doc()).toBe(10)
@@ -959,7 +958,7 @@ describe("Ref", () => {
         d.config = { enabled: false, count: 0 }
       })
 
-      const ref = handle.ref("config")
+      const ref = handle.sub("config")
 
       ref.change((config: any) => {
         config.enabled = true
@@ -975,7 +974,7 @@ describe("Ref", () => {
         d.settings = { theme: "light" }
       })
 
-      const ref = handle.ref("settings")
+      const ref = handle.sub("settings")
 
       ref.change(() => {
         return { theme: "dark", fontSize: 14 }
@@ -994,7 +993,7 @@ describe("Ref", () => {
         }
       })
 
-      const ageRef = handle.ref("user", "profile", "age")
+      const ageRef = handle.sub("user", "profile", "age")
 
       ageRef.change((age: any) => age + 1)
       expect(ageRef.doc()).toBe(26)
@@ -1006,7 +1005,7 @@ describe("Ref", () => {
         d.data = {}
       })
 
-      const ref = handle.ref("data", "missing")
+      const ref = handle.sub("data", "missing")
 
       let receivedValue: any
       ref.change((val: any) => {
@@ -1026,7 +1025,7 @@ describe("Ref", () => {
         d.counter = 5
       })
 
-      const ref = (handle as DocHandle<Counter>).ref("counter")
+      const ref = (handle as DocHandle<Counter>).sub("counter")
 
       // Only update if > 10
       ref.change(val => {
@@ -1053,7 +1052,7 @@ describe("Ref", () => {
         d.counter = 0
       })
 
-      const ref = handle.ref("counter")
+      const ref = handle.sub("counter")
 
       const changePromise = new Promise<void>(resolve => {
         ref.onChange(() => {
@@ -1075,7 +1074,7 @@ describe("Ref", () => {
         d.other = "initial"
       })
 
-      const ref = handle.ref("counter")
+      const ref = handle.sub("counter")
       let callCount = 0
 
       ref.onChange(() => {
@@ -1097,7 +1096,7 @@ describe("Ref", () => {
         d.user = { profile: { name: "Alice" } }
       })
 
-      const nameRef = handle.ref("user", "profile", "name")
+      const nameRef = handle.sub("user", "profile", "name")
 
       const changePromise = new Promise<void>(resolve => {
         nameRef.onChange(() => {
@@ -1118,7 +1117,7 @@ describe("Ref", () => {
         d.user = { profile: { name: "Alice", age: 30 } }
       })
 
-      const nameRef = handle.ref("user", "profile", "name")
+      const nameRef = handle.sub("user", "profile", "name")
       let callCount = 0
 
       nameRef.onChange(() => {
@@ -1143,7 +1142,7 @@ describe("Ref", () => {
       })
 
       // This ref will be stabilized to ObjectId
-      const todoRef = (handle as DocHandle<Todo>).ref("todos", 0)
+      const todoRef = (handle as DocHandle<Todo>).sub("todos", 0)
       type Todo = {
         todos: Array<{
           title: string
@@ -1170,7 +1169,7 @@ describe("Ref", () => {
         d.items = ["a", "b", "c"]
       })
 
-      const ref = handle.ref("items", 1)
+      const ref = handle.sub("items", 1)
 
       const changePromise = new Promise<void>(resolve => {
         ref.onChange(() => {
@@ -1195,7 +1194,7 @@ describe("Ref", () => {
       // Scope to the `data` object; a change to `data.value` is *inside*
       // the scope and should arrive as a patch with a path relative to the
       // ref (`["value"]`, not `["data", "value"]`).
-      const ref = handle.ref("data")
+      const ref = handle.sub("data")
 
       const changePromise = new Promise<void>(resolve => {
         ref.onChange((value, { patches, scopeReplaced }) => {
@@ -1221,7 +1220,7 @@ describe("Ref", () => {
 
       // Scope to a leaf primitive; setting it is a change *at* the scope
       // boundary, reported via `scopeReplaced` with the new value on `doc`.
-      const ref = handle.ref("data", "value")
+      const ref = handle.sub("data", "value")
 
       const changePromise = new Promise<void>(resolve => {
         ref.onChange((value, { patches, scopeReplaced, doc }) => {
@@ -1245,7 +1244,7 @@ describe("Ref", () => {
         d.counter = 0
       })
 
-      const ref = handle.ref("counter")
+      const ref = handle.sub("counter")
       let callCount = 0
 
       const unsubscribe = ref.onChange(() => {
@@ -1278,7 +1277,7 @@ describe("Ref", () => {
         d.note = "Hello World"
       })
 
-      const rangeRef = handle.ref("note", cursor(0, 5))
+      const rangeRef = handle.sub("note", cursor(0, 5))
 
       const changePromise = new Promise<void>(resolve => {
         rangeRef.onChange(() => {
@@ -1305,7 +1304,7 @@ describe("Ref", () => {
       })
 
       // Where clause will be stabilized to ObjectId
-      const ref = handle.ref("items", { id: "b" }, "value")
+      const ref = handle.sub("items", { id: "b" }, "value")
 
       const changePromise = new Promise<void>(resolve => {
         ref.onChange(() => {
@@ -1328,7 +1327,7 @@ describe("Ref", () => {
         d.user = { name: "Alice", age: 30, address: { city: "NYC" } }
       })
 
-      const userRef = handle.ref("user")
+      const userRef = handle.sub("user")
       let callCount = 0
 
       userRef.onChange(() => {
@@ -1357,7 +1356,7 @@ describe("Ref", () => {
         }
       })
 
-      const userRef = handle.ref("user")
+      const userRef = handle.sub("user")
       let callCount = 0
 
       userRef.onChange(() => {
@@ -1381,7 +1380,7 @@ describe("Ref", () => {
         }
       })
 
-      const settingsRef = handle.ref("data", "settings")
+      const settingsRef = handle.sub("data", "settings")
       let callCount = 0
 
       settingsRef.onChange(() => {
@@ -1402,7 +1401,7 @@ describe("Ref", () => {
         d.user = { profile: { name: "Alice" } }
       })
 
-      const nameRef = handle.ref("user", "profile", "name")
+      const nameRef = handle.sub("user", "profile", "name")
       let callCount = 0
 
       nameRef.onChange(() => {
@@ -1423,7 +1422,7 @@ describe("Ref", () => {
         d.user = { name: "Alice", age: 30, email: "alice@example.com" }
       })
 
-      const userRef = handle.ref("user")
+      const userRef = handle.sub("user")
       let callCount = 0
 
       userRef.onChange(() => {
@@ -1448,7 +1447,7 @@ describe("Ref", () => {
         d.other = "value"
       })
 
-      const themeRef = handle.ref("config", "theme")
+      const themeRef = handle.sub("config", "theme")
       let callCount = 0
 
       themeRef.onChange(() => {
@@ -1496,7 +1495,7 @@ describe("Ref", () => {
         }
       })
 
-      const dataRef = handle.ref("data")
+      const dataRef = handle.sub("data")
       let callCount = 0
 
       dataRef.onChange(() => {
@@ -1518,7 +1517,7 @@ describe("Ref", () => {
         d.notes = [{ content: "X" }, { content: "Y" }]
       })
 
-      const todosRef = handle.ref("todos")
+      const todosRef = handle.sub("todos")
       let callCount = 0
 
       todosRef.onChange(() => {
@@ -1539,7 +1538,7 @@ describe("Ref", () => {
         d.config = { theme: "light" }
       })
 
-      const configRef = handle.ref("config")
+      const configRef = handle.sub("config")
       let callCount = 0
 
       configRef.onChange(() => {
@@ -1560,7 +1559,7 @@ describe("Ref", () => {
         d.user = { name: "Alice", age: 30, temp: "data" }
       })
 
-      const userRef = handle.ref("user")
+      const userRef = handle.sub("user")
       let callCount = 0
 
       userRef.onChange(() => {
@@ -1585,7 +1584,7 @@ describe("Ref", () => {
       })
 
       // Create ref with stabilized ObjectId (will auto-stabilize)
-      const itemRef = handle.ref("items", 0)
+      const itemRef = handle.sub("items", 0)
       let callCount = 0
 
       itemRef.onChange(() => {
@@ -1623,7 +1622,7 @@ describe("Ref", () => {
       })
 
       // Deep ref with auto-stabilized ObjectId
-      const columnRef = handle.ref("boards", 0, "columns", 1)
+      const columnRef = handle.sub("boards", 0, "columns", 1)
       let callCount = 0
 
       columnRef.onChange(() => {
@@ -1670,7 +1669,7 @@ describe("Ref", () => {
         d.value = 2
       })
 
-      const currentRef = handle.ref("value")
+      const currentRef = handle.sub("value")
       expect(currentRef.doc()).toBe(2)
 
       const pastRef = currentRef.view(encodeHeads(heads1))
@@ -1690,7 +1689,7 @@ describe("Ref", () => {
         d.user.name = "Bob"
       })
 
-      const currentRef = handle.ref("user", "name")
+      const currentRef = handle.sub("user", "name")
       expect(currentRef.doc()).toBe("Bob")
 
       const pastRef = currentRef.view(encodeHeads(heads1))
@@ -1703,7 +1702,7 @@ describe("Ref", () => {
       })
       const heads = Automerge.getHeads(handle.doc())
 
-      const currentRef = handle.ref("value")
+      const currentRef = handle.sub("value")
       const pastRef = currentRef.view(encodeHeads(heads))
 
       // The view-pinned ref is a different handle from the live one.
@@ -1720,7 +1719,7 @@ describe("Ref", () => {
       })
       const heads = Automerge.getHeads(handle.doc())
 
-      const originalRef = handle.ref("nested", "deep", "value")
+      const originalRef = handle.sub("nested", "deep", "value")
       const viewRef = originalRef.view(encodeHeads(heads))
 
       expect(viewRef.path).toEqual(originalRef.path)
@@ -1732,7 +1731,7 @@ describe("Ref", () => {
       })
       const heads1 = Automerge.getHeads(handle.doc())
 
-      const pastRef = handle.ref("value").view(encodeHeads(heads1))
+      const pastRef = handle.sub("value").view(encodeHeads(heads1))
 
       expect(() => {
         pastRef.change(() => 2)
@@ -1746,8 +1745,8 @@ describe("Ref", () => {
         d.todos = [{ title: "Task", done: false }]
       })
 
-      const todoRef = handle.ref("todos", 0)
-      const titleRef = handle.ref("todos", 0, "title")
+      const todoRef = handle.sub("todos", 0)
+      const titleRef = handle.sub("todos", 0, "title")
 
       expect(todoRef.contains(titleRef)).toBe(true)
     })
@@ -1757,8 +1756,8 @@ describe("Ref", () => {
         d.todos = [{ title: "Task", done: false }]
       })
 
-      const titleRef = handle.ref("todos", 0, "title")
-      const todoRef = handle.ref("todos", 0)
+      const titleRef = handle.sub("todos", 0, "title")
+      const todoRef = handle.sub("todos", 0)
 
       expect(titleRef.contains(todoRef)).toBe(false)
     })
@@ -1768,8 +1767,8 @@ describe("Ref", () => {
         d.user = { name: "Alice", email: "alice@example.com" }
       })
 
-      const nameRef = handle.ref("user", "name")
-      const emailRef = handle.ref("user", "email")
+      const nameRef = handle.sub("user", "name")
+      const emailRef = handle.sub("user", "email")
 
       expect(nameRef.contains(emailRef)).toBe(false)
       expect(emailRef.contains(nameRef)).toBe(false)
@@ -1784,8 +1783,8 @@ describe("Ref", () => {
         d.value = 1
       })
 
-      const ref1 = handle.ref("value")
-      const ref2 = handle2.ref("value")
+      const ref1 = handle.sub("value")
+      const ref2 = handle2.sub("value")
 
       expect(ref1.contains(ref2)).toBe(false)
     })
@@ -1801,8 +1800,8 @@ describe("Ref", () => {
       })
       const heads2 = Automerge.getHeads(handle.doc())
 
-      const ref1 = handle.ref("value").view(encodeHeads(heads1))
-      const ref2 = handle.ref("value").view(encodeHeads(heads2))
+      const ref1 = handle.sub("value").view(encodeHeads(heads1))
+      const ref2 = handle.sub("value").view(encodeHeads(heads2))
 
       expect(ref1.contains(ref2)).toBe(false)
     })
@@ -1812,8 +1811,8 @@ describe("Ref", () => {
         d.items = [{ value: 1 }, { value: 2 }]
       })
 
-      const itemRef = handle.ref("items", 0) // Will stabilize
-      const valueRef = handle.ref("items", 0, "value")
+      const itemRef = handle.sub("items", 0) // Will stabilize
+      const valueRef = handle.sub("items", 0, "value")
 
       expect(itemRef.contains(valueRef)).toBe(true)
     })
@@ -1823,8 +1822,8 @@ describe("Ref", () => {
         d.users = [{ id: "alice", name: "Alice" }]
       })
 
-      const userRef = handle.ref("users", { id: "alice" })
-      const nameRef = handle.ref("users", { id: "alice" }, "name")
+      const userRef = handle.sub("users", { id: "alice" })
+      const nameRef = handle.sub("users", { id: "alice" }, "name")
 
       expect(userRef.contains(nameRef)).toBe(true)
     })
@@ -1834,8 +1833,8 @@ describe("Ref", () => {
         d.nested = { deep: { value: 42 } }
       })
 
-      const rootRef = handle.ref()
-      const deepRef = handle.ref("nested", "deep", "value")
+      const rootRef = handle.sub()
+      const deepRef = handle.sub("nested", "deep", "value")
 
       expect(rootRef.contains(deepRef)).toBe(true)
     })
@@ -1847,8 +1846,8 @@ describe("Ref", () => {
         d.text = "Hello World"
       })
 
-      const range1 = handle.ref("text", cursor(0, 5))
-      const range2 = handle.ref("text", cursor(3, 8))
+      const range1 = handle.sub("text", cursor(0, 5))
+      const range2 = handle.sub("text", cursor(3, 8))
 
       expect(range1.overlaps(range2)).toBe(true)
       expect(range2.overlaps(range1)).toBe(true)
@@ -1859,8 +1858,8 @@ describe("Ref", () => {
         d.text = "Hello World"
       })
 
-      const range1 = handle.ref("text", cursor(0, 5))
-      const range2 = handle.ref("text", cursor(6, 11))
+      const range1 = handle.sub("text", cursor(0, 5))
+      const range2 = handle.sub("text", cursor(6, 11))
 
       expect(range1.overlaps(range2)).toBe(false)
       expect(range2.overlaps(range1)).toBe(false)
@@ -1871,8 +1870,8 @@ describe("Ref", () => {
         d.text = "Hello World"
       })
 
-      const range1 = handle.ref("text", cursor(0, 5))
-      const range2 = handle.ref("text", cursor(5, 10))
+      const range1 = handle.sub("text", cursor(0, 5))
+      const range2 = handle.sub("text", cursor(5, 10))
 
       expect(range1.overlaps(range2)).toBe(false)
     })
@@ -1882,8 +1881,8 @@ describe("Ref", () => {
         d.text = "Hello World"
       })
 
-      const range1 = handle.ref("text", cursor(0, 10))
-      const range2 = handle.ref("text", cursor(3, 7))
+      const range1 = handle.sub("text", cursor(0, 10))
+      const range2 = handle.sub("text", cursor(3, 7))
 
       expect(range1.overlaps(range2)).toBe(true)
       expect(range2.overlaps(range1)).toBe(true)
@@ -1894,8 +1893,8 @@ describe("Ref", () => {
         d.text = "Hello World"
       })
 
-      const ref1 = handle.ref("text")
-      const ref2 = handle.ref("text")
+      const ref1 = handle.sub("text")
+      const ref2 = handle.sub("text")
 
       expect(ref1.overlaps(ref2)).toBe(false)
     })
@@ -1905,8 +1904,8 @@ describe("Ref", () => {
         d.text = "Hello World"
       })
 
-      const textRef = handle.ref("text")
-      const rangeRef = handle.ref("text", cursor(0, 5))
+      const textRef = handle.sub("text")
+      const rangeRef = handle.sub("text", cursor(0, 5))
 
       expect(textRef.overlaps(rangeRef)).toBe(false)
       expect(rangeRef.overlaps(textRef)).toBe(false)
@@ -1918,8 +1917,8 @@ describe("Ref", () => {
         d.text2 = "World"
       })
 
-      const range1 = handle.ref("text1", cursor(0, 5))
-      const range2 = handle.ref("text2", cursor(0, 5))
+      const range1 = handle.sub("text1", cursor(0, 5))
+      const range2 = handle.sub("text2", cursor(0, 5))
 
       expect(range1.overlaps(range2)).toBe(false)
     })
@@ -1933,8 +1932,8 @@ describe("Ref", () => {
         d.text = "World"
       })
 
-      const range1 = handle.ref("text", cursor(0, 5))
-      const range2 = handle2.ref("text", cursor(0, 5))
+      const range1 = handle.sub("text", cursor(0, 5))
+      const range2 = handle2.sub("text", cursor(0, 5))
 
       expect(range1.overlaps(range2)).toBe(false)
     })
@@ -1945,8 +1944,8 @@ describe("Ref", () => {
       })
 
       // Create cursor-based ranges
-      const range1 = handle.ref("text", cursor(0, 5))
-      const range2 = handle.ref("text", cursor(3, 8))
+      const range1 = handle.sub("text", cursor(0, 5))
+      const range2 = handle.sub("text", cursor(3, 8))
 
       expect(range1.overlaps(range2)).toBe(true)
     })
@@ -1956,8 +1955,8 @@ describe("Ref", () => {
         d.text = "Hello"
       })
 
-      const range1 = handle.ref("text", cursor(0, 2))
-      const range2 = handle.ref("text", cursor(3, 5))
+      const range1 = handle.sub("text", cursor(0, 2))
+      const range2 = handle.sub("text", cursor(3, 5))
 
       expect(range1.overlaps(range2)).toBe(false)
     })
@@ -1969,7 +1968,7 @@ describe("Ref", () => {
         d.a = { b: { c: { d: { e: { f: { g: { h: "deep" } } } } } } }
       })
 
-      const ref = handle.ref("a", "b", "c", "d", "e", "f", "g", "h")
+      const ref = handle.sub("a", "b", "c", "d", "e", "f", "g", "h")
       expect(ref.doc()).toBe("deep")
 
       // Update deep value
@@ -1986,7 +1985,7 @@ describe("Ref", () => {
       })
 
       // Mix of: key -> index -> key -> key
-      const ref = handle.ref("items", 1, "data", "name")
+      const ref = handle.sub("items", 1, "data", "name")
       expect(ref.doc()).toBe("Second")
 
       // Remove first item - second item moves to index 0
@@ -2004,7 +2003,7 @@ describe("Ref", () => {
       })
 
       // Path with a match pattern that doesn't exist
-      const ref = handle.ref("items", { name: "Third" }, "value")
+      const ref = handle.sub("items", { name: "Third" }, "value")
       expect(ref.doc()).toBeUndefined()
 
       // Match segment should have undefined prop (no match)
@@ -2024,7 +2023,7 @@ describe("Ref", () => {
       })
 
       // Use match pattern to track by id
-      const ref = handle.ref("items", { id: "b" }, "value")
+      const ref = handle.sub("items", { id: "b" }, "value")
       expect(ref.doc()).toBe(2)
       expect(ref.path[1].prop).toBe(1) // index 1
 
@@ -2045,7 +2044,7 @@ describe("Ref", () => {
         ]
       })
 
-      const ref = handle.ref("users", { active: true }, "name")
+      const ref = handle.sub("users", { active: true }, "name")
       expect(ref.doc()).toBe("Alice") // First match
 
       // The match pattern is retained
@@ -2079,10 +2078,10 @@ describe("Ref", () => {
         d.emptyObj = {}
       })
 
-      const arrayRef = handle.ref("empty", 0)
+      const arrayRef = handle.sub("empty", 0)
       expect(arrayRef.doc()).toBeUndefined()
 
-      const objRef = handle.ref("emptyObj", "key")
+      const objRef = handle.sub("emptyObj", "key")
       expect(objRef.doc()).toBeUndefined()
     })
 
@@ -2092,11 +2091,11 @@ describe("Ref", () => {
         d.nested = { exists: "value" }
       })
 
-      const nullRef = handle.ref("nullValue", "anything")
+      const nullRef = handle.sub("nullValue", "anything")
       expect(nullRef.doc()).toBeUndefined()
 
       // Accessing missing key should also return undefined
-      const missingRef = handle.ref("nested", "missing", "more")
+      const missingRef = handle.sub("nested", "missing", "more")
       expect(missingRef.doc()).toBeUndefined()
     })
 
@@ -2108,10 +2107,10 @@ describe("Ref", () => {
         }
       })
 
-      const ref1 = handle.ref("texts", "first", cursor(0, 5))
+      const ref1 = handle.sub("texts", "first", cursor(0, 5))
       expect(ref1.doc()).toBe("Hello")
 
-      const ref2 = handle.ref("texts", "second", cursor(8, 12))
+      const ref2 = handle.sub("texts", "second", cursor(8, 12))
       expect(ref2.doc()).toBe("Moon")
     })
 
@@ -2126,7 +2125,7 @@ describe("Ref", () => {
       })
 
       // key -> key -> match -> key -> cursors
-      const ref = handle.ref(
+      const ref = handle.sub(
         "root",
         "items",
         { type: "text" },
@@ -2144,7 +2143,7 @@ describe("Ref", () => {
         d.theme = "light"
       })
 
-      const themeRef = handle.ref("theme")
+      const themeRef = handle.sub("theme")
       themeRef.change("dark")
       expect(themeRef.doc()).toBe("dark")
     })
@@ -2154,7 +2153,7 @@ describe("Ref", () => {
         d.counter = 0
       })
 
-      const counterRef = handle.ref("counter")
+      const counterRef = handle.sub("counter")
       counterRef.change(42)
       expect(counterRef.doc()).toBe(42)
     })
@@ -2164,7 +2163,7 @@ describe("Ref", () => {
         d.enabled = false
       })
 
-      const enabledRef = handle.ref("enabled")
+      const enabledRef = handle.sub("enabled")
       enabledRef.change(true)
       expect(enabledRef.doc()).toBe(true)
     })
@@ -2174,7 +2173,7 @@ describe("Ref", () => {
         d.counter = 10
       })
 
-      const counterRef = handle.ref("counter")
+      const counterRef = handle.sub("counter")
       counterRef.change((n: any) => n * 2)
       expect(counterRef.doc()).toBe(20)
     })
@@ -2186,8 +2185,8 @@ describe("Ref", () => {
         d.value = 42
       })
 
-      const ref1 = handle.ref("value")
-      const ref2 = handle.ref("value")
+      const ref1 = handle.sub("value")
+      const ref2 = handle.sub("value")
 
       expect(ref1).toBe(ref2)
     })
@@ -2198,8 +2197,8 @@ describe("Ref", () => {
         d.b = 2
       })
 
-      const refA = handle.ref("a")
-      const refB = handle.ref("b")
+      const refA = handle.sub("a")
+      const refB = handle.sub("b")
 
       expect(refA).not.toBe(refB)
     })
@@ -2213,8 +2212,8 @@ describe("Ref", () => {
         d.value = 2
       })
 
-      const ref1 = handle.ref("value")
-      const ref2 = handle2.ref("value")
+      const ref1 = handle.sub("value")
+      const ref2 = handle2.sub("value")
 
       expect(ref1).not.toBe(ref2)
     })
@@ -2224,8 +2223,8 @@ describe("Ref", () => {
         d.user = { profile: { name: "Alice" } }
       })
 
-      const ref1 = handle.ref("user", "profile", "name")
-      const ref2 = handle.ref("user", "profile", "name")
+      const ref1 = handle.sub("user", "profile", "name")
+      const ref2 = handle.sub("user", "profile", "name")
 
       expect(ref1).toBe(ref2)
     })
@@ -2235,8 +2234,8 @@ describe("Ref", () => {
         d.items = ["a", "b", "c"]
       })
 
-      const ref1 = handle.ref("items", 1)
-      const ref2 = handle.ref("items", 1)
+      const ref1 = handle.sub("items", 1)
+      const ref2 = handle.sub("items", 1)
 
       expect(ref1).toBe(ref2)
     })
@@ -2246,8 +2245,8 @@ describe("Ref", () => {
         d.users = [{ id: "alice", name: "Alice" }]
       })
 
-      const ref1 = handle.ref("users", { id: "alice" })
-      const ref2 = handle.ref("users", { id: "alice" })
+      const ref1 = handle.sub("users", { id: "alice" })
+      const ref2 = handle.sub("users", { id: "alice" })
 
       expect(ref1).toBe(ref2)
     })

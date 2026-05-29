@@ -34,7 +34,20 @@ type ScopedChange = { patches: A.Patch[]; scopeReplaced: boolean }
  */
 export class HandleRegistry {
   /** Trie root - the document at path `[]`. */
-  readonly root: TrieNode = emptyNode()
+  readonly root: TrieNode = emptyNode([])
+
+  /**
+   * Prunes a handle's trie node once the handle is garbage-collected, so the
+   * trie can't grow without bound as transient sub-handles (e.g. ever-changing
+   * `{ id }` patterns) come and go. The held token is everything we need to
+   * find and detach the entry. A handle with listeners is held strongly by
+   * `#listeners`, so it won't be collected (and won't be pruned) until those
+   * are removed.
+   */
+  readonly #finalizer = new FinalizationRegistry<{
+    path: readonly PathSegment[]
+    variantKey: string
+  }>(token => this.#pruneDeadHandle(token.path, token.variantKey))
 
   /**
    * `handle → event → callbacks`. Strong on handles, so any handle with a
@@ -45,7 +58,7 @@ export class HandleRegistry {
 
   constructor(readonly document: Document<any>) {}
 
-  // ---------------- Identity (trie-as-handle-cache) ----------------
+  // Identity (trie-as-handle-cache)
 
   /** Get-or-create the trie node for `symbolicPath`. O(depth). */
   getOrCreateNode(symbolicPath: readonly PathSegment[]): TrieNode {
@@ -72,10 +85,52 @@ export class HandleRegistry {
     fixedHeads: UrlHeads | undefined,
     handle: DocHandle<T>
   ): void {
-    node.handles.set(variantKey(range, fixedHeads), new WeakRef(handle))
+    const key = variantKey(range, fixedHeads)
+    node.handles.set(key, new WeakRef(handle))
+    this.#finalizer.register(handle, { path: node.path, variantKey: key })
   }
 
-  // ---------------- Resolution (trie-as-pattern-cache) ----------------
+  /**
+   * Called by the finalizer after a handle is collected: drop its (now-dead)
+   * entry and prune any trie nodes that became empty, walking up to the root.
+   * No-ops if the slot was re-cached with a live handle in the meantime.
+   */
+  #pruneDeadHandle(path: readonly PathSegment[], variantKey: string): void {
+    // Re-walk from the root, recording the chain so we can prune bottom-up.
+    const chain: { parent: TrieNode; seg: PathSegment; node: TrieNode }[] = []
+    let node: TrieNode = this.root
+    for (const seg of path) {
+      const child = descend(node, seg)
+      if (!child) return // already pruned
+      chain.push({ parent: node, seg, node: child })
+      node = child
+    }
+
+    const ref = node.handles.get(variantKey)
+    if (!ref || ref.deref() !== undefined) return // re-cached with a live handle
+    node.handles.delete(variantKey)
+
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const { parent, seg, node: n } = chain[i]
+      if (!nodeIsEmpty(n)) break
+      removeChild(parent, seg)
+    }
+  }
+
+  /** @internal Total number of trie nodes (root included). For tests. */
+  get nodeCount(): number {
+    let count = 0
+    const queue: TrieNode[] = [this.root]
+    while (queue.length > 0) {
+      const n = queue.shift()!
+      count++
+      for (const child of n.children.values()) queue.push(child)
+      for (const edge of n.patternEdges) queue.push(edge.node)
+    }
+    return count
+  }
+
+  // Resolution (trie-as-pattern-cache)
 
   /**
    * Walk `symbolicPath` against `doc` to a concrete prop path. Pattern
@@ -223,7 +278,7 @@ export class HandleRegistry {
     return true
   }
 
-  // ---------------- Dispatch ----------------
+  // Dispatch
 
   /**
    * Fan `change` out to writeable handles. One trie walk per patch;
@@ -237,6 +292,12 @@ export class HandleRegistry {
     const perHandle = new Map<DocHandle<any>, ScopedChange>()
     const resolvedNodes = new Set<TrieNode>()
     const docHeadsKey = headsKey(A.getHeads(doc))
+    const before = patchInfo.before
+    // Pattern edges are resolved against *both* the before- and after-state
+    // (once per node, gated by `resolvedNodes`). `patternBefore` carries the
+    // before-index so the walk can tell stable matches (descend for content)
+    // from ones that appeared / disappeared / moved (whole scope replaced).
+    const patternBefore = new Map<PatternEdge, number | undefined>()
 
     // Patches are trimmed to each handle's scope as the trie is walked - the
     // descent depth is exactly the scope length, so paths are re-rooted (and
@@ -247,9 +308,11 @@ export class HandleRegistry {
         patch.path,
         0,
         doc,
+        before,
         patch,
         perHandle,
         resolvedNodes,
+        patternBefore,
         docHeadsKey
       )
     }
@@ -269,7 +332,11 @@ export class HandleRegistry {
     }
   }
 
-  /** Fan `heads-changed` out to writeable handles (skips fixed-heads). */
+  /**
+   * Fan `heads-changed` out to writeable handles (skips fixed-heads).
+   * Heads are a document-level concept, so the payload carries the whole
+   * document (unlike `change`, whose `doc` is scoped to each handle).
+   */
   dispatchHeadsChanged(doc: A.Doc<any>): void {
     for (const handle of this.#listeners.keys()) {
       if (handle.isReadOnly()) continue
@@ -314,11 +381,11 @@ export class HandleRegistry {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Trie data + helpers
-// ---------------------------------------------------------------------------
 
 export type TrieNode = {
+  /** Symbolic path from the root to this node (empty at the root). Used to prune. */
+  path: readonly PathSegment[]
   /** Literal-segment edges keyed by the literal prop. */
   children: Map<Prop, TrieNode>
   /** Pattern-segment edges (linear search, structural equality). */
@@ -336,8 +403,9 @@ export type PatternEdge = {
   resolvedAtHeads: string | undefined
 }
 
-function emptyNode(): TrieNode {
+function emptyNode(path: readonly PathSegment[]): TrieNode {
   return {
+    path,
     children: new Map(),
     patternEdges: [],
     handles: new Map(),
@@ -349,7 +417,7 @@ function descendCreating(node: TrieNode, seg: PathSegment): TrieNode {
     case "key": {
       let child = node.children.get(seg.key)
       if (!child) {
-        child = emptyNode()
+        child = emptyNode([...node.path, seg])
         node.children.set(seg.key, child)
       }
       return child
@@ -357,7 +425,7 @@ function descendCreating(node: TrieNode, seg: PathSegment): TrieNode {
     case "index": {
       let child = node.children.get(seg.index)
       if (!child) {
-        child = emptyNode()
+        child = emptyNode([...node.path, seg])
         node.children.set(seg.index, child)
       }
       return child
@@ -367,13 +435,53 @@ function descendCreating(node: TrieNode, seg: PathSegment): TrieNode {
       if (!edge) {
         edge = {
           pattern: seg.match,
-          node: emptyNode(),
+          node: emptyNode([...node.path, seg]),
           resolvedIndex: undefined,
           resolvedAtHeads: undefined,
         }
         node.patternEdges.push(edge)
       }
       return edge.node
+    }
+  }
+}
+
+/** Non-creating descent: returns the child node for `seg`, or `undefined`. */
+function descend(node: TrieNode, seg: PathSegment): TrieNode | undefined {
+  switch (seg[KIND]) {
+    case "key":
+      return node.children.get(seg.key)
+    case "index":
+      return node.children.get(seg.index)
+    case "match":
+      return findPatternEdge(node, seg.match)?.node
+  }
+}
+
+/** A node with no handles, child nodes, or pattern edges carries no state. */
+function nodeIsEmpty(node: TrieNode): boolean {
+  return (
+    node.handles.size === 0 &&
+    node.children.size === 0 &&
+    node.patternEdges.length === 0
+  )
+}
+
+/** Remove the child reached from `parent` via `seg`. */
+function removeChild(parent: TrieNode, seg: PathSegment): void {
+  switch (seg[KIND]) {
+    case "key":
+      parent.children.delete(seg.key)
+      break
+    case "index":
+      parent.children.delete(seg.index)
+      break
+    case "match": {
+      const i = parent.patternEdges.findIndex(e =>
+        patternsEqual(e.pattern, seg.match)
+      )
+      if (i !== -1) parent.patternEdges.splice(i, 1)
+      break
     }
   }
 }
@@ -415,40 +523,89 @@ function readStep(cursor: unknown, step: Prop): unknown {
 }
 
 /**
- * Resolve all pattern edges at one array node in a single pass. Carries
- * a shrinking working set of unresolved patterns; early-exits on empty.
- * Refs sharing a pattern share an edge so they cost one comparison total.
+ * Match every pattern edge at `arr` in a single pass, with a shrinking
+ * working set + early exit so N edges sharing one array cost one comparison
+ * per item. `assign(edge, index | undefined)` records each result.
  */
-function bulkResolvePatternEdges(
+function bulkMatch(
+  edges: readonly PatternEdge[],
+  arr: unknown,
+  assign: (edge: PatternEdge, index: number | undefined) => void
+): void {
+  for (const edge of edges) assign(edge, undefined)
+  if (!Array.isArray(arr)) return
+  const pending = new Set(edges)
+  for (let i = 0; i < (arr as unknown[]).length && pending.size > 0; i++) {
+    const item = (arr as unknown[])[i]
+    for (const edge of pending) {
+      if (matchesPattern(item, edge.pattern)) {
+        assign(edge, i)
+        pending.delete(edge)
+      }
+    }
+  }
+}
+
+/**
+ * Resolve a node's pattern edges against both the after- and before-state
+ * (once per node, gated by `resolvedNodes`). The after-index updates the
+ * read cache (`resolvedIndex` / `resolvedAtHeads`); the before-index goes
+ * into `patternBefore`. Any edge whose match *moved, appeared, or
+ * disappeared* (before !== after) has its whole sub-tree marked
+ * `scopeReplaced`, since the value those handles point at changed wholesale.
+ */
+function resolvePatternEdges(
   node: TrieNode,
-  cursor: unknown,
+  afterCursor: unknown,
+  beforeCursor: unknown,
   resolvedNodes: Set<TrieNode>,
-  docHeadsKey: string
+  patternBefore: Map<PatternEdge, number | undefined>,
+  docHeadsKey: string,
+  out: Map<DocHandle<any>, ScopedChange>
 ): void {
   if (node.patternEdges.length === 0) return
-  if (!Array.isArray(cursor)) return
   if (resolvedNodes.has(node)) return
   resolvedNodes.add(node)
 
-  const unresolved = new Set<PatternEdge>()
-  for (const edge of node.patternEdges) {
-    edge.resolvedIndex = undefined
+  bulkMatch(node.patternEdges, afterCursor, (edge, idx) => {
+    edge.resolvedIndex = idx
     edge.resolvedAtHeads = docHeadsKey
-    unresolved.add(edge)
-  }
+  })
+  bulkMatch(node.patternEdges, beforeCursor, (edge, idx) => {
+    patternBefore.set(edge, idx)
+  })
 
-  for (
-    let i = 0;
-    i < (cursor as unknown[]).length && unresolved.size > 0;
-    i++
-  ) {
-    const item = (cursor as unknown[])[i]
-    for (const edge of unresolved) {
-      if (matchesPattern(item, edge.pattern)) {
-        edge.resolvedIndex = i
-        unresolved.delete(edge)
-      }
+  for (const edge of node.patternEdges) {
+    if (patternBefore.get(edge) !== edge.resolvedIndex) {
+      markScopeReplaced(edge.node, out)
     }
+  }
+}
+
+/** Mark every writeable handle in `node`'s sub-tree as `scopeReplaced`. */
+function markScopeReplaced(
+  node: TrieNode,
+  out: Map<DocHandle<any>, ScopedChange>
+): void {
+  const queue: TrieNode[] = [node]
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    for (const [key, ref] of current.handles) {
+      const handle = ref.deref()
+      if (!handle) {
+        current.handles.delete(key)
+        continue
+      }
+      if (handle.isReadOnly()) continue
+      let acc = out.get(handle)
+      if (!acc) {
+        acc = { patches: [], scopeReplaced: false }
+        out.set(handle, acc)
+      }
+      acc.scopeReplaced = true
+    }
+    for (const child of current.children.values()) queue.push(child)
+    for (const edge of current.patternEdges) queue.push(edge.node)
   }
 }
 
@@ -457,16 +614,26 @@ function collectForPatch(
   node: TrieNode,
   patchPath: readonly Prop[],
   depth: number,
-  cursor: unknown,
+  afterCursor: unknown,
+  beforeCursor: unknown,
   patch: A.Patch,
   out: Map<DocHandle<any>, ScopedChange>,
   resolvedNodes: Set<TrieNode>,
+  patternBefore: Map<PatternEdge, number | undefined>,
   docHeadsKey: string
 ): void {
   // `depth` is the number of segments from the root to `node`, i.e. the
   // scope length of any handle living here - exactly what we slice paths by.
   addPatchForNode(node, patch, out, depth)
-  bulkResolvePatternEdges(node, cursor, resolvedNodes, docHeadsKey)
+  resolvePatternEdges(
+    node,
+    afterCursor,
+    beforeCursor,
+    resolvedNodes,
+    patternBefore,
+    docHeadsKey,
+    out
+  )
 
   if (depth >= patchPath.length) {
     // Patch ends at/above this node - everything below is affected.
@@ -481,26 +648,39 @@ function collectForPatch(
       literalChild,
       patchPath,
       depth + 1,
-      readStep(cursor, step),
+      readStep(afterCursor, step),
+      readStep(beforeCursor, step),
       patch,
       out,
       resolvedNodes,
+      patternBefore,
       docHeadsKey
     )
   }
 
+  // Only descend pattern edges whose match is *stable* (same index before and
+  // after) and located at `step` - those collect content patches. Edges that
+  // moved / appeared / disappeared were already handled wholesale via
+  // `scopeReplaced` in `resolvePatternEdges`.
   if (node.patternEdges.length > 0) {
-    const next = readStep(cursor, step)
+    const nextAfter = readStep(afterCursor, step)
     for (const edge of node.patternEdges) {
-      if (edge.resolvedIndex !== undefined && edge.resolvedIndex === step) {
+      const idxAfter = edge.resolvedIndex
+      if (
+        idxAfter !== undefined &&
+        idxAfter === step &&
+        idxAfter === patternBefore.get(edge)
+      ) {
         collectForPatch(
           edge.node,
           patchPath,
           depth + 1,
-          next,
+          nextAfter,
+          readStep(beforeCursor, idxAfter),
           patch,
           out,
           resolvedNodes,
+          patternBefore,
           docHeadsKey
         )
       }

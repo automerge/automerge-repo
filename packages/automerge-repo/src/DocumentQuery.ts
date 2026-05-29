@@ -2,7 +2,7 @@ import { next as Automerge } from "@automerge/automerge/slim"
 import { DocHandle } from "./DocHandle.js"
 import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
-import type { Segment } from "./refs/types.js"
+import type { Segment } from "./subdoc-handles/types.js"
 import { AbortError } from "./helpers/abortable.js"
 import { type FindProgress, queryStateToFindProgress } from "./_compat.js"
 
@@ -476,7 +476,7 @@ export function progressAtPath<T>(
   segments: Segment[]
 ): DocumentProgress<T> {
   const scope = (handle: DocHandle<T>): DocHandle<T> =>
-    handle.ref(...(segments as any[])) as DocHandle<T>
+    handle.sub(...(segments as any[])) as DocHandle<T>
 
   const mapState = (s: QueryState<T>): QueryState<T> =>
     s.state === "ready" ? { ...s, handle: scope(s.handle) } : s

@@ -7,7 +7,7 @@ import type { Cursor } from "@automerge/automerge/slim"
 export const KIND = "AUTOMERGE_REF_KIND"
 
 /**
- * Symbol to mark a cursor request for stabilization during ref creation.
+ * Symbol to mark a cursor request for stabilization during sub-handle creation.
  */
 export const CURSOR_MARKER = "AUTOMERGE_REF_CURSOR_MARKER"
 
@@ -86,7 +86,7 @@ export type AnyPathInput = PathInput | Segment
 
 /**
  * Mutable text wrapper that provides Automerge text operations.
- * Passed to change callbacks when the ref points to a string value.
+ * Passed to change callbacks when the sub-handle points to a string value.
  *
  * Behaves like a string with two additional mutation methods.
  * Uses String (object type) because we proxy all string methods at runtime.
@@ -108,11 +108,11 @@ export interface MutableText extends String {
  * `updateText` methods.
  *
  * Distinct from `Automerge.ChangeFn` (which is unscoped and operates on
- * the whole document). Re-exported from the package as `RefChangeFn`.
+ * the whole document). Re-exported from the package as `SubChangeFn`.
  *
  * @experimental This API is experimental and may change in future versions.
  */
-export type RefChangeFn<T> = (
+export type SubChangeFn<T> = (
   val: T extends string ? MutableText : T
 ) => T | void
 
@@ -141,7 +141,7 @@ export type PathValue<TDoc, TPath extends readonly any[]> = TPath extends []
     : unknown
   : unknown
 
-export type InferRefType<TDoc, TPath extends readonly any[]> = PathValue<
+export type InferSubType<TDoc, TPath extends readonly any[]> = PathValue<
   TDoc,
   TPath
 >
@@ -222,8 +222,8 @@ type PathValueFromString<
     : unknown
   : unknown
 
-/** Infer the ref value type from a document type and path string */
-export type InferRefTypeFromString<
+/** Infer the sub-handle value type from a document type and path string */
+export type InferSubTypeFromString<
   TDoc,
   P extends string
 > = PathValueFromString<TDoc, SegmentsFromString<P>>

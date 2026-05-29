@@ -9,8 +9,12 @@ import { Document } from "./Document.js"
 import { encode } from "./helpers/cbor.js"
 import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
 import { StorageId } from "./storage/types.js"
-import { isCursorMarker, isPattern, isSegment } from "./refs/guards.js"
-import { matchesPattern } from "./refs/utils.js"
+import {
+  isCursorMarker,
+  isPattern,
+  isSegment,
+} from "./subdoc-handles/guards.js"
+import { matchesPattern } from "./subdoc-handles/utils.js"
 import {
   applyScopedChange,
   applyScopedRemove,
@@ -18,19 +22,19 @@ import {
   resolvePropPath,
   resolveSegmentProp,
   scopedValue,
-} from "./refs/path-ops.js"
+} from "./subdoc-handles/path-ops.js"
 import type {
   AnyPathInput,
   CursorRange,
-  InferRefType,
+  InferSubType,
   PathInput,
   PathSegment,
   Pattern,
-  RefChangeFn,
+  SubChangeFn,
   ResolvedPathSegment,
   Segment,
-} from "./refs/types.js"
-import { KIND } from "./refs/types.js"
+} from "./subdoc-handles/types.js"
+import { KIND } from "./subdoc-handles/types.js"
 
 /**
  * A scoped handle into an Automerge document. Every `DocHandle` references
@@ -40,7 +44,7 @@ import { KIND } from "./refs/types.js"
  * Conceptually a handle is just `(document, path, range?, heads?)`:
  * - A **root** handle has no path, range, or heads - it points at the
  *   whole live document. `Repo` only ever hands out root handles.
- * - A **sub-handle** (from {@link DocHandle.ref}) has a non-empty path
+ * - A **sub-handle** (from {@link DocHandle.sub}) has a non-empty path
  *   into the document; reads / writes / change events are scoped to that
  *   subtree.
  * - A **view-pinned** handle (from {@link DocHandle.view}) has fixed
@@ -185,8 +189,14 @@ export class DocHandle<T> {
   #cachedDoc?: A.Doc<T>
   #cachedDocFor?: A.Doc<any>
 
+  /**
+   * The whole underlying document (ignoring this handle's path/range), at
+   * this handle's fixed heads if it is view-pinned.
+   */
   fullDoc(): A.Doc<T> {
-    return this.#document.doc as A.Doc<T>
+    const heads = this.#fixedHeads
+    if (!heads) return this.#document.doc as A.Doc<T>
+    return A.view(this.#document.doc, decodeHeads(heads)) as A.Doc<T>
   }
 
   /**
@@ -402,14 +412,14 @@ export class DocHandle<T> {
    * DocSynchronizer) to any peers you are sharing it with.
    *
    * On sub-handles a non-function `callback` is shorthand for "replace
-   * the value at this path" (e.g. `counterRef.change(42)`). Function-typed
+   * the value at this path" (e.g. `counterSub.change(42)`). Function-typed
    * values can't use this shorthand - wrap them in `() => yourFunction`.
    *
    * @param callback - A function that takes the current document and mutates it.
    *
    */
   change(
-    callback: A.ChangeFn<T> | RefChangeFn<T> | T,
+    callback: A.ChangeFn<T> | SubChangeFn<T> | T,
     options: A.ChangeOptions<T> = {}
   ) {
     this.#throwIfFixedHeads("change")
@@ -423,7 +433,7 @@ export class DocHandle<T> {
     // inside an `A.change` block so mutations land on the change proxy.
     const fn = (
       typeof callback === "function" ? callback : () => callback
-    ) as RefChangeFn<T>
+    ) as SubChangeFn<T>
     this.#document.applyMutation(doc =>
       A.change(doc as A.Doc<T>, options, mutable => {
         this.#applyScopedChange(mutable as A.Doc<any>, fn)
@@ -449,7 +459,7 @@ export class DocHandle<T> {
       this.#path.length === 0 && !this.#range
         ? callback
         : ((d => {
-            this.#applyScopedChange(d as A.Doc<any>, callback as RefChangeFn<T>)
+            this.#applyScopedChange(d as A.Doc<any>, callback as SubChangeFn<T>)
           }) as A.ChangeFn<T>)
 
     this.#document.applyMutation(doc => {
@@ -553,20 +563,20 @@ export class DocHandle<T> {
    *
    * @example
    * ```ts
-   * const titleRef = handle.ref('todos', 0, 'title');
-   * titleRef.value(); // string | undefined
+   * const titleSub = handle.sub('todos', 0, 'title');
+   * titleSub.doc(); // string | undefined
    *
-   * const sameRef = handle.ref('todos', 0, 'title');
-   * titleRef === sameRef; // true
+   * const sameSub = handle.sub('todos', 0, 'title');
+   * titleSub === sameSub; // true
    * ```
    */
-  ref<TPath extends readonly PathInput[]>(
+  sub<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
-  ): DocHandle<InferRefType<T, TPath>> {
-    return this.#createSubHandle(segments) as DocHandle<InferRefType<T, TPath>>
+  ): DocHandle<InferSubType<T, TPath>> {
+    return this.#createSubHandle(segments) as DocHandle<InferSubType<T, TPath>>
   }
 
-  // ---------------- Path / range introspection ----------------
+  // Path / range introspection
 
   /**
    * The root handle for this document (path `[]`, no range, no heads) -
@@ -613,30 +623,14 @@ export class DocHandle<T> {
   }
 
   /**
-   * Returns `[startIndex, endIndex]` for the current cursor range,
-   * resolved against the current text value, or `undefined` if this
-   * handle has no range.
+   * Returns `[startIndex, endIndex]` for this handle's cursor range,
+   * resolved against the handle's own view of the document, or
+   * `undefined` if this handle has no range.
    */
   rangePositions(): [number, number] | undefined {
-    if (!this.#range) return undefined
-    const rootDoc = this.fullDoc()
-    const propPath = this.#getPropPath()
-    if (!propPath) return undefined
-    try {
-      const start = A.getCursorPosition(
-        rootDoc,
-        propPath,
-        this.#range.start as A.Cursor
-      )
-      const end = A.getCursorPosition(
-        rootDoc,
-        propPath,
-        this.#range.end as A.Cursor
-      )
-      return [start, end]
-    } catch {
-      return undefined
-    }
+    // Cursor positions resolve against the whole document (fullDoc), not
+    // the scoped value that `doc()` now returns.
+    return this.#rangePositions(this.fullDoc(), this.#getPropPath())
   }
 
   /** True if the other handle has the same URL as this one. */
@@ -699,7 +693,7 @@ export class DocHandle<T> {
     return () => this.off("change", listener)
   }
 
-  // ---------------- Internal sub-handle helpers ----------------
+  // Internal sub-handle helpers
 
   /**
    * Get-or-create a sub-/view-handle at `segments` relative to this handle.
@@ -722,7 +716,13 @@ export class DocHandle<T> {
       ? [...this.#path, this.#range, ...segments]
       : [...this.#path, ...segments]
 
-    const { path, range } = this.#normalizePath(this.#document.doc, combined)
+    // Normalize against the *whole* document at this handle's view (its
+    // fixed heads, if pinned) - `#normalizePath` walks the full path from
+    // the document root, and pinning ensures cursors on a pinned view
+    // (`handle.view(oldHeads).sub("text", cursor(...))`) are created from -
+    // and read back against - the same historical text. (Not `doc()`, which
+    // is scoped to this handle's path.)
+    const { path, range } = this.#normalizePath(this.fullDoc(), combined)
 
     const registry = this.#document.registry
     const node = registry.getOrCreateNode(path)
@@ -794,6 +794,7 @@ export class DocHandle<T> {
       }
 
       if (typeof input === "string") {
+        if (input === "") throw new EmptyKeyError()
         path.push({ [KIND]: "key", key: input })
         cursor =
           cursor === null || cursor === undefined
@@ -828,9 +829,22 @@ export class DocHandle<T> {
     return { path, range }
   }
 
-  /** Resolve the symbolic path via the registry's cache. O(depth) warm. */
-  #getPropPath(): Prop[] | undefined {
+  /**
+   * Resolve the symbolic path to a concrete prop path.
+   *
+   * When `doc` is omitted, resolve against this handle's current view
+   * ({@link doc}) using the registry's heads-keyed cache (O(depth) warm).
+   *
+   * When `doc` is provided - e.g. the mutable proxy inside a `change` /
+   * `changeAt` block, which may be pinned to historical heads - resolve
+   * freshly against *that* doc. The registry cache is keyed to the live
+   * document's heads, so it must not be consulted for an arbitrary doc.
+   */
+  #getPropPath(doc?: A.Doc<any>): Prop[] | undefined {
     if (this.#path.length === 0) return []
+    if (doc !== undefined) {
+      return resolvePropPath(doc, this.#path)
+    }
     return this.#document.registry.resolvePropPath(
       this.#path,
       this.fullDoc(),
@@ -838,29 +852,85 @@ export class DocHandle<T> {
     )
   }
 
-  /** Read the value at this handle's scope (path / range). */
+  /**
+   * Resolve this handle's cursor range to `[start, end]` against an
+   * explicit `doc` and its already-resolved `propPath`. The doc-threading
+   * variant of the public {@link rangePositions}; used by the scoped
+   * read/change/remove helpers so they resolve against the doc they
+   * operate on (e.g. a historical change proxy) rather than the live one.
+   */
+  #rangePositions(
+    doc: A.Doc<any>,
+    propPath: Prop[] | undefined
+  ): [number, number] | undefined {
+    if (!this.#range || !propPath) return undefined
+    try {
+      const start = A.getCursorPosition(
+        doc,
+        propPath,
+        this.#range.start as A.Cursor
+      )
+      const end = A.getCursorPosition(
+        doc,
+        propPath,
+        this.#range.end as A.Cursor
+      )
+      return [start, end]
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Read the value at this handle's scope (path / range). `rootView` is
+   * always this handle's own view ({@link doc}), so resolution uses the
+   * registry's cache.
+   */
   #scopedValue(rootView: A.Doc<any>): unknown {
-    return scopedValue(rootView, this.#getPropPath(), this.#range, () =>
-      this.rangePositions()
+    const propPath = this.#getPropPath()
+    return scopedValue(rootView, propPath, this.#range, () =>
+      this.#rangePositions(rootView, propPath)
     )
   }
 
   /** Apply a scoped change callback to a mutable view of the document. */
-  #applyScopedChange(doc: A.Doc<any>, fn: RefChangeFn<any>): A.Doc<any> {
+  #applyScopedChange(doc: A.Doc<any>, fn: SubChangeFn<any>): A.Doc<any> {
+    const propPath = this.#getPropPath(doc)
+    this.#assertResolved(propPath, "change")
     return applyScopedChange(
       doc,
-      this.#getPropPath(),
+      propPath,
       this.#range,
-      () => this.rangePositions(),
+      () => this.#rangePositions(doc, propPath),
       fn
     )
   }
 
   /** Remove the value at this handle's scope. */
   #applyScopedRemove(doc: A.Doc<any>): A.Doc<any> {
-    return applyScopedRemove(doc, this.#getPropPath(), this.#range, () =>
-      this.rangePositions()
+    const propPath = this.#getPropPath(doc)
+    this.#assertResolved(propPath, "remove")
+    return applyScopedRemove(doc, propPath, this.#range, () =>
+      this.#rangePositions(doc, propPath)
     )
+  }
+
+  /**
+   * Guard for write operations: a `propPath` of `undefined` means a
+   * pattern segment matched nothing, so there's no slot to write. Reads
+   * tolerate this (they return `undefined`), but a silent no-op on a
+   * write is a footgun - throw instead. Note that *absent* literal keys
+   * still resolve (they're symbolic), so writes can create new keys.
+   */
+  #assertResolved(
+    propPath: Prop[] | undefined,
+    operation: string
+  ): asserts propPath is Prop[] {
+    if (propPath === undefined) {
+      throw new Error(
+        `Cannot ${operation} ${this.url}: its path does not resolve in the current document (a pattern segment matched no item).`
+      )
+    }
   }
 
   // Event subscription. DocHandle doesn't extend EventEmitter; listeners
@@ -953,11 +1023,16 @@ export class DocHandle<T> {
     return this.#document.registry.emit(this, event as string, payload)
   }
 
-  // ---------------- Internal accessors (registry / tests) ----------------
+  // Internal accessors (registry / tests)
 
   /** @internal Number of handles with at least one listener attached. */
   get _handleRetainerSize(): number {
     return this.#document.registry.retainedCount
+  }
+
+  /** @internal Number of nodes in the per-document handle trie. For tests. */
+  get _trieNodeCount(): number {
+    return this.#document.registry.nodeCount
   }
 
   /** @internal Used by `DocSynchronizer` to deliver inbound ephemerals. */
@@ -966,14 +1041,27 @@ export class DocHandle<T> {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Module-private helpers
-// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when a path is built with an empty-string key. Empty keys don't
+ * round-trip through URLs (`automerge:docId/` parses as no path), so we
+ * reject them at construction rather than silently dropping them later.
+ */
+class EmptyKeyError extends Error {
+  constructor() {
+    super(
+      "Empty-string keys are not supported in sub-handle paths: they do not round-trip through URLs."
+    )
+    this.name = "EmptyKeyError"
+  }
+}
 
 /** Strip non-symbolic fields (e.g. legacy `prop`) from an incoming segment. */
 function symbolicOnly(seg: PathSegment): PathSegment {
   switch (seg[KIND]) {
     case "key":
+      if (seg.key === "") throw new EmptyKeyError()
       return { [KIND]: "key", key: seg.key }
     case "index":
       return { [KIND]: "index", index: seg.index }
