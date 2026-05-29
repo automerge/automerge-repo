@@ -24,19 +24,24 @@ minimumReleaseAge: 4320
 # Peer ranges stay literal — they're intentionally broader than the pinned dev/runtime version.
 catalog:
   "@automerge/automerge": ^3.2.6
+  "@clack/prompts": ^1.4.0
   "@testing-library/jest-dom": ^6.9.1
   "@types/node": ^22.19.19
   "@types/react": ^19.2.15
+  "@types/ws": ^8.18.1
   "@vitejs/plugin-react": ^6.0.2
   "@vitest/coverage-v8": ^4.1.7
   "@vitest/ui": ^4.1.7
   cbor-x: ^1.6.4
   debug: ^4.4.3
   eventemitter3: ^5.0.4
+  execa: ^9.6.1
+  portfinder: ^1.0.38
   react: ^19.2.6
   react-dom: ^19.2.6
   react-error-boundary: ^6.1.2
   rollup-plugin-visualizer: ^7.0.1
+  svelte: ^5.55.9
   typescript: ^6.0.3
   uuid: ^14.0.0
   vite: ^8.0.14

@@ -21,8 +21,8 @@
   },
   "devDependencies": {
     "@automerge/automerge": "catalog:",
-    "@types/ws": "^8.18.1",
-    "portfinder": "^1.0.38",
+    "@types/ws": "catalog:",
+    "portfinder": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

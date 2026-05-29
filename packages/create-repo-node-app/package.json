@@ -20,11 +20,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@clack/prompts": "^1.4.0"
+    "@clack/prompts": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "execa": "^9.6.1",
+    "execa": "catalog:",
     "typescript": "catalog:"
   },
   "engines": {

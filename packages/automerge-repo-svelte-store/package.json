@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@sveltejs/package": "^2.5.7",
-    "svelte": "^5.55.9",
+    "svelte": "catalog:",
     "typescript": "catalog:"
   },
   "watch": {

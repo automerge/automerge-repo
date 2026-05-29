@@ -15,7 +15,7 @@
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "@automerge/automerge-repo-svelte-store": "workspace:*",
-    "svelte": "^5.55.9"
+    "svelte": "catalog:"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
