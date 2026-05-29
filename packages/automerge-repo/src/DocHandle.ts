@@ -35,11 +35,17 @@ import type {
   Segment,
 } from "./subdoc-handles/types.js"
 import { KIND } from "./subdoc-handles/types.js"
+import { foreverPromise } from "./helpers/foreverPromise.js"
 
 /**
- * A scoped handle into an Automerge document. Every `DocHandle` references
- * a single shared `Document` (the underlying Automerge data and its
- * handle/listener registry) plus an optional `(path, range, heads)` scope.
+ * A DocHandle is a wrapper around an Automerge document. It allows you
+ * to read and change the document, as well as to subscribe to changes.
+ *
+ * DocHandles are created by the Repo class, generally through repo.find() or repo.create().
+ *
+ * A simple DocHandle is defined by a URL with only a documentId, but
+ * it is also possible (via the URL) to specify a specific version via "heads",
+ * or to scope the handle to a subtree of the full document with a path.
  *
  * Conceptually a handle is just `(document, path, range?, heads?)`:
  * - A **root** handle has no path, range, or heads - it points at the
@@ -56,13 +62,13 @@ import { KIND } from "./subdoc-handles/types.js"
  * two calls that name the same `(path, range, heads)` triple - even via
  * different traversals - return the same `DocHandle` instance.
  *
- * @remarks
- * Mutations go through {@link DocHandle.change} or {@link DocHandle.changeAt};
- * the `Repo` then persists them via the {@link StorageAdapter} and sends
- * sync messages to connected peers.
+ * To modify the underlying document use either {@link DocHandle.change} or
+ * {@link DocHandle.changeAt}. These methods will notify the `Repo` that some change has occured and
+ * the `Repo` handles persisting to your local storage as well as propagating
+ * changes to connected peers.
  */
 export class DocHandle<T> {
-  /** If set, this handle reads at these heads; per-handle, not document-wide. */
+  /** If set, this handle will only show the document at these heads */
   #fixedHeads?: UrlHeads
 
   /** Shared per-document state. Every handle into the same doc shares one. */
@@ -103,8 +109,9 @@ export class DocHandle<T> {
   }
 
   /**
-   * This handle's URL. Root handles produce `automerge:<docId>[#heads]`;
-   * sub-/view-handles include their path segments and any fixed heads.
+   * This handle's URL.
+   * The URL might include a path, or heads, both optionally.
+   * like this: `automerge:<docId>[/path][#heads]`;
    */
   get url(): AutomergeUrl {
     const segments: Segment[] | undefined =
@@ -120,19 +127,25 @@ export class DocHandle<T> {
     })
   }
 
-  // Legacy state-machine accessors: kept for source compatibility, gone next
-  // major. Only `ready → deleted` remains; Repo always hands out ready handles.
+  // TODO: remove the legacy state-machine accessors below in the next major.
+  // Handles are only handed out to consumers in the `ready` state, so the
+  // only meaningful transition that remains is ready → deleted.
 
-  /** True until the document is deleted; always true at handle construction. */
+  /**
+   * @returns true if the document has not been deleted.
+   * Repo only hands out handles that already have data, so this is `true`
+   * from construction unless `delete()` is called.
+   */
   isReady = () => !this.#document.deleted
 
   /**
    * @returns true if the document has been unloaded.
-   * @deprecated Always returns false. Will be removed in the next major.
    */
   isUnloaded = () => false
 
-  /** True after {@link DocHandle.delete} has been called on any handle for this document. */
+  /**
+   * @returns true if the document has been marked as deleted.
+   */
   isDeleted = () => this.#document.deleted
 
   /**
@@ -148,7 +161,7 @@ export class DocHandle<T> {
    */
   inState = (states: HandleState[]) => states.includes(this.state)
 
-  /** @hidden Either `"ready"` or `"deleted"` - see the class doc for context. */
+  /** @hidden */
   get state(): HandleState {
     return this.#document.deleted ? "deleted" : "ready"
   }
@@ -167,12 +180,14 @@ export class DocHandle<T> {
       return
     }
     // No path to other states from a handed-out handle.
-    return new Promise(() => {})
+    return foreverPromise
   }
 
   /**
-   * The whole Automerge document this handle reads from, at this handle's
-   * fixed heads if any. For a sub-handle's scoped value use {@link value}.
+   * The document (or subtree of one) that this handle is pointing at.
+   * @returns the current Automerge.Doc value
+   * @throws on deleted documents
+   * @remarks In past releases, this was asynchronous and could be undefined.
    */
   doc(): A.Doc<T> | undefined {
     return this.#scopedValue(this.#document.viewAt(this.#fixedHeads)) as
@@ -189,18 +204,18 @@ export class DocHandle<T> {
   }
 
   /**
-   * Current heads of the underlying document, or this handle's fixed heads
-   * if view-pinned. Heads are document-level - to find heads where this
-   * handle's path changed, use {@link history}.
+   * Returns the current "heads" of the document, akin to a git commit.
+   * This precisely defines the state of a document.
+   * @returns the current document's heads
    */
   heads(): UrlHeads {
-    const heads = this.#fixedHeads
-    if (heads) return heads
     return encodeHeads(A.getHeads(this.#document.doc))
   }
 
-  /** @hidden @deprecated No-op since the state machine was removed. */
-  begin() {}
+  /** @hidden */
+  begin() {
+    // noop - state machine removed
+  }
 
   /**
    * Returns an array of all past "heads" for the document in topological order.
@@ -213,6 +228,7 @@ export class DocHandle<T> {
    * There might be a clever way to think about this, but we haven't found it yet, so for now at least
    * we present a single traversable view which excludes concurrency.
    * @returns UrlHeads[] - The individual heads for every change in the document. Each item is a tagged string[1].
+   * @remarks This API is currently unusably slow for subdocuments with long history. We plan to fix this during alpha.
    */
   history(): UrlHeads[] {
     const topo = A.topoHistoryTraversal(this.#document.doc)
@@ -258,11 +274,17 @@ export class DocHandle<T> {
   }
 
   /**
-   * Returns a read-only handle for this scope pinned at `heads`. Reads
-   * project the doc at those heads on demand (no cloning); mutations throw.
+   * Creates a fixed "view" of an automerge document at the given point in time represented
+   * by the `heads` passed in. The return value is the same type as doc() and will return
+   * undefined if the object hasn't finished loading.
    *
-   * @remarks Types are static - if `heads` predates a schema change, the
-   * stored shape may not match `T`. See {@link DocHandle.history}.
+   * @remarks
+   * Note that our Typescript types do not consider change over time and the current version
+   * of Automerge doesn't check types at runtime, so if you go back to an old set of heads
+   * that doesn't match the heads here, Typescript will not save you.
+   *
+   * @argument heads - The heads to view the document at. See history().
+   * @returns DocHandle<T> at the time of `heads`
    */
   view(heads: UrlHeads): DocHandle<T> {
     return this.#createSubHandle([], { heads }) as DocHandle<T>
@@ -330,12 +352,13 @@ export class DocHandle<T> {
   }
 
   /**
-   * Look up the change metadata (commit message, timestamps, dependencies)
-   * for a single hash. Useful for building history graphs.
+   * `metadata(head?)` allows you to look at the metadata for a change
+   * this can be used to build history graphs to find commit messages and edit times.
+   * this interface.
    *
    * @remarks
-   * We're not yet convinced this is the right shape to surface change
-   * metadata, so the API is left hidden for now.
+   * I'm really not convinced this is the right way to surface this information so
+   * I'm leaving this API "hidden".
    *
    * @hidden
    */
@@ -354,8 +377,9 @@ export class DocHandle<T> {
   }
 
   /**
-   * Ingress for new document state (storage, sync, local change). Routes
-   * through `Document.applyMutation`. Throws on view-pinned handles.
+   * `update` is called any time we have a new document state; could be
+   * from a local change, a remote change, or a new document from storage.
+   * @throws if a handle has fixed heads
    * @hidden
    */
   update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
@@ -371,8 +395,15 @@ export class DocHandle<T> {
     }
   }
 
-  /** @hidden @deprecated No-op since the state machine was removed. */
-  doneLoading() {}
+  /**
+   * `doneLoading` is called by the repo after it decides it has all the changes
+   * it's going to get during setup. This might mean it was created locally,
+   * or that it was loaded from storage, or that it was received from a peer.
+   * @hidden
+   */
+  doneLoading() {
+    // noop - state machine removed
+  }
 
   /** Returns the latest known heads for the given peer's storageId, or
    * undefined if we have not received sync info from that peer.
@@ -413,23 +444,19 @@ export class DocHandle<T> {
    *
    */
   change(
-    callback: A.ChangeFn<T> | SubChangeFn<T> | T,
+    callbackOrValue: A.ChangeFn<T> | SubChangeFn<T> | T,
     options: A.ChangeOptions<T> = {}
   ) {
     this.#throwIfFixedHeads("change")
     if (this.#path.length === 0 && !this.#range) {
       this.#document.applyMutation(doc =>
-        A.change(doc as A.Doc<T>, options, callback as A.ChangeFn<T>)
+        A.change(doc as A.Doc<T>, options, callbackOrValue as A.ChangeFn<T>)
       )
       return
     }
-    // Pass the callback through untouched: `applyScopedChange` distinguishes a
-    // mutator function from a shorthand replacement value itself. A function
-    // mutates in place (return value ignored, like root `change()`); a
-    // non-function value overwrites the slot.
     this.#document.applyMutation(doc =>
       A.change(doc as A.Doc<T>, options, mutable => {
-        this.#applyScopedChange(mutable as A.Doc<any>, callback)
+        this.#applyScopedChange(mutable as A.Doc<any>, callbackOrValue)
       })
     )
   }
@@ -464,14 +491,14 @@ export class DocHandle<T> {
   }
 
   /**
-   * True if mutations on this handle will throw. View-pinned handles
-   * (those returned by {@link DocHandle.view} or constructed with `heads`)
-   * are read-only; root and sub-handles are not.
+   * Check if the document can be change()ed. Currently, documents can be
+   * edited unless we are viewing a particular point in time.
    *
-   * @remarks
-   * `changeAt()` can technically back-date changes from any handle, but
-   * we still block it on view-pinned handles for clarity. To rewrite
-   * history at a specific point, use the live root handle with `changeAt`.
+   * @remarks It is technically possible to back-date changes using changeAt(),
+   *          but we block it for usability reasons when viewing a particular point in time.
+   *          To make changes in the past, use the primary document handle with no heads set.
+   *
+   * @returns boolean indicating whether changes are possible
    */
   isReadOnly() {
     return !!this.#fixedHeads
@@ -493,17 +520,31 @@ export class DocHandle<T> {
     this.update(doc => A.merge(doc, otherHandle.fullDoc()))
   }
 
-  /** @hidden @deprecated No-op since the state machine was removed. */
-  unavailable() {}
+  /**
+   * Updates the internal state machine to mark the document unavailable.
+   * @hidden
+   */
+  unavailable() {
+    // noop - state machine removed
+  }
 
-  /** @hidden @deprecated No-op since the state machine was removed. */
-  request() {}
+  /**
+   * Called by the repo either when the document is not found in storage.
+   * @hidden
+   * */
+  request() {
+    // noop - state machine removed
+  }
 
-  /** @hidden @deprecated No-op since the state machine was removed. */
-  unload() {}
+  /** Called by the repo to free memory used by the document. */
+  unload() {
+    // noop - state machine removed
+  }
 
-  /** @hidden @deprecated No-op since the state machine was removed. */
-  reload() {}
+  /** Called by the repo to reuse an unloaded handle. */
+  reload() {
+    // noop - state machine removed
+  }
 
   /**
    * Marks the document deleted and fans `delete` out to every retained
@@ -570,28 +611,6 @@ export class DocHandle<T> {
   }
 
   // Path / range introspection
-
-  /**
-   * The root handle for this document (path `[]`, no range, no heads) -
-   * the one Repo holds and document-level lifecycle methods apply to.
-   * Returns `this` on the root.
-   */
-  get docHandle(): DocHandle<any> {
-    if (this.#path.length === 0 && !this.#range && !this.#fixedHeads) {
-      return this
-    }
-    const root = this.#document.registry.cachedHandle(
-      this.#document.registry.root,
-      undefined,
-      undefined
-    )
-    if (!root) {
-      throw new Error(
-        `No root handle registered for document ${this.documentId}`
-      )
-    }
-    return root
-  }
 
   /**
    * Snapshot of this handle's segments with their currently-resolved
