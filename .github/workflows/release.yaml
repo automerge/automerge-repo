@@ -47,7 +47,7 @@ jobs:
           pnpm install
           pnpm build
       - name: Build docs
-        run: npx typedoc
+        run: pnpm exec typedoc
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4
         with:
@@ -98,7 +98,7 @@ jobs:
           # lerna handles versioning, inter-package ranges, git tag and push;
           # pnpm does the publish so that workspace: and catalog: specifiers
           # resolve to real versions (lerna publish leaves catalog: unresolved).
-          npx lerna version ${VERSION} --yes --force-publish
+          pnpm exec lerna version ${VERSION} --yes --force-publish
           PUBLISH_ARGS=""
           if [[ $VERSION == *"alpha."* ]] || [[ $VERSION == *"beta."* ]] || [[ $VERSION == *"rc."* ]]; then
             echo "Is pre-release version"
