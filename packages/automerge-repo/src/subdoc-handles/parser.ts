@@ -153,6 +153,10 @@ const keyCodec: SegmentCodec<"key"> = {
     return { [KIND]: "key", key: decodeURIComponent(s) }
   },
   serialize: seg => {
+    // Empty keys don't round-trip through a slash-delimited URL path.
+    if (seg.key === "") {
+      throw new Error("Path keys cannot be empty strings")
+    }
     // Check if key starts with any character that needs escaping
     const needsEscape = ESCAPE_TRIGGERS.some(p => seg.key.startsWith(p))
     const encoded = encodeURIComponent(seg.key)

@@ -175,28 +175,17 @@ export class DocHandle<T> {
    * fixed heads if any. For a sub-handle's scoped value use {@link value}.
    */
   doc(): A.Doc<T> | undefined {
-    const heads = this.#fixedHeads
-    const underlying = this.#document.doc
-    if (!heads) return this.#scopedValue(underlying) as A.Doc<T>
-    // Memoize per underlying snapshot - view-pinned handles get read a lot.
-    if (this.#cachedDocFor !== underlying) {
-      this.#cachedDocFor = underlying
-      this.#cachedDoc = A.view(underlying, decodeHeads(heads)) as A.Doc<T>
-    }
-
-    return this.#scopedValue(this.#cachedDoc!) as A.Doc<T> | undefined
+    return this.#scopedValue(this.#document.viewAt(this.#fixedHeads)) as
+      | A.Doc<T>
+      | undefined
   }
-  #cachedDoc?: A.Doc<T>
-  #cachedDocFor?: A.Doc<any>
 
   /**
    * The whole underlying document (ignoring this handle's path/range), at
    * this handle's fixed heads if it is view-pinned.
    */
   fullDoc(): A.Doc<T> {
-    const heads = this.#fixedHeads
-    if (!heads) return this.#document.doc as A.Doc<T>
-    return A.view(this.#document.doc, decodeHeads(heads)) as A.Doc<T>
+    return this.#document.viewAt(this.#fixedHeads) as A.Doc<T>
   }
 
   /**
@@ -628,8 +617,9 @@ export class DocHandle<T> {
    * `undefined` if this handle has no range.
    */
   rangePositions(): [number, number] | undefined {
-    // Cursor positions resolve against the whole document (fullDoc), not
-    // the scoped value that `doc()` now returns.
+    // Cursor positions resolve against the whole document at this handle's
+    // heads (fullDoc) - for a view-pinned handle the live doc has shifted, so
+    // resolving against live text would return the wrong substring.
     return this.#rangePositions(this.fullDoc(), this.#getPropPath())
   }
 

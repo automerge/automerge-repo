@@ -1,6 +1,7 @@
 import { next as A } from "@automerge/automerge/slim"
 import debug from "debug"
-import type { DocumentId } from "./types.js"
+import { decodeHeads } from "./AutomergeUrl.js"
+import type { DocumentId, UrlHeads } from "./types.js"
 import type { StorageId } from "./storage/types.js"
 import type { SyncInfo } from "./DocHandle.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
@@ -27,6 +28,14 @@ export class Document<T = unknown> {
   /** Sync-info lookup injected by `Repo` from its `SyncStateTracker`. */
   syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
 
+  /**
+   * Materialized `A.view`s, keyed by heads. Heads precisely specify an
+   * immutable state, so a view never changes once computed and the cache
+   * never needs invalidating - the live doc only ever grows past these
+   * heads, and `A.view` at a historical point is identical regardless.
+   */
+  #viewCache = new Map<string, A.Doc<T>>()
+
   constructor(
     documentId: DocumentId,
     initialDoc: A.Doc<T>,
@@ -37,6 +46,22 @@ export class Document<T = unknown> {
     this.syncInfoLookup = syncInfoLookup
     this.registry = new HandleRegistry(this)
     this.log = debug(`automerge-repo:doc:${documentId.slice(0, 5)}`)
+  }
+
+  /**
+   * The whole document at `heads` (the live snapshot when `heads` is
+   * undefined). Views are memoized per snapshot so repeated reads from
+   * view-pinned handles don't re-run `A.view`.
+   */
+  viewAt(heads: UrlHeads | undefined): A.Doc<T> {
+    if (!heads) return this.doc
+    const key = [...heads].sort().join(",")
+    let view = this.#viewCache.get(key)
+    if (!view) {
+      view = A.view(this.doc, decodeHeads(heads)) as A.Doc<T>
+      this.#viewCache.set(key, view)
+    }
+    return view
   }
 
   /**

@@ -190,7 +190,7 @@ describe("Edge Cases", () => {
       expect((parsed.segments[0] as any).key).toBe("path/with/slashes")
     })
 
-    it("rejects empty string keys (they don't round-trip through URLs)", () => {
+    it("should reject empty string keys", () => {
       handle.change(d => {
         d[""] = "empty key value"
       })
@@ -957,6 +957,43 @@ describe("Edge Cases", () => {
 
       const parsed = parseAutomergeUrl(recovered as AutomergeUrl)
       expect(parsed.heads).toEqual(encodedHeads)
+    })
+  })
+
+  describe("branch-review regressions", () => {
+    it("matches patterns over arrays containing null/primitive items without throwing", () => {
+      handle.change(d => {
+        d.items = [null, "str", { id: "x", label: "found" }]
+      })
+
+      const ref = handle.sub("items", { id: "x" })
+      expect(ref.doc()).toEqual({ id: "x", label: "found" })
+
+      // Mutating through the matched ref must not crash on the null/primitive
+      // siblings during pattern resolution/dispatch.
+      expect(() =>
+        ref.change(d => {
+          d.label = "updated"
+        })
+      ).not.toThrow()
+      expect(handle.doc().items[2].label).toBe("updated")
+    })
+
+    it("stabilizes cursors on a pinned view against the view's text, not the live doc", () => {
+      handle.change(d => {
+        d.text = "Hello World"
+      })
+      const oldHeads = handle.heads()
+
+      // Edit the text so live positions differ from the pinned view.
+      handle.change(d => {
+        splice(d, ["text"], 0, 0, "PREFIX ")
+      })
+
+      // cursor(0, 5) on the OLD view should read "Hello" - the cursors must be
+      // built against the view's text, not the live (shifted) text.
+      const pinned = handle.view(oldHeads).sub("text", cursor(0, 5))
+      expect(pinned.doc()).toBe("Hello")
     })
   })
 })
