@@ -41,19 +41,19 @@ describe("Edge Cases", () => {
       })
 
       // Zero-width cursor range
-      expect(handle.ref("text", cursor(2, 2)).value()).toBe("")
+      expect(handle.ref("text", cursor(2, 2)).doc()).toBe("")
 
       // Empty string allows cursor at 0
-      expect(handle.ref("empty", cursor(0, 0)).value()).toBe("")
+      expect(handle.ref("empty", cursor(0, 0)).doc()).toBe("")
 
       // Negative positions clamped to 0
-      expect(handle.ref("text", cursor(-5, 3)).value()).toBe("Hel")
+      expect(handle.ref("text", cursor(-5, 3)).doc()).toBe("Hel")
 
       // Out-of-bounds positions clamped to string length
-      expect(handle.ref("text", cursor(0, 100)).value()).toBe("Hello")
+      expect(handle.ref("text", cursor(0, 100)).doc()).toBe("Hello")
 
       // Inverted range (start > end) returns empty string
-      expect(handle.ref("text", cursor(4, 2)).value()).toBe("")
+      expect(handle.ref("text", cursor(4, 2)).doc()).toBe("")
     })
 
     it("should track cursors when text around them changes", () => {
@@ -62,19 +62,19 @@ describe("Edge Cases", () => {
       })
 
       const ref = handle.ref("text", cursor(6, 11)) // "World"
-      expect(ref.value()).toBe("World")
+      expect(ref.doc()).toBe("World")
 
       // Delete "Hello " - cursors track the content
       handle.change(d => {
         splice(d, ["text"], 0, 6, "")
       })
-      expect(ref.value()).toBe("World")
+      expect(ref.doc()).toBe("World")
 
       // Delete "World" entirely - cursors collapse
       handle.change(d => {
         splice(d, ["text"], 0, 5, "")
       })
-      expect(ref.value()).toBe("")
+      expect(ref.doc()).toBe("")
     })
 
     it("should throw error when cursor() is followed by more segments", () => {
@@ -112,7 +112,7 @@ describe("Edge Cases", () => {
       const ref = handle.ref("123")
       expect(ref.path[0][KIND]).toBe("key")
       expect((ref.path[0] as any).key).toBe("123")
-      expect(ref.value()).toBe("value at string key '123'")
+      expect(ref.doc()).toBe("value at string key '123'")
 
       // URL serialization - "123" is just a key (no @ prefix)
       const url = ref.url
@@ -159,7 +159,7 @@ describe("Edge Cases", () => {
 
       // Ref creation works
       const ref = handle.ref("{notjson")
-      expect(ref.value()).toBe("value")
+      expect(ref.doc()).toBe("value")
 
       // URL should have backslash escape prefix (%5C is URL-encoded \)
       const url = ref.url
@@ -178,7 +178,7 @@ describe("Edge Cases", () => {
 
       // Ref creation works
       const ref = handle.ref("path/with/slashes")
-      expect(ref.value()).toBe("value")
+      expect(ref.doc()).toBe("value")
 
       // Slashes are URL-encoded, not split
       const url = ref.url
@@ -197,7 +197,7 @@ describe("Edge Cases", () => {
 
       // Ref creation works
       const ref = handle.ref("")
-      expect(ref.value()).toBe("empty key value")
+      expect(ref.doc()).toBe("empty key value")
     })
 
     it("should escape key starting with @", () => {
@@ -339,7 +339,7 @@ describe("Edge Cases", () => {
 
       // Empty pattern {} should match any object
       const ref = handle.ref("items", {})
-      expect(ref.value()).toEqual({ a: 1 }) // First item
+      expect(ref.doc()).toEqual({ a: 1 }) // First item
     })
 
     it("should handle match pattern with null value", () => {
@@ -348,7 +348,7 @@ describe("Edge Cases", () => {
       })
 
       const ref = handle.ref("items", { status: null })
-      expect(ref.value()).toEqual({ status: null })
+      expect(ref.doc()).toEqual({ status: null })
     })
 
     it("should handle match pattern with boolean values", () => {
@@ -357,10 +357,10 @@ describe("Edge Cases", () => {
       })
 
       const trueRef = handle.ref("items", { done: true })
-      expect(trueRef.value()).toEqual({ done: true })
+      expect(trueRef.doc()).toEqual({ done: true })
 
       const falseRef = handle.ref("items", { done: false })
-      expect(falseRef.value()).toEqual({ done: false })
+      expect(falseRef.doc()).toEqual({ done: false })
     })
 
     it("should serialize and deserialize match patterns correctly", () => {
@@ -406,7 +406,7 @@ describe("Edge Cases", () => {
 
       // Negative indices don't make sense in Automerge
       const ref = handle.ref("items", -1)
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle float array index", () => {
@@ -417,7 +417,7 @@ describe("Edge Cases", () => {
       // 1.5 will be used as-is, which JS will truncate to 1 when indexing
       const ref = handle.ref("items", 1.5)
       // JavaScript arrays coerce 1.5 to "1.5" as a key, not index 1
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle NaN as index", () => {
@@ -426,7 +426,7 @@ describe("Edge Cases", () => {
       })
 
       const ref = handle.ref("items", NaN)
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle Infinity as index", () => {
@@ -435,7 +435,7 @@ describe("Edge Cases", () => {
       })
 
       const ref = handle.ref("items", Infinity)
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle very large index", () => {
@@ -444,7 +444,7 @@ describe("Edge Cases", () => {
       })
 
       const ref = handle.ref("items", Number.MAX_SAFE_INTEGER)
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle root ref (empty path)", () => {
@@ -454,7 +454,7 @@ describe("Edge Cases", () => {
       })
 
       const rootRef = handle.ref()
-      const value = rootRef.value()
+      const value = rootRef.doc()
       expect(value).toHaveProperty("title", "Test")
       expect(value).toHaveProperty("count", 42)
     })
@@ -588,14 +588,14 @@ describe("Edge Cases", () => {
       })
 
       const ref = handle.ref("nested", "deep", "value")
-      expect(ref.value()).toBe(42)
+      expect(ref.doc()).toBe(42)
 
       // Delete the intermediate object
       handle.change(d => {
         delete d.nested.deep
       })
 
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle ref to array element when array is replaced", () => {
@@ -604,7 +604,7 @@ describe("Edge Cases", () => {
       })
 
       const ref = handle.ref("items", 1)
-      expect(ref.value()).toBe("b")
+      expect(ref.doc()).toBe("b")
 
       // Replace entire array
       handle.change(d => {
@@ -612,7 +612,7 @@ describe("Edge Cases", () => {
       })
 
       // Numeric index still works on new array
-      expect(ref.value()).toBe("y")
+      expect(ref.doc()).toBe("y")
     })
 
     it("should handle match ref when matched item is deleted", () => {
@@ -624,7 +624,7 @@ describe("Edge Cases", () => {
       })
 
       const ref = handle.ref("items", { id: "b" }, "value")
-      expect(ref.value()).toBe(2)
+      expect(ref.doc()).toBe(2)
 
       // Delete the matched item using Automerge's deleteAt
       // (can't use .filter() in Automerge change callbacks - creates references)
@@ -632,7 +632,7 @@ describe("Edge Cases", () => {
         d.items.deleteAt(1) // Delete item at index 1 (the one with id: "b")
       })
 
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle multiple refs to same location", () => {
@@ -644,15 +644,15 @@ describe("Edge Cases", () => {
       const ref2 = handle.ref("counter")
 
       // Both refs see the same value
-      expect(ref1.value()).toBe(0)
-      expect(ref2.value()).toBe(0)
+      expect(ref1.doc()).toBe(0)
+      expect(ref2.doc()).toBe(0)
 
       // Change via ref1
       ref1.change(() => 10)
 
       // Both refs should see the change
-      expect(ref1.value()).toBe(10)
-      expect(ref2.value()).toBe(10)
+      expect(ref1.doc()).toBe(10)
+      expect(ref2.doc()).toBe(10)
     })
   })
 

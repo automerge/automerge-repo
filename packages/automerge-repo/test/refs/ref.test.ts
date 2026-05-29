@@ -40,7 +40,7 @@ describe("Ref", () => {
       })
 
       const ref = handle.ref("title")
-      expect(ref.value()).toBe("Test Document")
+      expect(ref.doc()).toBe("Test Document")
     })
 
     it("should resolve nested paths", () => {
@@ -49,10 +49,10 @@ describe("Ref", () => {
       })
 
       const nameRef = handle.ref("user", "name")
-      expect(nameRef.value()).toBe("Alice")
+      expect(nameRef.doc()).toBe("Alice")
 
       const ageRef = handle.ref("user", "age")
-      expect(ageRef.value()).toBe(30)
+      expect(ageRef.doc()).toBe(30)
     })
 
     it("should resolve array indices", () => {
@@ -64,10 +64,10 @@ describe("Ref", () => {
       })
 
       const firstTodo = handle.ref("todos", 0)
-      expect(firstTodo.value()).toEqual({ title: "First", done: false })
+      expect(firstTodo.doc()).toEqual({ title: "First", done: false })
 
       const secondTitle = handle.ref("todos", 1, "title")
-      expect(secondTitle.value()).toBe("Second")
+      expect(secondTitle.doc()).toBe("Second")
     })
 
     it("should return undefined for invalid paths", () => {
@@ -76,7 +76,7 @@ describe("Ref", () => {
       })
 
       const invalidRef = handle.ref("nonexistent", "path")
-      expect(invalidRef.value()).toBeUndefined()
+      expect(invalidRef.doc()).toBeUndefined()
     })
 
     it("should return undefined for out-of-bounds array access", () => {
@@ -85,7 +85,7 @@ describe("Ref", () => {
       })
 
       const ref = handle.ref("items", 99)
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
   })
 
@@ -100,7 +100,7 @@ describe("Ref", () => {
         return true
       })
 
-      expect(doneRef.value()).toBe(true)
+      expect(doneRef.doc()).toBe(true)
     })
 
     it("should replace primitive values via return", () => {
@@ -110,10 +110,10 @@ describe("Ref", () => {
 
       const counterRef = handle.ref("counter")
       counterRef.change((n: any) => n + 1)
-      expect(counterRef.value()).toBe(1)
+      expect(counterRef.doc()).toBe(1)
 
       counterRef.change((n: any) => n * 2)
-      expect(counterRef.value()).toBe(2)
+      expect(counterRef.doc()).toBe(2)
     })
 
     it("should replace string values via return", () => {
@@ -123,7 +123,7 @@ describe("Ref", () => {
 
       const ref = handle.ref("greeting")
       ref.change((str: any) => str.toUpperCase())
-      expect(ref.value()).toBe("HELLO")
+      expect(ref.doc()).toBe("HELLO")
     })
 
     it("should mutate nested objects", () => {
@@ -134,7 +134,7 @@ describe("Ref", () => {
       const themeRef = handle.ref("user", "settings", "theme")
       themeRef.change(() => "dark")
 
-      expect(themeRef.value()).toBe("dark")
+      expect(themeRef.doc()).toBe("dark")
       expect(handle.doc().user.settings.theme).toBe("dark")
     })
 
@@ -144,7 +144,7 @@ describe("Ref", () => {
       })
 
       const rangeRef = handle.ref("message", cursor(0, 5))
-      expect(rangeRef.value()).toBe("Hello")
+      expect(rangeRef.doc()).toBe("Hello")
 
       rangeRef.change(() => "Hi")
 
@@ -163,7 +163,7 @@ describe("Ref", () => {
       // Use cursor() to create cursor-based range
       const rangeRef = handle.ref("text", cursor(0, 5))
       expect(rangeRef.range?.[KIND]).toBe("cursors")
-      expect(rangeRef.value()).toBe("Hello")
+      expect(rangeRef.doc()).toBe("Hello")
 
       rangeRef.change(() => "Goodbye")
 
@@ -184,7 +184,7 @@ describe("Ref", () => {
       expect(handle.doc().note).toBe("Prefix: Original text")
 
       const rangeRef = handle.ref("note", cursor(8, 16))
-      expect(rangeRef.value()).toBe("Original")
+      expect(rangeRef.doc()).toBe("Original")
 
       rangeRef.change(() => "Modified")
 
@@ -197,7 +197,7 @@ describe("Ref", () => {
       })
 
       const rangeRef = handle.ref("text", cursor(6, 11))
-      expect(rangeRef.value()).toBe("world")
+      expect(rangeRef.doc()).toBe("world")
 
       rangeRef.change(() => "")
 
@@ -250,7 +250,7 @@ describe("Ref", () => {
       })
 
       const ageRef = handle.ref("user", "age")
-      expect(ageRef.value()).toBe(30)
+      expect(ageRef.doc()).toBe(30)
 
       ageRef.remove()
 
@@ -264,7 +264,7 @@ describe("Ref", () => {
       })
 
       const secondRef = handle.ref("todos", 1)
-      expect(secondRef.value()).toEqual({ title: "Second" })
+      expect(secondRef.doc()).toEqual({ title: "Second" })
 
       secondRef.remove()
 
@@ -341,9 +341,7 @@ describe("Ref", () => {
       const viewHandle = handle.view(heads)
       const pinnedRef = viewHandle.ref("value")
 
-      expect(() => pinnedRef.remove()).toThrow(
-        "Cannot remove on"
-      )
+      expect(() => pinnedRef.remove()).toThrow("Cannot remove on")
     })
 
     it("should remove text within a range", () => {
@@ -352,7 +350,7 @@ describe("Ref", () => {
       })
 
       const rangeRef = handle.ref("text", cursor(0, 5))
-      expect(rangeRef.value()).toBe("Hello")
+      expect(rangeRef.doc()).toBe("Hello")
 
       rangeRef.remove()
 
@@ -365,7 +363,7 @@ describe("Ref", () => {
       })
 
       const rangeRef = handle.ref("text", cursor(6, 11))
-      expect(rangeRef.value()).toBe("World")
+      expect(rangeRef.doc()).toBe("World")
 
       rangeRef.remove()
 
@@ -378,7 +376,7 @@ describe("Ref", () => {
       })
 
       const rangeRef = handle.ref("text", cursor(6, 16))
-      expect(rangeRef.value()).toBe("Beautiful ")
+      expect(rangeRef.doc()).toBe("Beautiful ")
 
       rangeRef.remove()
 
@@ -625,7 +623,7 @@ describe("Ref", () => {
 
       // Both refs should have identical URLs
       expect(ref2.url).toBe(ref1.url)
-      expect(ref2.value()).toBe(ref1.value())
+      expect(ref2.doc()).toBe(ref1.doc())
 
       expect(ref2.equals(ref1)).toBe(true)
     })
@@ -644,7 +642,7 @@ describe("Ref", () => {
 
       // Should have same cursor range
       expect(ref2.url).toBe(ref1.url)
-      expect(ref2.value()).toBe("Hello")
+      expect(ref2.doc()).toBe("Hello")
 
       // Insert text before the range
       handle.change(d => {
@@ -652,8 +650,8 @@ describe("Ref", () => {
       })
 
       // Both refs should still resolve correctly (cursors are stable)
-      expect(ref1.value()).toBe("Hello")
-      expect(ref2.value()).toBe("Hello")
+      expect(ref1.doc()).toBe("Hello")
+      expect(ref2.doc()).toBe("Hello")
     })
 
     it("should handle multiple refFromUrl round-trips without drift", () => {
@@ -680,10 +678,10 @@ describe("Ref", () => {
       expect(url2).toBe(url3)
 
       // All refs should resolve to the same value
-      expect(ref1.value()).toBe(42)
-      expect(ref2.value()).toBe(42)
-      expect(ref3.value()).toBe(42)
-      expect(ref4.value()).toBe(42)
+      expect(ref1.doc()).toBe(42)
+      expect(ref2.doc()).toBe(42)
+      expect(ref3.doc()).toBe(42)
+      expect(ref4.doc()).toBe(42)
 
       // All refs should be equal (same URL)
       expect(ref2.equals(ref1)).toBe(true)
@@ -745,7 +743,7 @@ describe("Ref", () => {
       })
 
       const ref = handle.ref("title")
-      const doc = ref.doc()
+      const doc = ref.fullDoc()
 
       expect(doc).toBeDefined()
       expect(doc?.title).toBe("Test")
@@ -763,7 +761,7 @@ describe("Ref", () => {
       })
 
       const ref = handle.ref("todos", { id: "b" })
-      expect(ref.value()).toEqual({ id: "b", title: "Second" })
+      expect(ref.doc()).toEqual({ id: "b", title: "Second" })
     })
 
     it("should return undefined if no match found", () => {
@@ -772,7 +770,7 @@ describe("Ref", () => {
       })
 
       const ref = handle.ref("todos", { id: "nonexistent" })
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should match multiple fields in where clause", () => {
@@ -785,7 +783,7 @@ describe("Ref", () => {
       })
 
       const ref = handle.ref("items", { type: "task", status: "done" })
-      expect(ref.value()).toEqual({ type: "task", status: "done", title: "A" })
+      expect(ref.doc()).toEqual({ type: "task", status: "done", title: "A" })
     })
   })
 
@@ -802,7 +800,7 @@ describe("Ref", () => {
         }>
       }
 
-      expect(ref.value()?.title).toBe("B")
+      expect(ref.doc()?.title).toBe("B")
     })
 
     it("should track position changes for numeric indices", () => {
@@ -812,7 +810,7 @@ describe("Ref", () => {
 
       // Create ref to position 1
       const ref = handle.ref("todos", 1, "title")
-      expect(ref.value()).toBe("B")
+      expect(ref.doc()).toBe("B")
 
       // Remove first item - position 1 now has "C"
       handle.change(d => {
@@ -820,7 +818,7 @@ describe("Ref", () => {
       })
 
       // Numeric ref now points to position 1 (which is "C")
-      expect(ref.value()).toBe("C")
+      expect(ref.doc()).toBe("C")
     })
 
     it("should use match patterns to find items", () => {
@@ -834,7 +832,7 @@ describe("Ref", () => {
       // Match clause finds item by properties
       const ref = handle.ref("items", { id: "b" }, "value")
 
-      expect(ref.value()).toBe(2)
+      expect(ref.doc()).toBe(2)
 
       // Path should contain match pattern
       expect(ref.path[1][KIND]).toBe("match")
@@ -852,7 +850,7 @@ describe("Ref", () => {
 
       // Match clause finds item by id pattern
       const ref = handle.ref("items", { id: "b" }, "value")
-      expect(ref.value()).toBe(2)
+      expect(ref.doc()).toBe(2)
 
       // Move "b" to a different position by deleting first item
       handle.change(d => {
@@ -860,7 +858,7 @@ describe("Ref", () => {
       })
 
       // Should still resolve to item with id "b" (now at index 0)
-      expect(ref.value()).toBe(2)
+      expect(ref.doc()).toBe(2)
     })
 
     it("should use numeric indices for primitives", () => {
@@ -873,7 +871,7 @@ describe("Ref", () => {
       expect((ref.path[0] as any).key).toBe("numbers")
       expect(ref.path[1][KIND]).toBe("index")
       expect((ref.path[1] as any).index).toBe(1)
-      expect(ref.value()).toBe(2)
+      expect(ref.doc()).toBe(2)
     })
 
     it("should create cursor-based ranges with cursor()", () => {
@@ -889,7 +887,7 @@ describe("Ref", () => {
       expect(typeof ref.range?.start).toBe("string") // Cursor
       expect(typeof ref.range?.end).toBe("string") // Cursor
 
-      expect(ref.value()).toBe("Hello")
+      expect(ref.doc()).toBe("Hello")
     })
 
     it("should track cursor ranges through text edits", () => {
@@ -900,7 +898,7 @@ describe("Ref", () => {
       // Create cursor-based range
       const cursorRef = handle.ref("text", cursor(0, 5))
       expect(cursorRef.range?.[KIND]).toBe("cursors")
-      expect(cursorRef.value()).toBe("Hello")
+      expect(cursorRef.doc()).toBe("Hello")
 
       // Insert at beginning
       handle.change(d => {
@@ -908,7 +906,7 @@ describe("Ref", () => {
       })
 
       // Cursor range tracks the original text (now "Hello")
-      expect(cursorRef.value()).toBe("Hello")
+      expect(cursorRef.doc()).toBe("Hello")
     })
   })
 
@@ -939,7 +937,7 @@ describe("Ref", () => {
         // Return void - no update
       })
 
-      expect(ref.value()).toBe(10)
+      expect(ref.doc()).toBe(10)
     })
 
     it("should update when callback returns a value", () => {
@@ -950,10 +948,10 @@ describe("Ref", () => {
       const ref = handle.ref("counter")
 
       ref.change((val: any) => val + 10)
-      expect(ref.value()).toBe(10)
+      expect(ref.doc()).toBe(10)
 
       ref.change((val: any) => val * 2)
-      expect(ref.value()).toBe(20)
+      expect(ref.doc()).toBe(20)
     })
 
     it("should allow mutations on objects", () => {
@@ -969,7 +967,7 @@ describe("Ref", () => {
         // Return void - mutations applied
       })
 
-      expect(ref.value()).toEqual({ enabled: true, count: 5 })
+      expect(ref.doc()).toEqual({ enabled: true, count: 5 })
     })
 
     it("should allow replacing entire objects", () => {
@@ -983,7 +981,7 @@ describe("Ref", () => {
         return { theme: "dark", fontSize: 14 }
       })
 
-      expect(ref.value()).toEqual({ theme: "dark", fontSize: 14 })
+      expect(ref.doc()).toEqual({ theme: "dark", fontSize: 14 })
     })
 
     it("should work with nested paths", () => {
@@ -999,7 +997,7 @@ describe("Ref", () => {
       const ageRef = handle.ref("user", "profile", "age")
 
       ageRef.change((age: any) => age + 1)
-      expect(ageRef.value()).toBe(26)
+      expect(ageRef.doc()).toBe(26)
       expect(handle.doc().user.profile.age).toBe(26)
     })
 
@@ -1017,7 +1015,7 @@ describe("Ref", () => {
       })
 
       expect(receivedValue).toBeUndefined()
-      expect(ref.value()).toBe("now exists")
+      expect(ref.doc()).toBe("now exists")
     })
 
     it("should allow conditional updates", () => {
@@ -1037,7 +1035,7 @@ describe("Ref", () => {
         // Return undefined = no change
       })
 
-      expect(ref.value()).toBe(5)
+      expect(ref.doc()).toBe(5)
 
       // Update to trigger condition
       ref.change(() => 15)
@@ -1045,7 +1043,7 @@ describe("Ref", () => {
         if (val > 10) return 0
       })
 
-      expect(ref.value()).toBe(0)
+      expect(ref.doc()).toBe(0)
     })
   })
 
@@ -1059,7 +1057,7 @@ describe("Ref", () => {
 
       const changePromise = new Promise<void>(resolve => {
         ref.onChange(() => {
-          expect(ref.value()).toBe(1)
+          expect(ref.doc()).toBe(1)
           resolve()
         })
       })
@@ -1103,7 +1101,7 @@ describe("Ref", () => {
 
       const changePromise = new Promise<void>(resolve => {
         nameRef.onChange(() => {
-          expect(nameRef.value()).toBe("Bob")
+          expect(nameRef.doc()).toBe("Bob")
           resolve()
         })
       })
@@ -1155,7 +1153,7 @@ describe("Ref", () => {
 
       const changePromise = new Promise<void>(resolve => {
         todoRef.onChange(() => {
-          expect(todoRef.value()?.done).toBe(true)
+          expect(todoRef.doc()?.done).toBe(true)
           resolve()
         })
       })
@@ -1176,7 +1174,7 @@ describe("Ref", () => {
 
       const changePromise = new Promise<void>(resolve => {
         ref.onChange(() => {
-          expect(ref.value()).toBe("modified")
+          expect(ref.doc()).toBe("modified")
           resolve()
         })
       })
@@ -1189,18 +1187,48 @@ describe("Ref", () => {
       await changePromise
     })
 
-    it("should provide patches in callback", async () => {
+    it("should provide patches in callback, scoped relative to the ref", async () => {
       handle.change(d => {
         d.data = { value: 10 }
       })
 
+      // Scope to the `data` object; a change to `data.value` is *inside*
+      // the scope and should arrive as a patch with a path relative to the
+      // ref (`["value"]`, not `["data", "value"]`).
+      const ref = handle.ref("data")
+
+      const changePromise = new Promise<void>(resolve => {
+        ref.onChange((value, { patches, scopeReplaced }) => {
+          expect(scopeReplaced).toBe(false)
+          expect(Array.isArray(patches)).toBe(true)
+          expect(patches.length).toBeGreaterThan(0)
+          expect(patches[0].path).toEqual(["value"])
+          resolve()
+        })
+      })
+
+      handle.change(d => {
+        d.data.value = 20
+      })
+
+      await changePromise
+    })
+
+    it("should signal scopeReplaced when the ref's own value is replaced", async () => {
+      handle.change(d => {
+        d.data = { value: 10 }
+      })
+
+      // Scope to a leaf primitive; setting it is a change *at* the scope
+      // boundary, reported via `scopeReplaced` with the new value on `doc`.
       const ref = handle.ref("data", "value")
 
       const changePromise = new Promise<void>(resolve => {
-        ref.onChange((value, { patches }) => {
-          expect(patches).toBeDefined()
-          expect(Array.isArray(patches)).toBe(true)
-          expect(patches.length).toBeGreaterThan(0)
+        ref.onChange((value, { patches, scopeReplaced, doc }) => {
+          expect(scopeReplaced).toBe(true)
+          expect(patches).toEqual([])
+          expect(doc).toBe(20)
+          expect(value).toBe(20)
           resolve()
         })
       })
@@ -1255,7 +1283,7 @@ describe("Ref", () => {
       const changePromise = new Promise<void>(resolve => {
         rangeRef.onChange(() => {
           // Cursor range tracks original text
-          expect(rangeRef.value()).toBe("Hello")
+          expect(rangeRef.doc()).toBe("Hello")
           resolve()
         })
       })
@@ -1281,7 +1309,7 @@ describe("Ref", () => {
 
       const changePromise = new Promise<void>(resolve => {
         ref.onChange(() => {
-          expect(ref.value()).toBe(20)
+          expect(ref.doc()).toBe(20)
           resolve()
         })
       })
@@ -1643,13 +1671,13 @@ describe("Ref", () => {
       })
 
       const currentRef = handle.ref("value")
-      expect(currentRef.value()).toBe(2)
+      expect(currentRef.doc()).toBe(2)
 
       const pastRef = currentRef.view(encodeHeads(heads1))
-      expect(pastRef.value()).toBe(1)
+      expect(pastRef.doc()).toBe(1)
 
       // Original ref should be unchanged
-      expect(currentRef.value()).toBe(2)
+      expect(currentRef.doc()).toBe(2)
     })
 
     it("should work with nested paths", () => {
@@ -1663,10 +1691,10 @@ describe("Ref", () => {
       })
 
       const currentRef = handle.ref("user", "name")
-      expect(currentRef.value()).toBe("Bob")
+      expect(currentRef.doc()).toBe("Bob")
 
       const pastRef = currentRef.view(encodeHeads(heads1))
-      expect(pastRef.value()).toBe("Alice")
+      expect(pastRef.doc()).toBe("Alice")
     })
 
     it("should return new Ref instance", () => {
@@ -1942,11 +1970,11 @@ describe("Ref", () => {
       })
 
       const ref = handle.ref("a", "b", "c", "d", "e", "f", "g", "h")
-      expect(ref.value()).toBe("deep")
+      expect(ref.doc()).toBe("deep")
 
       // Update deep value
       ref.change(() => "updated")
-      expect(ref.value()).toBe("updated")
+      expect(ref.doc()).toBe("updated")
     })
 
     it("should handle mixed segments", () => {
@@ -1959,7 +1987,7 @@ describe("Ref", () => {
 
       // Mix of: key -> index -> key -> key
       const ref = handle.ref("items", 1, "data", "name")
-      expect(ref.value()).toBe("Second")
+      expect(ref.doc()).toBe("Second")
 
       // Remove first item - second item moves to index 0
       handle.change(d => {
@@ -1967,7 +1995,7 @@ describe("Ref", () => {
       })
 
       // Numeric index now points to what's at position 1 (nothing left at index 1)
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle unresolvable segments gracefully", () => {
@@ -1977,7 +2005,7 @@ describe("Ref", () => {
 
       // Path with a match pattern that doesn't exist
       const ref = handle.ref("items", { name: "Third" }, "value")
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
 
       // Match segment should have undefined prop (no match)
       expect(ref.path.length).toBe(3)
@@ -1997,7 +2025,7 @@ describe("Ref", () => {
 
       // Use match pattern to track by id
       const ref = handle.ref("items", { id: "b" }, "value")
-      expect(ref.value()).toBe(2)
+      expect(ref.doc()).toBe(2)
       expect(ref.path[1].prop).toBe(1) // index 1
 
       // Remove first item - second item moves to index 0
@@ -2005,7 +2033,7 @@ describe("Ref", () => {
         d.items.shift()
       })
 
-      expect(ref.value()).toBe(2) // Still resolves to same object
+      expect(ref.doc()).toBe(2) // Still resolves to same object
       expect(ref.path[1].prop).toBe(0) // Now at index 0
     })
 
@@ -2018,7 +2046,7 @@ describe("Ref", () => {
       })
 
       const ref = handle.ref("users", { active: true }, "name")
-      expect(ref.value()).toBe("Alice") // First match
+      expect(ref.doc()).toBe("Alice") // First match
 
       // The match pattern is retained
       expect(ref.path[1][KIND]).toBe("match")
@@ -2029,7 +2057,7 @@ describe("Ref", () => {
       })
 
       // Now Bob is the first match for { active: true }
-      expect(ref.value()).toBe("Bob")
+      expect(ref.doc()).toBe("Bob")
 
       // If no more matches, returns undefined
       handle.change(d => {
@@ -2042,7 +2070,7 @@ describe("Ref", () => {
         d.users[1].active = false
       })
 
-      expect(ref.value()).toBeUndefined()
+      expect(ref.doc()).toBeUndefined()
     })
 
     it("should handle empty arrays and objects", () => {
@@ -2052,10 +2080,10 @@ describe("Ref", () => {
       })
 
       const arrayRef = handle.ref("empty", 0)
-      expect(arrayRef.value()).toBeUndefined()
+      expect(arrayRef.doc()).toBeUndefined()
 
       const objRef = handle.ref("emptyObj", "key")
-      expect(objRef.value()).toBeUndefined()
+      expect(objRef.doc()).toBeUndefined()
     })
 
     it("should handle null values in path", () => {
@@ -2065,11 +2093,11 @@ describe("Ref", () => {
       })
 
       const nullRef = handle.ref("nullValue", "anything")
-      expect(nullRef.value()).toBeUndefined()
+      expect(nullRef.doc()).toBeUndefined()
 
       // Accessing missing key should also return undefined
       const missingRef = handle.ref("nested", "missing", "more")
-      expect(missingRef.value()).toBeUndefined()
+      expect(missingRef.doc()).toBeUndefined()
     })
 
     it("should handle ranges at various depths", () => {
@@ -2081,10 +2109,10 @@ describe("Ref", () => {
       })
 
       const ref1 = handle.ref("texts", "first", cursor(0, 5))
-      expect(ref1.value()).toBe("Hello")
+      expect(ref1.doc()).toBe("Hello")
 
       const ref2 = handle.ref("texts", "second", cursor(8, 12))
-      expect(ref2.value()).toBe("Moon")
+      expect(ref2.doc()).toBe("Moon")
     })
 
     it("should handle all segment types in one path", () => {
@@ -2106,7 +2134,7 @@ describe("Ref", () => {
         cursor(0, 5)
       )
 
-      expect(ref.value()).toBe("Hello")
+      expect(ref.doc()).toBe("Hello")
     })
   })
 
@@ -2118,7 +2146,7 @@ describe("Ref", () => {
 
       const themeRef = handle.ref("theme")
       themeRef.change("dark")
-      expect(themeRef.value()).toBe("dark")
+      expect(themeRef.doc()).toBe("dark")
     })
 
     it("should accept direct primitive value for numbers", () => {
@@ -2128,7 +2156,7 @@ describe("Ref", () => {
 
       const counterRef = handle.ref("counter")
       counterRef.change(42)
-      expect(counterRef.value()).toBe(42)
+      expect(counterRef.doc()).toBe(42)
     })
 
     it("should accept direct primitive value for booleans", () => {
@@ -2138,7 +2166,7 @@ describe("Ref", () => {
 
       const enabledRef = handle.ref("enabled")
       enabledRef.change(true)
-      expect(enabledRef.value()).toBe(true)
+      expect(enabledRef.doc()).toBe(true)
     })
 
     it("should still accept function form", () => {
@@ -2148,7 +2176,7 @@ describe("Ref", () => {
 
       const counterRef = handle.ref("counter")
       counterRef.change((n: any) => n * 2)
-      expect(counterRef.value()).toBe(20)
+      expect(counterRef.doc()).toBe(20)
     })
   })
 

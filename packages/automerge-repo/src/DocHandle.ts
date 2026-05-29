@@ -14,6 +14,7 @@ import { matchesPattern } from "./refs/utils.js"
 import {
   applyScopedChange,
   applyScopedRemove,
+  rebasePatchesToScope,
   resolvePropPath,
   resolveSegmentProp,
   scopedValue,
@@ -169,42 +170,23 @@ export class DocHandle<T> {
    * The whole Automerge document this handle reads from, at this handle's
    * fixed heads if any. For a sub-handle's scoped value use {@link value}.
    */
-  doc(): A.Doc<T> {
+  doc(): A.Doc<T> | undefined {
     const heads = this.#fixedHeads
     const underlying = this.#document.doc
-    if (!heads) return underlying as A.Doc<T>
+    if (!heads) return this.#scopedValue(underlying) as A.Doc<T>
     // Memoize per underlying snapshot - view-pinned handles get read a lot.
     if (this.#cachedDocFor !== underlying) {
       this.#cachedDocFor = underlying
       this.#cachedDoc = A.view(underlying, decodeHeads(heads)) as A.Doc<T>
     }
-    return this.#cachedDoc!
+
+    return this.#scopedValue(this.#cachedDoc!) as A.Doc<T> | undefined
   }
   #cachedDoc?: A.Doc<T>
   #cachedDocFor?: A.Doc<any>
 
-  /**
-   * Returns the scoped value this handle points to. For a root handle
-   * this is identical to {@link doc}; for a sub-handle it returns the
-   * value at the path (or the substring within a cursor range). Returns
-   * `undefined` if the path doesn't resolve.
-   */
-  value(): T | undefined {
-    const doc = this.doc()
-    if (this.#path.length === 0 && !this.#range) {
-      return doc as T
-    }
-    return this.#scopedValue(doc) as T | undefined
-  }
-
-  /**
-   * @deprecated Use doc() instead.
-   */
-  docSync() {
-    console.warn(
-      "docSync is deprecated. Use doc() instead. This function will be removed as part of the 2.0 release."
-    )
-    return this.doc()
+  fullDoc(): A.Doc<T> {
+    return this.#document.doc as A.Doc<T>
   }
 
   /**
@@ -267,8 +249,7 @@ export class DocHandle<T> {
         p =>
           (beforePath !== undefined &&
             isPathPrefixCompatible(p.path, beforePath)) ||
-          (afterPath !== undefined &&
-            isPathPrefixCompatible(p.path, afterPath))
+          (afterPath !== undefined && isPathPrefixCompatible(p.path, afterPath))
       )
       if (overlaps) {
         out.push(encodeHeads([topo[i]]) as UrlHeads)
@@ -332,17 +313,21 @@ export class DocHandle<T> {
     if (this.#path.length === 0 && !this.#range) return allPatches
 
     // Sub-handle: filter to patches overlapping the path, resolved against
-    // both endpoints so create-and-destroy patches are caught either way.
+    // both endpoints so create-and-destroy patches are caught either way,
+    // then re-root the surviving patches relative to this handle's scope so
+    // diff paths line up with `doc()` (changes at/above the scope are
+    // dropped - they describe the scope's container, not its contents).
     const fromDoc = A.view(diffDoc, decodeHeads(fromHeads)) as A.Doc<any>
     const toDoc = A.view(diffDoc, decodeHeads(toHeads)) as A.Doc<any>
     const fromPath = resolvePropPath(fromDoc, this.#path)
     const toPath = resolvePropPath(toDoc, this.#path)
     if (!fromPath && !toPath) return []
-    return allPatches.filter(
+    const inScope = allPatches.filter(
       p =>
         (fromPath !== undefined && isPathPrefixCompatible(p.path, fromPath)) ||
         (toPath !== undefined && isPathPrefixCompatible(p.path, toPath))
     )
+    return rebasePatchesToScope(inScope, this.#path.length).patches
   }
 
   /**
@@ -362,8 +347,10 @@ export class DocHandle<T> {
     if (!change) return undefined
     // we return undefined instead of null by convention in this API
     return (
-      A.inspectChange(this.#document.doc, decodeHeads([change] as UrlHeads)[0]) ||
-      undefined
+      A.inspectChange(
+        this.#document.doc,
+        decodeHeads([change] as UrlHeads)[0]
+      ) || undefined
     )
   }
 
@@ -461,12 +448,9 @@ export class DocHandle<T> {
     const inner: A.ChangeFn<T> =
       this.#path.length === 0 && !this.#range
         ? callback
-        : (d => {
-            this.#applyScopedChange(
-              d as A.Doc<any>,
-              callback as RefChangeFn<T>
-            )
-          }) as A.ChangeFn<T>
+        : ((d => {
+            this.#applyScopedChange(d as A.Doc<any>, callback as RefChangeFn<T>)
+          }) as A.ChangeFn<T>)
 
     this.#document.applyMutation(doc => {
       const result = A.changeAt(doc as A.Doc<T>, decoded, options, inner)
@@ -503,7 +487,7 @@ export class DocHandle<T> {
     otherHandle: DocHandle<T>
   ) {
     this.#throwIfFixedHeads("merge")
-    this.update(doc => A.merge(doc, otherHandle.doc()))
+    this.update(doc => A.merge(doc, otherHandle.fullDoc()))
   }
 
   /** @hidden @deprecated No-op since the state machine was removed. */
@@ -579,9 +563,7 @@ export class DocHandle<T> {
   ref<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
   ): DocHandle<InferRefType<T, TPath>> {
-    return this.#createSubHandle(segments) as DocHandle<
-      InferRefType<T, TPath>
-    >
+    return this.#createSubHandle(segments) as DocHandle<InferRefType<T, TPath>>
   }
 
   // ---------------- Path / range introspection ----------------
@@ -619,7 +601,7 @@ export class DocHandle<T> {
     // with reads/writes. Unresolved trailing segments carry `prop: undefined`.
     const resolved = this.#document.registry.resolvePropPath(
       this.#path,
-      this.doc(),
+      this.fullDoc(),
       this.#fixedHeads
     )
     return zipResolvedSegments(this.#path, resolved)
@@ -637,7 +619,7 @@ export class DocHandle<T> {
    */
   rangePositions(): [number, number] | undefined {
     if (!this.#range) return undefined
-    const rootDoc = this.doc()
+    const rootDoc = this.fullDoc()
     const propPath = this.#getPropPath()
     if (!propPath) return undefined
     try {
@@ -708,13 +690,10 @@ export class DocHandle<T> {
    * receives `(value, payload)`. Returns an unsubscribe function.
    */
   onChange(
-    callback: (
-      value: T | undefined,
-      payload: DocHandleChangePayload<T>
-    ) => void
+    callback: (value: T | undefined, payload: DocHandleChangePayload<T>) => void
   ): () => void {
     const listener = (payload: DocHandleChangePayload<T>) => {
-      callback(this.value(), payload)
+      callback(this.doc(), payload)
     }
     this.on("change", listener)
     return () => this.off("change", listener)
@@ -854,18 +833,15 @@ export class DocHandle<T> {
     if (this.#path.length === 0) return []
     return this.#document.registry.resolvePropPath(
       this.#path,
-      this.doc(),
+      this.fullDoc(),
       this.#fixedHeads
     )
   }
 
   /** Read the value at this handle's scope (path / range). */
   #scopedValue(rootView: A.Doc<any>): unknown {
-    return scopedValue(
-      rootView,
-      this.#getPropPath(),
-      this.#range,
-      () => this.rangePositions()
+    return scopedValue(rootView, this.#getPropPath(), this.#range, () =>
+      this.rangePositions()
     )
   }
 
@@ -882,11 +858,8 @@ export class DocHandle<T> {
 
   /** Remove the value at this handle's scope. */
   #applyScopedRemove(doc: A.Doc<any>): A.Doc<any> {
-    return applyScopedRemove(
-      doc,
-      this.#getPropPath(),
-      this.#range,
-      () => this.rangePositions()
+    return applyScopedRemove(doc, this.#getPropPath(), this.#range, () =>
+      this.rangePositions()
     )
   }
 
@@ -963,7 +936,9 @@ export class DocHandle<T> {
 
   /** Names of events with at least one listener attached. */
   eventNames(): (keyof DocHandleEvents<T>)[] {
-    return this.#document.registry.eventNamesFor(this) as (keyof DocHandleEvents<T>)[]
+    return this.#document.registry.eventNamesFor(
+      this
+    ) as (keyof DocHandleEvents<T>)[]
   }
 
   /**
@@ -1141,11 +1116,30 @@ export interface DocHandleEncodedChangePayload<T> {
 export interface DocHandleChangePayload<T> {
   /** The handle that changed */
   handle: DocHandle<T>
-  /** The value of the document after the change */
-  doc: A.Doc<T>
-  /** The patches representing the change that occurred */
+  /**
+   * The value after the change, scoped to this handle. For a root handle
+   * this is the whole document; for a sub-handle it is the value at the
+   * handle's path (i.e. equal to `handle.doc()`). `undefined` when the
+   * change removed the handle's scope.
+   */
+  doc: A.Doc<T> | undefined
+  /**
+   * The patches representing the change, with paths **relative to this
+   * handle's scope**. For a root handle these are whole-document paths; for
+   * a sub-handle they are re-rooted at the handle's path.
+   */
   patches: A.Patch[]
-  /** Information about the change */
+  /**
+   * `true` when the change replaced or removed this handle's scope wholesale
+   * (a change at or above the scope boundary). Fine-grained consumers should
+   * reconcile from `doc` rather than apply `patches` in this case. Always
+   * `false` for a root handle.
+   */
+  scopeReplaced: boolean
+  /**
+   * Information about the change. Note: `before`/`after` here are
+   * whole-document snapshots, not scoped.
+   */
   patchInfo: A.PatchInfo<T>
 }
 

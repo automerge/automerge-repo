@@ -187,6 +187,28 @@ describe("DocHandle", () => {
     ])
   })
 
+  it("should return diff paths relative to a sub-handle's scope", async () => {
+    const handle = setup()
+    handle.change(d => (d.nested = { items: ["a"] }))
+    const before = handle.heads()!
+    handle.change(d => (d.nested.items.push("b")))
+
+    // A sub-handle scoped at `nested` reports the change to `items` with a
+    // path relative to itself (`["items", 1]`, not `["nested", "items", 1]`).
+    const sub = handle.ref("nested") as unknown as DocHandle<{
+      items: string[]
+    }>
+    const patches = sub.diff(before, handle.heads()!)
+    assert.ok(patches.length > 0)
+    // Every path is re-rooted at the sub-handle: it starts at `items`, not
+    // the absolute `nested.items`.
+    for (const p of patches) assert.equal(p.path[0], "items")
+    assert.ok(
+      patches.some(p => p.path.length === 2 && p.path[1] === 1),
+      "expected an insert at the relative path ['items', 1]"
+    )
+  })
+
   // TODO: alexg -- should i remove this test? should this fail or no?
   it.skip("should fail diffing against unrelated handles", async () => {
     const handle1 = setup()

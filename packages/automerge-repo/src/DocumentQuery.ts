@@ -2,6 +2,7 @@ import { next as Automerge } from "@automerge/automerge/slim"
 import { DocHandle } from "./DocHandle.js"
 import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
+import type { Segment } from "./refs/types.js"
 import { AbortError } from "./helpers/abortable.js"
 import { type FindProgress, queryStateToFindProgress } from "./_compat.js"
 
@@ -379,7 +380,7 @@ export function progressAtHeads<T>(
   const stateAtHeads = (): QueryState<T> => {
     const upstream = query.peek()
     if (upstream.state !== "ready") return upstream
-    if (!Automerge.hasHeads(upstream.handle.doc(), decoded)) {
+    if (!Automerge.hasHeads(upstream.handle.fullDoc(), decoded)) {
       return { state: "loading", sources: upstream.sources }
     }
     return {
@@ -425,7 +426,7 @@ export function progressAtHeads<T>(
     },
     whenReady: async opts => {
       const upstream = await query.whenReady(opts)
-      if (Automerge.hasHeads(upstream.doc(), decoded)) {
+      if (Automerge.hasHeads(upstream.fullDoc(), decoded)) {
         return upstream.view(heads)
       }
       return new Promise<DocHandle<T>>((resolve, reject) => {
@@ -434,7 +435,7 @@ export function progressAtHeads<T>(
           reject(new AbortError())
         }
         const onChange = () => {
-          if (Automerge.hasHeads(upstream.doc(), decoded)) {
+          if (Automerge.hasHeads(upstream.fullDoc(), decoded)) {
             cleanup()
             resolve(upstream.view(heads))
           }
@@ -457,6 +458,42 @@ export function progressAtHeads<T>(
     },
     get error() {
       return query.error
+    },
+  }
+}
+
+/**
+ * Returns a {@link DocumentProgress} that mirrors `inner` but yields a
+ * sub-handle scoped to `segments` once ready (e.g. for an
+ * `automerge:<id>/items/@0` URL). Used by `findWithProgress` so that
+ * path-suffixed URLs resolve directly to a scoped handle, without each
+ * consumer having to re-apply the path. Readiness is unchanged - it stays
+ * a document-level concern; the scoped value may be `undefined` if the path
+ * doesn't (yet) resolve.
+ */
+export function progressAtPath<T>(
+  inner: DocumentProgress<T>,
+  segments: Segment[]
+): DocumentProgress<T> {
+  const scope = (handle: DocHandle<T>): DocHandle<T> =>
+    handle.ref(...(segments as any[])) as DocHandle<T>
+
+  const mapState = (s: QueryState<T>): QueryState<T> =>
+    s.state === "ready" ? { ...s, handle: scope(s.handle) } : s
+
+  return {
+    documentId: inner.documentId,
+    peek: () => mapState(inner.peek()),
+    subscribe: cb => inner.subscribe(s => cb(mapState(s))),
+    whenReady: async opts => scope(await inner.whenReady(opts)),
+    get state() {
+      return inner.state
+    },
+    get progress() {
+      return inner.progress
+    },
+    get error() {
+      return inner.error
     },
   }
 }

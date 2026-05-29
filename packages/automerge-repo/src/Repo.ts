@@ -13,6 +13,7 @@ import type { DocumentSource } from "./DocumentSource.js"
 import {
   DocumentQuery,
   progressAtHeads,
+  progressAtPath,
   type DocumentProgress,
 } from "./DocumentQuery.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
@@ -467,7 +468,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    *
    */
   clone<T>(clonedHandle: DocHandle<T>) {
-    const sourceDoc = clonedHandle.doc()
+    const sourceDoc = clonedHandle.fullDoc()
     const handle = this.create<T>()
     handle.update(() => Automerge.clone(sourceDoc))
     return handle
@@ -491,8 +492,12 @@ export class Repo extends EventEmitter<RepoEvents> {
   ): DocumentProgress<T> {
     const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
-      : { documentId: interpretAsDocumentId(id), heads: undefined }
-    const { documentId, heads } = parsed
+      : {
+          documentId: interpretAsDocumentId(id),
+          heads: undefined,
+          segments: undefined,
+        }
+    const { documentId, heads, segments } = parsed
 
     // ensureQuery creates the query, handle, sets up all sources, and
     // registers with the sync layer (no-ops if already added).
@@ -501,8 +506,16 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     const query = this.#queries[documentId] as DocumentQuery<T>
 
-    if (!heads) return query
-    return progressAtHeads(query, heads)
+    // A URL can carry both fixed heads (`#h1|h2`) and a path suffix
+    // (`/a/@0/b`). Layer the heads projection first (it gates readiness on
+    // those heads being present), then scope to the path. The two compose
+    // to the same canonical handle regardless of order.
+    let progress: DocumentProgress<T> = query
+    if (heads) progress = progressAtHeads(query, heads)
+    if (segments && segments.length > 0) {
+      progress = progressAtPath(progress, segments)
+    }
+    return progress
   }
 
   /**
@@ -518,25 +531,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       throw new AbortError()
     }
 
-    // URLs may carry a path suffix (`/a/@0/b`) and/or fixed heads
-    // (`#h1|h2`). We pull both out here so we can descend into a
-    // sub-handle and / or pin to historical heads once the underlying
-    // document is ready.
-    const parsed = isValidAutomergeUrl(id) ? parseAutomergeUrl(id) : null
-    const heads = parsed?.heads
-    const segments = parsed?.segments
-
-    const progress = this.findWithProgress<T>(id) as DocumentQuery<T>
-    const rootHandle = await progress.whenReady({ signal })
-
-    let handle: DocHandle<any> = rootHandle
-    if (segments && segments.length > 0) {
-      handle = handle.ref(...(segments as any[]))
-    }
-    if (heads) {
-      handle = handle.view(heads)
-    }
-    return handle as DocHandle<T>
+    // `findWithProgress` already applies any path suffix (`/a/@0/b`) and
+    // fixed heads (`#h1|h2`) from the URL, so the ready handle is correctly
+    // scoped and/or view-pinned.
+    return this.findWithProgress<T>(id).whenReady({ signal })
   }
 
   /**
@@ -586,7 +584,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const handle = await this.find(id)
-    return Automerge.save(handle.doc())
+    return Automerge.save(handle.fullDoc())
   }
 
   /**
@@ -665,7 +663,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       ids.map(async id => {
         const state = this.#queries[id]?.peek()
         if (state?.state === "ready") {
-          await this.storageSubsystem!.saveDoc(id, state.handle.doc())
+          await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
         }
       })
     )

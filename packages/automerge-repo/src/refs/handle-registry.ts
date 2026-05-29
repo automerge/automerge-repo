@@ -12,6 +12,13 @@ import { matchesPattern } from "./utils.js"
 type Listener = (payload: any) => void
 
 /**
+ * A change accumulated for one handle during dispatch: patches already
+ * re-rooted relative to the handle's scope, plus whether the scope itself
+ * was replaced or removed (a change at/above the scope boundary).
+ */
+type ScopedChange = { patches: A.Patch[]; scopeReplaced: boolean }
+
+/**
  * Per-document trie that owns handle identity, pattern resolution caching,
  * dispatch, and listener retention.
  *
@@ -227,10 +234,13 @@ export class HandleRegistry {
     patches: A.Patch[],
     patchInfo: A.PatchInfo<any>
   ): void {
-    const perHandle = new Map<DocHandle<any>, A.Patch[]>()
+    const perHandle = new Map<DocHandle<any>, ScopedChange>()
     const resolvedNodes = new Set<TrieNode>()
     const docHeadsKey = headsKey(A.getHeads(doc))
 
+    // Patches are trimmed to each handle's scope as the trie is walked - the
+    // descent depth is exactly the scope length, so paths are re-rooted (and
+    // boundary changes flagged) inline, with no second pass.
     for (const patch of patches) {
       collectForPatch(
         this.root,
@@ -246,12 +256,14 @@ export class HandleRegistry {
 
     for (const handle of this.#listeners.keys()) {
       if (handle.isReadOnly()) continue
-      const filtered = perHandle.get(handle)
-      if (!filtered || filtered.length === 0) continue
+      const scoped = perHandle.get(handle)
+      if (!scoped) continue
+      if (scoped.patches.length === 0 && !scoped.scopeReplaced) continue
       this.emit(handle, "change", {
         handle,
-        doc,
-        patches: filtered,
+        doc: handle.doc(),
+        patches: scoped.patches,
+        scopeReplaced: scoped.scopeReplaced,
         patchInfo,
       })
     }
@@ -444,29 +456,31 @@ function bulkResolvePatternEdges(
 function collectForPatch(
   node: TrieNode,
   patchPath: readonly Prop[],
-  i: number,
+  depth: number,
   cursor: unknown,
   patch: A.Patch,
-  out: Map<DocHandle<any>, A.Patch[]>,
+  out: Map<DocHandle<any>, ScopedChange>,
   resolvedNodes: Set<TrieNode>,
   docHeadsKey: string
 ): void {
-  addPatchForNode(node, patch, out)
+  // `depth` is the number of segments from the root to `node`, i.e. the
+  // scope length of any handle living here - exactly what we slice paths by.
+  addPatchForNode(node, patch, out, depth)
   bulkResolvePatternEdges(node, cursor, resolvedNodes, docHeadsKey)
 
-  if (i >= patchPath.length) {
+  if (depth >= patchPath.length) {
     // Patch ends at/above this node - everything below is affected.
-    collectDescendants(node, patch, out)
+    collectDescendants(node, patch, out, depth)
     return
   }
 
-  const step = patchPath[i]
+  const step = patchPath[depth]
   const literalChild = node.children.get(step)
   if (literalChild) {
     collectForPatch(
       literalChild,
       patchPath,
-      i + 1,
+      depth + 1,
       readStep(cursor, step),
       patch,
       out,
@@ -482,7 +496,7 @@ function collectForPatch(
         collectForPatch(
           edge.node,
           patchPath,
-          i + 1,
+          depth + 1,
           next,
           patch,
           out,
@@ -497,24 +511,35 @@ function collectForPatch(
 function collectDescendants(
   node: TrieNode,
   patch: A.Patch,
-  out: Map<DocHandle<any>, A.Patch[]>
+  out: Map<DocHandle<any>, ScopedChange>,
+  depth: number
 ): void {
-  const queue: TrieNode[] = []
-  for (const child of node.children.values()) queue.push(child)
-  for (const edge of node.patternEdges) queue.push(edge.node)
+  const queue: Array<[TrieNode, number]> = []
+  for (const child of node.children.values()) queue.push([child, depth + 1])
+  for (const edge of node.patternEdges) queue.push([edge.node, depth + 1])
   while (queue.length > 0) {
-    const current = queue.shift()!
-    addPatchForNode(current, patch, out)
-    for (const child of current.children.values()) queue.push(child)
-    for (const edge of current.patternEdges) queue.push(edge.node)
+    const [current, currentDepth] = queue.shift()!
+    addPatchForNode(current, patch, out, currentDepth)
+    for (const child of current.children.values()) {
+      queue.push([child, currentDepth + 1])
+    }
+    for (const edge of current.patternEdges) {
+      queue.push([edge.node, currentDepth + 1])
+    }
   }
 }
 
-/** Add `patch` to every writeable handle at `node`; prunes dead WeakRefs. */
+/**
+ * Accumulate `patch` for every writeable handle at `node`, trimmed to the
+ * handle's scope (`depth` segments deep); prunes dead WeakRefs. A patch at or
+ * above the scope boundary (`path.length <= depth`) replaces/removes the
+ * scope wholesale, so it sets `scopeReplaced` instead of contributing a path.
+ */
 function addPatchForNode(
   node: TrieNode,
   patch: A.Patch,
-  out: Map<DocHandle<any>, A.Patch[]>
+  out: Map<DocHandle<any>, ScopedChange>,
+  depth: number
 ): void {
   if (node.handles.size === 0) return
   for (const [key, ref] of node.handles) {
@@ -524,9 +549,18 @@ function addPatchForNode(
       continue
     }
     if (handle.isReadOnly()) continue
-    const existing = out.get(handle)
-    if (existing) existing.push(patch)
-    else out.set(handle, [patch])
+    let acc = out.get(handle)
+    if (!acc) {
+      acc = { patches: [], scopeReplaced: false }
+      out.set(handle, acc)
+    }
+    if (patch.path.length <= depth) {
+      acc.scopeReplaced = true
+    } else if (depth === 0) {
+      acc.patches.push(patch)
+    } else {
+      acc.patches.push({ ...patch, path: patch.path.slice(depth) } as A.Patch)
+    }
   }
 }
 

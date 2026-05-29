@@ -38,7 +38,7 @@ describe("utils", () => {
       })
 
       const nameRef = handle.ref("user", "name")
-      expect(nameRef.value()).toBe("Alice")
+      expect(nameRef.doc()).toBe("Alice")
     })
 
     it("should work with numeric indices", () => {
@@ -47,7 +47,7 @@ describe("utils", () => {
       })
 
       const itemRef = handle.ref("items", 1)
-      expect(itemRef.value()).toBe("b")
+      expect(itemRef.doc()).toBe("b")
     })
 
     it("should work with where clauses", () => {
@@ -59,7 +59,7 @@ describe("utils", () => {
       })
 
       const todoRef = handle.ref("todos", { id: "b" }, "title")
-      expect(todoRef.value()).toBe("Second")
+      expect(todoRef.doc()).toBe("Second")
     })
 
     it("should work with numeric indices in nested paths", () => {
@@ -68,7 +68,7 @@ describe("utils", () => {
       })
 
       const indexRef = handle.ref("items", 0, "name")
-      expect(indexRef.value()).toBe("A")
+      expect(indexRef.doc()).toBe("A")
     })
 
     it("should handle deep paths", () => {
@@ -83,7 +83,7 @@ describe("utils", () => {
       })
 
       const colorRef = handle.ref("app", "settings", "theme", "color")
-      expect(colorRef.value()).toBe("blue")
+      expect(colorRef.doc()).toBe("blue")
     })
   })
 
@@ -105,7 +105,7 @@ describe("utils", () => {
       const url = nameRef.url
 
       const foundRef = await repo.find(url)
-      expect(foundRef.value()).toBe("Alice")
+      expect(foundRef.doc()).toBe("Alice")
       expect(foundRef.url).toBe(url)
     })
 
@@ -122,7 +122,7 @@ describe("utils", () => {
       const url = colorRef.url
 
       const foundRef = await repo.find(url)
-      expect(foundRef.value()).toBe("blue")
+      expect(foundRef.doc()).toBe("blue")
     })
 
     it("should handle array indices", async () => {
@@ -143,7 +143,7 @@ describe("utils", () => {
 
       // With numeric indices, ref still points to position 0 (now "zeroth")
       const foundRef = await repo.find(url)
-      expect(foundRef.value()).toBe("zeroth")
+      expect(foundRef.doc()).toBe("zeroth")
     })
 
     it("should handle where clauses", async () => {
@@ -158,7 +158,7 @@ describe("utils", () => {
       const url = aliceRef.url
 
       const foundRef = await repo.find(url)
-      expect(foundRef.value()).toBe("Alice")
+      expect(foundRef.doc()).toBe("Alice")
     })
 
     it("should handle cursor ranges", async () => {
@@ -170,7 +170,7 @@ describe("utils", () => {
       const url = rangeRef.url
 
       const foundRef = await repo.find(url)
-      expect(foundRef.value()).toBe("hello")
+      expect(foundRef.doc()).toBe("hello")
     })
 
     it("should handle refs with heads", async () => {
@@ -193,10 +193,10 @@ describe("utils", () => {
 
       // Verify URL format: automerge:docId/path#head1,head2
       expect(url).toMatch(/^automerge:[^/]+\/counter#.+$/)
-      expect(counterRef.value()).toBe(1) // Should see old value
+      expect(counterRef.doc()).toBe(1) // Should see old value
 
       const foundRef = await repo.find(url)
-      expect(foundRef.value()).toBe(1) // Should see old value
+      expect(foundRef.doc()).toBe(1) // Should see old value
       expect(foundRef.url).toBe(url)
     })
 
@@ -218,7 +218,7 @@ describe("utils", () => {
       const url = rootRef.url
 
       const foundRef = await repo.find(url)
-      expect(foundRef.value()).toEqual({ value: 42 })
+      expect(foundRef.doc()).toEqual({ value: 42 })
     })
   })
 })

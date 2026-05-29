@@ -34,7 +34,7 @@ describe("RefContext", () => {
         text.splice(0, 5, "goodbye")
       })
 
-      expect(textRef.value()).toBe("goodbye world")
+      expect(textRef.doc()).toBe("goodbye world")
     })
 
     it("should work with nested paths", () => {
@@ -48,7 +48,7 @@ describe("RefContext", () => {
         text.splice(0, 0, "say ")
       })
 
-      expect(titleRef.value()).toBe("say hello")
+      expect(titleRef.doc()).toBe("say hello")
     })
 
     it("should work with array paths", () => {
@@ -62,7 +62,7 @@ describe("RefContext", () => {
         text.splice(5, 0, " item")
       })
 
-      expect(itemRef.value()).toBe("first item")
+      expect(itemRef.doc()).toBe("first item")
     })
   })
 
@@ -78,7 +78,7 @@ describe("RefContext", () => {
         text.updateText("goodbye")
       })
 
-      expect(textRef.value()).toBe("goodbye")
+      expect(textRef.doc()).toBe("goodbye")
     })
 
     it("should work with nested paths", () => {
@@ -92,7 +92,7 @@ describe("RefContext", () => {
         text.updateText("new title")
       })
 
-      expect(titleRef.value()).toBe("new title")
+      expect(titleRef.doc()).toBe("new title")
     })
   })
 
@@ -202,7 +202,7 @@ describe("RefContext", () => {
         return text.toUpperCase()
       })
 
-      expect(textRef.value()).toBe("HELLO WORLD")
+      expect(textRef.doc()).toBe("HELLO WORLD")
     })
 
     it("should support toLowerCase()", () => {
@@ -216,7 +216,7 @@ describe("RefContext", () => {
         return text.toLowerCase()
       })
 
-      expect(textRef.value()).toBe("hello world")
+      expect(textRef.doc()).toBe("hello world")
     })
 
     it("should support slice()", () => {
@@ -230,7 +230,7 @@ describe("RefContext", () => {
         return text.slice(0, 5)
       })
 
-      expect(textRef.value()).toBe("hello")
+      expect(textRef.doc()).toBe("hello")
     })
 
     it("should support trim()", () => {
@@ -244,7 +244,7 @@ describe("RefContext", () => {
         return text.trim()
       })
 
-      expect(textRef.value()).toBe("hello")
+      expect(textRef.doc()).toBe("hello")
     })
 
     it("should support length property", () => {
@@ -296,7 +296,7 @@ describe("RefContext", () => {
         return text.concat(" world")
       })
 
-      expect(textRef.value()).toBe("hello world")
+      expect(textRef.doc()).toBe("hello world")
     })
 
     it("should support replace()", () => {
@@ -310,7 +310,7 @@ describe("RefContext", () => {
         return text.replace("world", "there")
       })
 
-      expect(textRef.value()).toBe("hello there")
+      expect(textRef.doc()).toBe("hello there")
     })
 
     it("should mix string methods with Automerge mutations", () => {
@@ -325,14 +325,14 @@ describe("RefContext", () => {
         return text.toUpperCase()
       })
 
-      expect(textRef.value()).toBe("HELLO WORLD")
+      expect(textRef.doc()).toBe("HELLO WORLD")
 
       // Then use Automerge splice
       textRef.change(text => {
         text.splice(6, 5, "THERE")
       })
 
-      expect(textRef.value()).toBe("HELLO THERE")
+      expect(textRef.doc()).toBe("HELLO THERE")
     })
   })
 })

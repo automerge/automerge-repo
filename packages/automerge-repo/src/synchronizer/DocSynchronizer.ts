@@ -310,7 +310,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   metrics(): { peers: PeerId[]; size: { numOps: number; numChanges: number } } {
     return {
       peers: Array.from(this.#peers.keys()),
-      size: A.stats(this.#handle.doc()),
+      size: A.stats(this.#handle.fullDoc()),
     }
   }
 
@@ -338,7 +338,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
    * 3. Whether to send doc-unavailable to wanting peers
    */
   #evaluate(): void {
-    const doc = this.#handle.doc()
+    const doc = this.#handle.fullDoc()
     const weHaveData = A.getHeads(doc).length > 0
     const supplierExists = this.#anyActivePeerOfType("has")
 
@@ -478,7 +478,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // If at least one `has` peer's advertised heads are already present
     // in our doc, we have a complete copy from a supplier — ready, even
     // if other suppliers have additional heads we haven't reached yet.
-    if (this.#hasCaughtUpToAnySupplier(this.#handle.doc())) {
+    if (this.#hasCaughtUpToAnySupplier(this.#handle.fullDoc())) {
       this.#query.sourceReady("automerge-sync")
       return
     }

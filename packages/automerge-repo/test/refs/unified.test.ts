@@ -123,8 +123,8 @@ describe("unified DocHandle / Ref", () => {
       const v1 = handle.ref("value").view(heads1)
       const v2 = handle.ref("value").view(heads2)
       expect(v1).not.toBe(v2)
-      expect(v1.value()).toBe(1)
-      expect(v2.value()).toBe(2)
+      expect(v1.doc()).toBe(1)
+      expect(v2.doc()).toBe(2)
     })
   })
 
@@ -150,7 +150,7 @@ describe("unified DocHandle / Ref", () => {
       const found = await repo.find<string>(titleRefUrl)
 
       expect(found.documentId).toBe(created.documentId)
-      expect(found.value()).toBe("Hello")
+      expect(found.doc()).toBe("Hello")
       expect(found.path.map(s => (s as any).key ?? (s as any).index)).toEqual([
         "items",
         0,
@@ -171,7 +171,7 @@ describe("unified DocHandle / Ref", () => {
       const url = created.ref("value").view(encodeHeads(heads)).url
       const resolved = await repo.find<number>(url)
 
-      expect(resolved.value()).toBe(1)
+      expect(resolved.doc()).toBe(1)
       expect(resolved.isReadOnly()).toBe(true)
     })
   })
@@ -270,8 +270,8 @@ describe("unified DocHandle / Ref", () => {
       expect(headsEvents).toEqual([])
 
       // Sanity: the live root still sees the events.
-      expect(pinned.value()).toEqual({ value: 1 })
-      expect(handle.value()).toEqual({ value: 3 })
+      expect(pinned.doc()).toEqual({ value: 1 })
+      expect(handle.doc()).toEqual({ value: 3 })
     })
 
     it("a fixed-heads sub-handle also does not fire change/heads-changed", () => {
@@ -292,7 +292,7 @@ describe("unified DocHandle / Ref", () => {
       })
 
       expect(events).toEqual([])
-      expect(pinnedTitle.value()).toBe("First")
+      expect(pinnedTitle.doc()).toBe("First")
     })
 
     it("a dormant pattern ref refreshes .prop lazily on value()", () => {
@@ -311,7 +311,7 @@ describe("unified DocHandle / Ref", () => {
       const ref = handle.ref("items", { id: "b" }, "value")
       // Initial resolution (from #normalizePath at construction): b is at 1.
       expect(ref.path[1].prop).toBe(1)
-      expect(ref.value()).toBe(2)
+      expect(ref.doc()).toBe(2)
 
       // Shift the array so b moves to 0. No listeners on ref, so nothing
       // refreshes during dispatch. This tests the "dormant refs are free"
@@ -321,7 +321,7 @@ describe("unified DocHandle / Ref", () => {
       })
 
       // value() triggers lazy refresh via scopedValue -> updatePropsFromRoot.
-      expect(ref.value()).toBe(2)
+      expect(ref.doc()).toBe(2)
       expect(ref.path[1].prop).toBe(0)
     })
   })
@@ -442,9 +442,7 @@ describe("unified DocHandle / Ref", () => {
       const events: (string | undefined)[] = []
       // Attach a listener without keeping a reference to the sub-handle.
       ;(() => {
-        handle
-          .ref("title")
-          .onChange(v => events.push(v as string | undefined))
+        handle.ref("title").onChange(v => events.push(v as string | undefined))
       })()
 
       expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
@@ -514,27 +512,6 @@ describe("unified DocHandle / Ref", () => {
         d.title = "New"
       })
       expect(events).toEqual(["New"])
-    })
-  })
-
-  describe("value() vs doc()", () => {
-    it("doc() returns the full document on sub-handles", () => {
-      handle.change(d => {
-        d.user = { name: "Alice" }
-      })
-
-      const sub = handle.ref("user", "name")
-      const fullDoc = sub.doc()
-      expect(fullDoc.user.name).toBe("Alice")
-    })
-
-    it("value() returns the scoped sub-value on sub-handles", () => {
-      handle.change(d => {
-        d.user = { name: "Alice" }
-      })
-
-      const sub = handle.ref("user", "name")
-      expect(sub.value()).toBe("Alice")
     })
   })
 })

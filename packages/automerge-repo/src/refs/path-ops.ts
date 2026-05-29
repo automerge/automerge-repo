@@ -63,6 +63,38 @@ export function resolveSegmentProp(
 }
 
 /**
+ * Re-base patches that overlap a scope `prefixLength` segments deep so they
+ * read *relative to that scope*. Callers must pre-filter to patches that
+ * overlap the scope (inside it or at/above its boundary); given that, the
+ * split is purely by path length:
+ *  - `path.length > prefixLength`  - inside the scope; re-root by slicing
+ *    off the prefix.
+ *  - `path.length <= prefixLength` - the scope itself (or an ancestor) was
+ *    replaced or removed; there's no in-scope path for it, so it's reported
+ *    via the `scopeReplaced` flag and dropped from the patch list.
+ *
+ * For a root scope (`prefixLength === 0`) this is the identity.
+ */
+export function rebasePatchesToScope(
+  patches: readonly A.Patch[],
+  prefixLength: number
+): { patches: A.Patch[]; scopeReplaced: boolean } {
+  if (prefixLength === 0) {
+    return { patches: patches as A.Patch[], scopeReplaced: false }
+  }
+  const out: A.Patch[] = []
+  let scopeReplaced = false
+  for (const p of patches) {
+    if (p.path.length <= prefixLength) {
+      scopeReplaced = true
+      continue
+    }
+    out.push({ ...p, path: p.path.slice(prefixLength) } as A.Patch)
+  }
+  return { patches: out, scopeReplaced }
+}
+
+/**
  * Read the value at the resolved `propPath` (or the substring within a
  * cursor range). Returns `undefined` if `propPath` is `undefined` (the
  * symbolic path didn't fully resolve) or if any intermediate value is
