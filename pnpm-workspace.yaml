@@ -18,10 +18,6 @@ overrides:
 # installing it, so a malicious or compromised release has time to be detected and
 # unpublished from the registry before it can land in our dependency tree.
 minimumReleaseAge: 4320
-# TEMPORARY (remove after re-running the update once the freshly-pulled transitive deps age
-# past the gate, ~2026-05-28): skip the pre-script deps check so build/test/lint can run in
-# the meantime. minimumReleaseAge above is still enforced on an explicit `pnpm install`.
-verifyDepsBeforeRun: false
 # Shared dependency versions kept in sync across the workspace via the `catalog:` protocol.
 # Published runtime deps are cataloged too: release publishes via `pnpm -r publish` (see
 # release.yaml), which resolves `catalog:` to a real version in the published package.json.
