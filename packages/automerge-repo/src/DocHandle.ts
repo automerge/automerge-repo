@@ -204,11 +204,12 @@ export class DocHandle<T> {
   }
 
   /**
-   * Returns the current "heads" of the document, akin to a git commit.
+   * Returns the "heads" of the document, akin to a git commit.
    * This precisely defines the state of a document.
-   * @returns the current document's heads
+   * @returns the current document's heads (which may be fixed by .view() or equivalent)
    */
   heads(): UrlHeads {
+    if (this.#fixedHeads) return this.#fixedHeads
     return encodeHeads(A.getHeads(this.#document.doc))
   }
 
