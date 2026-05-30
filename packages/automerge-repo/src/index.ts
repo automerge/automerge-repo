@@ -137,6 +137,7 @@ export type {
   PathInput,
   MutableText,
   InferSubType,
+  InferSubTypeFromString,
   Pattern,
   SubChangeFn,
 } from "./subdoc-handles/types.js"
