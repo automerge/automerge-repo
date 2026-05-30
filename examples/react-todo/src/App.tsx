@@ -28,6 +28,7 @@ export function App({ url }: { url: AutomergeUrl }) {
     return state.todos.filter(async url => {
       if (filter === Filter.all) return true
       const todo = (await repo.find<TodoData>(url)).doc()
+      if (!todo) return false
       if (filter === Filter.completed) return todo.completed
       if (filter === Filter.incomplete) return !todo.completed
       return false
@@ -38,7 +39,7 @@ export function App({ url }: { url: AutomergeUrl }) {
     if (!state) return
     for (const url of await getFilteredTodos(Filter.completed)) {
       const todo = (await repo.find<TodoData>(url)).doc()
-      if (todo.completed) destroy(url)
+      if (todo?.completed) destroy(url)
     }
   }
 
