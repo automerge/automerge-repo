@@ -7,7 +7,7 @@ import { StorageSource } from "../src/StorageSource.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import type { TestDoc } from "./types.js"
-import { createTestQuery } from "./helpers/refConstructor.js"
+import { createTestQuery } from "./helpers/testHandle.js"
 
 describe("StorageSource", () => {
   it("merges loaded data with handle data when sync wins the race", async () => {

@@ -24,7 +24,7 @@ export function useDocuments<T>(
     handleMap.forEach(handle => {
       const url = handle?.url
       if (url) {
-        docs.set(url, handle?.doc())
+        docs.set(url, handle?.doc() as Doc<T>)
       }
     })
     return docs
@@ -38,7 +38,7 @@ export function useDocuments<T>(
         const onChange = () => {
           setDocMap(prev => {
             const next = new Map(prev)
-            next.set(id, handle.doc())
+            next.set(id, handle.doc() as Doc<T>)
             return next
           })
         }
@@ -46,7 +46,7 @@ export function useDocuments<T>(
         // Initial state
         setDocMap(prev => {
           const next = new Map(prev)
-          next.set(id, handle.doc())
+          next.set(id, handle.doc() as Doc<T>)
           return next
         })
 
