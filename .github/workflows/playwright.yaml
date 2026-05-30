@@ -34,7 +34,6 @@ jobs:
           persist-credentials: false
       - uses: pnpm/action-setup@v6
         with:
-          version: 11
           run_install: false
       - uses: actions/setup-node@v6
         with:
