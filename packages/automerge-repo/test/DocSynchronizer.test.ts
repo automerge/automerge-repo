@@ -14,7 +14,7 @@ import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
 import type { ShareConfig } from "../src/synchronizer/DocSynchronizer.js"
 import { PeerId } from "../src/types.js"
 import { TestDoc } from "./types.js"
-import { createTestHandle, createTestQuery } from "./helpers/refConstructor.js"
+import { createTestHandle, createTestQuery } from "./helpers/testHandle.js"
 
 const alice = "alice" as PeerId
 const bob = "bob" as PeerId

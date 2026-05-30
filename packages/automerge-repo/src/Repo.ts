@@ -13,6 +13,7 @@ import type { DocumentSource } from "./DocumentSource.js"
 import {
   DocumentQuery,
   progressAtHeads,
+  progressAtPath,
   type DocumentProgress,
 } from "./DocumentQuery.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
@@ -37,7 +38,7 @@ import type {
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
 export type { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
-import { RefImpl } from "./refs/ref.js"
+import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
@@ -309,15 +310,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       return existing
     }
 
-    const handle = new DocHandle(
+    const document = new Document(
       documentId,
-      (h, p) => new RefImpl(h, p),
-      {},
+      initialDoc ?? Automerge.init(),
       storageId => this.#syncStateTracker.getSyncInfo(documentId, storageId)
     )
-    if (initialDoc) {
-      handle.update(() => initialDoc)
-    }
+    const handle = new DocHandle(document, {})
     const query = new DocumentQuery(handle, this.#sources)
     this.#queries[documentId] = query
 
@@ -470,7 +468,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    *
    */
   clone<T>(clonedHandle: DocHandle<T>) {
-    const sourceDoc = clonedHandle.doc()
+    const sourceDoc = clonedHandle.fullDoc()
     const handle = this.create<T>()
     handle.update(() => Automerge.clone(sourceDoc))
     return handle
@@ -494,8 +492,12 @@ export class Repo extends EventEmitter<RepoEvents> {
   ): DocumentProgress<T> {
     const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
-      : { documentId: interpretAsDocumentId(id), heads: undefined }
-    const { documentId, heads } = parsed
+      : {
+          documentId: interpretAsDocumentId(id),
+          heads: undefined,
+          segments: undefined,
+        }
+    const { documentId, heads, segments } = parsed
 
     // ensureQuery creates the query, handle, sets up all sources, and
     // registers with the sync layer (no-ops if already added).
@@ -504,8 +506,16 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     const query = this.#queries[documentId] as DocumentQuery<T>
 
-    if (!heads) return query
-    return progressAtHeads(query, heads)
+    // A URL can carry both fixed heads (`#h1|h2`) and a path suffix
+    // (`/a/@0/b`). Layer the heads projection first (it gates readiness on
+    // those heads being present), then scope to the path. The two compose
+    // to the same canonical handle regardless of order.
+    let progress: DocumentProgress<T> = query
+    if (heads) progress = progressAtHeads(query, heads)
+    if (segments && segments.length > 0) {
+      progress = progressAtPath(progress, segments)
+    }
+    return progress
   }
 
   /**
@@ -521,14 +531,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       throw new AbortError()
     }
 
-    const { heads } = isValidAutomergeUrl(id)
-      ? parseAutomergeUrl(id)
-      : { heads: undefined }
-
-    const progress = this.findWithProgress<T>(id) as DocumentQuery<T>
-
-    const handle = await progress.whenReady({ signal })
-    return heads ? handle.view(heads) : handle
+    // `findWithProgress` already applies any path suffix (`/a/@0/b`) and
+    // fixed heads (`#h1|h2`) from the URL, so the ready handle is correctly
+    // scoped and/or view-pinned.
+    return this.findWithProgress<T>(id).whenReady({ signal })
   }
 
   /**
@@ -546,7 +552,9 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     const query = this.#queries[documentId]
     if (query?.handle) {
-      query.handle.emit("delete", { handle: query.handle })
+      // Fans out to all retained handles (root + subs) via the registry
+      // and flips the document's `deleted` flag.
+      query.handle.delete()
     }
     if (query) {
       query.fail(new Error(`Document ${documentId} was deleted`))
@@ -576,7 +584,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const handle = await this.find(id)
-    return Automerge.save(handle.doc())
+    return Automerge.save(handle.fullDoc())
   }
 
   /**
@@ -655,7 +663,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       ids.map(async id => {
         const state = this.#queries[id]?.peek()
         if (state?.state === "ready") {
-          await this.storageSubsystem!.saveDoc(id, state.handle.doc())
+          await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
         }
       })
     )

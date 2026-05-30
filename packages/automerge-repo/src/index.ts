@@ -143,17 +143,17 @@ export type {
 
 export * from "./types.js"
 
-// Refs - experimental API for referencing locations within documents
+// Sub-document handle helpers (experimental). A sub-handle is just a
+// `DocHandle` scoped to a path - `handle.sub(...)` returns a `DocHandle`.
+// Path-related types and the `cursor()` helper live here.
 export type {
-  Ref,
   PathInput,
   MutableText,
-  InferRefType,
+  InferSubType,
   Pattern,
-  RefUrl,
-  ChangeFn as RefChangeFn,
-} from "./refs/types.js"
-export { cursor, findRef, refFromUrl, refFromString } from "./refs/utils.js"
+  SubChangeFn,
+} from "./subdoc-handles/types.js"
+export { cursor } from "./subdoc-handles/utils.js"
 
 // Automerge re-exports
 //
