@@ -1167,7 +1167,7 @@ describe("Ref", () => {
       const ref = handle.sub("counter")
 
       const changePromise = new Promise<void>(resolve => {
-        ref.onChange(() => {
+        ref.on("change", () => {
           expect(ref.doc()).toBe(1)
           resolve()
         })
@@ -1189,7 +1189,7 @@ describe("Ref", () => {
       const ref = handle.sub("counter")
       let callCount = 0
 
-      ref.onChange(() => {
+      ref.on("change", () => {
         callCount++
       })
 
@@ -1211,7 +1211,7 @@ describe("Ref", () => {
       const nameRef = handle.sub("user", "profile", "name")
 
       const changePromise = new Promise<void>(resolve => {
-        nameRef.onChange(() => {
+        nameRef.on("change", () => {
           expect(nameRef.doc()).toBe("Bob")
           resolve()
         })
@@ -1232,7 +1232,7 @@ describe("Ref", () => {
       const nameRef = handle.sub("user", "profile", "name")
       let callCount = 0
 
-      nameRef.onChange(() => {
+      nameRef.on("change", () => {
         callCount++
       })
 
@@ -1263,7 +1263,7 @@ describe("Ref", () => {
       }
 
       const changePromise = new Promise<void>(resolve => {
-        todoRef.onChange(() => {
+        todoRef.on("change", () => {
           expect(todoRef.doc()?.done).toBe(true)
           resolve()
         })
@@ -1284,7 +1284,7 @@ describe("Ref", () => {
       const ref = handle.sub("items", 1)
 
       const changePromise = new Promise<void>(resolve => {
-        ref.onChange(() => {
+        ref.on("change", () => {
           expect(ref.doc()).toBe("modified")
           resolve()
         })
@@ -1309,7 +1309,7 @@ describe("Ref", () => {
       const ref = handle.sub("data")
 
       const changePromise = new Promise<void>(resolve => {
-        ref.onChange((value, { patches, scopeReplaced }) => {
+        ref.on("change", ({ doc, patches, scopeReplaced }) => {
           expect(scopeReplaced).toBe(false)
           expect(Array.isArray(patches)).toBe(true)
           expect(patches.length).toBeGreaterThan(0)
@@ -1335,11 +1335,11 @@ describe("Ref", () => {
       const ref = handle.sub("data", "value")
 
       const changePromise = new Promise<void>(resolve => {
-        ref.onChange((value, { patches, scopeReplaced, doc }) => {
+        ref.on("change", ({ patches, scopeReplaced, doc }) => {
           expect(scopeReplaced).toBe(true)
           expect(patches).toEqual([])
           expect(doc).toBe(20)
-          expect(value).toBe(20)
+          expect(doc).toBe(20)
           resolve()
         })
       })
@@ -1359,9 +1359,10 @@ describe("Ref", () => {
       const ref = handle.sub("counter")
       let callCount = 0
 
-      const unsubscribe = ref.onChange(() => {
+      const callback = () => {
         callCount++
-      })
+      }
+      ref.on("change", callback)
 
       // Make one change
       handle.change(d => {
@@ -1372,7 +1373,7 @@ describe("Ref", () => {
       await new Promise(resolve => setTimeout(resolve, 10))
 
       // Unsubscribe
-      unsubscribe()
+      ref.off("change", callback)
 
       // Make another change
       handle.change(d => {
@@ -1392,7 +1393,7 @@ describe("Ref", () => {
       const rangeRef = handle.sub("note", cursor(0, 5))
 
       const changePromise = new Promise<void>(resolve => {
-        rangeRef.onChange(() => {
+        rangeRef.on("change", () => {
           // Cursor range tracks original text
           expect(rangeRef.doc()).toBe("Hello")
           resolve()
@@ -1419,7 +1420,7 @@ describe("Ref", () => {
       const ref = handle.sub("items", { id: "b" }, "value")
 
       const changePromise = new Promise<void>(resolve => {
-        ref.onChange(() => {
+        ref.on("change", () => {
           expect(ref.doc()).toBe(20)
           resolve()
         })
@@ -1442,7 +1443,7 @@ describe("Ref", () => {
       const userRef = handle.sub("user")
       let callCount = 0
 
-      userRef.onChange(() => {
+      userRef.on("change", () => {
         callCount++
       })
 
@@ -1471,7 +1472,7 @@ describe("Ref", () => {
       const userRef = handle.sub("user")
       let callCount = 0
 
-      userRef.onChange(() => {
+      userRef.on("change", () => {
         callCount++
       })
 
@@ -1495,7 +1496,7 @@ describe("Ref", () => {
       const settingsRef = handle.sub("data", "settings")
       let callCount = 0
 
-      settingsRef.onChange(() => {
+      settingsRef.on("change", () => {
         callCount++
       })
 
@@ -1516,7 +1517,7 @@ describe("Ref", () => {
       const nameRef = handle.sub("user", "profile", "name")
       let callCount = 0
 
-      nameRef.onChange(() => {
+      nameRef.on("change", () => {
         callCount++
       })
 
@@ -1537,7 +1538,7 @@ describe("Ref", () => {
       const userRef = handle.sub("user")
       let callCount = 0
 
-      userRef.onChange(() => {
+      userRef.on("change", () => {
         callCount++
       })
 
@@ -1562,7 +1563,7 @@ describe("Ref", () => {
       const themeRef = handle.sub("config", "theme")
       let callCount = 0
 
-      themeRef.onChange(() => {
+      themeRef.on("change", () => {
         callCount++
       })
 
@@ -1610,7 +1611,7 @@ describe("Ref", () => {
       const dataRef = handle.sub("data")
       let callCount = 0
 
-      dataRef.onChange(() => {
+      dataRef.on("change", () => {
         callCount++
       })
 
@@ -1632,7 +1633,7 @@ describe("Ref", () => {
       const todosRef = handle.sub("todos")
       let callCount = 0
 
-      todosRef.onChange(() => {
+      todosRef.on("change", () => {
         callCount++
       })
 
@@ -1653,7 +1654,7 @@ describe("Ref", () => {
       const configRef = handle.sub("config")
       let callCount = 0
 
-      configRef.onChange(() => {
+      configRef.on("change", () => {
         callCount++
       })
 
@@ -1674,7 +1675,7 @@ describe("Ref", () => {
       const userRef = handle.sub("user")
       let callCount = 0
 
-      userRef.onChange(() => {
+      userRef.on("change", () => {
         callCount++
       })
 
@@ -1699,7 +1700,7 @@ describe("Ref", () => {
       const itemRef = handle.sub("items", 0)
       let callCount = 0
 
-      itemRef.onChange(() => {
+      itemRef.on("change", () => {
         callCount++
       })
 
@@ -1737,7 +1738,7 @@ describe("Ref", () => {
       const columnRef = handle.sub("boards", 0, "columns", 1)
       let callCount = 0
 
-      columnRef.onChange(() => {
+      columnRef.on("change", () => {
         callCount++
       })
 
@@ -1819,10 +1820,8 @@ describe("Ref", () => {
 
       // The view-pinned ref is a different handle from the live one.
       expect(pastRef).not.toBe(currentRef)
-      // Both live in the same document, so `.docHandle` points at the
-      // same root - unification means there's one shared root handle.
-      expect(pastRef.docHandle).toBe(currentRef.docHandle)
-      expect(pastRef.docHandle.documentId).toBe(currentRef.docHandle.documentId)
+      // Both live in the same document, so `.documentId` is the same.
+      expect(pastRef.documentId).toBe(currentRef.documentId)
     })
 
     it("should preserve path", () => {

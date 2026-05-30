@@ -692,20 +692,6 @@ export class DocHandle<T> {
     return thisPos[0] < otherPos[1] && otherPos[0] < thisPos[1]
   }
 
-  /**
-   * Subscribe to changes affecting this handle's path; the callback
-   * receives `(value, payload)`. Returns an unsubscribe function.
-   */
-  onChange(
-    callback: (value: T | undefined, payload: DocHandleChangePayload<T>) => void
-  ): () => void {
-    const listener = (payload: DocHandleChangePayload<T>) => {
-      callback(this.doc(), payload)
-    }
-    this.on("change", listener)
-    return () => this.off("change", listener)
-  }
-
   // Internal sub-handle helpers
 
   /**

@@ -236,8 +236,8 @@ describe("unified DocHandle / Ref", () => {
       })
 
       const titleRef = handle.sub("title")
-      const observed: (string | undefined)[] = []
-      titleRef.onChange(v => observed.push(v as string | undefined))
+      const observed = []
+      titleRef.on("change", ({ doc }) => observed.push(doc))
 
       handle.change(d => {
         d.title = "New"
@@ -367,7 +367,10 @@ describe("unified DocHandle / Ref", () => {
       })
 
       expect(payloads.length).toBe(1)
-      expect(payloads[0].doc).toEqual({ user: { name: "Alice" }, unrelated: "y" })
+      expect(payloads[0].doc).toEqual({
+        user: { name: "Alice" },
+        unrelated: "y",
+      })
     })
   })
 
@@ -386,11 +389,7 @@ describe("unified DocHandle / Ref", () => {
       handle.change(d => {
         d.items.splice(0, 0, { id: "z", n: 0 })
       })
-      expect(handle.doc().items.map((i: any) => i.id)).toEqual([
-        "z",
-        "a",
-        "b",
-      ])
+      expect(handle.doc().items.map((i: any) => i.id)).toEqual(["z", "a", "b"])
 
       // changeAt at the OLD heads, where id "a" is still at index 0. The
       // pattern must resolve against that historical doc, not the live one
@@ -676,11 +675,12 @@ describe("unified DocHandle / Ref", () => {
       expect((handle as any)._handleRetainerSize).toBe(baseline)
 
       const sub = handle.sub("title")
-      const unsubscribe = sub.onChange(() => {})
+      const callback = () => {}
+      sub.on("change", callback)
 
       expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
 
-      unsubscribe()
+      sub.off("change", callback)
       expect((handle as any)._handleRetainerSize).toBe(baseline)
     })
 
@@ -689,10 +689,10 @@ describe("unified DocHandle / Ref", () => {
         d.title = "Old"
       })
 
-      const events: (string | undefined)[] = []
+      const events = []
       // Attach a listener without keeping a reference to the sub-handle.
       ;(() => {
-        handle.sub("title").onChange(v => events.push(v as string | undefined))
+        handle.sub("title").on("change", ({ doc }) => events.push(doc))
       })()
 
       expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
@@ -743,12 +743,12 @@ describe("unified DocHandle / Ref", () => {
         d.title = "Old"
       })
 
-      const events: (string | undefined)[] = []
+      const events = []
       let weak: WeakRef<DocHandle<any>> | undefined
       ;(() => {
         const sub = handle.sub("title")
         weak = new WeakRef(sub)
-        sub.onChange(v => events.push(v as string | undefined))
+        sub.on("change", v => events.push(v))
       })()
 
       for (let i = 0; i < 10; i++) {
