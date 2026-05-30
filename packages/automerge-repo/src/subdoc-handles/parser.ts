@@ -1,7 +1,6 @@
 import * as Automerge from "@automerge/automerge/slim"
-import type { RefUrl, Segment, SegmentCodec } from "./types.js"
+import type { Segment, SegmentCodec } from "./types.js"
 import { KIND } from "./types.js"
-import type { DocumentId } from "../types.js"
 
 /**
  * # Path Segment Encoding Scheme
@@ -27,7 +26,6 @@ import type { DocumentId } from "../types.js"
  * 4. Key: `\...` (escaped, URL-encoded as `%5C...`) or anything else
  */
 
-const URL_PREFIX = "automerge:"
 /** The escape character (backslash) */
 const ESCAPE_CHAR = "\\"
 /** URL-encoded form of the escape character for matching in URLs */
@@ -77,9 +75,19 @@ const matchCodec: SegmentCodec<"match"> = {
       )
     }
   },
-  // URL-encode the JSON to protect slashes and other special characters
-  // from being interpreted as path separators
-  serialize: seg => encodeURIComponent(JSON.stringify(seg.match)),
+  // Serialize with sorted keys so `{a:1,b:2}` and `{b:2,a:1}` produce
+  // identical URLs (they're semantically the same pattern). Also URL-
+  // encode the JSON to protect `/` and other path-significant chars.
+  serialize: seg =>
+    encodeURIComponent(
+      JSON.stringify(
+        Object.fromEntries(
+          Object.keys(seg.match)
+            .sort()
+            .map(k => [k, (seg.match as any)[k]])
+        )
+      )
+    ),
 }
 
 const cursorsCodec: SegmentCodec<"cursors"> = {
@@ -145,6 +153,10 @@ const keyCodec: SegmentCodec<"key"> = {
     return { [KIND]: "key", key: decodeURIComponent(s) }
   },
   serialize: seg => {
+    // Empty keys don't round-trip through a slash-delimited URL path.
+    if (seg.key === "") {
+      throw new Error("Path keys cannot be empty strings")
+    }
     // Check if key starts with any character that needs escaping
     const needsEscape = ESCAPE_TRIGGERS.some(p => seg.key.startsWith(p))
     const encoded = encodeURIComponent(seg.key)
@@ -207,48 +219,3 @@ export function serializePath(segments: Segment[]): string {
   return segments.map(serializeSegment).join("/")
 }
 
-export function parseHeads(heads: string): string[] | undefined {
-  return heads ? heads.split("|") : undefined
-}
-// ⇧ Parse --- Serialize ⇩
-export function serializeHeads(heads: string[]): string {
-  return heads.length > 0 ? `#${heads.join("|")}` : ""
-}
-
-export function parseRefUrl(url: RefUrl): {
-  documentId: DocumentId
-  segments: Segment[]
-  heads?: string[]
-} {
-  const [baseUrl, headsSection, ...rest] = url.split("#")
-  if (rest.length > 0) {
-    throw new Error("Invalid ref URL: contains multiple heads sections")
-  }
-
-  const match = baseUrl.match(/^automerge:([^/]+)(?:\/(.*))?$/)
-  if (!match) {
-    throw new Error(
-      `Invalid ref URL: ${url}\n` +
-        `Expected format: automerge:documentId/path/to/value#head1|head2`
-    )
-  }
-
-  const [, documentId, pathStr] = match
-
-  return {
-    documentId: documentId as DocumentId,
-    segments: pathStr ? parsePath(pathStr) : [],
-    heads: parseHeads(headsSection),
-  }
-}
-
-// ⇧ Parse --- Serialize ⇩ (named stringify to match other automerge methods)
-export function stringifyRefUrl(
-  documentId: string,
-  segments: Segment[],
-  heads?: string[]
-): RefUrl {
-  const pathStr = serializePath(segments)
-  const headsStr = heads ? serializeHeads(heads) : ""
-  return `${URL_PREFIX}${documentId}/${pathStr}${headsStr}` as RefUrl
-}

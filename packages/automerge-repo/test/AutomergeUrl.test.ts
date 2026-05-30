@@ -136,6 +136,18 @@ describe("AutomergeUrl with heads", () => {
         })
       )
     })
+
+    it("sorts heads so order-permuted inputs produce identical urls", () => {
+      const a = stringifyAutomergeUrl({
+        documentId: goodDocumentId,
+        heads: [head1, head2] as UrlHeads,
+      })
+      const b = stringifyAutomergeUrl({
+        documentId: goodDocumentId,
+        heads: [head2, head1] as UrlHeads,
+      })
+      assert.strictEqual(a, b)
+    })
   })
 
   describe("parseAutomergeUrl", () => {

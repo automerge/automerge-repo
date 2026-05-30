@@ -266,4 +266,126 @@ describe("useDocument", () => {
       expect.any(Function)
     )
   })
+
+  describe("with ref (sub-document) URLs", () => {
+    const NestedComponent = ({
+      url,
+      onDoc,
+    }: {
+      url: AutomergeUrl
+      onDoc: (doc: { value: string } | undefined) => void
+    }) => {
+      const [doc] = useDocument<{ value: string }>(url, { suspense: true })
+      onDoc(doc)
+      return <div data-testid="content">{doc?.value}</div>
+    }
+
+    it("should load a sub-document addressed by a ref URL", async () => {
+      const { wrapper, handleA } = setup()
+      React.act(() => handleA.change(d => (d.nested = { value: "nested-A" })))
+
+      // A ref URL carries a `/path` suffix (e.g. automerge:<id>/nested).
+      const subUrl = handleA.sub("nested").url
+      expect(subUrl).toBe(`${handleA.url}/nested`)
+
+      const onDoc = vi.fn()
+      render(
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <NestedComponent url={subUrl} onDoc={onDoc} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      // The hook should resolve the scoped value, not the whole document.
+      expect(screen.getByTestId("content")).toHaveTextContent("nested-A")
+      expect(onDoc).toHaveBeenCalledWith({ value: "nested-A" })
+    })
+
+    it("should update when the referenced sub-tree changes", async () => {
+      const { wrapper, handleA } = setup()
+      React.act(() => handleA.change(d => (d.nested = { value: "before" })))
+      const subUrl = handleA.sub("nested").url
+
+      render(
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <NestedComponent url={subUrl} onDoc={vi.fn()} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      expect(screen.getByTestId("content")).toHaveTextContent("before")
+
+      // Mutating the sub-tree via the root handle should re-render the
+      // scoped sub-handle (path-filtered change dispatch).
+      React.act(() => handleA.change(d => (d.nested!.value = "after")))
+
+      await waitFor(() => {
+        expect(screen.getByTestId("content")).toHaveTextContent("after")
+      })
+    })
+
+    it("updates to undefined when the referenced array element is deleted", async () => {
+      const { wrapper, handleA } = setup()
+      React.act(() =>
+        handleA.change(d => {
+          ;(d as any).items = [
+            { id: "a", value: "AA" },
+            { id: "b", value: "BB" },
+          ]
+        })
+      )
+      // A pattern sub-URL: the element of `items` matching `{ id: "b" }`.
+      const subUrl = (handleA as any).sub("items", { id: "b" }).url
+
+      const onDoc = vi.fn()
+      render(
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <NestedComponent url={subUrl} onDoc={onDoc} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId("content")).toHaveTextContent("BB")
+      )
+
+      // Delete the matched element via the root handle. The scoped sub-handle
+      // must be notified (dispatch resolves patterns against before+after),
+      // so the component re-renders to the now-undefined scope.
+      React.act(() =>
+        handleA.change(d => {
+          ;(d as any).items.deleteAt(1)
+        })
+      )
+
+      await waitFor(() =>
+        expect(screen.getByTestId("content")).toHaveTextContent("")
+      )
+      expect(onDoc).toHaveBeenLastCalledWith(undefined)
+    })
+
+    it("should resolve a ref URL pinned at heads (heads + path)", async () => {
+      const { wrapper, handleA } = setup()
+      React.act(() => handleA.change(d => (d.nested = { value: "v1" })))
+      const headsAtV1 = handleA.heads()
+      React.act(() => handleA.change(d => (d.nested!.value = "v2")))
+
+      // URL carries both a path suffix and fixed heads.
+      const pinnedSubUrl = handleA.sub("nested").view(headsAtV1).url
+      expect(pinnedSubUrl).toContain("/nested")
+      expect(pinnedSubUrl).toContain("#")
+
+      const onDoc = vi.fn()
+      render(
+        <Suspense fallback={<div data-testid="loading">Loading...</div>}>
+          <NestedComponent url={pinnedSubUrl} onDoc={onDoc} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      // Reflects the scoped value at the pinned heads, not the latest.
+      expect(screen.getByTestId("content")).toHaveTextContent("v1")
+      expect(onDoc).toHaveBeenCalledWith({ value: "v1" })
+    })
+  })
 })

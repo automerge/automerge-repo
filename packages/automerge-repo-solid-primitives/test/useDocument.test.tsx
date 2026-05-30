@@ -324,6 +324,100 @@ describe("useDocument", () => {
 
     return Promise.all([arrayDotThree, projectZeroItemZeroTitle])
   })
+
+  it("should resolve a ref (sub-document) url to a scoped handle", async () => {
+    const { handle, options } = setup()
+    const subUrl = handle.sub("projects", 0).url
+    // index segments serialize as `@0`
+    expect(subUrl).toBe(`${handle.url}/projects/@0`)
+
+    await testEffect(done => {
+      const [doc, subHandle] = useDocument<{
+        title: string
+        items: { title: string }[]
+      }>(subUrl, options)
+      createEffect((run: number = 0) => {
+        if (run == 0) {
+          // the projection is the scoped value, not the whole document
+          expect(doc()?.title).toBe("one")
+          expect(subHandle()?.url).toBe(subUrl)
+          // NB: block body - returning a value from a scoped object change
+          // would *replace* the whole sub-tree instead of mutating it.
+          subHandle()?.change(d => {
+            d.title = "uno"
+          })
+        } else if (run == 1) {
+          expect(doc()?.title).toBe("uno")
+          done()
+        }
+        return run + 1
+      })
+    })
+  })
+
+  it("should update a ref-url projection when an ancestor mutates the sub-tree", async () => {
+    const { handle, options } = setup()
+    const subUrl = handle.sub("projects", 0, "items", 0).url
+
+    await testEffect(done => {
+      const [doc] = useDocument<{ title: string }>(subUrl, options)
+      createEffect((run: number = 0) => {
+        if (run == 0) {
+          expect(doc()?.title).toBe("go shopping")
+          // mutate through the root handle; the scoped projection updates
+          handle.change(d => (d.projects[0].items[0].title = "buy milk"))
+        } else if (run == 1) {
+          expect(doc()?.title).toBe("buy milk")
+          done()
+        }
+        return run + 1
+      })
+    })
+  })
+
+  it("clears a pattern-ref projection when its matched element is deleted", async () => {
+    const { handle, options } = setup()
+    // Pattern sub-URL: the element of `hellos` matching `{ hello: "hedgehog" }`.
+    const subUrl = handle.sub("hellos", { hello: "hedgehog" }).url
+
+    await testEffect(done => {
+      const [doc] = useDocument<{ hello: string }>(subUrl, options)
+      createEffect((run: number = 0) => {
+        if (run == 0) {
+          expect(doc()?.hello).toBe("hedgehog")
+          // Delete the matched element through the root handle.
+          handle.change(d => d.hellos.deleteAt(1))
+        } else if (run == 1) {
+          // The scoped projection must react to the disappearance.
+          expect(doc()?.hello).toBeUndefined()
+          done()
+        }
+        return run + 1
+      })
+    })
+  })
+
+  it("should resolve a ref url pinned at heads (heads + path)", async () => {
+    const { handle, options } = setup()
+    // heads at the initial value, then mutate the scoped sub-tree
+    const headsAtOne = handle.heads()
+    handle.change(d => (d.projects[0].title = "two"))
+
+    // URL carries both a path suffix and fixed heads
+    const pinnedSubUrl = handle.sub("projects", 0).view(headsAtOne).url
+    expect(pinnedSubUrl).toContain("/projects/@0")
+    expect(pinnedSubUrl).toContain("#")
+
+    await testEffect(done => {
+      const [doc] = useDocument<{ title: string }>(pinnedSubUrl, options)
+      createEffect(() => {
+        // the projection reflects the value at the pinned heads, scoped to
+        // the path - so the initial materialization must be heads-aware
+        expect(doc()?.title).toBe("one")
+        done()
+      })
+    })
+  })
 })
 
 interface ExampleDoc {

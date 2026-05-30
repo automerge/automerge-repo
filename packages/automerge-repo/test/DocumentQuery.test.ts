@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { DocumentQuery, progressAtHeads } from "../src/DocumentQuery.js"
 import { encodeHeads } from "../src/AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
-import { createTestQuery } from "./helpers/refConstructor.js"
+import { createTestQuery } from "./helpers/testHandle.js"
 
 const docId = "test-doc-id" as DocumentId
 

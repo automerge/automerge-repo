@@ -10,7 +10,7 @@ import { PeerId } from "../src/types.js"
 import { SyncMessage } from "../src/network/messages.js"
 import { DocumentQuery } from "../src/DocumentQuery.js"
 import { TestDoc } from "./types.js"
-import { createTestQuery } from "./helpers/refConstructor.js"
+import { createTestQuery } from "./helpers/testHandle.js"
 
 const alice = "peer1" as PeerId
 
