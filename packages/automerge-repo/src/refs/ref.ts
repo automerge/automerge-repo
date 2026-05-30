@@ -72,6 +72,9 @@ export class RefImpl<
    * field-side reference to the original arrow function so it can be
    * GC'd.
    *
+   * 
+   * @remarks
+   * 
    * Optional. If you drop both the handle and the Ref together, the
    * natural internal cycle handles cleanup. Call `dispose()` only
    * when you want to release a Ref while keeping the handle alive —

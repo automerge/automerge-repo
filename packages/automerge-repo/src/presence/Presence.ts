@@ -184,6 +184,8 @@ export class Presence<
    * {@link https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event | "visibilitychange"}
    * to stop sending and receiving updates when not active.
    *
+   * @remarks here?
+   * 
    * **You must call `stop()` to release a `Presence` instance.** Dropping the
    * reference is not enough: the heartbeat / pruning `setInterval` timers
    * scheduled in {@link start} are registered with the host timer queue,

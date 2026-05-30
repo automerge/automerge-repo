@@ -379,6 +379,9 @@ export interface Ref<TValue = unknown> {
    * Detach this Ref from its `DocHandle`: remove the internal `change`
    * listener and any `onChange` callbacks.
    *
+   * 
+   * @remarks
+   *   
    * Optional. If you drop both the handle and the Ref together, the
    * natural internal cycle (`handle → events → listener → this →
    * docHandle → handle`) is collected as a unit. Call `dispose()` only
