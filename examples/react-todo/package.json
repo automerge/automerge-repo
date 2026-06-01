@@ -6,18 +6,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite --open",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
-    "autoprefixer": "^10.4.13",
+    "autoprefixer": "^10.5.0",
     "clsx": "^2.1.1",
-    "postcss": "^8.4.21",
+    "postcss": "^8.5.15",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-error-boundary": "catalog:"
   },
   "devDependencies": {
-    "tailwindcss": "^3.2.4"
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "^3.4.19",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
   }
 }

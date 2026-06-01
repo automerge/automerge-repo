@@ -24,8 +24,9 @@
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
     "watch": "pnpm run --parallel --stream -r watch ",
-    "lint:check-types": "pnpm run lint:check-types:packages",
-    "lint:check-types:packages": "pnpm --filter './packages/*' exec tsc --noEmit"
+    "lint:check-types": "pnpm run lint:check-types:packages && pnpm run lint:check-types:examples",
+    "lint:check-types:packages": "pnpm --filter './packages/*' exec tsc --noEmit",
+    "lint:check-types:examples": "pnpm --filter './examples/react-*' exec tsc --noEmit && pnpm -F @automerge/automerge-repo-demo-counter-svelte check"
   },
   "engines": {
     "node": ">=22.13",

@@ -6,11 +6,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite --open",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-network-messagechannel": "workspace:*",
+    "@automerge/automerge-repo-network-websocket": "workspace:*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "@automerge/react": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
   }
 }

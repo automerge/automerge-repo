@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
@@ -14,12 +15,13 @@
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
     "@automerge/automerge-repo-svelte-store": "workspace:*",
-    "svelte": "^5.0.0"
+    "svelte": "catalog:"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
-    "@tsconfig/svelte": "^5.0.2",
-    "svelte-check": "^3.6.8",
-    "vite": "catalog:"
+    "@tsconfig/svelte": "^5.0.8",
+    "svelte-check": "^4.4.8",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
   }
 }
