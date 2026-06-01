@@ -48,9 +48,9 @@
     "@types/react-dom": "^18.2.22",
     "@types/uuid": "^8.3.4",
     "@types/ws": "^8.5.10",
-    "@vitejs/plugin-react": "^5.1.2",
-    "@vitest/coverage-v8": "^4.0.15",
-    "@vitest/ui": "^4.0.15",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "^4.1.7",
+    "@vitest/ui": "^4.1.7",
     "c8": "^7.14.0",
     "cross-env": "^7.0.3",
     "dev-null-cli": "^2.0.0",
@@ -65,9 +65,9 @@
     "ts-node": "^10.9.2",
     "typedoc": "^0.28.7",
     "typescript": "^6.0.3",
-    "vite": "^7.3.0",
-    "vite-plugin-wasm": "^3.5.0",
-    "vitest": "^4.0.15"
+    "vite": "^8.0.14",
+    "vite-plugin-wasm": "^3.6.0",
+    "vitest": "^4.1.7"
   },
   "dependencies": {
     "happy-dom": "^20.0.10"
