@@ -28,11 +28,22 @@
     "@automerge/automerge-repo": "workspace:*"
   },
   "devDependencies": {
-    "@sveltejs/package": "^2.3.11",
-    "svelte": "^5.0.0",
-    "typescript": "^6.0.3"
+    "@sveltejs/package": "^2.5.7",
+    "svelte": "catalog:",
+    "typescript": "catalog:"
+  },
+  "watch": {
+    "build": {
+      "patterns": "./src/**/*",
+      "extensions": [
+        ".ts"
+      ]
+    }
   },
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

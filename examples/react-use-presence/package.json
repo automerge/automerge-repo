@@ -10,10 +10,10 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
-    "eventemitter3": "^5.0.4",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "uuid": "^14.0.0"
+    "eventemitter3": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "uuid": "catalog:"
   },
   "devDependencies": {
     "@vitejs/plugin-react-swc": "^3.2.0"

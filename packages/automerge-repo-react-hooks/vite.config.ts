@@ -22,7 +22,7 @@ export default defineConfig({
     },
     target: "esnext",
     rollupOptions: {
-      external: ["react", "react/jsx-runtime", "react-dom", "tailwindcss"],
+      external: [/^@automerge\//, "react", "react/jsx-runtime", "react-dom"],
       output: {
         globals: {
           react: "React",

@@ -14,12 +14,37 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "cbor-x": "^1.6.4",
-    "debug": "^4.4.3",
-    "eventemitter3": "^5.0.4",
-    "ws": "^8.21.0"
+    "cbor-x": "catalog:",
+    "debug": "catalog:",
+    "eventemitter3": "catalog:",
+    "ws": "catalog:"
+  },
+  "devDependencies": {
+    "@automerge/automerge": "catalog:",
+    "@types/ws": "catalog:",
+    "portfinder": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
 }
