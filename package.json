@@ -48,7 +48,7 @@
     "@vitest/ui": "catalog:",
     "cross-env": "^10.1.0",
     "happy-dom": "^20.9.0",
-    "lerna": "^9.0.4",
+    "lerna": "^9.0.7",
     "npm-run-all2": "^9.0.1",
     "oxfmt": "^0.52.0",
     "oxlint": "^1.67.0",
