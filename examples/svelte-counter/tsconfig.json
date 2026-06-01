@@ -1,22 +1,9 @@
 {
+  "extends": ["../../tsconfig.app.json", "@tsconfig/svelte/tsconfig.json"],
   "compilerOptions": {
     "allowJs": true,
-    "allowSyntheticDefaultImports": true,
-    "checkJs": true,
-    "esModuleInterop": false,
-    "forceConsistentCasingInFileNames": true,
-    "isolatedModules": true,
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "noEmit": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "ESNext",
-    "useDefineForClassFields": true
+    "checkJs": true
   },
-  "extends": "@tsconfig/svelte/tsconfig.json",
   "include": [
     "./node_modules/svelte/src/main/ambient.d.ts",
     "src/**/*.d.ts",
