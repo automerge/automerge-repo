@@ -169,7 +169,7 @@ export const isRepoMessage = (message: Message): message is RepoMessage =>
   isRemoteSubscriptionControlMessage(message) ||
   isRemoteHeadsChanged(message)
 
-// prettier-ignore
+// oxfmt-ignore
 export const isDocumentUnavailableMessage = (msg: Message): msg is DocumentUnavailableMessage => 
   msg.type === "doc-unavailable"
 
@@ -182,7 +182,7 @@ export const isSyncMessage = (msg: Message): msg is SyncMessage =>
 export const isEphemeralMessage = (msg: Message): msg is EphemeralMessage =>
   msg.type === "ephemeral"
 
-// prettier-ignore
+// oxfmt-ignore
 export const isRemoteSubscriptionControlMessage = (msg: Message): msg is RemoteSubscriptionControlMessage =>
   msg.type === "remote-subscription-change"
 

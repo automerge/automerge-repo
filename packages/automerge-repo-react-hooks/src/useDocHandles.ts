@@ -5,11 +5,11 @@ import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { wrapperCache } from "./useDocHandle.js"
 import { useSet } from "./helpers/useSet.js"
 
-interface UseDocHandlesParams {
+export interface UseDocHandlesParams {
   suspense?: boolean
 }
 
-type DocHandleMap<T> = Map<AutomergeUrl, DocHandle<T> | undefined>
+export type DocHandleMap<T> = Map<AutomergeUrl, DocHandle<T> | undefined>
 
 export function useDocHandles<T>(
   ids: AutomergeUrl[],

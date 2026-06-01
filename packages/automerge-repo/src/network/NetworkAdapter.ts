@@ -28,14 +28,14 @@ export abstract class NetworkAdapter
 
   /** Called by the {@link Repo} to start the connection process
    *
-   * @argument peerId - the peerId of this repo
-   * @argument peerMetadata - how this adapter should present itself to other peers
+   * @param peerId - the peerId of this repo
+   * @param peerMetadata - how this adapter should present itself to other peers
    */
   abstract connect(peerId: PeerId, peerMetadata?: PeerMetadata): void
 
   /** Called by the {@link Repo} to send a message to a peer
    *
-   * @argument message - the message to send
+   * @param message - the message to send
    */
   abstract send(message: Message): void
 

@@ -38,16 +38,31 @@ export {
   encodeHeads,
   decodeHeads,
 } from "./AutomergeUrl.js"
+export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { setLoggerFactory, makeLogger } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
 export { Presence } from "./presence/Presence.js"
 export { PeerStateView } from "./presence/PeerStateView.js"
+export type { GetStatesOpts } from "./presence/PeerStateView.js"
 export type {
   PeerState,
   PresenceState,
   PresenceConfig,
+  PeerStatesValue,
+  PresenceEvents,
+  PresenceEventUpdate,
+  PresenceEventSnapshot,
+  PresenceEventHeartbeat,
+  PresenceEventGoodbye,
+  PresenceEventPruning,
 } from "./presence/types.js"
+// Type-only re-export so the {@link DEFAULT_*} references in PresenceConfig
+// resolve in typedoc, without exposing the consts to the runtime API.
+export type {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_PEER_TTL_MS,
+} from "./presence/constants.js"
 
 export { NetworkAdapter } from "./network/NetworkAdapter.js"
 export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.js"
@@ -79,11 +94,18 @@ export type {
   DocumentPayload,
   RepoConfig,
   RepoEvents,
+  RepoFindOptions,
+  DocMetrics,
   ShareConfig,
   SharePolicy,
 } from "./Repo.js"
 
-export type { DocumentProgress, QueryState } from "./DocumentQuery.js"
+export type {
+  DocumentProgress,
+  QueryState,
+  SourceState,
+} from "./DocumentQuery.js"
+export type { AbortOptions } from "./helpers/abortable.js"
 
 export type {
   FindProgress,

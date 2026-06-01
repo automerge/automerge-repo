@@ -10,6 +10,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
+    "build:docs": "typedoc",
     "dev:demo": "pnpm -F @automerge/automerge-repo-demo-todo dev",
     "dev:svelte-demo": "pnpm -F @automerge/automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
@@ -63,7 +64,7 @@
     "oxlint-tsgolint": "^0.23.0",
     "portfinder": "catalog:",
     "ts-node": "^10.9.2",
-    "typedoc": "^0.28.7",
+    "typedoc": "^0.28.19",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plugin-wasm": "catalog:",

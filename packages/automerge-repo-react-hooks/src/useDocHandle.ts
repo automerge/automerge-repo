@@ -13,10 +13,10 @@ export const wrapperCache = new Map<
 //     so if your app uses the same documents in two Repos
 //     this could cause problems. please let me know if you do.
 
-interface UseDocHandleSuspendingParams {
+export interface UseDocHandleSuspendingParams {
   suspense: true
 }
-interface UseDocHandleSynchronousParams {
+export interface UseDocHandleSynchronousParams {
   suspense: false
 }
 

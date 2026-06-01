@@ -25,9 +25,6 @@ export interface UseLocalAwarenessProps {
  *
  * Note that userIds aren't secure (yet). Any client can lie about theirs.
  *
- * @param {string} props.userId Unique user ID. Clients can lie about this.
- * @param {any} props.initialState Initial state object/primitive
- * @param {number?1500} props.heartbeatTime How often to send a heartbeat (in ms)
  * @returns [state, setState]
  */
 export const useLocalAwareness = ({
