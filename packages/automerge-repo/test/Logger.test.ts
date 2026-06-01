@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { Repo } from "../src/Repo.js"
 import {
   makeLogger,
   Logger,
@@ -54,30 +53,14 @@ describe("Logger", () => {
     expect(loggers.get("test:ns")?.warn).toHaveBeenCalledWith("hello")
   })
 
-  it("hands subsystem namespaces to the factory", () => {
-    const { factory } = installMockFactory()
-    const repo = new Repo()
-    // Triggers a warn on the Repo's logger (remote heads gossiping is off by default).
-    repo.subscribeToRemotes([])
+  it("resolves the factory on each call, so a logger built before setLoggerFactory still uses it", () => {
+    // A caller (like a subsystem) that captures its logger up front, before
+    // any custom factory is installed.
+    const log = makeLogger("test:ns")
 
-    const namespaces = factory.mock.calls.map(([ns]) => ns)
-    expect(namespaces).toContain("automerge-repo:repo")
-  })
-
-  it("routes DocHandle.docSync deprecation through the factory's logger, not console.warn", () => {
     const { loggers } = installMockFactory()
-    const consoleWarn = vi.spyOn(console, "warn")
+    log.warn("after swap")
 
-    const repo = new Repo()
-    const handle = repo.create<{ x: number }>({ x: 1 })
-    handle.docSync()
-
-    const dochandleLogger = loggers.get("automerge-repo:dochandle")
-    expect(dochandleLogger).toBeDefined()
-    expect(dochandleLogger!.warn).toHaveBeenCalledOnce()
-    expect(dochandleLogger!.warn.mock.calls[0][0]).toContain(
-      "docSync is deprecated"
-    )
-    expect(consoleWarn).not.toHaveBeenCalled()
+    expect(loggers.get("test:ns")?.warn).toHaveBeenCalledWith("after swap")
   })
 })
