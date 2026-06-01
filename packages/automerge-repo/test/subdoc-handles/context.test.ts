@@ -28,13 +28,13 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         text.splice(0, 5, "goodbye")
       })
 
-      expect(textRef.value()).toBe("goodbye world")
+      expect(textRef.doc()).toBe("goodbye world")
     })
 
     it("should work with nested paths", () => {
@@ -42,13 +42,13 @@ describe("RefContext", () => {
         d.doc = { title: "hello" }
       })
 
-      const titleRef = handle.ref("doc", "title")
+      const titleRef = handle.sub("doc", "title")
 
       titleRef.change(text => {
         text.splice(0, 0, "say ")
       })
 
-      expect(titleRef.value()).toBe("say hello")
+      expect(titleRef.doc()).toBe("say hello")
     })
 
     it("should work with array paths", () => {
@@ -56,13 +56,13 @@ describe("RefContext", () => {
         d.items = [{ text: "first" }]
       })
 
-      const itemRef = handle.ref("items", 0, "text")
+      const itemRef = handle.sub("items", 0, "text")
 
       itemRef.change(text => {
         text.splice(5, 0, " item")
       })
 
-      expect(itemRef.value()).toBe("first item")
+      expect(itemRef.doc()).toBe("first item")
     })
   })
 
@@ -72,13 +72,13 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         text.updateText("goodbye")
       })
 
-      expect(textRef.value()).toBe("goodbye")
+      expect(textRef.doc()).toBe("goodbye")
     })
 
     it("should work with nested paths", () => {
@@ -86,13 +86,13 @@ describe("RefContext", () => {
         d.doc = { title: "old title" }
       })
 
-      const titleRef = handle.ref("doc", "title")
+      const titleRef = handle.sub("doc", "title")
 
       titleRef.change(text => {
         text.updateText("new title")
       })
 
-      expect(titleRef.value()).toBe("new title")
+      expect(titleRef.doc()).toBe("new title")
     })
   })
 
@@ -106,7 +106,7 @@ describe("RefContext", () => {
       })
 
       // Get stable ref using match pattern to find by id
-      const titleRef = handle.ref("todos", { id: "a" }, "title")
+      const titleRef = handle.sub("todos", { id: "a" }, "title")
 
       // Swap first two elements by inserting second at index 0 and deleting old second
       handle.change((d: any) => {
@@ -132,7 +132,7 @@ describe("RefContext", () => {
         ]
       })
 
-      const aliceRef = handle.ref("users", { id: "user1" }, "name")
+      const aliceRef = handle.sub("users", { id: "user1" }, "name")
 
       aliceRef.change(name => {
         name.updateText("Alice Smith")
@@ -149,7 +149,7 @@ describe("RefContext", () => {
         d.item = { title: "test", count: 0 }
       })
 
-      const itemRef = handle.ref("item")
+      const itemRef = handle.sub("item")
 
       itemRef.change(item => {
         item.count++
@@ -166,7 +166,7 @@ describe("RefContext", () => {
         d.count = 5
       })
 
-      const countRef = handle.ref("count")
+      const countRef = handle.sub("count")
 
       countRef.change(count => {
         return count + 1
@@ -180,7 +180,7 @@ describe("RefContext", () => {
         d.title = "hello"
       })
 
-      const titleRef = handle.ref("title")
+      const titleRef = handle.sub("title")
 
       titleRef.change(title => {
         // Should receive MutableText which has splice method
@@ -196,13 +196,13 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.toUpperCase()
       })
 
-      expect(textRef.value()).toBe("HELLO WORLD")
+      expect(textRef.doc()).toBe("HELLO WORLD")
     })
 
     it("should support toLowerCase()", () => {
@@ -210,13 +210,13 @@ describe("RefContext", () => {
         d.content = "HELLO WORLD"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.toLowerCase()
       })
 
-      expect(textRef.value()).toBe("hello world")
+      expect(textRef.doc()).toBe("hello world")
     })
 
     it("should support slice()", () => {
@@ -224,13 +224,13 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.slice(0, 5)
       })
 
-      expect(textRef.value()).toBe("hello")
+      expect(textRef.doc()).toBe("hello")
     })
 
     it("should support trim()", () => {
@@ -238,13 +238,13 @@ describe("RefContext", () => {
         d.content = "  hello  "
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.trim()
       })
 
-      expect(textRef.value()).toBe("hello")
+      expect(textRef.doc()).toBe("hello")
     })
 
     it("should support length property", () => {
@@ -252,7 +252,7 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         expect(text.length).toBe(5)
@@ -264,7 +264,7 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         expect(text.charAt(0)).toBe("h")
@@ -277,7 +277,7 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         expect(text[0]).toBe("h")
@@ -290,13 +290,13 @@ describe("RefContext", () => {
         d.content = "hello"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.concat(" world")
       })
 
-      expect(textRef.value()).toBe("hello world")
+      expect(textRef.doc()).toBe("hello world")
     })
 
     it("should support replace()", () => {
@@ -304,13 +304,13 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       textRef.change(text => {
         return text.replace("world", "there")
       })
 
-      expect(textRef.value()).toBe("hello there")
+      expect(textRef.doc()).toBe("hello there")
     })
 
     it("should mix string methods with Automerge mutations", () => {
@@ -318,21 +318,21 @@ describe("RefContext", () => {
         d.content = "hello world"
       })
 
-      const textRef = handle.ref("content")
+      const textRef = handle.sub("content")
 
       // First use a string method
       textRef.change(text => {
         return text.toUpperCase()
       })
 
-      expect(textRef.value()).toBe("HELLO WORLD")
+      expect(textRef.doc()).toBe("HELLO WORLD")
 
       // Then use Automerge splice
       textRef.change(text => {
         text.splice(6, 5, "THERE")
       })
 
-      expect(textRef.value()).toBe("HELLO THERE")
+      expect(textRef.doc()).toBe("HELLO THERE")
     })
   })
 })

@@ -106,11 +106,11 @@ export function createAutomergeStore(repo: Repo) {
     handle: DocHandle<T>
   ): AutomergeDocumentStore<T> {
     // Create a writable store with the current document
-    const { subscribe, set } = writable<Doc<T> | null>(handle.doc())
+    const { subscribe, set } = writable<Doc<T> | null>(handle.doc() ?? null)
 
     // Set up change listener
-    const onChange = ({ doc }: { doc: Doc<T> }) => {
-      set(doc)
+    const onChange = ({ doc }: { doc: Doc<T> | undefined }) => {
+      set(doc ?? null)
     }
 
     // Subscribe to changes

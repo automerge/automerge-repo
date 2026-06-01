@@ -3,10 +3,11 @@ import type {
   Doc,
   DocHandle,
   DocHandleChangePayload,
+  UrlHeads,
 } from "@automerge/automerge-repo/slim"
 import autoproduce from "./autoproduce.js"
 import { createStore, produce, reconcile, type Store } from "solid-js/store"
-import { applyPatches, diff, getHeads } from "@automerge/automerge/slim"
+import { applyPatches } from "@automerge/automerge/slim"
 
 const cache = new WeakMap<
   DocHandle<unknown>,
@@ -19,7 +20,7 @@ const cache = new WeakMap<
 
 function initial<T>(handle: DocHandle<T>): T {
   const template = {} as T
-  applyPatches(template, diff(handle.doc(), [], getHeads(handle.doc())))
+  applyPatches(template, handle.diff([] as unknown as UrlHeads, handle.heads()))
   return template
 }
 
@@ -59,6 +60,11 @@ export default function makeDocumentProjection<T extends object>(
   })
 
   function patch(payload: DocHandleChangePayload<T>) {
+    // `scopeReplaced` flags a wholesale change at/above a sub-document handle
+    if (payload.scopeReplaced) {
+      set(reconcile((payload.doc ?? {}) as T))
+      return
+    }
     set(produce(autoproduce(payload)))
   }
 

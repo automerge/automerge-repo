@@ -40,7 +40,7 @@ export class StorageSource implements DocumentSource {
     // If the handle already has data (e.g. from create/import), persist it
     // immediately rather than waiting for a future heads-changed event.
     if (handle.heads().length > 0) {
-      saveFn({ handle, doc: handle.doc() })
+      saveFn({ handle, doc: handle.fullDoc() })
       query.sourceUnavailable("storage")
       return
     }
