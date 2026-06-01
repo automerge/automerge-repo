@@ -26,9 +26,10 @@
     "watch": "pnpm run --parallel --stream -r watch "
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.13",
+    "pnpm": "^11"
   },
-  "packageManager": "pnpm@10.32.1",
+  "packageManager": "pnpm@11.5.0",
   "prettier": {
     "semi": false,
     "singleQuote": false,
@@ -77,10 +78,5 @@
   },
   "dependencies": {
     "happy-dom": "^20.0.10"
-  },
-  "pnpm": {
-    "overrides": {
-      "semver": "^7.5.2"
-    }
   }
 }
