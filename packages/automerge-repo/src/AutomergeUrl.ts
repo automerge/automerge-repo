@@ -13,10 +13,7 @@ import {
   uint8ArrayFromHexString,
   uint8ArrayToHexString,
 } from "./helpers/bufferFromHex.js"
-import {
-  parsePath,
-  serializePath,
-} from "./subdoc-handles/parser.js"
+import { parsePath, serializePath } from "./subdoc-handles/parser.js"
 import type { Segment } from "./subdoc-handles/types.js"
 
 import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
