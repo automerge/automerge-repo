@@ -15,23 +15,35 @@ on:
       ]
     branches:
       - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   run-tests:
     if: github.event.pull_request.draft == false
     name: Run Tests
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24, 25]
     steps:
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v6
         with:
-          node-version: "20.x"
-          registry-url: "https://registry.npmjs.org"
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          ref: ${{ github.ref }}
-      - uses: pnpm/action-setup@v4
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
         with:
           run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
       - name: Install and Build
         run: |
           pnpm install

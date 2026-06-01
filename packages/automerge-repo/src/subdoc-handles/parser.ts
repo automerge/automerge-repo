@@ -218,4 +218,3 @@ export function parsePath(path: string): Segment[] {
 export function serializePath(segments: Segment[]): string {
   return segments.map(serializeSegment).join("/")
 }
-
