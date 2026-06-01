@@ -1,57 +1,101 @@
 #!/usr/bin/env node
 
-import fs from "fs"
-import path from "path"
-import child_process from "child_process"
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+import { intro, outro, text, isCancel, cancel, log } from "@clack/prompts"
 
-const execSync = child_process.execSync
+const detectPackageManager = (): string => {
+  const ua = process.env.npm_config_user_agent ?? ""
+  return ua.split(" ")[0]?.split("/")[0] || "npm"
+}
 
-function createPackageJson(projectName: string) {
-  const packageJson = {
-    name: projectName,
-    version: "1.0.0",
-    description: "",
-    main: "index.js",
-    type: "module",
-    scripts: {
-      start: "node index.js",
-    },
-    dependencies: {
-      "@automerge/automerge-repo": "^1.0",
-      "@automerge/automerge-repo-network-websocket": "^1.0",
-      "@automerge/automerge-repo-storage-nodefs": "^1.0",
-    },
+const copy = (src: string, dest: string) => {
+  if (fs.statSync(src).isDirectory()) {
+    copyDir(src, dest)
+  } else {
+    fs.copyFileSync(src, dest)
   }
-  fs.writeFileSync(
-    path.join(projectName, "package.json"),
-    JSON.stringify(packageJson, null, 2) + "\n"
-  )
 }
 
-function createIndexJs(projectName: string) {
-  const indexJsContent = `import { Repo } from "@automerge/automerge-repo"
-import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket"
-import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs"
+const copyDir = (srcDir: string, destDir: string) => {
+  fs.mkdirSync(destDir, { recursive: true })
+  for (const file of fs.readdirSync(srcDir)) {
+    copy(path.resolve(srcDir, file), path.resolve(destDir, file))
+  }
+}
 
-const repo = new Repo({
-  storage: new NodeFSStorageAdapter("./db"),
-  network: [new WebSocketClientAdapter("wss://sync.automerge.org")]
-})
+// Written here rather than shipped as a template file: npm strips files named
+// .gitignore from published packages, so the template can't carry one directly.
+const GITIGNORE = `node_modules
+automerge-data
+*.log
 `
-  fs.writeFileSync(path.join(projectName, "index.js"), indexJsContent)
-}
 
-function main() {
-  const projectName = process.argv[2]
+const main = async () => {
+  intro("create-repo-node-app · Automerge for Node")
+
+  let projectName = process.argv[2]
   if (!projectName) {
-    console.error("Please provide a project name")
+    const answer = await text({
+      message: "Project name?",
+      placeholder: "my-automerge-app",
+      validate: value =>
+        value && value.trim().length > 0
+          ? undefined
+          : "Please enter a project name",
+    })
+    if (isCancel(answer)) {
+      cancel("Scaffolding cancelled.")
+      process.exit(0)
+    }
+    projectName = answer.trim()
+  }
+
+  const root = path.join(process.cwd(), projectName)
+  if (fs.existsSync(root)) {
+    cancel(`Directory "${projectName}" already exists.`)
     process.exit(1)
   }
 
-  fs.mkdirSync(projectName)
-  createPackageJson(projectName)
-  createIndexJs(projectName)
-  execSync(`cd ${projectName} && npm install`, { stdio: "inherit" })
+  const templateDir = path.resolve(
+    fileURLToPath(import.meta.url),
+    "../../template"
+  )
+
+  fs.mkdirSync(root, { recursive: true })
+  for (const file of fs.readdirSync(templateDir)) {
+    if (file === "package.json") continue
+    copy(path.join(templateDir, file), path.join(root, file))
+  }
+
+  // Copy package.json with the chosen project name.
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(templateDir, "package.json"), "utf-8")
+  )
+  pkg.name = projectName
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify(pkg, null, 2) + "\n"
+  )
+
+  fs.writeFileSync(path.join(root, ".gitignore"), GITIGNORE)
+
+  log.success(`Created ${projectName}`)
+
+  const pm = detectPackageManager()
+  const run = pm === "npm" ? "npm run" : pm
+  outro(
+    [
+      "Next steps:",
+      `  cd ${projectName}`,
+      `  ${pm} install`,
+      `  ${run} start`,
+    ].join("\n")
+  )
 }
 
-main()
+main().catch(error => {
+  console.error(error)
+  process.exit(1)
+})

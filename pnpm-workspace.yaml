@@ -2,6 +2,7 @@ packages:
   - packages/**
   - examples/**
   - "!packages/create-vite-app/template/**"
+  - "!packages/create-repo-node-app/template/**"
 allowBuilds:
   "@swc/core": true
   cbor-extract: true
