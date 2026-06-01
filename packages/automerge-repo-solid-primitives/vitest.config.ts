@@ -7,7 +7,7 @@ export default mergeConfig(
   defineConfig({
     plugins: [solid()],
     test: {
-      environment: "jsdom",
+      // environment inherited from the root config (happy-dom)
       deps: {
         optimizer: {
           web: {

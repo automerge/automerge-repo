@@ -2,7 +2,7 @@
   "name": "@automerge/react",
   "version": "2.6.0-alpha.1",
   "description": "A quick-import React package for Automerge Repo",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-react",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-react",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
   "type": "module",
@@ -10,9 +10,9 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch build",
+    "watch": "tsc --watch",
     "test": "vitest",
-    "test:watch": "npm-watch test"
+    "test:watch": "vitest --watch"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
@@ -20,38 +20,20 @@
     "@automerge/automerge-repo-network-messagechannel": "workspace:*",
     "@automerge/automerge-repo-network-websocket": "workspace:*",
     "@automerge/automerge-repo-react-hooks": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
-    "react": "^18.0.0"
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:*"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
-    "@types/react": "^18.0.0",
+    "@types/react": "^19.2.15",
+    "react": "^19.2.6",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   },
   "exports": {
     ".": "./dist/index.js",
     "./slim": "./dist/slim.js"
-  },
-  "watch": {
-    "build": {
-      "patterns": "./src/**/*",
-      "extensions": [
-        ".ts"
-      ]
-    },
-    "test": {
-      "quiet": true,
-      "patterns": [
-        "./src/**/*",
-        "./test/**/*"
-      ],
-      "extensions": [
-        ".ts"
-      ]
-    }
   },
   "publishConfig": {
     "access": "public"

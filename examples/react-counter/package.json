@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-demo-counter",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-counter",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-counter",
   "private": true,
   "version": "2.6.0-alpha.1",
   "type": "module",
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   }
 }

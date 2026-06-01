@@ -2,28 +2,20 @@
   "name": "@automerge/automerge-repo-network-messagechannel",
   "version": "2.6.0-alpha.1",
   "description": "MessageChannel network adapter for Automerge Repo",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-network-messagechannel",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-network-messagechannel",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch build",
+    "watch": "tsc --watch",
     "test": "vitest"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "debug": "^4.3.4",
-    "eventemitter3": "^5.0.1"
-  },
-  "watch": {
-    "build": {
-      "patterns": "./src/**/*",
-      "extensions": [
-        ".ts"
-      ]
-    }
+    "debug": "^4.4.3",
+    "eventemitter3": "^5.0.4"
   },
   "publishConfig": {
     "access": "public"
