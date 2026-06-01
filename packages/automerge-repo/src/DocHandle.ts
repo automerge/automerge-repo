@@ -1160,7 +1160,7 @@ export type SyncInfo = {
 /** @hidden */
 export type DocHandleOptions<T> =
   | // NEW DOCUMENTS
-  {
+    {
       /** If we know this is a new document (because we're creating it) this should be set to true. */
       isNew: true
 

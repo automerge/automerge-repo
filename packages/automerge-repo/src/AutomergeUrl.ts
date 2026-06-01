@@ -145,10 +145,10 @@ export const anyDocumentIdToAutomergeUrl = (id: AnyDocumentId) =>
   isValidAutomergeUrl(id)
     ? id
     : isValidDocumentId(id)
-    ? stringifyAutomergeUrl({ documentId: id })
-    : isValidUuid(id)
-    ? parseLegacyUUID(id)
-    : undefined
+      ? stringifyAutomergeUrl({ documentId: id })
+      : isValidUuid(id)
+        ? parseLegacyUUID(id)
+        : undefined
 
 /**
  * Given a string, returns true if it is a valid Automerge URL. This function also acts as a type
