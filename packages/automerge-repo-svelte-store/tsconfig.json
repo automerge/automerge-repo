@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "module": "ES2020",
-    "moduleResolution": "Bundler",
+    "moduleResolution": "bundler",
     "allowJs": true,
     "checkJs": true,
     "declaration": true,
