@@ -1,6 +1,27 @@
 /**
  * @packageDocumentation
- * A `StorageAdapter` which stores data in the local filesystem
+ * A `StorageAdapter` which stores data in the local filesystem.
+ *
+ * ## Durability and atomicity
+ *
+ * Writes use the standard POSIX "write-to-temporary + fsync + rename"
+ * pattern so that a reader or a crash never observes a half-written file:
+ *
+ *   1. The payload is written to `<baseDirectory>/.tmp/<pid>.<uuid>`.
+ *   2. The temporary file is `fsync`ed so its bytes reach disk.
+ *   3. `rename(2)` replaces the target atomically (POSIX) or via
+ *      `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` (Windows NTFS).
+ *   4. On POSIX, the parent directory is `fsync`ed so the rename itself
+ *      is durable across a crash. Windows does not expose directory
+ *      fsync from user-space Node; directory metadata durability falls
+ *      back to the operating system's own guarantees.
+ *
+ * Temporary files live in a dedicated `<baseDirectory>/.tmp/` directory
+ * rather than as siblings of their target files. This keeps them on the
+ * same filesystem as their targets (required for atomic rename) while
+ * making them invisible to older adapters and to {@link loadRange} /
+ * {@link load}, which are always prefix-scoped and are unlikely to walk
+ * `.tmp/` since real-world keys won't shard into a `.t` prefix.
  */
 
 import {
@@ -8,12 +29,18 @@ import {
   StorageAdapterInterface,
   type StorageKey,
 } from "@automerge/automerge-repo/slim"
-import fs from "fs"
-import path from "path"
+import crypto from "node:crypto"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { rimraf } from "rimraf"
+
+const IS_POSIX = os.platform() !== "win32"
 
 export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
+  private tmpDirectory: string
+  private tmpDirectoryReady: Promise<void> | undefined
   private cache: { [key: string]: Uint8Array } = {}
 
   /**
@@ -21,6 +48,35 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
    */
   constructor(baseDirectory = "automerge-repo-data") {
     this.baseDirectory = baseDirectory
+    this.tmpDirectory = path.join(baseDirectory, TMP_DIR_NAME)
+  }
+
+  /**
+   * Create `tmpDirectory` once (idempotent). Called lazily on the first
+   * write so a read-only consumer of this adapter never creates the
+   * `.tmp/` directory as a side effect of construction.
+   */
+  private ensureTmpDirectory(): Promise<void> {
+    if (!this.tmpDirectoryReady) {
+      this.tmpDirectoryReady = fs.promises
+        .mkdir(this.tmpDirectory, { recursive: true })
+        .then(() => undefined)
+        .catch(err => {
+          // Reset so subsequent writes retry the mkdir. Otherwise a
+          // transient failure would be remembered forever.
+          this.tmpDirectoryReady = undefined
+          throw err
+        })
+    }
+    return this.tmpDirectoryReady
+  }
+
+  /** Build a fresh unique path inside {@link tmpDirectory}. */
+  private makeTmpPath(): string {
+    return path.join(
+      this.tmpDirectory,
+      `${process.pid}.${crypto.randomUUID().replace(/-/g, "")}`
+    )
   }
 
   async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
@@ -33,31 +89,54 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       const fileContent = await fs.promises.readFile(filePath)
       return new Uint8Array(fileContent)
     } catch (error: any) {
-      // don't throw if file not found
-      if (error.code === "ENOENT") return undefined
+      // Treat both "file not found" and "path component is not a
+      // directory" as absent. ENOTDIR can surface when a key's
+      // logical path passes through a location where some other
+      // entry occupies the expected directory slot — from load()'s
+      // perspective that still means "no file at this key".
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+        return undefined
+      }
       throw error
     }
   }
 
   async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
+    // Rollback semantics: if the rename has not yet completed, on-disk
+    // state is unchanged and we roll the cache back to match. Once the
+    // rename completes, on-disk state is the new bytes (visible to
+    // concurrent readers), so we do NOT roll back — cache matches disk.
+    // A subsequent fsyncDir failure means the rename may not be durable
+    // across a crash, but the bytes are still present and observable;
+    // rolling back in that case would make cache diverge from disk.
+    // The caller learns about the durability gap via the rejection.
     const key = getKey(keyArray)
+    const prev = this.cache[key]
     this.cache[key] = binary
 
     const filePath = this.getFilePath(keyArray)
+    const dir = path.dirname(filePath)
 
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
-    await fs.promises.writeFile(filePath, binary)
+    try {
+      await this.ensureTmpDirectory()
+      await fs.promises.mkdir(dir, { recursive: true })
+      await atomicWrite(filePath, this.makeTmpPath(), binary)
+    } catch (err) {
+      if (this.cache[key] === binary) {
+        rollbackCache(this.cache, key, prev)
+      }
+      throw err
+    }
+
+    await fsyncDir(dir)
   }
 
   async remove(keyArray: string[]): Promise<void> {
-    // remove from cache
     delete this.cache[getKey(keyArray)]
-    // remove from disk
     const filePath = this.getFilePath(keyArray)
     try {
       await fs.promises.unlink(filePath)
     } catch (error: any) {
-      // don't throw if file not found
       if (error.code !== "ENOENT") throw error
     }
   }
@@ -75,7 +154,9 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     const diskFiles = await walkdir(dirPath)
 
     // The "keys" in the cache don't include the baseDirectory.
-    // We want to de-dupe with the cached keys so we'll use getKey to normalize them.
+    // We want to de-dupe with the cached keys so we'll use getKey to
+    // normalize them. Tmp files live under <baseDirectory>/.tmp/, which
+    // walkdir skips, so diskFiles never contains an in-flight tmp file.
     const diskKeys: string[] = diskFiles.map((fileName: string) => {
       const k = getKey([path.relative(this.baseDirectory, fileName)])
       return k.slice(0, 2) + k.slice(3)
@@ -127,20 +208,173 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
 const getKey = (key: StorageKey): string => path.join(...key)
 
+/**
+ * Restore a cache entry to its value prior to a failed write.
+ *
+ * If the key had no prior entry (`prev === undefined`), the entry is
+ * deleted entirely. Otherwise it is overwritten with the prior bytes.
+ * This keeps the in-memory cache consistent with on-disk state when
+ * save() rejects partway through.
+ */
+const rollbackCache = (
+  cache: Record<string, Uint8Array>,
+  key: string,
+  prev: Uint8Array | undefined
+): void => {
+  if (prev === undefined) {
+    delete cache[key]
+  } else {
+    cache[key] = prev
+  }
+}
+
+/**
+ * Name of the subdirectory under `baseDirectory` that holds in-flight
+ * temporary files. Hidden by the leading dot. The `.t` two-character
+ * prefix cannot collide with any real sharded storage key, which shards
+ * by hex or base58 (see {@link NodeFSStorageAdapter.getFilePath}), so
+ * an older adapter walking a shard subtree never descends here.
+ */
+const TMP_DIR_NAME = ".tmp"
+
+/**
+ * Write `bytes` to `targetPath` atomically:
+ *   1. write to `tmpPath` on the same filesystem as `targetPath`
+ *   2. fsync the temporary file
+ *   3. rename over the target
+ *
+ * On POSIX, rename is atomic with respect to concurrent readers and a
+ * crash. On Windows NTFS, `fs.promises.rename` uses
+ * `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` which is atomic for
+ * concurrent readers; post-crash state on Windows depends on NTFS and
+ * the OS flush policy.
+ *
+ * `tmpPath` MUST be on the same filesystem as `targetPath`; otherwise
+ * `rename` will fail with `EXDEV` and no fallback is attempted. In
+ * practice callers construct `tmpPath` under `<baseDirectory>/.tmp/`,
+ * so this holds automatically.
+ */
+const atomicWrite = async (
+  targetPath: string,
+  tmpPath: string,
+  bytes: Uint8Array
+): Promise<void> => {
+  const fh = await fs.promises.open(tmpPath, "w")
+  let wroteTmp = false
+  let closeErr: unknown
+  try {
+    await fh.writeFile(bytes)
+    await fh.sync()
+    wroteTmp = true
+  } finally {
+    // fh.close() can itself throw (e.g. EIO). Wrap it in its own
+    // try/catch so the tmp-file cleanup below still runs. We always
+    // capture the close error; whether we surface it depends on
+    // whether the outer write succeeded (see below).
+    try {
+      await fh.close()
+    } catch (e) {
+      closeErr = e
+    }
+    if (!wroteTmp) {
+      if (closeErr !== undefined) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] fh.close() failed for ${tmpPath}:`,
+          closeErr
+        )
+      }
+      try {
+        await fs.promises.unlink(tmpPath)
+      } catch (cleanupErr) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+          cleanupErr
+        )
+      }
+    }
+  }
+
+  // Write + sync both succeeded, but close threw. On some filesystems
+  // (NFS, FUSE) close is the only place certain delayed write errors
+  // surface. Don't proceed with rename — the bytes on disk may not be
+  // durable. Clean up the tmp file and surface the close error.
+  if (closeErr !== undefined) {
+    try {
+      await fs.promises.unlink(tmpPath)
+    } catch (cleanupErr) {
+      console.debug(
+        `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+        cleanupErr
+      )
+    }
+    throw closeErr
+  }
+
+  try {
+    await fs.promises.rename(tmpPath, targetPath)
+  } catch (err) {
+    // If the rename failed, the tmp file is still lying around. Same
+    // best-effort cleanup semantics as above.
+    try {
+      await fs.promises.unlink(tmpPath)
+    } catch (cleanupErr) {
+      console.debug(
+        `[automerge-repo-storage-nodefs] failed to clean up tmp file ${tmpPath}:`,
+        cleanupErr
+      )
+    }
+    throw err
+  }
+}
+
+/**
+ * `fsync` a directory so that recent `rename(2)` calls into it are durable.
+ */
+const fsyncDir = async (dir: string): Promise<void> => {
+  if (!IS_POSIX) return
+  let fh: fs.promises.FileHandle | undefined
+  try {
+    fh = await fs.promises.open(dir, "r")
+    await fh.sync()
+  } catch (err: any) {
+    if (err.code !== "EISDIR" && err.code !== "EINVAL") throw err
+  } finally {
+    // Swallow close() failures so they can't turn a tolerated fsync
+    // outcome into a hard failure. Symmetric with the close handling
+    // in atomicWrite.
+    if (fh) {
+      try {
+        await fh.close()
+      } catch (closeErr) {
+        console.debug(
+          `[automerge-repo-storage-nodefs] fsyncDir close() failed for ${dir}:`,
+          closeErr
+        )
+      }
+    }
+  }
+}
+
 /** returns all files in a directory, recursively  */
 const walkdir = async (dirPath: string): Promise<string[]> => {
   try {
-    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true })
+    const entries = await fs.promises.readdir(dirPath, {
+      withFileTypes: true,
+    })
     const files = await Promise.all(
       entries.map(entry => {
+        // Defensive: never descend into the tmp directory if walkdir is
+        // ever invoked with `dirPath === baseDirectory`. Today loadRange
+        // is always called with a prefix, so walkdir starts at a shard
+        // subdirectory and this branch is effectively unreachable.
+        if (entry.isDirectory() && entry.name === TMP_DIR_NAME) return []
         const subpath = path.resolve(dirPath, entry.name)
         return entry.isDirectory() ? walkdir(subpath) : subpath
       })
     )
     return files.flat()
   } catch (error: any) {
-    // don't throw if directory not found
-    if (error.code === "ENOENT") return []
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return []
     throw error
   }
 }
