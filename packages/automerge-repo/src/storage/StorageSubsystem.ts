@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import debug from "debug"
+import { makeLogger } from "../Logger.js"
 import { headsAreSame } from "../helpers/headsAreSame.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 import { type DocumentId } from "../types.js"
@@ -48,7 +48,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   /** Flag to avoid compacting when a compaction is already underway */
   #compacting = false
 
-  #log = debug(`automerge-repo:storage-subsystem`)
+  #log = makeLogger("automerge-repo:storage-subsystem")
 
   constructor(storageAdapter: StorageAdapterInterface) {
     super()
@@ -259,7 +259,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
     if (binary && binary.length > 0) {
       const key = [documentId, "incremental", keyHash(binary)]
-      this.#log(`Saving incremental ${key} for document ${documentId}`)
+      this.#log.debug(`Saving incremental ${key} for document ${documentId}`)
       await this.#storageAdapter.save(key, binary)
       if (!this.#chunkInfos.has(documentId)) {
         this.#chunkInfos.set(documentId, [])
@@ -301,8 +301,8 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       sourceChunks.map(c => c.key).filter(k => k[2] !== snapshotHash)
     )
 
-    this.#log(`Saving snapshot ${key} for document ${documentId}`)
-    this.#log(`deleting old chunks ${Array.from(oldKeys)}`)
+    this.#log.debug(`Saving snapshot ${key} for document ${documentId}`)
+    this.#log.debug(`deleting old chunks ${Array.from(oldKeys)}`)
 
     await this.#storageAdapter.save(key, binary)
 
@@ -328,7 +328,10 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       const loaded = await this.#storageAdapter.load(key)
       return loaded ? A.decodeSyncState(loaded) : undefined
     } catch (e) {
-      this.#log(`Error loading sync state for ${documentId} from ${storageId}`)
+      this.#log.error(
+        `Error loading sync state for ${documentId} from ${storageId}`,
+        e
+      )
       return undefined
     }
   }
