@@ -1,0 +1,75 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "import"],
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/.svelte-kit/**",
+    "examples/**",
+    "**/test/**",
+    "**/*.d.ts",
+    "**/*.config.ts",
+    "**/fuzz/**",
+    "**/testSetup.ts",
+    "playwright.base.ts",
+    "packages/create-vite-app/**",
+    "packages/create-repo-node-app/postbuild.js"
+  ],
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "@automerge/automerge",
+              "@automerge/automerge/*",
+              "!@automerge/automerge/slim",
+              "!@automerge/automerge/slim/*"
+            ],
+            "message": "Import from @automerge/automerge/slim instead of @automerge/automerge"
+          },
+          {
+            "group": [
+              "@automerge/automerge-repo",
+              "@automerge/automerge-repo/*",
+              "!@automerge/automerge-repo/slim",
+              "!@automerge/automerge-repo/slim/*"
+            ],
+            "message": "Import from @automerge/automerge-repo/slim instead of @automerge/automerge-repo"
+          }
+        ]
+      }
+    ],
+    "no-unused-vars": [
+      "error",
+      {
+        "varsIgnorePattern": "^_",
+        "argsIgnorePattern": "^_",
+        "caughtErrors": "none"
+      }
+    ],
+    "no-unused-expressions": ["error", { "allowShortCircuit": true }],
+    "no-empty-function": "off",
+    "no-param-reassign": "off",
+    "typescript/no-non-null-assertion": "off",
+    "typescript/no-explicit-any": "off",
+    "react-hooks/exhaustive-deps": "off"
+  },
+  "settings": {
+    "react": { "version": "18" }
+  },
+  "overrides": [
+    {
+      "files": [
+        "packages/automerge-react/**",
+        "packages/automerge-vanillajs/**"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
+}

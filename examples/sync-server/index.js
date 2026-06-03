@@ -73,7 +73,7 @@ export class Server {
     const serverRepo = new Repo(config)
 
     // Observe metrics for prometheus and also log the events so log aggregators like loki can pick them up
-    serverRepo.on("doc-metrics", (event) => {
+    serverRepo.on("doc-metrics", event => {
       console.log(JSON.stringify(event))
       metrics.numOps.observe(event.numOps)
       if (event.type === "doc-loaded") {
@@ -96,11 +96,11 @@ export class Server {
     this.#server = app.listen(PORT, () => {
       console.log(`Listening on port ${PORT}`)
       this.#isReady = true
-      this.#readyResolvers.forEach((resolve) => resolve(true))
+      this.#readyResolvers.forEach(resolve => resolve(true))
     })
 
     this.#server.on("upgrade", (request, socket, head) => {
-      this.#socket.handleUpgrade(request, socket, head, (socket) => {
+      this.#socket.handleUpgrade(request, socket, head, socket => {
         this.#socket.emit("connection", socket, request)
       })
     })
@@ -111,7 +111,7 @@ export class Server {
       return true
     }
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       this.#readyResolvers.push(resolve)
     })
   }

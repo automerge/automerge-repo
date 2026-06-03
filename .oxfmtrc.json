@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": false,
+  "singleQuote": false,
+  "trailingComma": "es5",
+  "arrowParens": "avoid",
+  "printWidth": 80,
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "dist",
+    "pnpm-lock.yaml",
+    "/.nx/workspace-data",
+    ".svelte-kit",
+    "playwright-report",
+    "test-results",
+    "coverage"
+  ]
+}
