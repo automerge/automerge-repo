@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-demo-todo",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-todo",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-todo",
   "private": true,
   "version": "2.6.0-alpha.1",
   "type": "module",
@@ -11,11 +11,11 @@
   "dependencies": {
     "@automerge/react": "workspace:*",
     "autoprefixer": "^10.4.13",
-    "classnames": "^2.3.2",
+    "clsx": "^2.1.1",
     "postcss": "^8.4.21",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "react-error-boundary": "^5.0.0"
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-error-boundary": "^6.1.2"
   },
   "devDependencies": {
     "tailwindcss": "^3.2.4"

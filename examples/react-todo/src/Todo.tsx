@@ -1,5 +1,5 @@
 import { AutomergeUrl, useDocument } from "@automerge/react"
-import cx from "classnames"
+import cx from "clsx"
 import { useEffect, useRef, useState } from "react"
 import { Filter, TodoData } from "./types.js"
 

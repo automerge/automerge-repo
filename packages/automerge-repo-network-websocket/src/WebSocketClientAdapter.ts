@@ -4,7 +4,6 @@ import {
   PeerMetadata,
   cbor,
 } from "@automerge/automerge-repo/slim"
-import WebSocket from "isomorphic-ws"
 
 import debug from "debug"
 
@@ -116,28 +115,15 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
       }, this.retryInterval)
   }
 
-  onMessage = (event: WebSocket.MessageEvent) => {
+  onMessage = (event: MessageEvent) => {
     this.receiveMessage(event.data as Uint8Array)
   }
 
-  /** The websocket error handler signature is different on node and the browser.  */
-  onError = (
-    event:
-      | Event // browser
-      | WebSocket.ErrorEvent // node
-  ) => {
-    if ("error" in event) {
-      // (node)
-      if (event.error.code !== "ECONNREFUSED") {
-        /* c8 ignore next */
-        throw event.error
-      }
-    } else {
-      // (browser) We get no information about errors. https://stackoverflow.com/a/31003057/239663
-      // There will be an error logged in the console (`WebSocket connection to 'wss://foo.com/'
-      // failed`), but by design the error is unavailable to scripts. We'll just assume this is a
-      // failed connection.
-    }
+  /** Native WebSocket error events are intentionally opaque — on both the
+   * browser and Node the error detail is withheld from scripts by design
+   * (https://stackoverflow.com/a/31003057/239663) — so we just log and let
+   * the retry logic reconnect. */
+  onError = () => {
     this.#log("Connection failed, retrying...")
   }
 

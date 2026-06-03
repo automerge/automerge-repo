@@ -192,7 +192,7 @@ export const isValidUuid = (str: unknown): str is LegacyDocumentId =>
  * Returns a new Automerge URL with a random UUID documentId. Called by Repo.create(), and also used by tests.
  */
 export const generateAutomergeUrl = (): AutomergeUrl => {
-  const documentId = Uuid.v4(null, new Uint8Array(16)) as BinaryDocumentId
+  const documentId = Uuid.v4(undefined, new Uint8Array(16)) as BinaryDocumentId
   return stringifyAutomergeUrl({ documentId })
 }
 
