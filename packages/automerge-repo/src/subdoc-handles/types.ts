@@ -179,10 +179,7 @@ type ExactPathValue<
  * nullable (e.g. chaining `.sub()` off an index/pattern handle) or some hop
  * along the path can be absent.
  */
-type PathIsNullable<
-  TDoc,
-  TPath extends readonly any[]
-> = undefined extends TDoc
+type PathIsNullable<TDoc, TPath extends readonly any[]> = undefined extends TDoc
   ? true
   : TPath extends readonly [infer First, ...infer Rest]
   ? HopCanBeAbsent<TDoc, First> extends true
@@ -275,22 +272,20 @@ type StepValueFromString<TObj, TSegment> = NonNullable<TObj> extends infer O
  * keys (`key`), array indices (`@n` → `number`) and cursor ranges, so the
  * absent-able hops are array indices and optional keys.
  */
-type HopCanBeAbsentFromString<
-  TObj,
-  TSegment
-> = NonNullable<TObj> extends infer O
-  ? TSegment extends number
-    ? true
-    : TSegment extends CursorRangeMarker
-    ? false
-    : TSegment extends string
-    ? TSegment extends keyof O
-      ? undefined extends O[TSegment]
-        ? true
+type HopCanBeAbsentFromString<TObj, TSegment> =
+  NonNullable<TObj> extends infer O
+    ? TSegment extends number
+      ? true
+      : TSegment extends CursorRangeMarker
+      ? false
+      : TSegment extends string
+      ? TSegment extends keyof O
+        ? undefined extends O[TSegment]
+          ? true
+          : false
         : false
       : false
     : false
-  : false
 
 /** Leaf value type for a parsed string path, intermediate nullability stripped. */
 type ExactPathValueFromString<

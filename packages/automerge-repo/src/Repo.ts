@@ -275,7 +275,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     networkSubsystem.on("message", message => {
       if (message.type === "ephemeral" && this.#subductionSource) {
         const payload = new Uint8Array(encode(message))
-        void this.#subductionSource.publishEphemeral(message.documentId, payload)
+        void this.#subductionSource.publishEphemeral(
+          message.documentId,
+          payload
+        )
       }
     })
 

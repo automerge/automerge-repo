@@ -1271,16 +1271,15 @@ export class SubductionSource implements DocumentSource {
       for (const hex of staleFragments)
         entry.persistedFragmentHashes.delete(hex)
       this.#log(
-        `compacted ${sid.toString().slice(0, 8)}: -${staleCommits.length} commits, -${staleFragments.length} fragments`
+        `compacted ${sid.toString().slice(0, 8)}: -${
+          staleCommits.length
+        } commits, -${staleFragments.length} fragments`
       )
     } catch (e) {
       // A failed delete just means the data sticks around until the
       // next compaction attempt; nothing breaks on the read side
       // because automerge will simply re-apply the redundant bytes.
-      this.#log(
-        `compaction failed for ${sid.toString().slice(0, 8)}: %O`,
-        e
-      )
+      this.#log(`compaction failed for ${sid.toString().slice(0, 8)}: %O`, e)
     }
   }
 
@@ -1443,5 +1442,4 @@ export class SubductionSource implements DocumentSource {
       this.#log("ephemeral publish failed: %O", e)
     }
   }
-
 }
