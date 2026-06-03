@@ -21,8 +21,8 @@ import type { StorageAdapterInterface } from "@automerge/automerge-repo/slim"
 import { Subduction } from "@automerge/automerge-subduction/slim"
 export { SubductionSource, type OnRemoteHeadsChanged } from "./source.js"
 export type {
-  Policy as SubductionPolicy,
-  Transport as SubductionTransport,
+    Policy as SubductionPolicy,
+    Transport as SubductionTransport,
 } from "@automerge/automerge-subduction/slim"
 export type { OnHealExhausted } from "./SyncScheduler.js"
 
@@ -35,29 +35,28 @@ export { WebSocketTransport } from "./websocket-transport.js"
  * Options for {@link setupSubduction}.
  */
 export interface SetupSubductionOptions {
-  /**
-   * An Ed25519 signer (e.g. `WebCryptoSigner` in the browser, or a `NodeSigner` on the server).
-   * Must implement `sign(message: Uint8Array): Uint8Array` and `verifyingKey(): Uint8Array`.
-   */
-  signer: unknown
-  /** An automerge-repo storage adapter (e.g. `IndexedDBStorageAdapter`, `NodeFSStorageAdapter`). */
-  storageAdapter: StorageAdapterInterface
+    /**
+     * An Ed25519 signer (e.g. `WebCryptoSigner` in the browser, or a `NodeSigner` on the server).
+     * Must implement `sign(message: Uint8Array): Uint8Array` and `verifyingKey(): Uint8Array`.
+     */
+    signer: unknown
+    /** An automerge-repo storage adapter (e.g. `IndexedDBStorageAdapter`, `NodeFSStorageAdapter`). */
+    storageAdapter: StorageAdapterInterface
 }
 
 /**
  * Result of {@link setupSubduction}.
  */
 export interface SetupSubductionResult {
-  /** The hydrated Subduction instance. Pass this to `new Repo({ subduction })`. */
-  subduction: Subduction
-  /** The storage bridge wrapping your adapter. Subduction persists through this. */
-  storage: SubductionStorageBridge
+    /** The Subduction instance. Pass this to `new Repo({ subduction })`. */
+    subduction: Subduction
+    /** The storage bridge wrapping your adapter. Subduction persists through this. */
+    storage: SubductionStorageBridge
 }
 
 /**
  * Convenience helper that initializes the Subduction module references,
- * wraps a storage adapter with {@link SubductionStorageBridge}, and
- * hydrates a {@link Subduction} instance.
+ * and wraps a storage adapter with {@link SubductionStorageBridge}
  *
  * @example
  * ```ts
@@ -75,10 +74,10 @@ export interface SetupSubductionResult {
  * ```
  */
 export async function setupSubduction({
-  signer,
-  storageAdapter,
+    signer,
+    storageAdapter,
 }: SetupSubductionOptions): Promise<SetupSubductionResult> {
-  const storage = new SubductionStorageBridge(storageAdapter)
-  const subduction = await Subduction.hydrate(signer, storage)
-  return { subduction, storage }
+    const storage = new SubductionStorageBridge(storageAdapter)
+    const subduction = new Subduction(signer, storage)
+    return { subduction, storage }
 }

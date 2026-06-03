@@ -47,7 +47,7 @@ interface TestServer {
 async function startSubductionServer(listenPort = 0): Promise<TestServer> {
   const signer = new MemorySigner()
   const storage = new MemoryStorage()
-  const subduction = await Subduction.hydrate(signer, storage)
+  const subduction = new Subduction(signer, storage)
 
   const wss = new WebSocketServer({ port: listenPort })
   await once(wss, "listening")
@@ -210,7 +210,7 @@ describe("Subduction WebSocket sync", () => {
     // Now start the real server on the same port
     const signer = new MemorySigner()
     const memStorage = new MemoryStorage()
-    const subduction = await Subduction.hydrate(signer, memStorage)
+    const subduction = new Subduction(signer, memStorage)
     const serviceName = `localhost:${port}`
 
     const serverWss = new WebSocketServer({ port })

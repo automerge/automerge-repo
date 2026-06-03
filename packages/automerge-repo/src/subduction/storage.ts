@@ -9,7 +9,7 @@
  *
  * const storageAdapter = new IndexedDBStorageAdapter("my-app-db")
  * const storage = new SubductionStorageBridge(storageAdapter)
- * const subduction = await Subduction.hydrate(signer, storage)
+ * const subduction = new Subduction(signer, storage)
  * ```
  */
 

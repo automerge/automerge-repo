@@ -29,7 +29,7 @@ async function startSubductionServer(
 ): Promise<TestServer> {
   const signer = new MemorySigner()
   const storage = new MemoryStorage()
-  const subduction = await Subduction.hydrate(
+  const subduction = new Subduction(
     signer,
     storage,
     undefined, // service_name

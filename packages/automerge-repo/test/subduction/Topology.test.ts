@@ -83,7 +83,7 @@ class TestServer {
       this.#signer = new MemorySigner()
       this.#storage = new MemoryStorage()
     }
-    this.#subduction = await Subduction.hydrate(this.#signer, this.#storage!)
+    this.#subduction = new Subduction(this.#signer, this.#storage!)
     const serviceName = `localhost:${this.#port}`
 
     this.#wss = new WebSocketServer({ port: this.#port })

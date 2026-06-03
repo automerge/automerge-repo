@@ -331,12 +331,13 @@ export class SubductionSource implements DocumentSource {
         }
       : undefined
 
-    if (websocketEndpoints.length > 0 || adapters.length > 0) {
-      // Full hydration: load persisted sedimentrees from storage so
-      // fingerprint-based sync can resume where it left off.
-      this.#log("starting hydrate...")
-      const hydrateStart = performance.now()
-      this.#subduction = Subduction.hydrate(
+    // Construct without hydrating: skip preloading persisted sedimentrees
+    // from storage at startup. State is loaded lazily on demand instead,
+    // which also avoids competing with the service worker's hydration on
+    // the same IndexedDB database.
+    this.#log("constructing subduction (no hydrate)")
+    this.#subduction = Promise.resolve(
+      new Subduction(
         signer,
         storage,
         undefined, // service_name
@@ -346,33 +347,8 @@ export class SubductionSource implements DocumentSource {
         undefined, // ephemeral_policy
         onRemoteHeads,
         onEphemeral
-      ).then(s => {
-        this.#log(
-          `hydrate complete in ${(performance.now() - hydrateStart).toFixed(
-            0
-          )}ms`
-        )
-        return s
-      })
-    } else {
-      // No endpoints — skip hydration to avoid hundreds of IndexedDB
-      // transactions that would compete with the service worker's real
-      // hydration on the same database.
-      this.#log("no endpoints, skipping hydrate")
-      this.#subduction = Promise.resolve(
-        new Subduction(
-          signer,
-          storage,
-          undefined, // service_name
-          undefined, // hash_metric_override
-          undefined, // max_pending_blob_requests
-          policy,
-          undefined, // ephemeral_policy
-          onRemoteHeads,
-          onEphemeral
-        )
       )
-    }
+    )
 
     // ── Connection managers ─────────────────────────────────────────
     const wsConnections = new SubductionConnections(this.#subduction)
