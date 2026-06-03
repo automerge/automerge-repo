@@ -37,7 +37,7 @@ import type {
   PeerId,
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
-export { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
+export type { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
 import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"

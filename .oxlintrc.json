@@ -52,14 +52,22 @@
       }
     ],
     "no-unused-expressions": ["error", { "allowShortCircuit": true }],
+    "typescript/no-floating-promises": "error",
     "no-empty-function": "off",
     "no-param-reassign": "off",
     "typescript/no-non-null-assertion": "off",
     "typescript/no-explicit-any": "off",
-    "react-hooks/exhaustive-deps": "off"
+    "react-hooks/exhaustive-deps": "off",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/await-thenable": "off",
+    "typescript/no-useless-default-assignment": "off",
+    "typescript/no-meaningless-void-operator": "off"
   },
   "settings": {
     "react": { "version": "18" }
+  },
+  "options": {
+    "typeAware": true
   },
   "overrides": [
     {
