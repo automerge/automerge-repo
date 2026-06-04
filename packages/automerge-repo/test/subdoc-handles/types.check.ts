@@ -155,11 +155,10 @@ titleRef2.change(title => {
 import type { InferSubType } from "../../src/subdoc-handles/types.js"
 
 // Compile-time exact-equality assertion (no runtime component).
-type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends <
-  T
->() => T extends Y ? 1 : 2
-  ? true
-  : false
+type Equal<X, Y> =
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
+    ? true
+    : false
 type Expect<T extends true> = T
 
 // ✅ Direct string key access (required key → no undefined)
