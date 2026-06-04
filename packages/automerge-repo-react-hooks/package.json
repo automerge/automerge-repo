@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-react-hooks",
   "version": "2.6.0-subduction.26",
   "description": "Hooks to access an Automerge Repo from your react app.",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-react-hooks",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-react-hooks",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
   "type": "module",
@@ -10,38 +10,28 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "watch": "npm-watch build",
+    "watch": "vite build --watch",
     "visualize": "VISUALIZE=true vite build"
   },
   "dependencies": {
     "@automerge/automerge": "2.2.8 - 3",
     "@automerge/automerge-repo": "workspace:*",
-    "eventemitter3": "^5.0.1",
-    "react-usestateref": "^1.0.8"
+    "eventemitter3": "^5.0.4"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^14.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
     "eslint-plugin-react-hooks": "^5.1.0",
-    "jsdom": "^27.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-error-boundary": "^5.0.0",
-    "rollup-plugin-visualizer": "^5.9.3",
-    "vite": "^6.0.7",
-    "vite-plugin-dts": "^3.9.1"
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-error-boundary": "^6.1.2",
+    "rollup-plugin-visualizer": "^7.0.1",
+    "vite": "^8.0.14",
+    "vite-plugin-dts": "^5.0.1"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0"
-  },
-  "watch": {
-    "build": {
-      "patterns": "./src/**/*",
-      "extensions": [
-        ".ts"
-      ]
-    }
   },
   "publishConfig": {
     "access": "public",

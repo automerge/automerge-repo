@@ -191,7 +191,7 @@ describe("DocHandle", () => {
     const handle = setup()
     handle.change(d => (d.nested = { items: ["a"] }))
     const before = handle.heads()!
-    handle.change(d => (d.nested.items.push("b")))
+    handle.change(d => d.nested.items.push("b"))
 
     // A sub-handle scoped at `nested` reports the change to `items` with a
     // path relative to itself (`["items", 1]`, not `["nested", "items", 1]`).
@@ -284,7 +284,7 @@ describe("DocHandle", () => {
         reject(new Error("shouldn't have changed"))
       })
       handle.update(d => {
-        setTimeout(done, 0)
+        queueMicrotask(done)
         return d
       })
     }))
@@ -344,7 +344,7 @@ describe("DocHandle", () => {
       })
       handle.change(_doc => {
         // do nothing
-        setTimeout(done, 0)
+        queueMicrotask(done)
       })
     }))
 
@@ -599,10 +599,8 @@ describe("DocHandle", () => {
         lastHeads: encodeHeads(["abcd"]),
         lastSyncTimestamp: 12345,
       }
-      const document = new Document<TestDoc>(
-        TEST_ID,
-        A.init<TestDoc>(),
-        sid => (sid === "storage-1" ? sentinel : undefined)
+      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>(), sid =>
+        sid === "storage-1" ? sentinel : undefined
       )
       const handle = new DocHandle<TestDoc>(document, {})
       assert.deepEqual(
@@ -619,10 +617,8 @@ describe("DocHandle", () => {
         lastHeads: encodeHeads(["abcd"]),
         lastSyncTimestamp: 12345,
       }
-      const document = new Document<TestDoc>(
-        TEST_ID,
-        A.init<TestDoc>(),
-        sid => (sid === "storage-1" ? sentinel : undefined)
+      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>(), sid =>
+        sid === "storage-1" ? sentinel : undefined
       )
       const handle = new DocHandle<TestDoc>(document, {})
       handle.update(d => A.change(d, x => (x.foo = "bar")))

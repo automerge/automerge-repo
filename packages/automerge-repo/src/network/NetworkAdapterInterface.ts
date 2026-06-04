@@ -27,8 +27,7 @@ export interface PeerMetadata {
  * custom network adapter. It is most useful as a simple way to add the necessary event
  * emitter functionality
  */
-export interface NetworkAdapterInterface
-  extends EventEmitter<NetworkAdapterEvents> {
+export interface NetworkAdapterInterface extends EventEmitter<NetworkAdapterEvents> {
   peerId?: PeerId
   peerMetadata?: PeerMetadata
 

@@ -1,20 +1,17 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ESNext",
     "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "moduleResolution": "bundler",
+    "declaration": true,
+    "declarationMap": true,
     "emitDeclarationOnly": true,
     "allowImportingTsExtensions": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "isolatedModules": true,
     "isolatedDeclarations": true,
-    "strict": true,
-    "skipLibCheck": true,
     "composite": true,
     "pretty": true,
-    "rootDir": "./src",
     "rewriteRelativeImportExtensions": true,
+    "rootDir": "./src",
     "outDir": "./out"
   },
   "include": ["src"]

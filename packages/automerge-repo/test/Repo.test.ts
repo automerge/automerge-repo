@@ -931,7 +931,7 @@ describe("Repo", () => {
               blockedSaves.add(blockedSave)
             })
           }
-          await pause(0)
+          await Promise.resolve()
           // otherwise all the save promises resolve together
           // which prevents testing flushing a single docID
           return originalSave(...args)
@@ -1119,7 +1119,7 @@ describe("Repo", () => {
       const deliver = (
         to: DummyNetworkAdapter,
         message: Parameters<DummyNetworkAdapter["receive"]>[0]
-      ) => pause(0).then(() => to.receive(message))
+      ) => Promise.resolve().then(() => to.receive(message))
 
       // Model a half-lost first connection. Bob's request reaches Alice, but
       // Alice's response is dropped. This leaves Alice with sync state that
@@ -1151,7 +1151,7 @@ describe("Repo", () => {
         alice.networkSubsystem.whenReady(),
         bob.networkSubsystem.whenReady(),
       ])
-      await pause(0)
+      await Promise.resolve()
 
       const aliceHandle = alice.create<TestDoc>({ foo: "bar" })
       const bobFind = bob.find<TestDoc>(aliceHandle.url)
@@ -1184,7 +1184,7 @@ describe("Repo", () => {
       const deliver = (
         to: DummyNetworkAdapter,
         message: Parameters<DummyNetworkAdapter["receive"]>[0]
-      ) => pause(0).then(() => to.receive(message))
+      ) => Promise.resolve().then(() => to.receive(message))
 
       // Pair 1 is the original connection. Bob can send requests to Alice,
       // but Alice's responses are lost, so Bob's public find() cannot finish
@@ -1223,7 +1223,7 @@ describe("Repo", () => {
         alice.networkSubsystem.whenReady(),
         bob.networkSubsystem.whenReady(),
       ])
-      await pause(0)
+      await Promise.resolve()
 
       const aliceHandle = alice.create<TestDoc>({ foo: "bar" })
       const bobFind = bob.find<TestDoc>(aliceHandle.url)
@@ -1255,7 +1255,7 @@ describe("Repo", () => {
       const deliver = (
         to: DummyNetworkAdapter,
         message: Parameters<DummyNetworkAdapter["receive"]>[0]
-      ) => pause(0).then(() => to.receive(message))
+      ) => Promise.resolve().then(() => to.receive(message))
 
       const aliceToBob1 = new DummyNetworkAdapter({
         startReady: true,
@@ -1289,7 +1289,7 @@ describe("Repo", () => {
         alice.networkSubsystem.whenReady(),
         bob.networkSubsystem.whenReady(),
       ])
-      await pause(0)
+      await Promise.resolve()
 
       aliceToBob1.peerCandidate(bob.peerId)
       bobToAlice1.peerCandidate(alice.peerId)

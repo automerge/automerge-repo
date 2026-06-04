@@ -37,7 +37,7 @@ export function useDocHandle<T>(
   { suspense }: UseDocHandleParams = { suspense: false }
 ): DocHandle<T> | undefined {
   const repo = useRepo()
-  const controllerRef = useRef<AbortController>()
+  const controllerRef = useRef<AbortController | undefined>(undefined)
   const [handle, setHandle] = useState<DocHandle<T> | undefined>()
 
   let currentHandle: DocHandle<T> | undefined =

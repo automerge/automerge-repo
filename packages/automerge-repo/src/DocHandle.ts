@@ -893,11 +893,14 @@ export class DocHandle<T> {
     )
   }
 
-  /** Apply a scoped change to a mutable view: a mutator fn or a value. */
-  #applyScopedChange(
-    doc: A.Doc<any>,
-    fn: SubChangeFn<any> | unknown
-  ): A.Doc<any> {
+  /**
+   * Apply a scoped change to a mutable view: a mutator fn or a value.
+   *
+   * `fn` is typed `unknown` — identical to `SubChangeFn<any> | unknown`, which
+   * collapses to `unknown` (a union with `unknown` is just `unknown`). A
+   * function is treated as the mutator; any other value is a replacement.
+   */
+  #applyScopedChange(doc: A.Doc<any>, fn: unknown): A.Doc<any> {
     const propPath = this.#getPropPath(doc)
     this.#assertResolved(propPath, "change")
     return applyScopedChange(
@@ -1160,7 +1163,7 @@ export type SyncInfo = {
 /** @hidden */
 export type DocHandleOptions<T> =
   | // NEW DOCUMENTS
-  {
+    {
       /** If we know this is a new document (because we're creating it) this should be set to true. */
       isNew: true
 

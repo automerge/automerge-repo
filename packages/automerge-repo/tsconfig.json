@@ -1,4 +1,5 @@
 {
+  "extends": "../../tsconfig.lib.json",
   "compilerOptions": {
     "target": "ESNext",
     "jsx": "react",
@@ -8,11 +9,7 @@
     "declarationMap": true,
     "rootDir": "./src",
     "outDir": "./dist",
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "strictNullChecks": true,
-    "skipLibCheck": true
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist"]

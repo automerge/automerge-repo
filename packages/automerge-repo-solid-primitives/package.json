@@ -7,41 +7,30 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "watch": "npm-watch build",
+    "watch": "vite build --watch",
     "visualize": "VISUALIZE=true vite build"
   },
   "author": "chee <chee@rabbits.computer>",
   "license": "MIT",
   "devDependencies": {
-    "@automerge/automerge": "3.0.0",
+    "@automerge/automerge": "2.2.8 - 3",
     "@automerge/automerge-repo": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
-    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/user-event": "^14.5.2",
-    "rollup-plugin-visualizer": "^5.9.3",
+    "rollup-plugin-visualizer": "^7.0.1",
     "solid-js": "^1.9.11",
-    "vite-plugin-dts": "^3.9.1",
+    "vite-plugin-dts": "^5.0.1",
     "vite-plugin-solid": "^2.11.10"
   },
   "peerDependencies": {
     "@automerge/automerge": "^3.0.0",
     "solid-js": "^1.9.4"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/automerge/automerge-repo.git"
-  },
-  "homepage": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-repo-solid-primitives",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-solid-primitives",
+  "homepage": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-solid-primitives",
   "publishConfig": {
     "access": "public",
     "tag": "subduction"
-  },
-  "watch": {
-    "build": {
-      "patterns": "./src/**/*",
-      "extensions": [
-        ".ts"
-      ]
-    }
   }
 }

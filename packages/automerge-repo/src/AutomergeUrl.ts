@@ -13,13 +13,13 @@ import {
   uint8ArrayFromHexString,
   uint8ArrayToHexString,
 } from "./helpers/bufferFromHex.js"
-import {
-  parsePath,
-  serializePath,
-} from "./subdoc-handles/parser.js"
+import { parsePath, serializePath } from "./subdoc-handles/parser.js"
 import type { Segment } from "./subdoc-handles/types.js"
 
 import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
+import { makeLogger } from "./Logger.js"
+
+const log = makeLogger("automerge-repo:url")
 
 export const urlPrefix = "automerge:"
 
@@ -145,10 +145,10 @@ export const anyDocumentIdToAutomergeUrl = (id: AnyDocumentId) =>
   isValidAutomergeUrl(id)
     ? id
     : isValidDocumentId(id)
-    ? stringifyAutomergeUrl({ documentId: id })
-    : isValidUuid(id)
-    ? parseLegacyUUID(id)
-    : undefined
+      ? stringifyAutomergeUrl({ documentId: id })
+      : isValidUuid(id)
+        ? parseLegacyUUID(id)
+        : undefined
 
 /**
  * Given a string, returns true if it is a valid Automerge URL. This function also acts as a type
@@ -192,7 +192,7 @@ export const isValidUuid = (str: unknown): str is LegacyDocumentId =>
  * Returns a new Automerge URL with a random UUID documentId. Called by Repo.create(), and also used by tests.
  */
 export const generateAutomergeUrl = (): AutomergeUrl => {
-  const documentId = Uuid.v4(null, new Uint8Array(16)) as BinaryDocumentId
+  const documentId = Uuid.v4(undefined, new Uint8Array(16)) as BinaryDocumentId
   return stringifyAutomergeUrl({ documentId })
 }
 
@@ -237,7 +237,7 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 
   // legacy UUID
   if (isValidUuid(id)) {
-    console.warn(
+    log.warn(
       "Future versions will not support UUIDs as document IDs; use Automerge URLs instead."
     )
     const binaryDocumentID = Uuid.parse(id) as BinaryDocumentId

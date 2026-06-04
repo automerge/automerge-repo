@@ -121,8 +121,10 @@ export function createAutomergeStore(repo: Repo) {
       subscribe,
       set,
       update: updater => {
+        // doc() returns `Doc<T> | undefined`; the store value is
+        // `Doc<T> | null`, so bridge undefined -> null (matching onChange above).
         const currentDoc = handle.doc()
-        const newValue = updater(currentDoc)
+        const newValue = updater(currentDoc ?? null)
         set(newValue)
       },
 

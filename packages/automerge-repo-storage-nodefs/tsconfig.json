@@ -1,15 +1,10 @@
 {
+  "extends": "../../tsconfig.lib.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "NodeNext",
-    "moduleResolution": "Node16",
-    "declaration": true,
-    "declarationMap": true,
+    "rootDir": "./src",
     "outDir": "./dist",
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true
+    "types": ["node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist"]
 }

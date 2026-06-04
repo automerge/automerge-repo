@@ -5,7 +5,7 @@ import {
   RemoteSubscriptionControlMessage,
 } from "./network/messages.js"
 import { StorageId } from "./index.js"
-import debug from "debug"
+import { makeLogger } from "./Logger.js"
 import { SyncInfo } from "./DocHandle.js"
 
 // Notify a DocHandle that remote heads have changed
@@ -47,10 +47,10 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   // Documents each peer has open, we need this information so we only send remote heads of documents that the peer knows
   #subscribedDocsByPeer: Map<PeerId, Set<DocumentId>> = new Map()
 
-  #log = debug("automerge-repo:remote-heads-subscriptions")
+  #log = makeLogger("automerge-repo:remote-heads-subscriptions")
 
   subscribeToRemotes(remotes: StorageId[]) {
-    this.#log("subscribeToRemotes", remotes)
+    this.#log.debug("subscribeToRemotes", remotes)
     const remotesToAdd = []
     for (const remote of remotes) {
       if (!this.#ourSubscriptions.has(remote)) {
@@ -68,7 +68,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   }
 
   unsubscribeFromRemotes(remotes: StorageId[]) {
-    this.#log("subscribeToRemotes", remotes)
+    this.#log.debug("subscribeToRemotes", remotes)
     const remotesToRemove = []
 
     for (const remote of remotes) {
@@ -94,7 +94,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     const remotesToRemove: StorageId[] = []
     const addedRemotesWeKnow: StorageId[] = []
 
-    this.#log("handleControlMessage", control)
+    this.#log.debug("handleControlMessage", control)
     if (control.add) {
       for (const remote of control.add) {
         let theirSubs = this.#theirSubscriptions.get(remote)
@@ -168,7 +168,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
 
   /** A peer we are not directly connected to has changed their heads */
   handleRemoteHeads(msg: RemoteHeadsChanged) {
-    this.#log("handleRemoteHeads", msg)
+    this.#log.debug("handleRemoteHeads", msg)
     const changedHeads = this.#changedHeads(msg)
 
     // Emit a remote-heads-changed event to update local dochandles
@@ -221,7 +221,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
     storageId: StorageId,
     heads: UrlHeads
   ) {
-    this.#log("handleLocalHeadsChanged", documentId, storageId, heads)
+    this.#log.debug("handleLocalHeadsChanged", documentId, storageId, heads)
     const remote = this.#syncInfoByDocId.get(documentId)
     const timestamp = Date.now()
     if (!remote) {
@@ -257,7 +257,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   }
 
   addGenerousPeer(peerId: PeerId) {
-    this.#log("addGenerousPeer", peerId)
+    this.#log.debug("addGenerousPeer", peerId)
     this.#generousPeers.add(peerId)
 
     if (this.#ourSubscriptions.size > 0) {
@@ -281,7 +281,7 @@ export class RemoteHeadsSubscriptions extends EventEmitter<RemoteHeadsSubscripti
   }
 
   removePeer(peerId: PeerId) {
-    this.#log("removePeer", peerId)
+    this.#log.debug("removePeer", peerId)
 
     const remotesToRemove = []
 

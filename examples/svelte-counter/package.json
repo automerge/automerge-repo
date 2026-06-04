@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-demo-counter-svelte",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/svelte-counter",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/svelte-counter",
   "private": true,
   "version": "2.6.0-subduction.26",
   "type": "module",
@@ -17,9 +17,9 @@
     "svelte": "^5.0.0"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^4.0.0-next.6",
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tsconfig/svelte": "^5.0.2",
     "svelte-check": "^3.6.8",
-    "vite": "^5.2.0"
+    "vite": "^8.0.14"
   }
 }

@@ -49,7 +49,6 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { rimraf } from "rimraf"
 
 const IS_POSIX = os.platform() !== "win32"
 
@@ -352,7 +351,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
     // remove from disk
     const dirPath = this.getFilePath(keyPrefix)
-    await rimraf(dirPath)
+    await fs.promises.rm(dirPath, { recursive: true, force: true })
   }
 
   private cachedKeys(keyPrefix: string[]): string[] {

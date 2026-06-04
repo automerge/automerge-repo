@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import debug from "debug"
+import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { StorageId } from "./storage/types.js"
@@ -17,7 +17,7 @@ import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 export class Document<T = unknown> {
   readonly documentId: DocumentId
   readonly registry: HandleRegistry
-  readonly log: debug.Debugger
+  readonly log: Logger
 
   /** Current snapshot. Replaced (not mutated) by {@link applyMutation}. */
   doc: A.Doc<T>
@@ -45,7 +45,7 @@ export class Document<T = unknown> {
     this.doc = initialDoc
     this.syncInfoLookup = syncInfoLookup
     this.registry = new HandleRegistry(this)
-    this.log = debug(`automerge-repo:doc:${documentId.slice(0, 5)}`)
+    this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
   }
 
   /**
