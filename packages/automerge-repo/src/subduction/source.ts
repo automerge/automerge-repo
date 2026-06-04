@@ -738,7 +738,11 @@ export class SubductionSource implements DocumentSource {
       // If new data was received, immediately load it into the handle.
       // This makes sync reactive — the handle updates as soon as data
       // arrives, without waiting for further state transitions.
-      if (dataReceived) {
+      //
+      // During "initializing", `#loadBlobsAndTransition` performs one
+      // atomic getBlobs + loadIncremental after sync succeeds; loading
+      // here too would duplicate storage reads on first open.
+      if (dataReceived && entry.syncState === "running") {
         await this.#loadBlobsIntoHandle(entry, subduction)
       }
 
