@@ -97,7 +97,7 @@ export type AnyPathInput = PathInput | Segment
  *
  * @experimental This API is experimental and may change in future versions.
  */
-// eslint-disable-next-line @typescript-eslint/ban-types
+// oxlint-disable-next-line typescript/no-wrapper-object-types
 export interface MutableText extends String {
   /** Splice text at a position - uses Automerge.splice for CRDT-safe mutation */
   splice(index: number, deleteCount: number, insert?: string): void
