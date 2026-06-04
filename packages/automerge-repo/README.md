@@ -103,6 +103,36 @@ You can override this by providing a custom share policy. The function should re
 
 The share policy will not stop a document being _requested_ by another peer by its `DocumentId`.
 
+## Logging
+
+`automerge-repo` routes all of its output (trace, info, warnings, errors) through a single `Logger` interface. The default writes `.debug` through the [`debug`](https://www.npmjs.com/package/debug) package and the other levels through `console`, prefixed with the subsystem namespace (e.g. `[automerge-repo:repo]`).
+
+Trace output is silent unless you opt in:
+
+```bash
+DEBUG=automerge-repo:* node ./your-app.js
+```
+
+To route output through your own logger (winston, pino, bunyan, etc.), call `setLoggerFactory` once at startup:
+
+```ts
+import { setLoggerFactory } from "@automerge/automerge-repo"
+import winston from "winston"
+
+const logger = winston.createLogger({
+  /* ... */
+})
+
+setLoggerFactory(namespace => ({
+  debug: (msg, ...args) => logger.debug(msg, { namespace, args }),
+  info: (msg, ...args) => logger.info(msg, { namespace, args }),
+  warn: (msg, ...args) => logger.warn(msg, { namespace, args }),
+  error: (msg, ...args) => logger.error(msg, { namespace, args }),
+}))
+```
+
+The factory is called once per subsystem instance with a namespace such as `automerge-repo:repo`, `automerge-repo:docsync:abc12`, or `automerge-repo:storage-subsystem`.
+
 ## Starting the demo app
 
 ```bash

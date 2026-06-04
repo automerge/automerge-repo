@@ -38,7 +38,7 @@ type UseDocumentParams =
 
 export type UseDocumentReturn<T> = [
   Doc<T>,
-  (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void
+  (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void,
 ]
 
 export function useDocument<T>(

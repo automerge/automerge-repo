@@ -272,7 +272,7 @@ export class HandleRegistry {
       try {
         ;(fn as any)(payload)
       } catch (e) {
-        this.document.log("error in handle listener: %o", e)
+        this.document.log.error("error in handle listener: %o", e)
       }
     }
     return true

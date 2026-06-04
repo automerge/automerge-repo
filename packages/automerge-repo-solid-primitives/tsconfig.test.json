@@ -1,20 +1,12 @@
 {
+  "extends": "../../tsconfig.app.json",
   "compilerOptions": {
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
     "types": ["@testing-library/jest-dom"],
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
     "declaration": true,
     "declarationMap": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "composite": true,
-    "noEmit": true
+    "composite": true
   },
   "include": ["test/**/*.tsx", "src/**/*.ts"]
 }

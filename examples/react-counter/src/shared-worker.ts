@@ -18,9 +18,8 @@ const repoPromise = (async () => {
   // @ts-ignore — initSync is not in the type declarations but is exported at runtime
   const { initSync } = await import("@automerge/automerge-subduction/slim")
   // @ts-ignore — wasm-base64 has no type declarations
-  const { wasmBase64 } = await import(
-    "@automerge/automerge-subduction/wasm-base64"
-  )
+  const { wasmBase64 } =
+    await import("@automerge/automerge-subduction/wasm-base64")
   initSync({
     module: Uint8Array.from(atob(wasmBase64), (c: string) => c.charCodeAt(0)),
   })

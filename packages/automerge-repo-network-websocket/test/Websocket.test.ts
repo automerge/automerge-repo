@@ -18,8 +18,8 @@ import * as CBOR from "cbor-x"
 import { once } from "events"
 import http from "http"
 import { getPortPromise as getAvailablePort } from "portfinder"
-import { describe, it } from "vitest"
-import WebSocket from "ws"
+import { afterEach, describe, it, vi } from "vitest"
+import WebSocket, { WebSocketServer } from "ws"
 import { WebSocketClientAdapter } from "../src/WebSocketClientAdapter.js"
 import { WebSocketServerAdapter } from "../src/WebSocketServerAdapter.js"
 import { encodeHeads } from "../../automerge-repo/dist/AutomergeUrl.js"
@@ -91,25 +91,36 @@ describe("Websocket adapters", () => {
     })
 
     it("should connect even when server is not initially available", async () => {
-      const port = await getPort() //?
-      const retryInterval = 100
+      // Fake only setInterval so the adapter's retry tick is under our
+      // control. Leave setTimeout real because the underlying `ws` library
+      // and Node's net stack rely on it for connection lifecycle.
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+      try {
+        const port = await getPort()
+        const retryInterval = 100
 
-      const browserAdapter = await setupClient({ port, retryInterval })
+        const browserAdapter = await setupClient({ port, retryInterval })
+        const _browserRepo = new Repo({
+          network: [browserAdapter],
+          peerId: browserPeerId,
+        })
 
-      const _browserRepo = new Repo({
-        network: [browserAdapter],
-        peerId: browserPeerId,
-      })
+        // Bring up the server, then fire one retry tick to drive the
+        // adapter's reconnect. Without fake timers the adapter would wait
+        // a full retryInterval of wall-clock time per attempt; here we
+        // skip straight to the next tick.
+        const { serverAdapter } = await setupServer({ port, retryInterval })
+        const _serverRepo = new Repo({
+          network: [serverAdapter],
+          peerId: serverPeerId,
+        })
 
-      await pause(500)
-
-      const { serverAdapter } = await setupServer({ port, retryInterval })
-      const serverRepo = new Repo({
-        network: [serverAdapter],
-        peerId: serverPeerId,
-      })
-
-      await eventPromise(browserAdapter, "peer-candidate")
+        const peerCandidate = eventPromise(browserAdapter, "peer-candidate")
+        await vi.advanceTimersByTimeAsync(retryInterval)
+        await peerCandidate
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it("should reconnect after being disconnected", async () => {
@@ -194,7 +205,7 @@ describe("Websocket adapters", () => {
       })
 
       const server = http.createServer()
-      const serverSocket = new WebSocket.Server({ server })
+      const serverSocket = new WebSocketServer({ server })
 
       await new Promise<void>(resolve => server.listen(port, resolve))
       const serverAdapter = new WebSocketServerAdapter(serverSocket, retry)
@@ -256,7 +267,7 @@ describe("Websocket adapters", () => {
       const port = await getPort()
       const serverUrl = `ws://localhost:${port}`
       const server = http.createServer()
-      const serverSocket = new WebSocket.Server({ server })
+      const serverSocket = new WebSocketServer({ server })
 
       // This listener will be added in addition to the listener which the server adds
       // so we know that at some point we will send garbage. Because we only send the
@@ -396,28 +407,33 @@ describe("Websocket adapters", () => {
       const serverUrl = `ws://localhost:${port}`
 
       const retry = 100
-      const browserAdapter = new WebSocketClientAdapter(serverUrl, retry)
-
       const server = http.createServer()
-      const serverSocket = new WebSocket.Server({ server })
+      const serverSocket = new WebSocketServer({ server })
 
       await new Promise<void>(resolve => server.listen(port, resolve))
       const serverAdapter = new WebSocketServerAdapter(serverSocket, retry)
-
-      const _browserRepo = new Repo({
-        network: [browserAdapter],
-        peerId: browserPeerId,
-      })
 
       const serverRepo = new Repo({
         network: [serverAdapter],
         peerId: serverPeerId,
       })
 
+      // The WebSocketClientAdapter now uses the platform-native WebSocket, which
+      // auto-replies to pings with no script-level way to suppress it, so drive
+      // the server's keep-alive with a raw `ws` client we *can* silence.
+      const clientSocket = new WebSocket(serverUrl)
+      await once(clientSocket, "open")
+      clientSocket.send(
+        CBOR.encode({
+          type: "join",
+          senderId: "client",
+          supportedProtocolVersions: ["1"],
+        })
+      )
       await eventPromise(serverAdapter, "peer-candidate")
 
-      // Simulate the client not responding to pings
-      browserAdapter.socket!.pong = () => {}
+      // Simulate the client not responding to pings.
+      clientSocket.pong = () => {}
 
       await eventPromise(serverAdapter, "peer-disconnected")
     })
@@ -427,7 +443,7 @@ describe("Websocket adapters", () => {
       const port = await getPort()
       const serverUrl = `ws://localhost:${port}`
       const server = http.createServer()
-      const serverSocket = new WebSocket.Server({ server })
+      const serverSocket = new WebSocketServer({ server })
       await new Promise<void>(resolve => server.listen(port, resolve))
 
       // Create a repo listening on the socket
@@ -649,7 +665,7 @@ describe("Websocket adapters", () => {
         const handle = silentRepo.create()
         handle.update(() => A.clone(doc))
         const { documentId } = parseAutomergeUrl(handle.url)
-        await pause(150)
+        await silentRepo.flush([documentId])
         return {
           url: handle.url,
           doc,
@@ -826,9 +842,8 @@ const setup = async (options: SetupOptions = {}) => {
     port = await getPort(),
   } = options
 
-  const { server, serverAdapter, serverSocket, serverUrl } = await setupServer(
-    options
-  )
+  const { server, serverAdapter, serverSocket, serverUrl } =
+    await setupServer(options)
   const clients = await Promise.all(
     Array.from({ length: clientCount }).map(() =>
       setupClient({ retryInterval, port })
@@ -845,7 +860,7 @@ const setupServer = async (options: SetupOptions = {}) => {
   } = options
   const serverUrl = `ws://localhost:${port}`
   const server = http.createServer()
-  const serverSocket = new WebSocket.Server({ server })
+  const serverSocket = new WebSocketServer({ server })
   await new Promise<void>(resolve => server.listen(port, resolve))
   const serverAdapter = new WebSocketServerAdapter(serverSocket, retryInterval)
   return { server, serverAdapter, serverSocket, serverUrl }

@@ -353,7 +353,7 @@ export class SubductionSource implements DocumentSource {
     // ── Connection managers ─────────────────────────────────────────
     const wsConnections = new SubductionConnections(this.#subduction)
     for (const url of websocketEndpoints) {
-      wsConnections.manageConnection(url)
+      void wsConnections.manageConnection(url)
     }
     this.#connectionManagers.push(wsConnections)
 
@@ -626,7 +626,7 @@ export class SubductionSource implements DocumentSource {
     this.#recompute()
   }
 
-  detach(documentId: DocumentId): void {}
+  detach(_documentId: DocumentId): void {}
 
   shareConfigChanged(): void {
     for (const entry of this.#entries.values()) {
@@ -670,7 +670,7 @@ export class SubductionSource implements DocumentSource {
             entry.syncInFlight = true
             void this.#doSync(entry)
           } else if (
-            entry.handle.heads().length === 0 &&
+            Automerge.getHeads(entry.handle.fullDoc()).length === 0 &&
             !this.#anyConnectionManagerConnecting()
           ) {
             // All connections settled and sync failed — give up.
@@ -796,7 +796,9 @@ export class SubductionSource implements DocumentSource {
     this.#log(
       `loadBlobsIntoHandle ${sid}: ${
         allBlobs?.length ?? 0
-      } blob(s), ${totalBytes} bytes, heads=${entry.handle.heads().length}`
+      } blob(s), ${totalBytes} bytes, heads=${
+        Automerge.getHeads(entry.handle.fullDoc()).length
+      }`
     )
     if (!allBlobs || allBlobs.length === 0) return false
     allBlobs.sort((a, b) => b.byteLength - a.byteLength)
@@ -837,7 +839,7 @@ export class SubductionSource implements DocumentSource {
 
       entry.syncState = "running"
 
-      if (entry.handle.heads().length === 0) {
+      if (Automerge.getHeads(entry.handle.fullDoc()).length === 0) {
         if (!this.#anyConnectionManagerConnecting()) {
           // No data after a successful sync and no pending connections —
           // the document is genuinely unavailable. If data arrives later
@@ -903,7 +905,7 @@ export class SubductionSource implements DocumentSource {
     })
 
     try {
-      const doc = entry.handle.doc()
+      const doc = entry.handle.fullDoc()
       if (!doc) return
 
       const currentHeads = Automerge.getHeads(doc)

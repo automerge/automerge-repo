@@ -33,7 +33,7 @@ import { PeerPresenceInfo } from "./PeerPresenceInfo.js"
  */
 export class Presence<
   State extends PresenceState,
-  DocType = any
+  DocType = any,
 > extends EventEmitter<PresenceEvents> {
   #handle: DocHandle<DocType>
   readonly deviceId?: DeviceId

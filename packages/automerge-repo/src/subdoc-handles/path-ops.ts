@@ -141,7 +141,8 @@ export function applyScopedChange(
   propPath: Prop[] | undefined,
   range: CursorRange | undefined,
   rangePositions: () => [number, number] | undefined,
-  fn: A.ChangeFn<any> | unknown
+  // identical to `A.ChangeFn<any> | unknown`, which collapses to `unknown`
+  fn: unknown
 ): A.Doc<any> {
   // A function is a mutator; anything else is a replacement value.
   const isReplacement = typeof fn !== "function"

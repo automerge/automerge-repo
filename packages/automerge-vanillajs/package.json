@@ -2,7 +2,7 @@
   "name": "@automerge/vanillajs",
   "version": "2.6.0-subduction.26",
   "description": "A quick-import vanilla JS package for Automerge Repo",
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/packages/automerge-vanillajs",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-vanillajs",
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
   "type": "module",
@@ -10,9 +10,9 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "watch": "npm-watch build",
+    "watch": "tsc --watch",
     "test": "vitest",
-    "test:watch": "npm-watch test"
+    "test:watch": "vitest --watch"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
@@ -22,30 +22,12 @@
     "@automerge/automerge-repo-storage-indexeddb": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "vitest": "^3.2.4"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   },
   "exports": {
     ".": "./dist/index.js",
     "./slim": "./dist/slim.js"
-  },
-  "watch": {
-    "build": {
-      "patterns": "./src/**/*",
-      "extensions": [
-        ".ts"
-      ]
-    },
-    "test": {
-      "quiet": true,
-      "patterns": [
-        "./src/**/*",
-        "./test/**/*"
-      ],
-      "extensions": [
-        ".ts"
-      ]
-    }
   },
   "publishConfig": {
     "access": "public",

@@ -3,7 +3,7 @@ import {
   DocHandleEphemeralMessagePayload,
 } from "@automerge/automerge-repo/slim"
 import { useEffect } from "react"
-import useStateRef from "react-usestateref"
+import useStateRef from "./useStateRef.js"
 import { EventEmitter } from "eventemitter3"
 
 // Emits new_peer event when a new peer is seen

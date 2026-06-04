@@ -221,14 +221,14 @@ describe("DocSynchronizer", () => {
     // Add bob — alice sends an initial request (both have no data)
     aliceDocSynchronizer.addPeer(bob, Promise.resolve(undefined))
     // Wait for peer activation (Promise.all needs 2+ microtask ticks)
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
 
     // Receive bob's message — alice now knows bob wants the doc
     aliceDocSynchronizer.receiveMessage({ ...bobMsg, senderId: bob })
 
     // Add charlie (unknown peer) — should get a request
     aliceDocSynchronizer.addPeer(charlie, Promise.resolve(undefined))
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
 
     const charlieMessage = messages.find(m => m.targetId === charlie)
     const bobMessages = messages.filter(m => m.targetId === bob)
@@ -288,8 +288,8 @@ describe("DocSynchronizer", () => {
     docSynchronizer.addPeer(alice, Promise.resolve(undefined))
 
     // Wait for the second activation to complete.
-    await new Promise(r => setTimeout(r, 0))
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
+    await new Promise(setImmediate)
 
     // Capture sync-state events before resolving the stale promise.
     const syncStatesBefore: any[] = []
@@ -298,7 +298,7 @@ describe("DocSynchronizer", () => {
     // Resolve the first activation. Should be silently discarded — no
     // sync-state event for the stale activation.
     resolveFirst(undefined)
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
 
     assert.equal(
       syncStatesBefore.length,
@@ -356,12 +356,12 @@ describe("DocSynchronizer", () => {
     aliceSync.addPeer(bob, Promise.resolve(undefined))
     aliceSync.addPeer(charlie, Promise.resolve(undefined))
     aliceSync.addPeer("drew" as PeerId, Promise.resolve(undefined))
-    await new Promise(r => setTimeout(r, 0))
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
+    await new Promise(setImmediate)
 
     aliceSync.receiveMessage({ ...bobMsg, senderId: bob })
     aliceSync.receiveMessage({ ...drewReq, senderId: "drew" as PeerId })
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
 
     // At this point alice has heard from bob (a supplier) but hasn't received
     // bob's data yet, and hasn't heard from charlie. She must NOT have told
@@ -377,7 +377,7 @@ describe("DocSynchronizer", () => {
 
     // Now charlie advertises too — still no unavailable.
     aliceSync.receiveMessage({ ...charlieMsg, senderId: charlie })
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
     const stillEarly = aliceMessages.find(
       m => m.type === "doc-unavailable" && m.targetId === "drew"
     )
@@ -419,8 +419,8 @@ describe("DocSynchronizer", () => {
     docSync.addPeer(bob, Promise.resolve(undefined), {
       messages: [{ ...syncMsg, senderId: bob } as any],
     })
-    await new Promise(r => setTimeout(r, 0))
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
+    await new Promise(setImmediate)
 
     const unavailable = messages.find(
       m => m.type === "doc-unavailable" && m.targetId === bob
@@ -462,8 +462,8 @@ describe("DocSynchronizer", () => {
     docSync.addPeer(bob, Promise.resolve(undefined), {
       messages: [{ ...bobMsg, senderId: bob } as any],
     })
-    await new Promise(r => setTimeout(r, 0))
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
+    await new Promise(setImmediate)
     assert.ok(
       messages.find(m => m.type === "doc-unavailable" && m.targetId === bob),
       "should have sent doc-unavailable while denied"
@@ -472,8 +472,8 @@ describe("DocSynchronizer", () => {
     // Flip access on, then re-evaluate. Bob should be re-engaged with sync.
     allowAccess = true
     docSync.reevaluateSharePolicy()
-    await new Promise(r => setTimeout(r, 0))
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
+    await new Promise(setImmediate)
 
     const syncToBob = messages.find(
       m => m.type === "sync" && m.targetId === bob
@@ -489,7 +489,7 @@ describe("DocSynchronizer", () => {
 
     docSync.addPeer(alice, Promise.resolve(undefined))
     docSync.addPeer(bob, Promise.resolve(undefined))
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
 
     const received: any[] = []
     handle.on("ephemeral-message", payload => received.push(payload))
@@ -510,7 +510,7 @@ describe("DocSynchronizer", () => {
     docSync.receiveMessage({ ...ephemeral, senderId: alice })
     // Second arrival from bob (same charlie ephemeral, mesh duplicate)
     docSync.receiveMessage({ ...ephemeral, senderId: alice })
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
 
     assert.equal(received.length, 1, "should only emit ephemeral-message once")
   })
@@ -549,11 +549,11 @@ describe("DocSynchronizer", () => {
     // DocSynchronizer sends doc-unavailable to bob.
     docSync.addPeer(bob, Promise.resolve(undefined))
     // Wait for peer activation (Promise.all needs 2+ microtask ticks)
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
     docSync.receiveMessage({ ...reqMsg, senderId: bob })
 
     // Wait for #evaluate to process the message and send doc-unavailable
-    await new Promise(r => setTimeout(r, 0))
+    await new Promise(setImmediate)
 
     const unavailableMsg = messages.find(m => m.type === "doc-unavailable")
     assert.ok(unavailableMsg, "should have sent doc-unavailable")

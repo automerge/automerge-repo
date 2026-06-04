@@ -2,3 +2,19 @@ packages:
   - packages/**
   - examples/**
   - "!packages/create-vite-app/template/**"
+allowBuilds:
+  "@swc/core": true
+  cbor-extract: true
+  esbuild: true
+  nx: true
+  svelte-preprocess: true
+overrides:
+  semver: ^7.5.2
+  # tmp is only pulled transitively (lerna > nx); pin the patched line (older
+  # versions have a path-traversal flaw)
+  tmp: ^0.2.6
+  "@automerge/automerge": 3.3.0-fragments.1
+# Supply-chain guard: wait 3 days (4320 minutes) after a version is published before
+# installing it, so a malicious or compromised release has time to be detected and
+# unpublished from the registry before it can land in our dependency tree.
+minimumReleaseAge: 4320

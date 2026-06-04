@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import debug from "debug"
+import { makeLogger } from "../Logger.js"
 import { EventEmitter } from "eventemitter3"
 import { DocHandle } from "../DocHandle.js"
 import { parseAutomergeUrl } from "../AutomergeUrl.js"
@@ -14,8 +14,6 @@ import type { ShareConfig } from "./DocSynchronizer.js"
 import type { DocumentSource } from "../DocumentSource.js"
 import type { DocumentQuery, SourcePriority } from "../DocumentQuery.js"
 import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
-
-const log = debug("automerge-repo:collectionsync")
 
 export interface AutomergeSyncConfig {
   peerId: PeerId
@@ -74,6 +72,7 @@ export class CollectionSynchronizer
   #denylist: DocumentId[]
   #config: AutomergeSyncConfig
   #networkReady: Promise<void>
+  #log = makeLogger("automerge-repo:collectionsync")
 
   constructor(config: AutomergeSyncConfig, denylist: AutomergeUrl[] = []) {
     super()
@@ -109,7 +108,7 @@ export class CollectionSynchronizer
 
   /** {@link DocumentSource.detach} — removes a document and stops syncing. */
   detach(documentId: DocumentId): void {
-    log(`removing document ${documentId}`)
+    this.#log.debug(`removing document ${documentId}`)
     const docSync = this.#docSynchronizers[documentId]
     if (docSync) {
       for (const peerId of this.peers) {
@@ -122,7 +121,7 @@ export class CollectionSynchronizer
   // PEER MANAGEMENT
 
   addPeer(peerId: PeerId): void {
-    log(`adding ${peerId} & synchronizing with them`)
+    this.#log.debug(`adding ${peerId} & synchronizing with them`)
     this.#peers.add(peerId)
     for (const docSync of Object.values(this.#docSynchronizers)) {
       this.#addPeerToDoc(peerId, docSync, [])
@@ -130,7 +129,7 @@ export class CollectionSynchronizer
   }
 
   removePeer(peerId: PeerId): void {
-    log(`removing peer ${peerId}`)
+    this.#log.debug(`removing peer ${peerId}`)
     this.#peers.delete(peerId)
     for (const docSync of Object.values(this.#docSynchronizers)) {
       docSync.removePeer(peerId)
@@ -144,7 +143,7 @@ export class CollectionSynchronizer
   // MESSAGE HANDLING
 
   receiveMessage(message: DocMessage): void {
-    log(
+    this.#log.debug(
       `onSyncMessage: ${message.senderId}, ${message.documentId}, ${
         "data" in message ? message.data.byteLength + "bytes" : ""
       }`

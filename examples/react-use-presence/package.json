@@ -2,7 +2,7 @@
   "name": "automerge-use-awareness-example-project",
   "version": "2.6.0-subduction.26",
   "private": true,
-  "repository": "https://github.com/automerge/automerge-repo/tree/master/examples/react-use-presence",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-use-presence",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,11 +10,10 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
-    "eventemitter3": "^5.0.1",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "react-usestateref": "^1.0.8",
-    "uuid": "^9.0.0"
+    "eventemitter3": "^5.0.4",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react-swc": "^3.2.0"

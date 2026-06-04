@@ -399,18 +399,17 @@ describe("useDocuments", () => {
       render(<Wrapped />, { wrapper })
 
       // Make a change while document is loading
-      handleA.change(doc => (doc.counter = 1))
-
-      // Wait for load
       await act(async () => {
-        await Promise.resolve()
+        handleA.change(doc => (doc.counter = 1))
       })
 
       // Should have latest state
-      const [docs] = onState.mock.lastCall || []
-      expect(docs.get(handleA.url)).toEqual({
-        foo: "A",
-        counter: 1,
+      await waitFor(() => {
+        const [docs] = onState.mock.lastCall || []
+        expect(docs.get(handleA.url)).toEqual({
+          foo: "A",
+          counter: 1,
+        })
       })
     })
 

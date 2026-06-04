@@ -1,15 +1,15 @@
-import type { Cursor } from "@automerge/automerge/slim"
+import type { Cursor } from "@automerge/automerge/slim";
 
 /**
  * Symbol used as discriminator for segments to avoid collision with user data.
  * Users might have objects with a 'kind' property in id patterns.
  */
-export const KIND = "AUTOMERGE_REF_KIND"
+export const KIND = "AUTOMERGE_REF_KIND";
 
 /**
  * Symbol to mark a cursor request for stabilization during sub-handle creation.
  */
-export const CURSOR_MARKER = "AUTOMERGE_REF_CURSOR_MARKER"
+export const CURSOR_MARKER = "AUTOMERGE_REF_CURSOR_MARKER";
 
 /**
  * Pattern used to match objects in arrays by their properties.
@@ -17,16 +17,16 @@ export const CURSOR_MARKER = "AUTOMERGE_REF_CURSOR_MARKER"
  *
  * @experimental This API is experimental and may change in future versions.
  */
-export type Pattern = Record<string, string | number | boolean | null>
+export type Pattern = Record<string, string | number | boolean | null>;
 
 /**
  * Marker type for cursor-based range that will be stabilized.
  * Created via cursor() function and only valid as the last path argument.
  */
 export interface CursorMarker {
-  [CURSOR_MARKER]: true
-  start: number
-  end: number
+  [CURSOR_MARKER]: true;
+  start: number;
+  end: number;
 }
 
 /**
@@ -44,7 +44,7 @@ export interface CursorMarker {
 export type PathSegment =
   | { [KIND]: "key"; key: string }
   | { [KIND]: "index"; index: number }
-  | { [KIND]: "match"; match: Pattern }
+  | { [KIND]: "match"; match: Pattern };
 
 /**
  * Snapshot form of a {@link PathSegment} returned from {@link DocHandle.path}.
@@ -56,22 +56,22 @@ export type PathSegment =
 export type ResolvedPathSegment =
   | { [KIND]: "key"; key: string; prop: string }
   | { [KIND]: "index"; index: number; prop: number }
-  | { [KIND]: "match"; match: Pattern; prop: number | undefined }
+  | { [KIND]: "match"; match: Pattern; prop: number | undefined };
 
 /** Cursor range segment (always terminal) */
-export type CursorRange = { [KIND]: "cursors"; start: Cursor; end: Cursor }
+export type CursorRange = { [KIND]: "cursors"; start: Cursor; end: Cursor };
 
 /** All segment types */
-export type Segment = PathSegment | CursorRange
+export type Segment = PathSegment | CursorRange;
 
 /** A codec handles parsing and serialization for one segment type. */
 export interface SegmentCodec<K extends Segment[typeof KIND]> {
-  kind: K
+  kind: K;
   /** Does this string match this codec's format? */
-  match(s: string): boolean
+  match(s: string): boolean;
   /** Parse string to segment (assumes match() returned true) */
-  parse(s: string): Extract<Segment, { [KIND]: K }>
-  serialize(seg: Extract<Segment, { [KIND]: K }>): string
+  parse(s: string): Extract<Segment, { [KIND]: K }>;
+  serialize(seg: Extract<Segment, { [KIND]: K }>): string;
 }
 
 /**
@@ -79,10 +79,10 @@ export interface SegmentCodec<K extends Segment[typeof KIND]> {
  *
  * @experimental This API is experimental and may change in future versions.
  */
-export type PathInput = string | number | Pattern | CursorMarker
+export type PathInput = string | number | Pattern | CursorMarker;
 
 /** Internal: PathInput extended with Segment for URL parsing and internal use */
-export type AnyPathInput = PathInput | Segment
+export type AnyPathInput = PathInput | Segment;
 
 /**
  * Mutable text editor passed to a `change` callback when the sub-handle points
@@ -97,12 +97,12 @@ export type AnyPathInput = PathInput | Segment
  *
  * @experimental This API is experimental and may change in future versions.
  */
-// eslint-disable-next-line @typescript-eslint/ban-types
+// oxlint-disable-next-line typescript/no-wrapper-object-types
 export interface MutableText extends String {
   /** Splice text at a position - uses Automerge.splice for CRDT-safe mutation */
-  splice(index: number, deleteCount: number, insert?: string): void
+  splice(index: number, deleteCount: number, insert?: string): void;
   /** Replace entire text content - uses Automerge.updateText for CRDT-safe mutation */
-  updateText(newValue: string): void
+  updateText(newValue: string): void;
 }
 
 /**
@@ -118,7 +118,7 @@ export interface MutableText extends String {
  */
 export type SubChangeFn<T> = (
   val: NonNullable<T> extends string ? MutableText : NonNullable<T>
-) => T | void
+) => T | void;
 
 /**
  * Step one segment into `TObj`, stripping nullability on the *parent*
@@ -141,7 +141,7 @@ type StepValue<TObj, TSegment> = NonNullable<TObj> extends infer O
       ? O[TSegment]
       : unknown
     : unknown
-  : unknown
+  : unknown;
 
 /**
  * Whether stepping `TObj` via `TSegment` can resolve to "absent":
@@ -162,7 +162,7 @@ type HopCanBeAbsent<TObj, TSegment> = NonNullable<TObj> extends infer O
         : false
       : false
     : false
-  : false
+  : false;
 
 /** Leaf value type, traversing with intermediate nullability stripped. */
 type ExactPathValue<
@@ -172,7 +172,7 @@ type ExactPathValue<
   ? TDoc
   : TPath extends readonly [infer First, ...infer Rest]
   ? ExactPathValue<StepValue<TDoc, First>, Rest>
-  : unknown
+  : unknown;
 
 /**
  * Whether the resolved value can be `undefined`: either the base is itself
@@ -185,7 +185,7 @@ type PathIsNullable<TDoc, TPath extends readonly any[]> = undefined extends TDoc
   ? HopCanBeAbsent<TDoc, First> extends true
     ? true
     : PathIsNullable<StepValue<TDoc, First>, Rest>
-  : false
+  : false;
 
 /**
  * Recursively infer the value type at `TPath`. `undefined` is introduced
@@ -198,12 +198,12 @@ export type PathValue<TDoc, TPath extends readonly any[]> = PathIsNullable<
   TPath
 > extends true
   ? ExactPathValue<TDoc, TPath> | undefined
-  : ExactPathValue<TDoc, TPath>
+  : ExactPathValue<TDoc, TPath>;
 
 export type InferSubType<TDoc, TPath extends readonly any[]> = PathValue<
   TDoc,
   TPath
->
+>;
 
 // Utility Types for string and path parsing
 
@@ -215,20 +215,20 @@ type Split<
   ? [Head, ...Split<Tail, D>]
   : S extends ""
   ? []
-  : [S]
+  : [S];
 
 /** Check if a string represents an index (@0, @42) */
 type IsIndex<S extends string> = S extends `@${infer N}`
   ? N extends `${number}`
     ? true
     : false
-  : false
+  : false;
 
 /** Check if a string represents a cursor range ([cursor] or [start-end]) */
-type IsCursorRange<S extends string> = S extends `[${string}]` ? true : false
+type IsCursorRange<S extends string> = S extends `[${string}]` ? true : false;
 
 /** Marker type for cursor range segments parsed from strings */
-type CursorRangeMarker = { __cursorRange: true }
+type CursorRangeMarker = { __cursorRange: true };
 
 /**
  * Parse a string segment into its semantic type for inference:
@@ -240,7 +240,7 @@ type ParseSegment<S extends string> = IsCursorRange<S> extends true
   ? CursorRangeMarker
   : IsIndex<S> extends true
   ? number
-  : S
+  : S;
 
 /** Convert a path string into a tuple of parsed segment types */
 export type SegmentsFromString<P extends string> =
@@ -248,7 +248,7 @@ export type SegmentsFromString<P extends string> =
     ? Segments extends readonly string[]
       ? { [K in keyof Segments]: ParseSegment<Segments[K] & string> }
       : never
-    : never
+    : never;
 
 /** Step one parsed string segment into `TObj` (parent nullability stripped). */
 type StepValueFromString<TObj, TSegment> = NonNullable<TObj> extends infer O
@@ -265,7 +265,7 @@ type StepValueFromString<TObj, TSegment> = NonNullable<TObj> extends infer O
       ? O[TSegment]
       : unknown
     : unknown
-  : unknown
+  : unknown;
 
 /**
  * Whether a parsed string hop can be absent. String paths can only carry
@@ -285,7 +285,7 @@ type HopCanBeAbsentFromString<TObj, TSegment> =
           : false
         : false
       : false
-    : false
+    : false;
 
 /** Leaf value type for a parsed string path, intermediate nullability stripped. */
 type ExactPathValueFromString<
@@ -295,7 +295,7 @@ type ExactPathValueFromString<
   ? TDoc
   : TPath extends readonly [infer First, ...infer Rest]
   ? ExactPathValueFromString<StepValueFromString<TDoc, First>, Rest>
-  : unknown
+  : unknown;
 
 /** Whether a parsed string path can resolve to `undefined`. */
 type PathIsNullableFromString<
@@ -307,7 +307,7 @@ type PathIsNullableFromString<
   ? HopCanBeAbsentFromString<TDoc, First> extends true
     ? true
     : PathIsNullableFromString<StepValueFromString<TDoc, First>, Rest>
-  : false
+  : false;
 
 /** Recursively traverse document type using parsed path segments */
 type PathValueFromString<
@@ -315,10 +315,10 @@ type PathValueFromString<
   TPath extends readonly any[]
 > = PathIsNullableFromString<TDoc, TPath> extends true
   ? ExactPathValueFromString<TDoc, TPath> | undefined
-  : ExactPathValueFromString<TDoc, TPath>
+  : ExactPathValueFromString<TDoc, TPath>;
 
 /** Infer the sub-handle value type from a document type and path string */
 export type InferSubTypeFromString<
   TDoc,
   P extends string
-> = PathValueFromString<TDoc, SegmentsFromString<P>>
+> = PathValueFromString<TDoc, SegmentsFromString<P>>;

@@ -7,8 +7,9 @@
  * new connections whilst the {@link WebSocketClientAdapter} makes an
  * outbound connection to the provided socket.
  *
- * Note that the "browser" and "node" naming is a bit misleading, both
- * implementations work in both the browser and on node via `isomorphic-ws`.
+ * Note that the "browser" and "node" naming is historical: the client adapter
+ * uses the platform-native WebSocket (browser and Node alike), while the server
+ * adapter wraps a `ws` WebSocketServer (Node only).
  *
  * @module
  * */
