@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@automerge/automerge": "3.3.0-fragments.1",
-    "@automerge/automerge-subduction": "0.13.0",
+    "@automerge/automerge-subduction": "0.14.0",
     "bs58check": "^4.0.0",
     "cbor-x": "^1.6.4",
     "debug": "^4.4.3",
