@@ -21,9 +21,6 @@
   "devDependencies": {
     "@types/express": "^4.17.25"
   },
-  "prettier": {
-    "semi": false
-  },
   "publishConfig": {
     "access": "public"
   }

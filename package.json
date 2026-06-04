@@ -32,12 +32,6 @@
     "pnpm": "^11"
   },
   "packageManager": "pnpm@11.5.0",
-  "prettier": {
-    "semi": false,
-    "singleQuote": false,
-    "trailingComma": "es5",
-    "arrowParens": "avoid"
-  },
   "devDependencies": {
     "@automerge/automerge": "^3.2.6",
     "@automerge/automerge-subduction": "0.13.0",
