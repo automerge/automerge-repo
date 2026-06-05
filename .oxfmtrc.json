@@ -9,6 +9,7 @@
   "ignorePatterns": [
     "dist",
     "pnpm-lock.yaml",
+    "lerna.json",
     "/.nx/workspace-data",
     ".svelte-kit",
     "playwright-report",
