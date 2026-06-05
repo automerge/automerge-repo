@@ -21,8 +21,8 @@ importers:
         specifier: 3.3.0-fragments.1
         version: 3.3.0-fragments.1
       '@automerge/automerge-subduction':
-        specifier: 0.13.0
-        version: 0.13.0
+        specifier: 0.14.0
+        version: 0.14.0
       '@manypkg/cli':
         specifier: ^0.25.1
         version: 0.25.1
@@ -266,8 +266,8 @@ importers:
         specifier: 3.3.0-fragments.1
         version: 3.3.0-fragments.1
       '@automerge/automerge-subduction':
-        specifier: 0.13.0
-        version: 0.13.0
+        specifier: 0.14.0
+        version: 0.14.0
       bs58check:
         specifier: ^4.0.0
         version: 4.0.0
@@ -482,8 +482,8 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@automerge/automerge-subduction@0.13.0':
-    resolution: {integrity: sha512-7XlCIS0GH3ctboE8UPmD9rfiv203Q8n5Lx63xE6xCgtlpwecDKqzLDp77e9hUEo76j17Y8bYQyfsROqaByLf5A==}
+  '@automerge/automerge-subduction@0.14.0':
+    resolution: {integrity: sha512-OER2VYTf10kUeqkGq97DZZmQ82Hw6yq38j4RL/yRM9b2OMSoPc6OF9rr8545Jjt4ONn5DTlRuAyTegOKXu/9EA==}
 
   '@automerge/automerge@3.3.0-fragments.1':
     resolution: {integrity: sha512-Im2n3qcYSuIsLDSjofTRo7CZyyvFn5pKLSCCO5sjWzESw+9q9G25ZIrL2mczDX43cXtyzi+w/4b9VUaiNdY56Q==}
@@ -5756,7 +5756,7 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@automerge/automerge-subduction@0.13.0': {}
+  '@automerge/automerge-subduction@0.14.0': {}
 
   '@automerge/automerge@3.3.0-fragments.1': {}
 

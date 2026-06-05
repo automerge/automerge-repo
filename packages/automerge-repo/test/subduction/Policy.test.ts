@@ -35,6 +35,7 @@ async function startSubductionServer(
     undefined, // service_name
     undefined, // hash_metric_override
     undefined, // max_pending_blob_requests
+    undefined, // max_resident_trees
     policy
   )
 
