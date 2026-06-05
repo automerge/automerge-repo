@@ -34,8 +34,14 @@ const $$$ = $({ cwd })
 console.log("installing test app...")
 // pnpm 11 gates optional native build scripts (e.g. cbor-extract via cbor-x)
 // pending approval and exits non-zero; dependencies still install and the demo
-// runs without that optional build, so don't treat the gate as a failure.
-await $$$`pnpm install`.catch(() => {})
+// runs without that optional build. Tolerate only that gate: surface a genuine
+// install failure by re-throwing if node_modules was not populated.
+const install = await $$$`pnpm install`.catch(error => error)
+if (!fs.existsSync(path.join(cwd, "node_modules"))) {
+  throw new Error(
+    `pnpm install failed:\n${install?.stderr ?? install?.message ?? ""}`
+  )
+}
 
 console.log("running test app...")
 // Run index.ts directly (rather than via `pnpm start`) so the timeout kills the
