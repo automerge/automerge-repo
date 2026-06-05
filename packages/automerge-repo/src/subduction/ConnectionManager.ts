@@ -15,6 +15,19 @@ export interface ConnectionManager {
   isConnecting(): boolean
 
   /**
+   * Returns true if this manager has at least one fully-established
+   * ("running") connection to a peer.
+   *
+   * Distinct from {@link isConnecting}: a connection that has completed
+   * its handshake is `isConnected`, not `isConnecting`. The recompute
+   * loop uses this to decide whether a document with no data yet should
+   * stay pending (a live peer is subscribed and may push data, e.g. a
+   * relay that is still fetching upstream) rather than being declared
+   * unavailable after a single empty sync round.
+   */
+  isConnected(): boolean
+
+  /**
    * A monotonically increasing counter that is bumped on every connection
    * state change (peer connected, peer disconnected, adapter readiness
    * changed, etc.). The recompute loop snapshots this when starting a

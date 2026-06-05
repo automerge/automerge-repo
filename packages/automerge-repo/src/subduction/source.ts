@@ -38,6 +38,24 @@ export type { OnHealExhausted } from "./SyncScheduler.js"
  */
 const DEFAULT_SYNC_TIMEOUT_MS = 60_000
 
+/**
+ * How long to keep a document `loading` after a sync round against a
+ * live, subscribed peer comes back with no data, before concluding it is
+ * `unavailable`.
+ *
+ * Why a grace period: in a relay/multi-hop topology (client → worker →
+ * server, or any caching relay) the peer we synced with is connected and
+ * subscribed but may not hold the document *yet* — it still has to fetch
+ * it from upstream and push it down. Declaring `unavailable` after a
+ * single empty round races that push and surfaces a false "unavailable"
+ * for a document that is in fact available a moment later. The grace
+ * window lets the subscription deliver before we give up; if nothing
+ * arrives, we conclude the peer genuinely doesn't have it.
+ *
+ * Tunable via `RepoConfig.subductionTimeouts.unavailableGraceMs`.
+ */
+const DEFAULT_UNAVAILABLE_GRACE_MS = 1_000
+
 // ── Per-sedimentree state ───────────────────────────────────────────────
 //
 // `initializing`: suppress individual commit-saved events. The handle
@@ -164,6 +182,18 @@ interface SedimentreeEntry {
   pendingInbound: Uint8Array[]
   /** Guard against scheduling overlapping microtask flushes. */
   inboundFlushScheduled: boolean
+
+  /**
+   * Pending timer that will mark the document `unavailable` if no data
+   * has arrived by the time it fires. Armed when a sync round against a
+   * live peer comes back empty: the peer is connected and subscribed, so
+   * it may still push the doc (e.g. a relay/worker that hasn't fetched it
+   * from upstream yet). We give that push a bounded grace window before
+   * concluding the document is genuinely unavailable. `null` when no
+   * timer is armed. Cleared when data arrives, the connection set
+   * changes, or a new sync starts.
+   */
+  unavailableGraceTimer: ReturnType<typeof setTimeout> | null
 }
 
 /** Callback for remote heads changes from subduction peers. */
@@ -219,6 +249,20 @@ export interface SubductionTimeouts {
    * Default: 10.
    */
   healMaxAttempts?: number
+
+  /**
+   * Grace period (ms) to keep a document `loading` after a sync round
+   * against a live, subscribed peer returns no data, before concluding
+   * the document is `unavailable`. Covers relay/multi-hop topologies
+   * where the connected peer may push the doc shortly after it fetches
+   * the data from upstream.
+   *
+   * Set to 0 to disable the grace window and conclude `unavailable`
+   * immediately (the pre-grace behaviour).
+   *
+   * Default: 1_000 (1 s).
+   */
+  unavailableGraceMs?: number
 }
 
 /** Intercepts and transforms incoming and outgoing blobs (e.g., for E2EE). */
@@ -270,6 +314,7 @@ export class SubductionSource implements DocumentSource {
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
   #syncTimeout: bigint | null
+  #unavailableGraceMs: number
   #blobInterceptor?: BlobInterceptor
 
   readonly priority: SourcePriority
@@ -297,6 +342,8 @@ export class SubductionSource implements DocumentSource {
       this.#syncTimeoutMs,
       "subductionTimeouts.syncMs"
     )
+    this.#unavailableGraceMs =
+      timeouts?.unavailableGraceMs ?? DEFAULT_UNAVAILABLE_GRACE_MS
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
     // Rust tracing filter so the messages actually reach the JS logger.
@@ -399,6 +446,85 @@ export class SubductionSource implements DocumentSource {
 
   #anyConnectionManagerConnecting(): boolean {
     return this.#connectionManagers.some(mgr => mgr.isConnecting())
+  }
+
+  #anyConnectionManagerConnected(): boolean {
+    return this.#connectionManagers.some(mgr => mgr.isConnected())
+  }
+
+  /**
+   * Decide what to do when a sync round leaves the handle with no data.
+   *
+   *  - Nothing connecting and no live peer: nobody to wait on → mark
+   *    `unavailable` immediately.
+   *  - A connection is still being established: stay pending; the next
+   *    recompute (driven by the connection-state change) re-syncs.
+   *  - A live peer is connected and subscribed: it may still push the doc
+   *    (relay/multi-hop), so arm a bounded grace timer. If the doc is
+   *    still empty when it fires — and no new sync is in flight and a live
+   *    peer is still connected — conclude `unavailable`. Data arriving in
+   *    the meantime cancels the timer (see {@link #clearUnavailableGrace},
+   *    called from the inbound + ready paths).
+   */
+  #concludeAvailabilityWhenEmpty(entry: SedimentreeEntry): void {
+    if (Automerge.getHeads(entry.handle.fullDoc()).length > 0) {
+      this.#clearUnavailableGrace(entry)
+      return
+    }
+
+    const connecting = this.#anyConnectionManagerConnecting()
+    const connected = this.#anyConnectionManagerConnected()
+
+    if (!connecting && !connected) {
+      // Nobody to wait on — genuinely unavailable. If data arrives later
+      // via #handleDataFound it calls sourcePending to re-enter
+      // "loading" → "ready".
+      this.#clearUnavailableGrace(entry)
+      entry.query.sourceUnavailable("subduction")
+      return
+    }
+
+    if (connecting) {
+      // A connection is still being established; the resulting
+      // connection-state change will drive another sync. Stay pending and
+      // don't arm the grace timer yet.
+      return
+    }
+
+    // connected && !connecting: a live, subscribed peer exists but had no
+    // data this round. Give its subscription a bounded window to deliver
+    // before concluding unavailable.
+    if (this.#unavailableGraceMs <= 0) {
+      this.#clearUnavailableGrace(entry)
+      entry.query.sourceUnavailable("subduction")
+      return
+    }
+
+    if (entry.unavailableGraceTimer !== null) return // already armed
+
+    entry.unavailableGraceTimer = setTimeout(() => {
+      entry.unavailableGraceTimer = null
+      // Re-check under current conditions: only conclude unavailable if
+      // we still have no data, nothing new is syncing, and there's still
+      // no connection establishing. A live peer that never pushed within
+      // the window is treated as "doesn't have it".
+      if (
+        Automerge.getHeads(entry.handle.fullDoc()).length === 0 &&
+        !entry.syncInFlight &&
+        !entry.blobLoadInFlight &&
+        !this.#anyConnectionManagerConnecting()
+      ) {
+        this.#log("grace expired; marking as unavailable")
+        entry.query.sourceUnavailable("subduction")
+      }
+    }, this.#unavailableGraceMs)
+  }
+
+  #clearUnavailableGrace(entry: SedimentreeEntry): void {
+    if (entry.unavailableGraceTimer !== null) {
+      clearTimeout(entry.unavailableGraceTimer)
+      entry.unavailableGraceTimer = null
+    }
   }
 
   getSubduction(): Promise<Subduction> {
@@ -515,6 +641,10 @@ export class SubductionSource implements DocumentSource {
     // on disk indefinitely.
     this.#scheduleCompaction(entry)
 
+    // Data arrived — cancel any pending unavailable grace timer so it
+    // can't later (wrongly) mark this now-populated doc unavailable.
+    this.#clearUnavailableGrace(entry)
+
     // If the query was previously marked unavailable (e.g. sync completed
     // before data arrived), re-trigger a recompute so the query detects the
     // newly-loaded heads and transitions to "ready". Fired once per flush.
@@ -569,6 +699,7 @@ export class SubductionSource implements DocumentSource {
       lastSaveError: null,
       pendingInbound: [],
       inboundFlushScheduled: false,
+      unavailableGraceTimer: null,
     })
 
     query.sourcePending("subduction")
@@ -668,16 +799,12 @@ export class SubductionSource implements DocumentSource {
             // attempt found no peers and a connection state has changed
             // since then (new peer connected, adapter state transitioned).
             // Re-enter pending in case the query was previously unavailable.
+            this.#clearUnavailableGrace(entry)
             entry.query.sourcePending("subduction")
             entry.syncInFlight = true
             void this.#doSync(entry)
-          } else if (
-            Automerge.getHeads(entry.handle.fullDoc()).length === 0 &&
-            !this.#anyConnectionManagerConnecting()
-          ) {
-            // All connections settled and sync failed — give up.
-            this.#log("marking as unavailable")
-            entry.query.sourceUnavailable("subduction")
+          } else if (Automerge.getHeads(entry.handle.fullDoc()).length === 0) {
+            this.#concludeAvailabilityWhenEmpty(entry)
           }
         }
         return
@@ -707,6 +834,10 @@ export class SubductionSource implements DocumentSource {
     const sid = sedimentreeId.toString().slice(0, 8)
     entry.lastSyncGeneration = this.#connectionGeneration()
 
+    // A fresh sync round supersedes any prior "empty" conclusion; cancel
+    // the pending grace timer so it doesn't fire mid-sync.
+    this.#clearUnavailableGrace(entry)
+
     try {
       const subduction = await this.#subduction
 
@@ -727,8 +858,11 @@ export class SubductionSource implements DocumentSource {
 
       const results = peerResultMap.entries()
       const anySuccess = results.some(r => r.success)
+      const remoteHeadsCounts = results.map(
+        r => r.stats?.remoteHeads?.length ?? 0
+      )
       this.#log(
-        `doSync ${sid}: ${results.length} peer(s), success=${anySuccess}`
+        `doSync ${sid}: ${results.length} peer(s), success=${anySuccess}, remoteHeads=${JSON.stringify(remoteHeadsCounts)}`
       )
 
       // Check if any data was received from peers
@@ -846,17 +980,10 @@ export class SubductionSource implements DocumentSource {
       entry.syncState = "running"
 
       if (Automerge.getHeads(entry.handle.fullDoc()).length === 0) {
-        if (!this.#anyConnectionManagerConnecting()) {
-          // No data after a successful sync and no pending connections —
-          // the document is genuinely unavailable. If data arrives later
-          // via #handleDataFound, it calls sourcePending to re-enter
-          // "loading" → "ready".
-          entry.query.sourceUnavailable("subduction")
-        }
-        // Otherwise endpoints are still connecting — stay pending,
-        // data may arrive once the connection is established.
+        this.#concludeAvailabilityWhenEmpty(entry)
       } else {
         // Data loaded — notify the query so it can transition to "ready".
+        this.#clearUnavailableGrace(entry)
         entry.query.sourcePending("subduction")
       }
     } catch (e) {
@@ -1421,6 +1548,9 @@ export class SubductionSource implements DocumentSource {
 
     // 2. Stop any pending heal-retry timers and prevent new schedules
     this.#scheduler.shutdown()
+    for (const entry of this.#entries.values()) {
+      this.#clearUnavailableGrace(entry)
+    }
 
     // 3a. Drain any queued inbound blobs synchronously so the handle
     //     is consistent with what subduction has on disk.

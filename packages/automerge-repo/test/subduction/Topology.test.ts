@@ -642,6 +642,55 @@ describe("Tab → Worker → Server topology", () => {
     expect(bobSub.doc()!.title).toBe("First item");
   }, 15_000);
 
+  // Regression for the "find returns unavailable instantly" report.
+  //
+  // Bob's tab asks for a document that lives on the server before Bob's
+  // worker has fetched it. The worker is a connected, subscribed peer (so
+  // it is a valid sync target) but does not hold the doc *yet* — it has to
+  // fetch it from the server. The worker's subduction source must NOT
+  // conclude `unavailable` on its first empty sync round; it must stay
+  // loading until the data propagates. Before the fix this raced and the
+  // query went `loading -> unavailable` in a few ms.
+  it("does not report a server-held doc unavailable while the worker is still fetching", async () => {
+    const server = await startServer();
+
+    // Alice publishes a doc to the server.
+    const alice = createTabWorkerPair("alice", server.url);
+    const aliceHandle = alice.tab.create<{ value: number }>();
+    aliceHandle.change((d) => {
+      d.value = 4242;
+    });
+    const sid = toSedimentreeId(aliceHandle.documentId);
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid);
+      return blobs !== undefined && blobs.length > 0;
+    }, 5000);
+
+    // Bob's pair connects fresh; Bob's tab immediately asks for the doc.
+    // Bob's worker has never seen it and must fetch from the server.
+    const bob = createTabWorkerPair("bob", server.url);
+
+    const workerProgress = bob.worker.findWithProgress<{ value: number }>(
+      aliceHandle.url,
+    );
+    const workerStates: string[] = [];
+    const unsub = workerProgress.subscribe((s) => workerStates.push(s.state));
+
+    try {
+      const handle = await workerProgress.whenReady({
+        signal: AbortSignal.timeout(10_000),
+      });
+      expect(handle.doc()!.value).toBe(4242);
+    } finally {
+      unsub();
+    }
+
+    expect(
+      workerStates,
+      `worker state path: ${workerStates.join(" -> ")}`,
+    ).not.toContain("unavailable");
+  }, 15_000);
+
   describe("Remote heads gossiping", () => {
     it("remote heads are reported after sync", async () => {
       const server = await startServer();

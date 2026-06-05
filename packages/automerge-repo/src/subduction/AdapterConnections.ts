@@ -10,6 +10,7 @@ export class AdapterConnections implements ConnectionManager {
   #localPeerId: PeerId
   #onChangeCallback: (() => void) | null = null
   #pendingTransports = 0
+  #connectedTransports = 0
   #generation = 0
   #isShutdown = false
 
@@ -25,6 +26,10 @@ export class AdapterConnections implements ConnectionManager {
     return this.#adapters.some(
       adapter => adapter.state().value === "connecting"
     )
+  }
+
+  isConnected(): boolean {
+    return this.#connectedTransports > 0
   }
 
   generation(): number {
@@ -84,6 +89,22 @@ export class AdapterConnections implements ConnectionManager {
       } else {
         await subduction.connectTransport(transport, serviceName)
       }
+
+      // Handshake succeeded — this transport is now a live, subscribed
+      // peer. Count it as connected until the adapter reports the peer
+      // gone. We listen on the adapter's own `peer-disconnected` event
+      // rather than `transport.onDisconnect` because the latter is a
+      // single-slot callback owned by subduction; overwriting it would
+      // break subduction's connection lifecycle.
+      this.#connectedTransports++
+      const onPeerDisconnected = ({ peerId: gonePeerId }: { peerId: PeerId }) => {
+        if (gonePeerId !== peerId) return
+        adapter.off("peer-disconnected", onPeerDisconnected)
+        this.#connectedTransports = Math.max(0, this.#connectedTransports - 1)
+        this.#generation++
+        this.#onChangeCallback?.()
+      }
+      adapter.on("peer-disconnected", onPeerDisconnected)
     } catch {
       // Transport connection failed (e.g. peer disconnected during handshake)
     } finally {
