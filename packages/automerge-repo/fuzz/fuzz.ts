@@ -131,10 +131,12 @@ for (let i = 0; i < 100000; i++) {
     assert.deepStrictEqual(b, c, "B and C should be equal")
   } else {
     // charlie is excluded from this doc by the share policy, so its find should
-    // resolve to unavailable rather than the synced document (the abort caps the
-    // wait so a silent peer can't hang the run).
+    // reject as unavailable. Match the error specifically so a silent peer
+    // (which would instead abort via the timeout) fails the assertion rather
+    // than passing it.
     await assert.rejects(
       charlieRepo.find<TestDoc>(doc.url, { signal: AbortSignal.timeout(2000) }),
+      /unavailable/,
       "charlie should not receive the document it was excluded from"
     )
   }
