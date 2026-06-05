@@ -12,13 +12,16 @@
       let
         pkgs = import nixpkgs { inherit system; };
         unstable = import unstable-nixpkgs { inherit system; };
-        pnpm = "${pkgs.nodePackages.pnpm}/bin/pnpm";
+
+        nodejs = pkgs.nodejs_22;
+        pnpm-pkg = unstable.pnpm;
+        pnpm = "${pnpm-pkg}/bin/pnpm";
 
         dev = pkgs.writeShellApplication {
           name = "dev";
           runtimeInputs = [
-            pkgs.nodejs_20
-            pkgs.pnpm
+            nodejs
+            pnpm-pkg
           ];
           text = ''
             pnpm i --silent
@@ -29,8 +32,8 @@
         react_todo_example = pkgs.writeShellApplication {
           name = "react_todo_example";
           runtimeInputs = [
-            pkgs.nodejs_20
-            pkgs.pnpm
+            nodejs
+            pnpm-pkg
           ];
           text = ''
             cd ./examples/react-todo
@@ -42,8 +45,8 @@
         test_subduction = pkgs.writeShellApplication {
           name = "test_subduction";
           runtimeInputs = [
-            pkgs.nodejs_20
-            pkgs.pnpm
+            nodejs
+            pnpm-pkg
           ];
           text = "${pnpm} test ./packages/automerge-repo/test/subduction";
         };
@@ -58,8 +61,8 @@
               pkgs.eslint
               pkgs.javascript-typescript-langserver
               pkgs.nodePackages.vscode-langservers-extracted
-              pkgs.nodejs_20
-              pkgs.pnpm
+              nodejs
+              pnpm-pkg
               pkgs.prettierd
               pkgs.typescript
               pkgs.typescript-language-server
