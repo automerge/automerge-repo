@@ -7,11 +7,27 @@
   "license": "MIT",
   "type": "module",
   "bin": "dist/index.js",
+  "files": [
+    "dist/index.js",
+    "template"
+  ],
   "scripts": {
     "build": "tsc",
-    "postbuild": "node postbuild.js"
+    "postbuild": "node postbuild.js",
+    "test": "node test.js"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@clack/prompts": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "execa": "catalog:",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

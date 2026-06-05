@@ -20,7 +20,26 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@clack/prompts": "catalog:"
+  },
   "devDependencies": {
-    "execa": "^8.0.1"
+    "@types/node": "catalog:",
+    "execa": "catalog:",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
+    "./package.json": "./package.json"
   }
 }

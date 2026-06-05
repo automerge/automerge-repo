@@ -4,10 +4,10 @@ import os from "os"
 import fs from "fs"
 import { exit } from "node:process"
 
-// Smoke test: build and pack create-vite-app, scaffold an app in a temp
-// directory, install it, and confirm the dev server boots.
+// Smoke test: pack create-repo-node-app, scaffold an app in a temp directory,
+// install it, run it, and confirm it creates a document.
 
-console.log("building create-vite-app...")
+console.log("building create-repo-node-app...")
 await $`pnpm build`
 
 const { stdout: packOutput } = await $`pnpm pack`
@@ -20,22 +20,22 @@ const tarballFile = packOutput
   .find(line => line.endsWith(".tgz"))
 const tarballPath = path.join(process.cwd(), tarballFile)
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-create-"))
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-create-node-"))
 const $$ = $({ cwd: tempDir })
 
 console.log("creating test app...")
 await $$`pnpm init`
 await $$`pnpm install ${tarballPath}`
-await $$`./node_modules/@automerge/create-vite-app/dist/index.js test-app`
+await $$`./node_modules/@automerge/create-repo-node-app/dist/index.js test-app`
 
 const cwd = path.join(tempDir, "test-app")
 const $$$ = $({ cwd })
 
 console.log("installing test app...")
 // pnpm 11 gates optional native build scripts (e.g. cbor-extract via cbor-x)
-// pending approval and exits non-zero; dependencies still install and the dev
-// server runs without that optional build. Tolerate only that gate: surface a
-// genuine install failure by re-throwing if node_modules was not populated.
+// pending approval and exits non-zero; dependencies still install and the demo
+// runs without that optional build. Tolerate only that gate: surface a genuine
+// install failure by re-throwing if node_modules was not populated.
 const install = await $$$`pnpm install`.catch(error => error)
 if (!fs.existsSync(path.join(cwd, "node_modules"))) {
   throw new Error(
@@ -43,23 +43,26 @@ if (!fs.existsSync(path.join(cwd, "node_modules"))) {
   )
 }
 
-console.log("building test app...")
-// `vite build` (via the build script) type-checks and bundles the app, then
-// exits — non-zero on failure — so its exit status is the pass/fail signal,
-// with no long-running dev server to leave hanging.
-const { exitCode } = await $$$`pnpm build`.catch(error => error)
-const success = exitCode === 0
+console.log("running test app...")
+// Run index.ts directly (rather than via `pnpm start`) so the timeout kills the
+// node process cleanly instead of orphaning it. The app stays alive to keep
+// syncing, so the timeout stops it after it has logged the document URL.
+const output = await $$$({ timeout: 8000 })`node index.ts`.catch(
+  result => result.stdout
+)
+
+const success = output.includes("Created document")
 
 // cleanup (the tarball is gitignored, so `git clean -f` alone would skip it)
 await fs.promises.rm(tarballPath, { force: true })
 
 if (success) {
-  console.log("✅ create-vite-app test passed")
+  console.log("✅ create-repo-node-app test passed")
   exit(0)
 } else {
   console.log()
   console.log(output)
   console.log()
-  console.log("❌ create-vite-app test failed")
+  console.log("❌ create-repo-node-app test failed")
   exit(1)
 }

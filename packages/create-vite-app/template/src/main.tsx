@@ -24,7 +24,7 @@ const repo = new Repo({
 const rootDocUrl = `${document.location.hash.substring(1)}`
 let handle
 if (isValidAutomergeUrl(rootDocUrl)) {
-  handle = repo.find(rootDocUrl)
+  handle = await repo.find(rootDocUrl)
 } else {
   handle = repo.create<{ counter?: Counter }>()
   handle.change(d => (d.counter = new Counter()))

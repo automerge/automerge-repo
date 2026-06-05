@@ -36,15 +36,15 @@ export interface NetworkAdapterInterface extends EventEmitter<NetworkAdapterEven
 
   /** Called by the {@link Repo} to start the connection process
    *
-   * @argument peerId - the peerId of this repo
-   * @argument peerMetadata - how this adapter should present itself to other peers
+   * @param peerId - the peerId of this repo
+   * @param peerMetadata - how this adapter should present itself to other peers
    */
   connect(peerId: PeerId, peerMetadata?: PeerMetadata): void
   // TODO: should this just return a ready promise?
 
   /** Called by the {@link Repo} to send a message to a peer
    *
-   * @argument message - the message to send
+   * @param message - the message to send
    */
   send(message: Message): void
 

@@ -15,7 +15,7 @@
     "**/testSetup.ts",
     "playwright.base.ts",
     "packages/create-vite-app/**",
-    "packages/create-repo-node-app/postbuild.js"
+    "packages/create-repo-node-app/**"
   ],
   "rules": {
     "no-restricted-imports": [

@@ -23,7 +23,7 @@ const log = makeLogger("automerge-repo:url")
 
 export const urlPrefix = "automerge:"
 
-interface ParsedAutomergeUrl {
+export interface ParsedAutomergeUrl {
   /** unencoded DocumentId */
   binaryDocumentId: BinaryDocumentId
   /** bs58 encoded DocumentId */
@@ -250,7 +250,7 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 
 // TYPES
 
-type UrlOptions = {
+export type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
   heads?: UrlHeads
   segments?: Segment[]
