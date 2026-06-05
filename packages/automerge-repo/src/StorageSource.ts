@@ -1,4 +1,5 @@
 import { next as Automerge } from "@automerge/automerge/slim"
+import { makeLogger } from "./Logger.js"
 import type { DocumentSource } from "./DocumentSource.js"
 import type { DocHandleEncodedChangePayload } from "./DocHandle.js"
 import type { DocumentQuery, SourcePriority } from "./DocumentQuery.js"
@@ -19,6 +20,7 @@ export class StorageSource implements DocumentSource {
     DocumentId,
     (payload: DocHandleEncodedChangePayload<any>) => void
   > = {}
+  #log = makeLogger("automerge-repo:storage-source")
 
   constructor(
     storage: StorageSubsystem,
@@ -47,20 +49,34 @@ export class StorageSource implements DocumentSource {
 
     // Load from storage
     query.sourcePending("storage")
-    void this.#storage.loadDoc(handle.documentId).then(loaded => {
-      if (loaded && Automerge.getHeads(loaded).length > 0) {
-        // Sync may have delivered data while we were loading from disk —
-        // merge instead of replacing to avoid clobbering newer state.
-        handle.update(current =>
-          Automerge.getHeads(current).length === 0
-            ? loaded
-            : Automerge.merge(current, loaded)
+    void this.#storage
+      .loadDoc(handle.documentId)
+      .then(loaded => {
+        if (loaded && Automerge.getHeads(loaded).length > 0) {
+          // Sync may have delivered data while we were loading from disk —
+          // merge instead of replacing to avoid clobbering newer state.
+          handle.update(current =>
+            Automerge.getHeads(current).length === 0
+              ? loaded
+              : Automerge.merge(current, loaded)
+          )
+          query.sourceReady("storage")
+        } else {
+          query.sourceUnavailable("storage")
+        }
+      })
+      .catch(err => {
+        // A failed storage read (or a throw while applying the loaded data)
+        // means this source can't provide the document. Mark it unavailable so
+        // the query can settle instead of hanging in `pending`, and surface the
+        // error rather than dropping it as an unhandled rejection. Other
+        // sources (e.g. sync) may still deliver the document.
+        this.#log.error(
+          `Error loading document ${handle.documentId} from storage`,
+          err
         )
-        query.sourceReady("storage")
-      } else {
         query.sourceUnavailable("storage")
-      }
-    })
+      })
   }
 
   detach(documentId: DocumentId): void {
