@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { Presence } from "../src/presence/Presence.js"
 import { PresenceEventHeartbeat } from "../src/presence/types.js"
@@ -6,7 +6,6 @@ import { Repo } from "../src/Repo.js"
 import { PeerId } from "../src/types.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
 import { waitFor } from "./helpers/waitFor.js"
-import { wait } from "./helpers/wait.js"
 
 type PresenceState = { position: number }
 
@@ -186,34 +185,49 @@ describe("Presence", () => {
     })
 
     it("delays heartbeats when there is a state update", async () => {
+      // setup() runs a real network handshake, so install fake timers only
+      // afterwards. DummyNetworkAdapter delivers on a microtask rather than a
+      // timer, and advanceTimersByTimeAsync flushes microtasks between ticks,
+      // so heartbeats still round-trip to bob deterministically. With real
+      // timers these short waits overshoot the 10ms interval under CI load and
+      // the heartbeat fires before the "still delayed" assertion.
       const { alice, bob } = await setup()
-      alice.presence.start({
-        initialState: {
-          position: 123,
-        },
-        heartbeatMs: 10,
-      })
+      vi.useFakeTimers()
+      try {
+        alice.presence.start({
+          initialState: {
+            position: 123,
+          },
+          heartbeatMs: 10,
+        })
 
-      bob.presence.start({
-        initialState: {
-          position: 456,
-        },
-      })
+        bob.presence.start({
+          initialState: {
+            position: 456,
+          },
+        })
 
-      let hbPeerMsg: PresenceEventHeartbeat
-      bob.presence.on("heartbeat", msg => {
-        hbPeerMsg = msg
-      })
+        let hbPeerMsg: PresenceEventHeartbeat
+        bob.presence.on("heartbeat", msg => {
+          hbPeerMsg = msg
+        })
 
-      await wait(7)
-      alice.presence.broadcast("position", 789)
-      await wait(7)
+        await vi.advanceTimersByTimeAsync(7)
+        // A state update resets the heartbeat timer, so the next heartbeat is
+        // a full interval (10ms) away again.
+        alice.presence.broadcast("position", 789)
+        await vi.advanceTimersByTimeAsync(7)
 
-      expect(hbPeerMsg).toBeUndefined()
+        // Only 7ms have elapsed since the reset (< 10ms), so no heartbeat has
+        // been sent yet.
+        expect(hbPeerMsg).toBeUndefined()
 
-      await wait(20)
-      expect(hbPeerMsg.peerId).toEqual(alice.repo.peerId)
-      expect(hbPeerMsg.type).toEqual("heartbeat")
+        await vi.advanceTimersByTimeAsync(20)
+        expect(hbPeerMsg.peerId).toEqual(alice.repo.peerId)
+        expect(hbPeerMsg.type).toEqual("heartbeat")
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 
