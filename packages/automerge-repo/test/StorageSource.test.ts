@@ -1,6 +1,6 @@
 import { next as A } from "@automerge/automerge"
 import assert from "assert"
-import { describe, it } from "vitest"
+import { describe, it, vi } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { DocumentQuery } from "../src/DocumentQuery.js"
 import { StorageSource } from "../src/StorageSource.js"
@@ -72,5 +72,43 @@ describe("StorageSource", () => {
     )
     assert.equal(merged.fromSync, true, "sync data should be preserved")
     assert.equal(merged.shared, "base")
+  })
+
+  it("marks the storage source unavailable when the load fails, instead of leaving the query stuck loading", async () => {
+    vi.useFakeTimers()
+    try {
+      type T = { foo?: string }
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+      // A storage adapter whose read fails (corrupt store, disk/IO error, or
+      // a failed fetch in a remote-backed adapter).
+      const failingAdapter = new DummyStorageAdapter()
+      failingAdapter.loadRange = async () => {
+        throw new Error("storage read failed")
+      }
+
+      const query = createTestQuery<T>(documentId)
+      const source = new StorageSource(
+        new StorageSubsystem(failingAdapter),
+        10_000
+      )
+      source.attach(query as DocumentQuery<unknown>)
+
+      // attach() fires loadDoc() as a fire-and-forget promise; drain its
+      // (rejected) microtask chain deterministically (no real-time wait).
+      await vi.runAllTimersAsync()
+
+      // A failed storage load must settle the "storage" source as unavailable
+      // so the query can resolve. With storage the only source and no handle
+      // data, the query becomes "unavailable" and whenReady() rejects.
+      assert.equal(
+        query.peek().state,
+        "unavailable",
+        "failed storage load should mark the source unavailable, not hang the query"
+      )
+      await assert.rejects(query.whenReady(), /unavailable/)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
