@@ -39,17 +39,17 @@
     "arrowParens": "avoid"
   },
   "devDependencies": {
-    "@automerge/automerge": "2.2.8 - 3",
+    "@automerge/automerge": "catalog:",
     "@manypkg/cli": "^0.25.1",
     "@playwright/test": "^1.60.0",
     "@types/debug": "^4.1.13",
-    "@types/node": "^22.19.19",
-    "@types/react": "^19.2.15",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
     "@types/react-dom": "^19.2.3",
-    "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^6.0.2",
-    "@vitest/coverage-v8": "^4.1.7",
-    "@vitest/ui": "^4.1.7",
+    "@types/ws": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "@vitest/ui": "catalog:",
     "c8": "^7.14.0",
     "cross-env": "^10.1.0",
     "dev-null-cli": "^2.0.0",
@@ -60,12 +60,12 @@
     "oxfmt": "^0.52.0",
     "oxlint": "^1.67.0",
     "oxlint-tsgolint": "^0.23.0",
-    "portfinder": "^1.0.38",
+    "portfinder": "catalog:",
     "ts-node": "^10.9.2",
     "typedoc": "^0.28.7",
-    "typescript": "^6.0.3",
-    "vite": "^8.0.14",
-    "vite-plugin-wasm": "^3.6.0",
-    "vitest": "^4.1.7"
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:",
+    "vitest": "catalog:"
   }
 }

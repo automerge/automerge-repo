@@ -25,12 +25,7 @@ export default defineConfig({
     },
     target: "esnext",
     rollupOptions: {
-      external: [
-        "solid-js",
-        "@automerge/automerge",
-        "cabbages",
-        "solid-js/store",
-      ],
+      external: [/^@automerge\//, "solid-js", "solid-js/store"],
     },
   },
   resolve: {
