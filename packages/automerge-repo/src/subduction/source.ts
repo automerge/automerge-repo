@@ -612,8 +612,9 @@ export class SubductionSource implements DocumentSource {
           entry.persistedCommitHashes.size > 0 ||
           entry.persistedFragmentHashes.size > 0
         ) {
-          // A compaction kick here is harmless if the handle isn't
-          // ready yet; `#compactAbsorbed` no-ops on an empty doc.
+          // Kick compaction for defunct on-disk records. `#compactAbsorbed`
+          // defers while `syncState === "initializing"`; the pass after
+          // `#loadBlobsAndTransition` hydrates the handle.
           this.#scheduleCompaction(entry)
         }
       } catch (e) {
@@ -1238,8 +1239,26 @@ export class SubductionSource implements DocumentSource {
       return
     }
 
+    // Sync writes commits to storage (and records them in
+    // `persistedCommitHashes`) before the handle is hydrated:
+    // `#handleDataFound` is skipped during "initializing", and
+    // `#loadBlobsAndTransition` performs the atomic first load.
+    // Comparing an empty handle against those hashes would delete
+    // live data that `getBlobs` still needs.
+    if (entry.syncState === "initializing" || entry.blobLoadInFlight) {
+      return
+    }
+
     const doc = entry.handle.doc()
     if (!doc) return
+
+    if (
+      Automerge.getHeads(doc).length === 0 &&
+      (entry.persistedCommitHashes.size > 0 ||
+        entry.persistedFragmentHashes.size > 0)
+    ) {
+      return
+    }
 
     // Metadata-only: we just need the hashes to compute the stale
     // set, so avoid `getCommits` / `getFragments` which would
