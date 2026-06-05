@@ -41,10 +41,10 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
           cache: pnpm
-      - name: Install and Build
-        run: |
-          pnpm install
-          pnpm build
+      - name: Install
+        run: pnpm install
+      - name: Build
+        run: pnpm build
       - name: Build docs
         run: pnpm exec typedoc
       - name: Deploy 🚀
