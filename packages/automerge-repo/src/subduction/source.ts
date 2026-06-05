@@ -1237,9 +1237,6 @@ export class SubductionSource implements DocumentSource {
     const doc = entry.handle.doc()
     if (!doc) return
 
-    // Never compact against an empty doc
-    if (Automerge.getHeads(doc).length === 0) return
-
     // Metadata-only: we just need the hashes to compute the stale
     // set, so avoid `getCommits` / `getFragments` which would
     // re-bundle every item (O(N × #items) wasted work per compaction
