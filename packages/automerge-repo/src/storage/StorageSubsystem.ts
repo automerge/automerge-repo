@@ -284,39 +284,42 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     sourceChunks: ChunkInfo[]
   ): Promise<void> {
     this.#compacting = true
-    const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
+    try {
+      const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
 
-    const start = performance.now()
-    const binary = A.save(doc)
-    const end = performance.now()
-    this.emit("doc-compacted", {
-      documentId,
-      durationMillis: end - start,
-      savedHeads: A.getHeads(doc),
-    })
+      const start = performance.now()
+      const binary = A.save(doc)
+      const end = performance.now()
+      this.emit("doc-compacted", {
+        documentId,
+        durationMillis: end - start,
+        savedHeads: A.getHeads(doc),
+      })
 
-    const snapshotHash = headsHash(A.getHeads(doc))
-    const key = [documentId, "snapshot", snapshotHash]
-    const oldKeys = new Set(
-      sourceChunks.map(c => c.key).filter(k => k[2] !== snapshotHash)
-    )
+      const snapshotHash = headsHash(A.getHeads(doc))
+      const key = [documentId, "snapshot", snapshotHash]
+      const oldKeys = new Set(
+        sourceChunks.map(c => c.key).filter(k => k[2] !== snapshotHash)
+      )
 
-    this.#log.debug(`Saving snapshot ${key} for document ${documentId}`)
-    this.#log.debug(`deleting old chunks ${Array.from(oldKeys)}`)
+      this.#log.debug(`Saving snapshot ${key} for document ${documentId}`)
+      this.#log.debug(`deleting old chunks ${Array.from(oldKeys)}`)
 
-    await this.#storageAdapter.save(key, binary)
+      await this.#storageAdapter.save(key, binary)
 
-    for (const key of oldKeys) {
-      await this.#storageAdapter.remove(key)
+      for (const key of oldKeys) {
+        await this.#storageAdapter.remove(key)
+      }
+
+      const newChunkInfos =
+        this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
+      newChunkInfos.push({ key, type: "snapshot", size: binary.length })
+
+      this.#chunkInfos.set(documentId, newChunkInfos)
+      headsHandle.update(A.getHeads(doc))
+    } finally {
+      this.#compacting = false
     }
-
-    const newChunkInfos =
-      this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
-    newChunkInfos.push({ key, type: "snapshot", size: binary.length })
-
-    this.#chunkInfos.set(documentId, newChunkInfos)
-    headsHandle.update(A.getHeads(doc))
-    this.#compacting = false
   }
 
   async loadSyncState(
