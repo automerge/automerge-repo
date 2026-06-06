@@ -221,9 +221,20 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#remoteHeadsSubscriptions.removePeer(peerId)
     })
 
-    // Handle incoming messages
-    networkSubsystem.on("message", async msg => {
-      this.#receiveMessage(msg)
+    // Inbound messages are untrusted peer input, so #receiveMessage can throw on
+    // a malformed or cross-version message. An EventEmitter does not trap a
+    // listener's exception, so an uncaught throw here aborts the emit() dispatch
+    // (other listeners skipped) and unwinds back through the transport's
+    // event-loop callback that delivered the message. In Node an uncaught error
+    // there terminates the process by default, so one bad message could take
+    // down a sync server; in a browser it is only logged. Catch it.
+    // See https://nodejs.org/api/process.html#event-uncaughtexception
+    networkSubsystem.on("message", msg => {
+      try {
+        this.#receiveMessage(msg)
+      } catch (err) {
+        this.#log.error("error handling inbound message", err)
+      }
     })
 
     this.synchronizer.on("sync-state", message => {
