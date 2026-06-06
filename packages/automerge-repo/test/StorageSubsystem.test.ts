@@ -536,3 +536,69 @@ describe("StorageSubsystem", () => {
     })
   })
 })
+
+describe("StorageSubsystem compaction recovery", () => {
+  it("keeps compacting after a failed snapshot write (does not get stuck not-compacting)", async () => {
+    // Simulate a storage write that fails mid-compaction. Real, usually
+    // transient causes:
+    //   - IndexedDB: quota exceeded, or a transaction aborted under memory
+    //     pressure (often succeeds on retry).
+    //   - Remote/HTTP-backed adapter: a 503, a timeout, or an expired auth
+    //     token (refreshed before the next save).
+    //   - Local filesystem: disk full, or a momentary lock from another tab.
+    // This adapter fails the second snapshot write and succeeds otherwise.
+    class FlakySnapshotAdapter extends DummyStorageAdapter {
+      snapshotSaves = 0
+      override async save(key: string[], binary: Uint8Array) {
+        if (key[1] === "snapshot") {
+          this.snapshotSaves++
+          if (this.snapshotSaves === 2) {
+            throw new Error("snapshot write failed")
+          }
+        }
+        return super.save(key, binary)
+      }
+    }
+
+    const adapter = new FlakySnapshotAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+    // A small doc compacts on every change (snapshot size < 1024).
+    let doc = A.from<{ n: number }>({ n: 0 })
+
+    // Save 1: compacts to snapshot #1 (succeeds).
+    doc = A.change(doc, d => {
+      d.n = 1
+    })
+    await storage.saveDoc(documentId, doc)
+
+    // Save 2: compaction attempt fails on the snapshot write, leaving the
+    // subsystem mid-compaction.
+    doc = A.change(doc, d => {
+      d.n = 2
+    })
+    await expect(storage.saveDoc(documentId, doc)).rejects.toThrow(
+      "snapshot write failed"
+    )
+
+    // Save 3: should compact again.
+    doc = A.change(doc, d => {
+      d.n = 3
+    })
+    await storage.saveDoc(documentId, doc)
+
+    assert.equal(
+      adapter.snapshotSaves,
+      3,
+      "after a failed compaction the next save should compact again, not be stuck doing incrementals"
+    )
+
+    // The change from the failed save is not lost: a fresh reload from the same
+    // adapter still sees the latest state.
+    const reloaded = await new StorageSubsystem(adapter).loadDoc<{ n: number }>(
+      documentId
+    )
+    assert.equal(reloaded?.n, 3, "a reload should see the latest update (n=3)")
+  })
+})
