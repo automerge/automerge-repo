@@ -140,53 +140,68 @@ export class WebSocketServerAdapter extends NetworkAdapter {
       return
     }
 
-    const { type, senderId } = message
+    // A decoded message is still untrusted: a malformed one (e.g. CBOR null,
+    // which makes the destructure below throw) can throw while being handled.
+    // This runs in the socket "message" event-loop callback, so an uncaught
+    // throw would terminate a Node process by default. Drop the message and
+    // close the misbehaving connection.
+    // See https://nodejs.org/api/process.html#event-uncaughtexception
+    try {
+      const { type, senderId } = message
 
-    const myPeerId = this.peerId
-    assert(myPeerId)
+      const myPeerId = this.peerId
+      assert(myPeerId)
 
-    const documentId = "documentId" in message ? "@" + message.documentId : ""
-    const { byteLength } = messageBytes
-    log(`[${senderId}->${myPeerId}${documentId}] ${type} | ${byteLength} bytes`)
+      const documentId = "documentId" in message ? "@" + message.documentId : ""
+      const { byteLength } = messageBytes
+      log(
+        `[${senderId}->${myPeerId}${documentId}] ${type} | ${byteLength} bytes`
+      )
 
-    if (isJoinMessage(message)) {
-      const { peerMetadata, supportedProtocolVersions } = message
-      const existingSocket = this.sockets[senderId]
-      if (existingSocket) {
-        if (existingSocket.readyState === WebSocket.OPEN) {
-          existingSocket.close()
+      if (isJoinMessage(message)) {
+        const { peerMetadata, supportedProtocolVersions } = message
+        const existingSocket = this.sockets[senderId]
+        if (existingSocket) {
+          if (existingSocket.readyState === WebSocket.OPEN) {
+            existingSocket.close()
+          }
+          this.emit("peer-disconnected", { peerId: senderId })
         }
-        this.emit("peer-disconnected", { peerId: senderId })
-      }
 
-      // Let the repo know that we have a new connection.
-      this.emit("peer-candidate", { peerId: senderId, peerMetadata })
-      this.sockets[senderId] = socket
+        // Let the repo know that we have a new connection.
+        this.emit("peer-candidate", { peerId: senderId, peerMetadata })
+        this.sockets[senderId] = socket
 
-      const selectedProtocolVersion = selectProtocol(supportedProtocolVersions)
-      if (selectedProtocolVersion === null) {
-        this.send({
-          type: "error",
-          senderId: this.peerId!,
-          message: "unsupported protocol version",
-          targetId: senderId,
-        })
-        this.sockets[senderId].close()
-        delete this.sockets[senderId]
+        const selectedProtocolVersion = selectProtocol(
+          supportedProtocolVersions
+        )
+        if (selectedProtocolVersion === null) {
+          this.send({
+            type: "error",
+            senderId: this.peerId!,
+            message: "unsupported protocol version",
+            targetId: senderId,
+          })
+          this.sockets[senderId].close()
+          delete this.sockets[senderId]
+        } else {
+          this.send({
+            type: "peer",
+            senderId: this.peerId!,
+            peerMetadata: this.peerMetadata!,
+            selectedProtocolVersion: ProtocolV1,
+            targetId: senderId,
+          })
+        }
       } else {
-        this.send({
-          type: "peer",
-          senderId: this.peerId!,
-          peerMetadata: this.peerMetadata!,
-          selectedProtocolVersion: ProtocolV1,
-          targetId: senderId,
-        })
+        if (this.sockets[senderId] !== socket) {
+          return
+        }
+        this.emit("message", message)
       }
-    } else {
-      if (this.sockets[senderId] !== socket) {
-        return
-      }
-      this.emit("message", message)
+    } catch (e) {
+      log("error handling inbound message, closing connection", e)
+      socket.close()
     }
   }
 
