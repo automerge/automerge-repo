@@ -33,7 +33,8 @@ export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
   let wait: number | undefined
   let timeout: ReturnType<typeof setTimeout>
   return function (...args: Parameters<F>): void {
-    wait = lastCall + delay - Date.now()
+    // Clamp to 0: passing a negative delay to setTimeout warns on some runtimes.
+    wait = Math.max(0, lastCall + delay - Date.now())
     clearTimeout(timeout)
     timeout = setTimeout(() => {
       fn(...args)
@@ -106,7 +107,8 @@ export const asyncThrottle = <TArgs extends unknown[], TReturn>(
       clearTimeout(timeout)
     }
 
-    const wait = lastCall + delay - Date.now() //if negative, executes immediately
+    // Clamp to 0: passing a negative delay to setTimeout warns on some runtimes.
+    const wait = Math.max(0, lastCall + delay - Date.now()) //if negative, executes immediately
 
     return new Promise<TReturn>((resolve, reject) => {
       timeout = setTimeout(async () => {
