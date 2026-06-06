@@ -222,7 +222,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     // Handle incoming messages
-    networkSubsystem.on("message", async msg => {
+    networkSubsystem.on("message", msg => {
       this.#receiveMessage(msg)
     })
 
