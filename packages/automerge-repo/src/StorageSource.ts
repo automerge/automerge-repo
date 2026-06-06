@@ -89,8 +89,24 @@ export class StorageSource implements DocumentSource {
     let fn = this.#saveFns[documentId]
     if (!fn) {
       fn = this.#saveFns[documentId] = asyncThrottle(
-        ({ doc, handle }: DocHandleEncodedChangePayload<any>): Promise<void> =>
-          this.#storage.saveDoc(handle.documentId, doc),
+        async ({
+          doc,
+          handle,
+        }: DocHandleEncodedChangePayload<any>): Promise<void> => {
+          try {
+            await this.#storage.saveDoc(handle.documentId, doc)
+          } catch (err) {
+            // This save runs fire-and-forget from a "heads-changed" listener,
+            // so a rejection would surface as an unhandled rejection and, in
+            // Node, exit the process by default. Catch and log it; the change
+            // stays in memory and a later save or reload can re-persist it.
+            // See https://nodejs.org/api/process.html#event-unhandledrejection
+            this.#log.error(
+              `Error saving document ${handle.documentId} to storage`,
+              err
+            )
+          }
+        },
         this.#saveDebounceRate
       )
     }
