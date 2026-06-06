@@ -884,6 +884,21 @@ const getPort = () => {
   return getAvailablePort({ port: base })
 }
 
+describe("WebSocketServerAdapter inbound message handling", () => {
+  // A throw while handling a message must not escape the socket "message"
+  // callback; it must be caught and the connection closed.
+  it("isolates an error thrown while handling an inbound message", () => {
+    const adapter = new WebSocketServerAdapter({} as unknown as WebSocketServer)
+    let closed = false
+    const socket = { close: () => (closed = true) } as unknown as WebSocket
+    // CBOR null (0xf6): decode() succeeds and returns null, so the destructure
+    // in receiveMessage throws.
+    const malformed = new Uint8Array([0xf6])
+    assert.doesNotThrow(() => adapter.receiveMessage(malformed, socket))
+    assert(closed, "expected the misbehaving connection to be closed")
+  })
+})
+
 // TYPES
 
 type SetupOptions = {
