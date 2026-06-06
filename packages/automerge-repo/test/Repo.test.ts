@@ -2750,3 +2750,34 @@ const disableConsoleWarn = () => {
 const reenableConsoleWarn = () => {
   console.warn = warn
 }
+
+describe("Repo inbound message handling", () => {
+  // emit() runs its listeners synchronously, so a throw that escapes the
+  // "message" handler surfaces here as a failed assertion rather than a
+  // process exit.
+  it("isolates an error thrown while handling an inbound message", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const repo = new Repo({
+        network: [new DummyNetworkAdapter({ startReady: true })],
+      })
+      errSpy.mockClear() // ignore any logging from construction
+
+      // A malformed "sync" message: it has no documentId, which
+      // CollectionSynchronizer.receiveMessage rejects by throwing. (Other real
+      // causes: corrupt or cross-version sync data, a buggy or malicious peer.)
+      const deliver = () =>
+        repo.networkSubsystem.emit("message", {
+          type: "sync",
+          senderId: "peer",
+          targetId: repo.peerId,
+        } as any)
+
+      // The throw must not escape the listener; it must be caught and logged.
+      expect(deliver).not.toThrow()
+      expect(errSpy).toHaveBeenCalled()
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+})
