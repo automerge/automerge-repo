@@ -25,7 +25,7 @@ import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import debug from "debug"
 import { SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
-import { SyncScheduler, toTimeoutBigInt } from "./SyncScheduler.js"
+import { SyncScheduler } from "./SyncScheduler.js"
 import { AdapterConnections } from "./AdapterConnections.js"
 
 export type { OnHealExhausted } from "./SyncScheduler.js"
@@ -198,6 +198,17 @@ export interface SubductionTimeouts {
   syncMs?: number
 
   /**
+   * Default per-call total deadline (milliseconds) for *all* Subduction
+   * roundtrip syncs that don't pass their own timeout. This is forwarded
+   * to the `Subduction` constructor (`defaultTimeoutMilliseconds`) and so
+   * governs every internal roundtrip — not just the explicit
+   * `syncWithAllPeers` calls bounded by {@link syncMs}.
+   *
+   * Default: omitted, which uses Subduction's built-in default (30 s).
+   */
+  defaultMs?: number
+
+  /**
    * Initial delay before the first heal retry after a failed sync.
    * Doubles per retry up to `healMaxDelayMs`.
    *
@@ -269,7 +280,7 @@ export class SubductionSource implements DocumentSource {
   #connectionManagers: ConnectionManager[] = []
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
-  #syncTimeout: bigint | null
+  #syncTimeout: number | null
   #blobInterceptor?: BlobInterceptor
 
   readonly priority: SourcePriority
@@ -291,12 +302,10 @@ export class SubductionSource implements DocumentSource {
     this.#blobInterceptor = blobInterceptor
     this.priority = priority
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
-    // Validate + coerce once at construction so the wasm boundary
-    // never sees a non-integer / NaN / negative bigint conversion.
-    this.#syncTimeout = toTimeoutBigInt(
-      this.#syncTimeoutMs,
-      "subductionTimeouts.syncMs"
-    )
+    this.#syncTimeout = this.#syncTimeoutMs
+    // Default roundtrip deadline forwarded to the Subduction constructor;
+    // omitted → the wasm built-in default (30 s) applies.
+    const defaultTimeoutMilliseconds = timeouts?.defaultMs
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
     // Rust tracing filter so the messages actually reach the JS logger.
@@ -337,18 +346,14 @@ export class SubductionSource implements DocumentSource {
     // the same IndexedDB database.
     this.#log("constructing subduction (no hydrate)")
     this.#subduction = Promise.resolve(
-      new Subduction(
+      new Subduction({
         signer,
         storage,
-        undefined, // service_name
-        undefined, // hash_metric_override
-        undefined, // max_pending_blob_requests
-        undefined, // max_resident_trees
         policy,
-        undefined, // ephemeral_policy
         onRemoteHeads,
-        onEphemeral
-      )
+        onEphemeral,
+        defaultTimeoutMilliseconds,
+      })
     )
 
     // ── Connection managers ─────────────────────────────────────────

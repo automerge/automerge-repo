@@ -27,11 +27,11 @@ export interface SyncSchedulerOptions {
   onHealExhausted?: OnHealExhausted
 
   /**
-   * Timeout passed to `subduction.syncWithAllPeers(...)` for heal
-   * retries. Any finite, non-negative number (including `0`) is
-   * truncated to an integer and forwarded as a `bigint`. `undefined`
-   * (or omitted) passes `null` so subduction applies its own default
-   * timeout. Non-finite or negative values throw at construction.
+   * Timeout (milliseconds) passed to `subduction.syncWithAllPeers(...)`
+   * for heal retries. Any finite, non-negative number (including `0`) is
+   * truncated to an integer. `undefined` (or omitted) passes `null` so
+   * subduction applies its own default timeout. Non-finite or negative
+   * values throw at construction.
    */
   syncTimeoutMs?: number
 
@@ -78,7 +78,7 @@ export class SyncScheduler {
   #isShutdown = false
 
   // ── Tunable bounds ──────────────────────────────────────────────────
-  #syncTimeout: bigint | null
+  #syncTimeout: number | null
   #healInitialDelayMs: number
   #healMaxDelayMs: number
   #healMaxAttempts: number
@@ -88,10 +88,7 @@ export class SyncScheduler {
     this.#log = options.log
     this.#onSyncDataReceived = options.onSyncDataReceived
     this.#onHealExhausted = options.onHealExhausted
-    this.#syncTimeout = toTimeoutBigInt(
-      options.syncTimeoutMs,
-      "subductionTimeouts.syncMs"
-    )
+    this.#syncTimeout = options.syncTimeoutMs ?? null
     this.#healInitialDelayMs =
       options.healInitialDelayMs ?? DEFAULT_HEAL_INITIAL_DELAY_MS
     this.#healMaxDelayMs = options.healMaxDelayMs ?? DEFAULT_HEAL_MAX_DELAY_MS
@@ -220,23 +217,4 @@ export class SyncScheduler {
     this.#healBackoff.clear()
     this.#healAttempts.clear()
   }
-}
-
-/**
- * Coerce a millisecond timeout to a `bigint` for the wasm boundary.
- * `undefined` → `null` (subduction default). Non-finite or negative
- * values throw a `RangeError` naming `fieldName` so the caller knows
- * which config field is at fault.
- */
-export function toTimeoutBigInt(
-  ms: number | undefined,
-  fieldName: string
-): bigint | null {
-  if (ms === undefined) return null
-  if (!Number.isFinite(ms) || ms < 0) {
-    throw new RangeError(
-      `${fieldName} must be a finite, non-negative number; got ${ms}`
-    )
-  }
-  return BigInt(Math.trunc(ms))
 }

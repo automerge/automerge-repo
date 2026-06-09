@@ -18,7 +18,7 @@
  */
 
 import type { StorageAdapterInterface } from "@automerge/automerge-repo/slim"
-import { Subduction } from "@automerge/automerge-subduction/slim"
+import { Subduction, type Signer } from "@automerge/automerge-subduction/slim"
 export { SubductionSource, type OnRemoteHeadsChanged } from "./source.js"
 export type {
   Policy as SubductionPolicy,
@@ -78,6 +78,6 @@ export async function setupSubduction({
   storageAdapter,
 }: SetupSubductionOptions): Promise<SetupSubductionResult> {
   const storage = new SubductionStorageBridge(storageAdapter)
-  const subduction = new Subduction(signer, storage)
+  const subduction = new Subduction({ signer: signer as Signer, storage })
   return { subduction, storage }
 }
