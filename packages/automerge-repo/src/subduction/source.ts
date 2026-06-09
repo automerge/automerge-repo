@@ -820,13 +820,28 @@ export class SubductionSource implements DocumentSource {
     allBlobs.sort((a, b) => b.byteLength - a.byteLength)
 
     if (this.#blobInterceptor) {
+      // Transforming one blob may let the interceptor transform others
+      // that failed on an earlier pass. Re-run over the still-pending
+      // blobs until a pass makes no progress. Each pass strictly shrinks
+      // `pending` or stops, so this runs at most N passes.
       const transformed: Uint8Array[] = []
-      for (const blob of allBlobs) {
-        const result = await this.#blobInterceptor.transformIncoming(
-          entry.query.documentId,
-          blob
-        )
-        if (result) transformed.push(result)
+      let pending = allBlobs
+      let prevPendingLen = pending.length + 1
+      while (pending.length > 0 && pending.length < prevPendingLen) {
+        prevPendingLen = pending.length
+        const stillPending: Uint8Array[] = []
+        for (const blob of pending) {
+          const result = await this.#blobInterceptor.transformIncoming(
+            entry.query.documentId,
+            blob
+          )
+          if (result) {
+            transformed.push(result)
+          } else {
+            stillPending.push(blob)
+          }
+        }
+        pending = stillPending
       }
       if (transformed.length > 0) {
         entry.handle.update(d =>
