@@ -303,9 +303,14 @@ export class SubductionSource implements DocumentSource {
     this.priority = priority
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     this.#syncTimeout = this.#syncTimeoutMs
-    // Default roundtrip deadline forwarded to the Subduction constructor;
-    // omitted → the wasm built-in default (30 s) applies.
-    const defaultTimeoutMilliseconds = timeouts?.defaultMs
+    // Default roundtrip deadline forwarded to the Subduction constructor.
+    // The field must be *omitted* (not passed as `undefined`) to get the
+    // wasm built-in default (30 s) — passing `undefined` is coerced to a
+    // zero deadline and breaks every internal roundtrip.
+    const defaultTimeoutOption =
+      timeouts?.defaultMs !== undefined
+        ? { defaultTimeoutMilliseconds: timeouts.defaultMs }
+        : {}
     // Default to "warn" so the Rust side is quiet. When the debug npm module
     // has subduction namespaces enabled (via localStorage.debug), open the
     // Rust tracing filter so the messages actually reach the JS logger.
@@ -352,7 +357,7 @@ export class SubductionSource implements DocumentSource {
         policy,
         onRemoteHeads,
         onEphemeral,
-        defaultTimeoutMilliseconds,
+        ...defaultTimeoutOption,
       })
     )
 
