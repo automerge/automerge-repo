@@ -152,6 +152,12 @@ interface SedimentreeEntry {
    */
   saveDeltaPending: boolean
 
+  // True when stored blobs exist that the interceptor could not transform
+  // (e.g., their decryption keys have not arrived yet). shareConfigChanged
+  // uses this to re-transform such an entry's blobs once a key change may
+  // have made them transformable. False means there is nothing to retry.
+  hasUntransformedBlobs: boolean
+
   /**
    * Inbound blobs from `commit-saved` / `fragment-saved` events
    * waiting to be applied to the handle. Drained as a single
@@ -234,10 +240,11 @@ export interface SubductionTimeouts {
 
 /** Intercepts and transforms incoming and outgoing blobs (e.g., for E2EE). */
 export interface BlobInterceptor {
+  /** Return null to skip the blob (e.g., doc not yet available for encryption). */
   transformOutgoing(
     documentId: DocumentId,
     blob: Uint8Array
-  ): Promise<Uint8Array>
+  ): Promise<Uint8Array | null>
   /** Return null to skip the blob. */
   transformIncoming(
     documentId: DocumentId,
@@ -461,7 +468,12 @@ export class SubductionSource implements DocumentSource {
       void this.#blobInterceptor
         .transformIncoming(entry.query.documentId, blob)
         .then(result => {
-          if (!result) return
+          if (!result) {
+            // Could not transform this blob yet. Mark the entry so a later
+            // shareConfigChanged retries it.
+            entry.hasUntransformedBlobs = true
+            return
+          }
           entry.pendingInbound.push(result)
           if (!entry.inboundFlushScheduled) {
             entry.inboundFlushScheduled = true
@@ -579,6 +591,7 @@ export class SubductionSource implements DocumentSource {
       lastSaveError: null,
       pendingInbound: [],
       inboundFlushScheduled: false,
+      hasUntransformedBlobs: false,
     })
 
     query.sourcePending("subduction")
@@ -645,6 +658,38 @@ export class SubductionSource implements DocumentSource {
       if (entry.lastSyncResult === "all-failed" && !entry.syncInFlight) {
         entry.lastSyncResult = null
         this.#scheduler.resetHealState(entry.sedimentreeId.toString())
+      }
+      // Retry entries whose sync succeeded but the handle is still empty.
+      // This handles the case where blobs arrived before the interceptor
+      // could transform them, so transformIncoming dropped them. The share
+      // config has now changed, so re-arm the entry to reload blobs from
+      // storage and transform them again.
+      if (
+        entry.syncState === "running" &&
+        Automerge.getHeads(entry.handle.fullDoc()).length === 0 &&
+        entry.lastSyncResult === "succeeded" &&
+        !entry.syncInFlight
+      ) {
+        entry.lastSyncResult = null
+      }
+      // Re-transform stored blobs for a non-empty entry that still holds
+      // blobs the interceptor could not transform earlier. The share config
+      // has changed, so the keys those blobs need may now be available. The
+      // empty-handle case above is covered by the re-sync re-arm instead.
+      if (
+        entry.syncState === "running" &&
+        Automerge.getHeads(entry.handle.fullDoc()).length > 0 &&
+        entry.hasUntransformedBlobs &&
+        !entry.syncInFlight
+      ) {
+        void this.#reloadBlobs(entry)
+      }
+      // Re-trigger saves for entries whose last save had prep failures
+      // (e.g., transformOutgoing returned null because the interceptor was
+      // not ready). Now that the share config has changed, the transform
+      // may succeed.
+      if (entry.lastSaveError !== null && !entry.saveInProgress) {
+        entry.flushSave()
       }
     }
     this.#recompute()
@@ -754,7 +799,14 @@ export class SubductionSource implements DocumentSource {
       // During "initializing", `#loadBlobsAndTransition` performs one
       // atomic getBlobs + loadIncremental after sync succeeds; loading
       // here too would duplicate storage reads on first open.
-      if (dataReceived && entry.syncState === "running") {
+      //
+      // Also retry when the handle is empty: a previous load may have
+      // dropped blobs the interceptor could not yet transform.
+      if (
+        (dataReceived ||
+          Automerge.getHeads(entry.handle.fullDoc()).length === 0) &&
+        entry.syncState === "running"
+      ) {
         await this.#loadBlobsIntoHandle(entry, subduction)
       }
 
@@ -843,6 +895,7 @@ export class SubductionSource implements DocumentSource {
         }
         pending = stillPending
       }
+      entry.hasUntransformedBlobs = pending.length > 0
       if (transformed.length > 0) {
         entry.handle.update(d =>
           Automerge.loadIncremental(d, mergeArrays(transformed))
@@ -866,12 +919,18 @@ export class SubductionSource implements DocumentSource {
   async #loadBlobsAndTransition(entry: SedimentreeEntry) {
     try {
       const subduction = await this.#subduction
-      await this.#loadBlobsIntoHandle(entry, subduction)
+      const hadBlobs = await this.#loadBlobsIntoHandle(entry, subduction)
 
       entry.syncState = "running"
 
       if (Automerge.getHeads(entry.handle.fullDoc()).length === 0) {
-        if (!this.#anyConnectionManagerConnecting()) {
+        if (this.#blobInterceptor && hadBlobs) {
+          // Blobs are present but the interceptor could not transform them
+          // yet (e.g., their keys have not arrived). A later shareConfigChanged
+          // retries once a key change may make them transformable. Stay
+          // pending until then.
+          entry.query.sourcePending("subduction")
+        } else if (!this.#anyConnectionManagerConnecting()) {
           // No data after a successful sync and no pending connections —
           // the document is genuinely unavailable. If data arrives later
           // via #handleDataFound, it calls sourcePending to re-enter
@@ -899,6 +958,19 @@ export class SubductionSource implements DocumentSource {
     } finally {
       entry.blobLoadInFlight = false
       this.#recompute()
+    }
+  }
+
+  // Re-run the blob transform over an entry's already-stored blobs without a
+  // full re-sync. Used from shareConfigChanged when a key change may let the
+  // interceptor transform blobs that previously failed.
+  async #reloadBlobs(entry: SedimentreeEntry) {
+    try {
+      const subduction = await this.#subduction
+      await this.#loadBlobsIntoHandle(entry, subduction)
+      entry.query.sourcePending("subduction")
+    } catch (e) {
+      this.#log("reloadBlobs threw: %O", e)
     }
   }
 
@@ -1110,10 +1182,17 @@ export class SubductionSource implements DocumentSource {
       try {
         let commitBytes = c.bytes
         if (this.#blobInterceptor) {
-          commitBytes = await this.#blobInterceptor.transformOutgoing(
+          const transformed = await this.#blobInterceptor.transformOutgoing(
             documentId,
             commitBytes
           )
+          if (!transformed) {
+            prepErrors.push(
+              new Error(`transformOutgoing returned null for ${documentId}`)
+            )
+            continue
+          }
+          commitBytes = transformed
         }
         const head = CommitId.fromHexString(c.head)
         const looseCommit = new LooseCommit(
