@@ -71,7 +71,10 @@ class TestServer {
     const addr = wss.address()
     if (typeof addr === "string") throw new Error("unexpected address type")
 
-    const subduction = new Subduction(new MemorySigner(), new MemoryStorage())
+    const subduction = new Subduction({
+      signer: new MemorySigner(),
+      storage: new MemoryStorage(),
+    })
     const serviceName = `localhost:${addr.port}`
     wss.on("connection", ws => {
       subduction

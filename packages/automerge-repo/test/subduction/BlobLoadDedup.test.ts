@@ -48,7 +48,7 @@ async function startSubductionServer(listenPort = 0): Promise<{
 }> {
   const signer = new MemorySigner()
   const storage = new MemoryStorage()
-  const subduction = new Subduction(signer, storage)
+  const subduction = new Subduction({ signer, storage })
 
   const wss = new WebSocketServer({ port: listenPort })
   await once(wss, "listening")

@@ -29,15 +29,11 @@ async function startSubductionServer(
 ): Promise<TestServer> {
   const signer = new MemorySigner()
   const storage = new MemoryStorage()
-  const subduction = new Subduction(
+  const subduction = new Subduction({
     signer,
     storage,
-    undefined, // service_name
-    undefined, // hash_metric_override
-    undefined, // max_pending_blob_requests
-    undefined, // max_resident_trees
-    policy
-  )
+    policy,
+  })
 
   const wss = new WebSocketServer({ port: listenPort })
   await once(wss, "listening")
