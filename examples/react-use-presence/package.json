@@ -1,6 +1,6 @@
 {
   "name": "automerge-use-awareness-example-project",
-  "version": "2.6.0-subduction.28",
+  "version": "2.6.0-subduction.29",
   "private": true,
   "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-use-presence",
   "type": "module",
