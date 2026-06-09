@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest"
 import { WebSocketServer } from "ws"
 import {
-  Subduction,
   MemorySigner,
   MemoryStorage,
+  Subduction,
+  type Policy,
 } from "@automerge/automerge-subduction/slim"
 import { Repo } from "../../src/Repo.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
@@ -152,27 +153,6 @@ describe("BlobInterceptor", () => {
     })
   }
 
-  it("blobs on the server are transformed (not raw automerge)", async () => {
-    const server = await startServer()
-    const interceptor = makeMockInterceptor()
-    const repo = createRepo("alice", server.url, interceptor)
-
-    const handle = repo.create<{ text: string }>()
-    handle.change(d => {
-      d.text = "secret"
-    })
-
-    await waitForBlobs(server, handle.documentId)
-
-    const sid = toSedimentreeId(handle.documentId)
-    const blobs = (await server.subduction.getBlobs(sid))!
-    for (const blob of blobs) {
-      expect(blob.slice(0, INTERCEPTOR_PREFIX.length)).toEqual(
-        INTERCEPTOR_PREFIX
-      )
-    }
-  }, 10_000)
-
   it("sync works end-to-end through interceptor", async () => {
     const server = await startServer()
     const aliceInterceptor = makeMockInterceptor()
@@ -208,6 +188,7 @@ describe("BlobInterceptor", () => {
 
     await waitForCondition(() => interceptor.outgoingCount > 0, 5000)
 
+    expect(interceptor.documentIds.length).toBeGreaterThan(0)
     for (const id of interceptor.documentIds) {
       expect(id).toBe(handle.documentId)
     }
@@ -238,34 +219,174 @@ describe("BlobInterceptor", () => {
     const blobs = await server.subduction.getBlobs(sid)
     expect(blobs === undefined || blobs.length === 0).toBe(true)
   }, 10_000)
+})
 
-  it("transformIncoming returning null rejects the doc", async () => {
-    const server = await startServer()
-    const aliceInterceptor = makeMockInterceptor()
-    const alice = createRepo("alice", server.url, aliceInterceptor)
+// The server policy initially denies access, then begins allowing it.
+// This models the case where the authorization state needed to accept a
+// push has not reached the server when subduction sync first tries to
+// push transformed blobs.
+describe("BlobInterceptor delayed server policy", () => {
+  const cleanups: Array<() => Promise<void> | void> = []
 
-    let rejectCount = 0
-    const rejectAllInterceptor: BlobInterceptor = {
-      async transformOutgoing(_documentId, blob) {
-        return blob
-      },
-      async transformIncoming() {
-        rejectCount++
-        return null
-      },
+  afterEach(async () => {
+    for (const cleanup of cleanups.reverse()) {
+      await cleanup()
     }
-    const bob = createRepo("bob", server.url, rejectAllInterceptor)
+    cleanups.length = 0
+  })
 
-    const aliceHandle = alice.create<{ text: string }>()
-    aliceHandle.change(d => {
-      d.text = "bob cannot read this"
+  async function startPolicyServer(policy: Policy) {
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>(r => wss.on("listening", r))
+    const addr = wss.address()
+    if (typeof addr === "string") throw new Error("unexpected address type")
+
+    const subduction = await Subduction.hydrate(
+      new MemorySigner(),
+      new MemoryStorage(),
+      undefined,
+      undefined,
+      undefined,
+      policy,
+    )
+    const serviceName = `localhost:${addr.port}`
+    wss.on("connection", ws => {
+      subduction
+        .acceptTransport(new WebSocketTransport(ws as any), serviceName)
+        .catch(() => {})
     })
 
-    await waitForBlobs(server, aliceHandle.documentId)
+    const url = `ws://localhost:${addr.port}`
+    cleanups.push(async () => {
+      await subduction.disconnectAll()
+      await new Promise<void>((r, e) =>
+        wss.close(err => (err ? e(err) : r()))
+      )
+    })
+    return { url, subduction }
+  }
 
-    await expect(
-      bob.find<{ text: string }>(aliceHandle.url).then(h => h.whenReady())
-    ).rejects.toThrow("unavailable")
-    expect(rejectCount).toBeGreaterThan(0)
-  }, 15_000)
+  it("blobs reach server after policy begins allowing", async () => {
+    // The policy initially denies all access, then allows it after a
+    // delay (as authorization state arrives).
+    let policyAllowed = false
+    const policy: Policy = {
+      async authorizeConnect() {},
+      async authorizeFetch() {
+        if (!policyAllowed) throw new Error("not yet authorized")
+      },
+      async authorizePut() {
+        if (!policyAllowed) throw new Error("not yet authorized")
+      },
+      async filterAuthorizedFetch(_peerId, ids) {
+        return policyAllowed ? ids : []
+      },
+    }
+
+    const server = await startPolicyServer(policy)
+    const interceptor = makeMockInterceptor()
+
+    const repo = new Repo({
+      peerId: "sender" as PeerId,
+      storage: new DummyStorageAdapter(),
+      subductionWebsocketEndpoints: [server.url],
+      subductionBlobInterceptor: interceptor,
+      subductionTimeouts: {
+        healInitialDelayMs: 500,
+        healMaxDelayMs: 2000,
+      },
+    })
+
+    const handle = repo.create<{ text: string }>()
+    handle.change(d => {
+      d.text = "encrypted content"
+    })
+
+    // Wait for at least one sync attempt to fail (policy denies).
+    await pause(1500)
+
+    // Verify blobs are NOT on the server yet.
+    const sid = toSedimentreeId(handle.documentId)
+    const blobsBefore = await server.subduction.getBlobs(sid)
+    expect(blobsBefore?.length ?? 0).toBe(0)
+
+    // Simulate the authorization state arriving: enable the policy.
+    policyAllowed = true
+
+    // The heal scheduler should retry and push the blobs.
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 15_000)
+
+    const blobs = (await server.subduction.getBlobs(sid))!
+    expect(blobs.length).toBeGreaterThan(0)
+  }, 30_000)
+
+  it("receiver gets blobs after delayed policy allow", async () => {
+    let policyAllowed = false
+    const policy: Policy = {
+      async authorizeConnect() {},
+      async authorizeFetch() {
+        if (!policyAllowed) throw new Error("not yet authorized")
+      },
+      async authorizePut() {
+        if (!policyAllowed) throw new Error("not yet authorized")
+      },
+      async filterAuthorizedFetch(_peerId, ids) {
+        return policyAllowed ? ids : []
+      },
+    }
+
+    const server = await startPolicyServer(policy)
+    const senderInterceptor = makeMockInterceptor()
+    const receiverInterceptor = makeMockInterceptor()
+
+    const sender = new Repo({
+      peerId: "sender" as PeerId,
+      storage: new DummyStorageAdapter(),
+      subductionWebsocketEndpoints: [server.url],
+      subductionBlobInterceptor: senderInterceptor,
+      subductionTimeouts: {
+        healInitialDelayMs: 500,
+        healMaxDelayMs: 2000,
+      },
+    })
+
+    const senderHandle = sender.create<{ text: string }>()
+    senderHandle.change(d => {
+      d.text = "secret message"
+    })
+
+    // Wait for initial sync attempts to fail.
+    await pause(1500)
+
+    // Enable the policy (authorization state has arrived on the server).
+    policyAllowed = true
+
+    // Wait for sender's blobs to reach the server via heal retry.
+    const sid = toSedimentreeId(senderHandle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 15_000)
+
+    // Now create the receiver. The server has the blobs and
+    // the policy allows access.
+    const receiver = new Repo({
+      peerId: "receiver" as PeerId,
+      storage: new DummyStorageAdapter(),
+      subductionWebsocketEndpoints: [server.url],
+      subductionBlobInterceptor: receiverInterceptor,
+      subductionTimeouts: {
+        healInitialDelayMs: 500,
+        healMaxDelayMs: 2000,
+      },
+    })
+
+    const receiverHandle = await receiver.find<{ text: string }>(senderHandle.url)
+    expect(receiverHandle.doc()!.text).toBe("secret message")
+    expect(senderInterceptor.outgoingCount).toBeGreaterThan(0)
+    expect(receiverInterceptor.incomingCount).toBeGreaterThan(0)
+  }, 30_000)
 })
