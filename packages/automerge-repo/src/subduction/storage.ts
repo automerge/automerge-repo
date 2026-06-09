@@ -80,6 +80,13 @@ interface SettleWaiter {
 
 export class SubductionStorageBridge implements SedimentreeStorage {
   private adapter: StorageAdapterInterface
+  /**
+   * First storage-key segment for every subduction key this bridge
+   * writes and reads. Defaults to {@link DEFAULT_PREFIX}. An
+   * interceptor-backed store uses {@link INTERCEPTOR_PREFIX} so its
+   * keys never collide with an untransformed store sharing one adapter.
+   */
+  private readonly prefix: string
   private listeners: {
     [K in keyof StorageBridgeEvents]?: StorageBridgeEvents[K][]
   } = {}
@@ -88,7 +95,11 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   private pendingPerSid: Map<string, number> = new Map()
   private settleWaiters: SettleWaiter[] = []
 
-  constructor(adapter: StorageAdapterInterface) {
+  constructor(
+    adapter: StorageAdapterInterface,
+    prefix: string = DEFAULT_PREFIX
+  ) {
+    this.prefix = prefix
     this.adapter = adapter
   }
 
@@ -212,17 +223,17 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   // ==================== Sedimentree IDs ====================
 
   async saveSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
-    const key = [PREFIX, IDS_PREFIX, sedimentreeId.toString()]
+    const key = [this.prefix, IDS_PREFIX, sedimentreeId.toString()]
     await this.adapter.save(key, ID_MARKER)
   }
 
   async deleteSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
-    const key = [PREFIX, IDS_PREFIX, sedimentreeId.toString()]
+    const key = [this.prefix, IDS_PREFIX, sedimentreeId.toString()]
     await this.adapter.remove(key)
   }
 
   async loadAllSedimentreeIds(): Promise<SedimentreeId[]> {
-    const chunks = await this.adapter.loadRange([PREFIX, IDS_PREFIX])
+    const chunks = await this.adapter.loadRange([this.prefix, IDS_PREFIX])
     return chunks
       .filter(chunk => chunk.key.length === 3 && chunk.data)
       .map(chunk => SedimentreeId.fromBytes(hexToBytes(chunk.key[2])))
@@ -246,8 +257,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     this.incrementPending(sid)
     try {
       const idHex = commitId.toHexString()
-      const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
-      const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
+      const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
+      const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
 
       await this.adapter.saveBatch([
         [blobKey, blobCopy],
@@ -277,8 +288,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<CommitWithBlob | null> {
     const idHex = commitId.toHexString()
     const sid = sedimentreeId.toString()
-    const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
-    const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
+    const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
+    const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
 
     const [commitData, blobData] = await Promise.all([
       this.adapter.load(commitKey),
@@ -293,7 +304,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async listCommitIds(sedimentreeId: SedimentreeId): Promise<CommitId[]> {
     const chunks = await this.adapter.loadRange([
-      PREFIX,
+      this.prefix,
       COMMITS_PREFIX,
       sedimentreeId.toString(),
     ])
@@ -308,11 +319,11 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const sid = sedimentreeId.toString()
     // Batch: two loadRange calls in parallel instead of 1 + 2N sequential loads.
     const [commitChunks, blobChunks] = await Promise.all([
-      this.adapter.loadRange([PREFIX, COMMITS_PREFIX, sid]),
-      this.adapter.loadRange([PREFIX, BLOBS_PREFIX, sid]),
+      this.adapter.loadRange([this.prefix, COMMITS_PREFIX, sid]),
+      this.adapter.loadRange([this.prefix, BLOBS_PREFIX, sid]),
     ])
 
-    // Index blobs by id hex for O(1) lookup
+    // Index blobs by id hex for O(1) lookup.
     const blobsById = new Map<string, Uint8Array>()
     for (const chunk of blobChunks) {
       if (chunk.key.length === 4 && chunk.data) {
@@ -340,8 +351,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<void> {
     const idHex = commitId.toHexString()
     const sid = sedimentreeId.toString()
-    const commitKey = [PREFIX, COMMITS_PREFIX, sid, idHex]
-    const blobKey = [PREFIX, BLOBS_PREFIX, sid, idHex]
+    const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
+    const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
 
     await Promise.all([
       this.adapter.remove(commitKey),
@@ -352,8 +363,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async deleteAllCommits(sedimentreeId: SedimentreeId): Promise<void> {
     const sid = sedimentreeId.toString()
     await Promise.all([
-      this.adapter.removeRange([PREFIX, COMMITS_PREFIX, sid]),
-      this.adapter.removeRange([PREFIX, BLOBS_PREFIX, sid]),
+      this.adapter.removeRange([this.prefix, COMMITS_PREFIX, sid]),
+      this.adapter.removeRange([this.prefix, BLOBS_PREFIX, sid]),
     ])
   }
 
@@ -375,8 +386,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     this.incrementPending(sid)
     try {
       const idHex = fragmentHead.toHexString()
-      const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
-      const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
+      const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
+      const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
       // See the matching comment in saveCommit for rationale.
       await this.adapter.saveBatch([
@@ -404,8 +415,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<FragmentWithBlob | null> {
     const idHex = fragmentHead.toHexString()
     const sid = sedimentreeId.toString()
-    const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
-    const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
+    const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
+    const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
     const [fragmentData, blobData] = await Promise.all([
       this.adapter.load(fragmentKey),
@@ -420,7 +431,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async listFragmentIds(sedimentreeId: SedimentreeId): Promise<CommitId[]> {
     const chunks = await this.adapter.loadRange([
-      PREFIX,
+      this.prefix,
       FRAGMENTS_PREFIX,
       sedimentreeId.toString(),
     ])
@@ -435,11 +446,11 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const sid = sedimentreeId.toString()
     // Batch: two loadRange calls in parallel instead of 1 + 2M sequential loads.
     const [fragmentChunks, blobChunks] = await Promise.all([
-      this.adapter.loadRange([PREFIX, FRAGMENTS_PREFIX, sid]),
-      this.adapter.loadRange([PREFIX, FRAGMENT_BLOBS_PREFIX, sid]),
+      this.adapter.loadRange([this.prefix, FRAGMENTS_PREFIX, sid]),
+      this.adapter.loadRange([this.prefix, FRAGMENT_BLOBS_PREFIX, sid]),
     ])
 
-    // Index blobs by id hex for O(1) lookup
+    // Index blobs by id hex for O(1) lookup.
     const blobsById = new Map<string, Uint8Array>()
     for (const chunk of blobChunks) {
       if (chunk.key.length === 4 && chunk.data) {
@@ -467,8 +478,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<void> {
     const idHex = fragmentHead.toHexString()
     const sid = sedimentreeId.toString()
-    const fragmentKey = [PREFIX, FRAGMENTS_PREFIX, sid, idHex]
-    const blobKey = [PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex]
+    const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
+    const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
     await Promise.all([
       this.adapter.remove(fragmentKey),
@@ -479,8 +490,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async deleteAllFragments(sedimentreeId: SedimentreeId): Promise<void> {
     const sid = sedimentreeId.toString()
     await Promise.all([
-      this.adapter.removeRange([PREFIX, FRAGMENTS_PREFIX, sid]),
-      this.adapter.removeRange([PREFIX, FRAGMENT_BLOBS_PREFIX, sid]),
+      this.adapter.removeRange([this.prefix, FRAGMENTS_PREFIX, sid]),
+      this.adapter.removeRange([this.prefix, FRAGMENT_BLOBS_PREFIX, sid]),
     ])
   }
 
@@ -529,21 +540,21 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const idHex = commitId.toHexString()
       const blobCopy = new Uint8Array(blob)
       const commitCopy = new Uint8Array(signedCommit.encode())
-      blobEntries.push([[PREFIX, BLOBS_PREFIX, sid, idHex], blobCopy])
-      metaEntries.push([[PREFIX, COMMITS_PREFIX, sid, idHex], commitCopy])
+      blobEntries.push([[this.prefix, BLOBS_PREFIX, sid, idHex], blobCopy])
+      metaEntries.push([[this.prefix, COMMITS_PREFIX, sid, idHex], commitCopy])
       commitBlobCopies.push(blobCopy)
     }
     for (const { fragmentHead, signedFragment, blob } of fragments) {
       const idHex = fragmentHead.toHexString()
       const blobCopy = new Uint8Array(blob)
       const fragCopy = new Uint8Array(signedFragment.encode())
-      blobEntries.push([[PREFIX, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
-      metaEntries.push([[PREFIX, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
+      blobEntries.push([[this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
+      metaEntries.push([[this.prefix, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
       fragmentBlobCopies.push(blobCopy)
     }
 
     const markerEntry: [string[], Uint8Array] = [
-      [PREFIX, IDS_PREFIX, sid],
+      [this.prefix, IDS_PREFIX, sid],
       ID_MARKER,
     ]
 
@@ -588,7 +599,18 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   }
 }
 
-const PREFIX = "subduction"
+/** Default storage-key prefix for a subduction store. */
+export const DEFAULT_PREFIX = "subduction"
+/**
+ * Storage-key prefix for a subduction store whose Repo has a blob
+ * interceptor configured. An interceptor transforms the stored
+ * representation (e.g., encrypts it), so its commits must not share keys
+ * with untransformed commits. Keeping them under a separate prefix
+ * prevents a collision when two Repos back their subduction stores with
+ * one shared `storage` (e.g., a browser page and its service worker on one
+ * origin IndexedDB), where only one Repo runs the interceptor.
+ */
+export const INTERCEPTOR_PREFIX = "subduction-interceptor"
 const IDS_PREFIX = "ids"
 const COMMITS_PREFIX = "commits"
 const FRAGMENTS_PREFIX = "fragments"
