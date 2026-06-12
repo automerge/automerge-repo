@@ -22,6 +22,7 @@ import type { StorageId } from "../storage/types.js"
 import type { UrlHeads } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
+import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
 import debug from "debug"
 import { SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
@@ -385,7 +386,7 @@ export class SubductionSource implements DocumentSource {
     this.#connectionManagers.push(adapterConnections)
 
     for (const mgr of this.#connectionManagers) {
-      mgr.onChange(() => this.#recompute())
+      mgr.onChange(() => this.#scheduleRecompute())
     }
 
     this.#storage.on("commit-saved", (sid, commitId, blob) => {
@@ -652,7 +653,7 @@ export class SubductionSource implements DocumentSource {
       }
     })()
 
-    this.#recompute()
+    this.#scheduleRecompute()
   }
 
   detach(_documentId: DocumentId): void {}
@@ -680,14 +681,55 @@ export class SubductionSource implements DocumentSource {
         entry.flushSave()
       }
     }
-    this.#recompute()
+    this.#scheduleRecompute()
   }
 
   // ── Central recompute ───────────────────────────────────────────────
 
-  #recompute() {
+  #recomputeScheduled = false
+
+  /**
+   * Request a recompute of every entry's sync state machine.
+   *
+   * Coalesces bursts. Bulk `attach` (thousands of docs created/found at
+   * once) previously called the *synchronous* `#recompute` once per doc,
+   * and each call walked ALL entries — O(N²) synchronous work that
+   * monopolized the single thread and starved the transport, so the sync
+   * server's keepalive reaped the connection mid-ingest. Now a burst
+   * collapses to a single walk on the next macrotask, and the walk yields
+   * periodically so the loop can service the socket between entries.
+   */
+  #scheduleRecompute() {
+    if (this.#recomputeScheduled) return
+    this.#recomputeScheduled = true
+    void (async () => {
+      try {
+        // Defer to a macrotask so a synchronous burst of attaches/transitions
+        // collapses into one walk instead of one walk per attach.
+        await yieldToMacrotask()
+        this.#recomputeScheduled = false
+        await this.#runRecompute()
+      } catch (e) {
+        this.#log("recompute walk failed: %O", e)
+      }
+    })()
+  }
+
+  /**
+   * Walks can overlap: `#recomputeScheduled` resets *before* the walk runs
+   * (so a request arriving mid-walk isn't lost), which means a second walk
+   * may start while a prior one is suspended at `maybeYield()`. This is
+   * safe only because `#recomputeEntry` is fully synchronous and guards
+   * its async kick-offs with flags set in the same synchronous block
+   * (`syncInFlight`, `blobLoadInFlight`). Keep it that way: making
+   * `#recomputeEntry` async, or setting those flags after an `await`,
+   * turns overlapping walks into double-dispatch bugs.
+   */
+  async #runRecompute() {
+    const maybeYield = makeYielder()
     for (const entry of this.#entries.values()) {
       this.#recomputeEntry(entry)
+      await maybeYield()
     }
   }
 
@@ -832,7 +874,7 @@ export class SubductionSource implements DocumentSource {
             `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
       }
-      this.#recompute()
+      this.#scheduleRecompute()
     }
   }
 
@@ -863,6 +905,7 @@ export class SubductionSource implements DocumentSource {
     if (!allBlobs || allBlobs.length === 0) return false
     allBlobs.sort((a, b) => b.byteLength - a.byteLength)
 
+    let toApply = allBlobs
     if (this.#blobInterceptor) {
       // Transforming one blob may let the interceptor transform others
       // that failed on an earlier pass. Re-run over the still-pending
@@ -888,15 +931,45 @@ export class SubductionSource implements DocumentSource {
         pending = stillPending
       }
       entry.hasUntransformedBlobs = pending.length > 0
-      if (transformed.length > 0) {
-        entry.handle.update(d =>
-          Automerge.loadIncremental(d, mergeArrays(transformed))
-        )
+      toApply = transformed
+    }
+
+    // Apply in cumulative-size chunks with a yield between them. A single
+    // `loadIncremental` of a large cold-start doc (e.g. 1.5 MB / hundreds
+    // of blobs) blocks the thread for >1s — in a service worker that
+    // starves the socket and rendering; in Node it misses keepalive pongs.
+    // `loadIncremental` tolerates partial/incremental application (live
+    // sync relies on exactly that), so a subset of blobs is a valid
+    // increment. A doc that fits in one chunk is a single update —
+    // byte-for-byte the prior behavior, so the common small-doc path is
+    // unchanged (and avoids re-triggering the per-update listener storm).
+    const CHUNK_BYTES = 256 * 1024
+    if (toApply.length > 0) {
+      const total = toApply.reduce((n, b) => n + b.byteLength, 0)
+      if (toApply.length === 1 || total <= CHUNK_BYTES) {
+        const merged = toApply.length === 1 ? toApply[0] : mergeArrays(toApply)
+        entry.handle.update(d => Automerge.loadIncremental(d, merged))
+      } else {
+        const maybeYield = makeYielder()
+        let chunk: Uint8Array[] = []
+        let chunkBytes = 0
+        const flushChunk = () => {
+          if (chunk.length === 0) return
+          const merged = chunk.length === 1 ? chunk[0] : mergeArrays(chunk)
+          entry.handle.update(d => Automerge.loadIncremental(d, merged))
+          chunk = []
+          chunkBytes = 0
+        }
+        for (const blob of toApply) {
+          chunk.push(blob)
+          chunkBytes += blob.byteLength
+          if (chunkBytes >= CHUNK_BYTES) {
+            flushChunk()
+            await maybeYield()
+          }
+        }
+        flushChunk()
       }
-    } else {
-      entry.handle.update(d =>
-        Automerge.loadIncremental(d, mergeArrays(allBlobs))
-      )
     }
 
     // The bulk-loaded blobs may include fragments that absorb loose
@@ -949,7 +1022,7 @@ export class SubductionSource implements DocumentSource {
       entry.lastSyncResult = null
     } finally {
       entry.blobLoadInFlight = false
-      this.#recompute()
+      this.#scheduleRecompute()
     }
   }
 
@@ -1096,7 +1169,7 @@ export class SubductionSource implements DocumentSource {
     } else if (entry.lastSyncResult !== "no-peers") {
       entry.lastSyncResult = null
     }
-    this.#recompute()
+    this.#scheduleRecompute()
   }
 
   async #saveNewCommits<T>(
@@ -1169,6 +1242,11 @@ export class SubductionSource implements DocumentSource {
     const fragmentInputs: FragmentInput[] = []
     const prepErrors: unknown[] = []
 
+    // Yield between input-prep iterations so a large batch (e.g. a 1000+
+    // commit propagation) doesn't build all its CommitInputs/FragmentInputs
+    // in one unbroken run.
+    const maybeYield = makeYielder()
+
     const documentId = entry.query.documentId
     for (const c of newCommits) {
       try {
@@ -1202,6 +1280,7 @@ export class SubductionSource implements DocumentSource {
         )
         prepErrors.push(e)
       }
+      await maybeYield()
     }
 
     for (const f of newFragments) {
@@ -1239,6 +1318,7 @@ export class SubductionSource implements DocumentSource {
         )
         prepErrors.push(e)
       }
+      await maybeYield()
     }
 
     if (prepErrors.length > 0) {
