@@ -143,6 +143,15 @@ describe("NodeFSStorageAdapter", () => {
       const prior = await adapter.load(key)
       expect(prior).toBeDefined()
       expect(Array.from(prior!)).toEqual([1, 1, 1])
+
+      // loadRange consults the prefix index (not the cache map directly),
+      // so it would expose a phantom key if rollback failed to de-index.
+      // load() alone cannot catch that desync.
+      const phantom = await adapter.loadRange(["BBBBBBBB"])
+      expect(phantom.map(c => c.key)).not.toContainEqual(blockerKey)
+
+      const intact = await adapter.loadRange(["AAAAAAAA"])
+      expect(intact).toStrictEqual([{ key, data: new Uint8Array([1, 1, 1]) }])
     })
 
     it("save() restores the prior cache value when overwriting an existing key fails", async () => {
@@ -168,6 +177,12 @@ describe("NodeFSStorageAdapter", () => {
       const loaded = await adapter.load(key)
       expect(loaded).toBeDefined()
       expect(Array.from(loaded!)).toEqual([1, 1, 1])
+
+      // The prefix index must still list the key exactly once with the
+      // rolled-back bytes. (Rollback-to-prior must keep the key indexed,
+      // unlike rollback-of-a-new-key which de-indexes it.)
+      const ranged = await adapter.loadRange(["AAAAAAAA"])
+      expect(ranged).toStrictEqual([{ key, data: new Uint8Array([1, 1, 1]) }])
     })
 
     // ─── saveBatch ────────────────────────────────────────────────────
@@ -248,6 +263,13 @@ describe("NodeFSStorageAdapter", () => {
       expect(await adapter.load(okKey1)).toBeUndefined()
       expect(await adapter.load(okKey2)).toBeUndefined()
       expect(await adapter.load(badKey)).toBeUndefined()
+
+      // The prefix index must agree: no phantom keys survive the abort.
+      // (The BBBBBBBB shard contains the blocker file we planted, so
+      // assert on the absence of badKey rather than emptiness.)
+      expect(await adapter.loadRange(["AAAAAAAA"])).toStrictEqual([])
+      const bShard = await adapter.loadRange(["BBBBBBBB"])
+      expect(bShard.map(c => c.key)).not.toContainEqual(badKey)
     })
 
     it("saveBatch() with a commit-phase failure keeps successful entries and rolls back only the failed one", async () => {
@@ -316,6 +338,17 @@ describe("NodeFSStorageAdapter", () => {
       // them to targets; the failing rename's tmp was unlinked.
       const tmpDir = path.join(dir, ".tmp")
       expect(fs.readdirSync(tmpDir)).toEqual([])
+
+      // Prefix-index view: successful entries are listed with their new
+      // bytes; the failed entry is de-indexed (its target is a directory,
+      // which walkdir descends into and finds empty).
+      expect(await adapter.loadRange(["AAAAAAAA"])).toStrictEqual([
+        { key: okKey1, data: new Uint8Array([1]) },
+      ])
+      expect(await adapter.loadRange(["CCCCCCCC"])).toStrictEqual([
+        { key: okKey2, data: new Uint8Array([2]) },
+      ])
+      expect(await adapter.loadRange(["BBBBBBBB"])).toStrictEqual([])
     })
   })
 })

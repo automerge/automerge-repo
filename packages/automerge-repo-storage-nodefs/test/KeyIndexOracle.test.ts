@@ -17,9 +17,9 @@
  *
  * The reference model here is that old scan, expressed over an
  * insertion-ordered Map (identical semantics for non-index string keys).
- * fast-check drives random op sequences (save / remove / removeRange)
- * against both the real adapter and the model, comparing every prefix
- * query after every op.
+ * fast-check drives random op sequences (save / saveBatch / remove /
+ * removeRange) against both the real adapter and the model, comparing
+ * every prefix query after every op.
  */
 
 import fc from "fast-check"
@@ -86,6 +86,7 @@ class ReferenceModel {
 
 type Op =
   | { type: "save"; key: string[]; value: Uint8Array }
+  | { type: "saveBatch"; entries: Array<[string[], Uint8Array]> }
   | { type: "remove"; key: string[] }
   | { type: "removeRange"; prefix: string[] }
 
@@ -106,6 +107,19 @@ const opArb: fc.Arbitrary<Op> = fc.oneof(
       type: fc.constant("save" as const),
       key: keyArb,
       value: bytesArb,
+    }),
+  },
+  {
+    weight: 2,
+    arbitrary: fc.record({
+      type: fc.constant("saveBatch" as const),
+      // Duplicate keys within one batch race their renames (Promise.all),
+      // so the final value would be nondeterministic — exclude them.
+      entries: fc.uniqueArray(fc.tuple(keyArb, bytesArb), {
+        minLength: 1,
+        maxLength: 4,
+        selector: ([k]) => join(k),
+      }),
     }),
   },
   {
@@ -142,6 +156,10 @@ describe("NodeFSStorageAdapter prefix-index oracle", () => {
                 case "save":
                   await adapter.save(op.key, op.value)
                   model.save(op.key, op.value)
+                  break
+                case "saveBatch":
+                  await adapter.saveBatch(op.entries)
+                  for (const [k, v] of op.entries) model.save(k, v)
                   break
                 case "remove":
                   await adapter.remove(op.key)
