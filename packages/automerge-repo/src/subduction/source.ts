@@ -1216,10 +1216,17 @@ export class SubductionSource implements DocumentSource {
       try {
         let fragmentBytes = f.bytes
         if (this.#blobInterceptor) {
-          fragmentBytes = await this.#blobInterceptor.transformOutgoing(
+          const transformed = await this.#blobInterceptor.transformOutgoing(
             documentId,
             fragmentBytes
           )
+          if (!transformed) {
+            prepErrors.push(
+              new Error(`transformOutgoing returned null for ${documentId}`)
+            )
+            continue
+          }
+          fragmentBytes = transformed
         }
         const head = CommitId.fromHexString(f.head)
         const boundary = f.boundary.map(b => CommitId.fromHexString(b))
