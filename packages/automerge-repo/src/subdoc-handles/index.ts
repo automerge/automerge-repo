@@ -3,6 +3,7 @@ export type {
   MutableText,
   SubChangeFn,
   InferSubType,
+  InferSubTypeFromString,
   Pattern,
 } from "./types.js"
 

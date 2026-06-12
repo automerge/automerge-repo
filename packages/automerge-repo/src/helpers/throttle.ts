@@ -1,5 +1,5 @@
 /** Throttle
- * Returns a function with a built in throttle timer that runs after `delay` ms.
+ * Returns a function with a built-in throttle timer that runs after `delay` ms.
  *
  * This function differs from a conventional `throttle` in that it ensures the final
  * call will also execute and delays sending the first one until `delay` ms to allow
@@ -25,22 +25,45 @@
  *
  */
 
-export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
+export type ThrottledFunction<F extends (...args: any[]) => any> = {
+  (...args: Parameters<F>): void
+  /** Immediately execute any pending throttled call. */
+  flush: () => void
+}
+
+export const throttle = <F extends (...args: any[]) => any>(
   fn: F,
   delay: number
-): ((...args: Parameters<F>) => void) => {
+): ThrottledFunction<F> => {
   let lastCall = Date.now()
-  let wait: number | undefined
-  let timeout: ReturnType<typeof setTimeout>
-  return function (...args: Parameters<F>): void {
+  let wait: number
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let pendingArgs: Parameters<F> | undefined
+
+  const throttled = function (...args: Parameters<F>) {
+    pendingArgs = args
     // Clamp to 0: passing a negative delay to setTimeout warns on some runtimes.
     wait = Math.max(0, lastCall + delay - Date.now())
     clearTimeout(timeout)
     timeout = setTimeout(() => {
+      timeout = undefined
+      pendingArgs = undefined
       fn(...args)
       lastCall = Date.now()
     }, wait)
+  } as ThrottledFunction<F>
+
+  throttled.flush = () => {
+    clearTimeout(timeout)
+    timeout = undefined
+    if (pendingArgs) {
+      fn(...pendingArgs)
+      pendingArgs = undefined
+      lastCall = Date.now()
+    }
   }
+
+  return throttled
 }
 
 /**
@@ -108,7 +131,7 @@ export const asyncThrottle = <TArgs extends unknown[], TReturn>(
     }
 
     // Clamp to 0: passing a negative delay to setTimeout warns on some runtimes.
-    const wait = Math.max(0, lastCall + delay - Date.now()) //if negative, executes immediately
+    const wait = Math.max(0, lastCall + delay - Date.now())
 
     return new Promise<TReturn>((resolve, reject) => {
       timeout = setTimeout(async () => {

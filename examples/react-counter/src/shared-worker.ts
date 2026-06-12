@@ -12,24 +12,32 @@ self.addEventListener("connect", (e: MessageEvent) => {
 // even if the event arrives first.
 // Ideally Chrome would fix this upstream but this isn't a terrible hack.
 const repoPromise = (async () => {
-  const { Repo } = await import("@automerge/automerge-repo")
-  const { IndexedDBStorageAdapter } =
-    await import("@automerge/automerge-repo-storage-indexeddb")
-  const { WebSocketClientAdapter } =
-    await import("@automerge/automerge-repo-network-websocket")
-  return new Repo({
-    storage: new IndexedDBStorageAdapter(),
-    network: [new WebSocketClientAdapter("ws://sync.automerge.org")],
-    peerId: ("shared-worker-" + Math.round(Math.random() * 10000)) as any,
-    sharePolicy: async peerId => peerId.includes("storage-server"),
+  const { Repo, IndexedDBStorageAdapter, MessageChannelNetworkAdapter } =
+    await import("@automerge/react")
+
+  // @ts-ignore — initSync is not in the type declarations but is exported at runtime
+  const { initSync } = await import("@automerge/automerge-subduction/slim")
+  const { wasmBase64 } =
+    // @ts-ignore — wasm-base64 has no type declarations
+    await import("@automerge/automerge-subduction/wasm-base64")
+  initSync({
+    module: Uint8Array.from(atob(wasmBase64), (c: string) => c.charCodeAt(0)),
   })
+
+  return {
+    repo: new Repo({
+      storage: new IndexedDBStorageAdapter(),
+      subductionWebsocketEndpoints: ["wss://subduction.sync.inkandswitch.com"],
+      peerId: ("shared-worker-" + Math.round(Math.random() * 10000)) as any,
+      sharePolicy: async peerId => peerId.includes("storage-server"),
+    }),
+    MessageChannelNetworkAdapter,
+  }
 })()
 
 async function configureRepoNetworkPort(port: MessagePort) {
-  const repo = await repoPromise
+  const { repo, MessageChannelNetworkAdapter } = await repoPromise
 
-  const { MessageChannelNetworkAdapter } =
-    await import("@automerge/automerge-repo-network-messagechannel")
   // be careful to not accidentally create a strong reference to port
   // that will prevent dead ports from being garbage collected
   repo.networkSubsystem.addNetworkAdapter(

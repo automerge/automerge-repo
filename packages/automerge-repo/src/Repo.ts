@@ -35,8 +35,24 @@ import type {
   BinaryDocumentId,
   DocumentId,
   PeerId,
+  SessionId,
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
+import {
+  MemorySigner,
+  set_subduction_logger,
+  type Subduction,
+} from "@automerge/automerge-subduction/slim"
+import { SubductionStorageBridge } from "./subduction/storage.js"
+import {
+  SubductionSource,
+  type SubductionTimeouts,
+  type BlobInterceptor,
+} from "./subduction/source.js"
+import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+import { encode, decode } from "cbor-x"
+import type { EphemeralMessage } from "./network/messages.js"
 export type { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
 import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
@@ -45,6 +61,8 @@ import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
 
 export type { DocumentProgress } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
+
+let subductionLoggingEnabled = false
 
 function randomPeerId() {
   return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
@@ -85,7 +103,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   #syncStateTracker: SyncStateTracker
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
+  #subductionSource: SubductionSource | null = null
+  #subductionEphemeralCount = 0
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
+  #peerId: PeerId
 
   constructor({
     storage,
@@ -98,8 +119,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     idFactory,
+    signer,
+    subductionPolicy,
+    subductionWebsocketEndpoints,
+    subductionAdapters,
+    subductionTimeouts,
+    subductionBlobInterceptor,
   }: RepoConfig = {}) {
     super()
+    this.#peerId = peerId
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
 
     this.#idFactory = idFactory || null
@@ -130,6 +158,64 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.emit("doc-metrics", { type: "doc-saved", ...event })
       )
     }
+
+    if (!subductionLoggingEnabled) {
+      subductionLoggingEnabled = true
+      set_subduction_logger(
+        (level: string, target: string, message: string, fields: any) => {
+          const log = makeLogger(`automerge-repo:subduction:${target}`)
+
+          const hasFields = fields && Object.keys(fields).length > 0
+          const formattedMessage = hasFields
+            ? `${message} ${JSON.stringify(fields)}`
+            : message
+
+          // Prefix the level so it's visible regardless of which backend the
+          // Logger factory routes to.
+          log.debug(`[${level}] ${formattedMessage}`)
+        }
+      )
+    }
+    let subductionStorage: SubductionStorageBridge
+    if (storage) {
+      subductionStorage = new SubductionStorageBridge(storage)
+    } else {
+      subductionStorage = new SubductionStorageBridge(new DummyStorageAdapter())
+    }
+    const subductionSource = new SubductionSource({
+      peerId,
+      storage: subductionStorage,
+      signer: signer ?? new MemorySigner(),
+      websocketEndpoints: subductionWebsocketEndpoints ?? [],
+      adapters: subductionAdapters ?? [],
+      policy: subductionPolicy,
+      timeouts: subductionTimeouts,
+      blobInterceptor: subductionBlobInterceptor,
+      onRemoteHeadsChanged: enableRemoteHeadsGossiping
+        ? (documentId, storageId, heads) => {
+            this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+              documentId,
+              storageId,
+              heads
+            )
+          }
+        : undefined,
+      onEphemeral: (sedimentreeId, _senderId, payload) => {
+        try {
+          const msg = decode(new Uint8Array(payload)) as EphemeralMessage
+          this.synchronizer.receiveMessage(msg)
+        } catch (e) {
+          this.#log.error("failed to decode inbound subduction ephemeral", {
+            err: e,
+          })
+        }
+      },
+      onHealExhausted: documentId => {
+        this.emit("heal-exhausted", { documentId })
+      },
+    })
+    this.#subductionSource = subductionSource
+    this.#sources.set("subduction", subductionSource)
 
     this.storageSubsystem = storageSubsystem
     this.#syncStateTracker = new SyncStateTracker(
@@ -181,6 +267,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.synchronizer.on("message", message => {
       this.#log.debug(`sending ${message.type} message to ${message.targetId}`)
       networkSubsystem.send(message)
+    })
+
+    // Tunnel inbound ephemeral messages from network adapters through
+    // subduction, so they reach peers connected via websocket transport.
+    networkSubsystem.on("message", message => {
+      if (message.type === "ephemeral" && this.#subductionSource) {
+        const payload = new Uint8Array(encode(message))
+        void this.#subductionSource.publishEphemeral(
+          message.documentId,
+          payload
+        )
+      }
     })
 
     // Forward sync metrics events
@@ -337,6 +435,31 @@ export class Repo extends EventEmitter<RepoEvents> {
       source.attach(query)
     }
 
+    // Bridge outbound ephemeral messages to Subduction.
+    // This fires once per DocHandle.broadcast() call, independent of
+    // whether there are any old-protocol sync peers.
+    if (this.#subductionSource) {
+      const subductionSource = this.#subductionSource
+      query.handle.on("ephemeral-message-outbound", ({ data }) => {
+        console.log(
+          `[repo] ephemeral outbound for ${documentId.slice(0, 8)}, ${
+            data.byteLength
+          } bytes`
+        )
+        const fullMsg: EphemeralMessage = {
+          type: "ephemeral",
+          senderId: this.#peerId,
+          targetId: this.#peerId, // not meaningful for pub/sub
+          documentId,
+          data,
+          count: this.#subductionEphemeralCount++,
+          sessionId: "subduction-bridge" as SessionId,
+        }
+        const payload = new Uint8Array(encode(fullMsg))
+        void subductionSource.publishEphemeral(documentId, payload)
+      })
+    }
+
     return query
   }
 
@@ -400,6 +523,13 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   set shareConfig(config: ShareConfig) {
     this.#shareConfig = config
+  }
+
+  get subduction(): Promise<Subduction> {
+    if (!this.#subductionSource) {
+      return Promise.reject(new Error("Repo has no SubductionSource"))
+    }
+    return this.#subductionSource.getSubduction()
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
@@ -661,25 +791,39 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Writes Documents to a disk.
+   * Drain pending writes for the given documents (or all documents
+   * when `documents` is omitted) so they are durable in storage.
+   *
+   * Saves each ready document's Automerge bytes via the
+   * `StorageSubsystem`'s snapshot path and asks every registered
+   * {@link DocumentSource} that implements `flush` to drain its own
+   * buffered writes. Resolves once everything has settled.
+   *
    * @hidden this API is experimental and may change.
-   * @param documents - if provided, only writes the specified documents.
-   * @returns Promise<void>
+   * @param documents - if provided, only flushes the specified documents.
    */
   async flush(documents?: DocumentId[]): Promise<void> {
-    if (!this.storageSubsystem) {
-      return
+    const tasks: Promise<unknown>[] = []
+
+    if (this.storageSubsystem) {
+      const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
+      tasks.push(
+        Promise.all(
+          ids.map(async id => {
+            const state = this.#queries[id]?.peek()
+            if (state?.state === "ready") {
+              await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
+            }
+          })
+        )
+      )
     }
 
-    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
-    await Promise.all(
-      ids.map(async id => {
-        const state = this.#queries[id]?.peek()
-        if (state?.state === "ready") {
-          await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
-        }
-      })
-    )
+    for (const source of this.#sources.values()) {
+      if (source.flush) tasks.push(source.flush(documents))
+    }
+
+    await Promise.all(tasks)
   }
 
   /**
@@ -696,8 +840,21 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async shutdown() {
-    await this.flush()
+    // Quiesce Subduction first — stops reconnect loops, flushes pending
+    // saves, awaits storage writes, disconnects transports, frees Wasm
+    await this.#subductionSource?.shutdown()
+
+    // Stop traditional sync network connections
     this.networkSubsystem.disconnect()
+
+    // Best-effort flush: log persistence errors but don't propagate,
+    // so the rest of teardown still runs. Call `repo.flush()`
+    // explicitly before `shutdown()` if you need to observe them.
+    try {
+      await this.flush()
+    } catch (e) {
+      this.#log.warn("flush() during shutdown failed", { err: e })
+    }
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -705,7 +862,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   shareConfigChanged() {
-    this.synchronizer.reevaluateDocumentShare()
+    for (const source of this.#sources.values()) {
+      source.shareConfigChanged()
+    }
   }
 }
 
@@ -763,6 +922,37 @@ export interface RepoConfig {
    * @hidden
    */
   idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
+
+  /**
+   * Signer used for Subduction commit signatures and peer identity.
+   * Defaults to a fresh `MemorySigner` (ephemeral key, lost on restart).
+   * Pass a `WebCryptoSigner` (via `await WebCryptoSigner.setup()`) for
+   * persistent identity across page loads.
+   */
+  signer?: unknown
+
+  /** Authorization policy for the Subduction sync engine. See {@link Policy} from `@automerge/automerge-subduction`. */
+  subductionPolicy?: SubductionPolicy
+
+  subductionWebsocketEndpoints?: string[]
+
+  subductionAdapters?: {
+    adapter: NetworkAdapterInterface
+    serviceName: string
+    /** Whether to initiate ("connect") or accept ("accept") the subduction
+     *  handshake for peers on this adapter. Defaults to "connect". */
+    role?: "connect" | "accept"
+  }[]
+
+  /**
+   * Tunable timeouts for the Subduction sync engine and its
+   * heal-retry scheduler. See {@link SubductionTimeouts}. All fields
+   * are optional; sensible defaults apply.
+   */
+  subductionTimeouts?: SubductionTimeouts
+
+  /** Optional interceptor for transforming incoming and outgoing blobs (e.g., for E2EE). */
+  subductionBlobInterceptor?: BlobInterceptor
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -827,4 +1017,6 @@ export interface RepoEvents {
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (payload: DeleteDocumentPayload) => void
   "doc-metrics": (payload: DocMetrics) => void
+  /** Self-healing sync gave up after all retry attempts for a document */
+  "heal-exhausted": (payload: { documentId: DocumentId }) => void
 }

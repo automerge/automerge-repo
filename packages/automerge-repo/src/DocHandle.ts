@@ -189,10 +189,10 @@ export class DocHandle<T> {
    * @throws on deleted documents
    * @remarks In past releases, this was asynchronous and could be undefined.
    */
-  doc(): A.Doc<T> | undefined {
+  doc(): A.Doc<NonNullable<T>> | Extract<T, undefined> {
     return this.#scopedValue(this.#document.viewAt(this.#fixedHeads)) as
-      | A.Doc<T>
-      | undefined
+      | A.Doc<NonNullable<T>>
+      | Extract<T, undefined>
   }
 
   /**
