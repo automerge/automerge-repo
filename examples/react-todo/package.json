@@ -7,9 +7,12 @@
   "scripts": {
     "dev": "vite --open",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pretest:e2e": "corepack pnpm -C ../.. -F @automerge/automerge-repo build",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
     "@automerge/react": "workspace:*",
     "autoprefixer": "^10.5.0",
     "clsx": "^2.1.1",
@@ -22,6 +25,7 @@
     "@vitejs/plugin-react": "catalog:",
     "tailwindcss": "^3.4.19",
     "vite": "catalog:",
-    "vite-plugin-wasm": "catalog:"
+    "vite-plugin-wasm": "catalog:",
+    "@playwright/test": "^1.60.0"
   }
 }

@@ -383,9 +383,41 @@ export class DocHandle<T> {
    * @throws if a handle has fixed heads
    * @hidden
    */
-  update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+  update(
+    callback: (doc: A.Doc<T>) => A.Doc<T>,
+    options: {
+      forceHeadsChanged?: (before: A.Doc<any>, after: A.Doc<any>) => boolean
+    } = {}
+  ) {
     this.#throwIfFixedHeads("update")
-    this.#document.applyMutation(callback as (doc: A.Doc<any>) => A.Doc<any>)
+    this.#document.applyMutation(
+      callback as (doc: A.Doc<any>) => A.Doc<any>,
+      options
+    )
+  }
+
+  /**
+   * Reconcile Automerge's out-of-band signature state for this document.
+   *
+   * @hidden
+   */
+  reconcileSignatures(signatures: unknown): A.SignatureReport {
+    this.#throwIfFixedHeads("reconcileSignatures")
+    let report: A.SignatureReport | undefined
+    let forceHeadsChanged = false
+    this.#document.applyMutation(
+      doc => {
+        const [next, signatureReport] = A.reconcileSignatures(
+          doc as A.Doc<T>,
+          signatures as A.SignatureState
+        )
+        report = signatureReport
+        forceHeadsChanged = signatureReport.signaturesAttached > 0
+        return next
+      },
+      { forceHeadsChanged: () => forceHeadsChanged }
+    )
+    return report!
   }
 
   #throwIfFixedHeads(operation: string) {

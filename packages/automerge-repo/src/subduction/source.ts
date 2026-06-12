@@ -1314,6 +1314,17 @@ export class SubductionSource implements DocumentSource {
       const doc = entry.handle.fullDoc()
       if (!doc) return
 
+      // Automerge filters unsigned local changes out of export APIs while
+      // signing is enabled. Keep the saved-head baseline unchanged until
+      // signature reconciliation attaches signatures and emits another
+      // heads-changed notification.
+      if (
+        Automerge.signingEnabled(doc) &&
+        Automerge.missingSignatureHashes(doc).length > 0
+      ) {
+        return
+      }
+
       const currentHeads = Automerge.getHeads(doc)
       const currentSet = new Set(currentHeads)
 
@@ -1443,28 +1454,71 @@ export class SubductionSource implements DocumentSource {
     // only the small handful of newly-formed commits/fragments per
     // tick. See proposals/bundle-fragments-single-walk.md for the
     // matching automerge-core fix.
-    const commitMetas = Automerge.getFragmentMetadata(doc, 0)
-    const fragmentMetas = Automerge.getFragmentMetadata(doc, { start: 1 })
+    type CommitMeta = { head: string; boundary: string[]; bytes?: Uint8Array }
+    type FragmentMeta = {
+      head: string
+      boundary: string[]
+      checkpoints: string[]
+    }
 
-    const newCommitMetas = commitMetas.filter(
-      m => !entry.knownHashes.has(m.head)
-    )
-    const newFragmentMetas = fragmentMetas.filter(
-      m => !entry.knownHashes.has(m.head)
-    )
+    const automergeAny = Automerge as any
+    let newCommitMetas: CommitMeta[]
+    let newFragmentMetas: FragmentMeta[]
+    let newCommitBytes: Uint8Array[]
+    let newFragmentBytes: Uint8Array[]
+
+    if (
+      typeof automergeAny.getFragmentMetadata === "function" &&
+      typeof automergeAny.bundleFragmentMetadata === "function"
+    ) {
+      const commitMetas = automergeAny.getFragmentMetadata(
+        doc,
+        0
+      ) as CommitMeta[]
+      const fragmentMetas = automergeAny.getFragmentMetadata(doc, {
+        start: 1,
+      }) as FragmentMeta[]
+
+      newCommitMetas = commitMetas.filter(m => !entry.knownHashes.has(m.head))
+      newFragmentMetas = fragmentMetas.filter(
+        m => !entry.knownHashes.has(m.head)
+      )
+
+      newCommitBytes =
+        newCommitMetas.length === 0
+          ? []
+          : (automergeAny.bundleFragmentMetadata(
+              doc,
+              newCommitMetas
+            ) as Uint8Array[])
+      newFragmentBytes =
+        newFragmentMetas.length === 0
+          ? []
+          : (automergeAny.bundleFragmentMetadata(
+              doc,
+              newFragmentMetas
+            ) as Uint8Array[])
+    } else {
+      // Compatibility path for Automerge builds that have signature support
+      // but not the fragment metadata APIs. Persist the exportable delta as a
+      // single loose commit at each current head. The blob is still normal
+      // Automerge incremental bytes and can be fed to loadIncremental.
+      const sinceHeads = Array.from(entry.lastSavedHeads)
+      const bytes = Automerge.saveSince(doc, sinceHeads)
+      const commitMetas = Automerge.getHeads(doc).map(head => ({
+        head,
+        boundary: sinceHeads,
+        bytes,
+      }))
+      newCommitMetas = commitMetas.filter(m => !entry.knownHashes.has(m.head))
+      newFragmentMetas = []
+      newCommitBytes = newCommitMetas.map(m => m.bytes!)
+      newFragmentBytes = []
+    }
 
     if (newCommitMetas.length === 0 && newFragmentMetas.length === 0) {
       return { prepFailures: 0 }
     }
-
-    const newCommitBytes =
-      newCommitMetas.length === 0
-        ? []
-        : Automerge.bundleFragmentMetadata(doc, newCommitMetas)
-    const newFragmentBytes =
-      newFragmentMetas.length === 0
-        ? []
-        : Automerge.bundleFragmentMetadata(doc, newFragmentMetas)
 
     const newCommits = newCommitMetas.map((m, i) => ({
       head: m.head,
@@ -1699,11 +1753,24 @@ export class SubductionSource implements DocumentSource {
     // set, so avoid `getCommits` / `getFragments` which would
     // re-bundle every item (O(N × #items) wasted work per compaction
     // pass — same trap that bit `#saveNewCommits`).
+    const automergeAny = Automerge as any
     const liveCommits = new Set<string>(
-      Automerge.getFragmentMetadata(doc, 0).map(m => m.head)
+      typeof automergeAny.getFragmentMetadata === "function"
+        ? (
+            automergeAny.getFragmentMetadata(doc, 0) as Array<{ head: string }>
+          ).map(m => m.head)
+        : (
+            Automerge.getChangesMetaSince(doc, []) as Array<{ hash: string }>
+          ).map(m => m.hash)
     )
     const liveFragments = new Set<string>(
-      Automerge.getFragmentMetadata(doc, { start: 1 }).map(m => m.head)
+      typeof automergeAny.getFragmentMetadata === "function"
+        ? (
+            automergeAny.getFragmentMetadata(doc, { start: 1 }) as Array<{
+              head: string
+            }>
+          ).map(m => m.head)
+        : []
     )
 
     const staleCommits: string[] = []

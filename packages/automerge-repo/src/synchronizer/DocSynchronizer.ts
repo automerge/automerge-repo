@@ -137,9 +137,12 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     this.#log = makeLogger(`automerge-repo:docsync:${docId}`)
 
     handle.on(
-      "change",
+      "heads-changed",
       asyncThrottle(async () => {
-        // Mark all active peers dirty — we have new data to send.
+        // Mark all active peers dirty — we may have new exportable data to
+        // send. Signature reconciliation can attach signatures without
+        // producing patches, so listening to "change" would miss the moment
+        // previously unsigned changes become sendable.
         for (const peer of this.#peers.values()) {
           if (peer.syncState) peer.dirty = true
         }
@@ -713,34 +716,46 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       return
     }
 
-    this.#handle.update(doc => {
-      const start = performance.now()
-      const [newDoc, newSyncState] = A.receiveSyncMessage(
-        doc,
-        peer.syncState!,
-        message.data
-      )
-      const end = performance.now()
-      this.emit("metrics", {
-        type: "receive-sync-message",
-        documentId: this.#handle.documentId,
-        durationMillis: end - start,
-        fromPeer: message.senderId,
-        ...A.stats(doc),
-      })
+    let receivedNewDoc = false
+    this.#handle.update(
+      doc => {
+        const start = performance.now()
+        const [newDoc, newSyncState] = A.receiveSyncMessage(
+          doc,
+          peer.syncState!,
+          message.data
+        )
+        receivedNewDoc = newDoc !== doc
+        const end = performance.now()
+        this.emit("metrics", {
+          type: "receive-sync-message",
+          documentId: this.#handle.documentId,
+          durationMillis: end - start,
+          fromPeer: message.senderId,
+          ...A.stats(doc),
+        })
 
-      peer.syncState = newSyncState
-      this.emit("sync-state", {
-        peerId: message.senderId,
-        syncState: newSyncState,
-        documentId: this.#handle.documentId,
-      })
+        peer.syncState = newSyncState
+        this.emit("sync-state", {
+          peerId: message.senderId,
+          syncState: newSyncState,
+          documentId: this.#handle.documentId,
+        })
 
-      // Mark this peer dirty so #evaluate sends a response.
-      peer.dirty = true
+        // Mark this peer dirty so #evaluate sends a response.
+        peer.dirty = true
 
-      return newDoc
-    })
+        return newDoc
+      },
+      {
+        // Receiving signed remote changes can update Automerge's internal
+        // pending-verification queue without changing materialized heads. Emit
+        // a synthetic heads-changed event so Repo's signature reconciliation
+        // asks the application verifier whether those changes may materialize.
+        forceHeadsChanged: (_before, after) =>
+          receivedNewDoc && A.signingEnabled(after),
+      }
+    )
   }
 
   // EPHEMERAL MESSAGES

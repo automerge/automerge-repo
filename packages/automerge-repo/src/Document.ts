@@ -69,17 +69,26 @@ export class Document<T = unknown> {
    * out via the registry. No dispatch if heads didn't move. Pairing
    * mutation and dispatch here means callers can't forget the dispatch.
    */
-  applyMutation(mutator: (doc: A.Doc<any>) => A.Doc<any>): void {
+  applyMutation(
+    mutator: (doc: A.Doc<any>) => A.Doc<any>,
+    options: {
+      forceHeadsChanged?: (before: A.Doc<any>, after: A.Doc<any>) => boolean
+    } = {}
+  ): void {
     const before = this.doc
     const after = mutator(before)
     // Always adopt the new snapshot even when heads are unchanged -
     // `A.change` can hand back a fresh snapshot whose `before` is now
-    // "outdated" for subsequent mutations.
+    // "outdated" for subsequent mutations. Signature reconciliation can
+    // also attach signatures without changing heads; callers can force a
+    // heads-changed notification so storage/sync layers retry export.
     this.doc = after
     const beforeHeads = A.getHeads(before)
     const afterHeads = A.getHeads(after)
-    if (arrayEqual(beforeHeads, afterHeads)) return
+    const headsChanged = !arrayEqual(beforeHeads, afterHeads)
+    if (!headsChanged && !options.forceHeadsChanged?.(before, after)) return
     this.registry.dispatchHeadsChanged(after)
+    if (!headsChanged) return
     const patches = A.diff(after, beforeHeads, afterHeads)
     if (patches.length > 0) {
       this.registry.dispatchChange(after, patches, {

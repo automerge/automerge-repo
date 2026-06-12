@@ -1,34 +1,34 @@
-import { next as Automerge, Heads } from "@automerge/automerge/slim"
-import { makeLogger } from "./Logger.js"
-import { EventEmitter } from "eventemitter3"
+import { next as Automerge, Heads } from "@automerge/automerge/slim";
+import { makeLogger } from "./Logger.js";
+import { EventEmitter } from "eventemitter3";
 import {
   binaryToDocumentId,
   generateAutomergeUrl,
   interpretAsDocumentId,
   isValidAutomergeUrl,
   parseAutomergeUrl,
-} from "./AutomergeUrl.js"
-import { DocHandle } from "./DocHandle.js"
-import type { DocumentSource } from "./DocumentSource.js"
+} from "./AutomergeUrl.js";
+import { DocHandle } from "./DocHandle.js";
+import type { DocumentSource } from "./DocumentSource.js";
 import {
   DocumentQuery,
   progressAtHeads,
   progressAtPath,
   type DocumentProgress,
-} from "./DocumentQuery.js"
-import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
-import { StorageSource } from "./StorageSource.js"
-import { SyncStateTracker } from "./SyncStateTracker.js"
+} from "./DocumentQuery.js";
+import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js";
+import { StorageSource } from "./StorageSource.js";
+import { SyncStateTracker } from "./SyncStateTracker.js";
 import {
   NetworkAdapterInterface,
   type PeerMetadata,
-} from "./network/NetworkAdapterInterface.js"
-import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
-import { RepoMessage } from "./network/messages.js"
-import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
-import { StorageSubsystem } from "./storage/StorageSubsystem.js"
-import { StorageId } from "./storage/types.js"
-import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
+} from "./network/NetworkAdapterInterface.js";
+import { NetworkSubsystem } from "./network/NetworkSubsystem.js";
+import { RepoMessage } from "./network/messages.js";
+import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js";
+import { StorageSubsystem } from "./storage/StorageSubsystem.js";
+import { StorageId } from "./storage/types.js";
+import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js";
 import type {
   AnyDocumentId,
   AutomergeUrl,
@@ -37,41 +37,66 @@ import type {
   PeerId,
   SessionId,
   UrlHeads,
-} from "./types.js"
-import { AbortOptions } from "./helpers/abortable.js"
+} from "./types.js";
+import { AbortOptions } from "./helpers/abortable.js";
 import {
   MemorySigner,
   set_subduction_logger,
   type Subduction,
-} from "@automerge/automerge-subduction/slim"
+} from "@automerge/automerge-subduction/slim";
 import {
   SubductionStorageBridge,
   INTERCEPTOR_PREFIX,
-} from "./subduction/storage.js"
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
+} from "./subduction/storage.js";
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js";
 import {
   SubductionSource,
   type SubductionTimeouts,
   type BlobInterceptor,
-} from "./subduction/source.js"
-import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
-import { encode, decode } from "cbor-x"
-import type { EphemeralMessage } from "./network/messages.js"
-export type { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
-import { Document } from "./Document.js"
-import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
-import { isPlainObject } from "./helpers/isPlainObject.js"
-import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
-import { noop } from "./helpers/noop.js"
+} from "./subduction/source.js";
+import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim";
+import { encode, decode } from "cbor-x";
+import type { EphemeralMessage } from "./network/messages.js";
+export type { FindProgressWithMethods, ProgressSignal } from "./_compat.js";
+import { Document } from "./Document.js";
+import { truePromiseFactory } from "./helpers/truePromiseFactory.js";
+import { isPlainObject } from "./helpers/isPlainObject.js";
+import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js";
+import { noop } from "./helpers/noop.js";
 
-export type { DocumentProgress } from "./DocumentQuery.js"
-export { DocumentQuery } from "./DocumentQuery.js"
+export type { DocumentProgress } from "./DocumentQuery.js";
+export { DocumentQuery } from "./DocumentQuery.js";
 
-let subductionLoggingEnabled = false
+let subductionLoggingEnabled = false;
 
 function randomPeerId() {
-  return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
+  return ("peer-" + Math.random().toString(36).slice(4)) as PeerId;
 }
+
+export type AutomergeSigningRequest = {
+  hash: string;
+  author: string;
+  bytesToSign: Uint8Array;
+};
+
+export type AutomergeVerificationRequest = {
+  id: number;
+  hash: string;
+  author: string;
+  signature?: Uint8Array;
+  bytesToVerify: Uint8Array;
+};
+
+export type AutomergeSignatureProvider = {
+  sign: (
+    request: AutomergeSigningRequest,
+    documentId: DocumentId,
+  ) => Promise<Uint8Array>;
+  verify: (
+    request: AutomergeVerificationRequest,
+    documentId: DocumentId,
+  ) => Promise<boolean>;
+};
 
 /** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
 /** The `Repo` is the main entry point of this library
@@ -82,36 +107,40 @@ function randomPeerId() {
  * obtain {@link DocHandle}s.
  */
 export class Repo extends EventEmitter<RepoEvents> {
-  #log = makeLogger("automerge-repo:repo")
+  #log = makeLogger("automerge-repo:repo");
 
   /** @hidden */
-  networkSubsystem: NetworkSubsystem
+  networkSubsystem: NetworkSubsystem;
   /** @hidden */
-  storageSubsystem?: StorageSubsystem
+  storageSubsystem?: StorageSubsystem;
 
-  #queries: Record<DocumentId, DocumentQuery<any>> = {}
+  #queries: Record<DocumentId, DocumentQuery<any>> = {};
 
   /** @hidden */
-  synchronizer: CollectionSynchronizer
+  synchronizer: CollectionSynchronizer;
 
-  #sources = new Map<string, DocumentSource>()
+  #sources = new Map<string, DocumentSource>();
 
   #shareConfig: ShareConfig = {
     announce: truePromiseFactory,
     access: truePromiseFactory,
-  }
+  };
 
   /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
   /** @hidden */
-  peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
+  peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {};
 
-  #syncStateTracker: SyncStateTracker
-  #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
-  #remoteHeadsGossipingEnabled = false
-  #subductionSource: SubductionSource | null = null
-  #subductionEphemeralCount = 0
-  #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
-  #peerId: PeerId
+  #syncStateTracker: SyncStateTracker;
+  #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions();
+  #remoteHeadsGossipingEnabled = false;
+  #subductionSource: SubductionSource | null = null;
+  #subductionEphemeralCount = 0;
+  #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null;
+  #peerId: PeerId;
+  #automergeOptions: { author?: string; signing?: boolean } = {};
+  #signatureProvider?: AutomergeSignatureProvider;
+  #signatureStates = new Map<DocumentId, any>();
+  #signatureQueues = new Map<DocumentId, Promise<void>>();
 
   constructor({
     storage,
@@ -130,56 +159,67 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionAdapters,
     subductionTimeouts,
     subductionBlobInterceptor,
+    authorId,
+    signing,
   }: RepoConfig = {}) {
-    super()
-    this.#peerId = peerId
-    this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
+    super();
+    this.#peerId = peerId;
+    this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping;
+    this.#signatureProvider = signing;
+    this.#automergeOptions = {
+      ...(authorId ? { author: authorId } : {}),
+      ...(signing ? { signing: true } : {}),
+    };
 
-    this.#idFactory = idFactory || null
+    this.#idFactory = idFactory || null;
     // Handle legacy sharePolicy
     if (sharePolicy != null && shareConfig != null) {
-      throw new Error("cannot provide both sharePolicy and shareConfig at once")
+      throw new Error(
+        "cannot provide both sharePolicy and shareConfig at once",
+      );
     }
     if (sharePolicy) {
       this.#shareConfig = {
         announce: sharePolicy,
         access: truePromiseFactory,
-      }
+      };
     }
     if (shareConfig) {
-      this.#shareConfig = shareConfig
+      this.#shareConfig = shareConfig;
     }
 
     // STORAGE
-    const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
+    const storageSubsystem = storage
+      ? new StorageSubsystem(storage, this.#automergeOptions)
+      : undefined;
     if (storageSubsystem) {
-      storageSubsystem.on("document-loaded", event =>
-        this.emit("doc-metrics", { type: "doc-loaded", ...event })
-      )
-      storageSubsystem.on("doc-compacted", event =>
-        this.emit("doc-metrics", { type: "doc-compacted", ...event })
-      )
-      storageSubsystem.on("doc-saved", event =>
-        this.emit("doc-metrics", { type: "doc-saved", ...event })
-      )
+      storageSubsystem.on("document-loaded", (event) =>
+        this.emit("doc-metrics", { type: "doc-loaded", ...event }),
+      );
+      storageSubsystem.on("doc-compacted", (event) =>
+        this.emit("doc-metrics", { type: "doc-compacted", ...event }),
+      );
+      storageSubsystem.on("doc-saved", (event) =>
+        this.emit("doc-metrics", { type: "doc-saved", ...event }),
+      );
     }
 
     if (!subductionLoggingEnabled) {
-      subductionLoggingEnabled = true
+      subductionLoggingEnabled = true;
       set_subduction_logger(
         (level: string, target: string, message: string, fields: any) => {
-          const log = makeLogger(`automerge-repo:subduction:${target}`)
+          const log = makeLogger(`automerge-repo:subduction:${target}`);
 
-          const hasFields = fields && Object.keys(fields).length > 0
+          const hasFields = fields && Object.keys(fields).length > 0;
           const formattedMessage = hasFields
             ? `${message} ${JSON.stringify(fields)}`
-            : message
+            : message;
 
           // Prefix the level so it's visible regardless of which backend the
           // Logger factory routes to.
-          log.debug(`[${level}] ${formattedMessage}`)
-        }
-      )
+          log.debug(`[${level}] ${formattedMessage}`);
+        },
+      );
     }
     // Subduction commits are persisted under a key prefix that depends on
     // whether a blob interceptor is configured. A Repo with an interceptor
@@ -188,14 +228,16 @@ export class Repo extends EventEmitter<RepoEvents> {
     // of them runs the interceptor. Without separate prefixes, an
     // interceptor-transformed commit and an untransformed commit with the same
     // CommitId would collide at the same key and clobber each other.
-    let subductionStorage: SubductionStorageBridge
+    let subductionStorage: SubductionStorageBridge;
     if (storage) {
       subductionStorage = new SubductionStorageBridge(
         storage,
-        subductionBlobInterceptor ? INTERCEPTOR_PREFIX : undefined
-      )
+        subductionBlobInterceptor ? INTERCEPTOR_PREFIX : undefined,
+      );
     } else {
-      subductionStorage = new SubductionStorageBridge(new DummyStorageAdapter())
+      subductionStorage = new SubductionStorageBridge(
+        new DummyStorageAdapter(),
+      );
     }
     const subductionSource = new SubductionSource({
       peerId,
@@ -207,23 +249,23 @@ export class Repo extends EventEmitter<RepoEvents> {
       timeouts: subductionTimeouts,
       blobInterceptor: subductionBlobInterceptor,
       onRemoteHeadsChanged: (documentId, storageId, heads, timestamp) => {
-        const handle = this.#queries[documentId]?.handle
+        const handle = this.#queries[documentId]?.handle;
         if (handle) {
           this.#syncStateTracker.handleRemoteHeadsChanged(
             documentId,
             storageId,
             heads,
             timestamp,
-            handle
-          )
+            handle,
+          );
         }
 
         if (this.#remoteHeadsGossipingEnabled) {
           this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
             documentId,
             storageId,
-            heads
-          )
+            heads,
+          );
         }
 
         // Re-emit as a public Repo event. Unlike the per-handle "remote-heads"
@@ -237,53 +279,53 @@ export class Repo extends EventEmitter<RepoEvents> {
           storageId,
           heads,
           timestamp,
-        })
+        });
       },
       onEphemeral: (sedimentreeId, _senderId, payload) => {
         try {
-          const msg = decode(new Uint8Array(payload)) as EphemeralMessage
-          this.synchronizer.receiveMessage(msg)
+          const msg = decode(new Uint8Array(payload)) as EphemeralMessage;
+          this.synchronizer.receiveMessage(msg);
         } catch (e) {
           this.#log.error("failed to decode inbound subduction ephemeral", {
             err: e,
-          })
+          });
         }
       },
-      onHealExhausted: documentId => {
-        this.emit("heal-exhausted", { documentId })
+      onHealExhausted: (documentId) => {
+        this.emit("heal-exhausted", { documentId });
       },
-      onConnectionChanged: connected => {
-        this.emit("subduction-connection", { connected })
+      onConnectionChanged: (connected) => {
+        this.emit("subduction-connection", { connected });
       },
-    })
-    this.#subductionSource = subductionSource
-    this.#sources.set("subduction", subductionSource)
+    });
+    this.#subductionSource = subductionSource;
+    this.#sources.set("subduction", subductionSource);
 
-    this.storageSubsystem = storageSubsystem
+    this.storageSubsystem = storageSubsystem;
     this.#syncStateTracker = new SyncStateTracker(
       this.storageSubsystem,
-      saveDebounceRate
-    )
+      saveDebounceRate,
+    );
 
     if (storageSubsystem) {
       this.#sources.set(
         "storage",
-        new StorageSource(storageSubsystem, saveDebounceRate)
-      )
+        new StorageSource(storageSubsystem, saveDebounceRate),
+      );
     }
 
     // NETWORK
     const myPeerMetadata: Promise<PeerMetadata> = (async () => ({
       storageId: await storageSubsystem?.id(),
       isEphemeral,
-    }))()
+    }))();
 
     const networkSubsystem = new NetworkSubsystem(
       network,
       peerId,
-      myPeerMetadata
-    )
-    this.networkSubsystem = networkSubsystem
+      myPeerMetadata,
+    );
+    this.networkSubsystem = networkSubsystem;
 
     // COLLECTION SYNCHRONIZER
     this.synchronizer = new CollectionSynchronizer(
@@ -291,13 +333,13 @@ export class Repo extends EventEmitter<RepoEvents> {
         peerId,
         shareConfig: this.#shareConfig,
         priority: 0,
-        ensureQuery: id => this.#ensureQuery(id),
+        ensureQuery: (id) => this.#ensureQuery(id),
         loadSyncState: async (documentId, pid) => {
-          if (!this.storageSubsystem) return
+          if (!this.storageSubsystem) return;
           const { storageId, isEphemeral: isEph } =
-            this.peerMetadataByPeerId[pid] || {}
-          if (!storageId || isEph) return
-          return this.storageSubsystem.loadSyncState(documentId, storageId)
+            this.peerMetadataByPeerId[pid] || {};
+          if (!storageId || isEph) return;
+          return this.storageSubsystem.loadSyncState(documentId, storageId);
         },
         // Resolve to void once the adapters are ready, or on adapter failure
         // (logged): networkReady gates "peers have had their chance to connect",
@@ -306,69 +348,69 @@ export class Repo extends EventEmitter<RepoEvents> {
         // unhandled one would surface before any DocSynchronizer attaches).
         networkReady: networkSubsystem
           .whenReady()
-          .then(noop, err =>
-            this.#log.error("network adapters failed to become ready", err)
+          .then(noop, (err) =>
+            this.#log.error("network adapters failed to become ready", err),
           ),
       },
-      denylist
-    )
-    this.#sources.set("automerge-sync", this.synchronizer)
+      denylist,
+    );
+    this.#sources.set("automerge-sync", this.synchronizer);
 
     // When the synchronizer emits messages, send them to peers
-    this.synchronizer.on("message", message => {
-      this.#log.debug(`sending ${message.type} message to ${message.targetId}`)
-      networkSubsystem.send(message)
-    })
+    this.synchronizer.on("message", (message) => {
+      this.#log.debug(`sending ${message.type} message to ${message.targetId}`);
+      networkSubsystem.send(message);
+    });
 
     // Tunnel inbound ephemeral messages from network adapters through
     // subduction, so they reach peers connected via websocket transport.
-    networkSubsystem.on("message", message => {
+    networkSubsystem.on("message", (message) => {
       if (message.type === "ephemeral" && this.#subductionSource) {
-        const payload = new Uint8Array(encode(message))
+        const payload = new Uint8Array(encode(message));
         void this.#subductionSource.publishEphemeral(
           message.documentId,
-          payload
-        )
+          payload,
+        );
       }
-    })
+    });
 
     // Forward sync metrics events
-    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
+    this.synchronizer.on("metrics", (event) => this.emit("doc-metrics", event));
 
     // Track which peers have which documents open (for remote heads gossiping)
     this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
       if (this.#remoteHeadsGossipingEnabled) {
-        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
+        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId);
       }
-    })
+    });
 
     // When we get a new peer, register it with the synchronizer
     networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
-      this.#log.debug("peer connected", { peerId })
+      this.#log.debug("peer connected", { peerId });
 
       if (peerMetadata) {
-        this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
+        this.peerMetadataByPeerId[peerId] = { ...peerMetadata };
       }
 
       this.#shareConfig
         .announce(peerId)
-        .then(shouldShare => {
+        .then((shouldShare) => {
           if (shouldShare && this.#remoteHeadsGossipingEnabled) {
-            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
+            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId);
           }
         })
-        .catch(err => {
-          this.#log.error("error in share policy", { err })
-        })
+        .catch((err) => {
+          this.#log.error("error in share policy", { err });
+        });
 
-      this.synchronizer.addPeer(peerId)
-    })
+      this.synchronizer.addPeer(peerId);
+    });
 
     // When a peer disconnects, remove it from the synchronizer
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      this.synchronizer.removePeer(peerId)
-      this.#remoteHeadsSubscriptions.removePeer(peerId)
-    })
+      this.synchronizer.removePeer(peerId);
+      this.#remoteHeadsSubscriptions.removePeer(peerId);
+    });
 
     // Inbound messages are untrusted peer input, so #receiveMessage can throw on
     // a malformed or cross-version message. An EventEmitter does not trap a
@@ -378,36 +420,36 @@ export class Repo extends EventEmitter<RepoEvents> {
     // there terminates the process by default, so one bad message could take
     // down a sync server; in a browser it is only logged. Catch it.
     // See https://nodejs.org/api/process.html#event-uncaughtexception
-    networkSubsystem.on("message", msg => {
+    networkSubsystem.on("message", (msg) => {
       try {
-        this.#receiveMessage(msg)
+        this.#receiveMessage(msg);
       } catch (err) {
-        this.#log.error("error handling inbound message", err)
+        this.#log.error("error handling inbound message", err);
       }
-    })
+    });
 
-    this.synchronizer.on("sync-state", message => {
-      const handle = this.#queries[message.documentId]?.handle
-      if (!handle) return
+    this.synchronizer.on("sync-state", (message) => {
+      const handle = this.#queries[message.documentId]?.handle;
+      if (!handle) return;
 
-      const peerMeta = this.peerMetadataByPeerId[message.peerId]
+      const peerMeta = this.peerMetadataByPeerId[message.peerId];
       const change = this.#syncStateTracker.handleSyncState(
         message,
         peerMeta,
-        handle
-      )
+        handle,
+      );
 
       if (change && this.#remoteHeadsGossipingEnabled) {
         this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
           message.documentId,
           change.storageId,
-          change.heads
-        )
+          change.heads,
+        );
       }
-    })
+    });
 
     if (this.#remoteHeadsGossipingEnabled) {
-      this.#remoteHeadsSubscriptions.on("notify-remote-heads", message => {
+      this.#remoteHeadsSubscriptions.on("notify-remote-heads", (message) => {
         this.networkSubsystem.send({
           type: "remote-heads-changed",
           targetId: message.targetId,
@@ -418,35 +460,35 @@ export class Repo extends EventEmitter<RepoEvents> {
               timestamp: message.timestamp,
             },
           },
-        })
-      })
+        });
+      });
 
-      this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
-        this.#log.debug("change-remote-subs", message)
+      this.#remoteHeadsSubscriptions.on("change-remote-subs", (message) => {
+        this.#log.debug("change-remote-subs", message);
         for (const peer of message.peers) {
           this.networkSubsystem.send({
             type: "remote-subscription-change",
             targetId: peer,
             add: message.add,
             remove: message.remove,
-          })
+          });
         }
-      })
+      });
 
       this.#remoteHeadsSubscriptions.on(
         "remote-heads-changed",
         ({ documentId, storageId, remoteHeads, timestamp }) => {
-          const handle = this.#queries[documentId]?.handle
-          if (!handle) return
+          const handle = this.#queries[documentId]?.handle;
+          if (!handle) return;
           this.#syncStateTracker.handleRemoteHeadsChanged(
             documentId,
             storageId,
             remoteHeads,
             timestamp,
-            handle
-          )
-        }
-      )
+            handle,
+          );
+        },
+      );
     }
   }
 
@@ -462,41 +504,51 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   #ensureQuery(
     documentId: DocumentId,
-    initialDoc?: Automerge.Doc<unknown>
+    initialDoc?: Automerge.Doc<unknown>,
   ): DocumentQuery<unknown> {
-    const existing = this.#queries[documentId]
+    const existing = this.#queries[documentId];
     if (existing) {
-      return existing
+      return existing;
     }
 
     const document = new Document(
       documentId,
-      initialDoc ?? Automerge.init(),
-      storageId => this.#syncStateTracker.getSyncInfo(documentId, storageId)
-    )
-    const handle = new DocHandle(document, {})
-    const query = new DocumentQuery(handle, this.#sources)
-    this.#queries[documentId] = query
+      initialDoc ?? Automerge.init(this.#automergeOptions),
+      (storageId) => this.#syncStateTracker.getSyncInfo(documentId, storageId),
+    );
+    const handle = new DocHandle(document, {});
+    const query = new DocumentQuery(handle, this.#sources);
+    this.#queries[documentId] = query;
+
+    if (this.#signatureProvider) {
+      handle.on("heads-changed", () =>
+        this.#queueSignatureReconciliation(handle),
+      );
+    }
 
     // Attach all sources. Each source calls sourcePending/sourceUnavailable
     // as appropriate and sets up its own listeners. When initialDoc is
     // provided the handle already has data, so sources see a ready handle
     // from the start.
     for (const source of this.#sources.values()) {
-      source.attach(query)
+      source.attach(query);
+    }
+
+    if (this.#signatureProvider) {
+      this.#queueSignatureReconciliation(handle);
     }
 
     // Bridge outbound ephemeral messages to Subduction.
     // This fires once per DocHandle.broadcast() call, independent of
     // whether there are any old-protocol sync peers.
     if (this.#subductionSource) {
-      const subductionSource = this.#subductionSource
+      const subductionSource = this.#subductionSource;
       query.handle.on("ephemeral-message-outbound", ({ data }) => {
         this.#log.debug(
           `ephemeral outbound for ${documentId.slice(0, 8)}, ${
             data.byteLength
-          } bytes`
-        )
+          } bytes`,
+        );
         const fullMsg: EphemeralMessage = {
           type: "ephemeral",
           senderId: this.#peerId,
@@ -505,86 +557,151 @@ export class Repo extends EventEmitter<RepoEvents> {
           data,
           count: this.#subductionEphemeralCount++,
           sessionId: "subduction-bridge" as SessionId,
-        }
-        const payload = new Uint8Array(encode(fullMsg))
-        void subductionSource.publishEphemeral(documentId, payload)
-      })
+        };
+        const payload = new Uint8Array(encode(fullMsg));
+        void subductionSource.publishEphemeral(documentId, payload);
+      });
     }
 
-    return query
+    return query;
+  }
+
+  #signatureStateFor(documentId: DocumentId): any {
+    let state = this.#signatureStates.get(documentId);
+    if (!state) {
+      state = Automerge.initSignatureState();
+      this.#signatureStates.set(documentId, state);
+    }
+    return state;
+  }
+
+  #queueSignatureReconciliation(handle: DocHandle<unknown>) {
+    if (!this.#signatureProvider) return;
+    const documentId = handle.documentId;
+    const previous = this.#signatureQueues.get(documentId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => {})
+      .then(() => this.#reconcileSignatures(handle))
+      .catch((err) => {
+        this.#log.warn("signature reconciliation failed", {
+          documentId,
+          err,
+        });
+      });
+    this.#signatureQueues.set(documentId, next);
+    void next.finally(() => {
+      if (this.#signatureQueues.get(documentId) === next) {
+        this.#signatureQueues.delete(documentId);
+      }
+    });
+  }
+
+  async #reconcileSignatures(handle: DocHandle<unknown>): Promise<void> {
+    const provider = this.#signatureProvider;
+    if (!provider || handle.isDeleted()) return;
+
+    const documentId = handle.documentId;
+    const signatures = this.#signatureStateFor(documentId);
+
+    for (let i = 0; i < 100; i++) {
+      handle.reconcileSignatures(signatures);
+
+      const signingRequests =
+        signatures.pendingSigningRequests() as AutomergeSigningRequest[];
+      const verificationRequests =
+        signatures.pendingVerificationRequests() as AutomergeVerificationRequest[];
+
+      if (signingRequests.length === 0 && verificationRequests.length === 0) {
+        return;
+      }
+
+      for (const request of signingRequests) {
+        const signature = await provider.sign(request, documentId);
+        signatures.completeSigning(request.hash, signature);
+      }
+
+      for (const request of verificationRequests) {
+        const valid = await provider.verify(request, documentId);
+        signatures.completeVerification(request.id, valid);
+      }
+    }
+
+    this.#log.warn("signature reconciliation reached iteration limit", {
+      documentId,
+    });
   }
 
   #receiveMessage(message: RepoMessage) {
     switch (message.type) {
       case "remote-subscription-change":
         if (this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleControlMessage(message)
+          this.#remoteHeadsSubscriptions.handleControlMessage(message);
         }
-        break
+        break;
       case "remote-heads-changed":
         if (this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
+          this.#remoteHeadsSubscriptions.handleRemoteHeads(message);
         }
-        break
+        break;
       case "sync":
       case "request":
       case "ephemeral":
       case "doc-unavailable":
-        this.synchronizer.receiveMessage(message)
-        break
+        this.synchronizer.receiveMessage(message);
+        break;
     }
   }
 
   /** Returns all the handles we have cached. */
   get handles(): Record<DocumentId, DocHandle<any>> {
-    const result: Record<DocumentId, DocHandle<any>> = {}
+    const result: Record<DocumentId, DocHandle<any>> = {};
     for (const [id, query] of Object.entries(this.#queries)) {
       if (query.handle) {
-        result[id as DocumentId] = query.handle
+        result[id as DocumentId] = query.handle;
       }
     }
-    return result
+    return result;
   }
 
   /** Returns a list of all connected peer ids */
   get peers(): PeerId[] {
-    return this.synchronizer.peers
+    return this.synchronizer.peers;
   }
 
   /** Returns the local peer id */
   get peerId(): PeerId {
-    return this.networkSubsystem.peerId
+    return this.networkSubsystem.peerId;
   }
 
   /** @hidden */
   get sharePolicy(): SharePolicy {
-    return this.#shareConfig.announce
+    return this.#shareConfig.announce;
   }
 
   /** @hidden */
   set sharePolicy(policy: SharePolicy) {
-    this.#shareConfig.announce = policy
+    this.#shareConfig.announce = policy;
   }
 
   /** @hidden */
   get shareConfig(): ShareConfig {
-    return this.#shareConfig
+    return this.#shareConfig;
   }
 
   /** @hidden */
   set shareConfig(config: ShareConfig) {
-    this.#shareConfig = config
+    this.#shareConfig = config;
   }
 
   get subduction(): Promise<Subduction> {
     if (!this.#subductionSource) {
-      return Promise.reject(new Error("Repo has no SubductionSource"))
+      return Promise.reject(new Error("Repo has no SubductionSource"));
     }
-    return this.#subductionSource.getSubduction()
+    return this.#subductionSource.getSubduction();
   }
 
   getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
-    return this.peerMetadataByPeerId[peerId]?.storageId
+    return this.peerMetadataByPeerId[peerId]?.storageId;
   }
 
   /**
@@ -593,21 +710,23 @@ export class Repo extends EventEmitter<RepoEvents> {
    * system. we emit a `document` event to advertise interest in the document.
    */
   create<T>(initialValue?: T): DocHandle<T> {
-    let initialDoc: Automerge.Doc<T>
+    let initialDoc: Automerge.Doc<T>;
 
     // If the initial value is an empty object, use the empty change initialisation path instead of the from path
     if (isPlainObject(initialValue) && hasAtLeastOneKey(initialValue)) {
-      initialDoc = Automerge.from(initialValue)
+      initialDoc = Automerge.from(initialValue, this.#automergeOptions);
     } else {
-      initialDoc = Automerge.emptyChange(Automerge.init())
+      initialDoc = Automerge.emptyChange(
+        Automerge.init(this.#automergeOptions),
+      );
     }
 
-    const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    const { documentId } = parseAutomergeUrl(generateAutomergeUrl());
     const query = this.#ensureQuery(
       documentId,
-      initialDoc as Automerge.Doc<unknown>
-    )
-    return query.handle as DocHandle<T>
+      initialDoc as Automerge.Doc<unknown>,
+    );
+    return query.handle as DocHandle<T>;
   }
 
   /**
@@ -626,23 +745,25 @@ export class Repo extends EventEmitter<RepoEvents> {
     // and it is async because we want to be able to call the #idGenerator, which is async.
     // This is all really in service of wiring up keyhive and we probably need to find a
     // nicer way to achieve this.
-    let initialDoc: Automerge.Doc<T>
+    let initialDoc: Automerge.Doc<T>;
     if (initialValue) {
-      initialDoc = Automerge.from(initialValue)
+      initialDoc = Automerge.from(initialValue, this.#automergeOptions);
     } else {
-      initialDoc = Automerge.emptyChange(Automerge.init())
+      initialDoc = Automerge.emptyChange(
+        Automerge.init(this.#automergeOptions),
+      );
     }
 
-    let { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    let { documentId } = parseAutomergeUrl(generateAutomergeUrl());
     if (this.#idFactory) {
-      const rawDocId = await this.#idFactory(Automerge.getHeads(initialDoc))
-      documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
+      const rawDocId = await this.#idFactory(Automerge.getHeads(initialDoc));
+      documentId = binaryToDocumentId(rawDocId as BinaryDocumentId);
     }
     const query = this.#ensureQuery(
       documentId,
-      initialDoc as Automerge.Doc<unknown>
-    )
-    return query.handle as DocHandle<T>
+      initialDoc as Automerge.Doc<unknown>,
+    );
+    return query.handle as DocHandle<T>;
   }
 
   /** Create a new DocHandle by cloning the history of an existing DocHandle.
@@ -659,10 +780,10 @@ export class Repo extends EventEmitter<RepoEvents> {
    *
    */
   clone<T>(clonedHandle: DocHandle<T>) {
-    const sourceDoc = clonedHandle.fullDoc()
-    const handle = this.create<T>()
-    handle.update(() => Automerge.clone(sourceDoc))
-    return handle
+    const sourceDoc = clonedHandle.fullDoc();
+    const handle = this.create<T>();
+    handle.update(() => Automerge.clone(sourceDoc, this.#automergeOptions));
+    return handle;
   }
 
   /**
@@ -679,7 +800,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // compatible but ignore it. The main feature we miss vs the original API is the
     // ability to not create a doc handle if we abort while loading. Once the DocHandle
     // was running the abort signal didn't have much effect
-    _options?: AbortOptions
+    _options?: AbortOptions,
   ): DocumentProgress<T> {
     const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
@@ -687,26 +808,26 @@ export class Repo extends EventEmitter<RepoEvents> {
           documentId: interpretAsDocumentId(id),
           heads: undefined,
           segments: undefined,
-        }
-    const { documentId, heads, segments } = parsed
+        };
+    const { documentId, heads, segments } = parsed;
 
     // ensureQuery creates the query, handle, sets up all sources, and
     // registers with the sync layer (no-ops if already added).
     if (!this.#queries[documentId]) {
-      this.#ensureQuery(documentId)
+      this.#ensureQuery(documentId);
     }
-    const query = this.#queries[documentId] as DocumentQuery<T>
+    const query = this.#queries[documentId] as DocumentQuery<T>;
 
     // A URL can carry both fixed heads (`#h1|h2`) and a path suffix
     // (`/a/@0/b`). Layer the heads projection first (it gates readiness on
     // those heads being present), then scope to the path. The two compose
     // to the same canonical handle regardless of order.
-    let progress: DocumentProgress<T> = query
-    if (heads) progress = progressAtHeads(query, heads)
+    let progress: DocumentProgress<T> = query;
+    if (heads) progress = progressAtHeads(query, heads);
     if (segments && segments.length > 0) {
-      progress = progressAtPath(progress, segments)
+      progress = progressAtPath(progress, segments);
     }
-    return progress
+    return progress;
   }
 
   /**
@@ -720,16 +841,16 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   async find<T>(
     id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
+    options: RepoFindOptions & AbortOptions = {},
   ): Promise<DocHandle<T>> {
-    const { signal } = options
+    const { signal } = options;
 
-    signal?.throwIfAborted()
+    signal?.throwIfAborted();
 
     // `findWithProgress` already applies any path suffix (`/a/@0/b`) and
     // fixed heads (`#h1|h2`) from the URL, so the ready handle is correctly
     // scoped and/or view-pinned.
-    return this.findWithProgress<T>(id).whenReady({ signal })
+    return this.findWithProgress<T>(id).whenReady({ signal });
   }
 
   /**
@@ -737,40 +858,40 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   findClassic<T>(
     id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
+    options: RepoFindOptions & AbortOptions = {},
   ): Promise<DocHandle<T>> {
-    return this.find<T>(id, options)
+    return this.find<T>(id, options);
   }
 
   delete(id: AnyDocumentId) {
-    const documentId = interpretAsDocumentId(id)
+    const documentId = interpretAsDocumentId(id);
 
-    const query = this.#queries[documentId]
+    const query = this.#queries[documentId];
     if (query?.handle) {
       // Fans out to all retained handles (root + subs) via the registry
       // and flips the document's `deleted` flag.
-      query.handle.delete()
+      query.handle.delete();
     }
     if (query) {
-      query.fail(new Error(`Document ${documentId} was deleted`))
+      query.fail(new Error(`Document ${documentId} was deleted`));
     }
-    delete this.#queries[documentId]
+    delete this.#queries[documentId];
 
     for (const source of this.#sources.values()) {
-      source.detach(documentId)
+      source.detach(documentId);
     }
-    this.#syncStateTracker.delete(documentId)
+    this.#syncStateTracker.delete(documentId);
 
     if (this.storageSubsystem) {
-      this.storageSubsystem.removeDoc(documentId).catch(err => {
+      this.storageSubsystem.removeDoc(documentId).catch((err) => {
         this.#log.error("error deleting document from storage", {
           documentId,
           err,
-        })
-      })
+        });
+      });
     }
 
-    this.emit("delete-document", { documentId })
+    this.emit("delete-document", { documentId });
   }
 
   /**
@@ -781,8 +902,8 @@ export class Repo extends EventEmitter<RepoEvents> {
    * or undefined if the document is unavailable.
    */
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
-    const handle = await this.find(id)
-    return Automerge.save(handle.fullDoc())
+    const handle = await this.find(id);
+    return Automerge.save(handle.fullDoc());
   }
 
   /**
@@ -802,48 +923,51 @@ export class Repo extends EventEmitter<RepoEvents> {
    * importing and exporting these bundles.
    */
   import<T>(binary: Uint8Array, args?: { docId?: DocumentId }): DocHandle<T> {
-    const docId = args?.docId
+    const docId = args?.docId;
     if (docId != null) {
       // Check if we already have a handle for this document
-      const existing = this.#queries[docId]?.handle as DocHandle<T> | null
+      const existing = this.#queries[docId]?.handle as DocHandle<T> | null;
       if (existing) {
-        existing.update(doc => Automerge.loadIncremental(doc, binary))
-        return existing
+        existing.update((doc) => Automerge.loadIncremental(doc, binary));
+        if (this.#signatureProvider) {
+          this.#queueSignatureReconciliation(existing as DocHandle<unknown>);
+        }
+        return existing;
       }
-      const initialDoc = Automerge.load<T>(binary)
+      const initialDoc = Automerge.load<T>(binary, this.#automergeOptions);
       const query = this.#ensureQuery(
         docId,
-        initialDoc as Automerge.Doc<unknown>
-      )
-      return query.handle as DocHandle<T>
+        initialDoc as Automerge.Doc<unknown>,
+      );
+      return query.handle as DocHandle<T>;
     } else {
-      const doc = Automerge.load<T>(binary)
-      const handle = this.create<T>()
+      const doc = Automerge.load<T>(binary, this.#automergeOptions);
+      const handle = this.create<T>();
       handle.update(() => {
-        return Automerge.clone(doc)
-      })
-      return handle
+        return Automerge.clone(doc, this.#automergeOptions);
+      });
+      return handle;
     }
   }
 
   subscribeToRemotes = (remotes: StorageId[]) => {
     if (this.#remoteHeadsGossipingEnabled) {
-      this.#log.debug("subscribeToRemotes", { remotes })
-      this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
+      this.#log.debug("subscribeToRemotes", { remotes });
+      this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes);
     } else {
       this.#log.warn(
-        "subscribeToRemotes called but remote heads gossiping is not enabled"
-      )
+        "subscribeToRemotes called but remote heads gossiping is not enabled",
+      );
     }
-  }
+  };
 
   storageId = async (): Promise<StorageId | undefined> => {
     if (!this.storageSubsystem) {
-      return undefined
+      return undefined;
     } else {
-      return this.storageSubsystem.id()
+      return this.storageSubsystem.id();
     }
-  }
+  };
 
   /**
    * Whether this Repo currently has an established Subduction connection (e.g.
@@ -852,8 +976,8 @@ export class Repo extends EventEmitter<RepoEvents> {
    * this Repo has no Subduction source.
    */
   isSubductionConnected = (): boolean => {
-    return this.#subductionSource?.isConnected() ?? false
-  }
+    return this.#subductionSource?.isConnected() ?? false;
+  };
 
   /**
    * The peer ids of the Subduction peers this Repo is *directly connected* to
@@ -863,12 +987,12 @@ export class Repo extends EventEmitter<RepoEvents> {
    * actual sync server.
    */
   connectedSubductionPeerIds = async (): Promise<string[]> => {
-    const source = this.#subductionSource
-    if (!source) return []
-    const subduction = await source.getSubduction()
-    const peers = await subduction.getConnectedPeerIds()
-    return peers.map(p => p.toString())
-  }
+    const source = this.#subductionSource;
+    if (!source) return [];
+    const subduction = await source.getSubduction();
+    const peers = await subduction.getConnectedPeerIds();
+    return peers.map((p) => p.toString());
+  };
 
   /**
    * Force a fresh Subduction sync round for a document, re-arming the
@@ -878,8 +1002,8 @@ export class Repo extends EventEmitter<RepoEvents> {
    * there is no Subduction source or the document is not attached to it.
    */
   resyncSubduction = (documentId: DocumentId): void => {
-    this.#subductionSource?.resync(documentId)
-  }
+    this.#subductionSource?.resync(documentId);
+  };
 
   /**
    * Drain pending writes for the given documents (or all documents
@@ -894,27 +1018,27 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @param documents - if provided, only flushes the specified documents.
    */
   async flush(documents?: DocumentId[]): Promise<void> {
-    const tasks: Promise<unknown>[] = []
+    const tasks: Promise<unknown>[] = [];
 
     if (this.storageSubsystem) {
-      const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
+      const ids = documents ?? (Object.keys(this.#queries) as DocumentId[]);
       tasks.push(
         Promise.all(
-          ids.map(async id => {
-            const state = this.#queries[id]?.peek()
+          ids.map(async (id) => {
+            const state = this.#queries[id]?.peek();
             if (state?.state === "ready") {
-              await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
+              await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc());
             }
-          })
-        )
-      )
+          }),
+        ),
+      );
     }
 
     for (const source of this.#sources.values()) {
-      if (source.flush) tasks.push(source.flush(documents))
+      if (source.flush) tasks.push(source.flush(documents));
     }
 
-    await Promise.all(tasks)
+    await Promise.all(tasks);
   }
 
   /**
@@ -924,65 +1048,65 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   async removeFromCache(documentId: DocumentId): Promise<void> {
     for (const source of this.#sources.values()) {
-      source.detach(documentId)
+      source.detach(documentId);
     }
-    delete this.#queries[documentId]
-    this.#syncStateTracker.delete(documentId)
+    delete this.#queries[documentId];
+    this.#syncStateTracker.delete(documentId);
   }
 
   async shutdown() {
     // Quiesce Subduction first — stops reconnect loops, flushes pending
     // saves, awaits storage writes, disconnects transports, frees Wasm
-    await this.#subductionSource?.shutdown()
+    await this.#subductionSource?.shutdown();
 
     // Stop traditional sync network connections
-    this.networkSubsystem.disconnect()
+    this.networkSubsystem.disconnect();
 
     // Best-effort flush: log persistence errors but don't propagate,
     // so the rest of teardown still runs. Call `repo.flush()`
     // explicitly before `shutdown()` if you need to observe them.
     try {
-      await this.flush()
+      await this.flush();
     } catch (e) {
-      this.#log.warn("flush() during shutdown failed", { err: e })
+      this.#log.warn("flush() during shutdown failed", { err: e });
     }
 
     // Release the storage adapter after the flush. StorageSubsystem.close()
     // forwards to the adapter's close?(), which terminates a worker-backed
     // adapter's worker.
-    await this.storageSubsystem?.close()
+    await this.storageSubsystem?.close();
   }
 
   metrics(): { documents: { [key: string]: any } } {
-    return { documents: this.synchronizer.metrics() }
+    return { documents: this.synchronizer.metrics() };
   }
 
   shareConfigChanged() {
     for (const source of this.#sources.values()) {
-      source.shareConfigChanged()
+      source.shareConfigChanged();
     }
   }
 }
 
 export interface RepoConfig {
   /** Our unique identifier */
-  peerId?: PeerId
+  peerId?: PeerId;
 
   /** Indicates whether other peers should persist the sync state of this peer.
    * Sync state is only persisted for non-ephemeral peers */
-  isEphemeral?: boolean
+  isEphemeral?: boolean;
 
   /** A storage adapter can be provided, or not */
-  storage?: StorageAdapterInterface
+  storage?: StorageAdapterInterface;
 
   /** A list of network adapters (more can be added at runtime). */
-  network?: NetworkAdapterInterface[]
+  network?: NetworkAdapterInterface[];
 
   /**
    * Normal peers typically share generously with everyone (meaning we sync all our documents with
    * all peers). A server only syncs documents that a peer explicitly requests by ID.
    */
-  sharePolicy?: SharePolicy
+  sharePolicy?: SharePolicy;
 
   /**
    * Whether to share documents with other peers. By default we announce new
@@ -993,31 +1117,42 @@ export interface RepoConfig {
    * without a major release.
    * @experimental
    */
-  shareConfig?: ShareConfig
+  shareConfig?: ShareConfig;
 
   /**
    * Whether to enable the experimental remote heads gossiping feature
    */
-  enableRemoteHeadsGossiping?: boolean
+  enableRemoteHeadsGossiping?: boolean;
 
   /**
    * A list of automerge URLs which should never be loaded regardless of what
    * messages are received or what the share policy is. This is useful to avoid
    * loading documents that are known to be too resource intensive.
    */
-  denylist?: AutomergeUrl[]
+  denylist?: AutomergeUrl[];
 
   /**
    * The debounce rate in milliseconds for saving documents. Defaults to 100ms.
    */
-  saveDebounceRate?: number
+  saveDebounceRate?: number;
+
+  /** Hex-encoded Automerge author to attach to this repo's local changes. */
+  authorId?: string;
+
+  /**
+   * Signs local Automerge changes and verifies remote Automerge changes.
+   * Providing this enables Automerge signature gating; omitting it disables
+   * signing entirely. (Not to be confused with `signer`, which is used for
+   * Subduction commit signatures and peer identity.)
+   */
+  signing?: AutomergeSignatureProvider;
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation
   /**
    * @hidden
    */
-  idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
+  idFactory?: (initialHeads: Heads) => Promise<Uint8Array>;
 
   /**
    * Signer used for Subduction commit signatures and peer identity.
@@ -1025,27 +1160,27 @@ export interface RepoConfig {
    * Pass a `WebCryptoSigner` (via `await WebCryptoSigner.setup()`) for
    * persistent identity across page loads.
    */
-  signer?: unknown
+  signer?: unknown;
 
   /** Authorization policy for the Subduction sync engine. See {@link Policy} from `@automerge/automerge-subduction`. */
-  subductionPolicy?: SubductionPolicy
+  subductionPolicy?: SubductionPolicy;
 
-  subductionWebsocketEndpoints?: string[]
+  subductionWebsocketEndpoints?: string[];
 
   subductionAdapters?: {
-    adapter: NetworkAdapterInterface
-    serviceName: string
+    adapter: NetworkAdapterInterface;
+    serviceName: string;
     /** Whether to initiate ("connect") or accept ("accept") the subduction
      *  handshake for peers on this adapter. Defaults to "connect". */
-    role?: "connect" | "accept"
-  }[]
+    role?: "connect" | "accept";
+  }[];
 
   /**
    * Tunable timeouts for the Subduction sync engine and its
    * heal-retry scheduler. See {@link SubductionTimeouts}. All fields
    * are optional; sensible defaults apply.
    */
-  subductionTimeouts?: SubductionTimeouts
+  subductionTimeouts?: SubductionTimeouts;
 
   /**
    * Optional interceptor for transforming incoming and outgoing blobs (e.g.,
@@ -1056,7 +1191,7 @@ export interface RepoConfig {
    * store from colliding with an untransformed store that shares the same
    * `storage` when only one of the two Repos runs the interceptor.
    */
-  subductionBlobInterceptor?: BlobInterceptor
+  subductionBlobInterceptor?: BlobInterceptor;
 }
 
 /** A function that determines whether we should share a document with a peer
@@ -1069,8 +1204,8 @@ export interface RepoConfig {
  * */
 export type SharePolicy = (
   peerId: PeerId,
-  documentId?: DocumentId
-) => Promise<boolean>
+  documentId?: DocumentId,
+) => Promise<boolean>;
 
 /**
  * A type which determines whether we should share a document with a peer
@@ -1086,43 +1221,43 @@ export type ShareConfig = {
    * sync server, but the sync server would not want to announce every document
    * to every connected peer
    */
-  announce: SharePolicy
+  announce: SharePolicy;
   /**
    * Whether a peer should have access to the document
    */
-  access: (peerId: PeerId, documentId?: DocumentId) => Promise<boolean>
-}
+  access: (peerId: PeerId, documentId?: DocumentId) => Promise<boolean>;
+};
 
 export type RepoFindOptions = {
   /**
    * @deprecated This no longer has any effect, instead you should use
    * {@link Repo.findWithProgress} to get progress information.
    */
-  allowableStates?: string[]
-}
+  allowableStates?: string[];
+};
 
 // Re-exported from DocHandle
-export type { SyncInfo } from "./DocHandle.js"
+export type { SyncInfo } from "./DocHandle.js";
 
-export type DeleteDocumentPayload = { documentId: DocumentId }
-export type DocumentPayload = { handle: DocHandle<any> }
+export type DeleteDocumentPayload = { documentId: DocumentId };
+export type DocumentPayload = { handle: DocHandle<any> };
 export type DocMetrics = {
-  type: string
-  documentId: DocumentId
-  [key: string]: unknown
-}
+  type: string;
+  documentId: DocumentId;
+  [key: string]: unknown;
+};
 
 // events & payloads
 export interface RepoEvents {
   /** A new document was created or discovered */
-  document: (payload: DocumentPayload) => void
+  document: (payload: DocumentPayload) => void;
   /** A document was deleted */
-  "delete-document": (payload: DeleteDocumentPayload) => void
+  "delete-document": (payload: DeleteDocumentPayload) => void;
   /** A document was marked as unavailable (we don't have it and none of our peers have it) */
-  "unavailable-document": (payload: DeleteDocumentPayload) => void
-  "doc-metrics": (payload: DocMetrics) => void
+  "unavailable-document": (payload: DeleteDocumentPayload) => void;
+  "doc-metrics": (payload: DocMetrics) => void;
   /** Self-healing sync gave up after all retry attempts for a document */
-  "heal-exhausted": (payload: { documentId: DocumentId }) => void
+  "heal-exhausted": (payload: { documentId: DocumentId }) => void;
   /**
    * A Subduction peer (e.g. the sync server) advertised new heads for a
    * document. `storageId` is the peer's verifying-key peer id. Fires only for
@@ -1130,11 +1265,11 @@ export interface RepoEvents {
    * server heads to other tabs.
    */
   "subduction-remote-heads": (payload: {
-    documentId: DocumentId
-    storageId: StorageId
-    heads: UrlHeads
-    timestamp: number
-  }) => void
+    documentId: DocumentId;
+    storageId: StorageId;
+    heads: UrlHeads;
+    timestamp: number;
+  }) => void;
   /** This Repo's aggregate Subduction connectedness flipped (online/offline). */
-  "subduction-connection": (payload: { connected: boolean }) => void
+  "subduction-connection": (payload: { connected: boolean }) => void;
 }

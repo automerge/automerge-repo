@@ -50,9 +50,15 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
   #log = makeLogger("automerge-repo:storage-subsystem")
 
-  constructor(storageAdapter: StorageAdapterInterface) {
+  #automergeOptions: { author?: string; signing?: boolean }
+
+  constructor(
+    storageAdapter: StorageAdapterInterface,
+    automergeOptions: { author?: string; signing?: boolean } = {}
+  ) {
     super()
     this.#storageAdapter = storageAdapter
+    this.#automergeOptions = automergeOptions
   }
 
   /** Release the underlying storage adapter's resources, if it holds any. */
@@ -190,7 +196,10 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
     // Load into an Automerge document
     const start = performance.now()
-    const newDoc = A.loadIncremental(A.init(), binary) as A.Doc<T>
+    const newDoc = A.loadIncremental(
+      A.init(this.#automergeOptions),
+      binary
+    ) as A.Doc<T>
     const end = performance.now()
     this.emit("document-loaded", {
       documentId,
@@ -212,6 +221,13 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * snapshot size, at which point the document is compacted into a single snapshot.
    */
   async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+    // When signing is enabled Automerge.save/saveSince intentionally filter
+    // local changes whose signatures have not been attached yet. Do not advance
+    // our saved-heads baseline until those changes are actually exportable.
+    if (A.signingEnabled(doc) && A.missingSignatureHashes(doc).length > 0) {
+      return
+    }
+
     // Don't bother saving if the document hasn't changed
     if (!this.#shouldSave(documentId, doc)) return
 

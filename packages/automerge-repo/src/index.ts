@@ -93,6 +93,9 @@ export type {
 export type {
   DeleteDocumentPayload,
   DocumentPayload,
+  AutomergeSignatureProvider,
+  AutomergeSigningRequest,
+  AutomergeVerificationRequest,
   RepoConfig,
   RepoEvents,
   RepoFindOptions,

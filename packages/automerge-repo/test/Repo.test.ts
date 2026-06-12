@@ -758,7 +758,8 @@ describe("Repo", () => {
         const handle = repo.create<TestDoc>()
         assert(repo.synchronizer.docSynchronizers[handle.documentId])
         // No storage = no save listener; 1 from DocumentQuery + 1 subduction
-        assert.equal(handle.listenerCount("heads-changed"), 2)
+        // + 1 DocSynchronizer (marks peers dirty on heads-changed)
+        assert.equal(handle.listenerCount("heads-changed"), 3)
       })
 
       it("respects saveDebounceRate when saving", async () => {
@@ -2156,7 +2157,8 @@ describe("Repo", () => {
 
       const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
       // 1 save listener + 1 DocumentQuery listener + 1 subduction
-      assert.equal(bobHandle.listenerCount("heads-changed"), 3)
+      // + 1 DocSynchronizer (marks peers dirty on heads-changed)
+      assert.equal(bobHandle.listenerCount("heads-changed"), 4)
 
       teardown()
     })

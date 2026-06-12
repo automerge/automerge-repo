@@ -78,6 +78,6 @@ export async function setupSubduction({
   storageAdapter,
 }: SetupSubductionOptions): Promise<SetupSubductionResult> {
   const storage = new SubductionStorageBridge(storageAdapter)
-  const subduction = new Subduction({ signer: signer as Signer, storage })
+  const subduction = new Subduction({ signer: signer as any, storage })
   return { subduction, storage }
 }
