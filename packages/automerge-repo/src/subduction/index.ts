@@ -17,7 +17,7 @@
  * ```
  */
 
-import type { StorageAdapterInterface } from "@automerge/automerge-repo/slim"
+import type { StorageAdapterInterface } from "../storage/StorageAdapterInterface.js"
 import { Subduction, type Signer } from "@automerge/automerge-subduction/slim"
 export { SubductionSource, type OnRemoteHeadsChanged } from "./source.js"
 export type {
