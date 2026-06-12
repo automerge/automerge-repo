@@ -39,6 +39,15 @@ export type { OnHealExhausted } from "./SyncScheduler.js"
  */
 const DEFAULT_SYNC_TIMEOUT_MS = 60_000
 
+/**
+ * Deadline for the final best-effort sync round `shutdown()` runs for
+ * entries with saved-but-never-broadcast commits. Deliberately short:
+ * the data is already durable on disk (it propagates next session if
+ * the push misses), and shutdown must not pin the process on an
+ * unresponsive or half-torn-down peer.
+ */
+const SHUTDOWN_SYNC_TIMEOUT_MS = 5_000
+
 // ── Per-sedimentree state ───────────────────────────────────────────────
 //
 // `initializing`: suppress individual commit-saved events. The handle
@@ -65,6 +74,12 @@ interface SedimentreeEntry {
   blobLoadInFlight: boolean
   needsResync: boolean
   blobRetries: number
+  /**
+   * Resolves when the in-flight `#doSync` round (if any) completes.
+   * Mirrors `saveSettled`; `shutdown()` awaits it so outbound
+   * propagation can quiesce before transports are torn down.
+   */
+  syncSettled: Promise<void>
 
   // Save tracking
   lastSavedHeads: Set<string>
@@ -77,7 +92,7 @@ interface SedimentreeEntry {
    *    this set so we never re-push something subduction already has.
    * 2. `#handleDataFound` short-circuits on a hit, both to avoid
    *    re-applying our own writes (the bridge fires `commit-saved`
-   *    synchronously inside `addBatch` for each save) and to dedupe
+   *    synchronously inside `storeBuiltBatch` for each save) and to dedupe
    *    repeated deliveries when both backends carry the same change.
    *
    * Grows unboundedly with doc history (hex hash ≈ 64 B per entry).
@@ -91,7 +106,7 @@ interface SedimentreeEntry {
    * storage as loose-commit records (not as part of a fragment).
    *
    * Updated:
-   *  - After `addBatch` succeeds in `#saveNewCommits`, for each new
+   *  - After `storeBuiltBatch` succeeds in `#saveNewCommits`, for each new
    *    commit we just wrote.
    *  - In the `commit-saved` event handler, for commits the bridge
    *    persisted on our behalf (typically inbound from peers).
@@ -113,7 +128,7 @@ interface SedimentreeEntry {
   /**
    * Promise for the in-flight `#compactAbsorbed` pass, or `null` if
    * none is running. Compaction is fire-and-forget from the save
-   * loop's perspective — the save returns as soon as `addBatch`
+   * loop's perspective — the save returns as soon as `storeBuiltBatch`
    * resolves — but `flush()` awaits this so callers can observe a
    * consistent on-disk footprint after a quiescent point. The gate
    * also prevents two passes piling up on each other if saves are
@@ -147,7 +162,7 @@ interface SedimentreeEntry {
   saveInProgress: boolean
   /**
    * Set by `#save` when its post-await heads observation differs
-   * from the heads it sampled before the `addBatch` await. Cleared
+   * from the heads it sampled before the `storeBuiltBatch` await. Cleared
    * at the start of each `#save`. `flush()` uses this to decide
    * whether another save round is needed before resolving.
    */
@@ -283,6 +298,13 @@ export class SubductionSource implements DocumentSource {
   #syncTimeoutMs: number
   #syncTimeout: number | null
   #blobInterceptor?: BlobInterceptor
+  /**
+   * Set at the top of `shutdown()`. Makes `#scheduleRecompute` a
+   * no-op so no new background sync rounds spin up mid-teardown; the
+   * quiesce pass in `shutdown()` is the only thing that initiates
+   * syncs after this point.
+   */
+  #shuttingDown = false
 
   readonly priority: SourcePriority
 
@@ -435,11 +457,20 @@ export class SubductionSource implements DocumentSource {
     // would cause premature "ready" transitions (the handle gets heads > 0
     // from a partial load, triggering DocumentQuery to resolve whenReady()
     // before the full document is available).
-    if (entry.syncState === "initializing") return
+    //
+    // The arrival is still a state change for THIS entry: if its sync
+    // round already succeeded but `#loadBlobsAndTransition` found no
+    // data (the "one-behind" arrival order), nothing else will wake it
+    // — recomputes are targeted, so other entries' completions no
+    // longer walk this one. Mark it dirty so the walk retries the load.
+    if (entry.syncState === "initializing") {
+      this.#scheduleRecompute(entry)
+      return
+    }
 
     // If the hash is already recorded, this is either:
     //   (a) a self-save echo — `#saveNewCommits` added the hash before
-    //       calling `addBatch`; subduction then persisted and fired
+    //       calling `storeBuiltBatch`; subduction then persisted and fired
     //       `commit-saved`. The handle already contains the change, so
     //       re-applying would be O(doc-size) wasted work.
     //   (b) a duplicate delivery (e.g. both sync backends delivered the
@@ -568,6 +599,7 @@ export class SubductionSource implements DocumentSource {
       blobLoadInFlight: false,
       blobRetries: 0,
       needsResync: false,
+      syncSettled: Promise.resolve(),
       lastSavedHeads: new Set(),
       knownHashes: new Set(),
       persistedCommitHashes: new Set(),
@@ -636,7 +668,7 @@ export class SubductionSource implements DocumentSource {
       }
     })()
 
-    this.#scheduleRecompute()
+    this.#scheduleRecompute(this.#entries.get(sidStr))
   }
 
   detach(_documentId: DocumentId): void {}
@@ -654,19 +686,45 @@ export class SubductionSource implements DocumentSource {
   // ── Central recompute ───────────────────────────────────────────────
 
   #recomputeScheduled = false
+  /** Entries (by sidStr) whose state changed since the last walk started. */
+  #recomputeDirty = new Set<string>()
+  /** When set, the next walk visits every entry, ignoring the dirty set. */
+  #recomputeAllDirty = false
 
   /**
-   * Request a recompute of every entry's sync state machine.
+   * Request a recompute of an entry's sync state machine — or of every
+   * entry when no `entry` is given (connection-level events: a peer
+   * connecting or an adapter transitioning changes `noPeersButConnection
+   * Changed` for all entries at once).
    *
    * Coalesces bursts. Bulk `attach` (thousands of docs created/found at
    * once) previously called the *synchronous* `#recompute` once per doc,
    * and each call walked ALL entries — O(N²) synchronous work that
    * monopolized the single thread and starved the transport, so the sync
-   * server's keepalive reaped the connection mid-ingest. Now a burst
+   * server's keepalive reaped the connection mid-ingest. A burst now
    * collapses to a single walk on the next macrotask, and the walk yields
    * periodically so the loop can service the socket between entries.
+   *
+   * Targeting matters for the same reason on the *settle* side: each
+   * entry's save/sync completion lands in its own macrotask wave, so
+   * per-completion full walks made flushing N documents O(N²) — one
+   * O(N) walk per completion (measured ~4× per doc-count doubling;
+   * see test/subduction/AttachStorm.test.ts). Per-entry state changes
+   * only ever affect that entry's next transition (`#recomputeEntry`
+   * reads the entry plus global connection state), so completions mark
+   * just their entry dirty and a settle wave costs O(dirty), not O(N).
    */
-  #scheduleRecompute() {
+  #scheduleRecompute(entry?: SedimentreeEntry) {
+    // No new background sync rounds during shutdown — the quiesce pass
+    // in `shutdown()` is the only thing allowed to initiate syncs.
+    if (this.#shuttingDown) return
+
+    if (entry === undefined) {
+      this.#recomputeAllDirty = true
+    } else if (!this.#recomputeAllDirty) {
+      this.#recomputeDirty.add(entry.sedimentreeId.toString())
+    }
+
     if (this.#recomputeScheduled) return
     this.#recomputeScheduled = true
     void (async () => {
@@ -691,10 +749,29 @@ export class SubductionSource implements DocumentSource {
    * (`syncInFlight`, `blobLoadInFlight`). Keep it that way: making
    * `#recomputeEntry` async, or setting those flags after an `await`,
    * turns overlapping walks into double-dispatch bugs.
+   *
+   * The dirty set is snapshotted (and cleared) synchronously at walk
+   * start for the same reason: entries dirtied mid-walk belong to the
+   * next scheduled walk, never to this one.
    */
   async #runRecompute() {
     const maybeYield = makeYielder()
-    for (const entry of this.#entries.values()) {
+
+    if (this.#recomputeAllDirty) {
+      this.#recomputeAllDirty = false
+      this.#recomputeDirty.clear()
+      for (const entry of [...this.#entries.values()]) {
+        this.#recomputeEntry(entry)
+        await maybeYield()
+      }
+      return
+    }
+
+    const dirty = [...this.#recomputeDirty]
+    this.#recomputeDirty.clear()
+    for (const sidStr of dirty) {
+      const entry = this.#entries.get(sidStr)
+      if (entry === undefined) continue
       this.#recomputeEntry(entry)
       await maybeYield()
     }
@@ -754,10 +831,15 @@ export class SubductionSource implements DocumentSource {
 
   // ── Async work kicked off by #recompute ─────────────────────────────
 
-  async #doSync(entry: SedimentreeEntry) {
+  async #doSync(entry: SedimentreeEntry, timeoutMs?: number | null) {
     const { sedimentreeId } = entry
     const sid = sedimentreeId.toString().slice(0, 8)
     entry.lastSyncGeneration = this.#connectionGeneration()
+
+    let resolveSyncSettled!: () => void
+    entry.syncSettled = new Promise<void>(r => {
+      resolveSyncSettled = r
+    })
 
     try {
       const subduction = await this.#subduction
@@ -774,7 +856,7 @@ export class SubductionSource implements DocumentSource {
       const peerResultMap = await subduction.syncWithAllPeers(
         sedimentreeId,
         true,
-        this.#syncTimeout
+        timeoutMs !== undefined ? timeoutMs : this.#syncTimeout
       )
 
       const results = peerResultMap.entries()
@@ -815,6 +897,7 @@ export class SubductionSource implements DocumentSource {
       this.#scheduler.scheduleHealSync(sedimentreeId)
     } finally {
       entry.syncInFlight = false
+      resolveSyncSettled()
       // If new commits were saved or a new connection was established
       // while this sync was in flight, re-sync immediately.
       if (entry.needsResync || entry.lastSyncResult === null) {
@@ -830,7 +913,7 @@ export class SubductionSource implements DocumentSource {
             `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
       }
-      this.#scheduleRecompute()
+      this.#scheduleRecompute(entry)
     }
   }
 
@@ -956,7 +1039,7 @@ export class SubductionSource implements DocumentSource {
       entry.lastSyncResult = null
     } finally {
       entry.blobLoadInFlight = false
-      this.#scheduleRecompute()
+      this.#scheduleRecompute(entry)
     }
   }
 
@@ -965,10 +1048,15 @@ export class SubductionSource implements DocumentSource {
   /**
    * Persist any new local commits for `entry` into Subduction.
    *
+   * Persistence only — propagation to peers happens via the `#doSync`
+   * arm in the tail below, never inline. `saveSettled` therefore
+   * gates on local durability alone; in particular `shutdown()` can
+   * await it without waiting out network round-trip deadlines.
+   *
    * Single-flight per entry: concurrent invocations early-return on
    * the `saveInProgress` gate (no promise-chain queue). Each pass
    * processes whatever has accumulated since `entry.lastSavedHeads`
-   * and runs at most one `addBatch` round-trip; if the post-await
+   * and runs at most one `storeBuiltBatch` write; if the post-await
    * heads check detects a delta, it re-arms the throttle for a
    * follow-up save rather than looping inline.
    *
@@ -1077,9 +1165,16 @@ export class SubductionSource implements DocumentSource {
       resolveSaveSettled()
     }
 
-    // Trigger immediate sync to peers. If a sync is already in flight,
-    // flag for re-sync when it completes (otherwise the in-flight sync
-    // would overwrite lastSyncResult and the new commits would be lost).
+    // Trigger immediate sync to peers — this is the ONLY broadcast
+    // path for newly saved commits (`#saveNewCommits` is store-only).
+    // If a sync is already in flight, flag for re-sync when it
+    // completes (otherwise the in-flight sync would overwrite
+    // lastSyncResult and the new commits would be lost).
+    //
+    // During shutdown this state is still recorded — the quiesce pass
+    // in `shutdown()` uses it to find entries with un-broadcast
+    // commits — but `#scheduleRecompute` itself is a no-op then, so
+    // no new background sync rounds spin up.
     if (entry.syncInFlight) {
       this.#log(
         `#save ${entry.sedimentreeId
@@ -1090,7 +1185,7 @@ export class SubductionSource implements DocumentSource {
     } else if (entry.lastSyncResult !== "no-peers") {
       entry.lastSyncResult = null
     }
-    this.#scheduleRecompute()
+    this.#scheduleRecompute(entry)
   }
 
   async #saveNewCommits<T>(
@@ -1242,14 +1337,21 @@ export class SubductionSource implements DocumentSource {
       return { prepFailures: prepErrors.length }
     }
 
-    // Record hashes BEFORE `addBatch` so the synchronous `commit-saved`
-    // / `fragment-saved` events fired from the storage bridge (which
-    // run before `addBatch` resolves) find them and skip the
-    // `#handleDataFound` apply path.
+    // Record hashes BEFORE `storeBuiltBatch` so the synchronous
+    // `commit-saved` / `fragment-saved` events fired from the storage
+    // bridge (which run before `storeBuiltBatch` resolves) find them
+    // and skip the `#handleDataFound` apply path.
     for (const hash of acceptedHashes) entry.knownHashes.add(hash)
 
     try {
-      await subduction.addBatch(
+      // Store-only tier (no broadcast). `addBatch` would also run a
+      // `sync_with_all_peers` round-trip, but that's redundant — the
+      // `#save` tail arms an immediate `#doSync` (which does its own
+      // `syncWithAllPeers`) — and it made `saveSettled` hostage to
+      // network round-trip deadlines: post-convergence broadcasts hit
+      // the full 30 s Wasm deadline, stalling `shutdown()` (which
+      // awaits `saveSettled`) ~25–30 s on every online run.
+      await subduction.storeBuiltBatch(
         entry.sedimentreeId,
         commitInputs,
         fragmentInputs
@@ -1260,7 +1362,7 @@ export class SubductionSource implements DocumentSource {
       // previous value when this rejects.
       for (const hash of acceptedHashes) entry.knownHashes.delete(hash)
       console.warn(
-        `[SubductionSource] addBatch failed for ${entry.sedimentreeId
+        `[SubductionSource] storeBuiltBatch failed for ${entry.sedimentreeId
           .toString()
           .slice(0, 8)} (${commitInputs.length} commits, ` +
           `${fragmentInputs.length} fragments):`,
@@ -1279,9 +1381,9 @@ export class SubductionSource implements DocumentSource {
    *
    * Compaction is purely a storage-side garbage collection; nothing
    * downstream of `#saveNewCommits` (the throttled save, the sync
-   * scheduler, peers waiting on `addBatch`) cares whether the
+   * scheduler, peers awaiting propagation) cares whether the
    * already-absorbed commits are still on disk. So we deliberately
-   * don't await it — the next save returns as soon as `addBatch`
+   * don't await it — the next save returns as soon as `storeBuiltBatch`
    * resolves, and the deletes drain at whatever pace the adapter
    * allows. Errors are logged but never propagated up; if a delete
    * fails the data sticks around until the next pass tries again.
@@ -1299,18 +1401,18 @@ export class SubductionSource implements DocumentSource {
    * core has absorbed into higher-level fragments. Without this
    * subduction's storage grows roughly with `total history written`
    * rather than with `current minimal sedimentree`, since the wasm
-   * `Subduction.addBatch` writes new records but never deletes the
+   * `Subduction.storeBuiltBatch` writes new records but never deletes the
    * ones they supersede.
    *
    * We use automerge as the source of truth: any persisted hash that
    * is no longer in `getCommits` / `getFragments` is by definition
    * absorbed and safe to drop. Subduction core has already minimized
-   * its in-memory tree at the end of `addBatch`, so this only ever
+   * its in-memory tree at the end of `storeBuiltBatch`, so this only ever
    * removes data that is provably redundant on the local node.
    *
    * IMPORTANT: we sample `handle.doc()` here rather than reusing the
    * snapshot from the save loop. Under concurrent writes the handle
-   * may have advanced between `addBatch` and this call; deleting
+   * may have advanced between `storeBuiltBatch` and this call; deleting
    * against a stale snapshot would clobber freshly-persisted commits
    * that are still live at the level-0 layer, forcing the next save
    * to re-persist them and (a) wasting I/O, (b) inflating apparent
@@ -1504,6 +1606,8 @@ export class SubductionSource implements DocumentSource {
   // ── Shutdown ────────────────────────────────────────────────────────
 
   async shutdown() {
+    this.#shuttingDown = true
+
     // 1. Stop reconnect loops and prevent new transports
     for (const mgr of this.#connectionManagers) {
       mgr.shutdown()
@@ -1521,10 +1625,62 @@ export class SubductionSource implements DocumentSource {
       entry.flushSave.flush()
     }
 
-    // 4. Wait for all in-flight #save() calls to complete
+    // 4. Wait for all in-flight #save() calls to complete. Saves are
+    //    store-only (no broadcast), so this settles at disk speed.
     await Promise.all(
       Array.from(this.#entries.values()).map(e => e.saveSettled)
     )
+
+    // 4b. Quiesce outbound propagation. First let any in-flight
+    //     `#doSync` rounds finish (their responses still route — the
+    //     transports stay up until step 6)...
+    await Promise.all(
+      Array.from(this.#entries.values()).map(e => e.syncSettled)
+    )
+
+    //     ...then run one final sync round for every entry whose
+    //     saved commits were never broadcast (`#save`'s tail recorded
+    //     the dirty state but `#scheduleRecompute` was a no-op). This
+    //     is what was previously — accidentally — covered by the
+    //     blocking broadcast inside `addBatch`: without it, anything
+    //     pushed shortly before shutdown is durable locally but never
+    //     reaches the server, and short-lived CLI processes lose data.
+    const unbroadcast = Array.from(this.#entries.values()).filter(
+      e => e.needsResync || e.lastSyncResult === null
+    )
+    if (unbroadcast.length > 0) {
+      this.#log(
+        `shutdown: final sync round for ${unbroadcast.length} ` +
+          `entr${unbroadcast.length === 1 ? "y" : "ies"} with ` +
+          `un-broadcast commits`
+      )
+      // Bounded pool: a large dirty set must not open hundreds of
+      // concurrent sync rounds against a single (possibly
+      // single-threaded) server.
+      const queue = [...unbroadcast]
+      const workers = Array.from(
+        { length: Math.min(16, queue.length) },
+        async () => {
+          for (;;) {
+            const e = queue.pop()
+            if (e === undefined) return
+            try {
+              // Short deadline: a final best-effort push must not pin
+              // shutdown on an unresponsive (or already torn down)
+              // peer for the full sync timeout.
+              await this.#doSync(e, SHUTDOWN_SYNC_TIMEOUT_MS)
+            } catch (err) {
+              this.#log(
+                "shutdown: final sync failed for %s: %O",
+                e.sedimentreeId.toString().slice(0, 8),
+                err
+              )
+            }
+          }
+        }
+      )
+      await Promise.all(workers)
+    }
 
     // 5. Wait for SubductionStorageBridge writes to land on disk
     await this.#storage.awaitSettled()
