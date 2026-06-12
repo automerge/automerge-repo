@@ -43,14 +43,17 @@ import {
   set_subduction_logger,
   type Subduction,
 } from "@automerge/automerge-subduction/slim"
-import { SubductionStorageBridge } from "./subduction/storage.js"
+import {
+  SubductionStorageBridge,
+  INTERCEPTOR_PREFIX,
+} from "./subduction/storage.js"
+import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import {
   SubductionSource,
   type SubductionTimeouts,
   type BlobInterceptor,
 } from "./subduction/source.js"
 import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
-import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import { encode, decode } from "cbor-x"
 import type { EphemeralMessage } from "./network/messages.js"
 export type { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
@@ -176,9 +179,19 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
       )
     }
+    // Subduction commits are persisted under a key prefix that depends on
+    // whether a blob interceptor is configured. A Repo with an interceptor
+    // uses INTERCEPTOR_PREFIX. One without uses the default. This keeps the
+    // two representations apart when two Repos share one storage but only one
+    // of them runs the interceptor. Without separate prefixes, an
+    // interceptor-transformed commit and an untransformed commit with the same
+    // CommitId would collide at the same key and clobber each other.
     let subductionStorage: SubductionStorageBridge
     if (storage) {
-      subductionStorage = new SubductionStorageBridge(storage)
+      subductionStorage = new SubductionStorageBridge(
+        storage,
+        subductionBlobInterceptor ? INTERCEPTOR_PREFIX : undefined
+      )
     } else {
       subductionStorage = new SubductionStorageBridge(new DummyStorageAdapter())
     }
@@ -951,7 +964,15 @@ export interface RepoConfig {
    */
   subductionTimeouts?: SubductionTimeouts
 
-  /** Optional interceptor for transforming incoming and outgoing blobs (e.g., for E2EE). */
+  /**
+   * Optional interceptor for transforming incoming and outgoing blobs (e.g.,
+   * for E2EE).
+   *
+   * When set, this Repo's subduction commits are stored under a distinct key
+   * prefix ({@link INTERCEPTOR_PREFIX}). This keeps an interceptor-transformed
+   * store from colliding with an untransformed store that shares the same
+   * `storage` when only one of the two Repos runs the interceptor.
+   */
   subductionBlobInterceptor?: BlobInterceptor
 }
 
