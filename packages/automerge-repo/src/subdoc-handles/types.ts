@@ -97,7 +97,7 @@ export type AnyPathInput = PathInput | Segment
  *
  * @experimental This API is experimental and may change in future versions.
  */
-// eslint-disable-next-line no-wrapper-object-types
+// oxlint-disable-next-line typescript/no-wrapper-object-types
 export interface MutableText extends String {
   /** Splice text at a position - uses Automerge.splice for CRDT-safe mutation */
   splice(index: number, deleteCount: number, insert?: string): void
@@ -117,33 +117,88 @@ export interface MutableText extends String {
  * @experimental This API is experimental and may change in future versions.
  */
 export type SubChangeFn<T> = (
-  val: T extends string ? MutableText : T
+  val: NonNullable<T> extends string ? MutableText : NonNullable<T>
 ) => T | void
 
-type GetSegmentValue<TObj, TSegment> = TSegment extends string
-  ? TSegment extends keyof TObj
-    ? TObj[TSegment]
-    : unknown
-  : TSegment extends number | Pattern
-    ? TObj extends readonly (infer E)[]
-      ? E
-      : unknown
-    : TSegment extends CursorMarker
-      ? TObj extends string
-        ? string
+/**
+ * Step one segment into `TObj`, stripping nullability on the *parent*
+ * first so traversal continues through optional intermediates. Returns
+ * the raw value type for the step - optional-key `undefined` is preserved,
+ * but array-index / pattern hops return the bare element (their
+ * possible-absence is folded in separately by {@link HopCanBeAbsent}).
+ */
+type StepValue<TObj, TSegment> =
+  NonNullable<TObj> extends infer O
+    ? TSegment extends number | Pattern
+      ? O extends readonly (infer E)[]
+        ? E
         : unknown
-      : unknown
+      : TSegment extends CursorMarker
+        ? O extends string
+          ? string
+          : unknown
+        : TSegment extends string
+          ? TSegment extends keyof O
+            ? O[TSegment]
+            : unknown
+          : unknown
+    : unknown
 
-/** Recursively infer type by traversing path through document */
-export type PathValue<TDoc, TPath extends readonly any[]> = TPath extends []
+/**
+ * Whether stepping `TObj` via `TSegment` can resolve to "absent":
+ * - an array index (`number`) or pattern (`Pattern`) - out of bounds / no
+ *   match, mirroring `noUncheckedIndexedAccess`
+ * - an optional / `undefined`-valued object key
+ *
+ * A literal key into a required field is never absent, so root and
+ * key-only paths stay free of a spurious `| undefined`.
+ */
+type HopCanBeAbsent<TObj, TSegment> =
+  NonNullable<TObj> extends infer O
+    ? TSegment extends number | Pattern
+      ? true
+      : TSegment extends string
+        ? TSegment extends keyof O
+          ? undefined extends O[TSegment]
+            ? true
+            : false
+          : false
+        : false
+    : false
+
+/** Leaf value type, traversing with intermediate nullability stripped. */
+type ExactPathValue<
+  TDoc,
+  TPath extends readonly any[],
+> = TPath extends readonly []
   ? TDoc
   : TPath extends readonly [infer First, ...infer Rest]
-    ? GetSegmentValue<TDoc, First> extends infer Next
-      ? Next extends never
-        ? unknown
-        : PathValue<Next, Rest>
-      : unknown
+    ? ExactPathValue<StepValue<TDoc, First>, Rest>
     : unknown
+
+/**
+ * Whether the resolved value can be `undefined`: either the base is itself
+ * nullable (e.g. chaining `.sub()` off an index/pattern handle) or some hop
+ * along the path can be absent.
+ */
+type PathIsNullable<TDoc, TPath extends readonly any[]> = undefined extends TDoc
+  ? true
+  : TPath extends readonly [infer First, ...infer Rest]
+    ? HopCanBeAbsent<TDoc, First> extends true
+      ? true
+      : PathIsNullable<StepValue<TDoc, First>, Rest>
+    : false
+
+/**
+ * Recursively infer the value type at `TPath`. `undefined` is introduced
+ * only where the value genuinely might not be there (array index, pattern
+ * match, or optional key); the root and required-key paths are
+ * `undefined`-free.
+ */
+export type PathValue<TDoc, TPath extends readonly any[]> =
+  PathIsNullable<TDoc, TPath> extends true
+    ? ExactPathValue<TDoc, TPath> | undefined
+    : ExactPathValue<TDoc, TPath>
 
 export type InferSubType<TDoc, TPath extends readonly any[]> = PathValue<
   TDoc,
@@ -196,36 +251,71 @@ export type SegmentsFromString<P extends string> =
       : never
     : never
 
-/** Get value type for a parsed string segment */
-type GetParsedSegmentValue<TObj, TSegment> = TSegment extends CursorRangeMarker
-  ? TObj extends string
-    ? string
-    : unknown
-  : TSegment extends number
-    ? TObj extends readonly (infer E)[]
-      ? E
-      : unknown
-    : TSegment extends string
-      ? TSegment extends keyof TObj
-        ? TObj[TSegment]
+/** Step one parsed string segment into `TObj` (parent nullability stripped). */
+type StepValueFromString<TObj, TSegment> =
+  NonNullable<TObj> extends infer O
+    ? TSegment extends CursorRangeMarker
+      ? O extends string
+        ? string
         : unknown
-      : unknown
+      : TSegment extends number
+        ? O extends readonly (infer E)[]
+          ? E
+          : unknown
+        : TSegment extends string
+          ? TSegment extends keyof O
+            ? O[TSegment]
+            : unknown
+          : unknown
+    : unknown
 
-/** Recursively traverse document type using parsed path segments */
-type PathValueFromString<
+/**
+ * Whether a parsed string hop can be absent. String paths can only carry
+ * keys (`key`), array indices (`@n` → `number`) and cursor ranges, so the
+ * absent-able hops are array indices and optional keys.
+ */
+type HopCanBeAbsentFromString<TObj, TSegment> =
+  NonNullable<TObj> extends infer O
+    ? TSegment extends number
+      ? true
+      : TSegment extends CursorRangeMarker
+        ? false
+        : TSegment extends string
+          ? TSegment extends keyof O
+            ? undefined extends O[TSegment]
+              ? true
+              : false
+            : false
+          : false
+    : false
+
+/** Leaf value type for a parsed string path, intermediate nullability stripped. */
+type ExactPathValueFromString<
   TDoc,
   TPath extends readonly any[],
 > = TPath extends readonly []
   ? TDoc
   : TPath extends readonly [infer First, ...infer Rest]
-    ? GetParsedSegmentValue<TDoc, First> extends infer Next
-      ? Next extends unknown
-        ? Rest extends readonly any[]
-          ? PathValueFromString<Next, Rest>
-          : unknown
-        : unknown
-      : unknown
+    ? ExactPathValueFromString<StepValueFromString<TDoc, First>, Rest>
     : unknown
+
+/** Whether a parsed string path can resolve to `undefined`. */
+type PathIsNullableFromString<
+  TDoc,
+  TPath extends readonly any[],
+> = undefined extends TDoc
+  ? true
+  : TPath extends readonly [infer First, ...infer Rest]
+    ? HopCanBeAbsentFromString<TDoc, First> extends true
+      ? true
+      : PathIsNullableFromString<StepValueFromString<TDoc, First>, Rest>
+    : false
+
+/** Recursively traverse document type using parsed path segments */
+type PathValueFromString<TDoc, TPath extends readonly any[]> =
+  PathIsNullableFromString<TDoc, TPath> extends true
+    ? ExactPathValueFromString<TDoc, TPath> | undefined
+    : ExactPathValueFromString<TDoc, TPath>
 
 /** Infer the sub-handle value type from a document type and path string */
 export type InferSubTypeFromString<

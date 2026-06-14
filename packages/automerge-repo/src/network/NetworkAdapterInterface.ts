@@ -31,6 +31,8 @@ export interface NetworkAdapterInterface extends EventEmitter<NetworkAdapterEven
   peerId?: PeerId
   peerMetadata?: PeerMetadata
 
+  state(): AdapterState
+
   isReady(): boolean
   whenReady(): Promise<void>
 
@@ -50,6 +52,18 @@ export interface NetworkAdapterInterface extends EventEmitter<NetworkAdapterEven
 
   /** Called by the {@link Repo} to disconnect from the network */
   disconnect(): void
+}
+
+/** A signal representing the connection state of the network adapter */
+export interface AdapterState {
+  /** THe current state */
+  value: "ready" | "connecting"
+  /**
+   * Returns an async iterator that yields the state of the network adapter as
+   * it changes. Note that the current state is not yielded; only state
+   * transitions are emitted.
+   */
+  watch(): AsyncIterable<"ready" | "connecting">
 }
 
 // events & payloads

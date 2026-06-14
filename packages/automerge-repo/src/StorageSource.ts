@@ -83,6 +83,8 @@ export class StorageSource implements DocumentSource {
     delete this.#saveFns[documentId]
   }
 
+  shareConfigChanged(): void {}
+
   #makeSaveFn(
     documentId: DocumentId
   ): (payload: DocHandleEncodedChangePayload<any>) => void {
