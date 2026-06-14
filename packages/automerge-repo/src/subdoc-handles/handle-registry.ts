@@ -53,7 +53,7 @@ export class HandleRegistry {
    * `handle → event → callbacks`. Strong on handles, so any handle with a
    * listener is retained structurally - no separate retainer set.
    */
-  readonly #listeners: Map<DocHandle<any>, Map<string, Set<Listener>>> =
+  readonly #listeners: Map<DocHandle<any, any>, Map<string, Set<Listener>>> =
     new Map()
 
   constructor(readonly document: Document<any>) {}
@@ -74,7 +74,7 @@ export class HandleRegistry {
     node: TrieNode,
     range: CursorRange | undefined,
     fixedHeads: UrlHeads | undefined
-  ): DocHandle<any> | undefined {
+  ): DocHandle<any, any> | undefined {
     return node.handles.get(variantKey(range, fixedHeads))?.deref()
   }
 
@@ -83,7 +83,7 @@ export class HandleRegistry {
     node: TrieNode,
     range: CursorRange | undefined,
     fixedHeads: UrlHeads | undefined,
-    handle: DocHandle<T>
+    handle: DocHandle<T, any>
   ): void {
     const key = variantKey(range, fixedHeads)
     node.handles.set(key, new WeakRef(handle))
@@ -202,7 +202,7 @@ export class HandleRegistry {
   // Listener storage. `DocHandle.on/off/once/...` delegate here.
   // Generic over `T` so callers can pass `this` without casting; storage erases to any.
 
-  addListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
+  addListener<T>(handle: DocHandle<T, any>, event: string, fn: Listener): void {
     let m = this.#listeners.get(handle)
     if (!m) {
       m = new Map()
@@ -216,7 +216,11 @@ export class HandleRegistry {
     s.add(fn)
   }
 
-  removeListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
+  removeListener<T>(
+    handle: DocHandle<T, any>,
+    event: string,
+    fn: Listener
+  ): void {
     const m = this.#listeners.get(handle)
     if (!m) return
     const s = m.get(event)
@@ -226,31 +230,34 @@ export class HandleRegistry {
     if (m.size === 0) this.#listeners.delete(handle)
   }
 
-  removeAllListenersForHandle<T>(handle: DocHandle<T>): void {
+  removeAllListenersForHandle<T>(handle: DocHandle<T, any>): void {
     this.#listeners.delete(handle)
   }
 
-  removeAllListenersForEvent<T>(handle: DocHandle<T>, event: string): void {
+  removeAllListenersForEvent<T>(
+    handle: DocHandle<T, any>,
+    event: string
+  ): void {
     const m = this.#listeners.get(handle)
     if (!m) return
     m.delete(event)
     if (m.size === 0) this.#listeners.delete(handle)
   }
 
-  hasListeners<T>(handle: DocHandle<T>): boolean {
+  hasListeners<T>(handle: DocHandle<T, any>): boolean {
     return this.#listeners.has(handle)
   }
 
-  listenersFor<T>(handle: DocHandle<T>, event: string): Listener[] {
+  listenersFor<T>(handle: DocHandle<T, any>, event: string): Listener[] {
     const s = this.#listeners.get(handle)?.get(event)
     return s ? Array.from(s) : []
   }
 
-  listenerCountFor<T>(handle: DocHandle<T>, event: string): number {
+  listenerCountFor<T>(handle: DocHandle<T, any>, event: string): number {
     return this.#listeners.get(handle)?.get(event)?.size ?? 0
   }
 
-  eventNamesFor<T>(handle: DocHandle<T>): string[] {
+  eventNamesFor<T>(handle: DocHandle<T, any>): string[] {
     const m = this.#listeners.get(handle)
     return m ? Array.from(m.keys()) : []
   }
@@ -265,7 +272,7 @@ export class HandleRegistry {
    * once-handlers can self-remove without perturbing the loop. Swallows
    * per-listener exceptions.
    */
-  emit<T>(handle: DocHandle<T>, event: string, payload: unknown): boolean {
+  emit<T>(handle: DocHandle<T, any>, event: string, payload: unknown): boolean {
     const s = this.#listeners.get(handle)?.get(event)
     if (!s || s.size === 0) return false
     for (const fn of Array.from(s)) {
@@ -289,7 +296,7 @@ export class HandleRegistry {
     patches: A.Patch[],
     patchInfo: A.PatchInfo<any>
   ): void {
-    const perHandle = new Map<DocHandle<any>, ScopedChange>()
+    const perHandle = new Map<DocHandle<any, any>, ScopedChange>()
     const resolvedNodes = new Set<TrieNode>()
     const docHeadsKey = headsKey(A.getHeads(doc))
     const before = patchInfo.before
@@ -344,6 +351,28 @@ export class HandleRegistry {
     }
   }
 
+  /** Fan out a generic non-Automerge `heads-changed` event. */
+  dispatchGenericHeadsChanged(doc: unknown): void {
+    for (const handle of this.#listeners.keys()) {
+      if (handle.isReadOnly()) continue
+      this.emit(handle, "heads-changed", { handle, doc })
+    }
+  }
+
+  /** Fan out a generic non-Automerge `change` event. */
+  dispatchGenericChange(doc: unknown, patchInfo: unknown): void {
+    for (const handle of this.#listeners.keys()) {
+      if (handle.isReadOnly()) continue
+      this.emit(handle, "change", {
+        handle,
+        doc: handle.doc(),
+        patches: [],
+        scopeReplaced: false,
+        patchInfo,
+      })
+    }
+  }
+
   /** Fan out a `delete` to every retained handle (read-only included). */
   dispatchDelete(): void {
     for (const handle of this.#listeners.keys()) {
@@ -391,7 +420,7 @@ export type TrieNode = {
   /** Pattern-segment edges (linear search, structural equality). */
   patternEdges: PatternEdge[]
   /** Handles at this path keyed by variant (range + fixed heads); `""` is the live, no-range handle. */
-  handles: Map<string, WeakRef<DocHandle<any>>>
+  handles: Map<string, WeakRef<DocHandle<any, any>>>
 }
 
 export type PatternEdge = {
@@ -561,7 +590,7 @@ function resolvePatternEdges(
   resolvedNodes: Set<TrieNode>,
   patternBefore: Map<PatternEdge, number | undefined>,
   docHeadsKey: string,
-  out: Map<DocHandle<any>, ScopedChange>
+  out: Map<DocHandle<any, any>, ScopedChange>
 ): void {
   if (node.patternEdges.length === 0) return
   if (resolvedNodes.has(node)) return
@@ -585,7 +614,7 @@ function resolvePatternEdges(
 /** Mark every writeable handle in `node`'s sub-tree as `scopeReplaced`. */
 function markScopeReplaced(
   node: TrieNode,
-  out: Map<DocHandle<any>, ScopedChange>
+  out: Map<DocHandle<any, any>, ScopedChange>
 ): void {
   const queue: TrieNode[] = [node]
   while (queue.length > 0) {
@@ -617,7 +646,7 @@ function collectForPatch(
   afterCursor: unknown,
   beforeCursor: unknown,
   patch: A.Patch,
-  out: Map<DocHandle<any>, ScopedChange>,
+  out: Map<DocHandle<any, any>, ScopedChange>,
   resolvedNodes: Set<TrieNode>,
   patternBefore: Map<PatternEdge, number | undefined>,
   docHeadsKey: string
@@ -691,7 +720,7 @@ function collectForPatch(
 function collectDescendants(
   node: TrieNode,
   patch: A.Patch,
-  out: Map<DocHandle<any>, ScopedChange>,
+  out: Map<DocHandle<any, any>, ScopedChange>,
   depth: number
 ): void {
   const queue: Array<[TrieNode, number]> = []
@@ -718,7 +747,7 @@ function collectDescendants(
 function addPatchForNode(
   node: TrieNode,
   patch: A.Patch,
-  out: Map<DocHandle<any>, ScopedChange>,
+  out: Map<DocHandle<any, any>, ScopedChange>,
   depth: number
 ): void {
   if (node.handles.size === 0) return

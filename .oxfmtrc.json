@@ -11,6 +11,7 @@
     "pnpm-lock.yaml",
     "lerna.json",
     "/.nx/workspace-data",
+    ".thole",
     ".svelte-kit",
     "playwright-report",
     "test-results",

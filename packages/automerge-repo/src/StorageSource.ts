@@ -36,13 +36,20 @@ export class StorageSource implements DocumentSource {
     const handle = query.handle
     const saveFn = this.#makeSaveFn(handle.documentId)
 
+    if (!handle.isAutomerge()) {
+      query.sourceUnavailable("storage")
+      return
+    }
+
     // Attach throttled save listener
     handle.on("heads-changed", saveFn)
 
     // If the handle already has data (e.g. from create/import), persist it
     // immediately rather than waiting for a future heads-changed event.
-    if (Automerge.getHeads(handle.fullDoc()).length > 0) {
-      saveFn({ handle, doc: handle.fullDoc() })
+    if (
+      Automerge.getHeads(handle.fullDoc() as Automerge.Doc<unknown>).length > 0
+    ) {
+      saveFn({ handle, doc: handle.fullDoc() as Automerge.Doc<unknown> })
       query.sourceUnavailable("storage")
       return
     }
@@ -56,9 +63,9 @@ export class StorageSource implements DocumentSource {
           // Sync may have delivered data while we were loading from disk —
           // merge instead of replacing to avoid clobbering newer state.
           handle.update(current =>
-            Automerge.getHeads(current).length === 0
+            Automerge.getHeads(current as Automerge.Doc<unknown>).length === 0
               ? loaded
-              : Automerge.merge(current, loaded)
+              : Automerge.merge(current as Automerge.Doc<unknown>, loaded)
           )
           query.sourceReady("storage")
         } else {

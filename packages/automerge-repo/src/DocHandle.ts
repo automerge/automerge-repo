@@ -36,6 +36,12 @@ import type {
 } from "./subdoc-handles/types.js"
 import { KIND } from "./subdoc-handles/types.js"
 import { foreverPromise } from "./helpers/foreverPromise.js"
+import {
+  type AnyDocumentType,
+  type ChangeOf,
+  type StateOf,
+  type ViewOf,
+} from "./crdt.js"
 
 /**
  * A DocHandle is a wrapper around an Automerge document. It allows you
@@ -67,7 +73,23 @@ import { foreverPromise } from "./helpers/foreverPromise.js"
  * the `Repo` handles persisting to your local storage as well as propagating
  * changes to connected peers.
  */
-export class DocHandle<T> {
+export type DocHandleMode = "value" | "crdt"
+
+export type DocHandleDoc<T, Mode extends DocHandleMode> = Mode extends "crdt"
+  ? ViewOf<T>
+  : A.Doc<NonNullable<T>> | Extract<T, undefined>
+
+export type DocHandleState<T, Mode extends DocHandleMode> = Mode extends "crdt"
+  ? StateOf<T>
+  : A.Doc<T>
+
+export type DocHandleChange<T, Mode extends DocHandleMode> = Mode extends "crdt"
+  ? ChangeOf<T>
+  : A.ChangeFn<T> | SubChangeFn<T> | T
+
+export type CrdtDocHandle<C extends AnyDocumentType> = DocHandle<C, "crdt">
+
+export class DocHandle<T, Mode extends DocHandleMode = "value"> {
   /** If set, this handle will only show the document at these heads */
   #fixedHeads?: UrlHeads
 
@@ -82,6 +104,20 @@ export class DocHandle<T> {
 
   get documentId(): DocumentId {
     return this.#document.documentId
+  }
+
+  get crdtName(): string {
+    return this.#document.crdtName
+  }
+
+  /** @hidden */
+  get documentType(): AnyDocumentType {
+    return this.#document.documentType
+  }
+
+  /** @hidden */
+  isAutomerge(): boolean {
+    return this.#document.isAutomerge
   }
 
   /** @hidden */
@@ -189,18 +225,20 @@ export class DocHandle<T> {
    * @throws on deleted documents
    * @remarks In past releases, this was asynchronous and could be undefined.
    */
-  doc(): A.Doc<NonNullable<T>> | Extract<T, undefined> {
-    return this.#scopedValue(this.#document.viewAt(this.#fixedHeads)) as
-      | A.Doc<NonNullable<T>>
-      | Extract<T, undefined>
+  doc(): DocHandleDoc<T, Mode> {
+    const state = this.#document.viewAt(this.#fixedHeads)
+    if (!this.#document.isAutomerge) {
+      return this.#document.documentType.view(state) as DocHandleDoc<T, Mode>
+    }
+    return this.#scopedValue(state as A.Doc<any>) as DocHandleDoc<T, Mode>
   }
 
   /**
    * The whole underlying document (ignoring this handle's path/range), at
    * this handle's fixed heads if it is view-pinned.
    */
-  fullDoc(): A.Doc<T> {
-    return this.#document.viewAt(this.#fixedHeads) as A.Doc<T>
+  fullDoc(): DocHandleState<T, Mode> {
+    return this.#document.viewAt(this.#fixedHeads) as DocHandleState<T, Mode>
   }
 
   /**
@@ -210,7 +248,23 @@ export class DocHandle<T> {
    */
   heads(): UrlHeads {
     if (this.#fixedHeads) return this.#fixedHeads
-    return encodeHeads(A.getHeads(this.#document.doc))
+    return encodeHeads(this.#document.rawHeads())
+  }
+
+  /** @hidden Raw CRDT heads in the format expected by the document type. */
+  rawHeads(): string[] {
+    if (this.#fixedHeads) return decodeHeads(this.#fixedHeads)
+    return this.#document.rawHeads()
+  }
+
+  /** @hidden */
+  hasData(): boolean {
+    return this.#document.hasData()
+  }
+
+  /** @hidden */
+  hasHeads(heads: string[]): boolean {
+    return this.#document.hasHeads(heads)
   }
 
   /** @hidden */
@@ -232,7 +286,9 @@ export class DocHandle<T> {
    * @remarks This API is currently unusably slow for subdocuments with long history. We plan to fix this during alpha.
    */
   history(): UrlHeads[] {
-    const topo = A.topoHistoryTraversal(this.#document.doc)
+    this.#throwIfNotAutomerge("history")
+    const doc = this.#document.doc as A.Doc<any>
+    const topo = A.topoHistoryTraversal(doc)
 
     if (this.#path.length === 0 && !this.#range) {
       return topo.map(h => encodeHeads([h])) as UrlHeads[]
@@ -246,17 +302,14 @@ export class DocHandle<T> {
     for (let i = 0; i < topo.length; i++) {
       const after = [topo[i]]
       const before = i === 0 ? [] : [topo[i - 1]]
-      const patches = A.diff(this.#document.doc, before, after)
+      const patches = A.diff(doc, before, after)
 
       const beforePath =
         before.length === 0
           ? undefined
-          : resolvePropPath(
-              A.view(this.#document.doc, before) as A.Doc<any>,
-              segments
-            )
+          : resolvePropPath(A.view(doc, before) as A.Doc<any>, segments)
       const afterPath = resolvePropPath(
-        A.view(this.#document.doc, after) as A.Doc<any>,
+        A.view(doc, after) as A.Doc<any>,
         segments
       )
       if (!beforePath && !afterPath) continue
@@ -287,8 +340,13 @@ export class DocHandle<T> {
    * @param heads - The heads to view the document at. See history().
    * @returns DocHandle<T> at the time of `heads`
    */
-  view(heads: UrlHeads): DocHandle<T> {
-    return this.#createSubHandle([], { heads }) as DocHandle<T>
+  view(heads: UrlHeads): DocHandle<T, Mode> {
+    if (!this.#document.isAutomerge && !this.#document.documentType.viewAt) {
+      throw new Error(
+        `Document type ${this.crdtName} does not support historical views`
+      )
+    }
+    return this.#createSubHandle([], { heads }) as DocHandle<T, Mode>
   }
 
   /**
@@ -304,7 +362,8 @@ export class DocHandle<T> {
    * @throws Error if the documents don't share history or if either document is not ready
    * @returns Automerge patches that go from one document state to the other
    */
-  diff(first: UrlHeads | DocHandle<T>, second?: UrlHeads): A.Patch[] {
+  diff(first: UrlHeads | DocHandle<any, any>, second?: UrlHeads): A.Patch[] {
+    this.#throwIfNotAutomerge("diff")
     let fromHeads: UrlHeads
     let toHeads: UrlHeads
     let diffDoc: A.Doc<any>
@@ -315,15 +374,18 @@ export class DocHandle<T> {
       toHeads = otherHeads
       if (this.documentId === first.documentId) {
         // Same document - share the doc, no clone needed.
-        diffDoc = this.#document.doc
+        diffDoc = this.#document.doc as A.Doc<any>
       } else {
         // Different documents: merge to verify shared history.
-        diffDoc = A.merge(A.clone(this.#document.doc), first.doc()!)
+        diffDoc = A.merge(
+          A.clone(this.#document.doc as A.Doc<any>),
+          first.doc() as A.Doc<any>
+        )
       }
     } else {
       fromHeads = second ? first : this.heads()
       toHeads = second ? second : first
-      diffDoc = this.#document.doc
+      diffDoc = this.#document.doc as A.Doc<any>
     }
 
     const allPatches = A.diff(
@@ -364,6 +426,7 @@ export class DocHandle<T> {
    * @hidden
    */
   metadata(change?: string): A.DecodedChange | undefined {
+    this.#throwIfNotAutomerge("metadata")
     if (!change) {
       change = this.heads()[0]
     }
@@ -371,7 +434,7 @@ export class DocHandle<T> {
     // we return undefined instead of null by convention in this API
     return (
       A.inspectChange(
-        this.#document.doc,
+        this.#document.doc as A.Doc<any>,
         decodeHeads([change] as UrlHeads)[0]
       ) || undefined
     )
@@ -383,15 +446,31 @@ export class DocHandle<T> {
    * @throws if a handle has fixed heads
    * @hidden
    */
-  update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+  update(callback: (doc: DocHandleState<T, Mode>) => DocHandleState<T, Mode>) {
     this.#throwIfFixedHeads("update")
-    this.#document.applyMutation(callback as (doc: A.Doc<any>) => A.Doc<any>)
+    this.#document.applyMutation(callback as (doc: any) => any)
+  }
+
+  /** @hidden Apply inbound Subduction blobs using this handle's document type. */
+  applyRemoteBlobs(blobs: Uint8Array[]): void {
+    this.#throwIfFixedHeads("applyRemoteBlobs")
+    this.#document.applyMutation(state =>
+      this.#document.documentType.sedimentree.apply(state, blobs)
+    )
   }
 
   #throwIfFixedHeads(operation: string) {
     if (this.#fixedHeads) {
       throw new Error(
         `Cannot ${operation} on DocHandle#${this.documentId}: it is in view-only mode at specific heads.`
+      )
+    }
+  }
+
+  #throwIfNotAutomerge(operation: string) {
+    if (!this.#document.isAutomerge) {
+      throw new Error(
+        `Cannot ${operation} on DocHandle#${this.documentId}: document type ${this.crdtName} is not Automerge.`
       )
     }
   }
@@ -445,20 +524,41 @@ export class DocHandle<T> {
    *
    */
   change(
-    callbackOrValue: A.ChangeFn<T> | SubChangeFn<T> | T,
+    callbackOrValue: DocHandleChange<T, Mode>,
     options: A.ChangeOptions<T> = {}
   ) {
     this.#throwIfFixedHeads("change")
-    if (this.#path.length === 0 && !this.#range) {
-      this.#document.applyMutation(doc =>
-        A.change(doc as A.Doc<T>, options, callbackOrValue as A.ChangeFn<T>)
+    if (!this.#document.isAutomerge) {
+      if (this.#path.length > 0 || this.#range) {
+        throw new Error(
+          `Document type ${this.crdtName} does not support sub-handles`
+        )
+      }
+      this.#document.applyMutation(state =>
+        this.#document.documentType.change(
+          state,
+          callbackOrValue,
+          this.#document.context
+        )
       )
       return
     }
-    this.#document.applyMutation(doc =>
-      A.change(doc as A.Doc<T>, options, mutable => {
-        this.#applyScopedChange(mutable as A.Doc<any>, callbackOrValue)
-      })
+    if (this.#path.length === 0 && !this.#range) {
+      this.#document.applyMutation(
+        doc =>
+          A.change(
+            doc as A.Doc<T>,
+            options,
+            callbackOrValue as A.ChangeFn<T>
+          ) as any
+      )
+      return
+    }
+    this.#document.applyMutation(
+      doc =>
+        A.change(doc as A.Doc<T>, options, mutable => {
+          this.#applyScopedChange(mutable as A.Doc<any>, callbackOrValue)
+        }) as any
     )
   }
 
@@ -473,6 +573,7 @@ export class DocHandle<T> {
     options: A.ChangeOptions<T> = {}
   ): UrlHeads | undefined {
     this.#throwIfFixedHeads("changeAt")
+    this.#throwIfNotAutomerge("changeAt")
     const decoded = decodeHeads(heads)
     let resultHeads: UrlHeads | undefined
 
@@ -486,7 +587,7 @@ export class DocHandle<T> {
     this.#document.applyMutation(doc => {
       const result = A.changeAt(doc as A.Doc<T>, decoded, options, inner)
       resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
-      return result.newDoc
+      return result.newDoc as any
     })
     return resultHeads
   }
@@ -515,10 +616,14 @@ export class DocHandle<T> {
    */
   merge(
     /** the handle of the document to merge into this one */
-    otherHandle: DocHandle<T>
+    otherHandle: DocHandle<any, any>
   ) {
     this.#throwIfFixedHeads("merge")
-    this.update(doc => A.merge(doc, otherHandle.fullDoc()))
+    this.#throwIfNotAutomerge("merge")
+    this.update(
+      doc =>
+        A.merge(doc as A.Doc<any>, otherHandle.fullDoc() as A.Doc<any>) as any
+    )
   }
 
   /**
@@ -572,19 +677,22 @@ export class DocHandle<T> {
   }
 
   metrics(): { numOps: number; numChanges: number } {
-    return A.stats(this.#document.doc)
+    this.#throwIfNotAutomerge("metrics")
+    return A.stats(this.#document.doc as A.Doc<any>)
   }
 
   /** Remove the value at this sub-handle's path from the underlying document. */
   remove(): void {
+    this.#throwIfNotAutomerge("remove")
     if (this.#path.length === 0 && !this.#range) {
       throw new Error("Cannot remove the root document")
     }
     this.#throwIfFixedHeads("remove")
-    this.#document.applyMutation(doc =>
-      A.change(doc as A.Doc<T>, mutable => {
-        this.#applyScopedRemove(mutable as A.Doc<any>)
-      })
+    this.#document.applyMutation(
+      doc =>
+        A.change(doc as A.Doc<T>, mutable => {
+          this.#applyScopedRemove(mutable as A.Doc<any>)
+        }) as any
     )
   }
 
@@ -608,6 +716,7 @@ export class DocHandle<T> {
   sub<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
   ): DocHandle<InferSubType<T, TPath>> {
+    this.#throwIfNotAutomerge("sub")
     return this.#createSubHandle(segments) as DocHandle<InferSubType<T, TPath>>
   }
 
@@ -620,11 +729,12 @@ export class DocHandle<T> {
    */
   get path(): ResolvedPathSegment[] {
     if (this.#path.length === 0) return []
+    this.#throwIfNotAutomerge("path")
     // Routes through the registry's resolver so pattern caching is shared
     // with reads/writes. Unresolved trailing segments carry `prop: undefined`.
     const resolved = this.#document.registry.resolvePropPath(
       this.#path,
-      this.fullDoc(),
+      this.fullDoc() as A.Doc<any>,
       this.#fixedHeads
     )
     return zipResolvedSegments(this.#path, resolved)
@@ -641,14 +751,18 @@ export class DocHandle<T> {
    * `undefined` if this handle has no range.
    */
   rangePositions(): [number, number] | undefined {
+    this.#throwIfNotAutomerge("rangePositions")
     // Cursor positions resolve against the whole document at this handle's
     // heads (fullDoc) - for a view-pinned handle the live doc has shifted, so
     // resolving against live text would return the wrong substring.
-    return this.#rangePositions(this.fullDoc(), this.#getPropPath())
+    return this.#rangePositions(
+      this.fullDoc() as A.Doc<any>,
+      this.#getPropPath()
+    )
   }
 
   /** True if the other handle has the same URL as this one. */
-  equals(other: DocHandle<any>): boolean {
+  equals(other: DocHandle<any, any>): boolean {
     return this.url === other.url
   }
 
@@ -656,7 +770,7 @@ export class DocHandle<T> {
    * True if this handle's path is a strict ancestor of `other`'s path,
    * within the same document and view (heads).
    */
-  contains(other: DocHandle<any>): boolean {
+  contains(other: DocHandle<any, any>): boolean {
     if (other === this) return false
     if (this.documentId !== other.documentId) return false
     if (!sameFixedHeads(this.#fixedHeads, other.#fixedHeads)) return false
@@ -670,7 +784,7 @@ export class DocHandle<T> {
   }
 
   /** True if this handle is a strict descendant of `other`. */
-  isChildOf(other: DocHandle<any>): boolean {
+  isChildOf(other: DocHandle<any, any>): boolean {
     return other.contains(this)
   }
 
@@ -678,7 +792,7 @@ export class DocHandle<T> {
    * True if this and `other` are both text-range handles on the same path
    * whose ranges overlap in the current document.
    */
-  overlaps(other: DocHandle<any>): boolean {
+  overlaps(other: DocHandle<any, any>): boolean {
     if (this.documentId !== other.documentId) return false
     if (!this.#range || !other.range) return false
     const thisPath = this.#path
@@ -703,7 +817,7 @@ export class DocHandle<T> {
   #createSubHandle(
     segments: readonly AnyPathInput[],
     options: { heads?: UrlHeads } = {}
-  ): DocHandle<any> {
+  ): DocHandle<any, any> {
     const heads = options.heads ?? this.#fixedHeads
 
     // `root.view(h)` must not short-circuit to the unpinned root.
@@ -722,7 +836,10 @@ export class DocHandle<T> {
     // (`handle.view(oldHeads).sub("text", cursor(...))`) are created from -
     // and read back against - the same historical text. (Not `doc()`, which
     // is scoped to this handle's path.)
-    const { path, range } = this.#normalizePath(this.fullDoc(), combined)
+    const { path, range } = this.#normalizePath(
+      this.fullDoc() as A.Doc<any>,
+      combined
+    )
 
     const registry = this.#document.registry
     const node = registry.getOrCreateNode(path)
@@ -847,7 +964,7 @@ export class DocHandle<T> {
     }
     return this.#document.registry.resolvePropPath(
       this.#path,
-      this.fullDoc(),
+      this.fullDoc() as A.Doc<any>,
       this.#fixedHeads
     )
   }

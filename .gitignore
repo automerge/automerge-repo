@@ -22,3 +22,5 @@ playwright/.cache/
 playwright/.auth/
 .claude
 .pnpm-store
+.direnv
+.thole/

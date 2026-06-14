@@ -97,6 +97,10 @@ export class CollectionSynchronizer
    */
   attach(query: DocumentQuery<unknown>): void {
     if (this.#docSynchronizers[query.documentId]) return
+    if (!query.handle.isAutomerge()) {
+      query.sourceUnavailable("automerge-sync")
+      return
+    }
 
     const docSync = this.#initDocSynchronizer(query.handle, query)
     this.#docSynchronizers[query.documentId] = docSync
@@ -168,7 +172,8 @@ export class CollectionSynchronizer
     // ensureQuery calls attach which no-ops if already registered.
     let docSync = this.#docSynchronizers[documentId]
     if (!docSync) {
-      this.#config.ensureQuery(documentId)
+      const query = this.#config.ensureQuery(documentId)
+      if (!query.handle.isAutomerge()) return
       docSync = this.#docSynchronizers[documentId]!
     }
 

@@ -40,6 +40,20 @@ export {
 } from "./AutomergeUrl.js"
 export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
+export { automergeDocType, defineDocumentType, isDocumentType } from "./crdt.js"
+export type {
+  AnyDocumentType,
+  AutomergeDocType,
+  ChangeOf,
+  DocumentType,
+  DocumentTypeContext,
+  InitOf,
+  SedimentreeAdapter,
+  SedimentreeBlob,
+  SedimentreeMeta,
+  StateOf,
+  ViewOf,
+} from "./crdt.js"
 export { initSubduction } from "./initSubduction.js"
 export { setLoggerFactory, makeLogger } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
@@ -78,13 +92,18 @@ export * as cbor from "./helpers/cbor.js"
 // types
 
 export type {
+  CrdtDocHandle,
+  DocHandleChange,
   DocHandleChangePayload,
+  DocHandleDoc,
   DocHandleDeletePayload,
   DocHandleEncodedChangePayload,
   DocHandleEphemeralMessagePayload,
   DocHandleRemoteHeadsPayload,
   DocHandleEvents,
+  DocHandleMode,
   DocHandleOptions,
+  DocHandleState,
   DocHandleOutboundEphemeralMessagePayload,
   HandleState,
   SyncInfo,

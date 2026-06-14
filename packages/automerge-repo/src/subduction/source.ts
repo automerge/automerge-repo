@@ -20,7 +20,6 @@ import { DocHandle, NetworkAdapterInterface } from "../index.js"
 import { ConnectionManager } from "./ConnectionManager.js"
 import type { StorageId } from "../storage/types.js"
 import type { UrlHeads } from "../types.js"
-import { mergeArrays } from "../helpers/mergeArrays.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
 import debug from "debug"
@@ -541,9 +540,8 @@ export class SubductionSource implements DocumentSource {
    * wire reads on the event loop. Concatenating per microtask flush
    * collapses each burst into a single handle update.
    *
-   * `Automerge.loadIncremental` accepts a concatenation of any
-   * `saveIncremental` output, including loose commit bytes and
-   * fragment bundle bytes.
+   * Automerge's sedimentree adapter accepts the same loose commit and
+   * fragment bundle bytes that `saveIncremental` emits.
    */
   #flushInbound(entry: SedimentreeEntry) {
     entry.inboundFlushScheduled = false
@@ -552,9 +550,8 @@ export class SubductionSource implements DocumentSource {
     const blobs = entry.pendingInbound
     entry.pendingInbound = []
 
-    const merged = blobs.length === 1 ? blobs[0] : mergeArrays(blobs)
     try {
-      entry.handle.update(d => Automerge.loadIncremental(d, merged))
+      entry.handle.applyRemoteBlobs(blobs)
     } catch (e) {
       this.#log(
         `flushInbound ${entry.sedimentreeId.toString().slice(0, 8)}: ` +
@@ -713,7 +710,7 @@ export class SubductionSource implements DocumentSource {
       // may not be local yet. A non-empty handle re-transforms locally. Defer
       // if sync is in-flight to avoid racing with its handle update.
       if (entry.syncState === "running" && entry.hasUntransformedBlobs) {
-        const empty = Automerge.getHeads(entry.handle.fullDoc()).length === 0
+        const empty = entry.handle.rawHeads().length === 0
         if (entry.syncInFlight) {
           if (empty) entry.needsResync = true
           else entry.retryTransformAfterSync = true
@@ -862,7 +859,7 @@ export class SubductionSource implements DocumentSource {
             entry.syncInFlight = true
             void this.#doSync(entry)
           } else if (
-            Automerge.getHeads(entry.handle.fullDoc()).length === 0 &&
+            entry.handle.rawHeads().length === 0 &&
             !this.#anyConnectionManagerConnecting()
           ) {
             // All connections settled and sync failed — give up.
@@ -936,14 +933,13 @@ export class SubductionSource implements DocumentSource {
       // Also retry when the handle is empty: a previous load may have
       // dropped blobs the interceptor could not yet transform.
       if (
-        (dataReceived ||
-          Automerge.getHeads(entry.handle.fullDoc()).length === 0) &&
+        (dataReceived || entry.handle.rawHeads().length === 0) &&
         entry.syncState === "running"
       ) {
         await this.#loadBlobsIntoHandle(entry, subduction)
         // Notify the query so a handle that just gained content (e.g., an empty
         // entry re-synced after a key arrival) transitions to ready.
-        if (Automerge.getHeads(entry.handle.fullDoc()).length > 0) {
+        if (entry.handle.rawHeads().length > 0) {
           entry.query.sourcePending("subduction")
         }
       }
@@ -989,8 +985,8 @@ export class SubductionSource implements DocumentSource {
 
   /**
    * Load all blobs for a sedimentree from Subduction and apply them to the
-   * handle via `Automerge.loadIncremental`. If new data was loaded, signal
-   * the query so it can transition to "ready".
+   * handle via its document type. If new data was loaded, signal the query
+   * so it can transition to "ready".
    *
    * This is called reactively after any `syncWithAllPeers` that received
    * data, making handle updates immediate.
@@ -1007,9 +1003,7 @@ export class SubductionSource implements DocumentSource {
     this.#log(
       `loadBlobsIntoHandle ${sid}: ${
         allBlobs?.length ?? 0
-      } blob(s), ${totalBytes} bytes, heads=${
-        Automerge.getHeads(entry.handle.fullDoc()).length
-      }`
+      } blob(s), ${totalBytes} bytes, heads=${entry.handle.rawHeads().length}`
     )
     if (!allBlobs || allBlobs.length === 0) return false
     allBlobs.sort((a, b) => b.byteLength - a.byteLength)
@@ -1043,12 +1037,10 @@ export class SubductionSource implements DocumentSource {
       toApply = transformed
     }
 
-    // Apply all blobs in a single `loadIncremental`: one `handle.update()`,
-    // so one `A.diff`/patch materialization and one listener-dispatch round
-    // (the same reason `#flushInbound` coalesces inbound bursts).
+    // Apply all blobs through the document type in one handle mutation — the
+    // same reason `#flushInbound` coalesces inbound bursts.
     if (toApply.length > 0) {
-      const merged = toApply.length === 1 ? toApply[0] : mergeArrays(toApply)
-      entry.handle.update(d => Automerge.loadIncremental(d, merged))
+      entry.handle.applyRemoteBlobs(toApply)
     }
 
     // The bulk-loaded blobs may include fragments that absorb loose
@@ -1067,7 +1059,7 @@ export class SubductionSource implements DocumentSource {
 
       entry.syncState = "running"
 
-      if (Automerge.getHeads(entry.handle.fullDoc()).length === 0) {
+      if (entry.handle.rawHeads().length === 0) {
         if (this.#blobInterceptor && hadBlobs) {
           // Blobs are present but the interceptor could not transform them
           // yet (e.g., their keys have not arrived). A later shareConfigChanged
@@ -1160,7 +1152,7 @@ export class SubductionSource implements DocumentSource {
       const doc = entry.handle.fullDoc()
       if (!doc) return
 
-      const currentHeads = Automerge.getHeads(doc)
+      const currentHeads = entry.handle.rawHeads()
       const currentSet = new Set(currentHeads)
 
       // Fast-path: heads unchanged since the predecessor's save.
@@ -1217,18 +1209,20 @@ export class SubductionSource implements DocumentSource {
       // may be stale by the time it resolves. If the current heads
       // differ, re-arm the throttle and signal `flush()` to wait for
       // the next round.
-      const currentDoc = entry.handle.doc()
+      const currentDoc = entry.handle.fullDoc()
       if (currentDoc) {
-        const headsNow = Automerge.getHeads(currentDoc)
+        const headsNow = entry.handle.rawHeads()
         const headsMatch =
           headsNow.length === currentSet.size &&
           headsNow.every(h => currentSet.has(h))
 
         if (!headsMatch) {
-          const newSinceCurrent = Automerge.getChangesMetaSince(
-            currentDoc,
-            Array.from(currentSet)
-          ).length
+          const newSinceCurrent = entry.handle.isAutomerge()
+            ? Automerge.getChangesMetaSince(
+                currentDoc as Automerge.Doc<unknown>,
+                Array.from(currentSet)
+              ).length
+            : 1
           if (newSinceCurrent > 0) {
             entry.saveDeltaPending = true
             entry.flushSave()
@@ -1259,71 +1253,21 @@ export class SubductionSource implements DocumentSource {
     this.#scheduleRecompute(entry)
   }
 
-  async #saveNewCommits<T>(
+  async #saveNewCommits(
     entry: SedimentreeEntry,
-    doc: Automerge.Doc<T>,
+    doc: unknown,
     subduction: Subduction
   ): Promise<{ prepFailures: number }> {
-    // Ask the doc directly for its level-0 loose commits and its
-    // higher-level fragments. Automerge core owns the compaction
-    // policy (which commits get absorbed into which fragments); we
-    // just mirror that view into subduction. Once a fragment forms,
-    // its component commits stop appearing at level 0 and the
-    // fragment itself appears at level ≥ 1 — so the wire-level
-    // forward switches from "N LooseCommits" to "one Fragment bundle"
-    // automatically.
-    //
-    // We deliberately avoid `Automerge.getCommits` / `getFragments`
-    // here: those eagerly bundle the bytes for EVERY commit and
-    // fragment in the doc, and bundling is O(N) per item — so calling
-    // them on every throttled save gives O(N × #items) work on each
-    // tick, of which we then throw 99% away by filtering against
-    // `knownHashes`. At ~12k changes that's ~30 s of wasted bundle
-    // work per tick, and the resulting allocation churn inside
-    // automerge_wasm reliably overflows its 4 GiB linear-memory heap
-    // (panics in `slab/writer.rs` / `change/collector.rs`) somewhere
-    // around 12k–15k changes.
-    //
-    // Instead, we read just the metadata (cheap: a few ms even at
-    // 12k changes), filter against `knownHashes` first, and bundle
-    // only the small handful of newly-formed commits/fragments per
-    // tick. See proposals/bundle-fragments-single-walk.md for the
-    // matching automerge-core fix.
-    const commitMetas = Automerge.getFragmentMetadata(doc, 0)
-    const fragmentMetas = Automerge.getFragmentMetadata(doc, { start: 1 })
-
-    const newCommitMetas = commitMetas.filter(
-      m => !entry.knownHashes.has(m.head)
-    )
-    const newFragmentMetas = fragmentMetas.filter(
-      m => !entry.knownHashes.has(m.head)
+    const adapter = entry.handle.documentType.sedimentree
+    const newMetas = Array.from(adapter.metadata(doc)).filter(
+      meta => !entry.knownHashes.has(meta.head)
     )
 
-    if (newCommitMetas.length === 0 && newFragmentMetas.length === 0) {
+    if (newMetas.length === 0) {
       return { prepFailures: 0 }
     }
 
-    const newCommitBytes =
-      newCommitMetas.length === 0
-        ? []
-        : Automerge.bundleFragmentMetadata(doc, newCommitMetas)
-    const newFragmentBytes =
-      newFragmentMetas.length === 0
-        ? []
-        : Automerge.bundleFragmentMetadata(doc, newFragmentMetas)
-
-    const newCommits = newCommitMetas.map((m, i) => ({
-      head: m.head,
-      parents: m.boundary,
-      bytes: newCommitBytes[i],
-    }))
-    const newFragments = newFragmentMetas.map((m, i) => ({
-      head: m.head,
-      boundary: m.boundary,
-      checkpoints: m.checkpoints,
-      bytes: newFragmentBytes[i],
-    }))
-
+    const materialized = await adapter.materialize(doc, newMetas)
     const acceptedHashes: string[] = []
     const commitInputs: CommitInput[] = []
     const fragmentInputs: FragmentInput[] = []
@@ -1335,13 +1279,13 @@ export class SubductionSource implements DocumentSource {
     const maybeYield = makeYielder()
 
     const documentId = entry.query.documentId
-    for (const c of newCommits) {
+    for (const item of materialized) {
       try {
-        let commitBytes = c.bytes
+        let bytes = item.bytes
         if (this.#blobInterceptor) {
           const transformed = await this.#blobInterceptor.transformOutgoing(
             documentId,
-            commitBytes
+            bytes
           )
           if (!transformed) {
             prepErrors.push(
@@ -1349,58 +1293,32 @@ export class SubductionSource implements DocumentSource {
             )
             continue
           }
-          commitBytes = transformed
+          bytes = transformed
         }
-        const head = CommitId.fromHexString(c.head)
-        const looseCommit = new LooseCommit(
-          entry.sedimentreeId,
-          head,
-          c.parents.map(p => CommitId.fromHexString(p)),
-          new BlobMeta(commitBytes)
-        )
-        commitInputs.push(new CommitInput(looseCommit, commitBytes))
-        acceptedHashes.push(c.head)
-      } catch (e) {
-        console.warn(
-          `[SubductionSource] commit input prep failed for ${c.head}:`,
-          e
-        )
-        prepErrors.push(e)
-      }
-      await maybeYield()
-    }
 
-    for (const f of newFragments) {
-      try {
-        let fragmentBytes = f.bytes
-        if (this.#blobInterceptor) {
-          const transformed = await this.#blobInterceptor.transformOutgoing(
-            documentId,
-            fragmentBytes
+        const head = CommitId.fromHexString(item.head)
+        if (item.kind === "commit") {
+          const looseCommit = new LooseCommit(
+            entry.sedimentreeId,
+            head,
+            item.parents.map(p => CommitId.fromHexString(p)),
+            new BlobMeta(bytes)
           )
-          if (!transformed) {
-            prepErrors.push(
-              new Error(`transformOutgoing returned null for ${documentId}`)
-            )
-            continue
-          }
-          fragmentBytes = transformed
+          commitInputs.push(new CommitInput(looseCommit, bytes))
+        } else {
+          const fragment = new Fragment(
+            entry.sedimentreeId,
+            head,
+            item.boundary.map(b => CommitId.fromHexString(b)),
+            item.checkpoints.map(c => CommitId.fromHexString(c)),
+            new BlobMeta(bytes)
+          )
+          fragmentInputs.push(new FragmentInput(fragment, bytes))
         }
-        const head = CommitId.fromHexString(f.head)
-        const boundary = f.boundary.map(b => CommitId.fromHexString(b))
-        const checkpoints = f.checkpoints.map(c => CommitId.fromHexString(c))
-        const fragment = new Fragment(
-          entry.sedimentreeId,
-          head,
-          boundary,
-          checkpoints,
-          new BlobMeta(fragmentBytes)
-        )
-        fragmentInputs.push(new FragmentInput(fragment, fragmentBytes))
-        acceptedHashes.push(f.head)
+        acceptedHashes.push(item.head)
       } catch (e) {
         console.warn(
-          `[SubductionSource] fragment input prep failed for ${f.head}:`,
+          `[SubductionSource] ${item.kind} input prep failed for ${item.head}:`,
           e
         )
         prepErrors.push(e)
@@ -1425,7 +1343,7 @@ export class SubductionSource implements DocumentSource {
     // Record hashes BEFORE `storeBuiltBatch` so the synchronous
     // `commit-saved` / `fragment-saved` events fired from the storage
     // bridge (which run before `storeBuiltBatch` resolves) find them
-    // and skip the `#handleDataFound` apply path.
+    // and skip the local re-apply path.
     for (const hash of acceptedHashes) entry.knownHashes.add(hash)
 
     try {
@@ -1440,9 +1358,6 @@ export class SubductionSource implements DocumentSource {
         fragmentInputs
       )
     } catch (e) {
-      // On failure, roll the set entries back so the next save can
-      // retry. `#save` separately keeps `entry.lastSavedHeads` at its
-      // previous value when this rejects.
       for (const hash of acceptedHashes) entry.knownHashes.delete(hash)
       console.warn(
         `[SubductionSource] storeBuiltBatch failed for ${entry.sedimentreeId
@@ -1524,35 +1439,28 @@ export class SubductionSource implements DocumentSource {
       return
     }
 
-    const doc = entry.handle.doc()
+    const doc = entry.handle.fullDoc()
     if (!doc) return
 
     if (
-      Automerge.getHeads(doc).length === 0 &&
+      entry.handle.rawHeads().length === 0 &&
       (entry.persistedCommitHashes.size > 0 ||
         entry.persistedFragmentHashes.size > 0)
     ) {
       return
     }
 
-    // Metadata-only: we just need the hashes to compute the stale
-    // set, so avoid `getCommits` / `getFragments` which would
-    // re-bundle every item (O(N × #items) wasted work per compaction
-    // pass — same trap that bit `#saveNewCommits`).
-    const liveCommits = new Set<string>(
-      Automerge.getFragmentMetadata(doc, 0).map(m => m.head)
-    )
-    const liveFragments = new Set<string>(
-      Automerge.getFragmentMetadata(doc, { start: 1 }).map(m => m.head)
-    )
+    const adapter = entry.handle.documentType.sedimentree
+    if (!adapter.liveHashes) return
+    const liveHashes = new Set<string>(adapter.liveHashes(doc))
 
     const staleCommits: string[] = []
     for (const hex of entry.persistedCommitHashes) {
-      if (!liveCommits.has(hex)) staleCommits.push(hex)
+      if (!liveHashes.has(hex)) staleCommits.push(hex)
     }
     const staleFragments: string[] = []
     for (const hex of entry.persistedFragmentHashes) {
-      if (!liveFragments.has(hex)) staleFragments.push(hex)
+      if (!liveHashes.has(hex)) staleFragments.push(hex)
     }
 
     if (staleCommits.length === 0 && staleFragments.length === 0) return

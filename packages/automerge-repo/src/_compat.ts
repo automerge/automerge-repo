@@ -44,12 +44,12 @@ export type ProgressSignal<T> = {
  * @internal TODO: remove in the next major release
  */
 export function queryStateToFindProgress<T>(
-  state: QueryState<T>,
+  state: QueryState<T, DocHandle<any, any>>,
   handle: DocHandle<T>
 ): FindProgress<T> {
   switch (state.state) {
     case "ready":
-      return { state: "ready", handle: state.handle }
+      return { state: "ready", handle: state.handle as DocHandle<T> }
     case "loading":
       return { state: "loading", progress: 0, handle }
     case "unavailable":
