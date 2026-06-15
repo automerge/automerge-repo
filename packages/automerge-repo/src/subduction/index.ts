@@ -25,6 +25,7 @@ export type {
   Transport as SubductionTransport,
 } from "@automerge/automerge-subduction/slim"
 export type { OnHealExhausted } from "./SyncScheduler.js"
+export type { BlobInterceptor } from "./blob-codecs/index.js"
 
 import { SubductionStorageBridge } from "./storage.js"
 export { SubductionStorageBridge, type StorageBridgeEvents } from "./storage.js"

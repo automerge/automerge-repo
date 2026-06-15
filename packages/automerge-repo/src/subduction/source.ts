@@ -1,11 +1,6 @@
 import * as Automerge from "@automerge/automerge/slim"
 import {
-  BlobMeta,
   CommitId,
-  CommitInput,
-  Fragment,
-  FragmentInput,
-  LooseCommit,
   SedimentreeId,
   Subduction,
   Topic,
@@ -27,8 +22,15 @@ import { SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
 import { SyncScheduler } from "./SyncScheduler.js"
 import { AdapterConnections } from "./AdapterConnections.js"
+import {
+  BlobDecodeQueue,
+  identityBlobCodec,
+  prepareSubductionBatch,
+  type SubductionBlobCodec,
+} from "./blob-codecs/index.js"
 
 export type { OnHealExhausted } from "./SyncScheduler.js"
+export type { BlobInterceptor } from "./blob-codecs/index.js"
 
 /**
  * Default timeout for `subduction.syncWithAllPeers(...)`. Bounds how
@@ -152,11 +154,14 @@ interface SedimentreeEntry {
    */
   saveDeltaPending: boolean
 
-  // True when stored blobs exist that the interceptor could not transform
+  // True when stored blobs exist that the blob codec could not decode
   // (e.g., their decryption keys have not arrived yet). shareConfigChanged
-  // uses this to re-transform such an entry's blobs once a key change may
-  // have made them transformable. False means there is nothing to retry.
-  hasUntransformedBlobs: boolean
+  // uses this to re-decode such an entry's blobs once a key change may
+  // have made them decodable. False means there is nothing to retry.
+  hasBlockedInboundBlobs: boolean
+
+  /** Queue that serializes asynchronous decode for this document. */
+  inboundDecoder: BlobDecodeQueue
 
   /**
    * Inbound blobs from `commit-saved` / `fragment-saved` events
@@ -238,20 +243,6 @@ export interface SubductionTimeouts {
   healMaxAttempts?: number
 }
 
-/** Intercepts and transforms incoming and outgoing blobs (e.g., for E2EE). */
-export interface BlobInterceptor {
-  /** Return null to skip the blob (e.g., doc not yet available for encryption). */
-  transformOutgoing(
-    documentId: DocumentId,
-    blob: Uint8Array
-  ): Promise<Uint8Array | null>
-  /** Return null to skip the blob. */
-  transformIncoming(
-    documentId: DocumentId,
-    blob: Uint8Array
-  ): Promise<Uint8Array | null>
-}
-
 export interface SubductionSourceOptions {
   peerId: PeerId
   storage: SubductionStorageBridge
@@ -276,7 +267,7 @@ export interface SubductionSourceOptions {
   /** Tunable timeouts for sync and heal-retry. See {@link SubductionTimeouts}. */
   timeouts?: SubductionTimeouts
 
-  blobInterceptor?: BlobInterceptor
+  blobCodec?: SubductionBlobCodec
 }
 
 export class SubductionSource implements DocumentSource {
@@ -288,7 +279,7 @@ export class SubductionSource implements DocumentSource {
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
   #syncTimeout: number | null
-  #blobInterceptor?: BlobInterceptor
+  #blobCodec: SubductionBlobCodec
 
   readonly priority: SourcePriority
 
@@ -304,9 +295,9 @@ export class SubductionSource implements DocumentSource {
     priority = 2,
     policy,
     timeouts,
-    blobInterceptor,
+    blobCodec = identityBlobCodec,
   }: SubductionSourceOptions) {
-    this.#blobInterceptor = blobInterceptor
+    this.#blobCodec = blobCodec
     this.priority = priority
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     this.#syncTimeout = this.#syncTimeoutMs
@@ -458,40 +449,7 @@ export class SubductionSource implements DocumentSource {
     // applies the blob to the handle.
     entry.knownHashes.add(hex)
 
-    if (this.#blobInterceptor) {
-      // E2EE path: each blob has to be async-transformed before it can
-      // be handed to Automerge. We can't batch across the async
-      // boundary, but the transformed result still funnels through the
-      // same `pendingInbound` queue so the eventual loadIncremental
-      // benefits from any other blobs that landed in the same
-      // microtask window.
-      void this.#blobInterceptor
-        .transformIncoming(entry.query.documentId, blob)
-        .then(result => {
-          if (!result) {
-            // Could not transform this blob yet. Mark the entry so a later
-            // shareConfigChanged retries it.
-            entry.hasUntransformedBlobs = true
-            return
-          }
-          entry.pendingInbound.push(result)
-          if (!entry.inboundFlushScheduled) {
-            entry.inboundFlushScheduled = true
-            queueMicrotask(() => this.#flushInbound(entry))
-          }
-        })
-        .catch(e => {
-          this.#log("handleDataFound interceptor error: %O", e)
-        })
-      return
-    }
-
-    entry.pendingInbound.push(blob)
-
-    if (!entry.inboundFlushScheduled) {
-      entry.inboundFlushScheduled = true
-      queueMicrotask(() => this.#flushInbound(entry))
-    }
+    void entry.inboundDecoder.push(blob)
   }
 
   /**
@@ -568,7 +526,26 @@ export class SubductionSource implements DocumentSource {
       void this.#save(entry)
     }, 100)
 
-    this.#entries.set(sidStr, {
+    let entry!: SedimentreeEntry
+    const inboundDecoder = new BlobDecodeQueue(
+      query.documentId,
+      this.#blobCodec,
+      blobs => {
+        entry.pendingInbound.push(...blobs)
+        if (!entry.inboundFlushScheduled) {
+          entry.inboundFlushScheduled = true
+          queueMicrotask(() => this.#flushInbound(entry))
+        }
+      },
+      blocked => {
+        entry.hasBlockedInboundBlobs = blocked
+      },
+      e => {
+        this.#log("inbound blob decode failed: %O", e)
+      }
+    )
+
+    entry = {
       syncState: "initializing",
       query,
       handle: query.handle,
@@ -591,8 +568,11 @@ export class SubductionSource implements DocumentSource {
       lastSaveError: null,
       pendingInbound: [],
       inboundFlushScheduled: false,
-      hasUntransformedBlobs: false,
-    })
+      hasBlockedInboundBlobs: false,
+      inboundDecoder,
+    }
+
+    this.#entries.set(sidStr, entry)
 
     query.sourcePending("subduction")
 
@@ -660,10 +640,9 @@ export class SubductionSource implements DocumentSource {
         this.#scheduler.resetHealState(entry.sedimentreeId.toString())
       }
       // Retry entries whose sync succeeded but the handle is still empty.
-      // This handles the case where blobs arrived before the interceptor
-      // could transform them, so transformIncoming dropped them. The share
-      // config has now changed, so re-arm the entry to reload blobs from
-      // storage and transform them again.
+      // This handles the case where blobs arrived before the blob codec could
+      // decode them. The share config has now changed, so re-arm the entry to
+      // reload blobs from storage and decode them again.
       if (
         entry.syncState === "running" &&
         Automerge.getHeads(entry.handle.fullDoc()).length === 0 &&
@@ -672,22 +651,21 @@ export class SubductionSource implements DocumentSource {
       ) {
         entry.lastSyncResult = null
       }
-      // Re-transform stored blobs for a non-empty entry that still holds
-      // blobs the interceptor could not transform earlier. The share config
-      // has changed, so the keys those blobs need may now be available. The
-      // empty-handle case above is covered by the re-sync re-arm instead.
+      // Re-decode stored blobs for a non-empty entry that still holds blobs
+      // the codec could not decode earlier. The share config has changed, so
+      // the keys those blobs need may now be available. The empty-handle case
+      // above is covered by the re-sync re-arm instead.
       if (
         entry.syncState === "running" &&
         Automerge.getHeads(entry.handle.fullDoc()).length > 0 &&
-        entry.hasUntransformedBlobs &&
+        entry.hasBlockedInboundBlobs &&
         !entry.syncInFlight
       ) {
         void this.#reloadBlobs(entry)
       }
       // Re-trigger saves for entries whose last save had prep failures
-      // (e.g., transformOutgoing returned null because the interceptor was
-      // not ready). Now that the share config has changed, the transform
-      // may succeed.
+      // (e.g., the blob codec returned null because keys/config were not
+      // ready). Now that the share config has changed, encoding may succeed.
       if (entry.lastSaveError !== null && !entry.saveInProgress) {
         entry.flushSave()
       }
@@ -871,41 +849,8 @@ export class SubductionSource implements DocumentSource {
     if (!allBlobs || allBlobs.length === 0) return false
     allBlobs.sort((a, b) => b.byteLength - a.byteLength)
 
-    if (this.#blobInterceptor) {
-      // Transforming one blob may let the interceptor transform others
-      // that failed on an earlier pass. Re-run over the still-pending
-      // blobs until a pass makes no progress. Each pass strictly shrinks
-      // `pending` or stops, so this runs at most N passes.
-      const transformed: Uint8Array[] = []
-      let pending = allBlobs
-      let prevPendingLen = pending.length + 1
-      while (pending.length > 0 && pending.length < prevPendingLen) {
-        prevPendingLen = pending.length
-        const stillPending: Uint8Array[] = []
-        for (const blob of pending) {
-          const result = await this.#blobInterceptor.transformIncoming(
-            entry.query.documentId,
-            blob
-          )
-          if (result) {
-            transformed.push(result)
-          } else {
-            stillPending.push(blob)
-          }
-        }
-        pending = stillPending
-      }
-      entry.hasUntransformedBlobs = pending.length > 0
-      if (transformed.length > 0) {
-        entry.handle.update(d =>
-          Automerge.loadIncremental(d, mergeArrays(transformed))
-        )
-      }
-    } else {
-      entry.handle.update(d =>
-        Automerge.loadIncremental(d, mergeArrays(allBlobs))
-      )
-    }
+    await entry.inboundDecoder.pushMany(allBlobs)
+    this.#flushInbound(entry)
 
     // The bulk-loaded blobs may include fragments that absorb loose
     // commits also persisted on disk, or earlier fragments superseded
@@ -924,11 +869,10 @@ export class SubductionSource implements DocumentSource {
       entry.syncState = "running"
 
       if (Automerge.getHeads(entry.handle.fullDoc()).length === 0) {
-        if (this.#blobInterceptor && hadBlobs) {
-          // Blobs are present but the interceptor could not transform them
-          // yet (e.g., their keys have not arrived). A later shareConfigChanged
-          // retries once a key change may make them transformable. Stay
-          // pending until then.
+        if (entry.hasBlockedInboundBlobs && hadBlobs) {
+          // Blobs are present but the codec could not decode them yet (e.g.,
+          // their keys have not arrived). A later shareConfigChanged retries
+          // once a key change may make them decodable. Stay pending until then.
           entry.query.sourcePending("subduction")
         } else if (!this.#anyConnectionManagerConnecting()) {
           // No data after a successful sync and no pending connections —
@@ -1112,142 +1056,18 @@ export class SubductionSource implements DocumentSource {
     doc: Automerge.Doc<T>,
     subduction: Subduction
   ): Promise<{ prepFailures: number }> {
-    // Ask the doc directly for its level-0 loose commits and its
-    // higher-level fragments. Automerge core owns the compaction
-    // policy (which commits get absorbed into which fragments); we
-    // just mirror that view into subduction. Once a fragment forms,
-    // its component commits stop appearing at level 0 and the
-    // fragment itself appears at level ≥ 1 — so the wire-level
-    // forward switches from "N LooseCommits" to "one Fragment bundle"
-    // automatically.
-    //
-    // We deliberately avoid `Automerge.getCommits` / `getFragments`
-    // here: those eagerly bundle the bytes for EVERY commit and
-    // fragment in the doc, and bundling is O(N) per item — so calling
-    // them on every throttled save gives O(N × #items) work on each
-    // tick, of which we then throw 99% away by filtering against
-    // `knownHashes`. At ~12k changes that's ~30 s of wasted bundle
-    // work per tick, and the resulting allocation churn inside
-    // automerge_wasm reliably overflows its 4 GiB linear-memory heap
-    // (panics in `slab/writer.rs` / `change/collector.rs`) somewhere
-    // around 12k–15k changes.
-    //
-    // Instead, we read just the metadata (cheap: a few ms even at
-    // 12k changes), filter against `knownHashes` first, and bundle
-    // only the small handful of newly-formed commits/fragments per
-    // tick. See proposals/bundle-fragments-single-walk.md for the
-    // matching automerge-core fix.
-    const commitMetas = Automerge.getFragmentMetadata(doc, 0)
-    const fragmentMetas = Automerge.getFragmentMetadata(doc, { start: 1 })
-
-    const newCommitMetas = commitMetas.filter(
-      m => !entry.knownHashes.has(m.head)
-    )
-    const newFragmentMetas = fragmentMetas.filter(
-      m => !entry.knownHashes.has(m.head)
-    )
-
-    if (newCommitMetas.length === 0 && newFragmentMetas.length === 0) {
-      return { prepFailures: 0 }
-    }
-
-    const newCommitBytes =
-      newCommitMetas.length === 0
-        ? []
-        : Automerge.bundleFragmentMetadata(doc, newCommitMetas)
-    const newFragmentBytes =
-      newFragmentMetas.length === 0
-        ? []
-        : Automerge.bundleFragmentMetadata(doc, newFragmentMetas)
-
-    const newCommits = newCommitMetas.map((m, i) => ({
-      head: m.head,
-      parents: m.boundary,
-      bytes: newCommitBytes[i],
-    }))
-    const newFragments = newFragmentMetas.map((m, i) => ({
-      head: m.head,
-      boundary: m.boundary,
-      checkpoints: m.checkpoints,
-      bytes: newFragmentBytes[i],
-    }))
-
-    const acceptedHashes: string[] = []
-    const commitInputs: CommitInput[] = []
-    const fragmentInputs: FragmentInput[] = []
-    const prepErrors: unknown[] = []
-
-    const documentId = entry.query.documentId
-    for (const c of newCommits) {
-      try {
-        let commitBytes = c.bytes
-        if (this.#blobInterceptor) {
-          const transformed = await this.#blobInterceptor.transformOutgoing(
-            documentId,
-            commitBytes
-          )
-          if (!transformed) {
-            prepErrors.push(
-              new Error(`transformOutgoing returned null for ${documentId}`)
-            )
-            continue
-          }
-          commitBytes = transformed
-        }
-        const head = CommitId.fromHexString(c.head)
-        const looseCommit = new LooseCommit(
-          entry.sedimentreeId,
-          head,
-          c.parents.map(p => CommitId.fromHexString(p)),
-          new BlobMeta(commitBytes)
-        )
-        commitInputs.push(new CommitInput(looseCommit, commitBytes))
-        acceptedHashes.push(c.head)
-      } catch (e) {
-        console.warn(
-          `[SubductionSource] commit input prep failed for ${c.head}:`,
-          e
-        )
-        prepErrors.push(e)
-      }
-    }
-
-    for (const f of newFragments) {
-      try {
-        let fragmentBytes = f.bytes
-        if (this.#blobInterceptor) {
-          const transformed = await this.#blobInterceptor.transformOutgoing(
-            documentId,
-            fragmentBytes
-          )
-          if (!transformed) {
-            prepErrors.push(
-              new Error(`transformOutgoing returned null for ${documentId}`)
-            )
-            continue
-          }
-          fragmentBytes = transformed
-        }
-        const head = CommitId.fromHexString(f.head)
-        const boundary = f.boundary.map(b => CommitId.fromHexString(b))
-        const checkpoints = f.checkpoints.map(c => CommitId.fromHexString(c))
-        const fragment = new Fragment(
-          entry.sedimentreeId,
-          head,
-          boundary,
-          checkpoints,
-          new BlobMeta(fragmentBytes)
-        )
-        fragmentInputs.push(new FragmentInput(fragment, fragmentBytes))
-        acceptedHashes.push(f.head)
-      } catch (e) {
-        console.warn(
-          `[SubductionSource] fragment input prep failed for ${f.head}:`,
-          e
-        )
-        prepErrors.push(e)
-      }
-    }
+    const {
+      commitInputs,
+      fragmentInputs,
+      acceptedHashes,
+      prepErrors,
+    } = await prepareSubductionBatch({
+      doc,
+      documentId: entry.query.documentId,
+      sedimentreeId: entry.sedimentreeId,
+      knownHashes: entry.knownHashes,
+      codec: this.#blobCodec,
+    })
 
     if (prepErrors.length > 0) {
       entry.lastSaveError =
