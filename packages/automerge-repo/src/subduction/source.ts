@@ -157,6 +157,9 @@ interface SedimentreeEntry {
   // uses this to re-transform such an entry's blobs once a key change may
   // have made them transformable. False means there is nothing to retry.
   hasUntransformedBlobs: boolean
+  // Set when shareConfigChanged wants to re-transform blobs but a sync is in
+  // flight.
+  retryTransformAfterSync: boolean
 
   /**
    * Inbound blobs from `commit-saved` / `fragment-saved` events
@@ -592,6 +595,7 @@ export class SubductionSource implements DocumentSource {
       pendingInbound: [],
       inboundFlushScheduled: false,
       hasUntransformedBlobs: false,
+      retryTransformAfterSync: false,
     })
 
     query.sourcePending("subduction")
@@ -659,30 +663,14 @@ export class SubductionSource implements DocumentSource {
         entry.lastSyncResult = null
         this.#scheduler.resetHealState(entry.sedimentreeId.toString())
       }
-      // Retry entries whose sync succeeded but the handle is still empty.
-      // This handles the case where blobs arrived before the interceptor
-      // could transform them, so transformIncoming dropped them. The share
-      // config has now changed, so re-arm the entry to reload blobs from
-      // storage and transform them again.
-      if (
-        entry.syncState === "running" &&
-        Automerge.getHeads(entry.handle.fullDoc()).length === 0 &&
-        entry.lastSyncResult === "succeeded" &&
-        !entry.syncInFlight
-      ) {
-        entry.lastSyncResult = null
-      }
-      // Re-transform stored blobs for a non-empty entry that still holds
-      // blobs the interceptor could not transform earlier. The share config
-      // has changed, so the keys those blobs need may now be available. The
-      // empty-handle case above is covered by the re-sync re-arm instead.
-      if (
-        entry.syncState === "running" &&
-        Automerge.getHeads(entry.handle.fullDoc()).length > 0 &&
-        entry.hasUntransformedBlobs &&
-        !entry.syncInFlight
-      ) {
-        void this.#reloadBlobs(entry)
+      // Re-transform stored blobs once a key change may unlock them. Defer
+      // if there is an in-flight sync.
+      if (entry.syncState === "running" && entry.hasUntransformedBlobs) {
+        if (!entry.syncInFlight) {
+          void this.#reloadBlobs(entry)
+        } else {
+          entry.retryTransformAfterSync = true
+        }
       }
       // Re-trigger saves for entries whose last save had prep failures
       // (e.g., transformOutgoing returned null because the interceptor was
@@ -825,6 +813,10 @@ export class SubductionSource implements DocumentSource {
       this.#scheduler.scheduleHealSync(sedimentreeId)
     } finally {
       entry.syncInFlight = false
+      if (entry.retryTransformAfterSync) {
+        entry.retryTransformAfterSync = false
+        void this.#reloadBlobs(entry)
+      }
       // If new commits were saved or a new connection was established
       // while this sync was in flight, re-sync immediately.
       if (entry.needsResync || entry.lastSyncResult === null) {
