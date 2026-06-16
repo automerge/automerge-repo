@@ -109,10 +109,8 @@ export type {
 export type { AbortOptions } from "./helpers/abortable.js"
 export type { DocumentSource } from "./DocumentSource.js"
 export type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
-export type {
-  SubductionTimeouts,
-  BlobInterceptor,
-} from "./subduction/source.js"
+export type { SubductionTimeouts } from "./subduction/source.js"
+export type { BlobInterceptor } from "./subduction/blob-codecs/index.js"
 
 export type {
   FindProgress,

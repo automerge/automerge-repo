@@ -82,8 +82,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   private adapter: StorageAdapterInterface
   /**
    * First storage-key segment for every subduction key this bridge
-   * writes and reads. Defaults to {@link DEFAULT_PREFIX}. An
-   * interceptor-backed store uses {@link INTERCEPTOR_PREFIX} so its
+   * writes and reads. Defaults to {@link DEFAULT_PREFIX}. Codecs with a
+   * transformed on-disk representation can pass their own prefix so their
    * keys never collide with an untransformed store sharing one adapter.
    */
   private readonly prefix: string
@@ -601,16 +601,6 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
 /** Default storage-key prefix for a subduction store. */
 export const DEFAULT_PREFIX = "subduction"
-/**
- * Storage-key prefix for a subduction store whose Repo has a blob
- * interceptor configured. An interceptor transforms the stored
- * representation (e.g., encrypts it), so its commits must not share keys
- * with untransformed commits. Keeping them under a separate prefix
- * prevents a collision when two Repos back their subduction stores with
- * one shared `storage` (e.g., a browser page and its service worker on one
- * origin IndexedDB), where only one Repo runs the interceptor.
- */
-export const INTERCEPTOR_PREFIX = "subduction-interceptor"
 const IDS_PREFIX = "ids"
 const COMMITS_PREFIX = "commits"
 const FRAGMENTS_PREFIX = "fragments"

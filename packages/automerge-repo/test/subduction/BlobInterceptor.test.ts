@@ -145,12 +145,14 @@ describe("BlobInterceptor", () => {
     serverUrl: string,
     interceptor?: BlobInterceptor
   ) {
-    return new Repo({
+    const repo = new Repo({
       peerId: name as PeerId,
       storage: new DummyStorageAdapter(),
       subductionWebsocketEndpoints: [serverUrl],
       subductionBlobInterceptor: interceptor,
     })
+    cleanups.push(() => repo.shutdown())
+    return repo
   }
 
   it("sync works end-to-end through interceptor", async () => {
@@ -241,14 +243,11 @@ describe("BlobInterceptor delayed server policy", () => {
     const addr = wss.address()
     if (typeof addr === "string") throw new Error("unexpected address type")
 
-    const subduction = await Subduction.hydrate(
-      new MemorySigner(),
-      new MemoryStorage(),
-      undefined,
-      undefined,
-      undefined,
+    const subduction = new Subduction({
+      signer: new MemorySigner(),
+      storage: new MemoryStorage(),
       policy,
-    )
+    })
     const serviceName = `localhost:${addr.port}`
     wss.on("connection", ws => {
       subduction
@@ -296,6 +295,7 @@ describe("BlobInterceptor delayed server policy", () => {
         healMaxDelayMs: 2000,
       },
     })
+    cleanups.push(() => repo.shutdown())
 
     const handle = repo.create<{ text: string }>()
     handle.change(d => {
@@ -352,6 +352,7 @@ describe("BlobInterceptor delayed server policy", () => {
         healMaxDelayMs: 2000,
       },
     })
+    cleanups.push(() => sender.shutdown())
 
     const senderHandle = sender.create<{ text: string }>()
     senderHandle.change(d => {
@@ -383,6 +384,7 @@ describe("BlobInterceptor delayed server policy", () => {
         healMaxDelayMs: 2000,
       },
     })
+    cleanups.push(() => receiver.shutdown())
 
     const receiverHandle = await receiver.find<{ text: string }>(senderHandle.url)
     expect(receiverHandle.doc()!.text).toBe("secret message")

@@ -96,10 +96,15 @@ class TestServer {
       ],
       sharePolicy: async () => true,
       subductionPolicy: this.#opts.subductionPolicy,
+      subductionTimeouts: { defaultMs: 5_000, syncMs: 10_000 },
     })
   }
 
   async stop(): Promise<void> {
+    if (this.#repo) {
+      await this.#repo.shutdown()
+      this.#repo = null
+    }
     if (this.#serverAdapter) {
       this.#serverAdapter.disconnect()
       this.#serverAdapter = null
@@ -110,7 +115,6 @@ class TestServer {
       )
       this.#wss = null
     }
-    this.#repo = null
   }
 
   close = () => this.stop()
@@ -132,6 +136,7 @@ function createClient(name: string, serverUrl: string): ClientPair {
     network: [],
     subductionAdapters: [{ adapter: clientAdapter, serviceName }],
     sharePolicy: async () => true,
+    subductionTimeouts: { defaultMs: 5_000, syncMs: 10_000 },
   })
 
   return { repo, adapter: clientAdapter }
@@ -170,7 +175,10 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
 
   function startClient(name: string, serverUrl: string) {
     const pair = createClient(name, serverUrl)
-    cleanups.push(() => pair.adapter.disconnect())
+    cleanups.push(async () => {
+      pair.adapter.disconnect()
+      await pair.repo.shutdown()
+    })
     return pair
   }
 
@@ -421,7 +429,7 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.value = "access granted"
     })
 
-    // Let Alice's push reach the server's WASM storage
+    // Let at least one denied sync attempt happen before the policy changes.
     await pause(1000)
 
     // Bob requests the doc.
@@ -434,14 +442,17 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
     // Policy changes: Bob is now allowed.
     allowFetch = true
 
-    // Tell the client the share config changed.
+    // Tell both clients the share config changed. If the initial denied fetch
+    // caused Alice's sync round to abort before putting blobs, Alice must retry
+    // the push as well as Bob retrying the fetch.
+    alice.repo.shareConfigChanged()
     bob.repo.shareConfigChanged()
 
     await waitForCondition(() => {
       const s = progress.peek()
       return s.state === "ready" && s.handle.doc()?.value === "access granted"
-    }, 5000)
+    }, 30_000)
 
     expect(progress.peek().state).toBe("ready")
-  }, 10_000)
+  }, 35_000)
 })

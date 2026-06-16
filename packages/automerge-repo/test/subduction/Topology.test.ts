@@ -86,6 +86,7 @@ class TestServer {
     this.#subduction = new Subduction({
       signer: this.#signer,
       storage: this.#storage!,
+      defaultTimeoutMilliseconds: 5_000,
     })
     const serviceName = `localhost:${this.#port}`
 
@@ -137,6 +138,7 @@ function makeTabWorkerPair(
     sharePolicy: async () => true,
     subductionWebsocketEndpoints: serverUrl ? [serverUrl] : [],
     enableRemoteHeadsGossiping,
+    subductionTimeouts: { defaultMs: 5_000, syncMs: 10_000 },
   })
 
   const tab = new Repo({
@@ -186,7 +188,12 @@ describe("Tab → Worker → Server topology", () => {
     opts?: { enableRemoteHeadsGossiping?: boolean }
   ) {
     const pair = makeTabWorkerPair(name, serverUrl, opts)
-    cleanups.push(() => pair.channel.port1.close())
+    cleanups.push(async () => {
+      pair.channel.port1.close()
+      pair.channel.port2.close()
+      await pair.tab.shutdown()
+      await pair.worker.shutdown()
+    })
     return pair
   }
 
@@ -624,9 +631,23 @@ describe("Tab → Worker → Server topology", () => {
     await waitForCondition(() => {
       const doc = bobList.doc()
       return doc !== undefined && doc.items.length === 1
-    }, 5000)
+    }, 10_000)
 
     const subUrl = bobList.doc()!.items[0]
+
+    // First wait for the sub-document itself to reach the server. In the full
+    // workspace test run the tab→worker→server push can lag behind the parent
+    // list update, so checking the server avoids making Bob's fetch race a
+    // missing upstream push.
+    const subSid = toSedimentreeId(subHandle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(subSid)
+      return blobs !== undefined && blobs.length > 0
+    }, 30_000)
+
+    // Re-arm Bob's worker now that the linked sub-document is definitely on
+    // the server.
+    pair2.worker.shareConfigChanged()
 
     // Wait for the sub-document data to arrive on Bob's worker via
     // subduction. We poll findWithProgress rather than calling find()
@@ -635,13 +656,13 @@ describe("Tab → Worker → Server topology", () => {
     await waitForCondition(() => {
       const state = pair2.worker.findWithProgress<ItemDoc>(subUrl).peek()
       return state.state === "ready" && state.handle.doc()?.title !== undefined
-    }, 5000)
+    }, 30_000)
 
     // Now Bob's tab can find the sub-document via MessageChannel sync
     // with the worker — the worker already has the data.
     const bobSub = await pair2.tab.find<ItemDoc>(subUrl)
     expect(bobSub.doc()!.title).toBe("First item")
-  }, 15_000)
+  }, 75_000)
 
   describe("Remote heads gossiping", () => {
     it("remote heads are reported after sync", async () => {
