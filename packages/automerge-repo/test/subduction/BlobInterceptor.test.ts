@@ -241,14 +241,11 @@ describe("BlobInterceptor delayed server policy", () => {
     const addr = wss.address()
     if (typeof addr === "string") throw new Error("unexpected address type")
 
-    const subduction = await Subduction.hydrate(
-      new MemorySigner(),
-      new MemoryStorage(),
-      undefined,
-      undefined,
-      undefined,
+    const subduction = new Subduction({
+      signer: new MemorySigner(),
+      storage: new MemoryStorage(),
       policy,
-    )
+    })
     const serviceName = `localhost:${addr.port}`
     wss.on("connection", ws => {
       subduction
