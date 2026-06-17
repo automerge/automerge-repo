@@ -14,17 +14,17 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "cbor-x": "catalog:",
-    "debug": "catalog:",
-    "eventemitter3": "catalog:",
-    "ws": "catalog:"
+    "cbor-x": "^1.6.4",
+    "debug": "^4.4.3",
+    "eventemitter3": "^5.0.4",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@automerge/automerge": "catalog:",
-    "@types/ws": "catalog:",
-    "portfinder": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "@automerge/automerge": "3.3.0-fragments.1",
+    "@types/ws": "^8.18.1",
+    "portfinder": "^1.0.38",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   },
   "publishConfig": {
     "access": "public",

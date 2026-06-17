@@ -14,7 +14,7 @@
     "prepare": "tsc"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "2.6.0-subduction.29"
+    "@automerge/automerge-repo": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
