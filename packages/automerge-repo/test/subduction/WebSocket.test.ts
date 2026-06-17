@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest"
 import { once } from "events"
 import { WebSocketServer } from "ws"
 
+import type { Transport } from "@automerge/automerge-subduction/slim"
 import {
   Subduction,
   MemorySigner,
@@ -88,6 +89,100 @@ function createClientRepo(peerId: string, serverUrl: string): Repo {
     storage: new DummyStorageAdapter(),
     subductionWebsocketEndpoints: [serverUrl],
   })
+}
+
+/**
+ * Wraps a {@link WebSocketTransport} so the server can go silent on
+ * demand. Once `blackhole` is set, the socket stays OPEN (so the peer
+ * is not dropped from the client's peer set) but the server neither
+ * reads nor answers: `recvBytes` never resolves and `sendBytes` is
+ * discarded. A client sync round against this peer therefore gets no
+ * response and can only end by hitting its own deadline — which is
+ * exactly the condition `shutdown()`'s bounded final round must
+ * survive.
+ */
+class ControllableTransport implements Transport {
+  blackhole = false
+  #inner: WebSocketTransport
+
+  constructor(inner: WebSocketTransport) {
+    this.#inner = inner
+  }
+
+  sendBytes(bytes: Uint8Array): Promise<void> {
+    if (this.blackhole) return Promise.resolve()
+    return this.#inner.sendBytes(bytes)
+  }
+
+  recvBytes(): Promise<Uint8Array> {
+    if (this.blackhole) return new Promise<Uint8Array>(() => {})
+    return this.#inner.recvBytes()
+  }
+
+  disconnect(): Promise<void> {
+    return this.#inner.disconnect()
+  }
+
+  closed(): Promise<void> {
+    return this.#inner.closed()
+  }
+
+  onDisconnect(callback: () => void): void {
+    this.#inner.onDisconnect(callback)
+  }
+}
+
+interface BlackholeServer {
+  url: string
+  subduction: Subduction
+  blackholeAll(): void
+  close(): Promise<void>
+}
+
+/**
+ * Like {@link startSubductionServer}, but exposes a `blackholeAll()`
+ * switch that makes every accepted transport go silent (see
+ * {@link ControllableTransport}). The cryptographic handshake completes
+ * normally before blackholing, so the peer stays connected and counted.
+ */
+async function startBlackholeServer(): Promise<BlackholeServer> {
+  const subduction = new Subduction({
+    signer: new MemorySigner(),
+    storage: new MemoryStorage(),
+  })
+
+  const wss = new WebSocketServer({ port: 0 })
+  await once(wss, "listening")
+  const address = wss.address()
+  if (typeof address === "string") throw new Error("unexpected address type")
+  const { port } = address
+  const url = `ws://localhost:${port}`
+  const serviceName = `localhost:${port}`
+
+  const transports: ControllableTransport[] = []
+  wss.on("connection", ws => {
+    const transport = new ControllableTransport(
+      new WebSocketTransport(ws as any)
+    )
+    transports.push(transport)
+    subduction
+      .acceptTransport(transport, serviceName)
+      .catch(e => console.error("acceptTransport failed:", e))
+  })
+
+  return {
+    url,
+    subduction,
+    blackholeAll() {
+      for (const t of transports) t.blackhole = true
+    },
+    async close() {
+      await subduction.disconnectAll()
+      await new Promise<void>((resolve, reject) =>
+        wss.close(err => (err ? reject(err) : resolve()))
+      )
+    },
+  }
 }
 
 describe("Subduction WebSocket sync", () => {
@@ -393,4 +488,94 @@ describe("Subduction WebSocket sync", () => {
 
     expect(received).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }])
   }, 10_000)
+
+  // Saves are store-only; propagation rides the #doSync arm, which
+  // shutdown disables (#shuttingDown makes #scheduleRecompute a no-op).
+  // So the only thing that can publish a change made in shutdown's shadow
+  // is shutdown()'s final quiesce round — without it, a short-lived CLI
+  // process writes durably but never publishes.
+  it("a change made immediately before shutdown still reaches a connected peer", async () => {
+    const server = await startSubductionServer()
+    cleanups.push(() => server.close())
+
+    const client1 = createClientRepo("client-1", server.url)
+    // Warm up: confirm the client is actually connected (a warm-up doc
+    // reaches the server) before the timing-sensitive part, so the
+    // quiesce round is guaranteed a peer. A fixed pause would be racy
+    // under parallel load.
+    const warmup = client1.create<{ x: number }>({ x: 1 })
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(
+        toSedimentreeId(warmup.documentId)
+      )
+      return blobs !== undefined && blobs.length > 0
+    }, 8000)
+
+    // Mutate, then shut down with NO intervening await: the 100ms save
+    // throttle never fires on its own, and shutdown suppresses the
+    // background sync — so only the final quiesce round can publish.
+    const handle1 = client1.create<{ value: number }>({ value: 0 })
+    handle1.change(d => {
+      d.value = 42
+    })
+    const url = handle1.url
+    await client1.shutdown()
+
+    // A fresh client sees the change only if it reached the server
+    // during shutdown rather than being stranded in client1's store.
+    const client2 = createClientRepo("client-2", server.url)
+    cleanups.push(async () => {
+      await client2.shutdown()
+    })
+    const handle2 = await client2.find<{ value: number }>(url)
+    await handle2.whenReady()
+
+    expect(handle2.doc()!.value).toBe(42)
+  }, 20_000)
+
+  // The final quiesce round pushes to peers that may be gone or wedged.
+  // It is capped at SHUTDOWN_SYNC_TIMEOUT_MS (5s) precisely so an
+  // unresponsive peer can't pin teardown for the full (default 60s)
+  // sync deadline. The doc is synced BEFORE the peer goes dark, so no
+  // in-flight sync lingers — this isolates the final round's own cap.
+  it("shutdown stays bounded when a connected peer stops responding", async () => {
+    const server = await startBlackholeServer()
+    cleanups.push(() => server.close())
+
+    const client = createClientRepo("client-1", server.url)
+    let shutDown = false
+    const shutdownOnce = async () => {
+      if (shutDown) return
+      shutDown = true
+      await client.shutdown()
+    }
+    cleanups.push(shutdownOnce)
+
+    // Create + sync a doc while the peer is healthy, so its sync round
+    // completes (no in-flight #doSync at shutdown time).
+    const handle = client.create<{ value: number }>({ value: 0 })
+    const sid = toSedimentreeId(handle.documentId)
+    await waitForCondition(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      return blobs !== undefined && blobs.length > 0
+    }, 8000)
+
+    // Peer goes dark: still connected (handshake done), but every
+    // further sync request gets no response.
+    server.blackholeAll()
+
+    // A change with no broadcast path left but the final quiesce round,
+    // which will hit the silent peer and have to time out.
+    handle.change(d => {
+      d.value = 1
+    })
+
+    const t0 = performance.now()
+    await shutdownOnce()
+    const elapsed = performance.now() - t0
+
+    // ~5s with the cap; the 60s default would blow past this (and the
+    // 40s test deadline) if the final round were left uncapped.
+    expect(elapsed).toBeLessThan(20_000)
+  }, 40_000)
 })

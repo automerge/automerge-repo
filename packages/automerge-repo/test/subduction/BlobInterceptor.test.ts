@@ -256,9 +256,7 @@ describe("BlobInterceptor delayed server policy", () => {
     const url = `ws://localhost:${addr.port}`
     cleanups.push(async () => {
       await subduction.disconnectAll()
-      await new Promise<void>((r, e) =>
-        wss.close(err => (err ? e(err) : r()))
-      )
+      await new Promise<void>((r, e) => wss.close(err => (err ? e(err) : r())))
     })
     return { url, subduction }
   }
@@ -381,7 +379,9 @@ describe("BlobInterceptor delayed server policy", () => {
       },
     })
 
-    const receiverHandle = await receiver.find<{ text: string }>(senderHandle.url)
+    const receiverHandle = await receiver.find<{ text: string }>(
+      senderHandle.url
+    )
     expect(receiverHandle.doc()!.text).toBe("secret message")
     expect(senderInterceptor.outgoingCount).toBeGreaterThan(0)
     expect(receiverInterceptor.incomingCount).toBeGreaterThan(0)
