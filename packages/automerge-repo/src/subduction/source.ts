@@ -725,27 +725,18 @@ export class SubductionSource implements DocumentSource {
   #recomputeAllDirty = false
 
   /**
-   * Request a recompute of an entry's sync state machine — or of every
-   * entry when no `entry` is given (connection-level events: a peer
-   * connecting or an adapter transitioning changes `noPeersButConnection
-   * Changed` for all entries at once).
+   * Request a recompute of an entry's sync state machine, or of every
+   * entry when `entry` is omitted (connection-level events shift
+   * `noPeersButConnectionChanged` for all entries at once).
    *
-   * Coalesces bursts. Bulk `attach` (thousands of docs created/found at
-   * once) previously called the *synchronous* `#recompute` once per doc,
-   * and each call walked ALL entries — O(N²) synchronous work that
-   * monopolized the single thread and starved the transport, so the sync
-   * server's keepalive reaped the connection mid-ingest. A burst now
-   * collapses to a single walk on the next macrotask, and the walk yields
-   * periodically so the loop can service the socket between entries.
-   *
-   * Targeting matters for the same reason on the *settle* side: each
-   * entry's save/sync completion lands in its own macrotask wave, so
-   * per-completion full walks made flushing N documents O(N²) — one
-   * O(N) walk per completion (measured ~4× per doc-count doubling;
-   * see test/subduction/AttachStorm.test.ts). Per-entry state changes
-   * only ever affect that entry's next transition (`#recomputeEntry`
-   * reads the entry plus global connection state), so completions mark
-   * just their entry dirty and a settle wave costs O(dirty), not O(N).
+   * Coalesces a burst into one macrotask-deferred walk that yields
+   * periodically, so the event loop can service the socket between
+   * entries. A per-entry request marks only that entry dirty: since
+   * `#recomputeEntry` reads just the entry plus global connection state,
+   * a settle wave (one save/sync completion per entry, each its own
+   * macrotask) touches O(dirty) entries, not O(N). Without either, a
+   * bulk attach or flush of N docs runs N full O(N) walks — O(N²)
+   * synchronous work that starves the transport keepalive.
    */
   #scheduleRecompute(entry?: SedimentreeEntry) {
     // No new background sync rounds during shutdown — the quiesce pass
@@ -810,7 +801,30 @@ export class SubductionSource implements DocumentSource {
     }
   }
 
+  /**
+   * True when `entry` has a reason to open a sync round now: it has never
+   * synced (`lastSyncResult === null`, e.g. just reset by a save), or its
+   * last attempt found no peers but a connection has since changed so a
+   * peer may now exist. Shared by `#recomputeEntry` and `shutdown()`'s
+   * quiesce filter so the two stay in agreement.
+   */
+  #needsOutboundSync(entry: SedimentreeEntry): boolean {
+    return (
+      entry.lastSyncResult === null ||
+      (entry.lastSyncResult === "no-peers" &&
+        entry.lastSyncGeneration !== this.#connectionGeneration())
+    )
+  }
+
   #recomputeEntry(entry: SedimentreeEntry) {
+    // No new background syncs once shutting down: `shutdown()`'s quiesce
+    // round is the sole sync initiator from that point. A recompute walk
+    // scheduled just before `#shuttingDown` was set could otherwise resume
+    // mid-teardown (it iterates with `await maybeYield()`) and kick a
+    // `#doSync` for an entry the quiesce worker pool is also about to sync,
+    // double-dispatching `syncWithAllPeers` for one sedimentree.
+    if (this.#shuttingDown) return
+
     switch (entry.syncState) {
       case "initializing": {
         // After a successful sync, batch-load blobs into the handle
@@ -821,11 +835,7 @@ export class SubductionSource implements DocumentSource {
         }
 
         if (!entry.syncInFlight && !entry.blobLoadInFlight) {
-          const noPeersButConnectionChanged =
-            entry.lastSyncResult === "no-peers" &&
-            entry.lastSyncGeneration !== this.#connectionGeneration()
-
-          if (entry.lastSyncResult === null || noPeersButConnectionChanged) {
+          if (this.#needsOutboundSync(entry)) {
             // Sync when we haven't tried yet (null) or when the last
             // attempt found no peers and a connection state has changed
             // since then (new peer connected, adapter state transitioned).
@@ -846,14 +856,7 @@ export class SubductionSource implements DocumentSource {
       }
 
       case "running": {
-        const noPeersButConnectionChanged =
-          entry.lastSyncResult === "no-peers" &&
-          entry.lastSyncGeneration !== this.#connectionGeneration()
-
-        if (
-          !entry.syncInFlight &&
-          (entry.lastSyncResult === null || noPeersButConnectionChanged)
-        ) {
+        if (!entry.syncInFlight && this.#needsOutboundSync(entry)) {
           entry.syncInFlight = true
           void this.#doSync(entry)
         }
@@ -1017,42 +1020,12 @@ export class SubductionSource implements DocumentSource {
       toApply = transformed
     }
 
-    // Apply in cumulative-size chunks with a yield between them. A single
-    // `loadIncremental` of a large cold-start doc (e.g. 1.5 MB / hundreds
-    // of blobs) blocks the thread for >1s — in a service worker that
-    // starves the socket and rendering; in Node it misses keepalive pongs.
-    // `loadIncremental` tolerates partial/incremental application (live
-    // sync relies on exactly that), so a subset of blobs is a valid
-    // increment. A doc that fits in one chunk is a single update —
-    // byte-for-byte the prior behavior, so the common small-doc path is
-    // unchanged (and avoids re-triggering the per-update listener storm).
-    const CHUNK_BYTES = 256 * 1024
+    // Apply all blobs in a single `loadIncremental`: one `handle.update()`,
+    // so one `A.diff`/patch materialization and one listener-dispatch round
+    // (the same reason `#flushInbound` coalesces inbound bursts).
     if (toApply.length > 0) {
-      const total = toApply.reduce((n, b) => n + b.byteLength, 0)
-      if (toApply.length === 1 || total <= CHUNK_BYTES) {
-        const merged = toApply.length === 1 ? toApply[0] : mergeArrays(toApply)
-        entry.handle.update(d => Automerge.loadIncremental(d, merged))
-      } else {
-        const maybeYield = makeYielder()
-        let chunk: Uint8Array[] = []
-        let chunkBytes = 0
-        const flushChunk = () => {
-          if (chunk.length === 0) return
-          const merged = chunk.length === 1 ? chunk[0] : mergeArrays(chunk)
-          entry.handle.update(d => Automerge.loadIncremental(d, merged))
-          chunk = []
-          chunkBytes = 0
-        }
-        for (const blob of toApply) {
-          chunk.push(blob)
-          chunkBytes += blob.byteLength
-          if (chunkBytes >= CHUNK_BYTES) {
-            flushChunk()
-            await maybeYield()
-          }
-        }
-        flushChunk()
-      }
+      const merged = toApply.length === 1 ? toApply[0] : mergeArrays(toApply)
+      entry.handle.update(d => Automerge.loadIncremental(d, merged))
     }
 
     // The bulk-loaded blobs may include fragments that absorb loose
@@ -1731,15 +1704,14 @@ export class SubductionSource implements DocumentSource {
       Array.from(this.#entries.values()).map(e => e.syncSettled)
     )
 
-    //     ...then run one final sync round for every entry whose
-    //     saved commits were never broadcast (`#save`'s tail recorded
-    //     the dirty state but `#scheduleRecompute` was a no-op). This
-    //     is what was previously — accidentally — covered by the
-    //     blocking broadcast inside `addBatch`: without it, anything
-    //     pushed shortly before shutdown is durable locally but never
-    //     reaches the server, and short-lived CLI processes lose data.
+    //     ...then run one final sync round for every entry whose saved
+    //     commits were never broadcast (`#save` recorded the dirty state,
+    //     but `#scheduleRecompute` is a no-op during shutdown). Saves are
+    //     store-only, so without this a change made just before shutdown
+    //     is durable locally but never reaches the server — a short-lived
+    //     CLI process would silently drop it.
     const unbroadcast = Array.from(this.#entries.values()).filter(
-      e => e.needsResync || e.lastSyncResult === null
+      e => e.needsResync || this.#needsOutboundSync(e)
     )
     if (unbroadcast.length > 0) {
       this.#log(
