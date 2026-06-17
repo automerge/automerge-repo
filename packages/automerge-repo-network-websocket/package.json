@@ -10,7 +10,8 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "vitest"
+    "test": "vitest",
+    "prepare": "tsc"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
