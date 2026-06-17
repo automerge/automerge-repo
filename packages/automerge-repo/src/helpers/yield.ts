@@ -2,18 +2,13 @@
  * Cooperative yielding so long runs of synchronous CRDT work don't
  * monopolize the single thread.
  *
- * The sync source does bursts of synchronous **Automerge-core Wasm** calls
- * (bulk `attach`/recompute, `loadIncremental` materialize, and save-prep
- * `getFragmentMetadata`/`bundleFragmentMetadata`). The subduction layer's own
- * heavy calls (`getBlobs`/`addBatch`/`syncWithAllPeers`) are async/I-O and
- * already yield — they are not the culprit; only Automerge-core's Wasm work
- * monopolizes the thread. Even though the surrounding code is `async`, the
- * `await`s between those synchronous calls settle as microtasks, so the host
- * never reaches the macrotask phase — timers AND the transport (the
- * WebSocket where Subduction reads sync messages and flushes keepalive
- * pongs). The thread is held for seconds: in Node the server misses pongs
- * and reaps the connection (`request timed out`); in a browser service
- * worker the socket and rendering starve.
+ * The sync source runs bursts of synchronous Automerge-core Wasm work
+ * (bulk `attach`/recompute, `loadIncremental`, save-prep). The `await`s
+ * between those calls settle as microtasks, so the host never reaches the
+ * macrotask phase where timers and the transport live — the WebSocket
+ * Subduction uses to read sync messages and flush keepalive pongs. Held
+ * for seconds, Node misses pongs and the server reaps the connection; in a
+ * browser service worker the socket and rendering starve.
  *
  * `yieldToMacrotask()` forces a real macrotask boundary using the best
  * primitive the host offers:

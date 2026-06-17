@@ -548,7 +548,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       const idHex = fragmentHead.toHexString()
       const blobCopy = new Uint8Array(blob)
       const fragCopy = new Uint8Array(signedFragment.encode())
-      blobEntries.push([[this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex], blobCopy])
+      blobEntries.push([
+        [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex],
+        blobCopy,
+      ])
       metaEntries.push([[this.prefix, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
       fragmentBlobCopies.push(blobCopy)
     }

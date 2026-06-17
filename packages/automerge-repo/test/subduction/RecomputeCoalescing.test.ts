@@ -1,32 +1,21 @@
 /**
- * Regression: bulk attach must not trigger one recompute walk per doc.
+ * Regression: a bulk attach must not trigger one recompute walk per doc.
+ * `#scheduleRecompute` coalesces a burst into a single macrotask walk;
+ * the un-coalesced path walked every entry per attach — O(N²) work that
+ * starved the transport keepalive.
  *
- * `SubductionSource` used to call the synchronous `#recompute` once per
- * `attach`, and each call walked ALL entries — O(N²) synchronous work on
- * bulk create/find that monopolized the thread and starved the
- * transport's keepalive. `#scheduleRecompute` now coalesces a burst into
- * a single walk on the next macrotask.
+ * The test counts scheduled walks by mocking `yieldToMacrotask`, of which
+ * `#scheduleRecompute` is the only direct caller (the yielders in
+ * `#runRecompute` / `#saveNewCommits` / `#loadBlobsIntoHandle` go through
+ * `makeYielder`, which closes over the unmocked binding). So the mock's
+ * call count equals the number of scheduled walks:
+ *   - synchronous per-attach recompute → 0 → lower bound fails
+ *   - broken coalescing flag (one walk per attach) → ≈N → upper bound fails
  *
- * `#scheduleRecompute` is the only direct caller of `yieldToMacrotask`
- * in the source (`#runRecompute` / `#saveNewCommits` /
- * `#loadBlobsIntoHandle` go through `makeYielder`, whose internal calls
- * resolve against the unmocked module binding). So the number of direct
- * `yieldToMacrotask` calls observed by this mock counts exactly the
- * number of *scheduled recompute walks*:
- *
- *   - a full revert to synchronous per-attach recompute → 0 scheduled
- *     walks → the lower bound fails
- *   - a broken coalescing flag (one walk scheduled per attach) → ≈N
- *     scheduled walks → the upper bound fails
- *
- * Timing is driven with vitest fake timers (installed only after repo
- * construction, following the presence heartbeat-delay test, #670, and
- * the awareness pruning test, #625). `yieldToMacrotask` resolves via
- * `setImmediate` in Node, which fake timers control, and the dummy
- * storage adapter settles on microtasks, which `advanceTimersByTimeAsync`
- * flushes — so the interleaving of walks and save completions is
- * deterministic and the assertions can be exact rather than fuzzy
- * real-time bounds.
+ * Fake timers (installed after repo construction, per #670 / #625) make
+ * the walk/save interleaving deterministic: `yieldToMacrotask` resolves
+ * via `setImmediate` and the dummy adapter settles on microtasks, both
+ * driven by `advanceTimersByTimeAsync`.
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"

@@ -489,13 +489,11 @@ describe("Subduction WebSocket sync", () => {
     expect(received).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }])
   }, 10_000)
 
-  // Saves are store-only (no broadcast); propagation rides the #doSync
-  // arm, which `shutdown()` disables (#shuttingDown makes
-  // #scheduleRecompute a no-op). The ONLY thing that can push a change
-  // made in shutdown's shadow is shutdown()'s final quiesce round.
-  // Previously this was covered, accidentally, by the blocking broadcast
-  // inside `addBatch`; with store-only `storeBuiltBatch` it would be
-  // lost — short-lived CLI processes write durably but never publish.
+  // Saves are store-only; propagation rides the #doSync arm, which
+  // shutdown disables (#shuttingDown makes #scheduleRecompute a no-op).
+  // So the only thing that can publish a change made in shutdown's shadow
+  // is shutdown()'s final quiesce round — without it, a short-lived CLI
+  // process writes durably but never publishes.
   it("a change made immediately before shutdown still reaches a connected peer", async () => {
     const server = await startSubductionServer()
     cleanups.push(() => server.close())
