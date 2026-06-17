@@ -692,9 +692,21 @@ export class SubductionSource implements DocumentSource {
 
   shareConfigChanged(): void {
     for (const entry of this.#entries.values()) {
-      if (entry.lastSyncResult === "all-failed" && !entry.syncInFlight) {
-        entry.lastSyncResult = null
-        this.#scheduler.resetHealState(entry.sedimentreeId.toString())
+      // A share-config change can flip a previously-denied fetch to
+      // allowed, so re-attempt any entry that hasn't synced successfully —
+      // whether its last round hard-failed ("all-failed") or was filtered
+      // out server-side ("no-peers"). If a sync is in flight, flag a
+      // re-sync for when it lands rather than waiting for the heal backoff.
+      if (
+        entry.lastSyncResult === "all-failed" ||
+        entry.lastSyncResult === "no-peers"
+      ) {
+        if (entry.syncInFlight) {
+          entry.needsResync = true
+        } else {
+          entry.lastSyncResult = null
+          this.#scheduler.resetHealState(entry.sedimentreeId.toString())
+        }
       }
       // Re-transform stored blobs once a key change may unlock them. Defer
       // if there is an in-flight sync.
@@ -1217,16 +1229,12 @@ export class SubductionSource implements DocumentSource {
       resolveSaveSettled()
     }
 
-    // Trigger immediate sync to peers — this is the ONLY broadcast
-    // path for newly saved commits (`#saveNewCommits` is store-only).
-    // If a sync is already in flight, flag for re-sync when it
-    // completes (otherwise the in-flight sync would overwrite
-    // lastSyncResult and the new commits would be lost).
-    //
-    // During shutdown this state is still recorded — the quiesce pass
-    // in `shutdown()` uses it to find entries with un-broadcast
-    // commits — but `#scheduleRecompute` itself is a no-op then, so
-    // no new background sync rounds spin up.
+    // Trigger an immediate sync — the only broadcast path for newly
+    // saved commits (`#saveNewCommits` is store-only). If a sync is
+    // already in flight, flag a re-sync for when it completes; otherwise
+    // it would overwrite lastSyncResult and the new commits would be
+    // lost. During shutdown the flag is still recorded (the quiesce pass
+    // reads it), but `#scheduleRecompute` below is a no-op.
     if (entry.syncInFlight) {
       this.#log(
         `#save ${entry.sedimentreeId
@@ -1410,13 +1418,11 @@ export class SubductionSource implements DocumentSource {
     for (const hash of acceptedHashes) entry.knownHashes.add(hash)
 
     try {
-      // Store-only tier (no broadcast). `addBatch` would also run a
-      // `sync_with_all_peers` round-trip, but that's redundant — the
-      // `#save` tail arms an immediate `#doSync` (which does its own
-      // `syncWithAllPeers`) — and it made `saveSettled` hostage to
-      // network round-trip deadlines: post-convergence broadcasts hit
-      // the full 30 s Wasm deadline, stalling `shutdown()` (which
-      // awaits `saveSettled`) ~25–30 s on every online run.
+      // Store-only (no broadcast). `addBatch` would also run a
+      // `syncWithAllPeers` round-trip, which is both redundant — the
+      // `#save` tail arms an immediate `#doSync` — and harmful: it ties
+      // `saveSettled` to a network round-trip, so `shutdown()` (which
+      // awaits `saveSettled`) stalls on the full sync deadline.
       await subduction.storeBuiltBatch(
         entry.sedimentreeId,
         commitInputs,

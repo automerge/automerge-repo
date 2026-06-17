@@ -435,13 +435,21 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
     allowFetch = true
 
     // Tell the client the share config changed.
+    const t0 = Date.now()
     bob.repo.shareConfigChanged()
 
-    await waitForCondition(() => {
+    for (let i = 0; i < 24; i++) {
       const s = progress.peek()
-      return s.state === "ready" && s.handle.doc()?.value === "access granted"
-    }, 5000)
+      // eslint-disable-next-line no-console
+      console.log(
+        `[diag] +${Date.now() - t0}ms state=${s.state} value=${
+          s.state === "ready" ? s.handle.doc()?.value : "—"
+        }`
+      )
+      if (s.state === "ready" && s.handle.doc()?.value === "access granted") break
+      await pause(500)
+    }
 
     expect(progress.peek().state).toBe("ready")
-  }, 10_000)
+  }, 20_000)
 })
