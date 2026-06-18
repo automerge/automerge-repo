@@ -36,7 +36,7 @@
   "packageManager": "pnpm@11.5.0",
   "devDependencies": {
     "@automerge/automerge": "catalog:",
-    "@automerge/automerge-subduction": "0.15.0",
+    "@automerge/automerge-subduction": "0.16.0",
     "@manypkg/cli": "^0.25.1",
     "@playwright/test": "^1.60.0",
     "@types/debug": "^4.1.13",
