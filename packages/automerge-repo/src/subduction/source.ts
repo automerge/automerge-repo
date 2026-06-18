@@ -708,13 +708,19 @@ export class SubductionSource implements DocumentSource {
           this.#scheduler.resetHealState(entry.sedimentreeId.toString())
         }
       }
-      // Re-transform stored blobs once a key change may unlock them. Defer
-      // if there is an in-flight sync.
+      // A new key may make stored blobs transformable.
+      // An empty handle re-arms a full network sync, since the blob it needs
+      // may not be local yet. A non-empty handle re-transforms locally. Defer
+      // if sync is in-flight to avoid racing with its handle update.
       if (entry.syncState === "running" && entry.hasUntransformedBlobs) {
-        if (!entry.syncInFlight) {
-          void this.#reloadBlobs(entry)
+        const empty = Automerge.getHeads(entry.handle.fullDoc()).length === 0
+        if (entry.syncInFlight) {
+          if (empty) entry.needsResync = true
+          else entry.retryTransformAfterSync = true
+        } else if (empty) {
+          entry.lastSyncResult = null
         } else {
-          entry.retryTransformAfterSync = true
+          void this.#reloadBlobs(entry)
         }
       }
       // Re-trigger saves for entries whose last save had prep failures
@@ -935,6 +941,11 @@ export class SubductionSource implements DocumentSource {
         entry.syncState === "running"
       ) {
         await this.#loadBlobsIntoHandle(entry, subduction)
+        // Notify the query so a handle that just gained content (e.g., an empty
+        // entry re-synced after a key arrival) transitions to ready.
+        if (Automerge.getHeads(entry.handle.fullDoc()).length > 0) {
+          entry.query.sourcePending("subduction")
+        }
       }
 
       if (results.length === 0) {
