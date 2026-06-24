@@ -215,7 +215,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             handle
           )
         }
-        // Additionally gossip the heads to subscribed peers when enabled.
+
         if (this.#remoteHeadsGossipingEnabled) {
           this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
             documentId,
