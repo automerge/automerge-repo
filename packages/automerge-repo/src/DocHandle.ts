@@ -421,6 +421,36 @@ export class DocHandle<T> {
   }
 
   /**
+   * Whether this document's history already contains every one of `heads`.
+   *
+   * `heads` are in {@link UrlHeads} (bs58check) form — e.g. a peer's
+   * {@link SyncInfo.lastHeads}, or heads relayed in from another context. Lets a
+   * caller answer "do we already hold everything behind these heads?" without
+   * importing automerge's `hasHeads`/`decodeHeads` (and so without risking a
+   * mismatched automerge instance). Uses the whole-document history, so it is
+   * correct for sub-handles too.
+   */
+  containsHeads(heads: UrlHeads): boolean {
+    return A.hasHeads(this.fullDoc(), decodeHeads(heads))
+  }
+
+  /**
+   * Whether we already hold every commit a peer last advertised (its
+   * {@link SyncInfo.lastHeads}): `true` ⇒ we are caught up on what to *pull*
+   * from that peer; `false` ⇒ it advertised commits we don't have yet;
+   * `undefined` ⇒ we have had no sync info from that peer.
+   *
+   * NB: this is pull-completeness only — it does not tell you whether the peer
+   * has everything *we* have. A peer can hold our latest change as an interior
+   * commit of a compacted fragment, so head comparison cannot confirm the push
+   * direction.
+   */
+  isCaughtUpWith(storageId: StorageId): boolean | undefined {
+    const info = this.getSyncInfo(storageId)
+    return info ? this.containsHeads(info.lastHeads) : undefined
+  }
+
+  /**
    * All changes to an Automerge document should be made through this method.
    * Inside the callback, the document should be treated as mutable: all edits will be recorded
    * using a Proxy and translated into operations as part of a single recorded "change".

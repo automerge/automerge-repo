@@ -137,6 +137,47 @@ describe("subduction remote-heads forwarding", () => {
     expect(sameSet(info!.lastHeads, want)).toBe(true)
   }, 20_000)
 
+  it("isCaughtUpWith / containsHeads reflect whether we hold a peer's heads", async () => {
+    const server = await startServer()
+    const alice = startClient("alice", server.url)
+    const bob = startClient("bob", server.url)
+
+    const aliceHandle = alice.repo.create<{ alice: string; bob?: string }>()
+    aliceHandle.change(d => {
+      d.alice = "a"
+    })
+
+    let serverStorageId: string | undefined
+    aliceHandle.on("remote-heads", e => {
+      serverStorageId = e.storageId
+    })
+
+    const bobHandle = await bob.repo.find<{ alice: string; bob?: string }>(
+      aliceHandle.url
+    )
+    bobHandle.change(d => {
+      d.bob = "b"
+    })
+    await waitFor(() => aliceHandle.doc()?.bob === "b", 8000)
+
+    // Wait until the server has advertised alice's current heads back to her.
+    await waitFor(() => {
+      if (!serverStorageId) return false
+      const info = aliceHandle.getSyncInfo(serverStorageId as any)
+      return !!info && sameSet(info.lastHeads, headsOf(aliceHandle))
+    }, 8000)
+
+    // We hold our own heads, and everything the server has advertised.
+    expect(aliceHandle.containsHeads(headsOf(aliceHandle))).toBe(true)
+    expect(aliceHandle.isCaughtUpWith(serverStorageId as any)).toBe(true)
+
+    // A head we've never seen is not contained.
+    expect(aliceHandle.containsHeads(encodeHeads(["0".repeat(64)]))).toBe(false)
+
+    // No sync info from an unknown peer → undefined.
+    expect(aliceHandle.isCaughtUpWith("never-heard-of" as any)).toBeUndefined()
+  }, 20_000)
+
   it("last-known remote heads persist and replay on a fresh Repo (reload)", async () => {
     const server = await startServer()
     const aliceStorage = new DummyStorageAdapter()
