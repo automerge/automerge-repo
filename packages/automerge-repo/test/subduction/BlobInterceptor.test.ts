@@ -26,7 +26,12 @@ function makeMockInterceptor(): BlobInterceptor & {
     incomingCount: 0,
     documentIds: [] as DocumentId[],
 
-    async transformOutgoing(documentId: DocumentId, blob: Uint8Array) {
+    async transformOutgoing(
+      documentId: DocumentId,
+      _commitId: string,
+      _parents: string[],
+      blob: Uint8Array
+    ) {
       interceptor.outgoingCount++
       interceptor.documentIds.push(documentId)
       const wrapped = new Uint8Array(INTERCEPTOR_PREFIX.length + blob.length)
@@ -35,7 +40,11 @@ function makeMockInterceptor(): BlobInterceptor & {
       return wrapped
     },
 
-    async transformIncoming(documentId: DocumentId, blob: Uint8Array) {
+    async transformIncoming(
+      documentId: DocumentId,
+      _commitId: string,
+      blob: Uint8Array
+    ) {
       interceptor.incomingCount++
       interceptor.documentIds.push(documentId)
       if (
@@ -202,7 +211,7 @@ describe("BlobInterceptor", () => {
         callCount++
         throw new Error("transform failed on purpose")
       },
-      async transformIncoming(_documentId, blob) {
+      async transformIncoming(_documentId, _commitId, blob) {
         return blob
       },
     }

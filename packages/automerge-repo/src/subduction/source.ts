@@ -177,6 +177,11 @@ interface SedimentreeEntry {
   // Set when shareConfigChanged wants to re-transform blobs but a sync is in
   // flight.
   retryTransformAfterSync: boolean
+  // Coalescing guard for #scheduleTransformRetry, which debounces a re-run of
+  // the bulk transform after a content blob arrives that could not yet be
+  // transformed. Such blobs arrive via #handleDataFound, which does not fire
+  // shareConfigChanged, so a late-arriving chain predecessor can be missed.
+  transformRetryScheduled: boolean
 
   /**
    * Inbound blobs from `commit-saved` / `fragment-saved` events
@@ -261,15 +266,33 @@ export interface SubductionTimeouts {
 
 /** Intercepts and transforms incoming and outgoing blobs (e.g., for E2EE). */
 export interface BlobInterceptor {
-  /** Return null to skip the blob (e.g., doc not yet available for encryption). */
+  /**
+   * Return null to skip the blob (e.g., doc not yet available for encryption).
+   *
+   * `commitId` is the blob's own commit id (hex). `parents` are its causal
+   * predecessor commit ids (hex).
+   *
+   * `loadBlob` loads a previously-stored blob (commit or fragment) by hex id.
+   */
   transformOutgoing(
     documentId: DocumentId,
-    blob: Uint8Array
+    commitId: string,
+    parents: string[],
+    blob: Uint8Array,
+    loadBlob: (commitIdHex: string) => Promise<Uint8Array | null>
   ): Promise<Uint8Array | null>
-  /** Return null to skip the blob. */
+  /**
+   * Return null to skip the blob.
+   *
+   * `commitId` is the blob's own commit id (hex).
+   *
+   * `loadBlob` loads a previously-stored blob (commit or fragment) by hex id.
+   */
   transformIncoming(
     documentId: DocumentId,
-    blob: Uint8Array
+    commitId: string,
+    blob: Uint8Array,
+    loadBlob: (commitIdHex: string) => Promise<Uint8Array | null>
   ): Promise<Uint8Array | null>
 }
 
@@ -575,12 +598,16 @@ export class SubductionSource implements DocumentSource {
       // benefits from any other blobs that landed in the same
       // microtask window.
       void this.#blobInterceptor
-        .transformIncoming(entry.query.documentId, blob)
+        .transformIncoming(entry.query.documentId, hex, blob, (id: string) =>
+          this.#storage.loadBlobById(entry.sedimentreeId, id)
+        )
         .then(result => {
           if (!result) {
             // Could not transform this blob yet. Mark the entry so a later
-            // shareConfigChanged retries it.
+            // shareConfigChanged retries it, and schedule a content-driven
+            // retry.
             entry.hasUntransformedBlobs = true
+            this.#scheduleTransformRetry(entry)
             return
           }
           entry.pendingInbound.push(result)
@@ -703,6 +730,7 @@ export class SubductionSource implements DocumentSource {
       inboundFlushScheduled: false,
       hasUntransformedBlobs: false,
       retryTransformAfterSync: false,
+      transformRetryScheduled: false,
     })
 
     query.sourcePending("subduction")
@@ -805,19 +833,19 @@ export class SubductionSource implements DocumentSource {
           this.#scheduler.resetHealState(entry.sedimentreeId.toString())
         }
       }
-      // A new key may make stored blobs transformable.
-      // An empty handle re-arms a full network sync, since the blob it needs
-      // may not be local yet. A non-empty handle re-transforms locally. Defer
-      // if sync is in-flight to avoid racing with its handle update.
+      // We may hold blobs that failed to transform earlier because their
+      // decryption key was not yet accessible. A new key may
+      // now make them transformable, so re-transform locally. Defer the local
+      // re-transform during an in-flight sync to avoid racing with its handle
+      // update.
       if (entry.syncState === "running" && entry.hasUntransformedBlobs) {
         const empty = Automerge.getHeads(entry.handle.fullDoc()).length === 0
         if (entry.syncInFlight) {
+          entry.retryTransformAfterSync = true
           if (empty) entry.needsResync = true
-          else entry.retryTransformAfterSync = true
-        } else if (empty) {
-          entry.lastSyncResult = null
         } else {
           void this.#reloadBlobs(entry)
+          if (empty) entry.lastSyncResult = null
         }
       }
       // Re-trigger saves for entries whose last save had prep failures
@@ -1097,6 +1125,8 @@ export class SubductionSource implements DocumentSource {
     subduction: Subduction
   ): Promise<boolean> {
     const sid = entry.sedimentreeId.toString().slice(0, 8)
+    const headCount = () => Automerge.getHeads(entry.handle.fullDoc()).length
+
     const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
     const totalBytes = allBlobs
       ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
@@ -1104,9 +1134,7 @@ export class SubductionSource implements DocumentSource {
     this.#log(
       `loadBlobsIntoHandle ${sid}: ${
         allBlobs?.length ?? 0
-      } blob(s), ${totalBytes} bytes, heads=${
-        Automerge.getHeads(entry.handle.fullDoc()).length
-      }`
+      } blob(s), ${totalBytes} bytes, heads=${headCount()}`
     )
     if (!allBlobs || allBlobs.length === 0) return false
     allBlobs.sort((a, b) => b.byteLength - a.byteLength)
@@ -1126,7 +1154,10 @@ export class SubductionSource implements DocumentSource {
         for (const blob of pending) {
           const result = await this.#blobInterceptor.transformIncoming(
             entry.query.documentId,
-            blob
+            "",
+            blob,
+            (id: string) =>
+              this.#storage.loadBlobById(entry.sedimentreeId, id),
           )
           if (result) {
             transformed.push(result)
@@ -1213,6 +1244,26 @@ export class SubductionSource implements DocumentSource {
     } catch (e) {
       this.#log("reloadBlobs threw: %O", e)
     }
+  }
+
+  /**
+   * Debounced re-run of the bulk blob transform after a content blob that
+   * could not be transformed landed.
+   */
+  #scheduleTransformRetry(entry: SedimentreeEntry) {
+    if (this.#shuttingDown || entry.transformRetryScheduled) return
+    entry.transformRetryScheduled = true
+    void (async () => {
+      try {
+        await yieldToMacrotask()
+        entry.transformRetryScheduled = false
+        if (entry.hasUntransformedBlobs && entry.syncState === "running") {
+          await this.#reloadBlobs(entry)
+        }
+      } catch (e) {
+        this.#log("transform retry failed: %O", e)
+      }
+    })()
   }
 
   // ── Saving local changes to subduction ──────────────────────────────
@@ -1438,7 +1489,10 @@ export class SubductionSource implements DocumentSource {
         if (this.#blobInterceptor) {
           const transformed = await this.#blobInterceptor.transformOutgoing(
             documentId,
-            commitBytes
+            c.head,
+            c.parents,
+            commitBytes,
+            (id: string) => this.#storage.loadBlobById(entry.sedimentreeId, id)
           )
           if (!transformed) {
             prepErrors.push(
@@ -1473,7 +1527,10 @@ export class SubductionSource implements DocumentSource {
         if (this.#blobInterceptor) {
           const transformed = await this.#blobInterceptor.transformOutgoing(
             documentId,
-            fragmentBytes
+            f.head,
+            f.boundary,
+            fragmentBytes,
+            (id: string) => this.#storage.loadBlobById(entry.sedimentreeId, id)
           )
           if (!transformed) {
             prepErrors.push(
