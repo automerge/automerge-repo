@@ -205,9 +205,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       timeouts: subductionTimeouts,
       blobInterceptor: subductionBlobInterceptor,
       onRemoteHeadsChanged: (documentId, storageId, heads, timestamp) => {
-        // Surface remote heads to the local DocHandle (drives the
-        // "remote-heads" event and getSyncInfo) regardless of gossiping —
-        // this is the sync-status visibility path.
         const handle = this.#queries[documentId]?.handle
         if (handle) {
           this.#syncStateTracker.handleRemoteHeadsChanged(
