@@ -36,6 +36,7 @@ import type {
   DocumentId,
   PeerId,
   SessionId,
+  UrlHeads,
 } from "./types.js"
 import { AbortOptions, AbortError } from "./helpers/abortable.js"
 import {
@@ -223,6 +224,19 @@ export class Repo extends EventEmitter<RepoEvents> {
             heads
           )
         }
+
+        // Re-emit as a public Repo event. Unlike the per-handle "remote-heads"
+        // event (which also fires for classic-sync peers keyed by an opaque
+        // storage UUID), this fires only for Subduction peers, keyed by their
+        // verifying-key peer id — e.g. the sync server. Lets a hub (the
+        // SharedWorker) forward server heads to tabs without reaching into
+        // RemoteHeadsSubscriptions internals.
+        this.emit("subduction-remote-heads", {
+          documentId,
+          storageId,
+          heads,
+          timestamp,
+        })
       },
       onEphemeral: (sedimentreeId, _senderId, payload) => {
         try {
@@ -236,6 +250,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       },
       onHealExhausted: documentId => {
         this.emit("heal-exhausted", { documentId })
+      },
+      onConnectionChanged: connected => {
+        this.emit("subduction-connection", { connected })
       },
     })
     this.#subductionSource = subductionSource
@@ -815,6 +832,42 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
+   * Whether this Repo currently has an established Subduction connection (e.g.
+   * a WebSocket sync server in the "running" state). Pairs with the
+   * `"subduction-connection"` event for the initial value. Always false when
+   * this Repo has no Subduction source.
+   */
+  isSubductionConnected = (): boolean => {
+    return this.#subductionSource?.isConnected() ?? false
+  }
+
+  /**
+   * The peer ids of the Subduction peers this Repo is *directly connected* to
+   * (e.g. the sync server) — as opposed to peers merely gossiped to us. Returns
+   * their stringified verifying-key ids. Empty when there's no Subduction
+   * source or no live connection. Lets a hub identify which peer row is the
+   * actual sync server.
+   */
+  connectedSubductionPeerIds = async (): Promise<string[]> => {
+    const source = this.#subductionSource
+    if (!source) return []
+    const subduction = await source.getSubduction()
+    const peers = await subduction.getConnectedPeerIds()
+    return peers.map(p => p.toString())
+  }
+
+  /**
+   * Force a fresh Subduction sync round for a document, re-arming the
+   * self-healing retry loop. Use when a document's heads have stayed diverged
+   * from the sync server despite sync otherwise settling (so the scheduler is
+   * not already retrying), or after heal retries were exhausted. No-op when
+   * there is no Subduction source or the document is not attached to it.
+   */
+  resyncSubduction = (documentId: DocumentId): void => {
+    this.#subductionSource?.resync(documentId)
+  }
+
+  /**
    * Drain pending writes for the given documents (or all documents
    * when `documents` is omitted) so they are durable in storage.
    *
@@ -1051,4 +1104,18 @@ export interface RepoEvents {
   "doc-metrics": (payload: DocMetrics) => void
   /** Self-healing sync gave up after all retry attempts for a document */
   "heal-exhausted": (payload: { documentId: DocumentId }) => void
+  /**
+   * A Subduction peer (e.g. the sync server) advertised new heads for a
+   * document. `storageId` is the peer's verifying-key peer id. Fires only for
+   * Subduction peers — not classic automerge-sync peers — so a hub can forward
+   * server heads to other tabs.
+   */
+  "subduction-remote-heads": (payload: {
+    documentId: DocumentId
+    storageId: StorageId
+    heads: UrlHeads
+    timestamp: number
+  }) => void
+  /** This Repo's aggregate Subduction connectedness flipped (online/offline). */
+  "subduction-connection": (payload: { connected: boolean }) => void
 }

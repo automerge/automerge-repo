@@ -27,6 +27,13 @@ export class AdapterConnections implements ConnectionManager {
     )
   }
 
+  isConnected(): boolean {
+    // Best-effort: an adapter that has finished its handshake is "ready". This
+    // manager is empty on a node that only uses WebSocket subduction endpoints,
+    // in which case SubductionConnections supplies the connected signal.
+    return this.#adapters.some(adapter => adapter.state().value === "ready")
+  }
+
   generation(): number {
     return this.#generation
   }

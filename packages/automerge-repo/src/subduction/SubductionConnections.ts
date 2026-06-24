@@ -30,6 +30,13 @@ export class SubductionConnections implements ConnectionManager {
     return false
   }
 
+  isConnected(): boolean {
+    for (const state of this.#connectionStates.values()) {
+      if (state === "running") return true
+    }
+    return false
+  }
+
   generation(): number {
     return this.#generation
   }
