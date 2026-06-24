@@ -600,6 +600,53 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
     return commits.length + fragments.length
   }
+
+  // ==================== Remote heads (last-known sync state) ====================
+
+  /**
+   * Persist the last-known heads a remote peer/storage advertises for a
+   * sedimentree, so the sync state survives reload. One record per remote
+   * storage id; last-write-wins.
+   */
+  async saveRemoteHeads(
+    sedimentreeId: SedimentreeId,
+    storageId: string,
+    heads: string[],
+    timestamp: number
+  ): Promise<void> {
+    const key = [
+      this.prefix,
+      REMOTE_HEADS_PREFIX,
+      sedimentreeId.toString(),
+      storageId,
+    ]
+    await this.adapter.save(key, encodeRemoteHeads(heads, timestamp))
+  }
+
+  /**
+   * Load every persisted remote-heads record for a sedimentree (one per
+   * remote storage id). Malformed records are skipped.
+   */
+  async loadRemoteHeads(
+    sedimentreeId: SedimentreeId
+  ): Promise<Array<{ storageId: string; heads: string[]; timestamp: number }>> {
+    const chunks = await this.adapter.loadRange([
+      this.prefix,
+      REMOTE_HEADS_PREFIX,
+      sedimentreeId.toString(),
+    ])
+    const out: Array<{
+      storageId: string
+      heads: string[]
+      timestamp: number
+    }> = []
+    for (const chunk of chunks) {
+      if (chunk.key.length !== 4 || !chunk.data) continue
+      const decoded = decodeRemoteHeads(chunk.data)
+      if (decoded) out.push({ storageId: chunk.key[3], ...decoded })
+    }
+    return out
+  }
 }
 
 /** Default storage-key prefix for a subduction store. */
@@ -619,6 +666,31 @@ const COMMITS_PREFIX = "commits"
 const FRAGMENTS_PREFIX = "fragments"
 const BLOBS_PREFIX = "blobs"
 const FRAGMENT_BLOBS_PREFIX = "fragment-blobs"
+const REMOTE_HEADS_PREFIX = "remote-heads"
+
+/** Serialize a remote-heads record (`{ heads, timestamp }`) to bytes. */
+const encodeRemoteHeads = (heads: string[], timestamp: number): Uint8Array =>
+  new TextEncoder().encode(JSON.stringify({ heads, timestamp }))
+
+/** Parse a remote-heads record; `null` on a malformed buffer. */
+const decodeRemoteHeads = (
+  bytes: Uint8Array
+): { heads: string[]; timestamp: number } | null => {
+  try {
+    const obj = JSON.parse(new TextDecoder().decode(bytes))
+    if (
+      obj &&
+      Array.isArray(obj.heads) &&
+      obj.heads.every((h: unknown) => typeof h === "string") &&
+      typeof obj.timestamp === "number"
+    ) {
+      return { heads: obj.heads, timestamp: obj.timestamp }
+    }
+  } catch {
+    // fall through
+  }
+  return null
+}
 
 /** Marker value for sedimentree ID existence */
 const ID_MARKER = new Uint8Array([1])

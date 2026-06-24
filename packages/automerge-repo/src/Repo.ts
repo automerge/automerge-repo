@@ -204,15 +204,26 @@ export class Repo extends EventEmitter<RepoEvents> {
       policy: subductionPolicy,
       timeouts: subductionTimeouts,
       blobInterceptor: subductionBlobInterceptor,
-      onRemoteHeadsChanged: enableRemoteHeadsGossiping
-        ? (documentId, storageId, heads) => {
-            this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-              documentId,
-              storageId,
-              heads
-            )
-          }
-        : undefined,
+      onRemoteHeadsChanged: (documentId, storageId, heads, timestamp) => {
+        const handle = this.#queries[documentId]?.handle
+        if (handle) {
+          this.#syncStateTracker.handleRemoteHeadsChanged(
+            documentId,
+            storageId,
+            heads,
+            timestamp,
+            handle
+          )
+        }
+
+        if (this.#remoteHeadsGossipingEnabled) {
+          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+            documentId,
+            storageId,
+            heads
+          )
+        }
+      },
       onEphemeral: (sedimentreeId, _senderId, payload) => {
         try {
           const msg = decode(new Uint8Array(payload)) as EphemeralMessage

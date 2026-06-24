@@ -16,6 +16,7 @@ import { DocumentSource } from "../DocumentSource.js"
 import { DocumentQuery, SourcePriority } from "../DocumentQuery.js"
 import { DocumentId, PeerId } from "../types.js"
 import { toSedimentreeId, toDocumentId } from "./helpers.js"
+import { encodeHeads } from "../AutomergeUrl.js"
 import { DocHandle, NetworkAdapterInterface } from "../index.js"
 import { ConnectionManager } from "./ConnectionManager.js"
 import type { StorageId } from "../storage/types.js"
@@ -195,7 +196,8 @@ interface SedimentreeEntry {
 export type OnRemoteHeadsChanged = (
   documentId: DocumentId,
   storageId: StorageId,
-  heads: UrlHeads
+  heads: UrlHeads,
+  timestamp: number
 ) => void
 
 /** Callback for inbound ephemeral messages from subduction peers. */
@@ -308,6 +310,10 @@ export class SubductionSource implements DocumentSource {
   #syncTimeoutMs: number
   #syncTimeout: number | null
   #blobInterceptor?: BlobInterceptor
+  #onRemoteHeadsChanged?: OnRemoteHeadsChanged
+  /** Last surfaced remote heads per `sid|storageId`, to dedupe repeated
+   *  notifications (avoids redundant handle events and storage writes). */
+  #lastRemoteHeads = new Map<string, string>()
   /**
    * Set at the top of `shutdown()`. Makes `#scheduleRecompute` a
    * no-op so no new background sync rounds spin up mid-teardown; the
@@ -364,19 +370,22 @@ export class SubductionSource implements DocumentSource {
     }
     this.#log = debug(`automerge-repo:subduction(${peerId})`)
     this.#storage = storage
+    this.#onRemoteHeadsChanged = onRemoteHeadsChanged
 
-    const onRemoteHeads = onRemoteHeadsChanged
-      ? (
-          sedimentreeId: SedimentreeId,
-          remotePeerId: { toString(): string },
-          heads: Array<{ toHexString(): string }>
-        ) => {
-          const documentId = toDocumentId(sedimentreeId)
-          const storageId = remotePeerId.toString() as StorageId
-          const urlHeads = heads.map(h => h.toHexString()) as UrlHeads
-          onRemoteHeadsChanged(documentId, storageId, urlHeads)
-        }
-      : undefined
+    // Registered unconditionally so a peer's heads are persisted (and
+    // replayed on attach) even when there's no live consumer.
+    const onRemoteHeads = (
+      sedimentreeId: SedimentreeId,
+      remotePeerId: { toString(): string },
+      heads: Array<{ toHexString(): string }>
+    ) => {
+      const storageId = remotePeerId.toString()
+      // bs58check-encode to match automerge-repo's UrlHeads format (the
+      // raw subduction CommitId hex would never compare equal to a doc's
+      // own heads).
+      const urlHeads = encodeHeads(heads.map(h => h.toHexString()))
+      this.#surfaceRemoteHeads(sedimentreeId, storageId, urlHeads, Date.now(), true)
+    }
 
     // Construct without hydrating: skip preloading persisted sedimentrees
     // from storage at startup. State is loaded lazily on demand instead,
@@ -438,6 +447,42 @@ export class SubductionSource implements DocumentSource {
       healMaxDelayMs: timeouts?.healMaxDelayMs,
       healMaxAttempts: timeouts?.healMaxAttempts,
     })
+  }
+
+  /**
+   * Surface a remote peer's heads for a sedimentree: notify the consumer
+   * (driving the DocHandle's `remote-heads` event / `getSyncInfo`) and,
+   * when `persist` is set, durably store it so the last-known sync state
+   * survives reload and replays on the next attach. `heads` must already be
+   * in automerge-repo `UrlHeads` (bs58check) form.
+   */
+  #surfaceRemoteHeads(
+    sedimentreeId: SedimentreeId,
+    storageId: string,
+    heads: UrlHeads,
+    timestamp: number,
+    persist: boolean
+  ) {
+    // Dedupe: skip if this peer's heads for this sedimentree are unchanged
+    // since we last surfaced them (the wasm can fire repeatedly with the
+    // same heads during a sync burst).
+    const dedupeKey = `${sedimentreeId.toString()}|${storageId}`
+    const joined = [...heads].sort().join(",")
+    if (this.#lastRemoteHeads.get(dedupeKey) === joined) return
+    this.#lastRemoteHeads.set(dedupeKey, joined)
+
+    const documentId = toDocumentId(sedimentreeId)
+    this.#onRemoteHeadsChanged?.(
+      documentId,
+      storageId as StorageId,
+      heads,
+      timestamp
+    )
+    if (persist) {
+      void this.#storage
+        .saveRemoteHeads(sedimentreeId, storageId, heads, timestamp)
+        .catch(e => this.#log("saveRemoteHeads failed: %O", e))
+    }
   }
 
   #anyConnectionManagerConnecting(): boolean {
@@ -680,6 +725,29 @@ export class SubductionSource implements DocumentSource {
       } catch (e) {
         this.#log(
           `failed to seed persistedHashes for ${sidStr.slice(0, 8)}: %O`,
+          e
+        )
+      }
+    })()
+
+    // Replay the last-known remote heads for this sedimentree so the
+    // DocHandle reflects the last sync state immediately on (re)attach,
+    // before any network round-trip completes. Does not re-persist.
+    void (async () => {
+      try {
+        const persisted = await this.#storage.loadRemoteHeads(sid)
+        for (const { storageId, heads, timestamp } of persisted) {
+          this.#surfaceRemoteHeads(
+            sid,
+            storageId,
+            heads as UrlHeads,
+            timestamp,
+            false
+          )
+        }
+      } catch (e) {
+        this.#log(
+          `failed to replay remote heads for ${sidStr.slice(0, 8)}: %O`,
           e
         )
       }
