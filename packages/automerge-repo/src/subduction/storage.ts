@@ -302,6 +302,17 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     return new CommitWithBlob(signedCommit, blobData)
   }
 
+  /**
+   * Load just the stored blob bytes for a commit or fragment by its id.
+   */
+  async loadBlobById(
+    sedimentreeId: SedimentreeId,
+    commitIdHex: string
+  ): Promise<Uint8Array | null> {
+    const blobKey = [this.prefix, BLOBS_PREFIX, sedimentreeId.toString(), commitIdHex]
+    return (await this.adapter.load(blobKey)) ?? null
+  }
+
   async listCommitIds(sedimentreeId: SedimentreeId): Promise<CommitId[]> {
     const chunks = await this.adapter.loadRange([
       this.prefix,
