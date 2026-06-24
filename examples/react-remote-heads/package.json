@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-demo-remote-heads",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-remote-heads",
   "private": true,
-  "version": "2.6.0-subduction.34",
+  "version": "2.6.0-subduction.35",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
