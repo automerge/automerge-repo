@@ -126,6 +126,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionPolicy,
     subductionWebsocketEndpoints,
     subductionAdapters,
+    subductionRelay,
     subductionTimeouts,
     subductionBlobInterceptor,
   }: RepoConfig = {}) {
@@ -237,6 +238,15 @@ export class Repo extends EventEmitter<RepoEvents> {
       onHealExhausted: documentId => {
         this.emit("heal-exhausted", { documentId })
       },
+      // Relay mode (hubs only): a peer sent us data for a doc we aren't
+      // tracking. Materialize it so it attaches to every source — including
+      // this SubductionSource — and syncs onward to our other peers (e.g. the
+      // upstream server). #ensureQuery is idempotent, so repeats are cheap.
+      onRelayDocument: subductionRelay
+        ? documentId => {
+            this.#ensureQuery(documentId)
+          }
+        : undefined,
     })
     this.#subductionSource = subductionSource
     this.#sources.set("subduction", subductionSource)
@@ -421,6 +431,28 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
       )
     }
+  }
+
+  /**
+   * Register a network adapter as a Subduction transport after construction.
+   *
+   * The runtime counterpart to the `subductionAdapters` constructor option,
+   * for adapters that appear dynamically — e.g. a SharedWorker accepting a new
+   * tab's MessageChannel. `role` defaults to `"connect"`; the responding
+   * (server-like) side passes `"accept"`. Both ends must agree on
+   * `serviceName`. No-op if this Repo has no Subduction source.
+   */
+  addSubductionAdapter(
+    adapter: NetworkAdapterInterface,
+    serviceName: string,
+    role: "connect" | "accept" = "connect"
+  ): void {
+    this.#subductionSource?.addAdapter(adapter, serviceName, role)
+  }
+
+  /** Stop driving Subduction over a previously-added adapter. */
+  removeSubductionAdapter(adapter: NetworkAdapterInterface): void {
+    this.#subductionSource?.removeAdapter(adapter)
   }
 
   /**
@@ -967,6 +999,16 @@ export interface RepoConfig {
      *  handshake for peers on this adapter. Defaults to "connect". */
     role?: "connect" | "accept"
   }[]
+
+  /**
+   * Relay mode for a hub Repo — e.g. a SharedWorker that `accept`s tab peers
+   * and forwards to an upstream sync server. When true, a document that arrives
+   * from a Subduction peer for which this Repo holds no open handle is
+   * materialized automatically, so it syncs onward to this Repo's *other*
+   * Subduction peers. Without it a hub stores inbound docs but never pushes
+   * them upstream. Leave false (the default) on leaf nodes (tabs).
+   */
+  subductionRelay?: boolean
 
   /**
    * Tunable timeouts for the Subduction sync engine and its

@@ -287,6 +287,16 @@ export interface SubductionSourceOptions {
   onEphemeral?: OnEphemeral
   onHealExhausted?: (documentId: DocumentId) => void
 
+  /**
+   * Relay mode (for a hub like a SharedWorker that accepts peers and forwards
+   * to an upstream server): invoked with the documentId when Subduction
+   * receives data — or a remote-heads announcement — for a sedimentree this
+   * source has no entry for. The Repo wires this to materialize the doc, which
+   * attaches it here and so syncs it onward to this source's *other* peers
+   * (e.g. the upstream sync server). Leaf nodes (tabs) omit it.
+   */
+  onRelayDocument?: (documentId: DocumentId) => void
+
   policy?: Policy
 
   /**
@@ -306,11 +316,16 @@ export class SubductionSource implements DocumentSource {
   #entries = new Map<string, SedimentreeEntry>()
   #log: debug.Debugger
   #connectionManagers: ConnectionManager[] = []
+  #adapterConnections: AdapterConnections
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
   #syncTimeout: number | null
   #blobInterceptor?: BlobInterceptor
   #onRemoteHeadsChanged?: OnRemoteHeadsChanged
+  #onRelayDocument?: (documentId: DocumentId) => void
+  /** Sedimentree ids whose relay materialization has been requested but whose
+   *  entry hasn't been attached yet, to avoid requesting it repeatedly. */
+  #relayRequested = new Set<string>()
   /** Last surfaced remote heads per `sid|storageId`, to dedupe repeated
    *  notifications (avoids redundant handle events and storage writes). */
   #lastRemoteHeads = new Map<string, string>()
@@ -333,12 +348,14 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
+    onRelayDocument,
     priority = 2,
     policy,
     timeouts,
     blobInterceptor,
   }: SubductionSourceOptions) {
     this.#blobInterceptor = blobInterceptor
+    this.#onRelayDocument = onRelayDocument
     this.priority = priority
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     this.#syncTimeout = this.#syncTimeoutMs
@@ -385,6 +402,9 @@ export class SubductionSource implements DocumentSource {
       // own heads).
       const urlHeads = encodeHeads(heads.map(h => h.toHexString()))
       this.#surfaceRemoteHeads(sedimentreeId, storageId, urlHeads, Date.now(), true)
+      // A peer announced heads for a doc we may not be tracking — in relay
+      // mode, materialize it so it propagates to our other peers.
+      this.#maybeRelay(sedimentreeId)
     }
 
     // Construct without hydrating: skip preloading persisted sedimentrees
@@ -396,7 +416,12 @@ export class SubductionSource implements DocumentSource {
       new Subduction({
         signer,
         storage,
-        policy,
+        // In relay mode, a peer's *fetch request* for a doc we don't hold is
+        // our cue to materialize it (and so pull it from upstream). That
+        // request surfaces through the policy, so wrap it to trigger relay.
+        policy: this.#onRelayDocument
+          ? this.#wrapPolicyForRelay(policy)
+          : policy,
         onRemoteHeads,
         onEphemeral,
         ...defaultTimeoutOption,
@@ -411,6 +436,7 @@ export class SubductionSource implements DocumentSource {
     this.#connectionManagers.push(wsConnections)
 
     const adapterConnections = new AdapterConnections(this.#subduction, peerId)
+    this.#adapterConnections = adapterConnections
     for (const { adapter, serviceName, role } of adapters) {
       adapterConnections.addAdapter(adapter, serviceName, role ?? "connect")
     }
@@ -423,11 +449,13 @@ export class SubductionSource implements DocumentSource {
     this.#storage.on("commit-saved", (sid, commitId, blob) => {
       const entry = this.#entries.get(sid.toString())
       if (entry) entry.persistedCommitHashes.add(commitId.toHexString())
+      else this.#maybeRelay(sid)
       this.#handleDataFound(sid, commitId, blob)
     })
     this.#storage.on("fragment-saved", (sid, fragmentHead, blob) => {
       const entry = this.#entries.get(sid.toString())
       if (entry) entry.persistedFragmentHashes.add(fragmentHead.toHexString())
+      else this.#maybeRelay(sid)
       this.#handleDataFound(sid, fragmentHead, blob)
     })
 
@@ -485,12 +513,82 @@ export class SubductionSource implements DocumentSource {
     }
   }
 
+  /**
+   * In relay mode, request materialization of a sedimentree we have no entry
+   * for. Materializing (via the Repo's `onRelayDocument` → ensureQuery) attaches
+   * it here, which then syncs it to our other peers — turning a hub (the
+   * SharedWorker) into a relay between its accepted peers (tabs) and its
+   * upstream (the sync server). Deduped and deferred to a microtask to avoid
+   * re-entrancy with the storage/Subduction callbacks that trigger it.
+   */
+  #maybeRelay(sid: SedimentreeId) {
+    if (!this.#onRelayDocument) return
+    const key = sid.toString()
+    if (this.#entries.has(key) || this.#relayRequested.has(key)) return
+    this.#relayRequested.add(key)
+    const documentId = toDocumentId(sid)
+    queueMicrotask(() => {
+      try {
+        this.#onRelayDocument?.(documentId)
+      } catch (e) {
+        this.#log("onRelayDocument threw: %O", e)
+      }
+    })
+  }
+
+  /**
+   * Wrap a base policy (or synthesize an allow-all one) so that a peer's fetch
+   * request for a sedimentree triggers relay materialization. This covers the
+   * cold-fetch direction: a tab asks the hub for a doc only the upstream server
+   * has — the hub must materialize it to fetch it on the tab's behalf. The
+   * authorization verdict is delegated unchanged to `base` (default: allow).
+   */
+  #wrapPolicyForRelay(base?: Policy): Policy {
+    const relay = (sid: SedimentreeId) => this.#maybeRelay(sid)
+    return {
+      async authorizeConnect(peerId) {
+        if (base) await base.authorizeConnect(peerId)
+      },
+      async authorizeFetch(peerId, sedimentreeId) {
+        relay(sedimentreeId)
+        if (base) await base.authorizeFetch(peerId, sedimentreeId)
+      },
+      async authorizePut(requestor, author, sedimentreeId) {
+        if (base) await base.authorizePut(requestor, author, sedimentreeId)
+      },
+      async filterAuthorizedFetch(peerId, ids) {
+        for (const id of ids) relay(id)
+        return base ? base.filterAuthorizedFetch(peerId, ids) : ids
+      },
+    }
+  }
+
   #anyConnectionManagerConnecting(): boolean {
     return this.#connectionManagers.some(mgr => mgr.isConnecting())
   }
 
   getSubduction(): Promise<Subduction> {
     return this.#subduction
+  }
+
+  /**
+   * Register a network adapter as a Subduction transport after construction.
+   * The runtime counterpart to the `adapters` constructor option, for adapters
+   * that appear dynamically (e.g. a SharedWorker accepting a new tab's
+   * MessageChannel). `role` defaults to "connect"; the responding side passes
+   * "accept".
+   */
+  addAdapter(
+    adapter: NetworkAdapterInterface,
+    serviceName: string,
+    role: "connect" | "accept" = "connect"
+  ): void {
+    this.#adapterConnections.addAdapter(adapter, serviceName, role)
+  }
+
+  /** Stop driving Subduction over a previously-added adapter. */
+  removeAdapter(adapter: NetworkAdapterInterface): void {
+    this.#adapterConnections.removeAdapter(adapter)
   }
 
   #connectionGeneration(): number {
@@ -629,6 +727,8 @@ export class SubductionSource implements DocumentSource {
     const sid = toSedimentreeId(query.documentId)
     const sidStr = sid.toString()
     if (this.#entries.has(sidStr)) return
+    // Now that an entry exists, drop any pending relay request for it.
+    this.#relayRequested.delete(sidStr)
 
     let resolveSaveSettled!: () => void
     const saveSettled = new Promise<void>(r => {
