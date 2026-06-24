@@ -204,15 +204,29 @@ export class Repo extends EventEmitter<RepoEvents> {
       policy: subductionPolicy,
       timeouts: subductionTimeouts,
       blobInterceptor: subductionBlobInterceptor,
-      onRemoteHeadsChanged: enableRemoteHeadsGossiping
-        ? (documentId, storageId, heads) => {
-            this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-              documentId,
-              storageId,
-              heads
-            )
-          }
-        : undefined,
+      onRemoteHeadsChanged: (documentId, storageId, heads, timestamp) => {
+        // Surface remote heads to the local DocHandle (drives the
+        // "remote-heads" event and getSyncInfo) regardless of gossiping —
+        // this is the sync-status visibility path.
+        const handle = this.#queries[documentId]?.handle
+        if (handle) {
+          this.#syncStateTracker.handleRemoteHeadsChanged(
+            documentId,
+            storageId,
+            heads,
+            timestamp,
+            handle
+          )
+        }
+        // Additionally gossip the heads to subscribed peers when enabled.
+        if (this.#remoteHeadsGossipingEnabled) {
+          this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
+            documentId,
+            storageId,
+            heads
+          )
+        }
+      },
       onEphemeral: (sedimentreeId, _senderId, payload) => {
         try {
           const msg = decode(new Uint8Array(payload)) as EphemeralMessage
