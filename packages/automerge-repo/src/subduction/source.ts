@@ -287,6 +287,13 @@ export interface SubductionSourceOptions {
   onEphemeral?: OnEphemeral
   onHealExhausted?: (documentId: DocumentId) => void
 
+  /**
+   * Called whenever the aggregate connectedness of this source's connection
+   * managers flips (any endpoint becoming established → `true`, the last one
+   * dropping → `false`). Lets a consumer surface online/offline status.
+   */
+  onConnectionChanged?: (connected: boolean) => void
+
   policy?: Policy
 
   /**
@@ -311,6 +318,10 @@ export class SubductionSource implements DocumentSource {
   #syncTimeout: number | null
   #blobInterceptor?: BlobInterceptor
   #onRemoteHeadsChanged?: OnRemoteHeadsChanged
+  #onConnectionChanged?: (connected: boolean) => void
+  /** Last reported aggregate connectedness, to fire onConnectionChanged only
+   *  on transitions. */
+  #lastConnected = false
   /** Last surfaced remote heads per `sid|storageId`, to dedupe repeated
    *  notifications (avoids redundant handle events and storage writes). */
   #lastRemoteHeads = new Map<string, string>()
@@ -333,12 +344,14 @@ export class SubductionSource implements DocumentSource {
     onRemoteHeadsChanged,
     onEphemeral,
     onHealExhausted,
+    onConnectionChanged,
     priority = 2,
     policy,
     timeouts,
     blobInterceptor,
   }: SubductionSourceOptions) {
     this.#blobInterceptor = blobInterceptor
+    this.#onConnectionChanged = onConnectionChanged
     this.priority = priority
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     this.#syncTimeout = this.#syncTimeoutMs
@@ -417,7 +430,10 @@ export class SubductionSource implements DocumentSource {
     this.#connectionManagers.push(adapterConnections)
 
     for (const mgr of this.#connectionManagers) {
-      mgr.onChange(() => this.#scheduleRecompute())
+      mgr.onChange(() => {
+        this.#scheduleRecompute()
+        this.#notifyConnectionChange()
+      })
     }
 
     this.#storage.on("commit-saved", (sid, commitId, blob) => {
@@ -487,6 +503,19 @@ export class SubductionSource implements DocumentSource {
 
   #anyConnectionManagerConnecting(): boolean {
     return this.#connectionManagers.some(mgr => mgr.isConnecting())
+  }
+
+  /** True if any connection manager has an established connection. */
+  isConnected(): boolean {
+    return this.#connectionManagers.some(mgr => mgr.isConnected())
+  }
+
+  /** Fire onConnectionChanged only when aggregate connectedness flips. */
+  #notifyConnectionChange(): void {
+    const connected = this.isConnected()
+    if (connected === this.#lastConnected) return
+    this.#lastConnected = connected
+    this.#onConnectionChanged?.(connected)
   }
 
   getSubduction(): Promise<Subduction> {
@@ -1657,6 +1686,32 @@ export class SubductionSource implements DocumentSource {
   /** Check whether a sedimentree is currently in heal-backoff. */
   isHealing(sedimentreeId: SedimentreeId): boolean {
     return this.#scheduler.isHealing(sedimentreeId)
+  }
+
+  /**
+   * Force a fresh outbound sync round for a document, re-arming the
+   * self-healing retry loop.
+   *
+   * Normal sync is event-driven (attach, reconnect, local change) and the
+   * scheduler only retries syncs it observed *fail*; a round that reports
+   * success but leaves the doc's heads diverged from a peer's — or one whose
+   * heal retries were already exhausted — is otherwise never retried. A caller
+   * that detects such persistent divergence uses this to kick another round:
+   *
+   *   1. clear any exhausted/backed-off heal state so a fresh cycle can run,
+   *   2. mark the entry "never synced" (`lastSyncResult = null`) so
+   *      {@link SubductionSource.#needsOutboundSync} re-opens a round, then
+   *   3. schedule a recompute walk to act on it.
+   *
+   * No-op for unknown or not-yet-attached documents.
+   */
+  resync(documentId: DocumentId): void {
+    const sid = toSedimentreeId(documentId).toString()
+    const entry = this.#entries.get(sid)
+    if (entry === undefined) return
+    this.#scheduler.resetHealState(sid)
+    entry.lastSyncResult = null
+    this.#scheduleRecompute(entry)
   }
 
   // ── Flush ───────────────────────────────────────────────────────────

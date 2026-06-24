@@ -15,6 +15,13 @@ export interface ConnectionManager {
   isConnecting(): boolean
 
   /**
+   * Returns true if this manager currently has at least one fully-established
+   * connection (e.g. a WebSocket in the "running" state, or a ready adapter).
+   * Used to surface online/offline status to consumers.
+   */
+  isConnected(): boolean
+
+  /**
    * A monotonically increasing counter that is bumped on every connection
    * state change (peer connected, peer disconnected, adapter readiness
    * changed, etc.). The recompute loop snapshots this when starting a
