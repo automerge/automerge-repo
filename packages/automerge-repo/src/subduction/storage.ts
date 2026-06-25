@@ -14,6 +14,12 @@
  */
 
 import type { StorageAdapterInterface } from "../storage/StorageAdapterInterface.js"
+import {
+  decodeCompound,
+  encodeExternal,
+  encodeInline,
+  shouldInline,
+} from "./codec.js"
 // Type-only imports (don't trigger Wasm access)
 import type { SedimentreeStorage } from "@automerge/automerge-subduction/slim"
 import {
@@ -258,12 +264,21 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     try {
       const idHex = commitId.toHexString()
       const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
-      const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
 
-      await this.adapter.saveBatch([
-        [blobKey, blobCopy],
-        [commitKey, commitCopy],
-      ])
+      if (shouldInline(blobCopy)) {
+        // One record: meta + blob inline (the common case, ~99% of commits).
+        await this.adapter.saveBatch([
+          [commitKey, encodeInline(commitCopy, blobCopy)],
+        ])
+      } else {
+        // Large blob: separate `blobs` record, meta tagged external. Blob
+        // first so it is durable before the meta that references it.
+        const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
+        await this.adapter.saveBatch([
+          [blobKey, blobCopy],
+          [commitKey, encodeExternal(commitCopy)],
+        ])
+      }
 
       // Emit a fresh copy per event. `blobCopy` is already the bytes
       // we handed to the adapter, and adapters (e.g. NodeFS) cache by
@@ -288,29 +303,74 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<CommitWithBlob | null> {
     const idHex = commitId.toHexString()
     const sid = sedimentreeId.toString()
-    const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
-    const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
-
-    const [commitData, blobData] = await Promise.all([
-      this.adapter.load(commitKey),
-      this.adapter.load(blobKey),
+    const commitData = await this.adapter.load([
+      this.prefix,
+      COMMITS_PREFIX,
+      sid,
+      idHex,
     ])
+    if (!commitData) return null
 
-    if (!commitData || !blobData) return null
+    const decoded = decodeCompound(commitData)
+    if (!decoded) return null
 
-    const signedCommit = SignedLooseCommit.tryDecode(commitData)
+    if (decoded.kind === "inline") {
+      const signedCommit = SignedLooseCommit.tryDecode(decoded.meta)
+      return new CommitWithBlob(signedCommit, decoded.blob)
+    }
+
+    const blobData = await this.adapter.load([
+      this.prefix,
+      BLOBS_PREFIX,
+      sid,
+      idHex,
+    ])
+    if (!blobData) return null
+    const signedCommit = SignedLooseCommit.tryDecode(decoded.meta)
     return new CommitWithBlob(signedCommit, blobData)
   }
 
   /**
    * Load just the stored blob bytes for a commit or fragment by its id.
+   *
+   * The blob may be inlined in the commit/fragment record (small blobs) or in a
+   * separate `blobs`/`fragment-blobs` record (large blobs). Checks the commit
+   * record first (loose commits dominate), then the fragment record.
    */
   async loadBlobById(
     sedimentreeId: SedimentreeId,
     commitIdHex: string
   ): Promise<Uint8Array | null> {
-    const blobKey = [this.prefix, BLOBS_PREFIX, sedimentreeId.toString(), commitIdHex]
-    return (await this.adapter.load(blobKey)) ?? null
+    const sid = sedimentreeId.toString()
+
+    const resolve = async (
+      metaPrefix: string,
+      blobPrefix: string
+    ): Promise<Uint8Array | null> => {
+      const rec = await this.adapter.load([
+        this.prefix,
+        metaPrefix,
+        sid,
+        commitIdHex,
+      ])
+      if (!rec) return null
+      const decoded = decodeCompound(rec)
+      if (decoded?.kind === "inline") return decoded.blob
+      // External (or legacy/unknown): blob lives in the sibling blob record.
+      return (
+        (await this.adapter.load([
+          this.prefix,
+          blobPrefix,
+          sid,
+          commitIdHex,
+        ])) ?? null
+      )
+    }
+
+    return (
+      (await resolve(COMMITS_PREFIX, BLOBS_PREFIX)) ??
+      (await resolve(FRAGMENTS_PREFIX, FRAGMENT_BLOBS_PREFIX))
+    )
   }
 
   async listCommitIds(sedimentreeId: SedimentreeId): Promise<CommitId[]> {
@@ -328,31 +388,55 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId
   ): Promise<CommitWithBlob[]> {
     const sid = sedimentreeId.toString()
-    // Batch: two loadRange calls in parallel instead of 1 + 2N sequential loads.
-    const [commitChunks, blobChunks] = await Promise.all([
-      this.adapter.loadRange([this.prefix, COMMITS_PREFIX, sid]),
-      this.adapter.loadRange([this.prefix, BLOBS_PREFIX, sid]),
+    const commitChunks = await this.adapter.loadRange([
+      this.prefix,
+      COMMITS_PREFIX,
+      sid,
     ])
 
-    // Index blobs by id hex for O(1) lookup.
-    const blobsById = new Map<string, Uint8Array>()
-    for (const chunk of blobChunks) {
-      if (chunk.key.length === 4 && chunk.data) {
-        blobsById.set(chunk.key[3], chunk.data)
+    // Decode compound records: inline blobs come back immediately; externals
+    // are resolved from a single `blobs` range scan only if any exist.
+    const decoded: Array<{
+      idHex: string
+      meta: Uint8Array
+      blob?: Uint8Array
+    }> = []
+    let needExternal = false
+    for (const chunk of commitChunks) {
+      if (chunk.key.length !== 4 || !chunk.data) continue
+      const d = decodeCompound(chunk.data)
+      if (!d) continue
+      if (d.kind === "inline") {
+        decoded.push({ idHex: chunk.key[3], meta: d.meta, blob: d.blob })
+      } else {
+        decoded.push({ idHex: chunk.key[3], meta: d.meta })
+        needExternal = true
+      }
+    }
+
+    let blobsById: Map<string, Uint8Array> | undefined
+    if (needExternal) {
+      blobsById = new Map()
+      const blobChunks = await this.adapter.loadRange([
+        this.prefix,
+        BLOBS_PREFIX,
+        sid,
+      ])
+      for (const chunk of blobChunks) {
+        if (chunk.key.length === 4 && chunk.data) {
+          blobsById.set(chunk.key[3], chunk.data)
+        }
       }
     }
 
     const results: CommitWithBlob[] = []
-    for (const chunk of commitChunks) {
-      if (chunk.key.length !== 4 || !chunk.data) continue
-      const idHex = chunk.key[3]
-      const blobData = blobsById.get(idHex)
+    for (const { idHex, meta, blob } of decoded) {
+      const blobData = blob ?? blobsById?.get(idHex)
       if (!blobData) continue
-
-      const signedCommit = SignedLooseCommit.tryDecode(chunk.data)
-      results.push(new CommitWithBlob(signedCommit, blobData))
+      results.push(
+        new CommitWithBlob(SignedLooseCommit.tryDecode(meta), blobData)
+      )
     }
-
     return results
   }
 
@@ -398,13 +482,20 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     try {
       const idHex = fragmentHead.toHexString()
       const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
-      const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
-      // See the matching comment in saveCommit for rationale.
-      await this.adapter.saveBatch([
-        [blobKey, blobCopy],
-        [fragmentKey, fragmentCopy],
-      ])
+      // Inline small fragment blobs; spill large ones to a separate record.
+      // See saveCommit for rationale and ordering.
+      if (shouldInline(blobCopy)) {
+        await this.adapter.saveBatch([
+          [fragmentKey, encodeInline(fragmentCopy, blobCopy)],
+        ])
+      } else {
+        const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
+        await this.adapter.saveBatch([
+          [blobKey, blobCopy],
+          [fragmentKey, encodeExternal(fragmentCopy)],
+        ])
+      }
 
       // Defensive copy per event; see comment in saveCommit.
       if (this.listeners["fragment-saved"]?.length) {
@@ -426,17 +517,30 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   ): Promise<FragmentWithBlob | null> {
     const idHex = fragmentHead.toHexString()
     const sid = sedimentreeId.toString()
-    const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
-    const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
-
-    const [fragmentData, blobData] = await Promise.all([
-      this.adapter.load(fragmentKey),
-      this.adapter.load(blobKey),
+    const fragmentData = await this.adapter.load([
+      this.prefix,
+      FRAGMENTS_PREFIX,
+      sid,
+      idHex,
     ])
+    if (!fragmentData) return null
 
-    if (!fragmentData || !blobData) return null
+    const decoded = decodeCompound(fragmentData)
+    if (!decoded) return null
 
-    const signedFragment = SignedFragment.tryDecode(fragmentData)
+    if (decoded.kind === "inline") {
+      const signedFragment = SignedFragment.tryDecode(decoded.meta)
+      return new FragmentWithBlob(signedFragment, decoded.blob)
+    }
+
+    const blobData = await this.adapter.load([
+      this.prefix,
+      FRAGMENT_BLOBS_PREFIX,
+      sid,
+      idHex,
+    ])
+    if (!blobData) return null
+    const signedFragment = SignedFragment.tryDecode(decoded.meta)
     return new FragmentWithBlob(signedFragment, blobData)
   }
 
@@ -455,31 +559,53 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId
   ): Promise<FragmentWithBlob[]> {
     const sid = sedimentreeId.toString()
-    // Batch: two loadRange calls in parallel instead of 1 + 2M sequential loads.
-    const [fragmentChunks, blobChunks] = await Promise.all([
-      this.adapter.loadRange([this.prefix, FRAGMENTS_PREFIX, sid]),
-      this.adapter.loadRange([this.prefix, FRAGMENT_BLOBS_PREFIX, sid]),
+    const fragmentChunks = await this.adapter.loadRange([
+      this.prefix,
+      FRAGMENTS_PREFIX,
+      sid,
     ])
 
-    // Index blobs by id hex for O(1) lookup.
-    const blobsById = new Map<string, Uint8Array>()
-    for (const chunk of blobChunks) {
-      if (chunk.key.length === 4 && chunk.data) {
-        blobsById.set(chunk.key[3], chunk.data)
+    const decoded: Array<{
+      idHex: string
+      meta: Uint8Array
+      blob?: Uint8Array
+    }> = []
+    let needExternal = false
+    for (const chunk of fragmentChunks) {
+      if (chunk.key.length !== 4 || !chunk.data) continue
+      const d = decodeCompound(chunk.data)
+      if (!d) continue
+      if (d.kind === "inline") {
+        decoded.push({ idHex: chunk.key[3], meta: d.meta, blob: d.blob })
+      } else {
+        decoded.push({ idHex: chunk.key[3], meta: d.meta })
+        needExternal = true
+      }
+    }
+
+    let blobsById: Map<string, Uint8Array> | undefined
+    if (needExternal) {
+      blobsById = new Map()
+      const blobChunks = await this.adapter.loadRange([
+        this.prefix,
+        FRAGMENT_BLOBS_PREFIX,
+        sid,
+      ])
+      for (const chunk of blobChunks) {
+        if (chunk.key.length === 4 && chunk.data) {
+          blobsById.set(chunk.key[3], chunk.data)
+        }
       }
     }
 
     const results: FragmentWithBlob[] = []
-    for (const chunk of fragmentChunks) {
-      if (chunk.key.length !== 4 || !chunk.data) continue
-      const idHex = chunk.key[3]
-      const blobData = blobsById.get(idHex)
+    for (const { idHex, meta, blob } of decoded) {
+      const blobData = blob ?? blobsById?.get(idHex)
       if (!blobData) continue
-
-      const signedFragment = SignedFragment.tryDecode(chunk.data)
-      results.push(new FragmentWithBlob(signedFragment, blobData))
+      results.push(
+        new FragmentWithBlob(SignedFragment.tryDecode(meta), blobData)
+      )
     }
-
     return results
   }
 
@@ -511,19 +637,27 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   /**
    * Save a batch of commits and fragments.
    *
-   * Issues three sequential `adapter.saveBatch()` calls — blobs,
-   * then metadata, then the ID marker — to preserve crash-prefix
-   * consistency on adapters whose `saveBatch` is per-entry-atomic
-   * but not all-or-nothing across the batch (e.g. NodeFS).
+   * Issues up to three sequential `adapter.saveBatch()` calls —
+   * external blobs, then metadata, then the ID marker — to preserve
+   * crash-prefix consistency on adapters whose `saveBatch` is
+   * per-entry-atomic but not all-or-nothing across the batch (e.g.
+   * NodeFS).
+   *
+   * Each commit/fragment writes a single metadata record with its blob
+   * inlined ({@link encodeInline}) when the blob is `<= INLINE_THRESHOLD`;
+   * only over-threshold blobs get a separate external blob record. The
+   * external-blob phase is skipped when there are none (the common case),
+   * so a small-blob batch is two `saveBatch` calls (metadata + marker).
    *
    * Crash invariants:
-   *   - Crash during/after blobs only:  orphan blobs. Harmless.
-   *   - Crash during/after metadata:    blobs + meta, no marker.
-   *                                     Invisible to enumeration.
-   *   - Crash after marker:             fully visible (only state
-   *                                     in which this sedimentree
-   *                                     appears in
-   *                                     `loadAllSedimentreeIds`).
+   *   - Crash during/after external blobs: orphan blobs. Harmless.
+   *   - Crash during/after metadata:       data present (inline records
+   *                                        carry their blob; externals
+   *                                        already durable), no marker —
+   *                                        invisible to enumeration.
+   *   - Crash after marker:                fully visible (only state in
+   *                                        which this sedimentree appears
+   *                                        in `loadAllSedimentreeIds`).
    */
   async saveBatchAll(
     sedimentreeId: SedimentreeId,
@@ -547,24 +681,48 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const blobEntries: Array<[string[], Uint8Array]> = []
     const metaEntries: Array<[string[], Uint8Array]> = []
 
+    // Small blobs are inlined into the meta record (one write); large blobs
+    // spill to a separate blob record with an external-tagged meta. The
+    // separate `blobEntries` list therefore holds only over-threshold blobs and
+    // is usually empty, so phase 1 below is skipped entirely.
     for (const { commitId, signedCommit, blob } of commits) {
       const idHex = commitId.toHexString()
       const blobCopy = new Uint8Array(blob)
-      const commitCopy = new Uint8Array(signedCommit.encode())
-      blobEntries.push([[this.prefix, BLOBS_PREFIX, sid, idHex], blobCopy])
-      metaEntries.push([[this.prefix, COMMITS_PREFIX, sid, idHex], commitCopy])
+      const metaCopy = new Uint8Array(signedCommit.encode())
       commitBlobCopies.push(blobCopy)
+      if (shouldInline(blobCopy)) {
+        metaEntries.push([
+          [this.prefix, COMMITS_PREFIX, sid, idHex],
+          encodeInline(metaCopy, blobCopy),
+        ])
+      } else {
+        blobEntries.push([[this.prefix, BLOBS_PREFIX, sid, idHex], blobCopy])
+        metaEntries.push([
+          [this.prefix, COMMITS_PREFIX, sid, idHex],
+          encodeExternal(metaCopy),
+        ])
+      }
     }
     for (const { fragmentHead, signedFragment, blob } of fragments) {
       const idHex = fragmentHead.toHexString()
       const blobCopy = new Uint8Array(blob)
-      const fragCopy = new Uint8Array(signedFragment.encode())
-      blobEntries.push([
-        [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex],
-        blobCopy,
-      ])
-      metaEntries.push([[this.prefix, FRAGMENTS_PREFIX, sid, idHex], fragCopy])
+      const metaCopy = new Uint8Array(signedFragment.encode())
       fragmentBlobCopies.push(blobCopy)
+      if (shouldInline(blobCopy)) {
+        metaEntries.push([
+          [this.prefix, FRAGMENTS_PREFIX, sid, idHex],
+          encodeInline(metaCopy, blobCopy),
+        ])
+      } else {
+        blobEntries.push([
+          [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex],
+          blobCopy,
+        ])
+        metaEntries.push([
+          [this.prefix, FRAGMENTS_PREFIX, sid, idHex],
+          encodeExternal(metaCopy),
+        ])
+      }
     }
 
     const markerEntry: [string[], Uint8Array] = [
@@ -660,8 +818,18 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   }
 }
 
-/** Default storage-key prefix for a subduction store. */
-export const DEFAULT_PREFIX = "subduction"
+/**
+ * Default storage-key prefix for a subduction store.
+ *
+ * The `-v2` generation marks the blob-inlining storage format (small blobs
+ * stored inline in the commit/fragment record via {@link encodeInline} rather
+ * than in a separate `blobs` record). It is intentionally a clean break from
+ * the pre-inlining `"subduction"` namespace: the new code never reads the old
+ * 2-record data, so on first run the tree is empty and data is repopulated by
+ * resync in the new format. Old `"subduction"`/`"subduction-interceptor"`
+ * records become dead garbage (safe to leave or GC).
+ */
+export const DEFAULT_PREFIX = "subduction-v2"
 /**
  * Storage-key prefix for a subduction store whose Repo has a blob
  * interceptor configured. An interceptor transforms the stored
@@ -671,7 +839,7 @@ export const DEFAULT_PREFIX = "subduction"
  * one shared `storage` (e.g., a browser page and its service worker on one
  * origin IndexedDB), where only one Repo runs the interceptor.
  */
-export const INTERCEPTOR_PREFIX = "subduction-interceptor"
+export const INTERCEPTOR_PREFIX = "subduction-interceptor-v2"
 const IDS_PREFIX = "ids"
 const COMMITS_PREFIX = "commits"
 const FRAGMENTS_PREFIX = "fragments"

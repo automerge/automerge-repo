@@ -151,7 +151,9 @@ describe("SubductionSource #save resilience", () => {
     // the throw inside `subduction.addCommit` should propagate up
     // through `#saveNewCommits` -> `#save` and trigger the
     // `finally` block that clears `saveInProgress`.
-    const storage = new SelectivelyRejectingStorageAdapter("subduction")
+    // Matches the bridge's DEFAULT_PREFIX (storage.ts). The `-v2` generation
+    // marks the blob-inlining storage format.
+    const storage = new SelectivelyRejectingStorageAdapter("subduction-v2")
     const repo = new Repo({ storage, network: [] })
 
     try {
@@ -197,7 +199,7 @@ describe("SubductionSource #save resilience", () => {
     //     baseline.
     //   - `entry.recentlySavedHashes` rolls back ring entries on
     //     rejection, so the retry doesn't skip them.
-    const storage = new TransientlyRejectingStorageAdapter("subduction", 2)
+    const storage = new TransientlyRejectingStorageAdapter("subduction-v2", 2)
     const repo = new Repo({ storage, network: [] })
 
     try {
@@ -240,7 +242,7 @@ describe("SubductionSource #save resilience", () => {
       // vary by Automerge version (the initial empty change may or
       // may not be present), so we assert ≥3 to keep the test
       // stable.
-      const commitCount = await storage.innerCount(["subduction", "commits"])
+      const commitCount = await storage.innerCount(["subduction-v2", "commits"])
       expect(commitCount).toBeGreaterThanOrEqual(3)
 
       // And the in-memory doc reflects every change.
