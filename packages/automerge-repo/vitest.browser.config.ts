@@ -41,6 +41,12 @@ export default defineConfig({
   define: {
     __BENCH_SCALE__: JSON.stringify(process.env.BENCH_SCALE ?? "100,1000"),
     __BENCH_REPEATS__: JSON.stringify(process.env.BENCH_REPEATS ?? "3"),
+    // Write-throughput micro-bench: commit counts, and the per-commit blob size
+    // in bytes (256B mirrors the real-world median; most blobs are <= 256B).
+    __BENCH_TPUT_SCALE__: JSON.stringify(
+      process.env.BENCH_TPUT_SCALE ?? "2000,10000"
+    ),
+    __BENCH_TPUT_BLOB__: JSON.stringify(process.env.BENCH_TPUT_BLOB ?? "256"),
     // Absolute path of a real-world fixture JSON (from dump-to-fixture.mjs), or
     // "" to skip the replay suite. Fetched in-browser via Vite's `/@fs/` route.
     __BENCH_FIXTURE_PATH__: JSON.stringify(process.env.BENCH_FIXTURE ?? ""),

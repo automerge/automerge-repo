@@ -229,12 +229,12 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   // ==================== Sedimentree IDs ====================
 
   async saveSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
-    const key = [this.prefix, IDS_PREFIX, sedimentreeId.toString()]
+    const key = [this.prefix, IDS_PREFIX, sidKey(sedimentreeId)]
     await this.adapter.save(key, ID_MARKER)
   }
 
   async deleteSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
-    const key = [this.prefix, IDS_PREFIX, sedimentreeId.toString()]
+    const key = [this.prefix, IDS_PREFIX, sidKey(sedimentreeId)]
     await this.adapter.remove(key)
   }
 
@@ -242,7 +242,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const chunks = await this.adapter.loadRange([this.prefix, IDS_PREFIX])
     return chunks
       .filter(chunk => chunk.key.length === 3 && chunk.data)
-      .map(chunk => SedimentreeId.fromBytes(hexToBytes(chunk.key[2])))
+      .map(chunk => sidFromKey(chunk.key[2]))
   }
 
   // ==================== Commits (compound storage with blob) ====================
@@ -259,10 +259,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const commitCopy = new Uint8Array(commitBytes)
     const blobCopy = new Uint8Array(blob)
 
-    const sid = sedimentreeId.toString()
+    const sid = sidKey(sedimentreeId)
     this.incrementPending(sid)
     try {
-      const idHex = commitId.toHexString()
+      const idHex = idKey(commitId)
       const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
 
       if (shouldInline(blobCopy)) {
@@ -301,8 +301,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId,
     commitId: CommitId
   ): Promise<CommitWithBlob | null> {
-    const idHex = commitId.toHexString()
-    const sid = sedimentreeId.toString()
+    const idHex = idKey(commitId)
+    const sid = sidKey(sedimentreeId)
     const commitData = await this.adapter.load([
       this.prefix,
       COMMITS_PREFIX,
@@ -341,29 +341,21 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId,
     commitIdHex: string
   ): Promise<Uint8Array | null> {
-    const sid = sedimentreeId.toString()
+    const sid = sidKey(sedimentreeId)
+    // The argument is a hex id; keys store the base64url segment.
+    const idSeg = idKeyFromHex(commitIdHex)
 
     const resolve = async (
       metaPrefix: string,
       blobPrefix: string
     ): Promise<Uint8Array | null> => {
-      const rec = await this.adapter.load([
-        this.prefix,
-        metaPrefix,
-        sid,
-        commitIdHex,
-      ])
+      const rec = await this.adapter.load([this.prefix, metaPrefix, sid, idSeg])
       if (!rec) return null
       const decoded = decodeCompound(rec)
       if (decoded?.kind === "inline") return decoded.blob
       // External (or legacy/unknown): blob lives in the sibling blob record.
       return (
-        (await this.adapter.load([
-          this.prefix,
-          blobPrefix,
-          sid,
-          commitIdHex,
-        ])) ?? null
+        (await this.adapter.load([this.prefix, blobPrefix, sid, idSeg])) ?? null
       )
     }
 
@@ -377,17 +369,17 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const chunks = await this.adapter.loadRange([
       this.prefix,
       COMMITS_PREFIX,
-      sedimentreeId.toString(),
+      sidKey(sedimentreeId),
     ])
     return chunks
       .filter(chunk => chunk.key.length === 4 && chunk.data)
-      .map(chunk => CommitId.fromBytes(hexToBytes(chunk.key[3])))
+      .map(chunk => idFromKey(chunk.key[3]))
   }
 
   async loadAllCommits(
     sedimentreeId: SedimentreeId
   ): Promise<CommitWithBlob[]> {
-    const sid = sedimentreeId.toString()
+    const sid = sidKey(sedimentreeId)
     const commitChunks = await this.adapter.loadRange([
       this.prefix,
       COMMITS_PREFIX,
@@ -444,8 +436,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId,
     commitId: CommitId
   ): Promise<void> {
-    const idHex = commitId.toHexString()
-    const sid = sedimentreeId.toString()
+    const idHex = idKey(commitId)
+    const sid = sidKey(sedimentreeId)
     const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
     const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
 
@@ -456,7 +448,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   }
 
   async deleteAllCommits(sedimentreeId: SedimentreeId): Promise<void> {
-    const sid = sedimentreeId.toString()
+    const sid = sidKey(sedimentreeId)
     await Promise.all([
       this.adapter.removeRange([this.prefix, COMMITS_PREFIX, sid]),
       this.adapter.removeRange([this.prefix, BLOBS_PREFIX, sid]),
@@ -477,10 +469,10 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const fragmentCopy = new Uint8Array(fragmentBytes)
     const blobCopy = new Uint8Array(blob)
 
-    const sid = sedimentreeId.toString()
+    const sid = sidKey(sedimentreeId)
     this.incrementPending(sid)
     try {
-      const idHex = fragmentHead.toHexString()
+      const idHex = idKey(fragmentHead)
       const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
 
       // Inline small fragment blobs; spill large ones to a separate record.
@@ -515,8 +507,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId,
     fragmentHead: CommitId
   ): Promise<FragmentWithBlob | null> {
-    const idHex = fragmentHead.toHexString()
-    const sid = sedimentreeId.toString()
+    const idHex = idKey(fragmentHead)
+    const sid = sidKey(sedimentreeId)
     const fragmentData = await this.adapter.load([
       this.prefix,
       FRAGMENTS_PREFIX,
@@ -548,17 +540,17 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const chunks = await this.adapter.loadRange([
       this.prefix,
       FRAGMENTS_PREFIX,
-      sedimentreeId.toString(),
+      sidKey(sedimentreeId),
     ])
     return chunks
       .filter(chunk => chunk.key.length === 4 && chunk.data)
-      .map(chunk => CommitId.fromBytes(hexToBytes(chunk.key[3])))
+      .map(chunk => idFromKey(chunk.key[3]))
   }
 
   async loadAllFragments(
     sedimentreeId: SedimentreeId
   ): Promise<FragmentWithBlob[]> {
-    const sid = sedimentreeId.toString()
+    const sid = sidKey(sedimentreeId)
     const fragmentChunks = await this.adapter.loadRange([
       this.prefix,
       FRAGMENTS_PREFIX,
@@ -613,8 +605,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId,
     fragmentHead: CommitId
   ): Promise<void> {
-    const idHex = fragmentHead.toHexString()
-    const sid = sedimentreeId.toString()
+    const idHex = idKey(fragmentHead)
+    const sid = sidKey(sedimentreeId)
     const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
     const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
@@ -625,7 +617,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   }
 
   async deleteAllFragments(sedimentreeId: SedimentreeId): Promise<void> {
-    const sid = sedimentreeId.toString()
+    const sid = sidKey(sedimentreeId)
     await Promise.all([
       this.adapter.removeRange([this.prefix, FRAGMENTS_PREFIX, sid]),
       this.adapter.removeRange([this.prefix, FRAGMENT_BLOBS_PREFIX, sid]),
@@ -672,7 +664,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       blob: Uint8Array
     }>
   ): Promise<number> {
-    const sid = sedimentreeId.toString()
+    const sid = sidKey(sedimentreeId)
 
     // Retain copies of each blob so we can emit them after the save.
     const commitBlobCopies: Uint8Array[] = []
@@ -686,7 +678,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     // separate `blobEntries` list therefore holds only over-threshold blobs and
     // is usually empty, so phase 1 below is skipped entirely.
     for (const { commitId, signedCommit, blob } of commits) {
-      const idHex = commitId.toHexString()
+      const idHex = idKey(commitId)
       const blobCopy = new Uint8Array(blob)
       const metaCopy = new Uint8Array(signedCommit.encode())
       commitBlobCopies.push(blobCopy)
@@ -704,7 +696,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       }
     }
     for (const { fragmentHead, signedFragment, blob } of fragments) {
-      const idHex = fragmentHead.toHexString()
+      const idHex = idKey(fragmentHead)
       const blobCopy = new Uint8Array(blob)
       const metaCopy = new Uint8Array(signedFragment.encode())
       fragmentBlobCopies.push(blobCopy)
@@ -786,7 +778,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const key = [
       this.prefix,
       REMOTE_HEADS_PREFIX,
-      sedimentreeId.toString(),
+      sidKey(sedimentreeId),
       storageId,
     ]
     await this.adapter.save(key, encodeRemoteHeads(heads, timestamp))
@@ -802,7 +794,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const chunks = await this.adapter.loadRange([
       this.prefix,
       REMOTE_HEADS_PREFIX,
-      sedimentreeId.toString(),
+      sidKey(sedimentreeId),
     ])
     const out: Array<{
       storageId: string
@@ -821,15 +813,15 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 /**
  * Default storage-key prefix for a subduction store.
  *
- * The `-v2` generation marks the blob-inlining storage format (small blobs
- * stored inline in the commit/fragment record via {@link encodeInline} rather
- * than in a separate `blobs` record). It is intentionally a clean break from
- * the pre-inlining `"subduction"` namespace: the new code never reads the old
- * 2-record data, so on first run the tree is empty and data is repopulated by
- * resync in the new format. Old `"subduction"`/`"subduction-interceptor"`
- * records become dead garbage (safe to leave or GC).
+ * The short `"sdn"` namespace marks the current storage format: blobs inlined
+ * into the commit/fragment record ({@link encodeInline}) AND compact keys —
+ * short prefix/category segments plus base64url (not hex) ids ({@link idKey} /
+ * {@link sidKey}), which roughly halves key bytes. It is a clean break from the
+ * pre-inlining `"subduction"` / `"subduction-v2"` namespaces: the new code
+ * never reads the old data, so on first run the tree is empty and data is
+ * repopulated by resync. Old records become dead garbage (safe to leave or GC).
  */
-export const DEFAULT_PREFIX = "subduction-v2"
+export const DEFAULT_PREFIX = "sdn"
 /**
  * Storage-key prefix for a subduction store whose Repo has a blob
  * interceptor configured. An interceptor transforms the stored
@@ -839,13 +831,15 @@ export const DEFAULT_PREFIX = "subduction-v2"
  * one shared `storage` (e.g., a browser page and its service worker on one
  * origin IndexedDB), where only one Repo runs the interceptor.
  */
-export const INTERCEPTOR_PREFIX = "subduction-interceptor-v2"
-const IDS_PREFIX = "ids"
-const COMMITS_PREFIX = "commits"
-const FRAGMENTS_PREFIX = "fragments"
-const BLOBS_PREFIX = "blobs"
-const FRAGMENT_BLOBS_PREFIX = "fragment-blobs"
-const REMOTE_HEADS_PREFIX = "remote-heads"
+export const INTERCEPTOR_PREFIX = "sdni"
+// Short category segments (was "commits"/"blobs"/...). Range scans key on the
+// whole 2nd array element, so "f" and "fb" do not collide.
+const IDS_PREFIX = "i"
+const COMMITS_PREFIX = "c"
+const FRAGMENTS_PREFIX = "f"
+const BLOBS_PREFIX = "b"
+const FRAGMENT_BLOBS_PREFIX = "fb"
+const REMOTE_HEADS_PREFIX = "rh"
 
 /** Serialize a remote-heads record (`{ heads, timestamp }`) to bytes. */
 const encodeRemoteHeads = (heads: string[], timestamp: number): Uint8Array =>
@@ -881,3 +875,44 @@ const hexToBytes = (hex: string): Uint8Array =>
   Uint8Array.from({ length: hex.length / 2 }, (_, i) =>
     parseInt(hex.slice(i * 2, i * 2 + 2), 16)
   )
+
+// ── Compact key encoding (base64url) ─────────────────────────────────
+//
+// Ids are stored in keys as base64url (32 bytes -> ~43 chars) instead of hex
+// (64 chars), roughly halving key size; combined with the short prefix/category
+// segments this is the bulk of the key-size win (see bench-results). base64url
+// is path-safe (works with the NodeFS adapter) and key ORDER is irrelevant —
+// the bridge only does exact-prefix `loadRange` scans, never id-ordered ones.
+
+const bytesToB64url = (bytes: Uint8Array): string => {
+  let s = ""
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+}
+
+const b64urlToBytes = (str: string): Uint8Array => {
+  const b64 = str.replace(/-/g, "+").replace(/_/g, "/")
+  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4)
+  const bin = atob(padded)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+/** Key segment for a sedimentree id. */
+const sidKey = (id: SedimentreeId): string => bytesToB64url(id.toBytes())
+
+/** Key segment for a commit/fragment id. */
+const idKey = (id: CommitId): string =>
+  bytesToB64url(hexToBytes(id.toHexString()))
+
+/** Key segment from a hex commit id (e.g. the `loadBlobById` argument). */
+const idKeyFromHex = (hex: string): string => bytesToB64url(hexToBytes(hex))
+
+/** Decode a sedimentree-id key segment back to a {@link SedimentreeId}. */
+const sidFromKey = (seg: string): SedimentreeId =>
+  SedimentreeId.fromBytes(b64urlToBytes(seg))
+
+/** Decode a commit-id key segment back to a {@link CommitId}. */
+const idFromKey = (seg: string): CommitId =>
+  CommitId.fromBytes(b64urlToBytes(seg))

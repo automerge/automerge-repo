@@ -20,5 +20,10 @@ playwright-report/
 blob-report/
 playwright/.cache/
 playwright/.auth/
+
+# Vitest browser-mode artifacts (failure screenshots / attachments)
+**/__screenshots__/
+**/.vitest-attachments/
+
 .claude
 .pnpm-store
