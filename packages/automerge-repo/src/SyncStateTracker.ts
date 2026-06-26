@@ -1,6 +1,7 @@
 import { encodeHeads } from "./AutomergeUrl.js"
 import type { DocHandle, SyncInfo } from "./DocHandle.js"
 import { headsAreSame } from "./helpers/headsAreSame.js"
+import { makeLogger } from "./Logger.js"
 import type { PeerMetadata } from "./network/NetworkAdapterInterface.js"
 import type { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import type { StorageId } from "./storage/types.js"
@@ -29,6 +30,7 @@ export class SyncStateTracker {
     StorageId,
     (payload: SyncStatePayload) => Promise<void>
   > = {}
+  #log = makeLogger("automerge-repo:sync-state-tracker")
 
   constructor(storage: StorageSubsystem | undefined, saveDebounceRate: number) {
     this.#storage = storage
@@ -148,8 +150,20 @@ export class SyncStateTracker {
     let handler = this.#throttledSaveSyncStateHandlers[storageId]
     if (!handler) {
       handler = this.#throttledSaveSyncStateHandlers[storageId] = asyncThrottle(
-        ({ documentId, syncState }: SyncStatePayload) =>
-          this.#storage!.saveSyncState(documentId, storageId, syncState),
+        async ({ documentId, syncState }: SyncStatePayload) => {
+          try {
+            await this.#storage!.saveSyncState(documentId, storageId, syncState)
+          } catch (err) {
+            // Fire-and-forget (the result is discarded below): catch and log a
+            // failed write instead of letting it surface as an unhandled
+            // rejection. Sync state is re-derived from the next sync exchange,
+            // so a dropped save is recoverable.
+            this.#log.error(
+              `Error saving sync state for ${documentId} to ${storageId}`,
+              err
+            )
+          }
+        },
         this.#saveDebounceRate
       )
     }
