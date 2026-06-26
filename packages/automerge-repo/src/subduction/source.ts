@@ -22,6 +22,7 @@ import { ConnectionManager } from "./ConnectionManager.js"
 import type { StorageId } from "../storage/types.js"
 import type { UrlHeads } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
+import { DocBuildWorkerClient } from "./DocBuildWorkerClient.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
 import debug from "debug"
@@ -328,7 +329,22 @@ export interface SubductionSourceOptions {
   timeouts?: SubductionTimeouts
 
   blobInterceptor?: BlobInterceptor
+
+  /**
+   * When set, cold-load doc materialization (`Automerge.loadIncremental` of a
+   * sedimentree's merged blobs in `#loadBlobsIntoHandle`) is offloaded to this
+   * worker client, which returns a compact snapshot the main thread loads
+   * cheaply. Keeps the heavy build off the main thread (responsiveness). Live
+   * inbound updates stay on the main thread (small + latency-sensitive).
+   */
+  docBuildWorker?: DocBuildWorkerClient
 }
+
+/**
+ * Only offload doc building above this merged-bytes size; below it the worker
+ * round-trip costs more than the main-thread build saves.
+ */
+const DOC_BUILD_OFFLOAD_THRESHOLD = 32 * 1024
 
 export class SubductionSource implements DocumentSource {
   #subduction: Promise<Subduction>
@@ -340,6 +356,7 @@ export class SubductionSource implements DocumentSource {
   #syncTimeoutMs: number
   #syncTimeout: number | null
   #blobInterceptor?: BlobInterceptor
+  #docBuildWorker?: DocBuildWorkerClient
   #onRemoteHeadsChanged?: OnRemoteHeadsChanged
   #onConnectionChanged?: (connected: boolean) => void
   /** Last reported aggregate connectedness, to fire onConnectionChanged only
@@ -372,8 +389,10 @@ export class SubductionSource implements DocumentSource {
     policy,
     timeouts,
     blobInterceptor,
+    docBuildWorker,
   }: SubductionSourceOptions) {
     this.#blobInterceptor = blobInterceptor
+    this.#docBuildWorker = docBuildWorker
     this.#onConnectionChanged = onConnectionChanged
     this.priority = priority
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
@@ -1173,10 +1192,11 @@ export class SubductionSource implements DocumentSource {
 
     // Apply all blobs in a single `loadIncremental`: one `handle.update()`,
     // so one `A.diff`/patch materialization and one listener-dispatch round
-    // (the same reason `#flushInbound` coalesces inbound bursts).
+    // (the same reason `#flushInbound` coalesces inbound bursts). Optionally
+    // materialised in a worker to keep the heavy build off the main thread.
     if (toApply.length > 0) {
       const merged = toApply.length === 1 ? toApply[0] : mergeArrays(toApply)
-      entry.handle.update(d => Automerge.loadIncremental(d, merged))
+      await this.#applyMerged(entry, merged)
     }
 
     // The bulk-loaded blobs may include fragments that absorb loose
@@ -1186,6 +1206,37 @@ export class SubductionSource implements DocumentSource {
     this.#scheduleCompaction(entry)
 
     return true
+  }
+
+  /**
+   * Apply merged blob bytes to the handle during cold load. When a doc-build
+   * worker is configured and the payload is large enough, the
+   * `Automerge.loadIncremental` materialization runs in the worker (which
+   * returns a compact snapshot the main thread loads cheaply), keeping the
+   * heavy build off the main thread. Falls back to inline on worker error.
+   */
+  async #applyMerged(
+    entry: SedimentreeEntry,
+    merged: Uint8Array
+  ): Promise<void> {
+    if (
+      this.#docBuildWorker &&
+      merged.byteLength >= DOC_BUILD_OFFLOAD_THRESHOLD
+    ) {
+      try {
+        const snapshot = await this.#docBuildWorker.build(merged)
+        entry.handle.update(d => Automerge.loadIncremental(d, snapshot))
+        return
+      } catch (e) {
+        this.#log(
+          `docBuild worker failed for ${entry.sedimentreeId
+            .toString()
+            .slice(0, 8)}, applying on main thread: %O`,
+          e
+        )
+      }
+    }
+    entry.handle.update(d => Automerge.loadIncremental(d, merged))
   }
 
   async #loadBlobsAndTransition(entry: SedimentreeEntry) {

@@ -33,6 +33,9 @@ const repoRoot = resolve(process.cwd(), "../..")
 
 export default defineConfig({
   plugins: [wasm()],
+  // Workers are bundled separately, so the Wasm plugin must be applied there too
+  // (the doc-build worker imports Automerge Wasm). Matches the example apps.
+  worker: { format: "es", plugins: () => [wasm()] },
   // Wasm + top-level await need an esnext target (matches the example apps).
   esbuild: { target: "esnext" },
   optimizeDeps: { esbuildOptions: { target: "esnext" } },

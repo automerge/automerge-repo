@@ -48,6 +48,7 @@ import {
   SubductionStorageBridge,
   INTERCEPTOR_PREFIX,
 } from "./subduction/storage.js"
+import { DocBuildWorkerClient } from "./subduction/DocBuildWorkerClient.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import {
   SubductionSource,
@@ -108,6 +109,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
   #remoteHeadsGossipingEnabled = false
   #subductionSource: SubductionSource | null = null
+  #docBuildWorker: DocBuildWorkerClient | null = null
   #subductionEphemeralCount = 0
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
   #peerId: PeerId
@@ -129,6 +131,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionAdapters,
     subductionTimeouts,
     subductionBlobInterceptor,
+    subductionOffloadDocBuild = false,
   }: RepoConfig = {}) {
     super()
     this.#peerId = peerId
@@ -196,6 +199,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     } else {
       subductionStorage = new SubductionStorageBridge(new DummyStorageAdapter())
     }
+    // Optionally offload cold-load doc materialization to a Worker (keeps the
+    // heavy `Automerge.loadIncremental` off the main thread). No-op where
+    // `Worker` is unavailable (e.g. Node).
+    if (subductionOffloadDocBuild && typeof Worker !== "undefined") {
+      this.#docBuildWorker = new DocBuildWorkerClient()
+    }
     const subductionSource = new SubductionSource({
       peerId,
       storage: subductionStorage,
@@ -205,6 +214,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       policy: subductionPolicy,
       timeouts: subductionTimeouts,
       blobInterceptor: subductionBlobInterceptor,
+      docBuildWorker: this.#docBuildWorker ?? undefined,
       onRemoteHeadsChanged: (documentId, storageId, heads, timestamp) => {
         const handle = this.#queries[documentId]?.handle
         if (handle) {
@@ -920,6 +930,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Quiesce Subduction first — stops reconnect loops, flushes pending
     // saves, awaits storage writes, disconnects transports, frees Wasm
     await this.#subductionSource?.shutdown()
+    this.#docBuildWorker?.dispose()
+    this.#docBuildWorker = null
 
     // Stop traditional sync network connections
     this.networkSubsystem.disconnect()
@@ -1038,6 +1050,17 @@ export interface RepoConfig {
    * `storage` when only one of the two Repos runs the interceptor.
    */
   subductionBlobInterceptor?: BlobInterceptor
+
+  /**
+   * Offload cold-load Automerge doc materialization (`loadIncremental` of a
+   * sedimentree's merged blobs) to a Worker, which returns a compact snapshot
+   * the main thread loads cheaply. Cuts main-thread blocking ~1.5–2.8× on a
+   * large cold load (all engines). No effect where `Worker` is unavailable
+   * (e.g. Node); live inbound updates always stay on the main thread.
+   *
+   * @defaultValue false
+   */
+  subductionOffloadDocBuild?: boolean
 }
 
 /** A function that determines whether we should share a document with a peer
