@@ -44,6 +44,14 @@ export class WebSocketServerAdapter extends NetworkAdapter {
     }
   }
 
+  // Server-level wiring registered in connect(), held on the instance so
+  // disconnect() can clear the keepalive interval and remove the listeners we
+  // add to the long-lived WebSocketServer, and so a repeated connect() does not
+  // stack duplicates.
+  #keepAliveId?: ReturnType<typeof setInterval>
+  #onServerClose?: () => void
+  #onServerConnection?: (socket: WebSocketWithIsAlive) => void
+
   constructor(
     private server: WebSocketServer,
     private keepAliveInterval = 5000
@@ -55,12 +63,16 @@ export class WebSocketServerAdapter extends NetworkAdapter {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
 
-    this.server.on("close", () => {
-      clearInterval(keepAliveId)
-      this.disconnect()
-    })
+    // Detach any wiring from an earlier connect() so repeated calls don't stack
+    // listeners or intervals on the shared server.
+    this.#teardownServerWiring()
 
-    this.server.on("connection", (socket: WebSocketWithIsAlive) => {
+    this.#onServerClose = () => {
+      this.disconnect()
+    }
+    this.server.on("close", this.#onServerClose)
+
+    this.#onServerConnection = (socket: WebSocketWithIsAlive) => {
       // When a socket closes, or disconnects, remove it from our list
       socket.on("close", () => {
         this.#removeSocket(socket)
@@ -75,9 +87,10 @@ export class WebSocketServerAdapter extends NetworkAdapter {
       socket.on("pong", () => (socket.isAlive = true))
 
       this.#forceReady()
-    })
+    }
+    this.server.on("connection", this.#onServerConnection)
 
-    const keepAliveId = setInterval(() => {
+    this.#keepAliveId = setInterval(() => {
       // Terminate connections to lost clients
       const clients = this.server.clients as Set<WebSocketWithIsAlive>
       clients.forEach(socket => {
@@ -93,11 +106,30 @@ export class WebSocketServerAdapter extends NetworkAdapter {
   }
 
   disconnect() {
+    this.#teardownServerWiring()
+
     const clients = this.server.clients as Set<WebSocketWithIsAlive>
     clients.forEach(socket => {
       this.#terminate(socket)
       this.#removeSocket(socket)
     })
+  }
+
+  /** Clear the keepalive interval and detach the listeners we registered on
+   * the shared WebSocketServer in connect(). Idempotent. */
+  #teardownServerWiring() {
+    if (this.#keepAliveId !== undefined) {
+      clearInterval(this.#keepAliveId)
+      this.#keepAliveId = undefined
+    }
+    if (this.#onServerClose) {
+      this.server.off("close", this.#onServerClose)
+      this.#onServerClose = undefined
+    }
+    if (this.#onServerConnection) {
+      this.server.off("connection", this.#onServerConnection)
+      this.#onServerConnection = undefined
+    }
   }
 
   send(message: FromServerMessage) {
