@@ -85,8 +85,6 @@ describe("BroadcastChannel", () => {
       expect(removeSpy.mock.calls.length).toBe(removesBefore + 1)
       expect(closeSpy.mock.calls.length).toBe(closesBefore + 1)
 
-      // A second disconnect is a no-op: it must not throw or touch the channel
-      // again (the channel is already closed).
       expect(() => a.disconnect()).not.toThrow()
       expect(closeSpy.mock.calls.length).toBe(closesBefore + 1)
     } finally {

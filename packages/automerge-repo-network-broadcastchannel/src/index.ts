@@ -75,9 +75,6 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
 
-    // disconnect() closes the channel, so reopen one when reconnecting after a
-    // disconnect; otherwise detach the current listener before re-adding so we
-    // never stack duplicates.
     if (this.#disconnected) {
       this.#broadcastChannel = new BroadcastChannel(this.#options.channelName)
     } else if (this.#messageListener) {
@@ -180,8 +177,6 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   disconnect() {
-    // Idempotent: a second disconnect() must not post on / close the channel
-    // again (closing it makes a further postMessage throw).
     if (this.#disconnected) {
       return
     }
