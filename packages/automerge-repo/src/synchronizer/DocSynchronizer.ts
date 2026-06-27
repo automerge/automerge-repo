@@ -18,9 +18,29 @@ import {
 } from "../network/messages.js"
 import { DocumentId, PeerId } from "../types.js"
 import { asyncThrottle } from "../helpers/throttle.js"
+import { semaphore, type Limit } from "../helpers/semaphore.js"
 import { HashRing } from "../helpers/HashRing.js"
 import type { DocumentQuery } from "../DocumentQuery.js"
 import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
+
+/**
+ * Default cap on concurrent share-policy resolutions. Resolving a peer's share
+ * policy runs a user `announce` / `access` callback, and that happens both on
+ * `addPeer` (per peer) and on `reevaluateSharePolicy` (for every peer). Since
+ * the collection adds every peer to every document and re-evaluates every
+ * document, an unbounded fan-out on a many-peer / many-document sync server
+ * would fire that many callbacks at once.
+ */
+export const SHARE_POLICY_CONCURRENCY = 10
+
+/**
+ * Passthrough gate used when no shared limiter is supplied: runs `fn`
+ * immediately with no concurrency bound. A single `addPeer` resolves one peer,
+ * so a bound is only meaningful when CollectionSynchronizer shares one limiter
+ * across its many `addPeer` calls.
+ */
+const runUnbounded: Limit = <T>(fn: () => PromiseLike<T> | T): Promise<T> =>
+  Promise.resolve(fn())
 
 export type PeerDocumentStatus = "unknown" | "has" | "unavailable" | "wants"
 
@@ -194,7 +214,13 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   addPeer(
     peerId: PeerId,
     syncState: Promise<A.SyncState | undefined>,
-    { messages = [] }: { messages?: (SyncMessage | RequestMessage)[] } = {}
+    {
+      messages = [],
+      limit = runUnbounded,
+    }: {
+      messages?: (SyncMessage | RequestMessage)[]
+      limit?: Limit
+    } = {}
   ): void {
     const previous = this.#peers.get(peerId)
     const isNewPeer = !previous
@@ -222,7 +248,9 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       this.#query.sourcePending("automerge-sync")
     }
 
-    Promise.all([syncState, this.#resolveSharePolicy(peerId)])
+    // Gate the share-policy resolution through the (optionally shared) limiter
+    // so adding one peer to many documents does not fan out unbounded callbacks.
+    Promise.all([syncState, limit(() => this.#resolveSharePolicy(peerId))])
       .then(([syncState, sharePolicyState]) =>
         this.#activatePeer(peerId, peer, isNewPeer, syncState, sharePolicyState)
       )
@@ -270,10 +298,16 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   /**
    * Re-evaluate share policy for all peers. Called when the share config
    * functions may return different results (e.g. after Repo.shareConfigChanged).
+   *
+   * Pass a shared `limit` (from the collection) to bound the concurrent
+   * share-policy resolutions across all documents; defaults to a per-call
+   * limiter when used standalone.
    */
-  reevaluateSharePolicy(): void {
+  reevaluateSharePolicy(
+    limit: Limit = semaphore(SHARE_POLICY_CONCURRENCY)
+  ): void {
     for (const peerId of Array.from(this.#peers.keys())) {
-      this.#resolveSharePolicy(peerId)
+      limit(() => this.#resolveSharePolicy(peerId))
         .then(newPolicy => {
           const peer = this.#peers.get(peerId)
           if (!peer) return
