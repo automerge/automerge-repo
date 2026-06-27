@@ -10,6 +10,31 @@ import {
   type StorageKey,
 } from "@automerge/automerge-repo/slim"
 
+/**
+ * Reject on any failure of `transaction` or its `request`, so the returned
+ * promise always settles. Prefers `transaction.error`, which (unlike
+ * `request.error`) carries the reason when the transaction aborts, e.g. on
+ * quota exhaustion; `request.error` is null in that case.
+ */
+function rejectOnFailure(
+  transaction: IDBTransaction,
+  request: IDBRequest,
+  reject: (reason: unknown) => void
+): void {
+  const fail = () =>
+    reject(
+      transaction.error ??
+        request.error ??
+        new Error("IndexedDB transaction failed")
+    )
+  // A request error bubbles to the transaction, so `fail` may run more than
+  // once; that is harmless because `reject` is a no-op once the promise has
+  // settled.
+  request.onerror = fail
+  transaction.onerror = fail
+  transaction.onabort = fail
+}
+
 export class IndexedDBStorageAdapter implements StorageAdapterInterface {
   private dbPromise: Promise<IDBDatabase>
 
@@ -52,9 +77,7 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
     const request = objectStore.get(keyArray)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(request.error)
-      }
+      rejectOnFailure(transaction, request, reject)
 
       request.onsuccess = event => {
         const result = (event.target as IDBRequest).result
@@ -72,12 +95,10 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
 
     const transaction = db.transaction(this.store, "readwrite")
     const objectStore = transaction.objectStore(this.store)
-    objectStore.put({ key: keyArray, binary: binary }, keyArray)
+    const request = objectStore.put({ key: keyArray, binary: binary }, keyArray)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      rejectOnFailure(transaction, request, reject)
       transaction.oncomplete = () => {
         resolve()
       }
@@ -89,12 +110,10 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
 
     const transaction = db.transaction(this.store, "readwrite")
     const objectStore = transaction.objectStore(this.store)
-    objectStore.delete(keyArray)
+    const request = objectStore.delete(keyArray)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      rejectOnFailure(transaction, request, reject)
       transaction.oncomplete = () => {
         resolve()
       }
@@ -113,9 +132,7 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
     const result: { data: Uint8Array; key: StorageKey }[] = []
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(request.error)
-      }
+      rejectOnFailure(transaction, request, reject)
 
       request.onsuccess = event => {
         const cursor = (event.target as IDBRequest).result as IDBCursorWithValue
@@ -140,12 +157,10 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
 
     const transaction = db.transaction(this.store, "readwrite")
     const objectStore = transaction.objectStore(this.store)
-    objectStore.delete(range)
+    const request = objectStore.delete(range)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      rejectOnFailure(transaction, request, reject)
       transaction.oncomplete = () => {
         resolve()
       }
