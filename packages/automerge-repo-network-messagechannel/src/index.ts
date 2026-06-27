@@ -7,6 +7,7 @@
  */
 import {
   type RepoMessage,
+  makeLogger,
   NetworkAdapter,
   type PeerId,
   type Message,
@@ -16,8 +17,7 @@ import { MessagePortRef } from "./MessagePortRef.js"
 import { StrongMessagePortRef } from "./StrongMessagePortRef.js"
 import { WeakMessagePortRef } from "./WeakMessagePortRef.js"
 
-import debug from "debug"
-const log = debug("automerge-repo:messagechannel")
+const log = makeLogger("automerge-repo:messagechannel")
 
 export class MessageChannelNetworkAdapter extends NetworkAdapter {
   channels = {}
@@ -60,7 +60,7 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
   }
 
   connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
-    log("messageport connecting")
+    log.debug("messageport connecting")
     this.peerId = peerId
     this.peerMetadata = peerMetadata
 
@@ -68,13 +68,19 @@ export class MessageChannelNetworkAdapter extends NetworkAdapter {
     this.messagePortRef.addListener(
       "message",
       (e: { data: MessageChannelMessage }) => {
-        log("message port received %o", e.data)
+        log.debug("message port received %o", e.data)
 
         const message = e.data
         if ("targetId" in message && message.targetId !== this.peerId) {
-          throw new Error(
-            "MessagePortNetwork should never receive messages for a different peer."
+          // A throw inside this "message" listener escapes dispatch and can
+          // terminate the process under Node, so log and drop a message
+          // addressed to another peer.
+          log.warn(
+            "ignoring a message addressed to a different peer (targetId %o, ours %o)",
+            message.targetId,
+            this.peerId
           )
+          return
         }
 
         const { senderId, type } = message
