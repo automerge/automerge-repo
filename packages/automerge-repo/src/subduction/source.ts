@@ -22,7 +22,11 @@ import { ConnectionManager } from "./ConnectionManager.js"
 import type { StorageId } from "../storage/types.js"
 import type { UrlHeads } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
-import { DocBuildWorkerClient } from "./DocBuildWorkerClient.js"
+import {
+  DocBuildCancelledError,
+  DocBuildWorkerClient,
+} from "./DocBuildWorkerClient.js"
+import { subductionTimings } from "./timing.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
 import debug from "debug"
@@ -439,7 +443,13 @@ export class SubductionSource implements DocumentSource {
       // raw subduction CommitId hex would never compare equal to a doc's
       // own heads).
       const urlHeads = encodeHeads(heads.map(h => h.toHexString()))
-      this.#surfaceRemoteHeads(sedimentreeId, storageId, urlHeads, Date.now(), true)
+      this.#surfaceRemoteHeads(
+        sedimentreeId,
+        storageId,
+        urlHeads,
+        Date.now(),
+        true
+      )
     }
 
     // Construct without hydrating: skip preloading persisted sedimentrees
@@ -673,9 +683,22 @@ export class SubductionSource implements DocumentSource {
     entry.pendingInbound = []
 
     const merged = blobs.length === 1 ? blobs[0] : mergeArrays(blobs)
+    const flushStart = performance.now()
     try {
       entry.handle.update(d => Automerge.loadIncremental(d, merged))
     } catch (e) {
+      if (subductionTimings.enabled) {
+        subductionTimings.record({
+          ts: performance.now(),
+          phase: "flush-inbound",
+          outcome: "failed",
+          sid: entry.sedimentreeId.toString().slice(0, 8),
+          ms: performance.now() - flushStart,
+          bytes: merged.byteLength,
+          error: e instanceof Error ? e.message : String(e),
+          extra: { blobs: blobs.length },
+        })
+      }
       this.#log(
         `flushInbound ${entry.sedimentreeId.toString().slice(0, 8)}: ` +
           `loadIncremental failed for %d blob(s): %O`,
@@ -683,6 +706,17 @@ export class SubductionSource implements DocumentSource {
         e
       )
       return
+    }
+    if (subductionTimings.enabled) {
+      subductionTimings.record({
+        ts: performance.now(),
+        phase: "flush-inbound",
+        outcome: "ok",
+        sid: entry.sedimentreeId.toString().slice(0, 8),
+        ms: performance.now() - flushStart,
+        bytes: merged.byteLength,
+        extra: { blobs: blobs.length },
+      })
     }
 
     // Inbound data may absorb older loose commits or lower-level
@@ -1051,11 +1085,28 @@ export class SubductionSource implements DocumentSource {
       await entry.saveSettled
 
       this.#log(`doSync ${sid} (state=${entry.syncState})`)
-      const peerResultMap = await subduction.syncWithAllPeers(
-        sedimentreeId,
-        true,
-        timeoutMs !== undefined ? timeoutMs : this.#syncTimeout
-      )
+      const syncStart = performance.now()
+      let peerResultMap
+      try {
+        peerResultMap = await subduction.syncWithAllPeers(
+          sedimentreeId,
+          true,
+          timeoutMs !== undefined ? timeoutMs : this.#syncTimeout
+        )
+      } catch (e) {
+        if (subductionTimings.enabled) {
+          subductionTimings.record({
+            ts: performance.now(),
+            phase: "sync-round",
+            outcome: "failed",
+            sid,
+            ms: performance.now() - syncStart,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        }
+        throw e
+      }
+      const syncMs = performance.now() - syncStart
 
       const results = peerResultMap.entries()
       const anySuccess = results.some(r => r.success)
@@ -1068,6 +1119,32 @@ export class SubductionSource implements DocumentSource {
         const s = r.stats
         return s && (s.commitsReceived > 0 || s.fragmentsReceived > 0)
       })
+
+      if (subductionTimings.enabled) {
+        const commitsReceived = results.reduce(
+          (n, r) => n + (r.stats?.commitsReceived ?? 0),
+          0
+        )
+        const fragmentsReceived = results.reduce(
+          (n, r) => n + (r.stats?.fragmentsReceived ?? 0),
+          0
+        )
+        subductionTimings.record({
+          ts: performance.now(),
+          // All peers failing (with at least one peer) is a failed round;
+          // zero peers is a no-op, not a failure.
+          outcome: results.length > 0 && !anySuccess ? "failed" : "ok",
+          phase: "sync-round",
+          sid,
+          ms: syncMs,
+          extra: {
+            peers: results.length,
+            succeeded: results.filter(r => r.success).length,
+            commitsReceived,
+            fragmentsReceived,
+          },
+        })
+      }
 
       // If new data was received, immediately load it into the handle.
       // This makes sync reactive — the handle updates as soon as data
@@ -1146,10 +1223,22 @@ export class SubductionSource implements DocumentSource {
     const sid = entry.sedimentreeId.toString().slice(0, 8)
     const headCount = () => Automerge.getHeads(entry.handle.fullDoc()).length
 
+    const getBlobsStart = performance.now()
     const allBlobs = await subduction.getBlobs(entry.sedimentreeId)
     const totalBytes = allBlobs
       ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
       : 0
+    if (subductionTimings.enabled) {
+      subductionTimings.record({
+        ts: performance.now(),
+        phase: "get-blobs",
+        outcome: "ok",
+        sid,
+        ms: performance.now() - getBlobsStart,
+        bytes: totalBytes,
+        extra: { blobCount: allBlobs?.length ?? 0 },
+      })
+    }
     this.#log(
       `loadBlobsIntoHandle ${sid}: ${
         allBlobs?.length ?? 0
@@ -1160,6 +1249,7 @@ export class SubductionSource implements DocumentSource {
 
     let toApply = allBlobs
     if (this.#blobInterceptor) {
+      const transformStart = performance.now()
       // Transforming one blob may let the interceptor transform others
       // that failed on an earlier pass. Re-run over the still-pending
       // blobs until a pass makes no progress. Each pass strictly shrinks
@@ -1175,8 +1265,7 @@ export class SubductionSource implements DocumentSource {
             entry.query.documentId,
             "",
             blob,
-            (id: string) =>
-              this.#storage.loadBlobById(entry.sedimentreeId, id),
+            (id: string) => this.#storage.loadBlobById(entry.sedimentreeId, id)
           )
           if (result) {
             transformed.push(result)
@@ -1188,6 +1277,22 @@ export class SubductionSource implements DocumentSource {
       }
       entry.hasUntransformedBlobs = pending.length > 0
       toApply = transformed
+      if (subductionTimings.enabled) {
+        subductionTimings.record({
+          ts: performance.now(),
+          phase: "transform",
+          // `untransformed > 0` means some blobs couldn't be decrypted yet.
+          outcome: pending.length > 0 ? "failed" : "ok",
+          sid,
+          ms: performance.now() - transformStart,
+          error:
+            pending.length > 0 ? `${pending.length} untransformed` : undefined,
+          extra: {
+            transformed: transformed.length,
+            untransformed: pending.length,
+          },
+        })
+      }
     }
 
     // Apply all blobs in a single `loadIncremental`: one `handle.update()`,
@@ -1213,30 +1318,121 @@ export class SubductionSource implements DocumentSource {
    * worker is configured and the payload is large enough, the
    * `Automerge.loadIncremental` materialization runs in the worker (which
    * returns a compact snapshot the main thread loads cheaply), keeping the
-   * heavy build off the main thread. Falls back to inline on worker error.
+   * heavy build off the main thread. Falls back to inline on worker *failure*;
+   * a *cancellation* (pool disposed / shutting down) bails without applying.
+   *
+   * Records `apply-snapshot` / `apply-inline` and a `cold-load` umbrella into
+   * {@link subductionTimings} (the worker round-trip itself, incl. failed /
+   * cancelled outcomes, is recorded by {@link DocBuildWorkerClient}).
    */
   async #applyMerged(
     entry: SedimentreeEntry,
     merged: Uint8Array
   ): Promise<void> {
-    if (
-      this.#docBuildWorker &&
-      merged.byteLength >= DOC_BUILD_OFFLOAD_THRESHOLD
-    ) {
+    const sid = entry.sedimentreeId.toString().slice(0, 8)
+    const bytes = merged.byteLength
+    const start = performance.now()
+
+    if (this.#docBuildWorker && bytes >= DOC_BUILD_OFFLOAD_THRESHOLD) {
       try {
         const snapshot = await this.#docBuildWorker.build(merged)
+        const built = performance.now()
         entry.handle.update(d => Automerge.loadIncremental(d, snapshot))
+        const applied = performance.now()
+        if (subductionTimings.enabled) {
+          subductionTimings.record({
+            ts: applied,
+            phase: "apply-snapshot",
+            outcome: "ok",
+            sid,
+            ms: applied - built,
+            bytes: snapshot.byteLength,
+          })
+          subductionTimings.record({
+            ts: applied,
+            phase: "cold-load",
+            outcome: "ok",
+            sid,
+            ms: applied - start,
+            bytes,
+            extra: {
+              offloaded: 1,
+              rttMs: built - start,
+              applyMs: applied - built,
+            },
+          })
+        }
         return
       } catch (e) {
+        const cancelled = e instanceof DocBuildCancelledError
+        if (subductionTimings.enabled && cancelled) {
+          subductionTimings.record({
+            ts: performance.now(),
+            phase: "cold-load",
+            outcome: "cancelled",
+            sid,
+            ms: performance.now() - start,
+            bytes,
+            error: e instanceof Error ? e.message : String(e),
+            extra: { offloaded: 1 },
+          })
+        }
+        // A cancellation means the pool/repo is being torn down — don't
+        // resurrect the build on the main thread; just bail.
+        if (cancelled) return
         this.#log(
-          `docBuild worker failed for ${entry.sedimentreeId
-            .toString()
-            .slice(0, 8)}, applying on main thread: %O`,
+          `docBuild worker failed for ${sid}, applying on main thread: %O`,
           e
         )
+        // fall through to the inline path (and record it as a fallback)
+        const inlineStart = performance.now()
+        entry.handle.update(d => Automerge.loadIncremental(d, merged))
+        const inlineDone = performance.now()
+        if (subductionTimings.enabled) {
+          subductionTimings.record({
+            ts: inlineDone,
+            phase: "apply-inline",
+            outcome: "ok",
+            sid,
+            ms: inlineDone - inlineStart,
+            bytes,
+          })
+          subductionTimings.record({
+            ts: inlineDone,
+            phase: "cold-load",
+            outcome: "ok",
+            sid,
+            ms: inlineDone - start,
+            bytes,
+            extra: { offloaded: 1, fellBackToInline: 1 },
+          })
+        }
+        return
       }
     }
+
+    const inlineStart = performance.now()
     entry.handle.update(d => Automerge.loadIncremental(d, merged))
+    const inlineDone = performance.now()
+    if (subductionTimings.enabled) {
+      subductionTimings.record({
+        ts: inlineDone,
+        phase: "apply-inline",
+        outcome: "ok",
+        sid,
+        ms: inlineDone - inlineStart,
+        bytes,
+      })
+      subductionTimings.record({
+        ts: inlineDone,
+        phase: "cold-load",
+        outcome: "ok",
+        sid,
+        ms: inlineDone - start,
+        bytes,
+        extra: { offloaded: 0 },
+      })
+    }
   }
 
   async #loadBlobsAndTransition(entry: SedimentreeEntry) {
@@ -1633,6 +1829,10 @@ export class SubductionSource implements DocumentSource {
     // and skip the `#handleDataFound` apply path.
     for (const hash of acceptedHashes) entry.knownHashes.add(hash)
 
+    const saveStart = performance.now()
+    const saveBytes =
+      commitInputs.reduce((n, c) => n + c.blob.byteLength, 0) +
+      fragmentInputs.reduce((n, f) => n + f.blob.byteLength, 0)
     try {
       // Store-only (no broadcast). `addBatch` would also run a
       // `syncWithAllPeers` round-trip, which is both redundant — the
@@ -1645,6 +1845,21 @@ export class SubductionSource implements DocumentSource {
         fragmentInputs
       )
     } catch (e) {
+      if (subductionTimings.enabled) {
+        subductionTimings.record({
+          ts: performance.now(),
+          phase: "save",
+          outcome: "failed",
+          sid: entry.sedimentreeId.toString().slice(0, 8),
+          ms: performance.now() - saveStart,
+          bytes: saveBytes,
+          error: e instanceof Error ? e.message : String(e),
+          extra: {
+            commits: commitInputs.length,
+            fragments: fragmentInputs.length,
+          },
+        })
+      }
       // On failure, roll the set entries back so the next save can
       // retry. `#save` separately keeps `entry.lastSavedHeads` at its
       // previous value when this rejects.
@@ -1657,6 +1872,20 @@ export class SubductionSource implements DocumentSource {
         e
       )
       throw e
+    }
+    if (subductionTimings.enabled) {
+      subductionTimings.record({
+        ts: performance.now(),
+        phase: "save",
+        outcome: "ok",
+        sid: entry.sedimentreeId.toString().slice(0, 8),
+        ms: performance.now() - saveStart,
+        bytes: saveBytes,
+        extra: {
+          commits: commitInputs.length,
+          fragments: fragmentInputs.length,
+        },
+      })
     }
 
     this.#scheduleCompaction(entry)

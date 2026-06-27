@@ -11,7 +11,20 @@ export interface DocBuildRequest {
   merged: Uint8Array
 }
 
+/** Timing the worker reports back so the client can record it (see `timing.ts`). */
+export interface DocBuildTiming {
+  /** `loadIncremental(init(), merged)` — the heavy replay. */
+  buildMs: number
+  /** `save()` — serialising the compact snapshot. */
+  saveMs: number
+  mergedBytes: number
+  snapshotBytes: number
+}
+
 export type DocBuildResponse = {
   channel: typeof DOC_BUILD_RPC
   id: number
-} & ({ ok: true; snapshot: Uint8Array } | { ok: false; error: string })
+} & (
+  | { ok: true; snapshot: Uint8Array; timing: DocBuildTiming }
+  | { ok: false; error: string; mergedBytes?: number; failedAfterMs?: number }
+)

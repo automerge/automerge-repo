@@ -30,13 +30,35 @@ self.onmessage = async (e: MessageEvent) => {
       { channel: DOC_BUILD_RPC, id: msg.id, ...body },
       transfer
     )
+  const mergedBytes = msg.merged?.byteLength ?? 0
+  const started = performance.now()
   try {
     await ensureReady()
+    const t0 = performance.now()
     const doc = A.loadIncremental(A.init(), msg.merged)
+    const t1 = performance.now()
     const snapshot = A.save(doc)
-    post({ ok: true, snapshot }, [snapshot.buffer])
+    const t2 = performance.now()
+    post(
+      {
+        ok: true,
+        snapshot,
+        timing: {
+          buildMs: t1 - t0,
+          saveMs: t2 - t1,
+          mergedBytes,
+          snapshotBytes: snapshot.byteLength,
+        },
+      },
+      [snapshot.buffer]
+    )
   } catch (err) {
-    post({ ok: false, error: err instanceof Error ? err.message : String(err) })
+    post({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      mergedBytes,
+      failedAfterMs: performance.now() - started,
+    })
   }
 }
 

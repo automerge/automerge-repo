@@ -49,6 +49,7 @@ import {
   INTERCEPTOR_PREFIX,
 } from "./subduction/storage.js"
 import { DocBuildWorkerClient } from "./subduction/DocBuildWorkerClient.js"
+import { subductionTimings } from "./subduction/timing.js"
 import { DummyStorageAdapter } from "./helpers/DummyStorageAdapter.js"
 import {
   SubductionSource,
@@ -199,11 +200,17 @@ export class Repo extends EventEmitter<RepoEvents> {
     } else {
       subductionStorage = new SubductionStorageBridge(new DummyStorageAdapter())
     }
-    // Optionally offload cold-load doc materialization to a Worker (keeps the
-    // heavy `Automerge.loadIncremental` off the main thread). No-op where
-    // `Worker` is unavailable (e.g. Node).
+    // Optionally offload cold-load doc materialization to a pool of Workers
+    // (keeps the heavy `Automerge.loadIncremental` off the main thread; the
+    // pool also builds several concurrently-loading docs in parallel). No-op
+    // where `Worker` is unavailable (e.g. Node). `true` uses the default pool
+    // size; a number sets it explicitly.
     if (subductionOffloadDocBuild && typeof Worker !== "undefined") {
-      this.#docBuildWorker = new DocBuildWorkerClient()
+      const poolSize =
+        typeof subductionOffloadDocBuild === "number"
+          ? subductionOffloadDocBuild
+          : undefined
+      this.#docBuildWorker = new DocBuildWorkerClient({ poolSize })
     }
     const subductionSource = new SubductionSource({
       peerId,
@@ -725,7 +732,31 @@ export class Repo extends EventEmitter<RepoEvents> {
     // `findWithProgress` already applies any path suffix (`/a/@0/b`) and
     // fixed heads (`#h1|h2`) from the URL, so the ready handle is correctly
     // scoped and/or view-pinned.
-    return this.findWithProgress<T>(id).whenReady({ signal })
+    const start = performance.now()
+    try {
+      const handle = await this.findWithProgress<T>(id).whenReady({ signal })
+      if (subductionTimings.enabled) {
+        subductionTimings.record({
+          ts: performance.now(),
+          phase: "find",
+          outcome: "ok",
+          sid: handle.documentId.slice(0, 8),
+          ms: performance.now() - start,
+        })
+      }
+      return handle
+    } catch (e) {
+      if (subductionTimings.enabled) {
+        subductionTimings.record({
+          ts: performance.now(),
+          phase: "find",
+          outcome: e instanceof AbortError ? "cancelled" : "failed",
+          ms: performance.now() - start,
+          error: e instanceof Error ? e.message : String(e),
+        })
+      }
+      throw e
+    }
   }
 
   /**
@@ -1053,14 +1084,19 @@ export interface RepoConfig {
 
   /**
    * Offload cold-load Automerge doc materialization (`loadIncremental` of a
-   * sedimentree's merged blobs) to a Worker, which returns a compact snapshot
-   * the main thread loads cheaply. Cuts main-thread blocking ~1.5–2.8× on a
-   * large cold load (all engines). No effect where `Worker` is unavailable
-   * (e.g. Node); live inbound updates always stay on the main thread.
+   * sedimentree's merged blobs) to a pool of Workers, each returning a compact
+   * snapshot the main thread loads cheaply. Cuts main-thread blocking ~1.5–2.8×
+   * on a large cold load (all engines); the pool additionally builds several
+   * concurrently-loading docs in parallel and avoids one slow doc blocking the
+   * rest. No effect where `Worker` is unavailable (e.g. Node); live inbound
+   * updates always stay on the main thread.
+   *
+   * `true` uses the default pool size (3); a number sets the pool size
+   * explicitly. Independent of the IndexedDB storage worker.
    *
    * @defaultValue false
    */
-  subductionOffloadDocBuild?: boolean
+  subductionOffloadDocBuild?: boolean | number
 }
 
 /** A function that determines whether we should share a document with a peer

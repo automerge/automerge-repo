@@ -114,6 +114,17 @@ export type {
   BlobInterceptor,
 } from "./subduction/source.js"
 
+// Opt-in timing instrumentation for the cold-load + doc-build pipeline.
+export { subductionTimings, TimingCollector } from "./subduction/timing.js"
+export type {
+  TimingRecord,
+  TimingPhase,
+  TimingOutcome,
+  PhaseStats,
+  PhaseWindow,
+  Timeline,
+} from "./subduction/timing.js"
+
 export type {
   FindProgress,
   FindProgressWithMethods,
