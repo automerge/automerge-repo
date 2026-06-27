@@ -109,6 +109,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     denylist = [],
     saveDebounceRate = 100,
     flushConcurrency = DEFAULT_FLUSH_CONCURRENCY,
+    syncStateLoadConcurrency,
     idFactory,
   }: RepoConfig = {}) {
     super()
@@ -194,6 +195,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           .then(noop, err =>
             this.#log.error("network adapters failed to become ready", err)
           ),
+        syncStateLoadConcurrency,
       },
       denylist
     )
@@ -837,6 +839,19 @@ export interface RepoConfig {
    *   headroom for other callers.
    */
   flushConcurrency?: number
+
+  /**
+   * Maximum number of persisted sync-state reads the synchronizer issues
+   * concurrently while adding peers to documents (one read per peer-document
+   * pair). Defaults to 20.
+   *
+   * @remarks
+   * Like {@link RepoConfig.flushConcurrency}, tie this to your
+   * {@link StorageAdapterInterface}: stay under a filesystem adapter's
+   * file-descriptor ceiling, near a browser's per-origin connection cap for an
+   * HTTP/1.1-backed adapter, or at or below a database adapter's pool size.
+   */
+  syncStateLoadConcurrency?: number
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation

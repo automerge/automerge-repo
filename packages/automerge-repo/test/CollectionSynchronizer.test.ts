@@ -6,6 +6,7 @@ import { Repo } from "../src/Repo.js"
 import {
   CollectionSynchronizer,
   AutomergeSyncConfig,
+  DEFAULT_SYNC_STATE_LOAD_CONCURRENCY,
 } from "../src/synchronizer/CollectionSynchronizer.js"
 import { PeerId } from "../src/types.js"
 import { SyncMessage } from "../src/network/messages.js"
@@ -258,5 +259,41 @@ describe("CollectionSynchronizer", () => {
         )
       }
     })
+  })
+
+  it("bounds concurrent loadSyncState reads when a peer is added", async () => {
+    // Each loadSyncState call parks on a deferred we control, so concurrency is
+    // observed deterministically rather than via a timed sleep. `peak` records
+    // the most that ran at once.
+    let active = 0
+    let peak = 0
+    const release: Array<() => void> = []
+    const loadSyncState = () =>
+      new Promise<undefined>(resolve => {
+        active++
+        peak = Math.max(peak, active)
+        release.push(() => {
+          active--
+          resolve(undefined)
+        })
+      })
+
+    const sync = new CollectionSynchronizer(createConfig({ loadSyncState }))
+    const docCount = DEFAULT_SYNC_STATE_LOAD_CONCURRENCY + 5
+    for (let i = 0; i < docCount; i++) sync.attach(createReadyQuery())
+
+    // Adding a peer loads sync state once per document. The shared limiter
+    // admits its first batch synchronously, so the cap is observable
+    // immediately: at most DEFAULT_SYNC_STATE_LOAD_CONCURRENCY in flight, the
+    // rest queued.
+    sync.addPeer(alice)
+    assert.equal(active, DEFAULT_SYNC_STATE_LOAD_CONCURRENCY)
+
+    // Release each batch and let the queued reads start, until fully drained.
+    for (let i = 0; i <= docCount && release.length > 0; i++) {
+      release.splice(0).forEach(r => r())
+      await new Promise(resolve => setTimeout(resolve, 0)) // macrotask flush
+    }
+    assert.equal(peak, DEFAULT_SYNC_STATE_LOAD_CONCURRENCY)
   })
 })
