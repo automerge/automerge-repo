@@ -50,6 +50,8 @@ export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
  * - Previous calls complete before new ones start (so there is no race with previous calls)
  * - There's always a minimum delay between executions
  * - The latest call always runs (canceling previous pending calls)
+ * - Superseded calls still settle — every coalesced caller resolves (or rejects)
+ *   with the winning run's result rather than being left with an orphaned promise
  * - Each call waits for the previous execution to complete
  *
  * This creates a batching behavior that prevents flooding while ensuring
@@ -90,6 +92,11 @@ export const asyncThrottle = <TArgs extends unknown[], TReturn>(
   let lastCall = Date.now()
   let timeout: ReturnType<typeof setTimeout> | undefined
   let currentPromise: Promise<TReturn> | undefined
+  // A deferred shared by every call coalesced into the next run. Sharing it is
+  // what keeps a superseded call from being orphaned: when a later call clears
+  // the pending timeout below, the earlier call still settles with the run's
+  // result (or error) instead of hanging forever.
+  let pending: PromiseWithResolvers<TReturn> | undefined
 
   return async function (...args: TArgs): Promise<TReturn> {
     // Wait for any previous call to settle, so that there is not a race with
@@ -102,6 +109,11 @@ export const asyncThrottle = <TArgs extends unknown[], TReturn>(
       }
     }
 
+    // Join (or open) the batch waiting on the next run. Every caller shares this
+    // deferred; the run itself uses the latest call's args, captured below.
+    pending ??= Promise.withResolvers<TReturn>()
+    const deferred = pending
+
     // Clear any pending timeout
     if (timeout) {
       clearTimeout(timeout)
@@ -110,19 +122,20 @@ export const asyncThrottle = <TArgs extends unknown[], TReturn>(
     // Clamp to 0: passing a negative delay to setTimeout warns on some runtimes.
     const wait = Math.max(0, lastCall + delay - Date.now()) //if negative, executes immediately
 
-    return new Promise<TReturn>((resolve, reject) => {
-      timeout = setTimeout(async () => {
-        try {
-          currentPromise = fn(...args)
-          resolve(await currentPromise)
-        } catch (error) {
-          reject(error)
-        } finally {
-          lastCall = Date.now()
-          currentPromise = undefined
-          timeout = undefined
-        }
-      }, wait)
-    })
+    timeout = setTimeout(async () => {
+      pending = undefined
+      timeout = undefined
+      try {
+        currentPromise = fn(...args)
+        deferred.resolve(await currentPromise)
+      } catch (error) {
+        deferred.reject(error)
+      } finally {
+        lastCall = Date.now()
+        currentPromise = undefined
+      }
+    }, wait)
+
+    return deferred.promise
   }
 }
