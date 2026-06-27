@@ -8,7 +8,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
 
 import { describe, expect, it, vi } from "vitest"
-import { useDocHandle } from "../src/useDocHandle"
+import { useDocHandle, wrapperCache } from "../src/useDocHandle"
 import { ErrorBoundary } from "react-error-boundary"
 import { setup, setupPairedRepos } from "./testSetup"
 import { pause } from "../src/helpers/DummyNetworkAdapter"
@@ -249,6 +249,35 @@ describe("useDocHandle", () => {
       // Should continue to return undefined after attempted load
       await waitFor(() => {
         expect(onHandle).toHaveBeenLastCalledWith(undefined)
+      })
+    })
+
+    it("evicts a rejected wrapper so a later attempt can retry", async () => {
+      const { wrapper } = await setup()
+      const url = generateAutomergeUrl() // unavailable document
+      const onHandle = vi.fn()
+
+      const NonSuspenseComponent = ({
+        url,
+        onHandle,
+      }: {
+        url: AutomergeUrl
+        onHandle: (handle: DocHandle<unknown> | undefined) => void
+      }) => {
+        const handle = useDocHandle(url, { suspense: false })
+        onHandle(handle)
+        return null
+      }
+
+      render(<NonSuspenseComponent url={url} onHandle={onHandle} />, {
+        wrapper,
+      })
+
+      // Once the unavailable find rejects, the cached wrapper is dropped, so a
+      // later render re-fetches instead of replaying the stored rejection.
+      await waitFor(() => {
+        expect(onHandle).toHaveBeenLastCalledWith(undefined)
+        expect(wrapperCache.has(url)).toBe(false)
       })
     })
 
