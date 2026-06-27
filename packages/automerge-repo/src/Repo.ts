@@ -698,8 +698,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    *   `flush()` settles, even if some fail; this is what makes `flush()` safe to
    *   `await` before teardown in {@link Repo.shutdown} (nothing is still writing
    *   when the caller proceeds). Failures are collected and rethrown as an
-   *   `AggregateError`. This differs from a fail-fast `Promise.all`, which would
-   *   reject on the first failure while other saves were still in flight.
+   *   `AggregateError`.
    */
   async flush(documents?: DocumentId[]): Promise<void> {
     if (!this.storageSubsystem) {
@@ -822,7 +821,7 @@ export interface RepoConfig {
    *
    * @remarks
    * Tie this to the constraining resource of your
-   * {@link StorageAdapterInterface}, not a round number:
+   * {@link StorageAdapterInterface}:
    * - **filesystem** (e.g. the nodefs adapter): stay well under the process's
    *   file-descriptor ceiling; the default 20 is comfortable.
    * - **HTTP/1.1-backed**: a browser caps connections per origin at ~6, so a

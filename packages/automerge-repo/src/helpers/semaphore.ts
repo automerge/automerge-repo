@@ -5,11 +5,7 @@
  * free up.
  *
  * @remarks
- * This is the fix for the most common async pitfall: `Promise.all(items.map(fn))`
- * launches *every* task at once (promises are eager), overwhelming a bounded
- * resource such as a connection pool, an HTTP host's connection cap, a
- * file-descriptor limit, an API rate limit, or just memory. Gate each call so
- * at most `concurrency` run concurrently:
+ * Gate each call so at most `concurrency` run concurrently:
  *
  * ```typescript
  * const limit = semaphore(10)
@@ -22,7 +18,7 @@
  * the queue. Note this is the "run a function under the gate" shape
  * (`limit(() => fn())`), not a classic `acquire()` / `release()` semaphore.
  *
- * **Choosing `concurrency`**: tie it to the constraining resource, not a vibe.
+ * **Choosing `concurrency`**: tie it to the constraining resource.
  * - filesystem: stay well under the process's file-descriptor ceiling
  * - HTTP/1.1-backed: a browser allows ~6 connections per origin
  * - HTTP/2-backed: ~100 multiplexed streams per connection
