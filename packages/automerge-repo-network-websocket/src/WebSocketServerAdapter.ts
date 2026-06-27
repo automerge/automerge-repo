@@ -115,8 +115,6 @@ export class WebSocketServerAdapter extends NetworkAdapter {
     })
   }
 
-  /** Clear the keepalive interval and detach the listeners we registered on
-   * the shared WebSocketServer in connect(). Idempotent. */
   #teardownServerWiring() {
     if (this.#keepAliveId !== undefined) {
       clearInterval(this.#keepAliveId)

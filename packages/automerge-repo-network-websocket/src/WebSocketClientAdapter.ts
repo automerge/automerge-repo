@@ -45,13 +45,8 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   #retryIntervalId?: TimeoutId
-  // The one-shot reconnect timer armed in onClose() and the forceReady fallback
-  // timer armed in connect(), held on the instance so disconnect() can cancel
-  // them.
   #reconnectTimeoutId?: TimeoutId
   #forceReadyTimeoutId?: TimeoutId
-  // Set by disconnect(); guards the reconnect timer so a pending reconnect that
-  // fires after disconnect() does not revive the socket.
   #disconnected = false
   #log = debug("automerge-repo:websocket:browser")
 
@@ -151,9 +146,6 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   disconnect() {
-    // disconnect() can be called more than once (e.g. React StrictMode double-
-    // invokes the effect cleanup that runs repo.shutdown()); make it idempotent
-    // rather than tripping the assert below on the second call.
     if (this.#disconnected) return
     assert(this.peerId)
     assert(this.socket)
@@ -166,9 +158,6 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
       socket.removeEventListener("error", this.onError)
       socket.close()
     }
-    // Cancel every pending timer and clear its id, so a later connect() can
-    // re-arm the retry interval (the connect() guard re-arms only when the id
-    // is unset).
     clearInterval(this.#retryIntervalId)
     this.#retryIntervalId = undefined
     clearTimeout(this.#reconnectTimeoutId)
