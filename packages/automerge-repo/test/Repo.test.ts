@@ -68,6 +68,30 @@ describe("Repo", () => {
       assert(repo.storageSubsystem)
     })
 
+    it("logs and does not leak when a network adapter fails to become ready", async () => {
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        const networkAdapter = new DummyNetworkAdapter({ startReady: false })
+        networkAdapter.whenReady = () =>
+          Promise.reject(new Error("adapter boom"))
+        // No documents are open, so nothing attaches to networkReady; a
+        // rejection there must be handled at the source, not left to float.
+        const _repo = new Repo({ network: [networkAdapter] })
+        await vi.waitFor(() =>
+          assert.ok(
+            errSpy.mock.calls.some(call =>
+              call.some(arg =>
+                String(arg).includes("network adapters failed to become ready")
+              )
+            ),
+            "the adapter failure should be caught and logged"
+          )
+        )
+      } finally {
+        errSpy.mockRestore()
+      }
+    })
+
     it("can create a document", () => {
       const { repo } = setup()
       const handle = repo.create()
