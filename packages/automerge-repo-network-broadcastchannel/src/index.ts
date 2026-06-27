@@ -15,11 +15,14 @@
  */
 
 import {
+  makeLogger,
   NetworkAdapter,
   type Message,
   type PeerId,
   type PeerMetadata,
 } from "@automerge/automerge-repo/slim"
+
+const log = makeLogger("automerge-repo:broadcastchannel")
 
 export type BroadcastChannelNetworkAdapterOptions = {
   /** BroadcastChannel name to use */
@@ -30,6 +33,9 @@ export type BroadcastChannelNetworkAdapterOptions = {
 
 export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   #broadcastChannel: BroadcastChannel
+  // Held on the instance so disconnect() can remove it and connect() can avoid
+  // stacking duplicates.
+  #messageListener?: (e: { data: BroadcastChannelMessage }) => void
   #disconnected = false
   #ready = false
   // reassigned in constructor, but keeps TS from complaining
@@ -68,66 +74,78 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
     this.peerId = peerId
     this.peerMetadata = peerMetadata
+
+    // disconnect() closes the channel, so reopen one when reconnecting after a
+    // disconnect; otherwise detach the current listener before re-adding so we
+    // never stack duplicates.
+    if (this.#disconnected) {
+      this.#broadcastChannel = new BroadcastChannel(this.#options.channelName)
+    } else if (this.#messageListener) {
+      this.#broadcastChannel.removeEventListener(
+        "message",
+        this.#messageListener
+      )
+    }
     this.#disconnected = false
 
-    this.#broadcastChannel.addEventListener(
-      "message",
-      (e: { data: BroadcastChannelMessage }) => {
-        const message = e.data
-        if ("targetId" in message && message.targetId !== this.peerId) {
-          return
-        }
-
-        if (this.#disconnected) {
-          return
-        }
-
-        const { senderId, type } = message
-
-        switch (type) {
-          case "arrive":
-            {
-              const { peerMetadata } = message as ArriveMessage
-              this.#broadcastChannel.postMessage({
-                senderId: this.peerId,
-                targetId: senderId,
-                type: "welcome",
-                peerMetadata: this.peerMetadata,
-              })
-              this.#announceConnection(senderId, peerMetadata)
-            }
-            break
-          case "welcome":
-            {
-              const { peerMetadata } = message as WelcomeMessage
-              this.#announceConnection(senderId, peerMetadata)
-            }
-            break
-          case "leave":
-            this.#connectedPeers = this.#connectedPeers.filter(
-              p => p !== senderId
-            )
-            this.emit("peer-disconnected", { peerId: senderId })
-            break
-          default:
-            if (!("data" in message)) {
-              this.emit("message", message)
-            } else {
-              if (!message.data) {
-                throw new Error(
-                  "We got a message without data, we can't send this."
-                )
-              }
-              const data = message.data
-              this.emit("message", {
-                ...message,
-                data: new Uint8Array(data),
-              })
-            }
-            break
-        }
+    this.#messageListener = (e: { data: BroadcastChannelMessage }) => {
+      const message = e.data
+      if ("targetId" in message && message.targetId !== this.peerId) {
+        return
       }
-    )
+
+      if (this.#disconnected) {
+        return
+      }
+
+      const { senderId, type } = message
+
+      switch (type) {
+        case "arrive":
+          {
+            const { peerMetadata } = message as ArriveMessage
+            this.#broadcastChannel.postMessage({
+              senderId: this.peerId,
+              targetId: senderId,
+              type: "welcome",
+              peerMetadata: this.peerMetadata,
+            })
+            this.#announceConnection(senderId, peerMetadata)
+          }
+          break
+        case "welcome":
+          {
+            const { peerMetadata } = message as WelcomeMessage
+            this.#announceConnection(senderId, peerMetadata)
+          }
+          break
+        case "leave":
+          this.#connectedPeers = this.#connectedPeers.filter(
+            p => p !== senderId
+          )
+          this.emit("peer-disconnected", { peerId: senderId })
+          break
+        default:
+          if (!("data" in message)) {
+            this.emit("message", message)
+          } else {
+            if (!message.data) {
+              // A throw inside this "message" listener escapes dispatch and can
+              // crash the process under Node, so log and drop the malformed
+              // message.
+              log.warn("dropping a data message with no data from %o", senderId)
+              return
+            }
+            const data = message.data
+            this.emit("message", {
+              ...message,
+              data: new Uint8Array(data),
+            })
+          }
+          break
+      }
+    }
+    this.#broadcastChannel.addEventListener("message", this.#messageListener)
 
     this.#broadcastChannel.postMessage({
       senderId: this.peerId,
@@ -162,6 +180,11 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
   }
 
   disconnect() {
+    // Idempotent: a second disconnect() must not post on / close the channel
+    // again (closing it makes a further postMessage throw).
+    if (this.#disconnected) {
+      return
+    }
     this.#broadcastChannel.postMessage({
       senderId: this.peerId,
       type: "leave",
@@ -170,6 +193,17 @@ export class BroadcastChannelNetworkAdapter extends NetworkAdapter {
       this.emit("peer-disconnected", { peerId })
     }
     this.#disconnected = true
+
+    // Detach the listener and close the channel so nothing is retained after
+    // disconnect; connect() reopens a fresh channel.
+    if (this.#messageListener) {
+      this.#broadcastChannel.removeEventListener(
+        "message",
+        this.#messageListener
+      )
+      this.#messageListener = undefined
+    }
+    this.#broadcastChannel.close()
   }
 }
 

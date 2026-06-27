@@ -1,5 +1,5 @@
 import { PeerId } from "@automerge/automerge-repo"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   runNetworkAdapterTests,
   type SetupFn,
@@ -63,5 +63,35 @@ describe("BroadcastChannel", () => {
     })
     await pause(10)
     expect(a.isReady()).toBe(true)
+  })
+
+  it("removes its listener and closes its channel on disconnect, and is idempotent", () => {
+    const channelName = `broadcast-${Math.random().toString(36).slice(2)}`
+    // Spy on the prototype and assert on deltas so other adapters in the
+    // process don't perturb the counts.
+    const removeSpy = vi.spyOn(
+      BroadcastChannel.prototype,
+      "removeEventListener"
+    )
+    const closeSpy = vi.spyOn(BroadcastChannel.prototype, "close")
+    try {
+      const a = new BroadcastChannelNetworkAdapter({ channelName })
+      a.connect("a-peer" as PeerId)
+
+      const removesBefore = removeSpy.mock.calls.length
+      const closesBefore = closeSpy.mock.calls.length
+
+      a.disconnect()
+      expect(removeSpy.mock.calls.length).toBe(removesBefore + 1)
+      expect(closeSpy.mock.calls.length).toBe(closesBefore + 1)
+
+      // A second disconnect is a no-op: it must not throw or touch the channel
+      // again (the channel is already closed).
+      expect(() => a.disconnect()).not.toThrow()
+      expect(closeSpy.mock.calls.length).toBe(closesBefore + 1)
+    } finally {
+      removeSpy.mockRestore()
+      closeSpy.mockRestore()
+    }
   })
 })
