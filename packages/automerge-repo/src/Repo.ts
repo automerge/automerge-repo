@@ -110,6 +110,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     saveDebounceRate = 100,
     flushConcurrency = DEFAULT_FLUSH_CONCURRENCY,
     syncStateLoadConcurrency,
+    sharePolicyConcurrency,
     idFactory,
   }: RepoConfig = {}) {
     super()
@@ -196,6 +197,7 @@ export class Repo extends EventEmitter<RepoEvents> {
             this.#log.error("network adapters failed to become ready", err)
           ),
         syncStateLoadConcurrency,
+        sharePolicyConcurrency,
       },
       denylist
     )
@@ -852,6 +854,18 @@ export interface RepoConfig {
    * HTTP/1.1-backed adapter, or at or below a database adapter's pool size.
    */
   syncStateLoadConcurrency?: number
+
+  /**
+   * Maximum number of share-policy resolutions the synchronizer runs
+   * concurrently when re-evaluating which peers each document is shared with.
+   * Defaults to the synchronizer's `SHARE_POLICY_CONCURRENCY` (10).
+   *
+   * @remarks
+   * Each resolution may invoke an async {@link SharePolicy}. On a sync server
+   * with many peers and many documents, an unbounded fan-out launches one policy
+   * call per peer-document pair at once; this caps how many run together.
+   */
+  sharePolicyConcurrency?: number
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation
