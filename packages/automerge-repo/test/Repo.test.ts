@@ -38,7 +38,7 @@ import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
 import { DocumentProgress } from "../src/DocumentQuery.js"
-import { AbortError } from "../src/helpers/abortable.js"
+import { isAbortErrorLike } from "../src/helpers/abortable.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -2534,7 +2534,7 @@ describe("Repo.find() abort behavior", () => {
 
     await expect(
       repo.find(generateAutomergeUrl(), { signal: controller.signal })
-    ).rejects.toThrow(AbortError)
+    ).rejects.toSatisfy(isAbortErrorLike)
   })
 
   it("can abort while waiting for ready state", async () => {
@@ -2548,14 +2548,19 @@ describe("Repo.find() abort behavior", () => {
     const findPromise = repo.find(url, { signal: controller.signal })
     controller.abort()
 
-    // Official specification just says to check `reason.name === "AbortError"`
-    // Using AbortError promotes correctness across different JS environments and provides a simpler check.
-    await expect(findPromise).rejects.toThrow(AbortError)
-    await expect(findPromise).rejects.rejects.toHaveProperty(
-      "name",
-      "AbortError"
-    )
-    await expect(findPromise).rejects.not.toThrow("unavailable")
+    await expect(findPromise).rejects.toSatisfy(isAbortErrorLike)
+  })
+
+  it("rejects with the provided abort reason", async () => {
+    const repo = new Repo()
+    const url = generateAutomergeUrl()
+    const controller = new AbortController()
+    const reason = new Error("caller cancelled")
+
+    const findPromise = repo.find(url, { signal: controller.signal })
+    controller.abort(reason)
+
+    await expect(findPromise).rejects.toBe(reason)
   })
 
   describe("creating a document with a custom ID factory", () => {

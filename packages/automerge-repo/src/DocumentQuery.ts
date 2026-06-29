@@ -3,7 +3,6 @@ import { DocHandle } from "./DocHandle.js"
 import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
-import { AbortError } from "./helpers/abortable.js"
 import { type FindProgress, queryStateToFindProgress } from "./_compat.js"
 
 /**
@@ -55,6 +54,11 @@ export interface DocumentProgress<T> {
   /**
    * Returns a promise that resolves with the DocHandle when the query reaches
    * the `ready` state. Rejects if the query fails or the signal is aborted.
+   *
+   * @remarks
+   * `options.signal` cancels only the await, not the underlying sources
+   * (storage load, sync), which may be serving other concurrent callers. An
+   * aborted wait rejects with `signal.reason`.
    */
   whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T>>
 
@@ -164,7 +168,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
 
   async whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T>> {
     const signal = options?.signal
-    if (signal?.aborted) throw new AbortError()
+    signal?.throwIfAborted()
 
     // Already ready — return immediately
     if (this.#state.state === "ready") return this.#state.handle
@@ -180,7 +184,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
     return new Promise<DocHandle<T>>((resolve, reject) => {
       const onAbort = () => {
         cleanup()
-        reject(new AbortError())
+        reject(signal!.reason)
       }
 
       const unsubscribe = this.subscribe(state => {
@@ -432,7 +436,7 @@ export function progressAtHeads<T>(
       return new Promise<DocHandle<T>>((resolve, reject) => {
         const onAbort = () => {
           cleanup()
-          reject(new AbortError())
+          reject(opts!.signal!.reason)
         }
         const onChange = () => {
           if (Automerge.hasHeads(upstream.fullDoc(), decoded)) {
