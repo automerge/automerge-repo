@@ -36,7 +36,7 @@ import type {
   DocumentId,
   PeerId,
 } from "./types.js"
-import { AbortOptions, AbortError } from "./helpers/abortable.js"
+import { AbortOptions } from "./helpers/abortable.js"
 export type { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
 import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
@@ -540,6 +540,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /**
    * Look up a document by URL and wait for it to be ready.
+   *
+   * @remarks
+   * `options.signal` cancels the wait, not the load: the underlying
+   * {@link DocumentQuery} and its sources keep running (they may be serving
+   * other concurrent callers), so use {@link Repo.removeFromCache} to stop the
+   * load. An aborted wait rejects with `signal.reason`.
    */
   async find<T>(
     id: AnyDocumentId,
@@ -547,9 +553,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   ): Promise<DocHandle<T>> {
     const { signal } = options
 
-    if (signal?.aborted) {
-      throw new AbortError()
-    }
+    signal?.throwIfAborted()
 
     // `findWithProgress` already applies any path suffix (`/a/@0/b`) and
     // fixed heads (`#h1|h2`) from the URL, so the ready handle is correctly

@@ -1,6 +1,4 @@
 /* c8 ignore start */
-import { AbortError } from "./abortable.js"
-
 type AbortListener = (
   this: AbortSignal,
   ev: AbortSignalEventMap["abort"]
@@ -14,9 +12,9 @@ const abortEvent = "abort"
  *
  * @param milliseconds - The number of milliseconds to pause. Defaults to 0.
  * @param signal - An optional AbortSignal that can be used to cancel the pause.
- * @returns A Promise that resolves after the specified delay, or rejects with an AbortError if cancelled.
+ * @returns A Promise that resolves after the specified delay, or rejects with `signal.reason` if cancelled.
  *
- * @throws {AbortError} Thrown when the pause is cancelled via the AbortSignal.
+ * @throws {AbortError} Rejects with the signal's `reason` (an `AbortError` by default) when cancelled via the AbortSignal.
  *
  * @example
  * ```typescript
@@ -49,13 +47,13 @@ export const pause = (
   return new Promise<void>((resolve, reject) => {
     const { signal } = options ?? {}
     if (signal?.aborted) {
-      reject(new AbortError())
+      reject(signal.reason)
       return
     }
     const abortListener: AbortListener | undefined =
       signal &&
       ((): void => {
-        reject(new AbortError())
+        reject(signal.reason)
         clearTimeout(id)
       })
 
