@@ -151,4 +151,10 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
       }
     })
   }
+
+  /** Close the underlying database connection. */
+  async close(): Promise<void> {
+    const db = await this.dbPromise
+    db.close()
+  }
 }

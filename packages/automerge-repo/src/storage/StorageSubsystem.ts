@@ -55,6 +55,11 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     this.#storageAdapter = storageAdapter
   }
 
+  /** Release the underlying storage adapter's resources, if it holds any. */
+  async close(): Promise<void> {
+    await this.#storageAdapter.close?.()
+  }
+
   async id(): Promise<StorageId> {
     const storedId = await this.#storageAdapter.load(["storage-adapter-id"])
 

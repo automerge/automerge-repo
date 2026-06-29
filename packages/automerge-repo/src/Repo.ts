@@ -712,6 +712,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async shutdown() {
     await this.flush()
     this.networkSubsystem.disconnect()
+    await this.storageSubsystem?.close()
   }
 
   metrics(): { documents: { [key: string]: any } } {
