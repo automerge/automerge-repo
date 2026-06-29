@@ -485,6 +485,18 @@ describe("Repo", () => {
       )
     })
 
+    it("shutdown() closes the storage adapter", async () => {
+      let closed = 0
+      class ClosableStorage extends DummyStorageAdapter {
+        async close() {
+          closed++
+        }
+      }
+      const repo = new Repo({ storage: new ClosableStorage() })
+      await repo.shutdown()
+      assert.equal(closed, 1)
+    })
+
     it("exports a document", async () => {
       const { repo } = setup()
       const handle = repo.create<TestDoc>()

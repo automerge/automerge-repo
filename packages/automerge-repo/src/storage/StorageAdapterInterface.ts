@@ -31,4 +31,12 @@ export interface StorageAdapterInterface {
 
   /** Remove all values with keys that start with `keyPrefix` */
   removeRange(keyPrefix: StorageKey): Promise<void>
+
+  /**
+   * Release any resources the adapter holds, such as an open database
+   * connection. Optional: {@link Repo.shutdown} calls it after the final flush.
+   * Adapters that hold no long-lived resource (in-memory, plain filesystem) can
+   * omit it.
+   */
+  close?(): void | Promise<void>
 }
