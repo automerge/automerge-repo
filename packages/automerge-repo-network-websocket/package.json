@@ -21,7 +21,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@automerge/automerge": "3.3.0-fragments.1",
+    "@automerge/automerge": "catalog:",
     "@types/ws": "^8.18.1",
     "portfinder": "^1.0.38",
     "typescript": "^6.0.3",

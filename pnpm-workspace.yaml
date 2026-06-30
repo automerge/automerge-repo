@@ -31,7 +31,7 @@ tag: subduction
 # Peer ranges stay literal — they're intentionally broader than the pinned dev/runtime version.
 catalog:
   # The subduction integration needs the fragments prerelease of automerge-core.
-  "@automerge/automerge": 3.3.0-fragments.1
+  "@automerge/automerge": 3.3.0-fragments.2
   "@clack/prompts": ^1.4.0
   "@testing-library/jest-dom": ^6.9.1
   "@types/node": ^22.19.19

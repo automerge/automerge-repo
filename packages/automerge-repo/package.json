@@ -28,7 +28,7 @@
     "vitest": "^4.1.7"
   },
   "dependencies": {
-    "@automerge/automerge": "3.3.0-fragments.1",
+    "@automerge/automerge": "catalog:",
     "@automerge/automerge-subduction": "0.16.0",
     "bs58check": "^4.0.0",
     "cbor-x": "^1.6.4",

@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@automerge/automerge':
-      specifier: 3.3.0-fragments.1
-      version: 3.3.0-fragments.1
+      specifier: 3.3.0-fragments.2
+      version: 3.3.0-fragments.2
     '@clack/prompts':
       specifier: ^1.4.0
       version: 1.5.0
@@ -92,7 +92,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.0-fragments.1
+        version: 3.3.0-fragments.2
       '@automerge/automerge-subduction':
         specifier: 0.16.0
         version: 0.16.0
@@ -453,8 +453,8 @@ importers:
   packages/automerge-repo:
     dependencies:
       '@automerge/automerge':
-        specifier: 3.3.0-fragments.1
-        version: 3.3.0-fragments.1
+        specifier: 'catalog:'
+        version: 3.3.0-fragments.2
       '@automerge/automerge-subduction':
         specifier: 0.16.0
         version: 0.16.0
@@ -559,8 +559,8 @@ importers:
         version: 8.21.0
     devDependencies:
       '@automerge/automerge':
-        specifier: 3.3.0-fragments.1
-        version: 3.3.0-fragments.1
+        specifier: 'catalog:'
+        version: 3.3.0-fragments.2
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -578,7 +578,7 @@ importers:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.0-fragments.1
+        version: 3.3.0-fragments.2
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -624,7 +624,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.0-fragments.1
+        version: 3.3.0-fragments.2
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -785,8 +785,8 @@ packages:
   '@automerge/automerge-subduction@0.16.0':
     resolution: {integrity: sha512-BOOn/4p8cF4LhjDUQdgM3qyZFya+M7ZuZywuC99x/kbhk4UK7dw/QcsifcHG5E1TAW4R/K17ZGFUC5nCVUSSWg==}
 
-  '@automerge/automerge@3.3.0-fragments.1':
-    resolution: {integrity: sha512-Im2n3qcYSuIsLDSjofTRo7CZyyvFn5pKLSCCO5sjWzESw+9q9G25ZIrL2mczDX43cXtyzi+w/4b9VUaiNdY56Q==}
+  '@automerge/automerge@3.3.0-fragments.2':
+    resolution: {integrity: sha512-F5KL+YXD0GMFH/as0/kJ3+lotpuJsH1SSrhhKdYSGtR+S9ytBNTw+s3pAjF2Vr0+ZdTMHxsGjqj5SRkJiSNokQ==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -5683,7 +5683,7 @@ snapshots:
 
   '@automerge/automerge-subduction@0.16.0': {}
 
-  '@automerge/automerge@3.3.0-fragments.1': {}
+  '@automerge/automerge@3.3.0-fragments.2': {}
 
   '@babel/code-frame@7.29.0':
     dependencies:
