@@ -13,7 +13,8 @@ import { Repo } from "../../src/Repo.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
 import { initSubduction } from "../../src/initSubduction.js"
-import { pause } from "../../src/helpers/pause.js"
+import { awaitDoc } from "../helpers/awaitDoc.js"
+import { waitFor } from "../helpers/waitFor.js"
 import type { PeerId, UrlHeads } from "../../src/types.js"
 
 beforeAll(async () => {
@@ -25,19 +26,6 @@ const sameSet = (a: readonly string[], b: readonly string[]) =>
 
 const headsOf = (handle: { doc(): unknown }): UrlHeads =>
   encodeHeads(A.getHeads(handle.doc() as A.Doc<unknown>))
-
-async function waitFor(
-  fn: () => boolean | Promise<boolean>,
-  timeoutMs: number,
-  intervalMs = 50
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await fn()) return
-    await pause(intervalMs)
-  }
-  throw new Error(`waitFor timed out after ${timeoutMs}ms`)
-}
 
 describe("subduction remote-heads forwarding", () => {
   const cleanups: Array<() => void | Promise<void>> = []
@@ -127,13 +115,13 @@ describe("subduction remote-heads forwarding", () => {
     })
 
     // Bidirectional sync lands bob's change on alice.
-    await waitFor(() => aliceHandle.doc()?.bob === "b", 8000)
+    await awaitDoc(aliceHandle, h => h.doc()?.bob === "b", { timeout: 8000 })
 
     // Alice eventually receives a remote-heads event whose heads equal her
     // (now fully-synced) doc heads.
     await waitFor(() => {
       const want = headsOf(aliceHandle)
-      return events.some(e => sameSet(e.heads, want))
+      expect(events.some(e => sameSet(e.heads, want))).toBe(true)
     }, 8000)
 
     const want = headsOf(aliceHandle)
@@ -171,13 +159,14 @@ describe("subduction remote-heads forwarding", () => {
     bobHandle.change(d => {
       d.bob = "b"
     })
-    await waitFor(() => aliceHandle.doc()?.bob === "b", 8000)
+    await awaitDoc(aliceHandle, h => h.doc()?.bob === "b", { timeout: 8000 })
 
     // Wait until the server has advertised alice's current heads back to her.
     await waitFor(() => {
-      if (!serverStorageId) return false
-      const info = aliceHandle.getSyncInfo(serverStorageId as any)
-      return !!info && sameSet(info.lastHeads, headsOf(aliceHandle))
+      const info = serverStorageId
+        ? aliceHandle.getSyncInfo(serverStorageId as any)
+        : undefined
+      expect(!!info && sameSet(info.lastHeads, headsOf(aliceHandle))).toBe(true)
     }, 8000)
 
     // We hold our own heads, and everything the server has advertised.
@@ -212,10 +201,10 @@ describe("subduction remote-heads forwarding", () => {
     bobHandle.change(d => {
       d.bob = "b"
     })
-    await waitFor(() => aliceHandle.doc()?.bob === "b", 8000)
-    await waitFor(() => captured !== undefined, 8000)
+    await awaitDoc(aliceHandle, h => h.doc()?.bob === "b", { timeout: 8000 })
+    await waitFor(() => expect(captured).toBeDefined(), 8000)
     // Let the fire-and-forget saveRemoteHeads land in the shared adapter.
-    await pause(300)
+    await alice.repo.flush()
 
     const expected = captured!
 
@@ -233,7 +222,7 @@ describe("subduction remote-heads forwarding", () => {
     const handle = await reloaded.find(url)
 
     await waitFor(
-      () => handle.getSyncInfo(expected.storageId as any) !== undefined,
+      () => expect(handle.getSyncInfo(expected.storageId as any)).toBeDefined(),
       8000
     )
     const info = handle.getSyncInfo(expected.storageId as any)!
