@@ -9,6 +9,7 @@ import {
   NetworkAdapterInterface,
 } from "./NetworkAdapterInterface.js"
 import { AdapterStateSignal } from "./AdapterStateSignal.js"
+import { noop } from "../helpers/noop.js"
 
 /** An interface representing some way to connect to other peers
  *
@@ -34,9 +35,15 @@ export abstract class NetworkAdapter
     // Defer to a microtask so subclass field initializers (which run after
     // super() returns) have completed before we call the overridden whenReady().
     queueMicrotask(() => {
-      void this.whenReady().then(() => {
-        this.#adapterState.set("ready")
-      })
+      void this.whenReady().then(
+        () => {
+          this.#adapterState.set("ready")
+        },
+        // whenReady() rejected: the adapter never became ready, so leave the
+        // state at "connecting". Swallow so a failing adapter does not surface
+        // as an unhandled rejection (Repo logs readiness failures separately).
+        noop
+      )
     })
   }
 
