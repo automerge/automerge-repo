@@ -42,6 +42,19 @@
           '';
         };
 
+        react_todo_worker_example = pkgs.writeShellApplication {
+          name = "react_todo_worker_example";
+          runtimeInputs = [
+            nodejs
+            pnpm-pkg
+          ];
+          text = ''
+            cd ./examples/react-todo-worker
+            pnpm i --silent
+            pnpm dev
+          '';
+        };
+
         test_subduction = pkgs.writeShellApplication {
           name = "test_subduction";
           runtimeInputs = [
@@ -79,6 +92,11 @@
           apps.react_todo_example = {
             type = "app";
             program = "${react_todo_example}/bin/react_todo_example";
+          };
+
+          apps.react_todo_worker_example = {
+            type = "app";
+            program = "${react_todo_worker_example}/bin/react_todo_worker_example";
           };
 
           apps.test_subduction = {

@@ -9,7 +9,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "bench": "vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*"
@@ -19,7 +20,11 @@
     "tag": "subduction"
   },
   "devDependencies": {
-    "typescript": "catalog:"
+    "@vitest/browser": "4.1.7",
+    "@vitest/browser-playwright": "4.1.7",
+    "playwright": "^1.60.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22.13"

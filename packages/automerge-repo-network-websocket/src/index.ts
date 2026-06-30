@@ -14,6 +14,7 @@
  * @module
  * */
 export { WebSocketClientAdapter } from "./WebSocketClientAdapter.js"
+export { WebSocketWorkerClientAdapter } from "./WebSocketWorkerClientAdapter.js"
 export { WebSocketServerAdapter } from "./WebSocketServerAdapter.js"
 
 /** @hidden */
