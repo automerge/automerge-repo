@@ -446,6 +446,45 @@ describe("Subduction WebSocket sync", () => {
     expect(handle2.doc()!.items).toEqual(["first", "second", "third"])
   }, 15_000)
 
+  it("re-subscribes a previously-synced doc after reconnect", async () => {
+    // Regression: subscriptions are per-connection, so a successfully-synced
+    // doc must re-sync (= re-subscribe) on the new connection after a reconnect;
+    // without the generation-aware #needsOutboundSync, A never sees B's change.
+    const server = await startSubductionServer()
+    const serverPort = Number(new URL(server.url).port)
+
+    const clientA = createClientRepo("client-A", server.url)
+    const handleA = clientA.create<{ value: number }>()
+    handleA.change(d => {
+      d.value = 1
+    })
+
+    const clientB = createClientRepo("client-B", server.url)
+    const handleB = await clientB.find<{ value: number }>(handleA.url)
+    await handleB.whenReady()
+    expect(handleB.doc()!.value).toBe(1)
+
+    // Let A's sync settle to "succeeded" before dropping the connection.
+    await pause(500)
+
+    // Drop the server, then restart on the same port so both clients reconnect.
+    await server.close()
+    await pause(300)
+    const newServer = await startSubductionServer(serverPort)
+    cleanups.push(() => newServer.close())
+
+    // After reconnect, B changes the doc; that local change forces B to re-push
+    // regardless, isolating the test to whether A re-subscribed.
+    await pause(1500)
+    handleB.change(d => {
+      d.value = 2
+    })
+
+    // A converges only if it re-subscribed on the new connection.
+    await waitForCondition(async () => handleA.doc()!.value === 2, 10_000)
+    expect(handleA.doc()!.value).toBe(2)
+  }, 25_000)
+
   // Regression: receivers dedup on `(senderId, sessionId, count)` in
   // `DocSynchronizer.#receiveEphemeralMessage`. The Subduction bridge in
   // `Repo.ts` used to hard-code `count: 0`, so every message after the
