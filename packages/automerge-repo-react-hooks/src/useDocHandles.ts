@@ -73,9 +73,14 @@ export function useDocHandles<T>(
   // Suspense is handled quasi-synchronously below by throwing if we still have
   // unresolved promises.
   useEffect(() => {
+    // Stays true until this effect run is torn down; if idSet changes (or we
+    // unmount) before these finds settle, the now-stale map must not overwrite
+    // a newer one.
+    let active = true
     if (pendingPromises.length > 0) {
       void Promise.allSettled(pendingPromises.map(p => p.promise)).then(
         handles => {
+          if (!active) return
           handles.forEach(r => {
             if (r.status === "fulfilled") {
               const h = r.value as DocHandle<T>
@@ -87,6 +92,9 @@ export function useDocHandles<T>(
       )
     } else {
       setHandleMap(nextHandleMap)
+    }
+    return () => {
+      active = false
     }
   }, [suspense, idSet])
 

@@ -293,5 +293,28 @@ describe("useDocHandles", () => {
       expect(result2?.size).toBe(1)
       expect(result2?.get(handleB.url)?.url).toEqual(handleB.url)
     })
+
+    it("does not let a superseded url set overwrite the current one", async () => {
+      const { repoCreator, repoFinder, wrapper } = await setupPairedRepos()
+      const handleA = repoCreator.create({ foo: "A" })
+      const handleB = repoFinder.create({ foo: "B" })
+      const onHandles = mockOnHandles()
+
+      const { rerender } = render(
+        <Component urls={[handleA.url]} onHandles={onHandles} />,
+        { wrapper }
+      )
+
+      // Switch to B before A resolves.
+      rerender(<Component urls={[handleB.url]} onHandles={onHandles} />)
+
+      // The committed map settles on B; A's superseded find must not overwrite
+      // it back in.
+      await waitFor(() => {
+        const result = onHandles.mock.lastCall?.at(0)
+        expect(result?.get(handleB.url)?.url).toEqual(handleB.url)
+      })
+      expect(onHandles.mock.lastCall?.at(0)?.has(handleA.url)).toBe(false)
+    })
   })
 })

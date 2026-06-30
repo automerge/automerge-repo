@@ -38,7 +38,7 @@ import type {
   SessionId,
   UrlHeads,
 } from "./types.js"
-import { AbortOptions, AbortError } from "./helpers/abortable.js"
+import { AbortOptions } from "./helpers/abortable.js"
 import {
   MemorySigner,
   set_subduction_logger,
@@ -62,6 +62,7 @@ import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
+import { noop } from "./helpers/noop.js"
 
 export type { DocumentProgress } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
@@ -301,7 +302,16 @@ export class Repo extends EventEmitter<RepoEvents> {
           if (!storageId || isEph) return
           return this.storageSubsystem.loadSyncState(documentId, storageId)
         },
-        networkReady: networkSubsystem.whenReady().then(() => {}),
+        // Resolve to void once the adapters are ready, or on adapter failure
+        // (logged): networkReady gates "peers have had their chance to connect",
+        // so a failed network should let documents settle rather than hang, and
+        // it must never reject (no consumer acts on the rejection, and an
+        // unhandled one would surface before any DocSynchronizer attaches).
+        networkReady: networkSubsystem
+          .whenReady()
+          .then(noop, err =>
+            this.#log.error("network adapters failed to become ready", err)
+          ),
       },
       denylist
     )
@@ -704,6 +714,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /**
    * Look up a document by URL and wait for it to be ready.
+   *
+   * @remarks
+   * `options.signal` cancels the wait, not the load: the underlying
+   * {@link DocumentQuery} and its sources keep running (they may be serving
+   * other concurrent callers), so use {@link Repo.removeFromCache} to stop the
+   * load. An aborted wait rejects with `signal.reason`.
    */
   async find<T>(
     id: AnyDocumentId,
@@ -711,9 +727,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   ): Promise<DocHandle<T>> {
     const { signal } = options
 
-    if (signal?.aborted) {
-      throw new AbortError()
-    }
+    signal?.throwIfAborted()
 
     // `findWithProgress` already applies any path suffix (`/a/@0/b`) and
     // fixed heads (`#h1|h2`) from the URL, so the ready handle is correctly
@@ -936,7 +950,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#log.warn("flush() during shutdown failed", { err: e })
     }
 
-    // Release the storage adapter (e.g. terminate its worker) after the flush.
+    // Release the storage adapter after the flush. Run both teardown paths so
+    // neither is lost: StorageSubsystem.close() forwards to adapter.close?(),
+    // and #storage.dispose?.() terminates a worker-backed adapter.
+    await this.storageSubsystem?.close()
     this.#storage?.dispose?.()
   }
 

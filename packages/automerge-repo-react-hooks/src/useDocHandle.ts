@@ -75,14 +75,25 @@ export function useDocHandle<T>(
     if (currentHandle || suspense || !wrapper) {
       return
     }
+    // Stays true until this effect run is torn down (unmount or id change); a
+    // result that arrives after that must not setState for a stale id.
+    let active = true
     wrapper.promise
       .then(handle => {
-        setHandle(handle as DocHandle<T>)
+        if (active) setHandle(handle as DocHandle<T>)
       })
       .catch(() => {
-        setHandle(undefined)
+        // Drop the failed wrapper so a later render retries instead of reusing
+        // the rejection.
+        if (id && wrapperCache.get(id) === wrapper) {
+          wrapperCache.delete(id)
+        }
+        if (active) setHandle(undefined)
       })
-  }, [currentHandle, suspense, wrapper])
+    return () => {
+      active = false
+    }
+  }, [currentHandle, suspense, wrapper, id])
 
   if (currentHandle || !suspense || !wrapper) {
     return currentHandle

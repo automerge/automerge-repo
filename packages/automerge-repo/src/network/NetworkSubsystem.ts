@@ -109,10 +109,10 @@ export class NetworkSubsystem extends EventEmitter<NetworkSubsystemEvents> {
       this.adapters = this.adapters.filter(a => a !== networkAdapter)
     })
 
+    // connect() is typed `void`, but a custom adapter may return a Promise;
+    // return it so its rejection chains into the .catch() below, not dropped.
     this.peerMetadata
-      .then(peerMetadata => {
-        networkAdapter.connect(this.peerId, peerMetadata)
-      })
+      .then(peerMetadata => networkAdapter.connect(this.peerId, peerMetadata))
       .catch(err => {
         this.#log.error("error connecting to network", err)
       })

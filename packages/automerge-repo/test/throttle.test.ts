@@ -149,6 +149,32 @@ describe("asyncThrottle", () => {
     expect(ranWith).not.toContain(1) // fn(1) never ran — its pending timeout was cleared
     expect(ranWith).toEqual([2]) // ...and fn(2) ran in its place
   })
+
+  it("settles a superseded call's promise instead of orphaning it", async () => {
+    // Regression: previously a call whose pending timeout was cleared by a later
+    // call had its returned promise dropped — awaiting it hung forever. Now every
+    // coalesced caller (1 and 2, superseded by 3) settles with the winning run's
+    // result.
+    const throttled = asyncThrottle(async (x: number) => x * 10, 30)
+    const p1 = throttled(1) // superseded
+    const p2 = throttled(2) // superseded
+    const p3 = throttled(3) // wins
+    await vi.advanceTimersByTimeAsync(30)
+
+    expect(await Promise.all([p1, p2, p3])).toEqual([30, 30, 30])
+  })
+
+  it("propagates a rejection to every superseded caller", async () => {
+    const throttled = asyncThrottle(async (_x: number) => {
+      throw new Error("boom")
+    }, 30)
+    // Attach the rejection assertions synchronously (see the note in the
+    // "rejects" test above) so both handlers are in place before the fn runs.
+    const a1 = expect(throttled(1)).rejects.toThrow("boom")
+    const a2 = expect(throttled(2)).rejects.toThrow("boom")
+    await vi.advanceTimersByTimeAsync(30)
+    await Promise.all([a1, a2])
+  })
 })
 
 // -- Concurrency property ----------------------------------------------------

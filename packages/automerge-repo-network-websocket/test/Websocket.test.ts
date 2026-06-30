@@ -15,7 +15,7 @@ import { runNetworkAdapterTests } from "@automerge/automerge-repo/helpers/tests/
 import { DummyStorageAdapter } from "@automerge/automerge-repo/helpers/DummyStorageAdapter.js"
 import assert from "assert"
 import * as CBOR from "cbor-x"
-import { once } from "events"
+import { EventEmitter, once } from "events"
 import http from "http"
 import { getPortPromise as getAvailablePort } from "portfinder"
 import { afterEach, describe, it, vi } from "vitest"
@@ -167,6 +167,33 @@ describe("Websocket adapters", () => {
         //  The browserAdapter reconnects on its own
         await eventPromise(browser, "peer-candidate")
       }
+    })
+
+    it("should be safe to disconnect more than once", async () => {
+      const port = await getPort()
+      const browser = await setupClient({ port })
+      const { server, serverSocket, serverAdapter } = await setupServer({
+        port,
+      })
+
+      const _browserRepo = new Repo({
+        network: [browser],
+        peerId: browserPeerId,
+      })
+      const _serverRepo = new Repo({
+        network: [serverAdapter],
+        peerId: serverPeerId,
+      })
+
+      await eventPromise(browser, "peer-candidate")
+
+      browser.disconnect()
+      // A repeat disconnect (e.g. React StrictMode double-invokes the effect
+      // cleanup that runs repo.shutdown()) must be a no-op, not throw.
+      assert.doesNotThrow(() => browser.disconnect())
+
+      server.close()
+      serverSocket.close()
     })
 
     it("should throw an error if asked to send a zero-length message", async () => {
@@ -829,6 +856,53 @@ describe("Websocket adapters", () => {
       if (!headsAreSame(encodeHeads(localHeads), remoteHeads)) {
         throw new Error("heads not equal")
       }
+    })
+
+    describe("teardown (resource-leak regressions)", () => {
+      // A stand-in for `ws`'s WebSocketServer: an EventEmitter that also exposes
+      // the `clients` set the keepalive sweep reads. Lets us assert listener and
+      // timer hygiene without opening a real socket.
+      class FakeServer extends EventEmitter {
+        clients = new Set()
+      }
+
+      it("removes the listeners it added to the shared server on disconnect, and does not stack them across repeated connect() calls", () => {
+        const server = new FakeServer()
+        const adapter = new WebSocketServerAdapter(
+          server as unknown as WebSocketServer
+        )
+
+        adapter.connect(serverPeerId)
+        adapter.connect(serverPeerId) // a second connect() must not stack listeners
+
+        assert.equal(server.listenerCount("connection"), 1)
+        assert.equal(server.listenerCount("close"), 1)
+
+        adapter.disconnect()
+
+        assert.equal(server.listenerCount("connection"), 0)
+        assert.equal(server.listenerCount("close"), 0)
+      })
+
+      it("clears the keepalive interval on disconnect", () => {
+        // Fake only the interval timers the adapter owns; leave setTimeout real.
+        vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+        try {
+          const server = new FakeServer()
+          const adapter = new WebSocketServerAdapter(
+            server as unknown as WebSocketServer
+          )
+
+          adapter.connect(serverPeerId)
+          // The only interval this bare adapter arms is the keepalive sweep.
+          assert.equal(vi.getTimerCount(), 1)
+
+          adapter.disconnect()
+          assert.equal(vi.getTimerCount(), 0)
+        } finally {
+          vi.useRealTimers()
+        }
+      })
     })
   })
 })
