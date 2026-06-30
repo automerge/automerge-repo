@@ -1,12 +1,7 @@
 /**
- * The socket-owning logic for {@link WebSocketWorkerClientAdapter}'s worker,
- * factored out of `websocket.worker.ts` so it can be unit-tested off a real
- * browser (driven by a fake socket) and reused by the actual Worker entrypoint.
- *
- * Owns one socket: drains inbound frames (CBOR-decoding them off the host
- * thread), encodes outbound frames, and reconnects on close with the
- * host-provided retry interval. Lifecycle + decoded messages are reported via
- * the injected `post`.
+ * Socket-owning logic behind `websocket.worker.ts`, factored out so it can be
+ * tested without a browser. Owns one socket: decodes inbound frames, encodes
+ * outbound, and reconnects on close. Reports via the injected `post`.
  */
 import { decode, encode } from "@automerge/automerge-repo/helpers/cbor.js"
 
@@ -38,10 +33,7 @@ export interface WebSocketWorkerHandlerOptions {
   post: (event: WsWorkerEventBody) => void
 }
 
-/**
- * Build the command handler. Returns a function to feed each inbound
- * {@link WsWorkerCommand} (e.g. from `self.onmessage`).
- */
+/** Returns a handler for inbound {@link WsWorkerCommand}s. */
 export function makeWebSocketWorkerHandler({
   createSocket,
   post,
@@ -51,8 +43,7 @@ export function makeWebSocketWorkerHandler({
   let url = ""
   let retryInterval = 5000
   let retryTimer: ReturnType<typeof setTimeout> | undefined
-  // Set on `disconnect`: a deliberate close must not trigger a reconnect (the
-  // socket's own `close` event would otherwise re-arm one).
+  // `disconnect` sets this so the socket's `close` event doesn't reconnect.
   let stopped = false
 
   const clearRetry = () => {
@@ -96,7 +87,7 @@ export function makeWebSocketWorkerHandler({
         ) as FromServerMessage
         post({ type: "message", message })
       } catch {
-        // Ignore an undecodable frame rather than tearing down the socket.
+        // drop undecodable frames
       }
     })
     ws.addEventListener("close", () => {

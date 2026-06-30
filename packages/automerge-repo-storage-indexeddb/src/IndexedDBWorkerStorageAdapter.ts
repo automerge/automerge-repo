@@ -1,27 +1,7 @@
 /**
- * Off-main-thread IndexedDB storage adapter.
- *
- * A drop-in {@link StorageAdapterInterface} whose IndexedDB work runs in a
- * Worker (structured clone + transaction callbacks off the main thread). Each
- * method is proxied to the worker over the {@link STORAGE_RPC} protocol; read
- * results are transferred back (moved, not copied).
- *
- * The worker is spawned internally via
- * `new Worker(new URL("./worker.js", import.meta.url), { type: "module" })`,
- * which Vite/webpack bundle for the consumer — so usage is just:
- *
- * ```ts
- * import { IndexedDBWorkerStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
- * const repo = new Repo({ storage: new IndexedDBWorkerStorageAdapter("my-app") })
- * ```
- *
- * Robustness:
- * - If `Worker` is unavailable (Node) or spawning one throws (e.g. some
- *   WebKit nested-worker contexts), it transparently falls back to an
- *   in-thread {@link IndexedDBStorageAdapter} — identical behaviour against
- *   the same IndexedDB database, just on the calling thread.
- * - If the worker dies, in-flight and subsequent calls reject with a
- *   {@link WorkerStorageError} rather than hanging forever.
+ * A {@link StorageAdapterInterface} that runs IndexedDB in a Worker, falling
+ * back to an in-thread {@link IndexedDBStorageAdapter} where Workers aren't
+ * available.
  *
  * @packageDocumentation
  */
@@ -38,7 +18,7 @@ import {
   type StorageRpcResponse,
 } from "./worker-rpc.js"
 
-/** Raised to pending/subsequent calls when the backing worker is lost. */
+/** Rejects pending calls when the worker is lost. */
 export class WorkerStorageError extends Error {
   constructor(message: string) {
     super(message)
@@ -52,10 +32,6 @@ function randomClientId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
-/**
- * Internal worker-RPC implementation. Kept private so the public adapter can
- * fall back to the in-thread adapter without leaking the distinction.
- */
 class WorkerBackedIndexedDB implements StorageAdapterInterface {
   #worker: Worker
   #ownsWorker: boolean
@@ -77,9 +53,8 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
     this.#worker.addEventListener("error", this.#onError)
     this.#worker.addEventListener("messageerror", this.#onError)
     this.#ready = this.#call("init", [database, store])
-    // An init failure still propagates through every method's `await
-    // this.#ready`; this extra handler only suppresses the unhandled-rejection
-    // warning when no method has been called yet.
+    // Suppress unhandled-rejection if no method is ever called; real failures
+    // still surface through each method's `await this.#ready`.
     void this.#ready.catch(() => {})
   }
 
@@ -168,10 +143,7 @@ export class IndexedDBWorkerStorageAdapter implements StorageAdapterInterface {
   #disposed = false
 
   /**
-   * @param database - IndexedDB database name. Defaults to "automerge".
-   * @param store - object store name. Defaults to "documents".
-   * @param worker - optional existing Worker to reuse (e.g. one shared across
-   *   several adapters). If omitted, a dedicated worker is spawned.
+   * @param worker - an existing Worker to reuse; otherwise one is spawned.
    */
   constructor(
     database: string = "automerge",
@@ -179,17 +151,13 @@ export class IndexedDBWorkerStorageAdapter implements StorageAdapterInterface {
     worker?: Worker
   ) {
     if (worker === undefined && typeof Worker === "undefined") {
-      // No Worker in this environment (e.g. Node) and none injected — run
-      // in-thread. An explicitly injected worker is always honored below.
       this.#impl = new IndexedDBStorageAdapter(database, store)
       return
     }
     try {
       this.#impl = new WorkerBackedIndexedDB(database, store, worker)
     } catch (error) {
-      // Spawning a module worker throws in some contexts (notably certain
-      // WebKit nested-worker cases). Fall back to the in-thread adapter — it
-      // hits the same IndexedDB database, so behaviour is identical.
+      // e.g. WebKit contexts that reject nested module workers.
       console.warn(
         "[IndexedDBWorkerStorageAdapter] worker unavailable; falling back to in-thread IndexedDB:",
         error

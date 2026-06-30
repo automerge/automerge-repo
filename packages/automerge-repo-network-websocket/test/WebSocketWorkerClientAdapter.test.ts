@@ -159,8 +159,7 @@ describe("WebSocketWorkerClientAdapter", () => {
     const original = g.Worker
     g.Worker = undefined
     try {
-      // Large retry interval so the fallback's reconnect timer never fires
-      // during the test; we only assert graceful degradation, not connection.
+      // Large retry interval so the fallback's reconnect timer never fires.
       const adapter = new WebSocketWorkerClientAdapter("wss://x", 60_000)
       expect(() => adapter.connect(peer("client"), {})).not.toThrow()
       expect(adapter.whenReady()).toBeInstanceOf(Promise)

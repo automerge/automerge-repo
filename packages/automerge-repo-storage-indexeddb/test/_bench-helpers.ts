@@ -6,17 +6,16 @@
  */
 
 export interface WorkloadResult {
-  /** Wall-clock time for the workload. */
+  /** Wall-clock time (includes off-thread work). */
   wallMs: number
-  /** Longest single main-thread block (max gap between animation frames). */
+  /** Time the main thread was busy (not idle awaiting off-thread work). */
+  mainThreadMs: number
+  /** Longest single main-thread block. */
   maxBlockMs: number
-  /** Total main-thread time spent blocked beyond one frame budget (~jank). */
-  jankMs: number
-  /** Animation frames observed (lower under heavy main-thread blocking). */
-  frames: number
 }
 
-const FRAME_BUDGET_MS = 16
+/** Gaps below this (ms) are scheduler latency, not main-thread work. */
+const IDLE_NOISE_MS = 1.5
 
 export const median = (xs: number[]): number => {
   const sorted = [...xs].sort((a, b) => a - b)
@@ -35,49 +34,58 @@ export function randomBytes(n: number): Uint8Array {
 const raf = () => new Promise<number>(resolve => requestAnimationFrame(resolve))
 
 /**
- * Run `work()` while sampling main-thread responsiveness via the gaps between
- * animation frames (a blocked main thread can't paint). Optionally burn
- * `contentionMs` of synchronous main-thread time per frame to model an app
- * busy with rendering / CRDT work while storage runs — under contention the
- * discriminator is `wallMs` (the worker keeps storage off the contended
- * thread); uncontended, it's `maxBlockMs` / `jankMs`.
+ * Run `work()` while metering main-thread occupancy: a `MessageChannel` posts
+ * to itself back-to-back, so any gap between ticks is time the main thread was
+ * busy. `contentionMs` optionally burns that many ms per frame to model an app
+ * busy alongside storage.
  */
 export async function measure(
   work: () => Promise<void>,
   { contentionMs = 0 }: { contentionMs?: number } = {}
 ): Promise<WorkloadResult> {
-  let maxBlock = 0
-  let jank = 0
-  let frames = 0
-  let running = true
+  const channel = new MessageChannel()
   let last = performance.now()
+  let mainThreadMs = 0
+  let maxBlockMs = 0
+  let running = true
 
-  const tick = () => {
-    if (!running) return
+  channel.port1.onmessage = () => {
     const now = performance.now()
     const gap = now - last
     last = now
-    frames++
-    if (gap > FRAME_BUDGET_MS) {
-      maxBlock = Math.max(maxBlock, gap)
-      jank += gap - FRAME_BUDGET_MS
+    if (gap > IDLE_NOISE_MS) {
+      mainThreadMs += gap
+      if (gap > maxBlockMs) maxBlockMs = gap
     }
-    if (contentionMs > 0) {
+    if (running) channel.port2.postMessage(0)
+  }
+  channel.port2.postMessage(0)
+
+  if (contentionMs > 0) {
+    const burn = () => {
+      if (!running) return
       const end = performance.now() + contentionMs
       while (performance.now() < end) {
         /* burn synchronous main-thread time */
       }
+      requestAnimationFrame(burn)
     }
-    requestAnimationFrame(tick)
+    requestAnimationFrame(burn)
   }
 
-  await raf() // establish a baseline frame cadence
+  await raf() // let the meter settle before resetting
   last = performance.now()
-  requestAnimationFrame(tick)
+  mainThreadMs = 0
+  maxBlockMs = 0
 
   const start = performance.now()
   await work()
   const wallMs = performance.now() - start
   running = false
-  return { wallMs, maxBlockMs: maxBlock, jankMs: jank, frames }
+
+  return {
+    wallMs: Math.round(wallMs),
+    mainThreadMs: Math.round(mainThreadMs),
+    maxBlockMs: Math.round(maxBlockMs),
+  }
 }

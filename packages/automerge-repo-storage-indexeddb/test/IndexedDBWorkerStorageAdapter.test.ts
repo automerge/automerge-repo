@@ -22,12 +22,7 @@ const sortByKey = (chunks: Chunk[]) =>
     a.key.join("\u0000").localeCompare(b.key.join("\u0000"))
   )
 
-/**
- * In-process stand-in for the real Worker: runs the same {@link
- * makeStorageRpcDispatcher} dispatch logic and delivers replies on a later
- * microtask, so it exercises the real main-thread proxy (correlation ids, the
- * ready gate, error handling) without a browser.
- */
+/** In-process Worker stand-in: runs the real dispatcher, replies async. */
 class FakeStorageWorker {
   /** When true, drop outgoing replies — simulates a hung/crashed worker. */
   dropReplies = false

@@ -1,11 +1,7 @@
 /**
- * The {@link STORAGE_RPC} request dispatcher, factored out of `worker.ts` so it
- * can be unit-tested off a real browser (driven by a fake worker) and reused by
- * the actual Worker entrypoint.
- *
- * Hosts real {@link IndexedDBStorageAdapter}s keyed by the request `client`, so
- * one worker can serve several adapters (e.g. one shared worker, several
- * databases).
+ * The {@link STORAGE_RPC} dispatcher behind `worker.ts`, factored out so it can
+ * be tested without a browser. Hosts {@link IndexedDBStorageAdapter}s keyed by
+ * the request `client`.
  */
 import { IndexedDBStorageAdapter } from "./index.js"
 import {
@@ -20,13 +16,7 @@ export type StorageRpcReply = (
   transfer: Transferable[]
 ) => void
 
-/**
- * Collect the underlying `ArrayBuffer`s from a read result so the caller can
- * transfer (move, not copy) them back to the main thread. The worker has no
- * further use for these bytes once returned. IndexedDB hands back a fresh copy
- * per record, so the buffers are never aliased; we de-dupe defensively. Only
- * real `ArrayBuffer`s are transferable (not `SharedArrayBuffer`).
- */
+/** The `ArrayBuffer`s in a read result, to transfer back instead of copy. */
 export function collectTransfer(
   method: StorageRpcMethod,
   result: unknown
@@ -45,11 +35,6 @@ export function collectTransfer(
   return [...buffers]
 }
 
-/**
- * Create a dispatcher that answers {@link STORAGE_RPC} requests. The returned
- * function takes a request and a `reply` callback (so the transport — real
- * `postMessage` or a test double — stays out of the dispatch logic).
- */
 export function makeStorageRpcDispatcher() {
   const adapters = new Map<string, IndexedDBStorageAdapter>()
 

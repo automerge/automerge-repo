@@ -21,20 +21,10 @@ import {
 } from "./websocket-worker-rpc.js"
 
 /**
- * A drop-in replacement for {@link WebSocketClientAdapter} that runs the socket
- * — and CBOR encode/decode — on a Worker, so socket I/O and keepalives keep
- * flowing even while the host thread is busy with synchronous CRDT/Wasm work.
- *
- * It has the **same API** as {@link WebSocketClientAdapter} (same constructor,
- * methods, and events), so it's a direct swap anywhere a `WebSocketClientAdapter`
- * is used — `network: [...]` or `subductionAdapters: [...]`:
- *
- * ```ts
- * const repo = new Repo({ network: [new WebSocketWorkerClientAdapter("wss://…")] })
- * ```
- *
- * If a Worker can't be spawned (Node, or some nested-worker contexts), it
- * transparently falls back to a main-thread {@link WebSocketClientAdapter}.
+ * A drop-in {@link WebSocketClientAdapter} (same API) that runs the socket and
+ * CBOR encode/decode on a Worker, so inbound frames are read and decoded off
+ * the host thread. Falls back to a main-thread {@link WebSocketClientAdapter}
+ * where Workers aren't available.
  */
 export class WebSocketWorkerClientAdapter extends NetworkAdapter {
   #ready = false
@@ -50,12 +40,7 @@ export class WebSocketWorkerClientAdapter extends NetworkAdapter {
   /** This adapter only connects to one remote at a time. */
   remotePeerId?: PeerId
 
-  /**
-   * @param url - WebSocket URL to connect to.
-   * @param retryInterval - Reconnect delay in ms (default 5000).
-   * @param worker - Optional Worker to use instead of spawning one (mainly for
-   *   testing).
-   */
+  /** @param worker - an existing Worker to use instead of spawning one. */
   constructor(
     public readonly url: string,
     public readonly retryInterval = 5000,
@@ -121,8 +106,7 @@ export class WebSocketWorkerClientAdapter extends NetworkAdapter {
       retryInterval: this.retryInterval,
     })
 
-    // Mark ready if we haven't received a peer ack within 1s — matches
-    // WebSocketClientAdapter so we don't hold up marking docs unavailable.
+    // Ready after 1s without a peer ack (matches WebSocketClientAdapter).
     setTimeout(() => this.#forceReady(), 1000)
   }
 

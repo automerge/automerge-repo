@@ -1,12 +1,4 @@
-/**
- * Message protocol between {@link WebSocketWorkerClientAdapter} (host thread)
- * and `websocket.worker.ts` (the Worker that owns the socket).
- *
- * The worker owns one WebSocket and does CBOR encode/decode; the host thread
- * keeps the protocol semantics (join handshake, peer detection, events). The
- * host sends commands; the worker reports socket lifecycle + decoded inbound
- * messages back as events.
- */
+/** RPC protocol between {@link WebSocketWorkerClientAdapter} and `websocket.worker.ts`. */
 import type { FromClientMessage, FromServerMessage } from "./messages.js"
 
 export const WS_WORKER_RPC = "automerge-repo-ws-worker-rpc" as const

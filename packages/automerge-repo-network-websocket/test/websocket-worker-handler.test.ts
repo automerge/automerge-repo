@@ -47,8 +47,7 @@ class FakeSocket implements WsSocketLike {
     this.#emit("error")
   }
   deliver(bytes: Uint8Array) {
-    // Copy into a fresh, exact-size ArrayBuffer (a Node Buffer's `.buffer` is a
-    // shared pool larger than the data, which would mis-decode).
+    // Exact-size copy: a Node Buffer's `.buffer` is an oversized shared pool.
     const copy = new Uint8Array(bytes)
     this.#emit("message", { data: copy.buffer })
   }

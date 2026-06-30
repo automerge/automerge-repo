@@ -8,9 +8,7 @@ export default defineConfig({
     globals: true,
     setupFiles: [path.join(__dirname, "./testSetup.ts")],
 
-    // Real-browser benches (`*.browser.test.ts`) run only under the gated
-    // per-package `vitest.browser.config.ts` (Playwright provider), never in
-    // the default `pnpm test`.
+    // Browser benches run only under the per-package vitest.browser.config.ts.
     exclude: [...configDefaults.exclude, "**/*.browser.test.ts"],
 
     // This should _not_ be jsdom, because the jsdom polyfill breaks various

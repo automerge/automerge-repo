@@ -111,8 +111,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #subductionEphemeralCount = 0
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
   #peerId: PeerId
-  /** The raw storage adapter, retained so {@link shutdown} can release any
-   * resources it holds (e.g. terminate a worker-backed adapter). */
+  /** Retained so {@link shutdown} can `dispose` it (e.g. a worker-backed adapter). */
   #storage: (StorageAdapterInterface & { dispose?: () => void }) | undefined
 
   constructor({
@@ -937,9 +936,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#log.warn("flush() during shutdown failed", { err: e })
     }
 
-    // Release storage resources last (after the final flush has written),
-    // e.g. terminate a worker-backed storage adapter. Optional on the
-    // interface, so only adapters that implement `dispose` are affected.
+    // Release the storage adapter (e.g. terminate its worker) after the flush.
     this.#storage?.dispose?.()
   }
 

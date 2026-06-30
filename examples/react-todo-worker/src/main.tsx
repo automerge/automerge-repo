@@ -1,7 +1,6 @@
 import { Repo, isValidAutomergeUrl, RepoContext } from "@automerge/react"
 import { WebSocketWorkerClientAdapter } from "@automerge/automerge-repo-network-websocket"
-// The worker storage adapter is exposed on its own subpath (the package's main
-// entry intentionally keeps the in-thread adapter as the default export).
+// Worker adapter lives on its own subpath; the main entry keeps the in-thread one.
 import { IndexedDBWorkerStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb/IndexedDBWorkerStorageAdapter"
 // @ts-ignore — initSync is not in the type declarations but is exported at runtime
 import { initSync } from "@automerge/automerge-subduction/slim"
@@ -15,20 +14,10 @@ import { App } from "./App.js"
 import { State } from "./types.js"
 import "./index.css"
 
-// A Repo always builds a Subduction source internally, so its Wasm must be
-// initialized even though this demo syncs over the classic WebSocket adapter.
+// A Repo always builds a Subduction source, so its Wasm must be initialized.
 initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
 
-// This demo is identical to `react-todo`, except both adapters run their I/O on
-// a dedicated Worker — off the main thread — so storage writes and socket
-// traffic don't compete with rendering or CRDT work:
-//
-//   - IndexedDBWorkerStorageAdapter runs IndexedDB in a Worker.
-//   - WebSocketWorkerClientAdapter runs the sync socket + CBOR in a Worker.
-//
-// Each is a drop-in for its main-thread counterpart (IndexedDBStorageAdapter /
-// WebSocketClientAdapter) and transparently falls back to the main thread where
-// Workers aren't available.
+// Like `react-todo`, but both adapters run their I/O on a Worker.
 const repo = new Repo({
   storage: new IndexedDBWorkerStorageAdapter("automerge-repo-demo-todo-worker"),
   network: [new WebSocketWorkerClientAdapter("wss://sync.automerge.org")],
