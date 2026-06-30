@@ -112,8 +112,6 @@ export class Repo extends EventEmitter<RepoEvents> {
   #subductionEphemeralCount = 0
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
   #peerId: PeerId
-  /** Retained so {@link shutdown} can `dispose` it (e.g. a worker-backed adapter). */
-  #storage: (StorageAdapterInterface & { dispose?: () => void }) | undefined
 
   constructor({
     storage,
@@ -153,7 +151,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     // STORAGE
-    this.#storage = storage
     const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
     if (storageSubsystem) {
       storageSubsystem.on("document-loaded", event =>
@@ -950,11 +947,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#log.warn("flush() during shutdown failed", { err: e })
     }
 
-    // Release the storage adapter after the flush. Run both teardown paths so
-    // neither is lost: StorageSubsystem.close() forwards to adapter.close?(),
-    // and #storage.dispose?.() terminates a worker-backed adapter.
+    // Release the storage adapter after the flush. StorageSubsystem.close()
+    // forwards to the adapter's close?(), which terminates a worker-backed
+    // adapter's worker.
     await this.storageSubsystem?.close()
-    this.#storage?.dispose?.()
   }
 
   metrics(): { documents: { [key: string]: any } } {

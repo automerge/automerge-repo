@@ -82,7 +82,7 @@ const makeAdapter = (database: string, worker = new FakeStorageWorker()) => {
 }
 
 afterEach(() => {
-  for (const a of created.splice(0)) a.dispose()
+  for (const a of created.splice(0)) a.close()
 })
 
 describe("IndexedDBWorkerStorageAdapter (worker-RPC proxy)", () => {
@@ -179,13 +179,13 @@ describe("IndexedDBWorkerStorageAdapter (worker-RPC proxy)", () => {
     await expect(adapter.load(["k"])).rejects.toBeInstanceOf(WorkerStorageError)
   })
 
-  it("rejects in-flight calls on dispose", async () => {
-    const { adapter, worker } = makeAdapter("idb-dispose")
+  it("rejects in-flight calls on close", async () => {
+    const { adapter, worker } = makeAdapter("idb-close")
     await adapter.save(["k"], PAYLOAD_A())
     worker.dropReplies = true
     const inflight = adapter.load(["k"])
     await tick()
-    adapter.dispose()
+    adapter.close()
     await expect(inflight).rejects.toBeInstanceOf(WorkerStorageError)
   })
 

@@ -29,7 +29,7 @@ const REPEATS = Number.parseInt(__BENCH_REPEATS__, 10)
 const CONTENTION_MS = Number.parseInt(__BENCH_CONTENTION_MS__, 10)
 const BATCH = Number.parseInt(__BENCH_BATCH__, 10)
 
-type DisposableAdapter = StorageAdapterInterface & { dispose?(): void }
+type DisposableAdapter = StorageAdapterInterface
 
 const dbName = () => "bench-" + Math.random().toString(36).slice(2)
 
@@ -100,7 +100,7 @@ async function benchVariant(
         await prepare?.(adapter)
         runs.push(await run(adapter))
       } finally {
-        adapter.dispose?.()
+        adapter.close?.()
       }
     }
     results.push(summarize(label, runs))
