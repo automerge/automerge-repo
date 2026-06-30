@@ -36,7 +36,6 @@ vi.mock("../../src/helpers/yield.js", async importOriginal => {
 
 import { Repo } from "../../src/Repo.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
-import { pause } from "../../src/helpers/pause.js"
 import { initSubduction } from "../../src/initSubduction.js"
 import type { PeerId } from "../../src/types.js"
 
@@ -80,9 +79,10 @@ describe("SubductionSource recompute coalescing", () => {
   }
 
   it("coalesces a synchronous burst of attaches into O(1) walks", async () => {
-    // Construct with real timers: subduction's async init awaits real I/O.
+    // Await subduction's ready promise (the API's init signal) before
+    // installing fake timers, rather than guessing with a fixed sleep.
     const repo = makeRepo()
-    await pause(100)
+    await repo.subduction
 
     vi.useFakeTimers()
     try {
@@ -113,7 +113,7 @@ describe("SubductionSource recompute coalescing", () => {
 
   it("schedules a fresh walk for requests arriving after a walk completed", async () => {
     const repo = makeRepo()
-    await pause(100)
+    await repo.subduction
 
     vi.useFakeTimers()
     try {
