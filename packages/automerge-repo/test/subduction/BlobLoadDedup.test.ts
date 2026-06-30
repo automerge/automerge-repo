@@ -18,7 +18,8 @@ import {
 } from "@automerge/automerge-subduction"
 import { Repo } from "../../src/Repo.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
-import { pause } from "../../src/helpers/pause.js"
+import { awaitDoc } from "../helpers/awaitDoc.js"
+import { waitFor } from "../helpers/waitFor.js"
 import { initSubduction } from "../../src/initSubduction.js"
 import { toSedimentreeId } from "../../src/subduction/helpers.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
@@ -27,19 +28,6 @@ import type { PeerId } from "../../src/types.js"
 beforeAll(async () => {
   await initSubduction()
 })
-
-async function waitForCondition(
-  fn: () => Promise<boolean>,
-  timeoutMs: number,
-  intervalMs = 200
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await fn()) return
-    await pause(intervalMs)
-  }
-  throw new Error(`waitForCondition timed out after ${timeoutMs}ms`)
-}
 
 async function startSubductionServer(listenPort = 0): Promise<{
   url: string
@@ -106,9 +94,9 @@ describe("SubductionSource blob load deduplication", () => {
     })
 
     const sid = toSedimentreeId(handle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 5000)
 
     const reader = createClientRepo("reader", server.url)
@@ -137,9 +125,9 @@ describe("SubductionSource blob load deduplication", () => {
     })
 
     const sid = toSedimentreeId(handle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 5000)
 
     const reader = createClientRepo("reader", server.url)
@@ -150,6 +138,6 @@ describe("SubductionSource blob load deduplication", () => {
       d.count = 2
     })
 
-    await waitForCondition(async () => fetched.doc()?.count === 2, 5000)
+    await awaitDoc(fetched, h => h.doc()?.count === 2, { timeout: 5000 })
   })
 })
