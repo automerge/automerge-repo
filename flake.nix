@@ -2,7 +2,7 @@
   description = "Automerge Repo";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
     unstable-nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
@@ -60,7 +60,7 @@
             nativeBuildInputs = [
               pkgs.eslint
               pkgs.javascript-typescript-langserver
-              pkgs.nodePackages.vscode-langservers-extracted
+              pkgs.vscode-langservers-extracted
               nodejs
               pnpm-pkg
               pkgs.prettierd

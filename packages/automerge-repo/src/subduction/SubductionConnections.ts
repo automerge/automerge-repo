@@ -8,6 +8,15 @@ export type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
 
+/**
+ * Always-on `[lifecycle]` marker for a server WebSocket transition, to
+ * correlate with server keepalive reaps (the `#log` calls below are
+ * debug-gated; these are not).
+ */
+function lifecycle(text: string, level: "info" | "warn" = "info"): void {
+  console[level](`[lifecycle] ${new Date().toISOString()} subduction ws ${text}`)
+}
+
 export class SubductionConnections implements ConnectionManager {
   #connectionStates = new Map<string, ConnectionState>()
   #log: debug.Debugger = debug("automerge-repo:subduction:connections")
@@ -54,6 +63,7 @@ export class SubductionConnections implements ConnectionManager {
     while (!this.#isShutdown) {
       this.#setConnectionState(url, "connecting")
       this.#log(`connecting to ${url}...`)
+      lifecycle(`connecting to ${url}`)
 
       try {
         const transport = await WebSocketTransport.connect(url)
@@ -67,18 +77,22 @@ export class SubductionConnections implements ConnectionManager {
         await subduction.connectTransport(transport, serviceName)
         this.#setConnectionState(url, "running")
         this.#log(`connected to ${url}`)
+        lifecycle(`connected to ${url}`)
         backoff = RECONNECT_BASE_MS
 
         await transport.closed()
         this.#log(`disconnected from ${url}`)
+        lifecycle(`disconnected from ${url}`, "warn")
       } catch (e) {
         console.warn(`[subduction] connection to ${url} failed:`, e)
+        lifecycle(`connect to ${url} FAILED: ${e}`, "warn")
       }
 
       if (this.#isShutdown) break
 
       this.#setConnectionState(url, "awaiting-reconnect")
       this.#log(`reconnecting to ${url} in ${backoff}ms`)
+      lifecycle(`reconnecting to ${url} in ${backoff}ms`)
       await new Promise<void>(r => {
         const timer = setTimeout(() => {
           this.#pendingSleeps.delete(timer)

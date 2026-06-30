@@ -945,17 +945,18 @@ export class SubductionSource implements DocumentSource {
   }
 
   /**
-   * True when `entry` has a reason to open a sync round now: it has never
-   * synced (`lastSyncResult === null`, e.g. just reset by a save), or its
-   * last attempt found no peers but a connection has since changed so a
-   * peer may now exist. Shared by `#recomputeEntry` and `shutdown()`'s
-   * quiesce filter so the two stay in agreement.
+   * True when `entry` should open a sync round now: never synced, or it
+   * previously synced / found no peers and the connection generation has since
+   * advanced (a reconnect — server subscriptions are per-connection, so a
+   * synced doc must re-sync to re-subscribe). `"all-failed"` is left to the healer.
    */
   #needsOutboundSync(entry: SedimentreeEntry): boolean {
+    if (entry.lastSyncResult === null) return true
+
     return (
-      entry.lastSyncResult === null ||
-      (entry.lastSyncResult === "no-peers" &&
-        entry.lastSyncGeneration !== this.#connectionGeneration())
+      (entry.lastSyncResult === "succeeded" ||
+        entry.lastSyncResult === "no-peers") &&
+      entry.lastSyncGeneration !== this.#connectionGeneration()
     )
   }
 
