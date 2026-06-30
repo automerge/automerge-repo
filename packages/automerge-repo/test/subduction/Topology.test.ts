@@ -714,9 +714,6 @@ describe("Tab → Worker → Server topology", () => {
         d.count = 1
       })
 
-      // Let Alice's initial sync settle before we start collecting.
-      await wait(500)
-
       // Collect all remote heads events on Alice's handle
       const remoteHeadsEvents: DocHandleRemoteHeadsPayload[] = []
       aliceHandle.on("remote-heads", msg => {
@@ -735,14 +732,15 @@ describe("Tab → Worker → Server topology", () => {
         d.count = 2
       })
 
-      // Wait for Alice to receive at least one remote heads event
-      // reflecting the server having ingested Bob's change
+      // Wait for a remote-heads event with non-empty heads, reflecting the
+      // server having ingested Bob's change.
       await waitFor(
-        () => expect(remoteHeadsEvents.length).toBeGreaterThan(0),
+        () =>
+          expect(remoteHeadsEvents.some(e => e.heads.length > 0)).toBe(true),
         5000
       )
 
-      const latestHeads = remoteHeadsEvents[remoteHeadsEvents.length - 1]
+      const latestHeads = remoteHeadsEvents.findLast(e => e.heads.length > 0)!
       expect(latestHeads.storageId).toBe(server.storageId)
       expect(latestHeads.heads.length).toBeGreaterThan(0)
     }, 10_000)
