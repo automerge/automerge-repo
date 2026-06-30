@@ -13,7 +13,7 @@ import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
 import { type PeerId } from "../../src/types.js"
 import { toSedimentreeId } from "../../src/subduction/helpers.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
-import { pause } from "../../src/helpers/pause.js"
+import { waitFor } from "../helpers/waitFor.js"
 
 interface TestServer {
   port: number
@@ -122,10 +122,16 @@ describe("SubductionPolicy", () => {
       d.value = 1
     })
 
+    // Poll the server's storage directly rather than awaiting a sync event: the
+    // system under test here is the policy, and the obvious event
+    // (subduction-remote-heads) is gated by authorizeFetch -- awaiting it would
+    // couple this test's synchronization to the policy under test. A bounded
+    // getBlobs poll is an independent end-state check. (Same below and in the
+    // other policy-bearing suites.)
     const sid = toSedimentreeId(handle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 5000)
 
     expect(policy.spies.authorizeConnect).toHaveBeenCalled()
@@ -149,9 +155,9 @@ describe("SubductionPolicy", () => {
     })
 
     const sid = toSedimentreeId(handle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 5000)
 
     // The client-side policy should have been invoked during the sync.
@@ -188,12 +194,9 @@ describe("SubductionPolicy", () => {
       d.value = "should not arrive"
     })
 
-    // Give ample time for sync attempts
-    await pause(3000)
-
     // Verify the policy was actually invoked (not a false positive from
     // a connection failure preventing data from ever reaching the server).
-    expect(authorizePutSpy).toHaveBeenCalled()
+    await waitFor(() => expect(authorizePutSpy).toHaveBeenCalled(), 5000)
 
     // The server should NOT have any blobs for this document
     const sid = toSedimentreeId(handle.documentId)
@@ -201,16 +204,3 @@ describe("SubductionPolicy", () => {
     expect(blobs?.length ?? 0).toBe(0)
   }, 10_000)
 })
-
-async function waitForCondition(
-  fn: () => Promise<boolean>,
-  timeoutMs: number,
-  intervalMs = 200
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await fn()) return
-    await pause(intervalMs)
-  }
-  throw new Error(`waitForCondition timed out after ${timeoutMs}ms`)
-}
