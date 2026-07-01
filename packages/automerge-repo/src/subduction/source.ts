@@ -22,6 +22,7 @@ import { ConnectionManager } from "./ConnectionManager.js"
 import type { StorageId } from "../storage/types.js"
 import type { UrlHeads } from "../types.js"
 import { mergeArrays } from "../helpers/mergeArrays.js"
+import { semaphore } from "../helpers/semaphore.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
 import debug from "debug"
@@ -48,6 +49,15 @@ const DEFAULT_SYNC_TIMEOUT_MS = 60_000
  * unresponsive or half-torn-down peer.
  */
 const SHUTDOWN_SYNC_TIMEOUT_MS = 5_000
+
+/**
+ * Default cap on how many stale-blob deletes run concurrently during a
+ * compaction pass. A long-lived doc can accumulate a large stale set, and
+ * without a cap every delete would fire at once and flood the storage
+ * adapter. Override per-Repo via
+ * `RepoConfig.subductionCompactionDeleteConcurrency`.
+ */
+const DEFAULT_COMPACTION_DELETE_CONCURRENCY = 16
 
 // ── Per-sedimentree state ───────────────────────────────────────────────
 //
@@ -327,6 +337,12 @@ export interface SubductionSourceOptions {
   /** Tunable timeouts for sync and heal-retry. See {@link SubductionTimeouts}. */
   timeouts?: SubductionTimeouts
 
+  /**
+   * Max number of stale-blob deletes to run concurrently during a compaction
+   * pass. Defaults to {@link DEFAULT_COMPACTION_DELETE_CONCURRENCY}.
+   */
+  compactionDeleteConcurrency?: number
+
   blobInterceptor?: BlobInterceptor
 }
 
@@ -339,6 +355,7 @@ export class SubductionSource implements DocumentSource {
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
   #syncTimeout: number | null
+  #compactionDeleteConcurrency: number
   #blobInterceptor?: BlobInterceptor
   #onRemoteHeadsChanged?: OnRemoteHeadsChanged
   #onConnectionChanged?: (connected: boolean) => void
@@ -371,6 +388,7 @@ export class SubductionSource implements DocumentSource {
     priority = 2,
     policy,
     timeouts,
+    compactionDeleteConcurrency = DEFAULT_COMPACTION_DELETE_CONCURRENCY,
     blobInterceptor,
   }: SubductionSourceOptions) {
     this.#blobInterceptor = blobInterceptor
@@ -378,6 +396,7 @@ export class SubductionSource implements DocumentSource {
     this.priority = priority
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     this.#syncTimeout = this.#syncTimeoutMs
+    this.#compactionDeleteConcurrency = compactionDeleteConcurrency
     // Default roundtrip deadline forwarded to the Subduction constructor.
     // The field must be *omitted* (not passed as `undefined`) to get the
     // wasm built-in default (30 s) — passing `undefined` is coerced to a
@@ -1718,12 +1737,25 @@ export class SubductionSource implements DocumentSource {
     if (staleCommits.length === 0 && staleFragments.length === 0) return
 
     const sid = entry.sedimentreeId
+    // Bounded fan-out: a long-lived doc can accumulate a large stale set,
+    // and firing every delete at once would flood the storage adapter in a
+    // single burst (the shutdown final-sync pool bounds its rounds for the
+    // same reason). Cap how many deletes run concurrently.
+    const limit = semaphore(this.#compactionDeleteConcurrency)
     const ops: Array<Promise<unknown>> = []
     for (const hex of staleCommits) {
-      ops.push(this.#storage.deleteCommit(sid, CommitId.fromHexString(hex)))
+      ops.push(
+        limit(() =>
+          this.#storage.deleteCommit(sid, CommitId.fromHexString(hex))
+        )
+      )
     }
     for (const hex of staleFragments) {
-      ops.push(this.#storage.deleteFragment(sid, CommitId.fromHexString(hex)))
+      ops.push(
+        limit(() =>
+          this.#storage.deleteFragment(sid, CommitId.fromHexString(hex))
+        )
+      )
     }
 
     try {
