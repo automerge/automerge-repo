@@ -21,7 +21,7 @@ initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter("automerge-repo-demo-remote-heads"),
-  subductionWebsocketEndpoints: ["wss://subduction.sync.inkandswitch.com"]
+  subductionWebsocketEndpoints: ["wss://subduction.sync.inkandswitch.com"],
 })
 
 declare global {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { pause } from "../src/helpers/pause.js"
-import { AbortError } from "../src/helpers/abortable.js"
+import { isAbortErrorLike } from "../src/helpers/abortable.js"
 
 describe("pause", () => {
   beforeEach(() => {
@@ -45,12 +45,12 @@ describe("pause", () => {
 
       await expect(
         pause(1000, { signal: controller.signal })
-      ).rejects.toBeInstanceOf(AbortError)
+      ).rejects.toSatisfy(isAbortErrorLike)
       // The abort fast-path returned before setTimeout was reached.
       expect(vi.getTimerCount()).toBe(before)
     })
 
-    it("rejects with AbortError and clears the timer when the signal aborts mid-pause", async () => {
+    it("rejects with the abort reason and clears the timer when the signal aborts mid-pause", async () => {
       const before = vi.getTimerCount()
       const controller = new AbortController()
       const p = pause(1000, { signal: controller.signal })
@@ -59,9 +59,20 @@ describe("pause", () => {
       await vi.advanceTimersByTimeAsync(20)
       controller.abort()
 
-      await expect(p).rejects.toBeInstanceOf(AbortError)
+      await expect(p).rejects.toSatisfy(isAbortErrorLike)
       // The pending 1000ms timer was cleared by the abort listener.
       expect(vi.getTimerCount()).toBe(before)
+    })
+
+    it("rejects with the provided abort reason", async () => {
+      const controller = new AbortController()
+      const reason = new Error("caller cancelled")
+      const p = pause(1000, { signal: controller.signal })
+
+      await vi.advanceTimersByTimeAsync(20)
+      controller.abort(reason)
+
+      await expect(p).rejects.toBe(reason)
     })
 
     it("aborting after the pause already resolved does not throw or re-settle", async () => {
@@ -87,7 +98,7 @@ describe("pause", () => {
       await vi.advanceTimersByTimeAsync(20)
       c2.abort() // abort via the second source
 
-      await expect(p).rejects.toBeInstanceOf(AbortError)
+      await expect(p).rejects.toSatisfy(isAbortErrorLike)
     })
   })
 })

@@ -48,4 +48,12 @@ export interface StorageAdapterInterface {
    * commit happens — no entries become observable.
    */
   saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
+
+  /**
+   * Release any resources the adapter holds, such as an open database
+   * connection. Optional: {@link Repo.shutdown} calls it after the final flush.
+   * Adapters that hold no long-lived resource (in-memory, plain filesystem) can
+   * omit it.
+   */
+  close?(): void | Promise<void>
 }

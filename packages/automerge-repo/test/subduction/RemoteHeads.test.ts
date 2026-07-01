@@ -58,13 +58,19 @@ describe("subduction remote-heads forwarding", () => {
       storage: new DummyStorageAdapter(),
       network: [],
       subductionAdapters: [
-        { adapter: serverAdapter, serviceName: `localhost:${port}`, role: "accept" },
+        {
+          adapter: serverAdapter,
+          serviceName: `localhost:${port}`,
+          role: "accept",
+        },
       ],
       sharePolicy: async () => true,
     })
     cleanups.push(async () => {
       serverAdapter.disconnect()
-      await new Promise<void>((res, rej) => wss.close(e => (e ? rej(e) : res())))
+      await new Promise<void>((res, rej) =>
+        wss.close(e => (e ? rej(e) : res()))
+      )
     })
     return { repo, url: `ws://localhost:${port}` }
   }
@@ -96,10 +102,17 @@ describe("subduction remote-heads forwarding", () => {
       d.alice = "a"
     })
 
-    const events: Array<{ storageId: string; heads: UrlHeads; timestamp: number }> =
-      []
+    const events: Array<{
+      storageId: string
+      heads: UrlHeads
+      timestamp: number
+    }> = []
     aliceHandle.on("remote-heads", e =>
-      events.push({ storageId: e.storageId, heads: e.heads, timestamp: e.timestamp })
+      events.push({
+        storageId: e.storageId,
+        heads: e.heads,
+        timestamp: e.timestamp,
+      })
     )
 
     // Bob finds the doc, then makes a change. That change propagates

@@ -111,4 +111,40 @@ describe("StorageSource", () => {
       vi.useRealTimers()
     }
   })
+
+  it("logs a failed save instead of leaking an unhandled rejection", async () => {
+    // A save runs fire-and-forget from the "heads-changed" listener. If the
+    // storage write rejects, the rejection must be caught and logged, not left
+    // to surface as an unhandled rejection.
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+      // An adapter whose save() always rejects (disk/IO error, quota, ...).
+      const adapter = new DummyStorageAdapter()
+      adapter.save = async () => {
+        throw new Error("simulated storage write failure")
+      }
+
+      const source = new StorageSource(new StorageSubsystem(adapter), 10)
+      const query = createTestQuery<TestDoc>(documentId)
+      source.attach(query as DocumentQuery<unknown>)
+
+      // A change triggers the throttled save, whose saveDoc rejects.
+      const changed = A.from({ foo: "bar" }) as A.Doc<unknown>
+      query.handle.update(() => changed)
+
+      // The failure must be caught and logged, not floated as a rejection.
+      await vi.waitFor(() =>
+        assert.ok(
+          errSpy.mock.calls.some(call =>
+            call.some(arg => String(arg).includes("Error saving document"))
+          ),
+          "the failed save should be caught and logged"
+        )
+      )
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
 })

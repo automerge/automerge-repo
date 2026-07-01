@@ -38,7 +38,7 @@ import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
 import { DocumentProgress } from "../src/DocumentQuery.js"
-import { AbortError } from "../src/helpers/abortable.js"
+import { isAbortErrorLike } from "../src/helpers/abortable.js"
 import { toSedimentreeId } from "../src/subduction/helpers.js"
 
 describe("Repo", () => {
@@ -67,6 +67,30 @@ describe("Repo", () => {
       assert.notEqual(repo, null)
       assert(repo.networkSubsystem)
       assert(repo.storageSubsystem)
+    })
+
+    it("logs and does not leak when a network adapter fails to become ready", async () => {
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        const networkAdapter = new DummyNetworkAdapter({ startReady: false })
+        networkAdapter.whenReady = () =>
+          Promise.reject(new Error("adapter boom"))
+        // No documents are open, so nothing attaches to networkReady; a
+        // rejection there must be handled at the source, not left to float.
+        const _repo = new Repo({ network: [networkAdapter] })
+        await vi.waitFor(() =>
+          assert.ok(
+            errSpy.mock.calls.some(call =>
+              call.some(arg =>
+                String(arg).includes("network adapters failed to become ready")
+              )
+            ),
+            "the adapter failure should be caught and logged"
+          )
+        )
+      } finally {
+        errSpy.mockRestore()
+      }
     })
 
     it("can create a document", () => {
@@ -460,6 +484,18 @@ describe("Repo", () => {
         storageAdapter.keys().some(k => k.includes(handle.documentId)),
         "shutdown should have flushed the doc to storage"
       )
+    })
+
+    it("shutdown() closes the storage adapter", async () => {
+      let closed = 0
+      class ClosableStorage extends DummyStorageAdapter {
+        async close() {
+          closed++
+        }
+      }
+      const repo = new Repo({ storage: new ClosableStorage() })
+      await repo.shutdown()
+      assert.equal(closed, 1)
     })
 
     it("exports a document", async () => {
@@ -2549,7 +2585,7 @@ describe("Repo.find() abort behavior", () => {
 
     await expect(
       repo.find(generateAutomergeUrl(), { signal: controller.signal })
-    ).rejects.toThrow(AbortError)
+    ).rejects.toSatisfy(isAbortErrorLike)
   })
 
   it("can abort while waiting for ready state", async () => {
@@ -2563,14 +2599,19 @@ describe("Repo.find() abort behavior", () => {
     const findPromise = repo.find(url, { signal: controller.signal })
     controller.abort()
 
-    // Official specification just says to check `reason.name === "AbortError"`
-    // Using AbortError promotes correctness across different JS environments and provides a simpler check.
-    await expect(findPromise).rejects.toThrow(AbortError)
-    await expect(findPromise).rejects.rejects.toHaveProperty(
-      "name",
-      "AbortError"
-    )
-    await expect(findPromise).rejects.not.toThrow("unavailable")
+    await expect(findPromise).rejects.toSatisfy(isAbortErrorLike)
+  })
+
+  it("rejects with the provided abort reason", async () => {
+    const repo = new Repo()
+    const url = generateAutomergeUrl()
+    const controller = new AbortController()
+    const reason = new Error("caller cancelled")
+
+    const findPromise = repo.find(url, { signal: controller.signal })
+    controller.abort(reason)
+
+    await expect(findPromise).rejects.toBe(reason)
   })
 
   describe("creating a document with a custom ID factory", () => {

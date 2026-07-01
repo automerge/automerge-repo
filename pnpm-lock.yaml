@@ -526,9 +526,6 @@ importers:
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
-      debug:
-        specifier: 'catalog:'
-        version: 4.4.3
       eventemitter3:
         specifier: 'catalog:'
         version: 5.0.4

@@ -124,7 +124,10 @@ export function SyncStatus({ url }: { url: AutomergeUrl }) {
           <span className="text-gray-300">local</span> {fmtHeads(localHeads)}
         </div>
         {peers.map(([id, r]) => (
-          <div key={id} className={cx(sameHeads(r.heads, localHeads) && "text-green-600")}>
+          <div
+            key={id}
+            className={cx(sameHeads(r.heads, localHeads) && "text-green-600")}
+          >
             <span className="text-gray-300">{id.slice(0, 6)}…</span>{" "}
             {fmtHeads(r.heads)}
           </div>

@@ -45,6 +45,9 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   #retryIntervalId?: TimeoutId
+  #reconnectTimeoutId?: TimeoutId
+  #forceReadyTimeoutId?: TimeoutId
+  #disconnected = false
   #log = debug("automerge-repo:websocket:browser")
 
   remotePeerId?: PeerId // this adapter only connects to one remote client at a time
@@ -58,6 +61,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
+    this.#disconnected = false
     if (!this.socket || !this.peerId) {
       // first time connecting
       this.#log("connecting")
@@ -89,8 +93,10 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
 
     // Mark this adapter as ready if we haven't received an ack in 1 second.
     // We might hear back from the other end at some point but we shouldn't
-    // hold up marking things as unavailable for any longer
-    setTimeout(() => this.#forceReady(), 1000)
+    // hold up marking things as unavailable for any longer. Clear any pending
+    // fallback so reconnects don't accumulate timers.
+    clearTimeout(this.#forceReadyTimeoutId)
+    this.#forceReadyTimeoutId = setTimeout(() => this.#forceReady(), 1000)
     this.join()
   }
 
@@ -109,7 +115,9 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
 
     if (this.retryInterval > 0 && !this.#retryIntervalId)
       // try to reconnect
-      setTimeout(() => {
+      this.#reconnectTimeoutId = setTimeout(() => {
+        // Skip the reconnect if disconnect() ran after it was scheduled.
+        if (this.#disconnected) return
         assert(this.peerId)
         return this.connect(this.peerId, this.peerMetadata)
       }, this.retryInterval)
@@ -138,8 +146,10 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   }
 
   disconnect() {
+    if (this.#disconnected) return
     assert(this.peerId)
     assert(this.socket)
+    this.#disconnected = true
     const socket = this.socket
     if (socket) {
       socket.removeEventListener("open", this.onOpen)
@@ -149,6 +159,11 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
       socket.close()
     }
     clearInterval(this.#retryIntervalId)
+    this.#retryIntervalId = undefined
+    clearTimeout(this.#reconnectTimeoutId)
+    this.#reconnectTimeoutId = undefined
+    clearTimeout(this.#forceReadyTimeoutId)
+    this.#forceReadyTimeoutId = undefined
     if (this.remotePeerId)
       this.emit("peer-disconnected", { peerId: this.remotePeerId })
     this.socket = undefined

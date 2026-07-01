@@ -129,18 +129,18 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
     await this.#call("saveBatch", [entries])
   }
 
-  dispose(): void {
+  close(): void {
     this.#worker.removeEventListener("message", this.#onMessage)
     this.#worker.removeEventListener("error", this.#onError)
     this.#worker.removeEventListener("messageerror", this.#onError)
-    this.#fail(new WorkerStorageError("IndexedDB storage adapter disposed"))
+    this.#fail(new WorkerStorageError("IndexedDB storage adapter closed"))
     if (this.#ownsWorker) this.#worker.terminate()
   }
 }
 
 export class IndexedDBWorkerStorageAdapter implements StorageAdapterInterface {
   #impl: StorageAdapterInterface
-  #disposed = false
+  #closed = false
 
   /**
    * @param worker - an existing Worker to reuse; otherwise one is spawned.
@@ -191,11 +191,9 @@ export class IndexedDBWorkerStorageAdapter implements StorageAdapterInterface {
   }
 
   /** Terminate the internal worker (only if this adapter created it). */
-  dispose(): void {
-    if (this.#disposed) return
-    this.#disposed = true
-    ;(
-      this.#impl as StorageAdapterInterface & { dispose?: () => void }
-    ).dispose?.()
+  async close(): Promise<void> {
+    if (this.#closed) return
+    this.#closed = true
+    await this.#impl.close?.()
   }
 }

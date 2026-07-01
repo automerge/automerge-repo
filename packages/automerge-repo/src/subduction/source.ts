@@ -420,7 +420,13 @@ export class SubductionSource implements DocumentSource {
       // raw subduction CommitId hex would never compare equal to a doc's
       // own heads).
       const urlHeads = encodeHeads(heads.map(h => h.toHexString()))
-      this.#surfaceRemoteHeads(sedimentreeId, storageId, urlHeads, Date.now(), true)
+      this.#surfaceRemoteHeads(
+        sedimentreeId,
+        storageId,
+        urlHeads,
+        Date.now(),
+        true
+      )
     }
 
     // Construct without hydrating: skip preloading persisted sedimentrees
@@ -1157,8 +1163,7 @@ export class SubductionSource implements DocumentSource {
             entry.query.documentId,
             "",
             blob,
-            (id: string) =>
-              this.#storage.loadBlobById(entry.sedimentreeId, id),
+            (id: string) => this.#storage.loadBlobById(entry.sedimentreeId, id)
           )
           if (result) {
             transformed.push(result)
