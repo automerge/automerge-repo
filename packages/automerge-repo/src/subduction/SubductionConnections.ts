@@ -14,7 +14,9 @@ const RECONNECT_MAX_MS = 30000
  * debug-gated; these are not).
  */
 function lifecycle(text: string, level: "info" | "warn" = "info"): void {
-  console[level](`[lifecycle] ${new Date().toISOString()} subduction ws ${text}`)
+  console[level](
+    `[lifecycle] ${new Date().toISOString()} subduction ws ${text}`
+  )
 }
 
 export class SubductionConnections implements ConnectionManager {

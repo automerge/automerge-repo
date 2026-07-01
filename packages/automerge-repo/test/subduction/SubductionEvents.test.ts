@@ -98,7 +98,8 @@ describe("Subduction Repo events (sync-indicator surface)", () => {
 
     await waitFor(() => repo.isSubductionConnected(), 6000)
     await waitFor(
-      async () => (await repo.connectedSubductionPeerIds()).includes(server.peerId),
+      async () =>
+        (await repo.connectedSubductionPeerIds()).includes(server.peerId),
       6000
     )
     const peers = await repo.connectedSubductionPeerIds()
@@ -178,7 +179,7 @@ describe("Subduction Repo events (sync-indicator surface)", () => {
       subductionWebsocketEndpoints: [server.url],
     })
 
-    const events: Array<{ documentId: string; heads: string[] }> = [];
+    const events: Array<{ documentId: string; heads: string[] }> = []
     repo.on("subduction-remote-heads", e =>
       events.push({ documentId: e.documentId, heads: [...e.heads] })
     )
@@ -290,5 +291,7 @@ describe("Subduction Repo events (sync-indicator surface)", () => {
 })
 
 function sameHeadList(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|")
+  return (
+    a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|")
+  )
 }

@@ -309,7 +309,12 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId,
     commitIdHex: string
   ): Promise<Uint8Array | null> {
-    const blobKey = [this.prefix, BLOBS_PREFIX, sedimentreeId.toString(), commitIdHex]
+    const blobKey = [
+      this.prefix,
+      BLOBS_PREFIX,
+      sedimentreeId.toString(),
+      commitIdHex,
+    ]
     return (await this.adapter.load(blobKey)) ?? null
   }
 
