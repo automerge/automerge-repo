@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@automerge/automerge':
-      specifier: ^3.2.6
-      version: 3.2.6
+      specifier: 3.3.0-fragments.2
+      version: 3.3.0-fragments.2
     '@clack/prompts':
       specifier: ^1.4.0
       version: 1.5.0
@@ -33,9 +33,6 @@ catalogs:
     '@vitest/ui':
       specifier: ^4.1.7
       version: 4.1.7
-    cbor-x:
-      specifier: ^1.6.4
-      version: 1.6.4
     debug:
       specifier: ^4.4.3
       version: 4.4.3
@@ -95,7 +92,10 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.2.6
+        version: 3.3.0-fragments.2
+      '@automerge/automerge-subduction':
+        specifier: 0.16.0
+        version: 0.16.0
       '@manypkg/cli':
         specifier: ^0.25.1
         version: 0.25.1
@@ -122,13 +122,22 @@ importers:
         version: 6.0.2(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
       '@vitest/coverage-v8':
         specifier: 'catalog:'
-        version: 4.1.7(vitest@4.1.7)
+        version: 4.1.7(@vitest/browser@4.1.7)(vitest@4.1.7)
       '@vitest/ui':
         specifier: 'catalog:'
         version: 4.1.7(vitest@4.1.7)
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
+      dev-null-cli:
+        specifier: ^2.0.0
+        version: 2.0.0
+      fake-indexeddb:
+        specifier: 6.2.5
+        version: 6.2.5
+      globals:
+        specifier: ^15.6.0
+        version: 15.15.0
       happy-dom:
         specifier: ^20.9.0
         version: 20.9.0
@@ -164,7 +173,7 @@ importers:
         version: 3.6.0(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
       vitest:
         specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   examples/react-counter:
     dependencies:
@@ -200,8 +209,88 @@ importers:
         specifier: 'catalog:'
         version: 3.6.0(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
+  examples/react-remote-heads:
+    dependencies:
+      '@automerge/react':
+        specifier: workspace:*
+        version: link:../../packages/automerge-react
+      autoprefixer:
+        specifier: ^10.5.0
+        version: 10.5.0(postcss@8.5.15)
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      postcss:
+        specifier: ^8.5.15
+        version: 8.5.15
+      react:
+        specifier: 'catalog:'
+        version: 19.2.6
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.6(react@19.2.6)
+      react-error-boundary:
+        specifier: 'catalog:'
+        version: 6.1.2(react@19.2.6)
+    devDependencies:
+      '@vitejs/plugin-react':
+        specifier: 'catalog:'
+        version: 6.0.2(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      tailwindcss:
+        specifier: ^3.4.19
+        version: 3.4.19
+      vite:
+        specifier: 'catalog:'
+        version: 8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)
+      vite-plugin-wasm:
+        specifier: 'catalog:'
+        version: 3.6.0(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+
   examples/react-todo:
     dependencies:
+      '@automerge/react':
+        specifier: workspace:*
+        version: link:../../packages/automerge-react
+      autoprefixer:
+        specifier: ^10.5.0
+        version: 10.5.0(postcss@8.5.15)
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      postcss:
+        specifier: ^8.5.15
+        version: 8.5.15
+      react:
+        specifier: 'catalog:'
+        version: 19.2.6
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.6(react@19.2.6)
+      react-error-boundary:
+        specifier: 'catalog:'
+        version: 6.1.2(react@19.2.6)
+    devDependencies:
+      '@vitejs/plugin-react':
+        specifier: 'catalog:'
+        version: 6.0.2(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      tailwindcss:
+        specifier: ^3.4.19
+        version: 3.4.19
+      vite:
+        specifier: 'catalog:'
+        version: 8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)
+      vite-plugin-wasm:
+        specifier: 'catalog:'
+        version: 3.6.0(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+
+  examples/react-todo-worker:
+    dependencies:
+      '@automerge/automerge-repo-network-websocket':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-network-websocket
+      '@automerge/automerge-repo-storage-indexeddb':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-storage-indexeddb
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -359,38 +448,50 @@ importers:
         version: 6.0.3
       vitest:
         specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.2.6
+        version: 3.3.0-fragments.2
+      '@automerge/automerge-subduction':
+        specifier: 0.16.0
+        version: 0.16.0
       bs58check:
         specifier: ^4.0.0
         version: 4.0.0
       cbor-x:
-        specifier: 'catalog:'
+        specifier: ^1.6.4
         version: 1.6.4
       debug:
-        specifier: 'catalog:'
+        specifier: ^4.4.3
         version: 4.4.3
       eventemitter3:
-        specifier: 'catalog:'
+        specifier: ^5.0.4
         version: 5.0.4
       fast-sha256:
         specifier: ^1.3.0
         version: 1.3.0
+      isomorphic-ws:
+        specifier: ^5.0.0
+        version: 5.0.0(ws@8.21.0)
       uuid:
-        specifier: 'catalog:'
+        specifier: ^14.0.0
         version: 14.0.0
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
       xstate:
         specifier: ^5.31.1
         version: 5.32.0
     devDependencies:
       '@types/node':
-        specifier: 'catalog:'
+        specifier: ^22.19.19
         version: 22.19.19
+      '@types/ws':
+        specifier: ^8.5.10
+        version: 8.18.1
       http-server:
         specifier: ^14.1.1
         version: 14.1.1(debug@4.4.3)
@@ -398,14 +499,14 @@ importers:
         specifier: ^4.22.3
         version: 4.22.3
       typescript:
-        specifier: 'catalog:'
+        specifier: ^6.0.3
         version: 6.0.3
       vite:
-        specifier: 'catalog:'
+        specifier: ^8.0.14
         version: 8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)
       vitest:
-        specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        specifier: ^4.1.7
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo-network-broadcastchannel:
     dependencies:
@@ -418,7 +519,7 @@ importers:
         version: 6.0.3
       vitest:
         specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo-network-messagechannel:
     dependencies:
@@ -434,7 +535,7 @@ importers:
         version: 6.0.3
       vitest:
         specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo-network-websocket:
     dependencies:
@@ -442,39 +543,39 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
       cbor-x:
-        specifier: 'catalog:'
+        specifier: ^1.6.4
         version: 1.6.4
       debug:
-        specifier: 'catalog:'
+        specifier: ^4.4.3
         version: 4.4.3
       eventemitter3:
-        specifier: 'catalog:'
+        specifier: ^5.0.4
         version: 5.0.4
       ws:
-        specifier: 'catalog:'
+        specifier: ^8.21.0
         version: 8.21.0
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.2.6
+        version: 3.3.0-fragments.2
       '@types/ws':
-        specifier: 'catalog:'
+        specifier: ^8.18.1
         version: 8.18.1
       portfinder:
-        specifier: 'catalog:'
+        specifier: ^1.0.38
         version: 1.0.38
       typescript:
-        specifier: 'catalog:'
+        specifier: ^6.0.3
         version: 6.0.3
       vitest:
-        specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        specifier: ^4.1.7
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo-react-hooks:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.2.6
+        version: 3.3.0-fragments.2
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -514,13 +615,13 @@ importers:
         version: 5.0.1(esbuild@0.28.0)(rolldown@1.0.2)(typescript@6.0.3)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
       vitest:
         specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo-solid-primitives:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.2.6
+        version: 3.3.0-fragments.2
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -553,7 +654,7 @@ importers:
         version: 2.11.12(@testing-library/jest-dom@6.9.1)(solid-js@1.9.13)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
       vitest:
         specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo-storage-indexeddb:
     dependencies:
@@ -561,9 +662,21 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
     devDependencies:
+      '@vitest/browser':
+        specifier: 4.1.7
+        version: 4.1.7(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)
+      '@vitest/browser-playwright':
+        specifier: 4.1.7
+        version: 4.1.7(playwright@1.60.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)
+      playwright:
+        specifier: ^1.60.0
+        version: 1.60.0
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo-storage-nodefs:
     dependencies:
@@ -572,14 +685,17 @@ importers:
         version: link:../automerge-repo
     devDependencies:
       '@types/node':
-        specifier: 'catalog:'
+        specifier: ^22.19.19
         version: 22.19.19
+      fast-check:
+        specifier: ^4.8.0
+        version: 4.8.0
       typescript:
-        specifier: 'catalog:'
+        specifier: ^6.0.3
         version: 6.0.3
       vitest:
-        specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        specifier: ^4.1.7
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/automerge-repo-svelte-store:
     dependencies:
@@ -620,7 +736,7 @@ importers:
         version: 6.0.3
       vitest:
         specifier: 'catalog:'
-        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   packages/create-repo-node-app:
     dependencies:
@@ -663,8 +779,11 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@automerge/automerge@3.2.6':
-    resolution: {integrity: sha512-9/GXXfYYWNVGpnbRrGQzTNU4fWZ3XaEMeEg0OrpK4pvlQSpkmUBoirEb/4TMK6BwMysZGV5Yeneq3wwc7RNGfg==}
+  '@automerge/automerge-subduction@0.16.0':
+    resolution: {integrity: sha512-BOOn/4p8cF4LhjDUQdgM3qyZFya+M7ZuZywuC99x/kbhk4UK7dw/QcsifcHG5E1TAW4R/K17ZGFUC5nCVUSSWg==}
+
+  '@automerge/automerge@3.3.0-fragments.2':
+    resolution: {integrity: sha512-F5KL+YXD0GMFH/as0/kJ3+lotpuJsH1SSrhhKdYSGtR+S9ytBNTw+s3pAjF2Vr0+ZdTMHxsGjqj5SRkJiSNokQ==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -754,6 +873,9 @@ packages:
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
+
+  '@blazediff/core@1.9.1':
+    resolution: {integrity: sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA==}
 
   '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
     resolution: {integrity: sha512-ZKZ/F8US7JR92J4DMct6cLW/Y66o2K576+zjlEN/MevH70bFIsB10wkZEQPLzl2oNh2SMGy55xpJ9JoBRl5DOA==}
@@ -2135,6 +2257,17 @@ packages:
       babel-plugin-react-compiler:
         optional: true
 
+  '@vitest/browser-playwright@4.1.7':
+    resolution: {integrity: sha512-OlTlJej7YN6VwV7zJJoNeaCsctF+JXpzpZ4oBHUbrQFfIq+0KW2f07rprCLh9N/zRIZ0v4Mchn1QDDmWMUhPKw==}
+    peerDependencies:
+      playwright: '*'
+      vitest: 4.1.7
+
+  '@vitest/browser@4.1.7':
+    resolution: {integrity: sha512-N2JFGfXoEGVAut+kHeru9dD4BUMq/q5xDvBARNl0tUsly3m5KglLOu8VO/6MkDfOlgxXTycojkt6gBKsuyR+IQ==}
+    peerDependencies:
+      vitest: 4.1.7
+
   '@vitest/coverage-v8@4.1.7':
     resolution: {integrity: sha512-qsYPeXc5Q9dFLd1i8Ap+Bx8sQgcp+rFVQo4R0dDsWNBzl26ldVF1qOO+RL24K7FDrR6pA+50XedRLSoSG24bVQ==}
     peerDependencies:
@@ -2447,9 +2580,17 @@ packages:
     resolution: {integrity: sha512-YrwaA0vEKazPBkn0ipTiMpSajYDSe+KjQfrjhcBMxJt/znbvlHd8Pw/Vamaz5EB4Wfhs3SUR3Z9mwRu/P3s3Yg==}
     engines: {node: '>=8'}
 
+  camelcase-keys@7.0.2:
+    resolution: {integrity: sha512-Rjs1H+A9R+Ig+4E/9oyB66UC5Mj9Xq3N//vcLf2WzgdTi/3gUu3Z9KoqmlrEG4VuuLK8wJHofxzdQXz/knhiYg==}
+    engines: {node: '>=12'}
+
   camelcase@5.3.1:
     resolution: {integrity: sha512-L28STB170nwWS63UjtlEOE3dldQApaJXZkOI1uMFfzf3rRuPegHaHesyee+YxQ+W6SvRDQV6UrdOdRiR153wJg==}
     engines: {node: '>=6'}
+
+  camelcase@6.3.0:
+    resolution: {integrity: sha512-Gmy6FhYlCY7uOElZUSbxo2UCDH8owEk996gkbrpsgGtrJLM3J7jGxl9Ic7Qwwj4ivOE5AWZWRMecDdF7hqGjFA==}
+    engines: {node: '>=10'}
 
   caniuse-lite@1.0.30001769:
     resolution: {integrity: sha512-BCfFL1sHijQlBGWBMuJyhZUhzo7wer5sVj9hqekB/7xn0Ypy+pER/edCYQm4exbXj4WiySGp40P8UuTh6w1srg==}
@@ -2715,6 +2856,10 @@ packages:
     resolution: {integrity: sha512-z2S+W9X73hAUUki+N+9Za2lBlun89zigOyGrsax+KUQ6wKW4ZoWpEYBkGhQjwAjjDCkWxhY0VKEhk8wzY7F5cA==}
     engines: {node: '>=0.10.0'}
 
+  decamelize@5.0.1:
+    resolution: {integrity: sha512-VfxadyCECXgQlkoEAjeghAr5gY3Hf+IKjKb+X8tGVDtveCjN+USwprd2q3QXBR9T1+x2DG0XZF5/w+7HAtSaXA==}
+    engines: {node: '>=10'}
+
   dedent-js@1.0.1:
     resolution: {integrity: sha512-OUepMozQULMLUmhxS95Vudo0jb0UchLimi3+pQ2plj61Fcy8axbP9hbiD4Sz6DPqn6XG3kfmziVfQ1rSys5AJQ==}
 
@@ -2775,6 +2920,11 @@ packages:
   detect-libc@2.0.4:
     resolution: {integrity: sha512-3UDv+G9CsCKO1WKMGw9fwq/SWJYbI0c5Y7LU1AXYoDdbhE2AHQ6N6Nb34sG8Fj7T5APy8qXDCKuuIHd1BR0tVA==}
     engines: {node: '>=8'}
+
+  dev-null-cli@2.0.0:
+    resolution: {integrity: sha512-7wwzBy6Yo0UqCI+mNRtltZxAuqhmDWE4UPA0yiANku4ya6j6ABt1Uf+jpF8kheObKYWLH/r9Q/3gHsHADdduqA==}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
+    hasBin: true
 
   devalue@5.8.1:
     resolution: {integrity: sha512-4CXDYRBGqN+57wVJkuXBYmpAVUSg3L6JAQa/DFqm238G73E1wuyc/JhGQJzN7vUf/CMphYau2zXbfWzDR5aTEw==}
@@ -2963,6 +3113,14 @@ packages:
   exsolve@1.0.8:
     resolution: {integrity: sha512-LmDxfWXwcTArk8fUEnOfSZpHOJ6zOMUJKOtFLFqJLoKJetuQG874Uc7/Kki7zFLzYybmZhp1M7+98pfMqeX8yA==}
 
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
+
+  fast-check@4.8.0:
+    resolution: {integrity: sha512-GOJ158CUMnN6cSahsv4+ExARvIDuzzinFjkp0E9WtiBa5zcVeLozVkWaE4IzFcc+Y48Wp1EDlUZsXRyAztQcSg==}
+    engines: {node: '>=12.17.0'}
+
   fast-glob@3.3.3:
     resolution: {integrity: sha512-7MptL8U0cqcFdzIzwOTHoilX9x5BrNqye7Z/LuC7kCMRio1EMSyqRK3BEAUD7sXRq4iT4AzTVuZdhgQ2TCvYLg==}
     engines: {node: '>=8.6.0'}
@@ -3020,6 +3178,10 @@ packages:
   find-up@4.1.0:
     resolution: {integrity: sha512-PpOwAdQ/YlXQ2vj8a3h8IipDuYRi3wceVQQGYWxNINccq40Anw7BlsEXCMbt1Zt+OLA6Fq9suIpIWD0OsnISlw==}
     engines: {node: '>=8'}
+
+  find-up@5.0.0:
+    resolution: {integrity: sha512-78/PXT1wlLLDgTzDs7sjq9hzz0vXD+zn+7wypEe4fXQxCmdmqfGsEPQxmiCSQI3ajFV91bVSsvNtrJRiW6nGng==}
+    engines: {node: '>=10'}
 
   flat@5.0.2:
     resolution: {integrity: sha512-b6suED+5/3rTpUBdG1gupIl8MPFCAMA0QXwmljLhvCUKcUvdE4gWky9zpuGCcXHOsz4J9wPGNWq6OKpmIzz3hQ==}
@@ -3164,6 +3326,10 @@ packages:
     resolution: {integrity: sha512-/g3B0mC+4x724v1TgtBlBtt2hPi/EWptsIAmXUx9Z2rvBYleQcsrmaOzd5LyL50jf/Soi83ZDJmw2+XqvH/EeA==}
     engines: {node: 20 || >=22}
 
+  globals@15.15.0:
+    resolution: {integrity: sha512-7ACyT3wmyp3I61S4fG682L0VA2RGD9otkqGJIwNUMF1SWUombIIk+af1unuDYgMm082aHYwD+mzJvv9Iu8dsgg==}
+    engines: {node: '>=18'}
+
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
@@ -3302,6 +3468,10 @@ packages:
   indent-string@4.0.0:
     resolution: {integrity: sha512-EdDDZu4A2OyIK7Lr/2zG+w5jmbuk1DVBnEwREQvBzspBJkCEbRa8GxU1lghYcaGJCnRWibjDXlq779X1/y5xwg==}
     engines: {node: '>=8'}
+
+  indent-string@5.0.0:
+    resolution: {integrity: sha512-m6FAo/spmsW2Ab2fU35JTYwtOKa2yAwXSwgjSv1TJzh4Mh7mC3lzAOVLBprb72XsTrgkEIsl7YrFNAiDiRhIGg==}
+    engines: {node: '>=12'}
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -3458,6 +3628,11 @@ packages:
   isexe@4.0.0:
     resolution: {integrity: sha512-FFUtZMpoZ8RqHS3XeXEmHWLA4thH+ZxCv2lOiPIn1Xc7CxrqhWzNSDzD+/chS/zbYezmiwWLdQC09JdQKmthOw==}
     engines: {node: '>=20'}
+
+  isomorphic-ws@5.0.0:
+    resolution: {integrity: sha512-muId7Zzn9ywDsyXgTIafTry2sV3nySZeUDe6YedVd1Hvuuep5AsIlqK+XefWpYTyJG5e503F2xIuT2lcU6rCSw==}
+    peerDependencies:
+      ws: '*'
 
   istanbul-lib-coverage@3.2.2:
     resolution: {integrity: sha512-O8dpsF+r0WV/8MNRKfnmrtCWhuKjxrq2w+jpzBL5UZKTi2LeVWnWOmWRxFlesJONmc+wLAGvKQZEOanko0LFTg==}
@@ -3697,6 +3872,10 @@ packages:
     resolution: {integrity: sha512-t7hw9pI+WvuwNJXwk5zVHpyhIqzg2qTlklJOf0mVxGSbe3Fp2VieZcduNYjaLDoy6p9uGpQEGWG87WpMKlNq8g==}
     engines: {node: '>=8'}
 
+  locate-path@6.0.0:
+    resolution: {integrity: sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==}
+    engines: {node: '>=10'}
+
   lodash.ismatch@4.4.0:
     resolution: {integrity: sha512-fPMfXjGQEV9Xsq/8MTSgUf255gawYRbjwMyDbcvDhXgV7enSZA0hynz6vMPnpAb5iONEzBHBPsT+0zes5Z301g==}
 
@@ -3772,6 +3951,10 @@ packages:
   memorystream@0.3.1:
     resolution: {integrity: sha512-S3UwM3yj5mtUSEfP41UZmt/0SCoVYUcU1rkXv+BQ5Ig8ndL4sPoJNBUJERafdPb5jjHJGuMgytgKvKIf58XNBw==}
     engines: {node: '>= 0.10.0'}
+
+  meow@10.1.5:
+    resolution: {integrity: sha512-/d+PQ4GKmGvM9Bee/DPa8z3mXs/pkvJE2KEThngVNOqtmljC6K7NMPxtc2JeZYTmpWb9k/TmxjeL18ez3h7vCw==}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
   meow@8.1.2:
     resolution: {integrity: sha512-r85E3NdZ+mpYk1C6RjPFEMSE+s1iZMuHtsHAqY0DT3jZczl0diWUZ8g6oU7h0M9cD2EL+PzaYghhCLzR0ZNn5Q==}
@@ -3949,6 +4132,10 @@ packages:
   node-releases@2.0.46:
     resolution: {integrity: sha512-GYVXHE2KnrzAfsAjl4uP++evGFCrAU1jta4ubEjIG7YWt/64Gqv66a30yKwWczVjA6j3bM4nBwH7Pk1JmDHaxQ==}
     engines: {node: '>=18'}
+
+  noop-stream@1.0.0:
+    resolution: {integrity: sha512-EHpIatM09Pg7dZOsowDwqqdacYpogTBb1BNSMIy8g/J+MGpaxy0k+qmrbYrjLNRPXtW3fqf+Q3b2Q0yFRnQdIw==}
+    engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
   nopt@8.1.0:
     resolution: {integrity: sha512-ieGu42u/Qsa4TFktmaKEwM6MQH0pOWnaB3htzh0JRtx84+Mebc0cbZYN5bC+6WTZ4+77xrL9Pn5m7CV6VIkV7A==}
@@ -4132,6 +4319,10 @@ packages:
     resolution: {integrity: sha512-//88mFWSJx8lxCzwdAABTJL2MyWB12+eIY7MDL2SqLmAkeKU9qxRvWuSyTjm3FUmpBEMuFfckAIqEaVGUDxb6w==}
     engines: {node: '>=6'}
 
+  p-limit@3.1.0:
+    resolution: {integrity: sha512-TYOanM3wGwNGsZN2cVTYPArw454xnXj5qmWF1bEoAc4+cU/ol7GVh7odevjp1FNHduHc3KZMcFduxU5Xc6uJRQ==}
+    engines: {node: '>=10'}
+
   p-limit@6.2.0:
     resolution: {integrity: sha512-kuUqqHNUqoIWp/c467RI4X6mmyuojY5jGutNU0wVTmEOOfcuwLqyMVoAi9MKi2Ak+5i9+nhmrK4ufZE8069kHA==}
     engines: {node: '>=18'}
@@ -4143,6 +4334,10 @@ packages:
   p-locate@4.1.0:
     resolution: {integrity: sha512-R79ZZ/0wAxKGu3oYMlz8jy/kbhsNrS7SKZ7PxEHBgJ5+F2mtFW2fK2cOtBh1cHYkQsbzFV7I+EoRKe6Yt0oK7A==}
     engines: {node: '>=8'}
+
+  p-locate@5.0.0:
+    resolution: {integrity: sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==}
+    engines: {node: '>=10'}
 
   p-map-series@2.1.0:
     resolution: {integrity: sha512-RpYIIK1zXSNEOdwxcfe7FdvGcs7+y5n8rifMhMNWvaxRNMPINJHF5GDeuVxWqnfrcHPSCnp7Oo5yNXHId9Av2Q==}
@@ -4330,6 +4525,10 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  pngjs@7.0.0:
+    resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
+    engines: {node: '>=14.19.0'}
+
   portfinder@1.0.38:
     resolution: {integrity: sha512-rEwq/ZHlJIKw++XtLAO8PPuOQA/zaPJOZJ37BVuN97nLpMJeuDVLVGRwbFoBgLudgdTMP2hdRJP++H+8QOA3vg==}
     engines: {node: '>= 10.12'}
@@ -4445,6 +4644,9 @@ packages:
     resolution: {integrity: sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA==}
     engines: {node: '>=6'}
 
+  pure-rand@8.4.0:
+    resolution: {integrity: sha512-IoM8YF/jY0hiugFo/wOWqfmarlE6J0wc6fDK1PhftMk7MGhVZl88sZimmqBBFomLOCSmcCCpsfj7wXASCpvK9A==}
+
   qs@6.14.2:
     resolution: {integrity: sha512-V/yCWTTF7VJ9hIh18Ugr2zhJMP01MY7c5kh4J870L7imm6/DIzBsNLTXzMwUA3yZ5b/KBqLx8Kp3uRvd7xSe3Q==}
     engines: {node: '>=0.6'}
@@ -4458,6 +4660,10 @@ packages:
   quick-lru@4.0.1:
     resolution: {integrity: sha512-ARhCpm70fzdcvNQfPoy49IaanKkTlRWF2JMzqhcJbhSFRZv7nPTvZJdcY7301IPmvW+/p0RgIWnQDLJxifsQ7g==}
     engines: {node: '>=8'}
+
+  quick-lru@5.1.1:
+    resolution: {integrity: sha512-WuyALRjWPDGtt/wzJiadO5AXY+8hZ80hVpe6MyivgraREW751X3SbhRvG3eLKOYN+8VEvqLcf3wdnt44Z4S4SA==}
+    engines: {node: '>=10'}
 
   range-parser@1.2.1:
     resolution: {integrity: sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==}
@@ -4514,6 +4720,10 @@ packages:
     resolution: {integrity: sha512-zK0TB7Xd6JpCLmlLmufqykGE+/TlOePD6qKClNW7hHDKFh/J7/7gCWGR7joEQEW1bKq3a3yUZSObOoWLFQ4ohg==}
     engines: {node: '>=8'}
 
+  read-pkg-up@8.0.0:
+    resolution: {integrity: sha512-snVCqPczksT0HS2EC+SxUndvSzn6LRCwpfSvLrIfR5BKDQQZMaI6jPRC9dYvYFDRAuFEAnkwww8kBBNE/3VvzQ==}
+    engines: {node: '>=12'}
+
   read-pkg@3.0.0:
     resolution: {integrity: sha512-BLq/cCO9two+lBgiTYNqD6GdtK8s4NpaWrl6/rCO9w0TUS8oJl7cmToOZfRYllKTISY6nt1U7jQ53brmKqY6BA==}
     engines: {node: '>=4'}
@@ -4521,6 +4731,10 @@ packages:
   read-pkg@5.2.0:
     resolution: {integrity: sha512-Ug69mNOpfvKDAc2Q8DRpMjjzdtrnv9HcSMX+4VsZxD1aZ6ZzrIE7rlzXBtWTyhULSMKg076AW6WR5iZpD0JiOg==}
     engines: {node: '>=8'}
+
+  read-pkg@6.0.0:
+    resolution: {integrity: sha512-X1Fu3dPuk/8ZLsMhEj5f4wFAF0DWoK7qhGJvgaijocXxBmSToKfbFtqbxMO7bVjNA1dmE5huAzjXj/ey86iw9Q==}
+    engines: {node: '>=12'}
 
   read@4.1.0:
     resolution: {integrity: sha512-uRfX6K+f+R8OOrYScaM3ixPY4erg69f8DN6pgTvMcA9iRc8iDhwrA4m3Yu8YYKsXJgVvum+m8PkRboZwwuLzYA==}
@@ -4548,6 +4762,10 @@ packages:
   redent@3.0.0:
     resolution: {integrity: sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==}
     engines: {node: '>=8'}
+
+  redent@4.0.0:
+    resolution: {integrity: sha512-tYkDkVVtYkSVhuQ4zBgfvciymHaeuel+zFKXShfDnFP5SyVEP7qo70Rf1jTOTCx3vGNAbnEi/xFkcfQVMIBWag==}
+    engines: {node: '>=12'}
 
   registry-auth-token@5.1.0:
     resolution: {integrity: sha512-GdekYuwLXLxMuFTwAPg5UKGLW/UXzQrZvH/Zj791BQif5T05T0RsaLfHc9q3ZOKi7n+BoprPD9mJ0O0k4xzUlw==}
@@ -4851,6 +5069,10 @@ packages:
     resolution: {integrity: sha512-laJTa3Jb+VQpaC6DseHhF7dXVqHTfJPCRDaEbid/drOhgitgYku/letMUqOXFoWV0zIIUbjpdH2t+tYj4bQMRQ==}
     engines: {node: '>=8'}
 
+  strip-indent@4.1.1:
+    resolution: {integrity: sha512-SlyRoSkdh1dYP0PzclLE7r0M9sgbFKKMFXpFRUMNuKhQSbC6VQIGzq3E0qsfvGJaUFJPGv6Ws1NZ/haTAjfbMA==}
+    engines: {node: '>=12'}
+
   strip-json-comments@2.0.1:
     resolution: {integrity: sha512-4gB8na07fecVVkOI6Rs4e7T6NOTki5EmL7TUduTs6bu3EdnSycntVJ4re8kgZA+wx9IueI2Y11bfbgwtzuE0KQ==}
     engines: {node: '>=0.10.0'}
@@ -4975,6 +5197,10 @@ packages:
     resolution: {integrity: sha512-c1PTsA3tYrIsLGkJkzHF+w9F2EyxfXGo4UyJc4pFL++FMjnq0HJS69T3M7d//gKrFKwy429bouPescbjecU+Zw==}
     engines: {node: '>=8'}
 
+  trim-newlines@4.1.1:
+    resolution: {integrity: sha512-jRKj0n0jXWo6kh62nA5TEh3+4igKDXLvzBJcPpiizP7oOolUrYIxmVBG9TOtHYFHoddUk6YvAkGeGoSVTXfQXQ==}
+    engines: {node: '>=12'}
+
   ts-interface-checker@0.1.13:
     resolution: {integrity: sha512-Y/arvbn+rrz3JCKl9C4kVNfTfSm2/mEp5FSz5EsZSANGPSlQrpRI5M4PKF+mJnE52jOO90PnPSc3Ur3bTQw0gA==}
 
@@ -5005,6 +5231,10 @@ packages:
   type-fest@0.8.1:
     resolution: {integrity: sha512-4dbzIzqvjtgiM5rw1k5rEHtBANKmdudhGyBEajN01fEyhaAIhsoKNy6y7+IN93IfpFtwY9iqi7kD+xwKhQsNJA==}
     engines: {node: '>=8'}
+
+  type-fest@1.4.0:
+    resolution: {integrity: sha512-yGSza74xk0UG8k+pLh5oeoYirvIiWo5t0/o3zHHAO2tRDiZcxWP7fywNlXhqb6/r6sWvwi+RsyQMWhVLe4BVuA==}
+    engines: {node: '>=10'}
 
   type-is@2.1.0:
     resolution: {integrity: sha512-faYHw0anBbc/kWF3zFTEnxSFOAGUX9GFbOBthvDdLsIlEoWOFOtS0zgCiQYwIskL9iGXZL3kAXD8OoZ4GmMATA==}
@@ -5423,6 +5653,10 @@ packages:
     resolution: {integrity: sha512-4UEqdc2RYGHZc7Doyqkrqiln3p9X2DZVxaGbwhn2pi7MrRagKaOcIKe8L3OxYcbhXLgLFUS3zAYuQjKBQgmuNg==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=23}
 
+  yocto-queue@0.1.0:
+    resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
+    engines: {node: '>=10'}
+
   yocto-queue@1.2.2:
     resolution: {integrity: sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ==}
     engines: {node: '>=12.20'}
@@ -5444,7 +5678,9 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@automerge/automerge@3.2.6': {}
+  '@automerge/automerge-subduction@0.16.0': {}
+
+  '@automerge/automerge@3.3.0-fragments.2': {}
 
   '@babel/code-frame@7.29.0':
     dependencies:
@@ -5560,6 +5796,8 @@ snapshots:
       '@babel/helper-validator-identifier': 7.29.7
 
   '@bcoe/v8-coverage@1.0.2': {}
+
+  '@blazediff/core@1.9.1': {}
 
   '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
     optional: true
@@ -6620,7 +6858,7 @@ snapshots:
   '@types/body-parser@1.19.6':
     dependencies:
       '@types/connect': 3.4.38
-      '@types/node': 25.2.3
+      '@types/node': 22.19.19
 
   '@types/chai@5.2.2':
     dependencies:
@@ -6628,7 +6866,7 @@ snapshots:
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 22.19.19
 
   '@types/debug@4.1.13':
     dependencies:
@@ -6640,7 +6878,7 @@ snapshots:
 
   '@types/express-serve-static-core@5.1.1':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 22.19.19
       '@types/qs': 6.14.0
       '@types/range-parser': 1.2.7
       '@types/send': 1.2.1
@@ -6685,12 +6923,12 @@ snapshots:
 
   '@types/send@1.2.1':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 22.19.19
 
   '@types/serve-static@2.2.0':
     dependencies:
       '@types/http-errors': 2.0.5
-      '@types/node': 25.2.3
+      '@types/node': 22.19.19
 
   '@types/trusted-types@2.0.7': {}
 
@@ -6720,7 +6958,69 @@ snapshots:
       '@rolldown/pluginutils': 1.0.1
       vite: 8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)
 
-  '@vitest/coverage-v8@4.1.7(vitest@4.1.7)':
+  '@vitest/browser-playwright@4.1.7(playwright@1.60.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)':
+    dependencies:
+      '@vitest/browser': 4.1.7(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)
+      '@vitest/mocker': 4.1.7(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      playwright: 1.60.0
+      tinyrainbow: 3.1.0
+      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+    transitivePeerDependencies:
+      - bufferutil
+      - msw
+      - utf-8-validate
+      - vite
+    optional: true
+
+  '@vitest/browser-playwright@4.1.7(playwright@1.60.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)':
+    dependencies:
+      '@vitest/browser': 4.1.7(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)
+      '@vitest/mocker': 4.1.7(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      playwright: 1.60.0
+      tinyrainbow: 3.1.0
+      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+    transitivePeerDependencies:
+      - bufferutil
+      - msw
+      - utf-8-validate
+      - vite
+
+  '@vitest/browser@4.1.7(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)':
+    dependencies:
+      '@blazediff/core': 1.9.1
+      '@vitest/mocker': 4.1.7(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      '@vitest/utils': 4.1.7
+      magic-string: 0.30.21
+      pngjs: 7.0.0
+      sirv: 3.0.2
+      tinyrainbow: 3.1.0
+      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - msw
+      - utf-8-validate
+      - vite
+    optional: true
+
+  '@vitest/browser@4.1.7(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)':
+    dependencies:
+      '@blazediff/core': 1.9.1
+      '@vitest/mocker': 4.1.7(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      '@vitest/utils': 4.1.7
+      magic-string: 0.30.21
+      pngjs: 7.0.0
+      sirv: 3.0.2
+      tinyrainbow: 3.1.0
+      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - msw
+      - utf-8-validate
+      - vite
+
+  '@vitest/coverage-v8@4.1.7(@vitest/browser@4.1.7)(vitest@4.1.7)':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/utils': 4.1.7
@@ -6732,7 +7032,9 @@ snapshots:
       obug: 2.1.1
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+    optionalDependencies:
+      '@vitest/browser': 4.1.7(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)
 
   '@vitest/expect@4.1.7':
     dependencies:
@@ -6786,7 +7088,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
-      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+      vitest: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
   '@vitest/utils@4.1.7':
     dependencies:
@@ -7073,7 +7375,16 @@ snapshots:
       map-obj: 4.3.0
       quick-lru: 4.0.1
 
+  camelcase-keys@7.0.2:
+    dependencies:
+      camelcase: 6.3.0
+      map-obj: 4.3.0
+      quick-lru: 5.1.1
+      type-fest: 1.4.0
+
   camelcase@5.3.1: {}
+
+  camelcase@6.3.0: {}
 
   caniuse-lite@1.0.30001769: {}
 
@@ -7330,6 +7641,8 @@ snapshots:
 
   decamelize@1.2.0: {}
 
+  decamelize@5.0.1: {}
+
   dedent-js@1.0.1: {}
 
   dedent@1.5.3: {}
@@ -7364,6 +7677,11 @@ snapshots:
   detect-indent@7.0.2: {}
 
   detect-libc@2.0.4: {}
+
+  dev-null-cli@2.0.0:
+    dependencies:
+      meow: 10.1.5
+      noop-stream: 1.0.0
 
   devalue@5.8.1: {}
 
@@ -7578,6 +7896,12 @@ snapshots:
 
   exsolve@1.0.8: {}
 
+  fake-indexeddb@6.2.5: {}
+
+  fast-check@4.8.0:
+    dependencies:
+      pure-rand: 8.4.0
+
   fast-glob@3.3.3:
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -7642,6 +7966,11 @@ snapshots:
   find-up@4.1.0:
     dependencies:
       locate-path: 5.0.0
+      path-exists: 4.0.0
+
+  find-up@5.0.0:
+    dependencies:
+      locate-path: 6.0.0
       path-exists: 4.0.0
 
   flat@5.0.2: {}
@@ -7793,6 +8122,8 @@ snapshots:
       minimatch: 10.2.5
       minipass: 7.1.2
       path-scurry: 2.0.1
+
+  globals@15.15.0: {}
 
   gopd@1.2.0: {}
 
@@ -7946,6 +8277,8 @@ snapshots:
 
   indent-string@4.0.0: {}
 
+  indent-string@5.0.0: {}
+
   inherits@2.0.4: {}
 
   ini@1.3.8: {}
@@ -8061,6 +8394,10 @@ snapshots:
   isexe@3.1.5: {}
 
   isexe@4.0.0: {}
+
+  isomorphic-ws@5.0.0(ws@8.21.0):
+    dependencies:
+      ws: 8.21.0
 
   istanbul-lib-coverage@3.2.2: {}
 
@@ -8341,6 +8678,10 @@ snapshots:
     dependencies:
       p-locate: 4.1.0
 
+  locate-path@6.0.0:
+    dependencies:
+      p-locate: 5.0.0
+
   lodash.ismatch@4.4.0: {}
 
   log-symbols@4.1.0:
@@ -8434,6 +8775,21 @@ snapshots:
   media-typer@1.1.0: {}
 
   memorystream@0.3.1: {}
+
+  meow@10.1.5:
+    dependencies:
+      '@types/minimist': 1.2.5
+      camelcase-keys: 7.0.2
+      decamelize: 5.0.1
+      decamelize-keys: 1.1.1
+      hard-rejection: 2.1.0
+      minimist-options: 4.1.0
+      normalize-package-data: 3.0.3
+      read-pkg-up: 8.0.0
+      redent: 4.0.0
+      trim-newlines: 4.1.1
+      type-fest: 1.4.0
+      yargs-parser: 20.2.9
 
   meow@8.1.2:
     dependencies:
@@ -8615,6 +8971,8 @@ snapshots:
   node-releases@2.0.27: {}
 
   node-releases@2.0.46: {}
+
+  noop-stream@1.0.0: {}
 
   nopt@8.1.0:
     dependencies:
@@ -8895,6 +9253,10 @@ snapshots:
     dependencies:
       p-try: 2.2.0
 
+  p-limit@3.1.0:
+    dependencies:
+      yocto-queue: 0.1.0
+
   p-limit@6.2.0:
     dependencies:
       yocto-queue: 1.2.2
@@ -8906,6 +9268,10 @@ snapshots:
   p-locate@4.1.0:
     dependencies:
       p-limit: 2.3.0
+
+  p-locate@5.0.0:
+    dependencies:
+      p-limit: 3.1.0
 
   p-map-series@2.1.0: {}
 
@@ -9102,6 +9468,8 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.2
 
+  pngjs@7.0.0: {}
+
   portfinder@1.0.38:
     dependencies:
       async: 3.2.6
@@ -9208,6 +9576,8 @@ snapshots:
 
   punycode.js@2.3.1: {}
 
+  pure-rand@8.4.0: {}
+
   qs@6.14.2:
     dependencies:
       side-channel: 1.1.0
@@ -9217,6 +9587,8 @@ snapshots:
   queue-microtask@1.2.3: {}
 
   quick-lru@4.0.1: {}
+
+  quick-lru@5.1.1: {}
 
   range-parser@1.2.1: {}
 
@@ -9273,6 +9645,12 @@ snapshots:
       read-pkg: 5.2.0
       type-fest: 0.8.1
 
+  read-pkg-up@8.0.0:
+    dependencies:
+      find-up: 5.0.0
+      read-pkg: 6.0.0
+      type-fest: 1.4.0
+
   read-pkg@3.0.0:
     dependencies:
       load-json-file: 4.0.0
@@ -9285,6 +9663,13 @@ snapshots:
       normalize-package-data: 2.5.0
       parse-json: 5.2.0
       type-fest: 0.6.0
+
+  read-pkg@6.0.0:
+    dependencies:
+      '@types/normalize-package-data': 2.4.4
+      normalize-package-data: 3.0.3
+      parse-json: 5.2.0
+      type-fest: 1.4.0
 
   read@4.1.0:
     dependencies:
@@ -9318,6 +9703,11 @@ snapshots:
     dependencies:
       indent-string: 4.0.0
       strip-indent: 3.0.0
+
+  redent@4.0.0:
+    dependencies:
+      indent-string: 5.0.0
+      strip-indent: 4.1.1
 
   registry-auth-token@5.1.0:
     dependencies:
@@ -9644,6 +10034,8 @@ snapshots:
     dependencies:
       min-indent: 1.0.1
 
+  strip-indent@4.1.1: {}
+
   strip-json-comments@2.0.1: {}
 
   sucrase@3.35.0:
@@ -9808,6 +10200,8 @@ snapshots:
 
   trim-newlines@3.0.1: {}
 
+  trim-newlines@4.1.1: {}
+
   ts-interface-checker@0.1.13: {}
 
   tsconfig-paths@4.2.0:
@@ -9837,6 +10231,8 @@ snapshots:
   type-fest@0.6.0: {}
 
   type-fest@0.8.1: {}
+
+  type-fest@1.4.0: {}
 
   type-is@2.1.0:
     dependencies:
@@ -10015,7 +10411,7 @@ snapshots:
     optionalDependencies:
       vite: 8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)
 
-  vitest@4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)):
+  vitest@4.1.7(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.7
       '@vitest/mocker': 4.1.7(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
@@ -10040,13 +10436,14 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@types/node': 22.19.19
-      '@vitest/coverage-v8': 4.1.7(vitest@4.1.7)
+      '@vitest/browser-playwright': 4.1.7(playwright@1.60.0)(vite@8.0.14(@types/node@22.19.19)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)
+      '@vitest/coverage-v8': 4.1.7(@vitest/browser@4.1.7)(vitest@4.1.7)
       '@vitest/ui': 4.1.7(vitest@4.1.7)
       happy-dom: 20.9.0
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)):
+  vitest@4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.7
       '@vitest/mocker': 4.1.7(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
@@ -10071,7 +10468,8 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@types/node': 25.2.3
-      '@vitest/coverage-v8': 4.1.7(vitest@4.1.7)
+      '@vitest/browser-playwright': 4.1.7(playwright@1.60.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))(vitest@4.1.7)
+      '@vitest/coverage-v8': 4.1.7(@vitest/browser@4.1.7)(vitest@4.1.7)
       '@vitest/ui': 4.1.7(vitest@4.1.7)
       happy-dom: 20.9.0
     transitivePeerDependencies:
@@ -10215,6 +10613,8 @@ snapshots:
       string-width: 7.2.0
       y18n: 5.0.8
       yargs-parser: 22.0.0
+
+  yocto-queue@0.1.0: {}
 
   yocto-queue@1.2.2: {}
 

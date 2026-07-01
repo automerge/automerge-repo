@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { configDefaults, defineConfig } from "vitest/config"
 import path from "path"
 import solid from "vite-plugin-solid"
 
@@ -7,6 +7,9 @@ export default defineConfig({
     projects: ["packages/*"],
     globals: true,
     setupFiles: [path.join(__dirname, "./testSetup.ts")],
+
+    // Browser benches run only under the per-package vitest.browser.config.ts.
+    exclude: [...configDefaults.exclude, "**/*.browser.test.ts"],
 
     // This should _not_ be jsdom, because the jsdom polyfill breaks various
     // instanceof tests when going back and forth from wasm-bindgen

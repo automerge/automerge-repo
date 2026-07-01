@@ -39,6 +39,7 @@ import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
 import { DocumentProgress } from "../src/DocumentQuery.js"
 import { isAbortErrorLike } from "../src/helpers/abortable.js"
+import { toSedimentreeId } from "../src/subduction/helpers.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -560,6 +561,7 @@ describe("Repo", () => {
         storage,
       })
       const handle2 = await repo2.find(handle.url)
+      await repo2.flush()
       assert.deepEqual(storage.keys(), initialKeys)
     })
 
@@ -755,8 +757,8 @@ describe("Repo", () => {
         const repo = new Repo()
         const handle = repo.create<TestDoc>()
         assert(repo.synchronizer.docSynchronizers[handle.documentId])
-        // No storage = no save listener; 1 from DocumentQuery
-        assert.equal(handle.listenerCount("heads-changed"), 1)
+        // No storage = no save listener; 1 from DocumentQuery + 1 subduction
+        assert.equal(handle.listenerCount("heads-changed"), 2)
       })
 
       it("respects saveDebounceRate when saving", async () => {
@@ -775,7 +777,10 @@ describe("Repo", () => {
           })
         }
         await pause(10)
-        assert(storageAdapter.keys().length < 5)
+        // Filter out subduction keys from this test
+        assert(
+          storageAdapter.keys().filter(k => !/subduction/.test(k)).length < 5
+        )
 
         const keysBeforeDebouncedSave = storageAdapter.keys().length
         await pause(150)
@@ -906,28 +911,62 @@ describe("Repo", () => {
   describe("flush behaviour", () => {
     const setup = () => {
       let blockedSaves = new Set<{ path: StorageKey; resolve: () => void }>()
+      // Sticky resume: once `resume(ids)` is called for a set of doc ids
+      // (or `resume()` for all), any *future* save matching the filter
+      // also passes through without blocking. Without this, saves that
+      // arrive after the test's `resume()` call (e.g. from
+      // SubductionSource flushing into the same storage adapter) would
+      // hang forever even though the test has already declared them
+      // safe to proceed.
+      let resumedAll = false
+      let resumedDocIds = new Set<string>()
+      // Subduction stores by SedimentreeId-hex, not DocumentId, so we
+      // need both forms when matching paths.
+      let resumedSedimentreeIds = new Set<string>()
+
+      const matchesResumed = (path: StorageKey) => {
+        if (resumedAll) return true
+        for (const id of resumedDocIds) {
+          if (path.includes(id)) return true
+        }
+        for (const sid of resumedSedimentreeIds) {
+          if (path.includes(sid)) return true
+        }
+        return false
+      }
+
       let resume = (documentIds?: DocumentId[]) => {
-        const savesToUnblock = documentIds
-          ? Array.from(blockedSaves).filter(({ path }) =>
-              documentIds.some(documentId => path.includes(documentId))
-            )
-          : Array.from(blockedSaves)
+        if (documentIds === undefined) {
+          resumedAll = true
+        } else {
+          for (const id of documentIds) {
+            resumedDocIds.add(id)
+            resumedSedimentreeIds.add(toSedimentreeId(id).toString())
+          }
+        }
+        const savesToUnblock = Array.from(blockedSaves).filter(({ path }) =>
+          matchesResumed(path)
+        )
         savesToUnblock.forEach(({ resolve }) => resolve())
       }
       const pausedStorage = new DummyStorageAdapter()
       {
         const originalSave = pausedStorage.save.bind(pausedStorage)
         pausedStorage.save = async (...args) => {
-          await new Promise<void>(resolve => {
-            const blockedSave = {
-              path: args[0],
-              resolve: () => {
-                resolve()
-                blockedSaves.delete(blockedSave)
-              },
-            }
-            blockedSaves.add(blockedSave)
-          })
+          // If this save's path was already resumed by the test, don't
+          // block at all.
+          if (!matchesResumed(args[0])) {
+            await new Promise<void>(unblock => {
+              const blockedSave = {
+                path: args[0],
+                resolve: () => {
+                  unblock()
+                  blockedSaves.delete(blockedSave)
+                },
+              }
+              blockedSaves.add(blockedSave)
+            })
+          }
           await Promise.resolve()
           // otherwise all the save promises resolve together
           // which prevents testing flushing a single docID
@@ -2116,8 +2155,8 @@ describe("Repo", () => {
       await pause(10)
 
       const bobHandle = await bobRepo.find<TestDoc>(aliceHandle.url)
-      // 1 save listener + 1 DocumentQuery listener
-      assert.equal(bobHandle.listenerCount("heads-changed"), 2)
+      // 1 save listener + 1 DocumentQuery listener + 1 subduction
+      assert.equal(bobHandle.listenerCount("heads-changed"), 3)
 
       teardown()
     })
@@ -2707,7 +2746,12 @@ describe("Repo.find() abort behavior", () => {
         })
       }
 
-      await pause(200)
+      // Wait for compaction events to arrive (timing depends on storage
+      // subsystem internals and Subduction save throttle)
+      const deadline = Date.now() + 5000
+      while (events.length === 0 && Date.now() < deadline) {
+        await pause(100)
+      }
 
       assert.notEqual(events.length, 0)
       assert(
@@ -2720,7 +2764,7 @@ describe("Repo.find() abort behavior", () => {
       )
 
       await bob.shutdown()
-    })
+    }, 10_000)
 
     it("should emit events on save since", async () => {
       const bob = new Repo({
@@ -2752,7 +2796,13 @@ describe("Repo.find() abort behavior", () => {
       }
 
       // Wait for the debounced save routine to finish
-      await pause(20)
+      {
+        const deadline = Date.now() + 5000
+        const initialLen = events.length
+        while (events.length === initialLen && Date.now() < deadline) {
+          await pause(50)
+        }
+      }
 
       // Now trigger some changes which will cause incremental saves
       for (let i = 0; i < 10; i++) {
@@ -2762,7 +2812,13 @@ describe("Repo.find() abort behavior", () => {
       }
 
       // Wait for the debounced save routine again
-      await pause(20)
+      {
+        const deadline = Date.now() + 5000
+        const initialLen = events.length
+        while (events.length === initialLen && Date.now() < deadline) {
+          await pause(50)
+        }
+      }
 
       // Now actually test the events we got
       assert.notEqual(events.length, 0)
@@ -2777,7 +2833,7 @@ describe("Repo.find() abort behavior", () => {
       )
 
       await bob.shutdown()
-    })
+    }, 15_000)
   })
 })
 
