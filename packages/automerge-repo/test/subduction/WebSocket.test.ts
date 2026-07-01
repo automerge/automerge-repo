@@ -13,21 +13,11 @@ import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
 import { type PeerId } from "../../src/types.js"
 import { toSedimentreeId } from "../../src/subduction/helpers.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
-import { pause } from "../../src/helpers/pause.js"
-
-/** Poll a condition until it returns true, or throw after timeout. */
-async function waitForCondition(
-  fn: () => Promise<boolean>,
-  timeoutMs: number,
-  intervalMs = 200
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await fn()) return
-    await pause(intervalMs)
-  }
-  throw new Error(`waitForCondition timed out after ${timeoutMs}ms`)
-}
+import { awaitDoc } from "../helpers/awaitDoc.js"
+import { awaitSubductionConnected } from "../helpers/awaitSubductionConnected.js"
+import { awaitSyncedHandle } from "../helpers/awaitSyncedHandle.js"
+import { waitFor } from "../helpers/waitFor.js"
+import { wait } from "../helpers/wait.js"
 
 interface TestServer {
   port: number
@@ -207,9 +197,9 @@ describe("Subduction WebSocket sync", () => {
     })
 
     const sid = toSedimentreeId(handle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 5000)
 
     const blobs = await server.subduction.getBlobs(sid)
@@ -228,13 +218,14 @@ describe("Subduction WebSocket sync", () => {
       d.count = 42
     })
 
-    await pause(500)
-
     // Client 2 connects and fetches the same doc
     const client2 = createClientRepo("client-2", server.url)
 
-    const handle2 = await client2.find<{ count: number }>(handle1.url)
-    await handle2.whenReady()
+    const handle2 = await awaitSyncedHandle(
+      client2.findWithProgress<{ count: number }>(handle1.url),
+      h => h.doc()?.count === 42,
+      { timeout: 8000 }
+    )
 
     const doc = handle2.doc()!
     console.log(
@@ -258,11 +249,12 @@ describe("Subduction WebSocket sync", () => {
       d.items = ["first"]
     })
 
-    await pause(500)
-
     // Client 2 finds it
-    const handle2 = await client2.find<{ items: string[] }>(handle1.url)
-    await handle2.whenReady()
+    const handle2 = await awaitSyncedHandle(
+      client2.findWithProgress<{ items: string[] }>(handle1.url),
+      h => h.doc()?.items?.[0] === "first",
+      { timeout: 8000 }
+    )
 
     expect(handle2.doc()!.items).toEqual(["first"])
 
@@ -271,10 +263,10 @@ describe("Subduction WebSocket sync", () => {
       d.items.push("second")
     })
 
-    await pause(500)
-
     // Client 1 should see the change (via server re-sync/subscription)
-    // Force a re-sync by checking the handle
+    await awaitDoc(handle1, h => h.doc()?.items?.includes("second") ?? false, {
+      timeout: 5000,
+    })
     expect(handle1.doc()!.items).toContain("second")
   }, 10_000)
 
@@ -326,9 +318,9 @@ describe("Subduction WebSocket sync", () => {
 
     // Wait for the client to reconnect and sync the document to the server
     const sid = toSedimentreeId(handle1.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await subduction.getBlobs(sid)
-      return blobs.length > 0
+      expect(blobs.length).toBeGreaterThan(0)
     }, 10_000)
   }, 10_000)
 
@@ -342,15 +334,16 @@ describe("Subduction WebSocket sync", () => {
     handle1.change(d => {
       d.value = 99
     })
-    await pause(500)
-
-    // Client 2: issue find() immediately — the connection manager is
+    // Client 2: issue findWithProgress immediately — the connection manager is
     // still connecting at this point, so syncWithAllPeers will find 0
     // peers initially. The query should stay pending until the
     // connection is established and #onPeerConnected re-syncs.
     const client2 = createClientRepo("client-2", server.url)
-    const handle2 = await client2.find<{ value: number }>(handle1.url)
-    await handle2.whenReady()
+    const handle2 = await awaitSyncedHandle(
+      client2.findWithProgress<{ value: number }>(handle1.url),
+      h => h.doc()?.value === 99,
+      { timeout: 8000 }
+    )
     expect(handle2.doc()!.value).toBe(99)
   }, 10_000)
 
@@ -373,18 +366,19 @@ describe("Subduction WebSocket sync", () => {
     })
 
     // Wait long enough that an infinite loop would have spun hundreds of
-    // times. If the no-peers guard is missing, this would peg the CPU.
-    await pause(500)
+    // times. If the no-peers guard is missing, this would peg the CPU. This is
+    // intentionally a fixed wait: it bounds a "nothing bad happens" window.
+    await wait(500)
 
     // Now start the server on the same port
     const server = await startSubductionServer(freePort)
     cleanups.push(() => server.close())
 
     // Wait for the reconnect backoff (1s base, doubles each retry) + sync
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const sid = toSedimentreeId(handle.documentId)
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 8000)
 
     // Verify the data reached the server
@@ -404,11 +398,12 @@ describe("Subduction WebSocket sync", () => {
     const client = createClientRepo("client-1", server.url)
 
     // Wait for the connection to establish
-    await pause(500)
+    await awaitSubductionConnected(client, { timeout: 5000 })
 
-    // Stop the server — client is now disconnected
+    // Stop the server. The client notices the drop lazily (no prompt disconnect
+    // signal), so a short bounded pause stands in here.
     await server.close()
-    await pause(200)
+    await wait(200)
 
     // Make several changes while disconnected. Each #save will see
     // lastSyncResult === "no-peers" and skip the sync trigger.
@@ -423,7 +418,8 @@ describe("Subduction WebSocket sync", () => {
       d.items.push("third")
     })
 
-    await pause(500)
+    // Drain the disconnected saves so they are durable before the restart.
+    await client.flush()
 
     // Restart the server on the same port — client will reconnect
     // and #setConnectionState("running") should reset lastSyncResult,
@@ -433,15 +429,18 @@ describe("Subduction WebSocket sync", () => {
 
     // Verify ALL changes made while disconnected arrive at the server
     const sid = toSedimentreeId(handle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await newServer.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 8000)
 
     // Verify by loading the doc on a second client
     const client2 = createClientRepo("client-2", newServer.url)
-    const handle2 = await client2.find<{ items: string[] }>(handle.url)
-    await handle2.whenReady()
+    const handle2 = await awaitSyncedHandle(
+      client2.findWithProgress<{ items: string[] }>(handle.url),
+      h => (h.doc()?.items?.length ?? 0) === 3,
+      { timeout: 8000 }
+    )
 
     expect(handle2.doc()!.items).toEqual(["first", "second", "third"])
   }, 15_000)
@@ -460,28 +459,33 @@ describe("Subduction WebSocket sync", () => {
     })
 
     const clientB = createClientRepo("client-B", server.url)
-    const handleB = await clientB.find<{ value: number }>(handleA.url)
-    await handleB.whenReady()
+    const handleB = await awaitSyncedHandle(
+      clientB.findWithProgress<{ value: number }>(handleA.url),
+      h => h.doc()?.value === 1,
+      { timeout: 8000 }
+    )
     expect(handleB.doc()!.value).toBe(1)
 
     // Let A's sync settle to "succeeded" before dropping the connection.
-    await pause(500)
+    // (No "sync succeeded" signal is exposed, so this is a bounded wait.)
+    await wait(500)
 
     // Drop the server, then restart on the same port so both clients reconnect.
     await server.close()
-    await pause(300)
+    await wait(300)
     const newServer = await startSubductionServer(serverPort)
     cleanups.push(() => newServer.close())
 
-    // After reconnect, B changes the doc; that local change forces B to re-push
-    // regardless, isolating the test to whether A re-subscribed.
-    await pause(1500)
+    // Give both clients time to reconnect before B edits (reconnect-after-
+    // restart has no prompt signal, so a bounded wait). B's local change then
+    // forces a re-push, isolating the test to whether A re-subscribed.
+    await wait(1500)
     handleB.change(d => {
       d.value = 2
     })
 
     // A converges only if it re-subscribed on the new connection.
-    await waitForCondition(async () => handleA.doc()!.value === 2, 10_000)
+    await awaitDoc(handleA, h => h.doc()?.value === 2, { timeout: 10_000 })
     expect(handleA.doc()!.value).toBe(2)
   }, 25_000)
 
@@ -504,15 +508,17 @@ describe("Subduction WebSocket sync", () => {
     handle1.change(d => {
       d.value = "shared"
     })
-    await pause(500)
-
     const client2 = createClientRepo("client-2", server.url)
-    const handle2 = await client2.find<{ value: string }>(handle1.url)
-    await handle2.whenReady()
+    const handle2 = await awaitSyncedHandle(
+      client2.findWithProgress<{ value: string }>(handle1.url),
+      h => h.doc()?.value === "shared",
+      { timeout: 8000 }
+    )
 
-    // Settle: peers must be exchanged and ephemeral subscriptions
-    // registered on the server before broadcasts will be relayed.
-    await pause(500)
+    // Settle: peers must be exchanged and ephemeral subscriptions registered on
+    // the server before broadcasts will be relayed. No signal is exposed for
+    // that, so this is a bounded wait.
+    await wait(500)
 
     const received: unknown[] = []
     handle2.on("ephemeral-message", ({ message }) => {
@@ -523,7 +529,7 @@ describe("Subduction WebSocket sync", () => {
     handle1.broadcast({ seq: 2 })
     handle1.broadcast({ seq: 3 })
 
-    await waitForCondition(() => received.length >= 3, 3000)
+    await waitFor(() => expect(received.length).toBeGreaterThanOrEqual(3), 3000)
 
     expect(received).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }])
   }, 10_000)
@@ -543,11 +549,11 @@ describe("Subduction WebSocket sync", () => {
     // quiesce round is guaranteed a peer. A fixed pause would be racy
     // under parallel load.
     const warmup = client1.create<{ x: number }>({ x: 1 })
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(
         toSedimentreeId(warmup.documentId)
       )
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 8000)
 
     // Mutate, then shut down with NO intervening await: the 100ms save
@@ -566,8 +572,11 @@ describe("Subduction WebSocket sync", () => {
     cleanups.push(async () => {
       await client2.shutdown()
     })
-    const handle2 = await client2.find<{ value: number }>(url)
-    await handle2.whenReady()
+    const handle2 = await awaitSyncedHandle(
+      client2.findWithProgress<{ value: number }>(url),
+      h => h.doc()?.value === 42,
+      { timeout: 8000 }
+    )
 
     expect(handle2.doc()!.value).toBe(42)
   }, 20_000)
@@ -594,9 +603,9 @@ describe("Subduction WebSocket sync", () => {
     // completes (no in-flight #doSync at shutdown time).
     const handle = client.create<{ value: number }>({ value: 0 })
     const sid = toSedimentreeId(handle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 8000)
 
     // Peer goes dark: still connected (handshake done), but every

@@ -29,6 +29,7 @@ import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
 import { initSubduction } from "../../src/initSubduction.js"
 import type { Chunk, StorageKey } from "../../src/storage/types.js"
 import type { StorageAdapterInterface } from "../../src/storage/StorageAdapterInterface.js"
+import { waitFor } from "../helpers/waitFor.js"
 
 beforeAll(async () => {
   await initSubduction()
@@ -114,7 +115,10 @@ describe("SubductionSource #save resilience", () => {
 
       // Wait until at least one save attempt has been made — we
       // detect that by polling for pending storage writes.
-      await waitForCondition(() => storage.pendingCount() > 0, 5_000)
+      await waitFor(
+        () => expect(storage.pendingCount()).toBeGreaterThan(0),
+        5000
+      )
 
       // THEN releasing the storage allows the save to drain. If
       // `saveInProgress` were leaking (e.g., because `try/finally`
@@ -162,7 +166,10 @@ describe("SubductionSource #save resilience", () => {
 
       // Wait for at least one rejection to confirm we're actually
       // exercising the rejection path.
-      await waitForCondition(() => storage.rejectionCount > 0, 5_000)
+      await waitFor(
+        () => expect(storage.rejectionCount).toBeGreaterThan(0),
+        5000
+      )
 
       // Make a SECOND change. If `saveInProgress` were stuck `true`
       // from the first failed save, the throttle's next firing
@@ -174,9 +181,12 @@ describe("SubductionSource #save resilience", () => {
       handle.change(d => {
         d.count = 2
       })
-      await waitForCondition(
-        () => storage.rejectionCount > rejectionsBeforeSecondChange,
-        5_000
+      await waitFor(
+        () =>
+          expect(storage.rejectionCount).toBeGreaterThan(
+            rejectionsBeforeSecondChange
+          ),
+        5000
       )
 
       expect(storage.rejectionCount).toBeGreaterThan(
@@ -213,13 +223,19 @@ describe("SubductionSource #save resilience", () => {
       //
       // We force the second save by issuing another mutation after
       // the first rejection lands.
-      await waitForCondition(() => storage.rejectionCount >= 1, 5_000)
+      await waitFor(
+        () => expect(storage.rejectionCount).toBeGreaterThanOrEqual(1),
+        5000
+      )
 
       handle.change(d => {
         d.count = 2
       })
 
-      await waitForCondition(() => storage.rejectionCount >= 2, 5_000)
+      await waitFor(
+        () => expect(storage.rejectionCount).toBeGreaterThanOrEqual(2),
+        5000
+      )
 
       // After two rejections the gate flips and subsequent writes
       // succeed. A final mutation triggers a save that lands.
@@ -439,17 +455,4 @@ class TransientlyRejectingStorageAdapter implements StorageAdapterInterface {
     }
     return this.#inner.saveBatch(entries)
   }
-}
-
-async function waitForCondition(
-  fn: () => boolean,
-  timeoutMs: number,
-  intervalMs = 25
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (fn()) return
-    await new Promise(r => setTimeout(r, intervalMs))
-  }
-  throw new Error(`waitForCondition timed out after ${timeoutMs}ms`)
 }
