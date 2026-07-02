@@ -15,16 +15,16 @@ overrides:
   # versions have a path-traversal flaw)
   tmp: ^0.2.6
 # Supply-chain guard (main waits 3 days after publish): disabled on the
-# subduction fork branch, which must install its own fresh prereleases
+# fork branches, which must install their own fresh prereleases
 # (e.g. @automerge/automerge-subduction) immediately after publishing them.
 minimumReleaseAge: 0
 # pnpm 11 reads these from pnpm-workspace.yaml, not .npmrc.
-# Run `pnpm publish` from the subduction fork branch (vs pnpm's default master|main).
-publishBranch: subductionjs
+# Run `pnpm publish` from the authors fork branch (vs pnpm's default master|main).
+publishBranch: authors
 # Default dist-tag for ALL publishes from this fork branch, so prereleases never
 # land on `latest` and clobber the upstream stable release. pnpm ignores
 # `.npmrc tag=...`; this is the value it actually reads.
-tag: subduction
+tag: authors
 # Shared dependency versions kept in sync across the workspace via the `catalog:` protocol.
 # Published runtime deps are cataloged too: release publishes via `pnpm -r publish` (see
 # release.yaml), which resolves `catalog:` to a real version in the published package.json.

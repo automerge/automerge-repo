@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-monorepo",
-  "version": "2.6.0-subduction.39",
+  "version": "2.6.0-authors.0",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
   "repository": "https://github.com/automerge/automerge-repo",
@@ -14,7 +14,7 @@
     "dev:demo": "pnpm -F @automerge/automerge-repo-demo-todo dev",
     "dev:svelte-demo": "pnpm -F @automerge/automerge-repo-demo-counter-svelte dev",
     "dev": "run-p watch start:syncserver dev:demo",
-    "pub": "pnpm -r publish --tag subduction",
+    "pub:authors": "pnpm -r publish --tag authors",
     "start:syncserver": "cross-env DEBUG='WebsocketServer' pnpm -F @automerge/example-sync-server start",
     "preinstall": "npx only-allow pnpm",
     "repocheck": "manypkg check",
