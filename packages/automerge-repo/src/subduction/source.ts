@@ -1109,7 +1109,7 @@ export class SubductionSource implements DocumentSource {
         this.#scheduler.resetHealState(sedimentreeId.toString())
       }
     } catch (e) {
-      console.error(`[subduction] doSync THREW for ${sid}:`, e)
+      this.#log(`doSync THREW for ${sid}: %O`, e)
       entry.lastSyncResult = "all-failed"
       this.#scheduler.scheduleHealSync(sedimentreeId)
     } finally {
@@ -1537,10 +1537,7 @@ export class SubductionSource implements DocumentSource {
         commitInputs.push(new CommitInput(looseCommit, commitBytes))
         acceptedHashes.push(c.head)
       } catch (e) {
-        console.warn(
-          `[SubductionSource] commit input prep failed for ${c.head}:`,
-          e
-        )
+        this.#log(`commit input prep failed for ${c.head}: %O`, e)
         prepErrors.push(e)
       }
       await maybeYield()
@@ -1578,10 +1575,7 @@ export class SubductionSource implements DocumentSource {
         fragmentInputs.push(new FragmentInput(fragment, fragmentBytes))
         acceptedHashes.push(f.head)
       } catch (e) {
-        console.warn(
-          `[SubductionSource] fragment input prep failed for ${f.head}:`,
-          e
-        )
+        this.#log(`fragment input prep failed for ${f.head}: %O`, e)
         prepErrors.push(e)
       }
       await maybeYield()
@@ -1623,11 +1617,11 @@ export class SubductionSource implements DocumentSource {
       // retry. `#save` separately keeps `entry.lastSavedHeads` at its
       // previous value when this rejects.
       for (const hash of acceptedHashes) entry.knownHashes.delete(hash)
-      console.warn(
-        `[SubductionSource] storeBuiltBatch failed for ${entry.sedimentreeId
+      this.#log(
+        `storeBuiltBatch failed for ${entry.sedimentreeId
           .toString()
           .slice(0, 8)} (${commitInputs.length} commits, ` +
-          `${fragmentInputs.length} fragments):`,
+          `${fragmentInputs.length} fragments): %O`,
         e
       )
       throw e

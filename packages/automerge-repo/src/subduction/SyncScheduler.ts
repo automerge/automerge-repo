@@ -108,8 +108,8 @@ export class SyncScheduler {
     const attempts = this.#healAttempts.get(key) ?? 0
 
     if (attempts >= this.#healMaxAttempts) {
-      console.warn(
-        `[subduction] heal EXHAUSTED for ${key.slice(
+      this.#log(
+        `heal EXHAUSTED for ${key.slice(
           0,
           8
         )} after ${attempts} attempts`

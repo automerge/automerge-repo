@@ -9,14 +9,19 @@ const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
 
 /**
- * Always-on `[lifecycle]` marker for a server WebSocket transition, to
- * correlate with server keepalive reaps (the `#log` calls below are
- * debug-gated; these are not).
+ * `[lifecycle]` marker for a server WebSocket transition, useful for
+ * correlating client reconnects with server keepalive reaps.
+ *
+ * Routed through `debug` (namespace `automerge-repo:subduction:lifecycle`) so
+ * the library emits nothing by default — an application opts its own users in
+ * with `DEBUG=automerge-repo:subduction:lifecycle` (or `debug.enable(...)`).
+ * The ISO timestamp is kept in the message so it still lines up with
+ * server-side logs when enabled.
  */
-function lifecycle(text: string, level: "info" | "warn" = "info"): void {
-  console[level](
-    `[lifecycle] ${new Date().toISOString()} subduction ws ${text}`
-  )
+const lifecycleLog = debug("automerge-repo:subduction:lifecycle")
+
+function lifecycle(text: string): void {
+  lifecycleLog(`${new Date().toISOString()} subduction ws ${text}`)
 }
 
 export class SubductionConnections implements ConnectionManager {
@@ -84,10 +89,10 @@ export class SubductionConnections implements ConnectionManager {
 
         await transport.closed()
         this.#log(`disconnected from ${url}`)
-        lifecycle(`disconnected from ${url}`, "warn")
+        lifecycle(`disconnected from ${url}`)
       } catch (e) {
-        console.warn(`[subduction] connection to ${url} failed:`, e)
-        lifecycle(`connect to ${url} FAILED: ${e}`, "warn")
+        this.#log(`connection to ${url} failed: %O`, e)
+        lifecycle(`connect to ${url} FAILED: ${e}`)
       }
 
       if (this.#isShutdown) break
