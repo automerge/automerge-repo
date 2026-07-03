@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-demo-counter-svelte",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/svelte-counter",
   "private": true,
-  "version": "2.7.0-authors.0",
+  "version": "2.7.0-authors.1",
   "type": "module",
   "scripts": {
     "dev": "vite",

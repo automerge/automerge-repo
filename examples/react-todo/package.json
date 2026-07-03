@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-demo-todo",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-todo",
   "private": true,
-  "version": "2.7.0-authors.0",
+  "version": "2.7.0-authors.1",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
@@ -22,10 +22,10 @@
     "react-error-boundary": "catalog:"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@vitejs/plugin-react": "catalog:",
     "tailwindcss": "^3.4.19",
     "vite": "catalog:",
-    "vite-plugin-wasm": "catalog:",
-    "@playwright/test": "^1.60.0"
+    "vite-plugin-wasm": "catalog:"
   }
 }
