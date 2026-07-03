@@ -12,7 +12,8 @@ import { type DocumentId, type PeerId } from "../../src/types.js"
 import { type BlobInterceptor } from "../../src/subduction/source.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
 import { toSedimentreeId } from "../../src/subduction/helpers.js"
-import { pause } from "../../src/helpers/pause.js"
+import { waitFor } from "../helpers/waitFor.js"
+import { wait } from "../helpers/wait.js"
 
 const INTERCEPTOR_PREFIX = new Uint8Array([0xe2, 0xe2, 0xee, 0x01])
 
@@ -112,24 +113,11 @@ class TestServer {
   }
 }
 
-async function waitForCondition(
-  fn: () => Promise<boolean> | boolean,
-  timeoutMs: number,
-  intervalMs = 50
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await fn()) return
-    await pause(intervalMs)
-  }
-  throw new Error(`waitForCondition timed out after ${timeoutMs}ms`)
-}
-
 async function waitForBlobs(server: TestServer, documentId: DocumentId) {
   const sid = toSedimentreeId(documentId)
-  await waitForCondition(async () => {
+  await waitFor(async () => {
     const blobs = await server.subduction.getBlobs(sid)
-    return blobs !== undefined && blobs.length > 0
+    expect(blobs?.length ?? 0).toBeGreaterThan(0)
   }, 5000)
 }
 
@@ -195,7 +183,10 @@ describe("BlobInterceptor", () => {
       d.text = "check id"
     })
 
-    await waitForCondition(() => interceptor.outgoingCount > 0, 5000)
+    await waitFor(
+      () => expect(interceptor.outgoingCount).toBeGreaterThan(0),
+      5000
+    )
 
     expect(interceptor.documentIds.length).toBeGreaterThan(0)
     for (const id of interceptor.documentIds) {
@@ -222,7 +213,7 @@ describe("BlobInterceptor", () => {
       d.text = "should not crash"
     })
 
-    await waitForCondition(() => callCount > 0, 5000)
+    await waitFor(() => expect(callCount).toBeGreaterThan(0), 5000)
 
     const sid = toSedimentreeId(handle.documentId)
     const blobs = await server.subduction.getBlobs(sid)
@@ -307,7 +298,7 @@ describe("BlobInterceptor delayed server policy", () => {
     })
 
     // Wait for at least one sync attempt to fail (policy denies).
-    await pause(1500)
+    await wait(1500)
 
     // Verify blobs are NOT on the server yet.
     const sid = toSedimentreeId(handle.documentId)
@@ -318,9 +309,9 @@ describe("BlobInterceptor delayed server policy", () => {
     policyAllowed = true
 
     // The heal scheduler should retry and push the blobs.
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 15_000)
 
     const blobs = (await server.subduction.getBlobs(sid))!
@@ -363,16 +354,16 @@ describe("BlobInterceptor delayed server policy", () => {
     })
 
     // Wait for initial sync attempts to fail.
-    await pause(1500)
+    await wait(1500)
 
     // Enable the policy (authorization state has arrived on the server).
     policyAllowed = true
 
     // Wait for sender's blobs to reach the server via heal retry.
     const sid = toSedimentreeId(senderHandle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 15_000)
 
     // Now create the receiver. The server has the blobs and

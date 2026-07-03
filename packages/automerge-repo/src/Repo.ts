@@ -158,6 +158,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionWebsocketEndpoints,
     subductionAdapters,
     subductionTimeouts,
+    subductionCompactionDeleteConcurrency,
     subductionBlobInterceptor,
     authorId,
     signing,
@@ -247,6 +248,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       adapters: subductionAdapters ?? [],
       policy: subductionPolicy,
       timeouts: subductionTimeouts,
+      compactionDeleteConcurrency: subductionCompactionDeleteConcurrency,
       blobInterceptor: subductionBlobInterceptor,
       onRemoteHeadsChanged: (documentId, storageId, heads, timestamp) => {
         const handle = this.#queries[documentId]?.handle;
@@ -1181,6 +1183,13 @@ export interface RepoConfig {
    * are optional; sensible defaults apply.
    */
   subductionTimeouts?: SubductionTimeouts;
+
+  /**
+   * Max number of stale-blob deletes Subduction runs concurrently during a
+   * compaction pass. Defaults to 16. Raise it if your storage adapter
+   * handles many parallel deletes well; lower it to reduce burst load.
+   */
+  subductionCompactionDeleteConcurrency?: number
 
   /**
    * Optional interceptor for transforming incoming and outgoing blobs (e.g.,
