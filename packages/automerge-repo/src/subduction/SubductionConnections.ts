@@ -1,4 +1,4 @@
-import debug from "debug"
+import { makeLogger, type Logger } from "../Logger.js"
 import { WebSocketTransport } from "./websocket-transport.js"
 import { Subduction } from "@automerge/automerge-subduction/slim"
 import { ConnectionManager } from "./ConnectionManager.js"
@@ -8,25 +8,12 @@ export type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
 
-/**
- * `[lifecycle]` marker for a server WebSocket transition, useful for
- * correlating client reconnects with server keepalive reaps.
- *
- * Routed through `debug` (namespace `automerge-repo:subduction:lifecycle`) so
- * the library emits nothing by default — an application opts its own users in
- * with `DEBUG=automerge-repo:subduction:lifecycle` (or `debug.enable(...)`).
- * The ISO timestamp is kept in the message so it still lines up with
- * server-side logs when enabled.
- */
-const lifecycleLog = debug("automerge-repo:subduction:lifecycle")
-
-function lifecycle(text: string): void {
-  lifecycleLog(`${new Date().toISOString()} subduction ws ${text}`)
-}
-
 export class SubductionConnections implements ConnectionManager {
   #connectionStates = new Map<string, ConnectionState>()
-  #log: debug.Debugger = debug("automerge-repo:subduction:connections")
+  // Leveled logger: `.debug` is silent unless `DEBUG=automerge-repo:*`; the
+  // down-transitions use `.warn` so their severity survives. Apps route or
+  // silence all of it via `setLoggerFactory` (see Logger.ts).
+  #log: Logger = makeLogger("automerge-repo:subduction:connections")
   #subduction: Promise<Subduction>
   #onChangeCallback: (() => void) | null = null
   #generation = 0
@@ -69,8 +56,7 @@ export class SubductionConnections implements ConnectionManager {
 
     while (!this.#isShutdown) {
       this.#setConnectionState(url, "connecting")
-      this.#log(`connecting to ${url}...`)
-      lifecycle(`connecting to ${url}`)
+      this.#log.debug(`connecting to ${url}`)
 
       try {
         const transport = await WebSocketTransport.connect(url)
@@ -83,23 +69,19 @@ export class SubductionConnections implements ConnectionManager {
         const subduction = await this.#subduction
         await subduction.connectTransport(transport, serviceName)
         this.#setConnectionState(url, "running")
-        this.#log(`connected to ${url}`)
-        lifecycle(`connected to ${url}`)
+        this.#log.debug(`connected to ${url}`)
         backoff = RECONNECT_BASE_MS
 
         await transport.closed()
-        this.#log(`disconnected from ${url}`)
-        lifecycle(`disconnected from ${url}`)
+        this.#log.warn(`disconnected from ${url}`)
       } catch (e) {
-        this.#log(`connection to ${url} failed: %O`, e)
-        lifecycle(`connect to ${url} FAILED: ${e}`)
+        this.#log.warn(`connect to ${url} failed:`, e)
       }
 
       if (this.#isShutdown) break
 
       this.#setConnectionState(url, "awaiting-reconnect")
-      this.#log(`reconnecting to ${url} in ${backoff}ms`)
-      lifecycle(`reconnecting to ${url} in ${backoff}ms`)
+      this.#log.debug(`reconnecting to ${url} in ${backoff}ms`)
       await new Promise<void>(r => {
         const timer = setTimeout(() => {
           this.#pendingSleeps.delete(timer)

@@ -1,7 +1,7 @@
 import { SedimentreeId, Subduction } from "@automerge/automerge-subduction/slim"
 import { DocumentId } from "../types.js"
 import { toDocumentId } from "./helpers.js"
-import debug from "debug"
+import { type Logger } from "../Logger.js"
 
 // ── Self-healing sync defaults ──────────────────────────────────────────
 const DEFAULT_HEAL_INITIAL_DELAY_MS = 2_000
@@ -13,7 +13,7 @@ export type OnHealExhausted = (documentId: DocumentId) => void
 
 export interface SyncSchedulerOptions {
   subduction: Promise<Subduction>
-  log: debug.Debugger
+  log: Logger
 
   /**
    * Called when a heal sync receives new data from peers. The source
@@ -64,7 +64,7 @@ export interface SyncSchedulerOptions {
  */
 export class SyncScheduler {
   #subduction: Promise<Subduction>
-  #log: debug.Debugger
+  #log: Logger
   #onSyncDataReceived: (
     sedimentreeId: SedimentreeId,
     subduction: Subduction
@@ -108,7 +108,7 @@ export class SyncScheduler {
     const attempts = this.#healAttempts.get(key) ?? 0
 
     if (attempts >= this.#healMaxAttempts) {
-      this.#log(
+      this.#log.warn(
         `heal EXHAUSTED for ${key.slice(
           0,
           8
@@ -124,7 +124,7 @@ export class SyncScheduler {
 
     const delay = this.#healBackoff.get(key) ?? this.#healInitialDelayMs
 
-    this.#log(
+    this.#log.debug(
       `scheduling heal for ${key.slice(0, 8)} in ${delay}ms ` +
         `(attempt ${attempts + 1}/${this.#healMaxAttempts})`
     )
@@ -140,7 +140,7 @@ export class SyncScheduler {
     this.#healTimers.delete(key)
     this.#healAttempts.set(key, (this.#healAttempts.get(key) ?? 0) + 1)
 
-    this.#log(`executing heal sync for ${key.slice(0, 8)}...`)
+    this.#log.debug(`executing heal sync for ${key.slice(0, 8)}...`)
 
     try {
       const subduction = await this.#subduction
@@ -166,7 +166,7 @@ export class SyncScheduler {
         try {
           await this.#onSyncDataReceived(sedimentreeId, subduction)
         } catch (e) {
-          this.#log(
+          this.#log.debug(
             `onSyncDataReceived threw during heal for ${key.slice(0, 8)}: %O`,
             e
           )
@@ -180,11 +180,11 @@ export class SyncScheduler {
         this.#healBackoff.set(key, nextDelay)
         this.scheduleHealSync(sedimentreeId)
       } else {
-        this.#log(`heal sync succeeded for ${key.slice(0, 8)}`)
+        this.#log.debug(`heal sync succeeded for ${key.slice(0, 8)}`)
         this.resetHealState(key)
       }
     } catch (e) {
-      this.#log(`heal sync threw for ${key.slice(0, 8)}: %O`, e)
+      this.#log.debug(`heal sync threw for ${key.slice(0, 8)}: %O`, e)
       const currentDelay =
         this.#healBackoff.get(key) ?? this.#healInitialDelayMs
       const nextDelay = Math.min(currentDelay * 2, this.#healMaxDelayMs)

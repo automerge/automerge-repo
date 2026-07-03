@@ -17,7 +17,7 @@
  * tagging convention) for the connection to succeed.
  */
 
-import debug from "debug"
+import { makeLogger, type Logger } from "../Logger.js"
 import type {
   NetworkAdapterInterface,
   PeerId,
@@ -44,7 +44,7 @@ export class NetworkAdapterTransport implements Transport {
   // --- Post-handshake message queue (Phase 2) ---
   #messageQueue: Uint8Array[] = []
   #messageWaiters: Array<(msg: Uint8Array) => void> = []
-  #log: debug.Debugger
+  #log: Logger
   #disconnectCallback: (() => void) | null = null
 
   #disconnected = false
@@ -63,7 +63,7 @@ export class NetworkAdapterTransport implements Transport {
     this.#adapter = adapter
     this.#localPeerId = localPeerId
     this.#remotePeerId = remotePeerId
-    this.#log = debug(
+    this.#log = makeLogger(
       `automerge-repo:subduction:network:${localPeerId}-${remotePeerId}`
     )
 
@@ -80,9 +80,9 @@ export class NetworkAdapterTransport implements Transport {
   // -----------------------------------------------------------------------
 
   #handleMessage = (msg: RepoMessage) => {
-    this.#log("handling message", msg)
+    this.#log.debug("handling message", msg)
     if (msg.targetId != this.#localPeerId) {
-      this.#log("message targetId mismatch", msg.targetId, this.#localPeerId)
+      this.#log.debug("message targetId mismatch", msg.targetId, this.#localPeerId)
       return
     }
 
@@ -90,19 +90,19 @@ export class NetworkAdapterTransport implements Transport {
     // handling multiple clients) each transport only sees messages from its
     // specific remote peer.
     if (msg.senderId != this.#remotePeerId) {
-      this.#log("message senderId mismatch", msg.senderId, this.#remotePeerId)
+      this.#log.debug("message senderId mismatch", msg.senderId, this.#remotePeerId)
       return
     }
 
     // Only process our custom message type.
     if (msg.type !== SUBDUCTION_MESSAGE_TYPE) {
-      this.#log("message type mismatch", msg.type, SUBDUCTION_MESSAGE_TYPE)
+      this.#log.debug("message type mismatch", msg.type, SUBDUCTION_MESSAGE_TYPE)
       return
     }
 
     const payload = msg.data
     if (!payload || payload.length === 0) {
-      this.#log("ignoring message with no data")
+      this.#log.debug("ignoring message with no data")
       return
     }
 
@@ -201,5 +201,3 @@ export class NetworkAdapterTransport implements Transport {
  * tag byte inside `data` distinguishes them.
  */
 export const SUBDUCTION_MESSAGE_TYPE = "subduction-connection"
-
-const _log = debug("automerge-repo:subduction:network")

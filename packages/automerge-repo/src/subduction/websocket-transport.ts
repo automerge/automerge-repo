@@ -1,8 +1,8 @@
 import WebSocket from "isomorphic-ws"
 import type { Transport } from "@automerge/automerge-subduction/slim"
-import debug from "debug"
+import { makeLogger } from "../Logger.js"
 
-const log = debug("automerge-repo:subduction:ws-transport")
+const log = makeLogger("automerge-repo:subduction:ws-transport")
 
 /**
  * Wraps a WebSocket connection as a subduction {@link Transport}.
@@ -56,7 +56,7 @@ export class WebSocketTransport implements Transport {
     })
 
     ws.addEventListener("error", (event: WebSocket.ErrorEvent) => {
-      log("ws error: %O", event)
+      log.warn("ws error:", event)
       this.#isClosed = true
       this.#closedResolve()
       const err =
