@@ -25,7 +25,7 @@ import { mergeArrays } from "../helpers/mergeArrays.js"
 import { semaphore } from "../helpers/semaphore.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
-import debug from "debug"
+import { makeLogger, type Logger } from "../Logger.js"
 import { SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
 import { SyncScheduler } from "./SyncScheduler.js"
@@ -350,7 +350,7 @@ export class SubductionSource implements DocumentSource {
   #subduction: Promise<Subduction>
   #storage: SubductionStorageBridge
   #entries = new Map<string, SedimentreeEntry>()
-  #log: debug.Debugger
+  #log: Logger
   #connectionManagers: ConnectionManager[] = []
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
@@ -423,7 +423,7 @@ export class SubductionSource implements DocumentSource {
     } catch {
       // Wasm module not yet initialized
     }
-    this.#log = debug(`automerge-repo:subduction(${peerId})`)
+    this.#log = makeLogger(`automerge-repo:subduction(${peerId})`)
     this.#storage = storage
     this.#onRemoteHeadsChanged = onRemoteHeadsChanged
 
@@ -452,7 +452,7 @@ export class SubductionSource implements DocumentSource {
     // from storage at startup. State is loaded lazily on demand instead,
     // which also avoids competing with the service worker's hydration on
     // the same IndexedDB database.
-    this.#log("constructing subduction (no hydrate)")
+    this.#log.debug("constructing subduction (no hydrate)")
     this.#subduction = Promise.resolve(
       new Subduction({
         signer,
@@ -545,7 +545,7 @@ export class SubductionSource implements DocumentSource {
     if (persist) {
       void this.#storage
         .saveRemoteHeads(sedimentreeId, storageId, heads, timestamp)
-        .catch(e => this.#log("saveRemoteHeads failed: %O", e))
+        .catch(e => this.#log.debug("saveRemoteHeads failed: %O", e))
     }
   }
 
@@ -642,7 +642,7 @@ export class SubductionSource implements DocumentSource {
           }
         })
         .catch(e => {
-          this.#log("handleDataFound interceptor error: %O", e)
+          this.#log.debug("handleDataFound interceptor error: %O", e)
         })
       return
     }
@@ -682,7 +682,7 @@ export class SubductionSource implements DocumentSource {
     try {
       entry.handle.update(d => Automerge.loadIncremental(d, merged))
     } catch (e) {
-      this.#log(
+      this.#log.debug(
         `flushInbound ${entry.sedimentreeId.toString().slice(0, 8)}: ` +
           `loadIncremental failed for %d blob(s): %O`,
         blobs.length,
@@ -770,7 +770,7 @@ export class SubductionSource implements DocumentSource {
         const sid = toSedimentreeId(query.documentId)
         await subduction.subscribeEphemeral([Topic.fromBytes(sid.toBytes())])
       } catch (e) {
-        this.#log("ephemeral subscribe failed: %O", e)
+        this.#log.debug("ephemeral subscribe failed: %O", e)
       }
     })()
 
@@ -805,7 +805,7 @@ export class SubductionSource implements DocumentSource {
           this.#scheduleCompaction(entry)
         }
       } catch (e) {
-        this.#log(
+        this.#log.debug(
           `failed to seed persistedHashes for ${sidStr.slice(0, 8)}: %O`,
           e
         )
@@ -828,7 +828,7 @@ export class SubductionSource implements DocumentSource {
           )
         }
       } catch (e) {
-        this.#log(
+        this.#log.debug(
           `failed to replay remote heads for ${sidStr.slice(0, 8)}: %O`,
           e
         )
@@ -927,7 +927,7 @@ export class SubductionSource implements DocumentSource {
         this.#recomputeScheduled = false
         await this.#runRecompute()
       } catch (e) {
-        this.#log("recompute walk failed: %O", e)
+        this.#log.debug("recompute walk failed: %O", e)
       }
     })()
   }
@@ -1017,7 +1017,7 @@ export class SubductionSource implements DocumentSource {
             !this.#anyConnectionManagerConnecting()
           ) {
             // All connections settled and sync failed — give up.
-            this.#log("marking as unavailable")
+            this.#log.debug("marking as unavailable")
             entry.query.sourceUnavailable("subduction")
           }
         }
@@ -1057,7 +1057,7 @@ export class SubductionSource implements DocumentSource {
       entry.flushSave.flush()
       await entry.saveSettled
 
-      this.#log(`doSync ${sid} (state=${entry.syncState})`)
+      this.#log.debug(`doSync ${sid} (state=${entry.syncState})`)
       const peerResultMap = await subduction.syncWithAllPeers(
         sedimentreeId,
         true,
@@ -1066,7 +1066,7 @@ export class SubductionSource implements DocumentSource {
 
       const results = peerResultMap.entries()
       const anySuccess = results.some(r => r.success)
-      this.#log(
+      this.#log.debug(
         `doSync ${sid}: ${results.length} peer(s), success=${anySuccess}`
       )
 
@@ -1109,7 +1109,7 @@ export class SubductionSource implements DocumentSource {
         this.#scheduler.resetHealState(sedimentreeId.toString())
       }
     } catch (e) {
-      console.error(`[subduction] doSync THREW for ${sid}:`, e)
+      this.#log.error(`doSync THREW for ${sid}:`, e)
       entry.lastSyncResult = "all-failed"
       this.#scheduler.scheduleHealSync(sedimentreeId)
     } finally {
@@ -1122,14 +1122,14 @@ export class SubductionSource implements DocumentSource {
       // If new commits were saved or a new connection was established
       // while this sync was in flight, re-sync immediately.
       if (entry.needsResync || entry.lastSyncResult === null) {
-        this.#log(
+        this.#log.debug(
           `doSync ${sid} finally: re-sync needed ` +
             `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
         entry.needsResync = false
         entry.lastSyncResult = null
       } else {
-        this.#log(
+        this.#log.debug(
           `doSync ${sid} finally: no re-sync ` +
             `(needsResync=${entry.needsResync}, lastSyncResult=${entry.lastSyncResult})`
         )
@@ -1157,7 +1157,7 @@ export class SubductionSource implements DocumentSource {
     const totalBytes = allBlobs
       ? allBlobs.reduce((n, b) => n + b.byteLength, 0)
       : 0
-    this.#log(
+    this.#log.debug(
       `loadBlobsIntoHandle ${sid}: ${
         allBlobs?.length ?? 0
       } blob(s), ${totalBytes} bytes, heads=${headCount()}`
@@ -1241,7 +1241,7 @@ export class SubductionSource implements DocumentSource {
         entry.query.sourcePending("subduction")
       }
     } catch (e) {
-      this.#log(
+      this.#log.debug(
         `loadBlobsAndTransition threw for ${entry.sedimentreeId
           .toString()
           .slice(0, 8)}: %O`,
@@ -1267,7 +1267,7 @@ export class SubductionSource implements DocumentSource {
       await this.#loadBlobsIntoHandle(entry, subduction)
       entry.query.sourcePending("subduction")
     } catch (e) {
-      this.#log("reloadBlobs threw: %O", e)
+      this.#log.debug("reloadBlobs threw: %O", e)
     }
   }
 
@@ -1286,7 +1286,7 @@ export class SubductionSource implements DocumentSource {
           await this.#reloadBlobs(entry)
         }
       } catch (e) {
-        this.#log("transform retry failed: %O", e)
+        this.#log.debug("transform retry failed: %O", e)
       }
     })()
   }
@@ -1346,12 +1346,10 @@ export class SubductionSource implements DocumentSource {
 
       const subduction = await this.#subduction
       const sid = entry.sedimentreeId.toString().slice(0, 8)
-      if (this.#log.enabled) {
-        this.#log(
-          `#save ${sid}: state=${entry.syncState}, ` +
-            `syncInFlight=${entry.syncInFlight}`
-        )
-      }
+      this.#log.debug(
+        `#save ${sid}: state=${entry.syncState}, ` +
+          `syncInFlight=${entry.syncInFlight}`
+      )
 
       let result: { prepFailures: number }
       try {
@@ -1361,7 +1359,7 @@ export class SubductionSource implements DocumentSource {
         // error so `flush()` can surface it; leave `lastSavedHeads`
         // unchanged so the next save retries the same baseline.
         entry.lastSaveError = e
-        this.#log(`#save ${sid}: persistence failed; will retry`)
+        this.#log.debug(`#save ${sid}: persistence failed; will retry`)
         return
       }
 
@@ -1371,7 +1369,7 @@ export class SubductionSource implements DocumentSource {
       // `lastSaveError` was already populated inside
       // `#saveNewCommits`.
       if (result.prepFailures > 0) {
-        this.#log(
+        this.#log.debug(
           `#save ${sid}: ${result.prepFailures} prep failure(s); ` +
             `baseline unchanged for retry`
         )
@@ -1420,7 +1418,7 @@ export class SubductionSource implements DocumentSource {
     // lost. During shutdown the flag is still recorded (the quiesce pass
     // reads it), but `#scheduleRecompute` below is a no-op.
     if (entry.syncInFlight) {
-      this.#log(
+      this.#log.debug(
         `#save ${entry.sedimentreeId
           .toString()
           .slice(0, 8)}: setting needsResync=true (sync in flight)`
@@ -1537,10 +1535,7 @@ export class SubductionSource implements DocumentSource {
         commitInputs.push(new CommitInput(looseCommit, commitBytes))
         acceptedHashes.push(c.head)
       } catch (e) {
-        console.warn(
-          `[SubductionSource] commit input prep failed for ${c.head}:`,
-          e
-        )
+        this.#log.warn(`commit input prep failed for ${c.head}:`, e)
         prepErrors.push(e)
       }
       await maybeYield()
@@ -1578,10 +1573,7 @@ export class SubductionSource implements DocumentSource {
         fragmentInputs.push(new FragmentInput(fragment, fragmentBytes))
         acceptedHashes.push(f.head)
       } catch (e) {
-        console.warn(
-          `[SubductionSource] fragment input prep failed for ${f.head}:`,
-          e
-        )
+        this.#log.warn(`fragment input prep failed for ${f.head}:`, e)
         prepErrors.push(e)
       }
       await maybeYield()
@@ -1623,8 +1615,8 @@ export class SubductionSource implements DocumentSource {
       // retry. `#save` separately keeps `entry.lastSavedHeads` at its
       // previous value when this rejects.
       for (const hash of acceptedHashes) entry.knownHashes.delete(hash)
-      console.warn(
-        `[SubductionSource] storeBuiltBatch failed for ${entry.sedimentreeId
+      this.#log.warn(
+        `storeBuiltBatch failed for ${entry.sedimentreeId
           .toString()
           .slice(0, 8)} (${commitInputs.length} commits, ` +
           `${fragmentInputs.length} fragments):`,
@@ -1763,7 +1755,7 @@ export class SubductionSource implements DocumentSource {
       for (const hex of staleCommits) entry.persistedCommitHashes.delete(hex)
       for (const hex of staleFragments)
         entry.persistedFragmentHashes.delete(hex)
-      this.#log(
+      this.#log.debug(
         `compacted ${sid.toString().slice(0, 8)}: -${
           staleCommits.length
         } commits, -${staleFragments.length} fragments`
@@ -1772,7 +1764,10 @@ export class SubductionSource implements DocumentSource {
       // A failed delete just means the data sticks around until the
       // next compaction attempt; nothing breaks on the read side
       // because automerge will simply re-apply the redundant bytes.
-      this.#log(`compaction failed for ${sid.toString().slice(0, 8)}: %O`, e)
+      this.#log.debug(
+        `compaction failed for ${sid.toString().slice(0, 8)}: %O`,
+        e
+      )
     }
   }
 
@@ -1864,7 +1859,7 @@ export class SubductionSource implements DocumentSource {
       if (!anyPending) break
 
       if (round === MAX_FLUSH_ROUNDS - 1) {
-        this.#log(
+        this.#log.debug(
           `flush: hit MAX_FLUSH_ROUNDS=${MAX_FLUSH_ROUNDS}; ` +
             `proceeding with bridge wait anyway`
         )
@@ -1949,7 +1944,7 @@ export class SubductionSource implements DocumentSource {
       e => e.needsResync || this.#needsOutboundSync(e)
     )
     if (unbroadcast.length > 0) {
-      this.#log(
+      this.#log.debug(
         `shutdown: final sync round for ${unbroadcast.length} ` +
           `entr${unbroadcast.length === 1 ? "y" : "ies"} with ` +
           `un-broadcast commits`
@@ -1970,7 +1965,7 @@ export class SubductionSource implements DocumentSource {
               // peer for the full sync timeout.
               await this.#doSync(e, SHUTDOWN_SYNC_TIMEOUT_MS)
             } catch (err) {
-              this.#log(
+              this.#log.debug(
                 "shutdown: final sync failed for %s: %O",
                 e.sedimentreeId.toString().slice(0, 8),
                 err
@@ -1992,13 +1987,13 @@ export class SubductionSource implements DocumentSource {
     try {
       subduction = await this.#subduction
     } catch (e) {
-      this.#log("subduction never initialized, skipping teardown: %O", e)
+      this.#log.debug("subduction never initialized, skipping teardown: %O", e)
       return
     }
     try {
       await subduction.disconnectAll()
     } catch (e) {
-      this.#log("error disconnecting subduction transports: %O", e)
+      this.#log.debug("error disconnecting subduction transports: %O", e)
     }
   }
 
@@ -2011,7 +2006,7 @@ export class SubductionSource implements DocumentSource {
       const sid = toSedimentreeId(documentId)
       await subduction.publishEphemeral(Topic.fromBytes(sid.toBytes()), payload)
     } catch (e) {
-      this.#log("ephemeral publish failed: %O", e)
+      this.#log.debug("ephemeral publish failed: %O", e)
     }
   }
 }
