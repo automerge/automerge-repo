@@ -2881,7 +2881,7 @@ describe("Repo inbound message handling", () => {
 })
 
 describe("repo restart", () => {
-  it.only("reloads documents from memory storage without extra writes", async () => {
+  it("reloads documents from memory storage without extra writes", async () => {
     // TODO(dmaretskyi): MemoryStorageAdapter vs MemoryStorage -- which API is right for subduction?
     const storage = new CountingStorageAdapter(new MemoryStorageAdapter());
     const urls: AutomergeUrl[] = [];
