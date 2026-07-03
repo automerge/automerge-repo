@@ -10,9 +10,6 @@ const RECONNECT_MAX_MS = 30000
 
 export class SubductionConnections implements ConnectionManager {
   #connectionStates = new Map<string, ConnectionState>()
-  // Leveled logger: `.debug` is silent unless `DEBUG=automerge-repo:*`; the
-  // down-transitions use `.warn` so their severity survives. Apps route or
-  // silence all of it via `setLoggerFactory` (see Logger.ts).
   #log: Logger = makeLogger("automerge-repo:subduction:connections")
   #subduction: Promise<Subduction>
   #onChangeCallback: (() => void) | null = null
