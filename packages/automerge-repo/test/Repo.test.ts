@@ -40,7 +40,10 @@ import { StorageId, StorageKey } from "../src/storage/types.js"
 import { DocumentProgress } from "../src/DocumentQuery.js"
 import { isAbortErrorLike } from "../src/helpers/abortable.js"
 import { toSedimentreeId } from "../src/subduction/helpers.js"
-import { CountingStorageAdapter, MemoryStorageAdapter } from "./helpers/storage.js";
+import {
+  CountingStorageAdapter,
+  MemoryStorageAdapter,
+} from "./helpers/storage.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -71,7 +74,7 @@ describe("Repo", () => {
     })
 
     it("logs and does not leak when a network adapter fails to become ready", async () => {
-      const errSpy = vi.spyOn(console, "error").mockImplementation(() => { })
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
       try {
         const networkAdapter = new DummyNetworkAdapter({ startReady: false })
         networkAdapter.whenReady = () =>
@@ -1049,7 +1052,7 @@ describe("Repo", () => {
         // Really, it's okay if the second one is also flushed but I'm forcing the issue
         // in the test storage engine above to make sure the behaviour is as documented
         await expect(async () => {
-          ; (await repo.find<{ foo: string }>(handle2.documentId)).doc()
+          ;(await repo.find<{ foo: string }>(handle2.documentId)).doc()
         }).rejects.toThrow(/Document (.*) is unavailable/)
       }
     })
@@ -1228,7 +1231,7 @@ describe("Repo", () => {
       // over this connection.
       const aliceToBob1 = new DummyNetworkAdapter({
         startReady: true,
-        sendMessage: () => { },
+        sendMessage: () => {},
       })
       bobToAlice1 = new DummyNetworkAdapter({
         startReady: true,
@@ -1890,9 +1893,9 @@ describe("Repo", () => {
         const doc =
           Math.random() < 0.5
             ? // heads, create a new doc
-            repo.create<TestDoc>()
+              repo.create<TestDoc>()
             : // tails, pick a random doc
-            (getRandomItem(docs) as DocHandle<TestDoc>)
+              (getRandomItem(docs) as DocHandle<TestDoc>)
 
         // make a random change to it
         doc.change(d => {
@@ -2839,7 +2842,7 @@ describe("Repo.find() abort behavior", () => {
 })
 
 const warn = console.warn
-const NO_OP = () => { }
+const NO_OP = () => {}
 
 const disableConsoleWarn = () => {
   console.warn = NO_OP
@@ -2854,7 +2857,7 @@ describe("Repo inbound message handling", () => {
   // "message" handler surfaces here as a failed assertion rather than a
   // process exit.
   it("isolates an error thrown while handling an inbound message", () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => { })
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       const repo = new Repo({
         network: [new DummyNetworkAdapter({ startReady: true })],
@@ -2882,52 +2885,39 @@ describe("Repo inbound message handling", () => {
 
 describe("repo restart", () => {
   it("reloads documents from memory storage without extra writes", async () => {
-    // TODO(dmaretskyi): MemoryStorageAdapter vs MemoryStorage -- which API is right for subduction?
-    const storage = new CountingStorageAdapter(new MemoryStorageAdapter());
-    const urls: AutomergeUrl[] = [];
+    const storage = new CountingStorageAdapter(new MemoryStorageAdapter())
+    const urls: AutomergeUrl[] = []
 
     {
       const repo = new Repo({
-        // Reduce sync timeout so inflight syncWithAllPeers fails fast when a relay
-        // peer does not yet have the document; self-healing retries kick in quickly.
-        subductionTimeouts: {
-          syncMs: 500,
-          healInitialDelayMs: 100,
-        },
         network: [],
         storage,
-      });
+      })
       for (let index = 0; index < 100; index++) {
-        const handle = repo.create<{ index: number }>({ index });
-        urls.push(handle.url);
+        const handle = repo.create<{ index: number }>({ index })
+        urls.push(handle.url)
       }
-      await repo.flush();
-      await repo.shutdown();
+      await repo.flush()
+      await repo.shutdown()
     }
 
-    expect(storage.writeOps).toBeGreaterThan(0);
-    storage.resetCounters();
-    // storage.setLogging(true);
+    expect(storage.writeOps).toBeGreaterThan(0)
+    storage.resetCounters()
+
     {
       const repo = new Repo({
-        // Reduce sync timeout so inflight syncWithAllPeers fails fast when a relay
-        // peer does not yet have the document; self-healing retries kick in quickly.
-        subductionTimeouts: {
-          syncMs: 500,
-          healInitialDelayMs: 100,
-        },
         network: [],
         storage,
-      });
+      })
       for (const url of urls) {
-        const handle = await repo.find<{ index: number }>(url);
-        await handle.whenReady(['ready']);
-        expect(handle.doc()?.index).toBeDefined();
+        const handle = await repo.find<{ index: number }>(url)
+        await handle.whenReady(["ready"])
+        expect(handle.doc()?.index).toBeDefined()
       }
-      await repo.shutdown();
+      await repo.shutdown()
     }
 
-    expect(storage.writeOps).toBe(0);
-    expect(storage.readOps).toBeGreaterThan(0);
+    expect(storage.writeOps).toBe(0)
+    expect(storage.readOps).toBeGreaterThan(0)
   })
 })
