@@ -1764,7 +1764,10 @@ export class SubductionSource implements DocumentSource {
       // A failed delete just means the data sticks around until the
       // next compaction attempt; nothing breaks on the read side
       // because automerge will simply re-apply the redundant bytes.
-      this.#log.debug(`compaction failed for ${sid.toString().slice(0, 8)}: %O`, e)
+      this.#log.debug(
+        `compaction failed for ${sid.toString().slice(0, 8)}: %O`,
+        e
+      )
     }
   }
 

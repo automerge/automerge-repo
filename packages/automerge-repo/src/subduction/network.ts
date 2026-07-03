@@ -82,7 +82,11 @@ export class NetworkAdapterTransport implements Transport {
   #handleMessage = (msg: RepoMessage) => {
     this.#log.debug("handling message", msg)
     if (msg.targetId != this.#localPeerId) {
-      this.#log.debug("message targetId mismatch", msg.targetId, this.#localPeerId)
+      this.#log.debug(
+        "message targetId mismatch",
+        msg.targetId,
+        this.#localPeerId
+      )
       return
     }
 
@@ -90,13 +94,21 @@ export class NetworkAdapterTransport implements Transport {
     // handling multiple clients) each transport only sees messages from its
     // specific remote peer.
     if (msg.senderId != this.#remotePeerId) {
-      this.#log.debug("message senderId mismatch", msg.senderId, this.#remotePeerId)
+      this.#log.debug(
+        "message senderId mismatch",
+        msg.senderId,
+        this.#remotePeerId
+      )
       return
     }
 
     // Only process our custom message type.
     if (msg.type !== SUBDUCTION_MESSAGE_TYPE) {
-      this.#log.debug("message type mismatch", msg.type, SUBDUCTION_MESSAGE_TYPE)
+      this.#log.debug(
+        "message type mismatch",
+        msg.type,
+        SUBDUCTION_MESSAGE_TYPE
+      )
       return
     }
 

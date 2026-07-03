@@ -109,10 +109,7 @@ export class SyncScheduler {
 
     if (attempts >= this.#healMaxAttempts) {
       this.#log.warn(
-        `heal EXHAUSTED for ${key.slice(
-          0,
-          8
-        )} after ${attempts} attempts`
+        `heal EXHAUSTED for ${key.slice(0, 8)} after ${attempts} attempts`
       )
       this.#onHealExhausted?.(toDocumentId(sedimentreeId))
       return
