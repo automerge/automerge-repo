@@ -13,7 +13,9 @@ import path from "path"
 
 export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
-  private cache: { [key: string]: Uint8Array } = {}
+  private cache: { [key: string]: Uint8Array } = Object.create(null)
+  private keyIndex: KeyTrieNode = { children: new Map(), key: null, seq: 0 }
+  private keySeq = 0
 
   /**
    * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
@@ -40,7 +42,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
   async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
     const key = getKey(keyArray)
-    this.cache[key] = binary
+    this.cacheSet(key, binary)
 
     const filePath = this.getFilePath(keyArray)
 
@@ -50,7 +52,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
   async remove(keyArray: string[]): Promise<void> {
     // remove from cache
-    delete this.cache[getKey(keyArray)]
+    this.cacheDelete(getKey(keyArray))
     // remove from disk
     const filePath = this.getFilePath(keyArray)
     try {
@@ -97,18 +99,29 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
   async removeRange(keyPrefix: string[]): Promise<void> {
     // remove from cache
-    this.cachedKeys(keyPrefix).forEach(key => delete this.cache[key])
+    this.cachedKeys(keyPrefix).forEach(key => this.cacheDelete(key))
 
     // remove from disk
     const dirPath = this.getFilePath(keyPrefix)
     await fs.promises.rm(dirPath, { recursive: true, force: true })
   }
 
+  /** Set a cache entry, keeping the prefix index in sync. */
+  private cacheSet(key: string, binary: Uint8Array): void {
+    if (this.cache[key] === undefined)
+      trieInsert(this.keyIndex, key, this.keySeq++)
+    this.cache[key] = binary
+  }
+
+  /** Delete a cache entry, keeping the prefix index in sync. */
+  private cacheDelete(key: string): void {
+    if (this.cache[key] === undefined) return
+    delete this.cache[key]
+    trieDelete(this.keyIndex, key)
+  }
+
   private cachedKeys(keyPrefix: string[]): string[] {
-    const cacheKeyPrefixString = getKey(keyPrefix)
-    return Object.keys(this.cache).filter(key =>
-      key.startsWith(cacheKeyPrefixString)
-    )
+    return trieCollect(this.keyIndex, getKey(keyPrefix).split(path.sep))
   }
 
   private getFilePath(keyArray: string[]): string {
@@ -125,6 +138,78 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 // HELPERS
 
 const getKey = (key: StorageKey): string => path.join(...key)
+
+/**
+ * A trie over storage keys split on `path.sep`, used to answer
+ * `loadRange` prefix queries in O(matches) rather than scanning every
+ * cached key. Terminal nodes store the full key string so collection
+ * returns exact keys without reconstruction.
+ *
+ * Segment-boundary matching (rather than raw string `startsWith`) mirrors
+ * the on-disk `walkdir`, which is inherently directory-scoped; the two
+ * sides of `loadRange` therefore agree.
+ */
+interface KeyTrieNode {
+  children: Map<string, KeyTrieNode>
+  key: string | null
+  // Insertion sequence of `key`, so `trieCollect` can reproduce the
+  // insertion-ordered results that the previous `Object.keys` scan gave
+  // (and that the storage acceptance tests assert). Meaningless unless
+  // `key !== null`.
+  seq: number
+}
+
+const trieInsert = (root: KeyTrieNode, fullKey: string, seq: number): void => {
+  let node = root
+  for (const seg of fullKey.split(path.sep)) {
+    let child = node.children.get(seg)
+    if (child === undefined) {
+      child = { children: new Map(), key: null, seq: 0 }
+      node.children.set(seg, child)
+    }
+    node = child
+  }
+  node.key = fullKey
+  node.seq = seq
+}
+
+const trieDelete = (root: KeyTrieNode, fullKey: string): void => {
+  const segs = fullKey.split(path.sep)
+  const nodes: KeyTrieNode[] = [root]
+  let node = root
+  for (const seg of segs) {
+    const child = node.children.get(seg)
+    if (child === undefined) return
+    nodes.push(child)
+    node = child
+  }
+  node.key = null
+  // Prune now-empty nodes bottom-up so the index doesn't accumulate
+  // dead interior nodes as keys come and go.
+  for (let i = segs.length - 1; i >= 0; i--) {
+    const child = nodes[i + 1]
+    if (child.key !== null || child.children.size > 0) break
+    nodes[i].children.delete(segs[i])
+  }
+}
+
+const trieCollect = (root: KeyTrieNode, prefixSegs: string[]): string[] => {
+  let node = root
+  for (const seg of prefixSegs) {
+    const child = node.children.get(seg)
+    if (child === undefined) return []
+    node = child
+  }
+  const found: Array<{ key: string; seq: number }> = []
+  const stack: KeyTrieNode[] = [node]
+  while (stack.length > 0) {
+    const n = stack.pop()!
+    if (n.key !== null) found.push({ key: n.key, seq: n.seq })
+    for (const child of n.children.values()) stack.push(child)
+  }
+  found.sort((a, b) => a.seq - b.seq)
+  return found.map(f => f.key)
+}
 
 /** returns all files in a directory, recursively  */
 const walkdir = async (dirPath: string): Promise<string[]> => {
