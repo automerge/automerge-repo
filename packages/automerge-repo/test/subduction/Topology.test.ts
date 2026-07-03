@@ -27,7 +27,12 @@ import { type StorageId } from "../../src/storage/types.js"
 import { type DocHandleRemoteHeadsPayload } from "../../src/DocHandle.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
 import { toSedimentreeId } from "../../src/subduction/helpers.js"
-import { pause } from "../../src/helpers/pause.js"
+import { awaitDoc } from "../helpers/awaitDoc.js"
+import { awaitEvent } from "../helpers/awaitEvent.js"
+import { awaitProgress } from "../helpers/awaitProgress.js"
+import { awaitSyncedHandle } from "../helpers/awaitSyncedHandle.js"
+import { waitFor } from "../helpers/waitFor.js"
+import { wait } from "../helpers/wait.js"
 
 // ── Test helpers ──────────────────────────────────────────────────────
 
@@ -149,19 +154,6 @@ function makeTabWorkerPair(
   return { tab, worker, channel }
 }
 
-async function waitForCondition(
-  fn: () => Promise<boolean> | boolean,
-  timeoutMs: number,
-  intervalMs = 50
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await fn()) return
-    await pause(intervalMs)
-  }
-  throw new Error(`waitForCondition timed out after ${timeoutMs}ms`)
-}
-
 // ── Tests ─────────────────────────────────────────────────────────────
 
 describe("Tab → Worker → Server topology", () => {
@@ -203,14 +195,11 @@ describe("Tab → Worker → Server topology", () => {
       d.title = "Hello from Alice"
     })
 
-    // Wait for Alice's data to reach the server before Bob tries to find it
-    const sid = toSedimentreeId(aliceHandle.documentId)
-    await waitForCondition(async () => {
-      const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
-    }, 5000)
-
-    const bobHandle = await pair2.tab.find<{ title: string }>(aliceHandle.url)
+    const bobHandle = await awaitSyncedHandle(
+      pair2.tab.findWithProgress<{ title: string }>(aliceHandle.url),
+      h => h.doc()?.title === "Hello from Alice",
+      { timeout: 5000 }
+    )
 
     expect(bobHandle.doc()!.title).toBe("Hello from Alice")
   }, 10_000)
@@ -226,19 +215,21 @@ describe("Tab → Worker → Server topology", () => {
       d.alice = "Alice was here"
     })
 
-    await pause(500)
-
-    const bobHandle = await pair2.tab.find<{ alice: string; bob?: string }>(
-      aliceHandle.url
+    const bobHandle = await awaitSyncedHandle(
+      pair2.tab.findWithProgress<{ alice: string; bob?: string }>(
+        aliceHandle.url
+      ),
+      h => h.doc()?.alice === "Alice was here",
+      { timeout: 5000 }
     )
-    expect(bobHandle.doc()!.alice).toBe("Alice was here")
 
     bobHandle.change(d => {
       d.bob = "Bob was here"
     })
 
-    await pause(500)
-
+    await awaitDoc(aliceHandle, h => h.doc()?.bob === "Bob was here", {
+      timeout: 5000,
+    })
     expect(aliceHandle.doc()!.bob).toBe("Bob was here")
   }, 10_000)
 
@@ -257,7 +248,9 @@ describe("Tab → Worker → Server topology", () => {
       aliceHandle.url
     )
 
-    await pause(500)
+    await awaitProgress(bobProgress, s => s.state === "unavailable", {
+      timeout: 5000,
+    })
     expect(bobProgress.peek().state).toBe("unavailable")
 
     // Connect new pairs via a server
@@ -271,10 +264,10 @@ describe("Tab → Worker → Server topology", () => {
       d.value = 123
     })
 
-    await pause(500)
-
-    const bobHandle2 = await pair2c.tab.find<{ value: number }>(
-      aliceHandle2.url
+    const bobHandle2 = await awaitSyncedHandle(
+      pair2c.tab.findWithProgress<{ value: number }>(aliceHandle2.url),
+      h => h.doc()?.value === 123,
+      { timeout: 5000 }
     )
     expect(bobHandle2.doc()!.value).toBe(123)
   }, 10_000)
@@ -289,8 +282,9 @@ describe("Tab → Worker → Server topology", () => {
       d.value = "created offline"
     })
 
-    // Wait for tab → worker sync via messagechannel
-    await pause(200)
+    // Wait for tab → worker sync via messagechannel. This local sync has no
+    // exposed completion signal, so it is a bounded wait.
+    await wait(200)
 
     // Now start server and create a connected worker for Alice
     // (simulating the worker establishing its websocket connection)
@@ -304,12 +298,14 @@ describe("Tab → Worker → Server topology", () => {
       d.value = "created offline"
     })
 
-    await pause(500)
-
     // Another user can find it
     const pair2 = createTabWorkerPair("bob", server.url)
 
-    const bobHandle = await pair2.tab.find<{ value: string }>(aliceHandle2.url)
+    const bobHandle = await awaitSyncedHandle(
+      pair2.tab.findWithProgress<{ value: string }>(aliceHandle2.url),
+      h => h.doc()?.value === "created offline",
+      { timeout: 5000 }
+    )
     expect(bobHandle.doc()!.value).toBe("created offline")
   }, 10_000)
 
@@ -323,7 +319,13 @@ describe("Tab → Worker → Server topology", () => {
       d.data = "important"
     })
 
-    await pause(500)
+    // Confirm Alice's doc reached the server before the wipe, so the restart
+    // actually clears it.
+    const sid = toSedimentreeId(aliceHandle.documentId)
+    await waitFor(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
+    }, 5000)
 
     // Restart with fresh storage — Alice's doc is gone
     await server.restart()
@@ -335,10 +337,9 @@ describe("Tab → Worker → Server topology", () => {
       aliceHandle.url
     )
 
-    await waitForCondition(
-      () => bobProgress.peek().state === "unavailable",
-      3000
-    )
+    await awaitProgress(bobProgress, s => s.state === "unavailable", {
+      timeout: 3000,
+    })
   }, 10_000)
 
   // ── Concurrent edits ──────────────────────────────────────────────
@@ -358,13 +359,15 @@ describe("Tab → Worker → Server topology", () => {
       // initial empty state
     })
 
-    await pause(500)
-
     // Bob finds it
-    const bobHandle = await pair2.tab.find<{
-      alice?: string
-      bob?: string
-    }>(aliceHandle.url)
+    const bobHandle = await awaitSyncedHandle(
+      pair2.tab.findWithProgress<{
+        alice?: string
+        bob?: string
+      }>(aliceHandle.url),
+      undefined,
+      { timeout: 5000 }
+    )
 
     // Both edit simultaneously (different keys — no conflict)
     aliceHandle.change(d => {
@@ -375,12 +378,14 @@ describe("Tab → Worker → Server topology", () => {
     })
 
     // Wait for changes to propagate both ways
-    await waitForCondition(
-      () =>
-        aliceHandle.doc()!.bob === "bob-edit" &&
-        bobHandle.doc()!.alice === "alice-edit",
-      5000
-    )
+    await Promise.all([
+      awaitDoc(aliceHandle, h => h.doc()?.bob === "bob-edit", {
+        timeout: 5000,
+      }),
+      awaitDoc(bobHandle, h => h.doc()?.alice === "alice-edit", {
+        timeout: 5000,
+      }),
+    ])
 
     // Both should have both changes
     expect(aliceHandle.doc()!.alice).toBe("alice-edit")
@@ -400,9 +405,11 @@ describe("Tab → Worker → Server topology", () => {
       d.items = []
     })
 
-    await pause(500)
-
-    const bobHandle = await pair2.tab.find<{ items: string[] }>(aliceHandle.url)
+    const bobHandle = await awaitSyncedHandle(
+      pair2.tab.findWithProgress<{ items: string[] }>(aliceHandle.url),
+      undefined,
+      { timeout: 5000 }
+    )
 
     // Alice makes many rapid changes
     for (let i = 0; i < 20; i++) {
@@ -412,7 +419,9 @@ describe("Tab → Worker → Server topology", () => {
     }
 
     // Wait for all changes to arrive at Bob
-    await waitForCondition(() => bobHandle.doc()!.items.length === 20, 5000)
+    await awaitDoc(bobHandle, h => (h.doc()?.items.length ?? 0) === 20, {
+      timeout: 5000,
+    })
 
     expect(bobHandle.doc()!.items).toHaveLength(20)
     expect(bobHandle.doc()!.items[0]).toBe("item-0")
@@ -436,13 +445,15 @@ describe("Tab → Worker → Server topology", () => {
       d.before = "before outage"
     })
 
-    await pause(500)
-
-    const bobHandle = await pair2.tab.find<{
-      before?: string
-      during?: string
-      after?: string
-    }>(aliceHandle.url)
+    const bobHandle = await awaitSyncedHandle(
+      pair2.tab.findWithProgress<{
+        before?: string
+        during?: string
+        after?: string
+      }>(aliceHandle.url),
+      h => h.doc()?.before === "before outage",
+      { timeout: 5000 }
+    )
     expect(bobHandle.doc()!.before).toBe("before outage")
 
     // Kill the server
@@ -453,26 +464,26 @@ describe("Tab → Worker → Server topology", () => {
       d.during = "during outage"
     })
 
-    await pause(200)
+    // Let Alice's during-outage edit settle locally (tab → worker) before the
+    // server is back; no exposed signal for that, so a bounded wait.
+    await wait(200)
 
     // Restart on the same port, keeping storage so existing data persists
     await server.restart({ clearStorage: false })
 
     // Wait for workers to reconnect and sync
-    await waitForCondition(
-      () => bobHandle.doc()!.during === "during outage",
-      5000
-    )
+    await awaitDoc(bobHandle, h => h.doc()?.during === "during outage", {
+      timeout: 5000,
+    })
 
     // Further edits should also flow
     aliceHandle.change(d => {
       d.after = "after outage"
     })
 
-    await waitForCondition(
-      () => bobHandle.doc()!.after === "after outage",
-      5000
-    )
+    await awaitDoc(bobHandle, h => h.doc()?.after === "after outage", {
+      timeout: 5000,
+    })
   }, 15_000)
 
   // ── Ordering / causality ──────────────────────────────────────────
@@ -498,16 +509,12 @@ describe("Tab → Worker → Server topology", () => {
 
     // Wait for the full document (including the value=42 change) to arrive,
     // not just the initial empty change which also satisfies "ready".
-    await waitForCondition(() => {
-      const s = progress.peek()
-      return s.state === "ready" && s.handle.doc()?.value === 42
-    }, 5000)
-
-    const readyState = progress.peek()
-    expect(readyState.state).toBe("ready")
-    if (readyState.state === "ready") {
-      expect(readyState.handle.doc()!.value).toBe(42)
-    }
+    const bobHandle = await awaitSyncedHandle(
+      progress,
+      h => h.doc()?.value === 42,
+      { timeout: 5000 }
+    )
+    expect(bobHandle.doc()!.value).toBe(42)
   }, 10_000)
 
   it("recovers from unavailable to ready when data arrives later", async () => {
@@ -524,9 +531,9 @@ describe("Tab → Worker → Server topology", () => {
       d.value = 42
     })
     const sid = toSedimentreeId(aliceHandle.documentId)
-    await waitForCondition(async () => {
+    await waitFor(async () => {
       const blobs = await server.subduction.getBlobs(sid)
-      return blobs !== undefined && blobs.length > 0
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
     }, 5000)
 
     // Stop the server so Bob can't reach it
@@ -544,14 +551,16 @@ describe("Tab → Worker → Server topology", () => {
       if (!states.includes(s.state)) states.push(s.state)
     })
 
-    await waitForCondition(() => progress.peek().state === "unavailable", 5000)
+    await awaitProgress(progress, s => s.state === "unavailable", {
+      timeout: 5000,
+    })
     expect(states).toContain("unavailable")
 
     // Restart the server (with the same storage — Alice's data persists)
     await server.restart({ clearStorage: false })
 
     // Bob's reconnect should eventually sync and recover to "ready"
-    await waitForCondition(() => progress.peek().state === "ready", 8000)
+    await awaitProgress(progress, s => s.state === "ready", { timeout: 8000 })
 
     expect(states).toContain("ready")
     const readyState = progress.peek()
@@ -579,14 +588,20 @@ describe("Tab → Worker → Server topology", () => {
       d.from = "bob"
     })
 
-    await pause(500)
-
     // Bob finds Alice's doc
-    const bobDocA = await pair2.tab.find<{ from: string }>(docA.url)
+    const bobDocA = await awaitSyncedHandle(
+      pair2.tab.findWithProgress<{ from: string }>(docA.url),
+      h => h.doc()?.from === "alice",
+      { timeout: 5000 }
+    )
     expect(bobDocA.doc()!.from).toBe("alice")
 
     // Alice finds Bob's doc
-    const aliceDocB = await pair1.tab.find<{ from: string }>(docB.url)
+    const aliceDocB = await awaitSyncedHandle(
+      pair1.tab.findWithProgress<{ from: string }>(docB.url),
+      h => h.doc()?.from === "bob",
+      { timeout: 5000 }
+    )
     expect(aliceDocB.doc()!.from).toBe("bob")
   }, 10_000)
 
@@ -605,10 +620,12 @@ describe("Tab → Worker → Server topology", () => {
       d.items = []
     })
 
-    await pause(500)
-
     // Bob opens the list
-    const bobList = await pair2.tab.find<ListDoc>(listHandle.url)
+    const bobList = await awaitSyncedHandle(
+      pair2.tab.findWithProgress<ListDoc>(listHandle.url),
+      undefined,
+      { timeout: 5000 }
+    )
     expect(bobList.doc()!.items).toHaveLength(0)
 
     // Alice creates a sub-document and links it in one go (like react-todo)
@@ -621,21 +638,18 @@ describe("Tab → Worker → Server topology", () => {
     })
 
     // Wait for the list doc to show the new item URL on Bob's side
-    await waitForCondition(() => {
-      const doc = bobList.doc()
-      return doc !== undefined && doc.items.length === 1
-    }, 5000)
+    await awaitDoc(bobList, h => h.doc()?.items.length === 1, { timeout: 5000 })
 
     const subUrl = bobList.doc()!.items[0]
 
-    // Wait for the sub-document data to arrive on Bob's worker via
-    // subduction. We poll findWithProgress rather than calling find()
-    // (which rejects on unavailable) because the worker may need
-    // several sync rounds before the sub-doc arrives.
-    await waitForCondition(() => {
-      const state = pair2.worker.findWithProgress<ItemDoc>(subUrl).peek()
-      return state.state === "ready" && state.handle.doc()?.title !== undefined
-    }, 5000)
+    // Wait for the sub-document data to arrive on Bob's worker via subduction.
+    // Use findWithProgress (not find(), which rejects on unavailable) because
+    // the worker may need several sync rounds before the sub-doc arrives.
+    await awaitSyncedHandle(
+      pair2.worker.findWithProgress<ItemDoc>(subUrl),
+      h => h.doc()?.title != null,
+      { timeout: 5000 }
+    )
 
     // Now Bob's tab can find the sub-document via MessageChannel sync
     // with the worker — the worker already has the data.
@@ -660,10 +674,12 @@ describe("Tab → Worker → Server topology", () => {
         d.value = "hello"
       })
 
-      await pause(500)
-
       // Bob finds the doc
-      const bobHandle = await pair2.tab.find<{ value: string }>(aliceHandle.url)
+      const bobHandle = await awaitSyncedHandle(
+        pair2.tab.findWithProgress<{ value: string }>(aliceHandle.url),
+        h => h.doc()?.value === "hello",
+        { timeout: 5000 }
+      )
 
       // Bob makes a change — this will sync to the server
       bobHandle.change(d => {
@@ -671,14 +687,11 @@ describe("Tab → Worker → Server topology", () => {
       })
 
       // Wait for the remote heads event on Bob's handle
-      const remoteHeads = await new Promise<DocHandleRemoteHeadsPayload>(
-        resolve => {
-          bobHandle.on("remote-heads", msg => {
-            if (msg.storageId === server.storageId) {
-              resolve(msg)
-            }
-          })
-        }
+      const remoteHeads = await awaitEvent<DocHandleRemoteHeadsPayload>(
+        bobHandle,
+        "remote-heads",
+        msg => msg.storageId === server.storageId,
+        { timeout: 5000 }
       )
 
       expect(remoteHeads.storageId).toBe(server.storageId)
@@ -701,8 +714,6 @@ describe("Tab → Worker → Server topology", () => {
         d.count = 1
       })
 
-      await pause(500)
-
       // Collect all remote heads events on Alice's handle
       const remoteHeadsEvents: DocHandleRemoteHeadsPayload[] = []
       aliceHandle.on("remote-heads", msg => {
@@ -712,16 +723,24 @@ describe("Tab → Worker → Server topology", () => {
       })
 
       // Bob finds the doc and makes a change
-      const bobHandle = await pair2.tab.find<{ count: number }>(aliceHandle.url)
+      const bobHandle = await awaitSyncedHandle(
+        pair2.tab.findWithProgress<{ count: number }>(aliceHandle.url),
+        h => h.doc()?.count === 1,
+        { timeout: 5000 }
+      )
       bobHandle.change(d => {
         d.count = 2
       })
 
-      // Wait for Alice to receive at least one remote heads event
-      // reflecting the server having ingested Bob's change
-      await waitForCondition(() => remoteHeadsEvents.length > 0, 5000)
+      // Wait for a remote-heads event with non-empty heads, reflecting the
+      // server having ingested Bob's change.
+      await waitFor(
+        () =>
+          expect(remoteHeadsEvents.some(e => e.heads.length > 0)).toBe(true),
+        5000
+      )
 
-      const latestHeads = remoteHeadsEvents[remoteHeadsEvents.length - 1]
+      const latestHeads = remoteHeadsEvents.findLast(e => e.heads.length > 0)!
       expect(latestHeads.storageId).toBe(server.storageId)
       expect(latestHeads.heads.length).toBeGreaterThan(0)
     }, 10_000)
@@ -742,14 +761,16 @@ describe("Tab → Worker → Server topology", () => {
         d.value = "hello"
       })
 
-      await pause(500)
-
       // Bob finds the doc
-      const bobHandle = await pair2.tab.find<{ value: string }>(aliceHandle.url)
+      const bobHandle = await awaitSyncedHandle(
+        pair2.tab.findWithProgress<{ value: string }>(aliceHandle.url),
+        h => h.doc()?.value === "hello",
+        { timeout: 5000 }
+      )
 
-      // Wait for sync to fully settle (peer states need to be resolved
-      // for ephemeral relay in DocSynchronizer)
-      await pause(500)
+      // Wait for sync to fully settle (peer states need to be resolved for
+      // ephemeral relay in DocSynchronizer). No exposed signal, so bounded.
+      await wait(500)
 
       // Bob listens for ephemeral messages
       const received = new Promise<unknown>(resolve => {
@@ -776,10 +797,13 @@ describe("Tab → Worker → Server topology", () => {
         d.value = "shared doc"
       })
 
-      await pause(500)
-
-      const bobHandle = await pair2.tab.find<{ value: string }>(aliceHandle.url)
-      await pause(500)
+      const bobHandle = await awaitSyncedHandle(
+        pair2.tab.findWithProgress<{ value: string }>(aliceHandle.url),
+        h => h.doc()?.value === "shared doc",
+        { timeout: 5000 }
+      )
+      // Settle so peer states are resolved for ephemeral relay (no signal).
+      await wait(500)
 
       // Alice listens for ephemeral messages
       const aliceReceived = new Promise<unknown>(resolve => {

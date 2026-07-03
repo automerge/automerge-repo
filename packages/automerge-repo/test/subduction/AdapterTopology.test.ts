@@ -23,7 +23,11 @@ import { Repo } from "../../src/Repo.js"
 import { generateAutomergeUrl } from "../../src/AutomergeUrl.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
 import { type PeerId } from "../../src/types.js"
-import { pause } from "../../src/helpers/pause.js"
+import { awaitDoc } from "../helpers/awaitDoc.js"
+import { awaitProgress } from "../helpers/awaitProgress.js"
+import { awaitSubductionConnected } from "../helpers/awaitSubductionConnected.js"
+import { awaitSyncedHandle } from "../helpers/awaitSyncedHandle.js"
+import { wait } from "../helpers/wait.js"
 import type { Policy } from "@automerge/automerge-subduction"
 
 // ── Test helpers ──────────────────────────────────────────────────────
@@ -137,19 +141,6 @@ function createClient(name: string, serverUrl: string): ClientPair {
   return { repo, adapter: clientAdapter }
 }
 
-async function waitForCondition(
-  fn: () => Promise<boolean> | boolean,
-  timeoutMs: number,
-  intervalMs = 50
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await fn()) return
-    await pause(intervalMs)
-  }
-  throw new Error(`waitForCondition timed out after ${timeoutMs}ms`)
-}
-
 // ── Tests ─────────────────────────────────────────────────────────────
 
 describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
@@ -193,16 +184,12 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
     const progress = bob.repo.findWithProgress<{ title: string }>(
       aliceHandle.url
     )
-    await waitForCondition(() => {
-      const s = progress.peek()
-      return s.state === "ready" && s.handle.doc()?.title === "Hello from Alice"
-    }, 5000)
-
-    const result = progress.peek()
-    expect(result.state).toBe("ready")
-    if (result.state === "ready") {
-      expect(result.handle.doc()!.title).toBe("Hello from Alice")
-    }
+    const bobHandle = await awaitSyncedHandle(
+      progress,
+      h => h.doc()?.title === "Hello from Alice",
+      { timeout: 5000 }
+    )
+    expect(bobHandle.doc()!.title).toBe("Hello from Alice")
   }, 10_000)
 
   it("updates flow in both directions", async () => {
@@ -216,21 +203,23 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.alice = "Alice was here"
     })
 
-    await pause(500)
-
-    const bobHandle = await bob.repo.find<{ alice: string; bob?: string }>(
-      aliceHandle.url
+    const bobProgress = bob.repo.findWithProgress<{
+      alice: string
+      bob?: string
+    }>(aliceHandle.url)
+    const bobHandle = await awaitSyncedHandle(
+      bobProgress,
+      h => h.doc()?.alice === "Alice was here",
+      { timeout: 5000 }
     )
-    expect(bobHandle.doc()!.alice).toBe("Alice was here")
 
     bobHandle.change(d => {
       d.bob = "Bob was here"
     })
 
-    await waitForCondition(
-      () => aliceHandle.doc()!.bob === "Bob was here",
-      5000
-    )
+    await awaitDoc(aliceHandle, h => h.doc()?.bob === "Bob was here", {
+      timeout: 5000,
+    })
   }, 10_000)
 
   // ── Document lifecycle ────────────────────────────────────────────
@@ -241,12 +230,14 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
 
     // Wait for the connection to be established so we're not just
     // racing against connection setup.
-    await pause(500)
+    await awaitSubductionConnected(alice.repo, { timeout: 5000 })
 
     const bogusUrl = generateAutomergeUrl()
     const progress = alice.repo.findWithProgress(bogusUrl)
 
-    await waitForCondition(() => progress.peek().state === "unavailable", 3000)
+    await awaitProgress(progress, s => s.state === "unavailable", {
+      timeout: 3000,
+    })
   }, 10_000)
 
   // ── Concurrent edits ──────────────────────────────────────────────
@@ -265,12 +256,13 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       // initial empty state
     })
 
-    await pause(500)
-
-    const bobHandle = await bob.repo.find<{
+    const bobProgress = bob.repo.findWithProgress<{
       alice?: string
       bob?: string
     }>(aliceHandle.url)
+    const bobHandle = await awaitSyncedHandle(bobProgress, undefined, {
+      timeout: 5000,
+    })
 
     // Both edit simultaneously (different keys — no conflict)
     aliceHandle.change(d => {
@@ -280,12 +272,14 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.bob = "bob-edit"
     })
 
-    await waitForCondition(
-      () =>
-        aliceHandle.doc()!.bob === "bob-edit" &&
-        bobHandle.doc()!.alice === "alice-edit",
-      5000
-    )
+    await Promise.all([
+      awaitDoc(aliceHandle, h => h.doc()?.bob === "bob-edit", {
+        timeout: 5000,
+      }),
+      awaitDoc(bobHandle, h => h.doc()?.alice === "alice-edit", {
+        timeout: 5000,
+      }),
+    ])
 
     expect(aliceHandle.doc()!.alice).toBe("alice-edit")
     expect(aliceHandle.doc()!.bob).toBe("bob-edit")
@@ -304,9 +298,12 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.items = []
     })
 
-    await pause(500)
-
-    const bobHandle = await bob.repo.find<{ items: string[] }>(aliceHandle.url)
+    const bobProgress = bob.repo.findWithProgress<{ items: string[] }>(
+      aliceHandle.url
+    )
+    const bobHandle = await awaitSyncedHandle(bobProgress, undefined, {
+      timeout: 5000,
+    })
 
     for (let i = 0; i < 20; i++) {
       aliceHandle.change(d => {
@@ -314,7 +311,9 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       })
     }
 
-    await waitForCondition(() => bobHandle.doc()!.items.length === 20, 5000)
+    await awaitDoc(bobHandle, h => (h.doc()?.items.length ?? 0) === 20, {
+      timeout: 5000,
+    })
 
     expect(bobHandle.doc()!.items).toHaveLength(20)
     expect(bobHandle.doc()!.items[0]).toBe("item-0")
@@ -337,17 +336,21 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.before = "before outage"
     })
 
-    await pause(500)
-
-    const bobHandle = await bob.repo.find<{
+    const bobProgress = bob.repo.findWithProgress<{
       before?: string
       after?: string
     }>(aliceHandle.url)
-    expect(bobHandle.doc()!.before).toBe("before outage")
+    const bobHandle = await awaitSyncedHandle(
+      bobProgress,
+      h => h.doc()?.before === "before outage",
+      { timeout: 5000 }
+    )
 
-    // Kill the server and wait for clients to notice
+    // Kill, then restart. Clients reconnect lazily (no prompt disconnect
+    // signal), so a brief bounded pause; the post-restart sync below is the
+    // real check.
     await server.stop()
-    await pause(500)
+    await wait(500)
 
     // Restart on the same port, keeping storage
     await server.restart({ clearStorage: false })
@@ -358,10 +361,9 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.after = "after outage"
     })
 
-    await waitForCondition(
-      () => bobHandle.doc()!.after === "after outage",
-      10_000
-    )
+    await awaitDoc(bobHandle, h => h.doc()?.after === "after outage", {
+      timeout: 10_000,
+    })
   }, 20_000)
 
   // ── Multiple documents ────────────────────────────────────────────
@@ -382,12 +384,18 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       d.from = "bob"
     })
 
-    await pause(500)
-
-    const bobDocA = await bob.repo.find<{ from: string }>(docA.url)
+    const bobDocA = await awaitSyncedHandle(
+      bob.repo.findWithProgress<{ from: string }>(docA.url),
+      h => h.doc()?.from === "alice",
+      { timeout: 5000 }
+    )
     expect(bobDocA.doc()!.from).toBe("alice")
 
-    const aliceDocB = await alice.repo.find<{ from: string }>(docB.url)
+    const aliceDocB = await awaitSyncedHandle(
+      alice.repo.findWithProgress<{ from: string }>(docB.url),
+      h => h.doc()?.from === "bob",
+      { timeout: 5000 }
+    )
     expect(aliceDocB.doc()!.from).toBe("bob")
   }, 10_000)
 
@@ -424,7 +432,10 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
 
       const alice = startClient("alice", server.url)
       const bob = startClient("bob", server.url)
-      await pause(500)
+      await Promise.all([
+        awaitSubductionConnected(alice.repo, { timeout: 5000 }),
+        awaitSubductionConnected(bob.repo, { timeout: 5000 }),
+      ])
 
       // Alice pushes a doc (put is allowed).
       const aliceHandle = alice.repo.create<{ value: string }>()
@@ -432,14 +443,17 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
         d.value = "access granted"
       })
 
-      // Let Alice's push reach the server's WASM storage
-      await pause(1000)
+      // Let Alice's push reach the server's WASM storage. The server is a raw
+      // Subduction with no "stored" event to await, so this is a bounded wait.
+      await wait(1000)
 
-      // Bob requests the doc.
+      // Bob requests the doc; while the policy denies fetch it must NOT become
+      // ready. There is no "fetch denied" signal, so confirm over a bounded
+      // window.
       const progress = bob.repo.findWithProgress<{ value: string }>(
         aliceHandle.url
       )
-      await pause(1000)
+      await wait(1000)
       expect(progress.peek().state).not.toBe("ready")
 
       // Policy changes: Bob is now allowed.
@@ -448,12 +462,12 @@ describe("Subduction over NetworkAdapterInterface (WebSocket adapter)", () => {
       // Tell the client the share config changed.
       bob.repo.shareConfigChanged()
 
-      await waitForCondition(() => {
-        const s = progress.peek()
-        return s.state === "ready" && s.handle.doc()?.value === "access granted"
-      }, 5000)
-
-      expect(progress.peek().state).toBe("ready")
+      const bobHandle = await awaitSyncedHandle(
+        progress,
+        h => h.doc()?.value === "access granted",
+        { timeout: 5000 }
+      )
+      expect(bobHandle.doc()!.value).toBe("access granted")
     }
   )
 })
