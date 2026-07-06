@@ -54,6 +54,11 @@ import {
   type SubductionTimeouts,
   type BlobInterceptor,
 } from "./subduction/source.js"
+import type {
+  WebSocketEndpoint,
+  WebSocketEndpointInterface,
+  WorkerWebSocketEndpoint,
+} from "./subduction/websocket-endpoint.js"
 import type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
 import { encode, decode } from "cbor-x"
 import type { EphemeralMessage } from "./network/messages.js"
@@ -241,7 +246,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           timestamp,
         })
       },
-      onEphemeral: (sedimentreeId, _senderId, payload) => {
+      onEphemeral: (_sedimentreeId, _senderId, payload) => {
         try {
           const msg = decode(new Uint8Array(payload)) as EphemeralMessage
           this.synchronizer.receiveMessage(msg)
@@ -1032,7 +1037,22 @@ export interface RepoConfig {
   /** Authorization policy for the Subduction sync engine. See {@link Policy} from `@automerge/automerge-subduction`. */
   subductionPolicy?: SubductionPolicy
 
-  subductionWebsocketEndpoints?: string[]
+  /**
+   * Subduction sync-server endpoints. A plain URL opens the WebSocket on
+   * the thread running this Repo (shorthand for {@link WebSocketEndpoint});
+   * pass a {@link WorkerWebSocketEndpoint} to host the socket in a Worker
+   * instead, keeping socket I/O off this thread:
+   *
+   * ```ts
+   * const repo = new Repo({
+   *   subductionWebsocketEndpoints: [
+   *     "wss://sync.example.com", // in-thread
+   *     new WorkerWebSocketEndpoint("wss://other.example.com"), // in a Worker
+   *   ],
+   * })
+   * ```
+   */
+  subductionWebsocketEndpoints?: Array<string | WebSocketEndpointInterface>
 
   subductionAdapters?: {
     adapter: NetworkAdapterInterface

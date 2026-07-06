@@ -28,6 +28,10 @@ import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
 import { makeLogger, type Logger } from "../Logger.js"
 import { SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
+import {
+  WebSocketEndpoint,
+  type WebSocketEndpointInterface,
+} from "./websocket-endpoint.js"
 import { SyncScheduler } from "./SyncScheduler.js"
 import { AdapterConnections } from "./AdapterConnections.js"
 
@@ -310,7 +314,14 @@ export interface SubductionSourceOptions {
   peerId: PeerId
   storage: SubductionStorageBridge
   signer: any
-  websocketEndpoints: string[]
+  /**
+   * Sync-server endpoints. Plain URL strings open the WebSocket on the
+   * thread running the Repo (shorthand for {@link WebSocketEndpoint});
+   * pass a {@link WorkerWebSocketEndpoint} to host the socket in a Worker,
+   * or any {@link WebSocketEndpointInterface} implementation.
+   */
+  websocketEndpoints: Array<string | WebSocketEndpointInterface>
+
   adapters: {
     adapter: NetworkAdapterInterface
     serviceName: string
@@ -352,6 +363,8 @@ export class SubductionSource implements DocumentSource {
   #entries = new Map<string, SedimentreeEntry>()
   #log: Logger
   #connectionManagers: ConnectionManager[] = []
+  /** Normalized endpoints; kept so `shutdown()` can run their teardown hooks. */
+  #websocketEndpoints: WebSocketEndpointInterface[] = []
   #scheduler: SyncScheduler
   #syncTimeoutMs: number
   #syncTimeout: number | null
@@ -465,9 +478,16 @@ export class SubductionSource implements DocumentSource {
     )
 
     // ── Connection managers ─────────────────────────────────────────
+    // Endpoints own *where* their socket lives (in-thread, Worker, ...);
+    // the shared manager owns the reconnect/backoff loop. Plain URL
+    // strings are shorthand for in-thread endpoints.
+    this.#websocketEndpoints = websocketEndpoints.map(endpoint =>
+      typeof endpoint === "string" ? new WebSocketEndpoint(endpoint) : endpoint
+    )
+
     const wsConnections = new SubductionConnections(this.#subduction)
-    for (const url of websocketEndpoints) {
-      void wsConnections.manageConnection(url)
+    for (const endpoint of this.#websocketEndpoints) {
+      void wsConnections.manageConnection(endpoint)
     }
     this.#connectionManagers.push(wsConnections)
 
@@ -1988,12 +2008,21 @@ export class SubductionSource implements DocumentSource {
       subduction = await this.#subduction
     } catch (e) {
       this.#log.debug("subduction never initialized, skipping teardown: %O", e)
+      for (const endpoint of this.#websocketEndpoints) {
+        endpoint.shutdown?.()
+      }
       return
     }
     try {
       await subduction.disconnectAll()
     } catch (e) {
       this.#log.debug("error disconnecting subduction transports: %O", e)
+    }
+
+    // 7. Release endpoint-owned resources (e.g. auto-spawned socket
+    //    workers) now that every transport has been disconnected.
+    for (const endpoint of this.#websocketEndpoints) {
+      endpoint.shutdown?.()
     }
   }
 

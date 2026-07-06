@@ -20,6 +20,13 @@
 import type { StorageAdapterInterface } from "../storage/StorageAdapterInterface.js"
 import { Subduction, type Signer } from "@automerge/automerge-subduction/slim"
 export { SubductionSource, type OnRemoteHeadsChanged } from "./source.js"
+export {
+  WebSocketEndpoint,
+  WorkerWebSocketEndpoint,
+  type ManagedTransport,
+  type WebSocketEndpointInterface,
+  type WorkerWebSocketEndpointOptions,
+} from "./websocket-endpoint.js"
 export type {
   Policy as SubductionPolicy,
   Transport as SubductionTransport,
@@ -30,6 +37,16 @@ import { SubductionStorageBridge } from "./storage.js"
 export { SubductionStorageBridge, type StorageBridgeEvents } from "./storage.js"
 export { SUBDUCTION_MESSAGE_TYPE, NetworkAdapterTransport } from "./network.js"
 export { WebSocketTransport } from "./websocket-transport.js"
+export {
+  WorkerWebSocketTransport,
+  type WorkerWebSocketConnectOptions,
+} from "./worker-websocket/transport.js"
+export {
+  attachWebSocketHost,
+  type WebSocketHostOptions,
+  type WebSocketLike,
+} from "./worker-websocket/host.js"
+export type { WorkerPortLike } from "./worker-websocket/protocol.js"
 
 /**
  * Options for {@link setupSubduction}.

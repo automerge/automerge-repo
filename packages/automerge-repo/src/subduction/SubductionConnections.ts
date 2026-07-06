@@ -1,7 +1,7 @@
 import { makeLogger, type Logger } from "../Logger.js"
-import { WebSocketTransport } from "./websocket-transport.js"
 import { Subduction } from "@automerge/automerge-subduction/slim"
 import { ConnectionManager } from "./ConnectionManager.js"
+import type { WebSocketEndpointInterface } from "./websocket-endpoint.js"
 
 export type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
 
@@ -47,7 +47,8 @@ export class SubductionConnections implements ConnectionManager {
 
   // ── Connection management ───────────────────────────────────────────
 
-  async manageConnection(url: string) {
+  async manageConnection(endpoint: WebSocketEndpointInterface) {
+    const url = endpoint.url
     const serviceName = new URL(url).host
     let backoff = RECONNECT_BASE_MS
 
@@ -56,7 +57,7 @@ export class SubductionConnections implements ConnectionManager {
       this.#log.debug(`connecting to ${url}`)
 
       try {
-        const transport = await WebSocketTransport.connect(url)
+        const transport = await endpoint.connect()
 
         if (this.#isShutdown) {
           void transport.disconnect()

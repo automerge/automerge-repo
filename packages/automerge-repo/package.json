@@ -11,6 +11,7 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "test": "vitest",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:watch": "vitest --watch",
     "fuzz": "tsx fuzz/fuzz.ts",
     "prepare": "tsc"
@@ -21,6 +22,9 @@
   "devDependencies": {
     "@types/node": "^22.19.19",
     "@types/ws": "^8.5.10",
+    "@vitest/browser": "4.1.7",
+    "@vitest/browser-playwright": "4.1.7",
+    "playwright": "^1.60.0",
     "http-server": "^14.1.1",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
@@ -43,6 +47,7 @@
   "exports": {
     ".": "./dist/entrypoints/fullfat.js",
     "./slim": "./dist/entrypoints/slim.js",
+    "./subduction-websocket-worker": "./dist/subduction/worker-websocket/worker-entry.js",
     "./helpers/*.js": "./dist/helpers/*.js"
   },
   "publishConfig": {
