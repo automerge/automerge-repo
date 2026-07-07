@@ -14,9 +14,17 @@ type AdapterTestContext = {
 
 /** Sort chunks by key for order-insensitive comparison. */
 const byKey = <T extends { key: string[] }>(chunks: T[]): T[] =>
-  [...chunks].sort((a, b) =>
-    a.key.join("\x00") < b.key.join("\x00") ? -1 : 1
-  )
+  [...chunks].sort((a, b) => compareKeys(a.key, b.key))
+
+/** Segment-wise lexicographic key comparison (0 for equal keys). */
+const compareKeys = (a: string[], b: string[]): number => {
+  const len = Math.min(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    if (a[i] < b[i]) return -1
+    if (a[i] > b[i]) return 1
+  }
+  return a.length - b.length
+}
 
 const it = _it<AdapterTestContext>
 

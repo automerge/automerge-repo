@@ -8,7 +8,7 @@ import { Repo } from "@automerge/automerge-repo"
 import { LMDBStorageAdapter } from "@automerge/automerge-repo-storage-lmdb"
 
 const repo = new Repo({
-  storage: new LMDBStorageAdapter("./data/automerge.lmdb"),
+  storage: new LMDBStorageAdapter("./data/automerge"),
 })
 ```
 
@@ -25,6 +25,10 @@ const repo = new Repo({
   compiles LMDB; npm installs a prebuilt binary on mainstream platforms
   (Linux glibc/musl, macOS, Windows, x64/arm64) and falls back to node-gyp
   elsewhere.
+
+The path is created if absent. lmdb-js treats an extensionless path as a
+directory (containing `data.mdb` and `lock.mdb`); a path with a file
+extension (e.g. `./data/db.lmdb`) opens a single-file database.
 
 ## Bring your own database
 

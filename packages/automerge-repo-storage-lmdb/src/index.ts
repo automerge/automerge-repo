@@ -21,7 +21,7 @@
  * import { LMDBStorageAdapter } from "@automerge/automerge-repo-storage-lmdb"
  *
  * const repo = new Repo({
- *   storage: new LMDBStorageAdapter("./data/automerge.lmdb"),
+ *   storage: new LMDBStorageAdapter("./data/automerge"),
  * })
  * ```
  *
@@ -48,10 +48,12 @@ export class LMDBStorageAdapter implements StorageAdapterInterface {
   #ownsDb: boolean
 
   /**
-   * @param pathOrDb - A directory path for the LMDB environment (created if
-   *   absent), or an already-open lmdb-js database. A supplied database must
-   *   use the default `ordered-binary` key encoding and `binary` value
-   *   encoding, and is not closed by {@link close}.
+   * @param pathOrDb - A path for the LMDB environment (created if absent),
+   *   or an already-open lmdb-js database. lmdb-js treats an extensionless
+   *   path as a directory (containing `data.mdb` + `lock.mdb`) and a path
+   *   with a file extension (e.g. `db.lmdb`) as a single-file database. A
+   *   supplied database must use the default `ordered-binary` key encoding
+   *   and `binary` value encoding, and is not closed by {@link close}.
    * @param options - Forwarded to lmdb-js `open` when a path is given.
    */
   constructor(
