@@ -362,6 +362,30 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     this.cachedKeys(keyPrefix).forEach(key => this.cacheDelete(key))
 
     // remove from disk
+    if (keyPrefix.length === 0) {
+      // Whole-store removal: clear the base directory's contents but keep
+      // the tmp directory (its lazy-mkdir state lives on this instance).
+      let entries: fs.Dirent[]
+      try {
+        entries = await fs.promises.readdir(this.baseDirectory, {
+          withFileTypes: true,
+        })
+      } catch (error: any) {
+        if (error.code === "ENOENT") return
+        throw error
+      }
+      await Promise.all(
+        entries
+          .filter(entry => entry.name !== TMP_DIR_NAME)
+          .map(entry =>
+            fs.promises.rm(path.join(this.baseDirectory, entry.name), {
+              recursive: true,
+              force: true,
+            })
+          )
+      )
+      return
+    }
     const dirPath = this.getFilePath(keyPrefix)
     await fs.promises.rm(dirPath, { recursive: true, force: true })
   }
@@ -391,10 +415,17 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
   }
 
   private cachedKeys(keyPrefix: string[]): string[] {
-    return trieCollect(this.keyIndex, getKey(keyPrefix).split(path.sep))
+    // `getKey([])` would yield path.join()'s "." — collect from the trie
+    // root instead so the empty prefix matches every cached key.
+    const segments =
+      keyPrefix.length === 0 ? [] : getKey(keyPrefix).split(path.sep)
+    return trieCollect(this.keyIndex, segments)
   }
 
   private getFilePath(keyArray: string[]): string {
+    // The empty key (valid only as a range prefix) addresses the whole
+    // store: the base directory itself.
+    if (keyArray.length === 0) return this.baseDirectory
     const [firstKey, ...remainingKeys] = keyArray
     return path.join(
       this.baseDirectory,
@@ -682,10 +713,9 @@ const walkdir = async (dirPath: string): Promise<string[]> => {
     })
     const files = await Promise.all(
       entries.map(entry => {
-        // Defensive: never descend into the tmp directory if walkdir is
-        // ever invoked with `dirPath === baseDirectory`. Today loadRange
-        // is always called with a prefix, so walkdir starts at a shard
-        // subdirectory and this branch is effectively unreachable.
+        // Never descend into the tmp directory: `loadRange([])` walks
+        // from `baseDirectory` itself, and in-flight staged writes must
+        // not surface as chunks.
         if (entry.isDirectory() && entry.name === TMP_DIR_NAME) return []
         const subpath = path.resolve(dirPath, entry.name)
         return entry.isDirectory() ? walkdir(subpath) : subpath
