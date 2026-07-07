@@ -13,6 +13,7 @@
  * ```
  */
 
+import { makeLogger } from "../Logger.js"
 import type { StorageAdapterInterface } from "../storage/StorageAdapterInterface.js"
 // Type-only imports (don't trigger Wasm access)
 import type { SedimentreeStorage } from "@automerge/automerge-subduction/slim"
@@ -95,6 +96,17 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   private pendingPerSid: Map<string, number> = new Map()
   private settleWaiters: SettleWaiter[] = []
 
+  /**
+   * Set by {@link close}. Once closed, every storage operation
+   * short-circuits (reads return empty, writes no-op) instead of
+   * touching the adapter — see {@link guarded}.
+   */
+  private closed = false
+  /** Count of adapter operations currently in flight (reads and writes). */
+  private inFlight = 0
+  private idleWaiters: Array<() => void> = []
+  private log = makeLogger("automerge-repo:subduction:storage")
+
   constructor(
     adapter: StorageAdapterInterface,
     prefix: string = DEFAULT_PREFIX
@@ -142,6 +154,74 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     return new Promise(resolve =>
       this.settleWaiters.push({ sids: sidSet, remaining, resolve })
     )
+  }
+
+  /**
+   * Stop serving storage operations. Inbound sync frames can still be
+   * dispatched by the Wasm side after `disconnectAll()` resolves (a frame
+   * already handed to the listen loop, or in flight across the worker
+   * transport's MessagePort hop). Closing the bridge before the underlying
+   * adapter closes turns those stragglers into silent no-ops instead of
+   * "read from a closed database" errors.
+   *
+   * Closes only the bridge — the underlying adapter stays open (it is
+   * owned by the StorageSubsystem, which closes it separately).
+   */
+  close(): void {
+    this.closed = true
+  }
+
+  get isClosed(): boolean {
+    return this.closed
+  }
+
+  /**
+   * Resolves once no adapter operation is in flight. Call after
+   * {@link close} to guarantee the last possible adapter access has
+   * completed before the adapter itself is closed.
+   */
+  async awaitIdle(): Promise<void> {
+    if (this.inFlight === 0) return
+    return new Promise(resolve => this.idleWaiters.push(resolve))
+  }
+
+  /**
+   * Run one adapter operation with close-guarding:
+   *
+   * - After {@link close}, skip the adapter entirely and return
+   *   `fallback` (empty result / no-op), logging at debug level.
+   * - Track the operation for {@link awaitIdle} so teardown can drain
+   *   in-flight operations before the adapter closes.
+   * - If the adapter throws and we are (by then) closed, swallow the
+   *   error and return `fallback` — covers a close racing an operation
+   *   that had already passed the guard.
+   */
+  private async guarded<T>(
+    op: string,
+    fallback: T,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    if (this.closed) {
+      this.log.debug(`${op} after close; dropping`)
+      return fallback
+    }
+    this.inFlight++
+    try {
+      return await fn()
+    } catch (err) {
+      if (this.closed) {
+        this.log.debug(`${op} failed after close; dropping: %O`, err)
+        return fallback
+      }
+      throw err
+    } finally {
+      this.inFlight--
+      if (this.inFlight === 0 && this.idleWaiters.length > 0) {
+        const waiters = this.idleWaiters
+        this.idleWaiters = []
+        for (const w of waiters) w()
+      }
+    }
   }
 
   private totalPending(): number {
@@ -224,19 +304,25 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
   async saveSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
     const key = [this.prefix, IDS_PREFIX, sedimentreeId.toString()]
-    await this.adapter.save(key, ID_MARKER)
+    await this.guarded("saveSedimentreeId", undefined, () =>
+      this.adapter.save(key, ID_MARKER)
+    )
   }
 
   async deleteSedimentreeId(sedimentreeId: SedimentreeId): Promise<void> {
     const key = [this.prefix, IDS_PREFIX, sedimentreeId.toString()]
-    await this.adapter.remove(key)
+    await this.guarded("deleteSedimentreeId", undefined, () =>
+      this.adapter.remove(key)
+    )
   }
 
   async loadAllSedimentreeIds(): Promise<SedimentreeId[]> {
-    const chunks = await this.adapter.loadRange([this.prefix, IDS_PREFIX])
-    return chunks
-      .filter(chunk => chunk.key.length === 3 && chunk.data)
-      .map(chunk => SedimentreeId.fromBytes(hexToBytes(chunk.key[2])))
+    return this.guarded("loadAllSedimentreeIds", [], async () => {
+      const chunks = await this.adapter.loadRange([this.prefix, IDS_PREFIX])
+      return chunks
+        .filter(chunk => chunk.key.length === 3 && chunk.data)
+        .map(chunk => SedimentreeId.fromBytes(hexToBytes(chunk.key[2])))
+    })
   }
 
   // ==================== Commits (compound storage with blob) ====================
@@ -256,27 +342,29 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const sid = sedimentreeId.toString()
     this.incrementPending(sid)
     try {
-      const idHex = commitId.toHexString()
-      const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
-      const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
+      await this.guarded("saveCommit", undefined, async () => {
+        const idHex = commitId.toHexString()
+        const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
+        const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
 
-      await this.adapter.saveBatch([
-        [blobKey, blobCopy],
-        [commitKey, commitCopy],
-      ])
+        await this.adapter.saveBatch([
+          [blobKey, blobCopy],
+          [commitKey, commitCopy],
+        ])
 
-      // Emit a fresh copy per event. `blobCopy` is already the bytes
-      // we handed to the adapter, and adapters (e.g. NodeFS) cache by
-      // reference. A listener that mutates the shared reference would
-      // corrupt the adapter's cache and affect other listeners.
-      if (this.listeners["commit-saved"]?.length) {
-        this.emit(
-          "commit-saved",
-          sedimentreeId,
-          commitId,
-          new Uint8Array(blobCopy)
-        )
-      }
+        // Emit a fresh copy per event. `blobCopy` is already the bytes
+        // we handed to the adapter, and adapters (e.g. NodeFS) cache by
+        // reference. A listener that mutates the shared reference would
+        // corrupt the adapter's cache and affect other listeners.
+        if (this.listeners["commit-saved"]?.length) {
+          this.emit(
+            "commit-saved",
+            sedimentreeId,
+            commitId,
+            new Uint8Array(blobCopy)
+          )
+        }
+      })
     } finally {
       this.decrementPending(sid)
     }
@@ -286,20 +374,22 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId,
     commitId: CommitId
   ): Promise<CommitWithBlob | null> {
-    const idHex = commitId.toHexString()
-    const sid = sedimentreeId.toString()
-    const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
-    const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
+    return this.guarded("loadCommit", null, async () => {
+      const idHex = commitId.toHexString()
+      const sid = sedimentreeId.toString()
+      const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
+      const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
 
-    const [commitData, blobData] = await Promise.all([
-      this.adapter.load(commitKey),
-      this.adapter.load(blobKey),
-    ])
+      const [commitData, blobData] = await Promise.all([
+        this.adapter.load(commitKey),
+        this.adapter.load(blobKey),
+      ])
 
-    if (!commitData || !blobData) return null
+      if (!commitData || !blobData) return null
 
-    const signedCommit = SignedLooseCommit.tryDecode(commitData)
-    return new CommitWithBlob(signedCommit, blobData)
+      const signedCommit = SignedLooseCommit.tryDecode(commitData)
+      return new CommitWithBlob(signedCommit, blobData)
+    })
   }
 
   /**
@@ -315,50 +405,58 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       sedimentreeId.toString(),
       commitIdHex,
     ]
-    return (await this.adapter.load(blobKey)) ?? null
+    return this.guarded(
+      "loadBlobById",
+      null,
+      async () => (await this.adapter.load(blobKey)) ?? null
+    )
   }
 
   async listCommitIds(sedimentreeId: SedimentreeId): Promise<CommitId[]> {
-    const chunks = await this.adapter.loadRange([
-      this.prefix,
-      COMMITS_PREFIX,
-      sedimentreeId.toString(),
-    ])
-    return chunks
-      .filter(chunk => chunk.key.length === 4 && chunk.data)
-      .map(chunk => CommitId.fromBytes(hexToBytes(chunk.key[3])))
+    return this.guarded("listCommitIds", [], async () => {
+      const chunks = await this.adapter.loadRange([
+        this.prefix,
+        COMMITS_PREFIX,
+        sedimentreeId.toString(),
+      ])
+      return chunks
+        .filter(chunk => chunk.key.length === 4 && chunk.data)
+        .map(chunk => CommitId.fromBytes(hexToBytes(chunk.key[3])))
+    })
   }
 
   async loadAllCommits(
     sedimentreeId: SedimentreeId
   ): Promise<CommitWithBlob[]> {
-    const sid = sedimentreeId.toString()
-    // Batch: two loadRange calls in parallel instead of 1 + 2N sequential loads.
-    const [commitChunks, blobChunks] = await Promise.all([
-      this.adapter.loadRange([this.prefix, COMMITS_PREFIX, sid]),
-      this.adapter.loadRange([this.prefix, BLOBS_PREFIX, sid]),
-    ])
+    return this.guarded("loadAllCommits", [], async () => {
+      const sid = sedimentreeId.toString()
+      // Batch: two loadRange calls in parallel instead of 1 + 2N sequential loads.
+      const [commitChunks, blobChunks] = await Promise.all([
+        this.adapter.loadRange([this.prefix, COMMITS_PREFIX, sid]),
+        this.adapter.loadRange([this.prefix, BLOBS_PREFIX, sid]),
+      ])
 
-    // Index blobs by id hex for O(1) lookup.
-    const blobsById = new Map<string, Uint8Array>()
-    for (const chunk of blobChunks) {
-      if (chunk.key.length === 4 && chunk.data) {
-        blobsById.set(chunk.key[3], chunk.data)
+      // Index blobs by id hex for O(1) lookup.
+      const blobsById = new Map<string, Uint8Array>()
+      for (const chunk of blobChunks) {
+        if (chunk.key.length === 4 && chunk.data) {
+          blobsById.set(chunk.key[3], chunk.data)
+        }
       }
-    }
 
-    const results: CommitWithBlob[] = []
-    for (const chunk of commitChunks) {
-      if (chunk.key.length !== 4 || !chunk.data) continue
-      const idHex = chunk.key[3]
-      const blobData = blobsById.get(idHex)
-      if (!blobData) continue
+      const results: CommitWithBlob[] = []
+      for (const chunk of commitChunks) {
+        if (chunk.key.length !== 4 || !chunk.data) continue
+        const idHex = chunk.key[3]
+        const blobData = blobsById.get(idHex)
+        if (!blobData) continue
 
-      const signedCommit = SignedLooseCommit.tryDecode(chunk.data)
-      results.push(new CommitWithBlob(signedCommit, blobData))
-    }
+        const signedCommit = SignedLooseCommit.tryDecode(chunk.data)
+        results.push(new CommitWithBlob(signedCommit, blobData))
+      }
 
-    return results
+      return results
+    })
   }
 
   async deleteCommit(
@@ -370,18 +468,22 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const commitKey = [this.prefix, COMMITS_PREFIX, sid, idHex]
     const blobKey = [this.prefix, BLOBS_PREFIX, sid, idHex]
 
-    await Promise.all([
-      this.adapter.remove(commitKey),
-      this.adapter.remove(blobKey),
-    ])
+    await this.guarded("deleteCommit", undefined, () =>
+      Promise.all([
+        this.adapter.remove(commitKey),
+        this.adapter.remove(blobKey),
+      ]).then(() => undefined)
+    )
   }
 
   async deleteAllCommits(sedimentreeId: SedimentreeId): Promise<void> {
     const sid = sedimentreeId.toString()
-    await Promise.all([
-      this.adapter.removeRange([this.prefix, COMMITS_PREFIX, sid]),
-      this.adapter.removeRange([this.prefix, BLOBS_PREFIX, sid]),
-    ])
+    await this.guarded("deleteAllCommits", undefined, () =>
+      Promise.all([
+        this.adapter.removeRange([this.prefix, COMMITS_PREFIX, sid]),
+        this.adapter.removeRange([this.prefix, BLOBS_PREFIX, sid]),
+      ]).then(() => undefined)
+    )
   }
 
   // ==================== Fragments (compound storage with blob) ====================
@@ -401,25 +503,27 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const sid = sedimentreeId.toString()
     this.incrementPending(sid)
     try {
-      const idHex = fragmentHead.toHexString()
-      const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
-      const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
+      await this.guarded("saveFragment", undefined, async () => {
+        const idHex = fragmentHead.toHexString()
+        const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
+        const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
-      // See the matching comment in saveCommit for rationale.
-      await this.adapter.saveBatch([
-        [blobKey, blobCopy],
-        [fragmentKey, fragmentCopy],
-      ])
+        // See the matching comment in saveCommit for rationale.
+        await this.adapter.saveBatch([
+          [blobKey, blobCopy],
+          [fragmentKey, fragmentCopy],
+        ])
 
-      // Defensive copy per event; see comment in saveCommit.
-      if (this.listeners["fragment-saved"]?.length) {
-        this.emit(
-          "fragment-saved",
-          sedimentreeId,
-          fragmentHead,
-          new Uint8Array(blobCopy)
-        )
-      }
+        // Defensive copy per event; see comment in saveCommit.
+        if (this.listeners["fragment-saved"]?.length) {
+          this.emit(
+            "fragment-saved",
+            sedimentreeId,
+            fragmentHead,
+            new Uint8Array(blobCopy)
+          )
+        }
+      })
     } finally {
       this.decrementPending(sid)
     }
@@ -429,63 +533,69 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     sedimentreeId: SedimentreeId,
     fragmentHead: CommitId
   ): Promise<FragmentWithBlob | null> {
-    const idHex = fragmentHead.toHexString()
-    const sid = sedimentreeId.toString()
-    const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
-    const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
+    return this.guarded("loadFragment", null, async () => {
+      const idHex = fragmentHead.toHexString()
+      const sid = sedimentreeId.toString()
+      const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
+      const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
-    const [fragmentData, blobData] = await Promise.all([
-      this.adapter.load(fragmentKey),
-      this.adapter.load(blobKey),
-    ])
+      const [fragmentData, blobData] = await Promise.all([
+        this.adapter.load(fragmentKey),
+        this.adapter.load(blobKey),
+      ])
 
-    if (!fragmentData || !blobData) return null
+      if (!fragmentData || !blobData) return null
 
-    const signedFragment = SignedFragment.tryDecode(fragmentData)
-    return new FragmentWithBlob(signedFragment, blobData)
+      const signedFragment = SignedFragment.tryDecode(fragmentData)
+      return new FragmentWithBlob(signedFragment, blobData)
+    })
   }
 
   async listFragmentIds(sedimentreeId: SedimentreeId): Promise<CommitId[]> {
-    const chunks = await this.adapter.loadRange([
-      this.prefix,
-      FRAGMENTS_PREFIX,
-      sedimentreeId.toString(),
-    ])
-    return chunks
-      .filter(chunk => chunk.key.length === 4 && chunk.data)
-      .map(chunk => CommitId.fromBytes(hexToBytes(chunk.key[3])))
+    return this.guarded("listFragmentIds", [], async () => {
+      const chunks = await this.adapter.loadRange([
+        this.prefix,
+        FRAGMENTS_PREFIX,
+        sedimentreeId.toString(),
+      ])
+      return chunks
+        .filter(chunk => chunk.key.length === 4 && chunk.data)
+        .map(chunk => CommitId.fromBytes(hexToBytes(chunk.key[3])))
+    })
   }
 
   async loadAllFragments(
     sedimentreeId: SedimentreeId
   ): Promise<FragmentWithBlob[]> {
-    const sid = sedimentreeId.toString()
-    // Batch: two loadRange calls in parallel instead of 1 + 2M sequential loads.
-    const [fragmentChunks, blobChunks] = await Promise.all([
-      this.adapter.loadRange([this.prefix, FRAGMENTS_PREFIX, sid]),
-      this.adapter.loadRange([this.prefix, FRAGMENT_BLOBS_PREFIX, sid]),
-    ])
+    return this.guarded("loadAllFragments", [], async () => {
+      const sid = sedimentreeId.toString()
+      // Batch: two loadRange calls in parallel instead of 1 + 2M sequential loads.
+      const [fragmentChunks, blobChunks] = await Promise.all([
+        this.adapter.loadRange([this.prefix, FRAGMENTS_PREFIX, sid]),
+        this.adapter.loadRange([this.prefix, FRAGMENT_BLOBS_PREFIX, sid]),
+      ])
 
-    // Index blobs by id hex for O(1) lookup.
-    const blobsById = new Map<string, Uint8Array>()
-    for (const chunk of blobChunks) {
-      if (chunk.key.length === 4 && chunk.data) {
-        blobsById.set(chunk.key[3], chunk.data)
+      // Index blobs by id hex for O(1) lookup.
+      const blobsById = new Map<string, Uint8Array>()
+      for (const chunk of blobChunks) {
+        if (chunk.key.length === 4 && chunk.data) {
+          blobsById.set(chunk.key[3], chunk.data)
+        }
       }
-    }
 
-    const results: FragmentWithBlob[] = []
-    for (const chunk of fragmentChunks) {
-      if (chunk.key.length !== 4 || !chunk.data) continue
-      const idHex = chunk.key[3]
-      const blobData = blobsById.get(idHex)
-      if (!blobData) continue
+      const results: FragmentWithBlob[] = []
+      for (const chunk of fragmentChunks) {
+        if (chunk.key.length !== 4 || !chunk.data) continue
+        const idHex = chunk.key[3]
+        const blobData = blobsById.get(idHex)
+        if (!blobData) continue
 
-      const signedFragment = SignedFragment.tryDecode(chunk.data)
-      results.push(new FragmentWithBlob(signedFragment, blobData))
-    }
+        const signedFragment = SignedFragment.tryDecode(chunk.data)
+        results.push(new FragmentWithBlob(signedFragment, blobData))
+      }
 
-    return results
+      return results
+    })
   }
 
   async deleteFragment(
@@ -497,18 +607,22 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     const fragmentKey = [this.prefix, FRAGMENTS_PREFIX, sid, idHex]
     const blobKey = [this.prefix, FRAGMENT_BLOBS_PREFIX, sid, idHex]
 
-    await Promise.all([
-      this.adapter.remove(fragmentKey),
-      this.adapter.remove(blobKey),
-    ])
+    await this.guarded("deleteFragment", undefined, () =>
+      Promise.all([
+        this.adapter.remove(fragmentKey),
+        this.adapter.remove(blobKey),
+      ]).then(() => undefined)
+    )
   }
 
   async deleteAllFragments(sedimentreeId: SedimentreeId): Promise<void> {
     const sid = sedimentreeId.toString()
-    await Promise.all([
-      this.adapter.removeRange([this.prefix, FRAGMENTS_PREFIX, sid]),
-      this.adapter.removeRange([this.prefix, FRAGMENT_BLOBS_PREFIX, sid]),
-    ])
+    await this.guarded("deleteAllFragments", undefined, () =>
+      Promise.all([
+        this.adapter.removeRange([this.prefix, FRAGMENTS_PREFIX, sid]),
+        this.adapter.removeRange([this.prefix, FRAGMENT_BLOBS_PREFIX, sid]),
+      ]).then(() => undefined)
+    )
   }
 
   // ==================== Batch Operations ====================
@@ -579,42 +693,44 @@ export class SubductionStorageBridge implements SedimentreeStorage {
 
     this.incrementPending(sid)
     try {
-      // Three sequential phases for crash-prefix safety; see the
-      // class docstring above for the full state-machine analysis.
-      if (blobEntries.length > 0) {
-        await this.adapter.saveBatch(blobEntries)
-      }
-      if (metaEntries.length > 0) {
-        await this.adapter.saveBatch(metaEntries)
-      }
-      await this.adapter.saveBatch([markerEntry])
+      return await this.guarded("saveBatchAll", 0, async () => {
+        // Three sequential phases for crash-prefix safety; see the
+        // class docstring above for the full state-machine analysis.
+        if (blobEntries.length > 0) {
+          await this.adapter.saveBatch(blobEntries)
+        }
+        if (metaEntries.length > 0) {
+          await this.adapter.saveBatch(metaEntries)
+        }
+        await this.adapter.saveBatch([markerEntry])
 
-      // Defensive copy per event; see comment in saveCommit.
-      if (this.listeners["commit-saved"]?.length) {
-        commits.forEach(({ commitId }, i) => {
-          this.emit(
-            "commit-saved",
-            sedimentreeId,
-            commitId,
-            new Uint8Array(commitBlobCopies[i])
-          )
-        })
-      }
-      if (this.listeners["fragment-saved"]?.length) {
-        fragments.forEach(({ fragmentHead }, i) => {
-          this.emit(
-            "fragment-saved",
-            sedimentreeId,
-            fragmentHead,
-            new Uint8Array(fragmentBlobCopies[i])
-          )
-        })
-      }
+        // Defensive copy per event; see comment in saveCommit.
+        if (this.listeners["commit-saved"]?.length) {
+          commits.forEach(({ commitId }, i) => {
+            this.emit(
+              "commit-saved",
+              sedimentreeId,
+              commitId,
+              new Uint8Array(commitBlobCopies[i])
+            )
+          })
+        }
+        if (this.listeners["fragment-saved"]?.length) {
+          fragments.forEach(({ fragmentHead }, i) => {
+            this.emit(
+              "fragment-saved",
+              sedimentreeId,
+              fragmentHead,
+              new Uint8Array(fragmentBlobCopies[i])
+            )
+          })
+        }
+
+        return commits.length + fragments.length
+      })
     } finally {
       this.decrementPending(sid)
     }
-
-    return commits.length + fragments.length
   }
 
   // ==================== Remote heads (last-known sync state) ====================
@@ -636,7 +752,9 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       sedimentreeId.toString(),
       storageId,
     ]
-    await this.adapter.save(key, encodeRemoteHeads(heads, timestamp))
+    await this.guarded("saveRemoteHeads", undefined, () =>
+      this.adapter.save(key, encodeRemoteHeads(heads, timestamp))
+    )
   }
 
   /**
@@ -646,22 +764,24 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   async loadRemoteHeads(
     sedimentreeId: SedimentreeId
   ): Promise<Array<{ storageId: string; heads: string[]; timestamp: number }>> {
-    const chunks = await this.adapter.loadRange([
-      this.prefix,
-      REMOTE_HEADS_PREFIX,
-      sedimentreeId.toString(),
-    ])
-    const out: Array<{
-      storageId: string
-      heads: string[]
-      timestamp: number
-    }> = []
-    for (const chunk of chunks) {
-      if (chunk.key.length !== 4 || !chunk.data) continue
-      const decoded = decodeRemoteHeads(chunk.data)
-      if (decoded) out.push({ storageId: chunk.key[3], ...decoded })
-    }
-    return out
+    return this.guarded("loadRemoteHeads", [], async () => {
+      const chunks = await this.adapter.loadRange([
+        this.prefix,
+        REMOTE_HEADS_PREFIX,
+        sedimentreeId.toString(),
+      ])
+      const out: Array<{
+        storageId: string
+        heads: string[]
+        timestamp: number
+      }> = []
+      for (const chunk of chunks) {
+        if (chunk.key.length !== 4 || !chunk.data) continue
+        const decoded = decodeRemoteHeads(chunk.data)
+        if (decoded) out.push({ storageId: chunk.key[3], ...decoded })
+      }
+      return out
+    })
   }
 }
 

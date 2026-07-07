@@ -127,6 +127,10 @@ export class WebSocketTransport implements Transport {
     fireDisconnectCallback,
   }: { fireDisconnectCallback?: boolean } = {}) {
     this.#isClosed = true
+    // Drop undelivered frames: a locally-initiated teardown means we are
+    // shutting down — handing queued frames to the wasm now could trigger
+    // dispatches against storage that is about to close.
+    this.#messageQueue = []
     this.#closedResolve()
     this.#ws.close()
     if (fireDisconnectCallback && this.#disconnectCallback)

@@ -2011,6 +2011,8 @@ export class SubductionSource implements DocumentSource {
       for (const endpoint of this.#websocketEndpoints) {
         endpoint.shutdown?.()
       }
+      this.#storage.close()
+      await this.#storage.awaitIdle()
       return
     }
     try {
@@ -2024,6 +2026,17 @@ export class SubductionSource implements DocumentSource {
     for (const endpoint of this.#websocketEndpoints) {
       endpoint.shutdown?.()
     }
+
+    // 8. Stop serving storage and drain in-flight bridge operations.
+    //    `disconnectAll()` does not await the Wasm side's in-flight
+    //    dispatches: a frame already handed to the listen loop (or still
+    //    crossing the worker transport's MessagePort) can reach dispatch →
+    //    storage *after* this method returns. Closing the bridge makes
+    //    such stragglers no-ops, and awaiting idle guarantees the last
+    //    adapter access has completed before Repo.shutdown() closes the
+    //    storage adapter itself (LMDB throws on post-close reads).
+    this.#storage.close()
+    await this.#storage.awaitIdle()
   }
 
   // ── Ephemeral messaging ──────────────────────────────────────────────
