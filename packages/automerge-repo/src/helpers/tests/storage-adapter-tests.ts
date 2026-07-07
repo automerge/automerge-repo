@@ -103,6 +103,42 @@ export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
         )
       })
 
+      it("should enumerate every chunk for the empty prefix", async ({
+        adapter,
+      }) => {
+        // The empty prefix matches every key — consumers rely on
+        // `loadRange([])` for whole-store enumeration (e.g. migrating
+        // between adapters). Include a single-component key and multiple
+        // distinct first components to exercise adapter sharding schemes.
+        await adapter.save(["storage-adapter-id"], PAYLOAD_A())
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B())
+        await adapter.save(["BBBBB", "snapshot", "yyyyy"], PAYLOAD_C())
+
+        expect(byKey(await adapter.loadRange([]))).toStrictEqual(
+          byKey([
+            { key: ["storage-adapter-id"], data: PAYLOAD_A() },
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_B() },
+            { key: ["BBBBB", "snapshot", "yyyyy"], data: PAYLOAD_C() },
+          ])
+        )
+      })
+
+      it("should remove every chunk for the empty prefix and stay usable", async ({
+        adapter,
+      }) => {
+        await adapter.save(["storage-adapter-id"], PAYLOAD_A())
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B())
+
+        await adapter.removeRange([])
+        expect(await adapter.loadRange([])).toStrictEqual([])
+
+        // The store must remain writable after whole-store removal.
+        await adapter.save(["CCCCC", "snapshot", "zzzzz"], PAYLOAD_C())
+        expect(
+          await adapter.load(["CCCCC", "snapshot", "zzzzz"])
+        ).toStrictEqual(PAYLOAD_C())
+      })
+
       it("should only load values that match they key", async ({ adapter }) => {
         await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_A())
         await adapter.save(["BBBBB", "sync-state", "zzzzz"], PAYLOAD_C())

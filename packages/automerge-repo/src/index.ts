@@ -109,6 +109,10 @@ export type {
 export type { AbortOptions } from "./helpers/abortable.js"
 export type { DocumentSource } from "./DocumentSource.js"
 export type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
+// Re-exported so consumers (notably CJS ones) can reach the same Wasm
+// instance this package initialized, without a raw ESM import() of
+// @automerge/automerge-subduction/slim.
+export { setSubductionLogLevel } from "@automerge/automerge-subduction/slim"
 export type {
   SubductionTimeouts,
   BlobInterceptor,

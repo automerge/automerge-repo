@@ -99,18 +99,20 @@ export class LMDBStorageAdapter implements StorageAdapterInterface {
     const chunks: Chunk[] = []
     // Component-wise ordering puts the prefix key itself first, followed by
     // every descendant; the scan ends at the first non-descendant.
-    for (const { key, value } of this.#db.getRange({ start: keyPrefix })) {
+    for (const entry of this.#db.getRange(rangeFrom(keyPrefix))) {
+      const key = normalizeKey(entry.key)
       if (!startsWith(key, keyPrefix)) break
-      chunks.push({ key: [...key], data: new Uint8Array(value) })
+      chunks.push({ key, data: new Uint8Array(entry.value) })
     }
     return chunks
   }
 
   async removeRange(keyPrefix: StorageKey): Promise<void> {
     const keys: StorageKey[] = []
-    for (const key of this.#db.getKeys({ start: keyPrefix })) {
+    for (const rawKey of this.#db.getKeys(rangeFrom(keyPrefix))) {
+      const key = normalizeKey(rawKey)
       if (!startsWith(key, keyPrefix)) break
-      keys.push(key)
+      keys.push(rawKey as StorageKey)
     }
     if (keys.length === 0) return
     this.#db.transactionSync(() => {
@@ -136,6 +138,17 @@ export class LMDBStorageAdapter implements StorageAdapterInterface {
     if (this.#ownsDb) await this.#db.close()
   }
 }
+
+/** Scan everything for the empty prefix; otherwise start at the prefix. */
+const rangeFrom = (keyPrefix: StorageKey) =>
+  keyPrefix.length === 0 ? {} : { start: keyPrefix }
+
+/**
+ * lmdb-js round-trips a one-element array key as its bare element;
+ * re-wrap so callers always see the `string[]` they stored.
+ */
+const normalizeKey = (key: unknown): StorageKey =>
+  Array.isArray(key) ? [...key] : [String(key)]
 
 const startsWith = (key: StorageKey, prefix: StorageKey): boolean => {
   if (key.length < prefix.length) return false
