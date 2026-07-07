@@ -15,7 +15,7 @@
  * adapter: post-close operations are silent no-ops.
  */
 
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { once } from "events"
 import { WebSocketServer } from "ws"
 
