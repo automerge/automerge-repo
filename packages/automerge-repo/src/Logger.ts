@@ -52,6 +52,11 @@ export function setLoggerFactory(f: LoggerFactory): void {
   factory = f
 }
 
+/** Restore the built-in logger factory (mainly for tests). */
+export function resetLoggerFactory(): void {
+  factory = defaultFactory
+}
+
 /**
  * Returns a {@link Logger} for `namespace` that delegates to whichever factory
  * is current at the time each method is called. The factory is consulted on

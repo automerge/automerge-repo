@@ -10,7 +10,7 @@
  * resolve as no-ops — never an ERROR log or unhandled rejection.
  */
 
-import { afterEach, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { once } from "events"
 import { WebSocketServer } from "ws"
 
@@ -19,7 +19,8 @@ import {
   MemoryStorage,
   Subduction,
 } from "@automerge/automerge-subduction"
-import { setLoggerFactory } from "../../src/Logger.js"
+import { parseAutomergeUrl, generateAutomergeUrl } from "../../src/index.js"
+import { resetLoggerFactory, setLoggerFactory } from "../../src/Logger.js"
 import { Repo } from "../../src/Repo.js"
 import { DummyStorageAdapter } from "../../src/helpers/DummyStorageAdapter.js"
 import { initSubduction } from "../../src/initSubduction.js"
@@ -37,8 +38,9 @@ beforeAll(async () => {
 
 /**
  * LMDB-like adapter: after `close()`, every operation throws the way
- * `lmdb`'s invalidated env does. Optionally delays reads to widen the
- * in-flight window deterministically.
+ * `lmdb`'s invalidated env does, and records the attempt in
+ * `opsAfterClose`. Optionally delays reads to widen the in-flight
+ * window deterministically.
  */
 class ClosableStorageAdapter implements StorageAdapterInterface {
   readonly inner = new DummyStorageAdapter()
@@ -47,31 +49,41 @@ class ClosableStorageAdapter implements StorageAdapterInterface {
   readDelayMs = 0
   /** Count of loadRange calls that ran to completion. */
   completedReads = 0
+  /**
+   * Operations that reached the adapter after close(). The invariant
+   * under test is that this stays empty — asserting on it is
+   * independent of which logging channel a post-close error would
+   * otherwise surface through.
+   */
+  readonly opsAfterClose: string[] = []
 
-  #check() {
-    if (this.closed) throw new Error("Can not read from a closed database")
+  #check(op: string) {
+    if (this.closed) {
+      this.opsAfterClose.push(op)
+      throw new Error("Can not read from a closed database")
+    }
   }
 
   async load(key: StorageKey) {
-    this.#check()
+    this.#check("load")
     return this.inner.load(key)
   }
 
   async save(key: StorageKey, data: Uint8Array) {
-    this.#check()
+    this.#check("save")
     return this.inner.save(key, data)
   }
 
   async remove(key: StorageKey) {
-    this.#check()
+    this.#check("remove")
     return this.inner.remove(key)
   }
 
   async loadRange(keyPrefix: StorageKey): Promise<Chunk[]> {
-    this.#check()
+    this.#check("loadRange")
     if (this.readDelayMs > 0) {
       await new Promise(r => setTimeout(r, this.readDelayMs))
-      this.#check()
+      this.#check("loadRange")
     }
     const result = await this.inner.loadRange(keyPrefix)
     this.completedReads++
@@ -79,12 +91,12 @@ class ClosableStorageAdapter implements StorageAdapterInterface {
   }
 
   async removeRange(keyPrefix: StorageKey) {
-    this.#check()
+    this.#check("removeRange")
     return this.inner.removeRange(keyPrefix)
   }
 
   async saveBatch(entries: Array<[StorageKey, Uint8Array]>) {
-    this.#check()
+    this.#check("saveBatch")
     return this.inner.saveBatch(entries)
   }
 
@@ -93,9 +105,10 @@ class ClosableStorageAdapter implements StorageAdapterInterface {
   }
 }
 
+// A valid random document id, without constructing a Repo (a module-scope
+// Repo would eagerly build SubductionSource state before beforeAll runs).
 const SID = toSedimentreeId(
-  // Any 16-byte bs58check document id works; sourced from a throwaway repo.
-  new Repo({ storage: new DummyStorageAdapter() }).create().documentId
+  parseAutomergeUrl(generateAutomergeUrl()).documentId
 )
 
 describe("SubductionStorageBridge close guard", () => {
@@ -123,6 +136,51 @@ describe("SubductionStorageBridge close guard", () => {
     await expect(
       bridge.saveRemoteHeads(SID, "storage-id", [], Date.now())
     ).resolves.toBeUndefined()
+
+    // Nothing above reached the adapter.
+    expect(adapter.opsAfterClose).toEqual([])
+  })
+
+  it("counts dropped writes and keeps pending accounting balanced", async () => {
+    const adapter = new ClosableStorageAdapter()
+    const bridge = new SubductionStorageBridge(adapter)
+
+    bridge.close()
+    expect(bridge.droppedWrites).toBe(0)
+
+    // Post-close writes: no adapter access, no events, counted.
+    let commitEvents = 0
+    bridge.on("commit-saved", () => {
+      commitEvents++
+    })
+    await expect(bridge.saveBatchAll(SID, [], [])).resolves.toBe(0)
+    await expect(bridge.saveSedimentreeId(SID)).resolves.toBeUndefined()
+
+    expect(bridge.droppedWrites).toBe(2)
+    expect(commitEvents).toBe(0)
+    expect(adapter.opsAfterClose).toEqual([])
+    // The pending counters stayed balanced through the fallback path.
+    await expect(bridge.awaitSettled()).resolves.toBeUndefined()
+    // Dropped reads are benign and not counted.
+    await bridge.loadAllCommits(SID)
+    expect(bridge.droppedWrites).toBe(2)
+  })
+
+  it("propagates adapter errors while the bridge is open", async () => {
+    const adapter = new ClosableStorageAdapter()
+    const bridge = new SubductionStorageBridge(adapter)
+
+    // Close the adapter but NOT the bridge: a genuine storage failure on
+    // an open bridge (corruption, disk full) must surface, not be
+    // swallowed by the close guard.
+    adapter.close()
+
+    await expect(bridge.loadAllCommits(SID)).rejects.toThrow(
+      /closed database/i
+    )
+    await expect(bridge.saveSedimentreeId(SID)).rejects.toThrow(
+      /closed database/i
+    )
   })
 
   it("awaitIdle() drains an in-flight read before resolving", async () => {
@@ -135,10 +193,12 @@ describe("SubductionStorageBridge close guard", () => {
     bridge.close()
     expect(adapter.completedReads).toBe(0)
     await bridge.awaitIdle()
-    // Both parallel loadRange calls inside loadAllCommits finished
-    // before awaitIdle resolved — the adapter is safe to close now.
-    expect(adapter.completedReads).toBe(2)
+    // Every adapter read that passed the guard finished before awaitIdle
+    // resolved — the adapter is safe to close now.
+    const drained = adapter.completedReads
+    expect(drained).toBeGreaterThan(0)
     await inFlight
+    expect(adapter.completedReads).toBe(drained)
   })
 
   it("swallows an adapter error from a read that raced close()", async () => {
@@ -163,14 +223,20 @@ describe("Repo.shutdown() with a close-on-shutdown adapter", () => {
   const rejections: unknown[] = []
   const onRejection = (reason: unknown) => rejections.push(reason)
 
-  setLoggerFactory(namespace => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: (message, ...args) => {
-      errorLogs.push(`[${namespace}] ${message} ${args.join(" ")}`)
-    },
-  }))
+  beforeAll(() => {
+    setLoggerFactory(namespace => ({
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: (message, ...args) => {
+        errorLogs.push(`[${namespace}] ${message} ${args.join(" ")}`)
+      },
+    }))
+  })
+
+  afterAll(() => {
+    resetLoggerFactory()
+  })
 
   afterEach(async () => {
     for (const cleanup of cleanups.reverse()) {
@@ -274,6 +340,11 @@ describe("Repo.shutdown() with a close-on-shutdown adapter", () => {
 
     // Give any straggler dispatches a few macrotasks to surface.
     await new Promise(r => setTimeout(r, 100))
+
+    // The core invariant, independent of logging channels: nothing
+    // touched either adapter after it closed.
+    expect(readerAdapter.opsAfterClose).toEqual([])
+    expect(writerAdapter.opsAfterClose).toEqual([])
 
     const closedDbErrors = [...errorLogs, ...rejections.map(String)].filter(
       line => /closed database/i.test(String(line))

@@ -34,7 +34,11 @@ export type {
 export type { OnHealExhausted } from "./SyncScheduler.js"
 
 import { SubductionStorageBridge } from "./storage.js"
-export { SubductionStorageBridge, type StorageBridgeEvents } from "./storage.js"
+export {
+  BridgeClosedError,
+  SubductionStorageBridge,
+  type StorageBridgeEvents,
+} from "./storage.js"
 export { SUBDUCTION_MESSAGE_TYPE, NetworkAdapterTransport } from "./network.js"
 export { WebSocketTransport } from "./websocket-transport.js"
 export {

@@ -41,7 +41,7 @@ export {
 export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { initSubduction } from "./initSubduction.js"
-export { setLoggerFactory, makeLogger } from "./Logger.js"
+export { makeLogger, resetLoggerFactory, setLoggerFactory } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
 export { Presence } from "./presence/Presence.js"
 export { PeerStateView } from "./presence/PeerStateView.js"

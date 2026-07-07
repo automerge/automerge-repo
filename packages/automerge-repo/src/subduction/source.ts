@@ -26,7 +26,7 @@ import { semaphore } from "../helpers/semaphore.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
 import { makeLogger, type Logger } from "../Logger.js"
-import { SubductionStorageBridge } from "./storage.js"
+import { BridgeClosedError, SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
 import {
   WebSocketEndpoint,
@@ -53,6 +53,13 @@ const DEFAULT_SYNC_TIMEOUT_MS = 60_000
  * unresponsive or half-torn-down peer.
  */
 const SHUTDOWN_SYNC_TIMEOUT_MS = 5_000
+
+/**
+ * Deadline for draining in-flight storage-bridge operations at shutdown.
+ * An adapter promise that never settles (e.g. IndexedDB in a frozen or
+ * bfcached page) must not hang `Repo.shutdown()` forever.
+ */
+const SHUTDOWN_IDLE_TIMEOUT_MS = 5_000
 
 /**
  * Default cap on how many stale-blob deletes run concurrently during a
@@ -1859,6 +1866,26 @@ export class SubductionSource implements DocumentSource {
       bridgeSids = sids
     }
 
+    // A closed bridge silently drops writes (see SubductionStorageBridge
+    // .close), so flush cannot honor its durability contract for work
+    // that hasn't already been drained. shutdown() drains everything
+    // before closing, so a quiescent flush-after-shutdown resolves
+    // cleanly; only actual droppable work rejects.
+    if (this.#storage.isClosed) {
+      const dirty = targets.filter(
+        e =>
+          e.saveDeltaPending || e.flushSave.pending || e.lastSaveError != null
+      )
+      if (dirty.length > 0) {
+        throw new BridgeClosedError(
+          `flush: storage bridge is closed; ${dirty.length} ` +
+            `document${dirty.length === 1 ? "" : "s"} with unsaved ` +
+            `changes would be dropped`
+        )
+      }
+      return
+    }
+
     // Drain queued inbound blobs synchronously so any pending
     // peer-delivered changes are applied to the handle before
     // `#saveNewCommits` walks the doc. Without this, getCommits/heads
@@ -1986,7 +2013,7 @@ export class SubductionSource implements DocumentSource {
         endpoint.shutdown?.()
       }
       this.#storage.close()
-      await this.#storage.awaitIdle()
+      await this.#awaitStorageIdle()
       return
     }
     try {
@@ -2000,7 +2027,26 @@ export class SubductionSource implements DocumentSource {
     }
 
     this.#storage.close()
-    await this.#storage.awaitIdle()
+    await this.#awaitStorageIdle()
+  }
+
+  /** Drain in-flight bridge operations, bounded by a deadline. */
+  async #awaitStorageIdle(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<"timeout">(resolve => {
+      timer = setTimeout(() => resolve("timeout"), SHUTDOWN_IDLE_TIMEOUT_MS)
+    })
+    try {
+      const result = await Promise.race([this.#storage.awaitIdle(), deadline])
+      if (result === "timeout") {
+        this.#log.warn(
+          `shutdown: storage bridge still busy after ` +
+            `${SHUTDOWN_IDLE_TIMEOUT_MS}ms; proceeding without full drain`
+        )
+      }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   // ── Ephemeral messaging ──────────────────────────────────────────────

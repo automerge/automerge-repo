@@ -29,6 +29,8 @@ export type ThrottledFunction<F extends (...args: any[]) => any> = {
   (...args: Parameters<F>): void
   /** Immediately execute any pending throttled call. */
   flush: () => void
+  /** Whether a throttled call is waiting to execute. */
+  readonly pending: boolean
 }
 
 export const throttle = <F extends (...args: any[]) => any>(
@@ -62,6 +64,10 @@ export const throttle = <F extends (...args: any[]) => any>(
       lastCall = Date.now()
     }
   }
+
+  Object.defineProperty(throttled, "pending", {
+    get: () => pendingArgs !== undefined,
+  })
 
   return throttled
 }

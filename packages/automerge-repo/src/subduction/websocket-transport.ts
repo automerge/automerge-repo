@@ -28,6 +28,9 @@ export class WebSocketTransport implements Transport {
     ws.binaryType = "arraybuffer"
 
     ws.addEventListener("message", (event: WebSocket.MessageEvent) => {
+      // A locally torn-down transport must not deliver or queue frames
+      // still buffered in the socket; see #teardown.
+      if (this.#isClosed) return
       const raw = event.data
       const bytes =
         raw instanceof ArrayBuffer
@@ -130,6 +133,12 @@ export class WebSocketTransport implements Transport {
     // Drop undelivered frames: on a local teardown, handing them to the
     // wasm could trigger dispatches against storage that is about to close.
     this.#messageQueue = []
+    // Reject pending receivers now rather than waiting for the ws close
+    // handshake (up to ~30s against an unresponsive peer under node ws).
+    const err = new Error("WebSocket closed")
+    for (const ew of this.#errorWaiters) ew(err)
+    this.#errorWaiters = []
+    this.#waiters = []
     this.#closedResolve()
     this.#ws.close()
     if (fireDisconnectCallback && this.#disconnectCallback)

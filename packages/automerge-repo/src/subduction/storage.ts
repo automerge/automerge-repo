@@ -104,6 +104,8 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   private closed = false
   /** Count of adapter operations currently in flight (reads and writes). */
   private inFlight = 0
+  /** See {@link droppedWrites}. */
+  private droppedWriteCount = 0
   private idleWaiters: Array<() => void> = []
   private log = makeLogger("automerge-repo:subduction:storage")
 
@@ -176,6 +178,18 @@ export class SubductionStorageBridge implements SedimentreeStorage {
   }
 
   /**
+   * Count of write/delete operations dropped because the bridge was
+   * closed. The safety of post-close no-ops rests on {@link close} being
+   * called only after every write path has drained (the tail of
+   * `SubductionSource.shutdown()`); a nonzero count means that ordering
+   * was violated and data may have been silently lost. Tripwire for
+   * tests and for diagnosing reordered teardown.
+   */
+  get droppedWrites(): number {
+    return this.droppedWriteCount
+  }
+
+  /**
    * Resolves once no adapter operation is in flight. Call after
    * {@link close} to guarantee the last possible adapter access has
    * completed before the adapter itself is closed.
@@ -189,12 +203,16 @@ export class SubductionStorageBridge implements SedimentreeStorage {
    * Run one adapter operation with close-guarding:
    *
    * - After {@link close}, skip the adapter entirely and return
-   *   `fallback` (empty result / no-op), logging at debug level.
+   *   `fallback` (empty result / no-op). Dropped reads are benign and
+   *   log at debug; dropped writes are potential data loss and count
+   *   toward {@link droppedWrites}.
    * - Track the operation for {@link awaitIdle} so teardown can drain
    *   in-flight operations before the adapter closes.
    * - If the adapter throws and we are (by then) closed, swallow the
    *   error and return `fallback` — covers a close racing an operation
-   *   that had already passed the guard.
+   *   that had already passed the guard. Logged at warn: unlike the
+   *   clean short-circuit, a failure here may also mask an unrelated
+   *   adapter error that raced the close.
    */
   private async guarded<T>(
     op: string,
@@ -202,7 +220,13 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     fn: () => Promise<T>
   ): Promise<T> {
     if (this.closed) {
-      this.log.debug(`${op} after close; dropping`)
+      // Method naming is stable: every mutating op is save*/delete*.
+      if (/^(save|delete)/.test(op)) {
+        this.droppedWriteCount++
+        this.log.warn(`${op} after close; write dropped`)
+      } else {
+        this.log.debug(`${op} after close; dropping`)
+      }
       return fallback
     }
     this.inFlight++
@@ -210,7 +234,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       return await fn()
     } catch (err) {
       if (this.closed) {
-        this.log.debug(`${op} failed after close; dropping: %O`, err)
+        this.log.warn(`${op} failed after close; dropping: %O`, err)
         return fallback
       }
       throw err
@@ -782,6 +806,20 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       }
       return out
     })
+  }
+}
+
+/**
+ * Thrown by JS-facing callers (e.g. `SubductionSource.flush`) when an
+ * operation cannot honor its durability contract because the storage
+ * bridge has been closed. Wasm-facing {@link SedimentreeStorage} methods
+ * never throw this — they short-circuit to empty/no-op instead (see
+ * {@link SubductionStorageBridge.close}).
+ */
+export class BridgeClosedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "BridgeClosedError"
   }
 }
 
