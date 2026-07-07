@@ -1,7 +1,10 @@
 import { makeLogger, type Logger } from "../Logger.js"
-import { WebSocketTransport } from "./websocket-transport.js"
 import { Subduction } from "@automerge/automerge-subduction/slim"
 import { ConnectionManager } from "./ConnectionManager.js"
+import type {
+  ManagedTransport,
+  WebSocketEndpointInterface,
+} from "./websocket-endpoint.js"
 
 export type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
 
@@ -47,7 +50,8 @@ export class SubductionConnections implements ConnectionManager {
 
   // ── Connection management ───────────────────────────────────────────
 
-  async manageConnection(url: string) {
+  async manageConnection(endpoint: WebSocketEndpointInterface) {
+    const url = endpoint.url
     const serviceName = new URL(url).host
     let backoff = RECONNECT_BASE_MS
 
@@ -55,8 +59,14 @@ export class SubductionConnections implements ConnectionManager {
       this.#setConnectionState(url, "connecting")
       this.#log.debug(`connecting to ${url}`)
 
+      // Tracked outside the try so the catch can close a transport that
+      // opened successfully before a later step threw — otherwise every
+      // backoff cycle would abandon a live connection (which, for
+      // worker-hosted sockets, keeps buffering server pushes toward the
+      // byte cap with no consumer).
+      let transport: ManagedTransport | null = null
       try {
-        const transport = await WebSocketTransport.connect(url)
+        transport = await endpoint.connect()
 
         if (this.#isShutdown) {
           void transport.disconnect()
@@ -73,6 +83,7 @@ export class SubductionConnections implements ConnectionManager {
         this.#log.warn(`disconnected from ${url}`)
       } catch (e) {
         this.#log.warn(`connect to ${url} failed:`, e)
+        if (transport) void transport.disconnect().catch(() => {})
       }
 
       if (this.#isShutdown) break

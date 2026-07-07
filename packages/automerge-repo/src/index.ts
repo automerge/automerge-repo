@@ -113,6 +113,28 @@ export type {
   SubductionTimeouts,
   BlobInterceptor,
 } from "./subduction/source.js"
+export {
+  WebSocketEndpoint,
+  WorkerWebSocketEndpoint,
+  type ManagedTransport,
+  type WebSocketEndpointInterface,
+  type WorkerWebSocketEndpointOptions,
+} from "./subduction/websocket-endpoint.js"
+export {
+  WorkerWebSocketError,
+  type WorkerPortLike,
+  type WorkerWebSocketErrorCode,
+} from "./subduction/worker-websocket/protocol.js"
+export {
+  WorkerWebSocketTransport,
+  type WorkerWebSocketConnectOptions,
+} from "./subduction/worker-websocket/transport.js"
+export {
+  attachWebSocketHost,
+  type WebSocketHostOptions,
+  type WebSocketLike,
+} from "./subduction/worker-websocket/host.js"
+export { WebSocketTransport } from "./subduction/websocket-transport.js"
 
 export type {
   FindProgress,
