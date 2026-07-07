@@ -47,6 +47,8 @@ class ClosableStorageAdapter implements StorageAdapterInterface {
   closed = false
   /** Artificial latency applied to loadRange, in ms. */
   readDelayMs = 0
+  /** Artificial latency applied to save, in ms. */
+  writeDelayMs = 0
   /** Count of loadRange calls that ran to completion. */
   completedReads = 0
   /**
@@ -71,6 +73,10 @@ class ClosableStorageAdapter implements StorageAdapterInterface {
 
   async save(key: StorageKey, data: Uint8Array) {
     this.#check("save")
+    if (this.writeDelayMs > 0) {
+      await new Promise(r => setTimeout(r, this.writeDelayMs))
+      this.#check("save")
+    }
     return this.inner.save(key, data)
   }
 
@@ -164,6 +170,21 @@ describe("SubductionStorageBridge close guard", () => {
     // Dropped reads are benign and not counted.
     await bridge.loadAllCommits(SID)
     expect(bridge.droppedWrites).toBe(2)
+  })
+
+  it("counts a write that passed the guard but failed after close", async () => {
+    const adapter = new ClosableStorageAdapter()
+    adapter.writeDelayMs = 50
+    const bridge = new SubductionStorageBridge(adapter)
+
+    // Passes the guard while open; the close lands mid-write and the
+    // adapter throws. Data was not persisted — that is a dropped write.
+    const inFlight = bridge.saveSedimentreeId(SID)
+    bridge.close()
+    adapter.close()
+
+    await expect(inFlight).resolves.toBeUndefined()
+    expect(bridge.droppedWrites).toBe(1)
   })
 
   it("propagates adapter errors while the bridge is open", async () => {

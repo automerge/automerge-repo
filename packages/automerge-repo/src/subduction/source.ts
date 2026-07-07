@@ -2047,6 +2047,17 @@ export class SubductionSource implements DocumentSource {
     } finally {
       clearTimeout(timer)
     }
+
+    // Surface the tripwire: shutdown drains every write path before
+    // closing the bridge, so any dropped write means that ordering was
+    // violated and data may have been silently lost.
+    const dropped = this.#storage.droppedWrites
+    if (dropped > 0) {
+      this.#log.warn(
+        `shutdown: ${dropped} write${dropped === 1 ? "" : "s"} dropped ` +
+          `after storage bridge close — teardown ordering violation`
+      )
+    }
   }
 
   // ── Ephemeral messaging ──────────────────────────────────────────────

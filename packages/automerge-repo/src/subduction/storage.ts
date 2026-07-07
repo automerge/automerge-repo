@@ -220,8 +220,7 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     fn: () => Promise<T>
   ): Promise<T> {
     if (this.closed) {
-      // Method naming is stable: every mutating op is save*/delete*.
-      if (/^(save|delete)/.test(op)) {
+      if (isWriteOp(op)) {
         this.droppedWriteCount++
         this.log.warn(`${op} after close; write dropped`)
       } else {
@@ -234,6 +233,9 @@ export class SubductionStorageBridge implements SedimentreeStorage {
       return await fn()
     } catch (err) {
       if (this.closed) {
+        // A write that passed the guard but failed once closed is a
+        // dropped write too — count it alongside the short-circuited ones.
+        if (isWriteOp(op)) this.droppedWriteCount++
         this.log.warn(`${op} failed after close; dropping: %O`, err)
         return fallback
       }
@@ -868,6 +870,9 @@ const decodeRemoteHeads = (
 
 /** Marker value for sedimentree ID existence */
 const ID_MARKER = new Uint8Array([1])
+
+/** Method naming is stable: every mutating bridge op is save* / delete*. */
+const isWriteOp = (op: string): boolean => /^(save|delete)/.test(op)
 
 /**
  * Convert a hex string to Uint8Array.
