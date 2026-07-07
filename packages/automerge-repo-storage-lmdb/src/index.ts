@@ -108,11 +108,16 @@ export class LMDBStorageAdapter implements StorageAdapterInterface {
   }
 
   async removeRange(keyPrefix: StorageKey): Promise<void> {
+    // Note: fresh key values are yielded per iteration (no reuse), so
+    // collecting then deleting is safe; normalization keeps the collected
+    // keys honest `string[]`s (a one-element key round-trips as its bare
+    // element, which happens to encode identically — but we don't rely
+    // on that).
     const keys: StorageKey[] = []
     for (const rawKey of this.#db.getKeys(rangeFrom(keyPrefix))) {
       const key = normalizeKey(rawKey)
       if (!startsWith(key, keyPrefix)) break
-      keys.push(rawKey as StorageKey)
+      keys.push(key)
     }
     if (keys.length === 0) return
     this.#db.transactionSync(() => {
