@@ -12,6 +12,12 @@ type AdapterTestContext = {
   adapter: StorageAdapterInterface
 }
 
+/** Sort chunks by key for order-insensitive comparison. */
+const byKey = <T extends { key: string[] }>(chunks: T[]): T[] =>
+  [...chunks].sort((a, b) =>
+    a.key.join("\x00") < b.key.join("\x00") ? -1 : 1
+  )
+
 const it = _it<AdapterTestContext>
 
 export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
@@ -67,16 +73,26 @@ export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
         await adapter.save(["AAAAA", "snapshot", "yyyyy"], PAYLOAD_B())
         await adapter.save(["AAAAA", "sync-state", "zzzzz"], PAYLOAD_C())
 
-        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual([
-          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-          { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_B() },
-          { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-        ])
+        // The interface makes no promise about chunk ordering (consumers
+        // concatenate for loadIncremental, which is order-invariant), so
+        // compare as sets: some adapters return insertion order, others
+        // (e.g. LMDB) return key order.
+        expect(byKey(await adapter.loadRange(["AAAAA"]))).toStrictEqual(
+          byKey([
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+            { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_B() },
+            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
+          ])
+        )
 
-        expect(await adapter.loadRange(["AAAAA", "sync-state"])).toStrictEqual([
-          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-          { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-        ])
+        expect(
+          byKey(await adapter.loadRange(["AAAAA", "sync-state"]))
+        ).toStrictEqual(
+          byKey([
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
+          ])
+        )
       })
 
       it("should only load values that match they key", async ({ adapter }) => {
