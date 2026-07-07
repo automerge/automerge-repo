@@ -84,9 +84,9 @@ const blastClients = async (
 /**
  * Start a Node-side timer that pushes one seq-numbered frame of `bytes` to
  * every client each `intervalMs`, and sends a protocol ping each
- * `pingEveryMs`. Pong arrival timestamps are recorded server-side — this is
- * how the wedged-main-thread test proves keepalives kept flowing while the
- * browser main thread was blocked.
+ * `pingEveryMs`. Pong arrival timestamps are recorded server-side, so
+ * tests can check keepalive liveness while the browser main thread is
+ * blocked.
  */
 const startFlood = async (
   _ctx: unknown,

@@ -1,8 +1,7 @@
 /**
- * Repro/regression for live incremental sync through the worker-based
+ * Regression test for live incremental sync through the worker-based
  * WebSocket endpoint: a client whose socket lives in a worker_threads
- * worker must receive pushed updates WITHOUT reconnecting or re-finding
- * (reported symptom: only batch updates on page load in the dogfood app).
+ * worker must receive pushed updates without reconnecting or re-finding.
  *
  * Mirrors WebSocket.test.ts "two clients sync through a server", with the
  * receiving client on a WorkerWebSocketEndpoint. Gated on dist/ (the
@@ -96,7 +95,7 @@ describe.skipIf(distEntry === null)(
       const server = await startSubductionServer()
       cleanups.push(() => server.close())
 
-      // Writer: plain in-thread endpoint (known good).
+      // Writer: plain in-thread endpoint.
       const writer = new Repo({
         peerId: "writer" as PeerId,
         storage: new DummyStorageAdapter(),
@@ -116,7 +115,7 @@ describe.skipIf(distEntry === null)(
       })
       cleanups.push(() => reader.shutdown())
 
-      // Writer creates the doc; reader finds it (the "page load" batch).
+      // Writer creates the doc; reader syncs it via find.
       const writerHandle = writer.create<{ items: string[] }>()
       writerHandle.change(d => {
         d.items = ["first"]
@@ -129,8 +128,8 @@ describe.skipIf(distEntry === null)(
       )
       expect(readerHandle.doc()!.items).toEqual(["first"])
 
-      // THE repro: a change made AFTER the reader is already synced must
-      // arrive live — no reconnect, no re-find, no reload.
+      // A change made after initial sync must arrive live, without
+      // reconnect or re-find.
       writerHandle.change(d => {
         d.items.push("second")
       })

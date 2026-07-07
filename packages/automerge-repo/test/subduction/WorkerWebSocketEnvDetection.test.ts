@@ -1,12 +1,12 @@
 /**
- * Runs under the default happy-dom environment ON PURPOSE: DOM-emulating
+ * Deliberately runs under the default happy-dom environment: DOM-emulating
  * test environments may define browser globals (including a fake `Worker`)
  * that cannot actually run our proxy entry module. The endpoint must prefer
  * `node:worker_threads` whenever a real Node runtime is underneath,
  * regardless of what the environment fakes.
  */
 import { MessageChannel as NodeMessageChannel } from "node:worker_threads"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   WorkerWebSocketEndpoint,
@@ -20,6 +20,37 @@ describe("WorkerWebSocketEndpoint environment detection (happy-dom)", () => {
     // If this returns null while running under Node, the endpoint would
     // fall through to whatever `Worker` global the DOM emulator fakes.
     expect(nodeWorkerThreads()).not.toBeNull()
+  })
+
+  it("prefers worker_threads over a fake Worker global in #resolvePort", async () => {
+    // Booby-trap the browser path: if the endpoint's branch ordering ever
+    // flips to checking `Worker` first, connect() rejects with this marker.
+    vi.stubGlobal(
+      "Worker",
+      class {
+        constructor() {
+          throw new Error("fake Worker used")
+        }
+      }
+    )
+    try {
+      const endpoint = new WorkerWebSocketEndpoint("ws://localhost:1", {
+        connectTimeoutMs: 300,
+      })
+      const err = await endpoint.connect().then(
+        () => null,
+        e => e as Error
+      )
+      endpoint.shutdown()
+
+      // The connect must fail (nothing is listening / the spawn can't
+      // resolve under the test transform) — but via the Node path, never
+      // by constructing the fake browser Worker.
+      expect(err).not.toBeNull()
+      expect(err!.message).not.toContain("fake Worker used")
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("works with an explicit port under a DOM-emulating environment", async () => {

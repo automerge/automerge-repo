@@ -2,6 +2,7 @@ node_modules
 dist
 build
 .vscode
+.pi-subagents
 .idea
 vite.config.ts.timestamp-*
 coverage
@@ -22,3 +23,5 @@ playwright/.cache/
 playwright/.auth/
 .claude
 .pnpm-store
+.vitest-attachments/
+**/__screenshots__/

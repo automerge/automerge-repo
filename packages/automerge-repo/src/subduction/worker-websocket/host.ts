@@ -6,11 +6,11 @@
  * it can be exercised in tests over a plain `MessageChannel` with an
  * injected socket implementation.
  *
- * ## Invariant: socket reads are NEVER gated
+ * ## Invariant: socket reads are never gated
  *
- * The whole point of hosting the socket in a worker is that the thread
- * consuming WebSocket events stays responsive: as long as `message` events
- * are drained promptly, the browser's internal receive flow control never
+ * Hosting the socket in a worker only helps if the thread consuming
+ * WebSocket events stays responsive: as long as `message` events are
+ * drained promptly, the browser's internal receive flow control never
  * engages, in-band protocol pings keep being parsed (and ponged) by the
  * network process, and the server's TCP send window stays open.
  *
@@ -65,6 +65,13 @@ interface Conn {
   maxBufferedBytes: number
   /** Socket closed while frames were still pending delivery. */
   closedPendingFlush: boolean
+  /**
+   * Set on cap breach or `ws-close`. The socket's own event listeners
+   * outlive the `conns` entry, so they need a flag to stop buffering
+   * frames (and re-announcing the close) between `socket.close()` and
+   * the close event actually firing.
+   */
+  dead: boolean
 }
 
 /**
@@ -137,9 +144,11 @@ export function attachWebSocketHost(
       inFlight: 0,
       pending: [],
       pendingBytes: 0,
-      windowFrames: msg.windowFrames ?? DEFAULT_WINDOW_FRAMES,
+      // A window below 1 could never forward anything; clamp.
+      windowFrames: Math.max(1, msg.windowFrames ?? DEFAULT_WINDOW_FRAMES),
       maxBufferedBytes: msg.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES,
       closedPendingFlush: false,
+      dead: false,
     }
     conns.set(connId, conn)
 
@@ -147,29 +156,32 @@ export function attachWebSocketHost(
       post({ channel: WS_PROXY_CHANNEL, type: "ws-open", connId })
     })
 
-    // INVARIANT: this handler always runs to completion for every frame —
-    // reads are never paused (see module docs). Only *delivery* is gated.
+    // Invariant: this handler always runs to completion for every frame;
+    // reads are never paused (see module docs). Only delivery is gated.
     socket.addEventListener("message", event => {
+      if (conn.dead) return
       const raw = event.data
       // With binaryType="arraybuffer" binary frames arrive as ArrayBuffer;
       // ignore anything else (subduction frames are always binary).
       if (!(raw instanceof ArrayBuffer)) return
 
-      // Fast path: window open and nothing queued — forward immediately.
+      // Fast path: window open and nothing queued; forward immediately.
       if (conn.inFlight < conn.windowFrames && conn.pending.length === 0) {
         conn.inFlight++
         postBytes(connId, raw)
         return
       }
 
-      // Consumer is lagging: hold the frame here, where it can be counted.
+      // The consumer is lagging: hold the frame here, where it can be
+      // counted against the byte cap.
       conn.pending.push(raw)
       conn.pendingBytes += raw.byteLength
 
       if (conn.pendingBytes > conn.maxBufferedBytes) {
         // Fail fast rather than grow without bound. The reconnect loop and
-        // subduction's resync recover; a distinct message makes the cause
+        // subduction's resync recover; the error code makes the cause
         // diagnosable. Drop the backlog — resync re-fetches it.
+        conn.dead = true
         conns.delete(connId)
         conn.pending = []
         conn.pendingBytes = 0
@@ -179,6 +191,7 @@ export function attachWebSocketHost(
           type: "ws-error",
           connId,
           message: `receive backlog exceeded maxBufferedBytes (${conn.maxBufferedBytes}); closing`,
+          code: "backlog-exceeded",
         })
         post({ channel: WS_PROXY_CHANNEL, type: "ws-closed", connId })
       }
@@ -231,6 +244,9 @@ export function attachWebSocketHost(
       case "ws-ack": {
         const conn = conns.get(msg.connId)
         if (!conn) break
+        // Guard the arithmetic: a malformed count (NaN, negative, ∞)
+        // would otherwise wedge or blow open the window permanently.
+        if (!Number.isInteger(msg.count) || msg.count <= 0) break
         conn.inFlight = Math.max(0, conn.inFlight - msg.count)
         drain(msg.connId, conn)
         break
@@ -239,7 +255,10 @@ export function attachWebSocketHost(
       case "ws-close": {
         const conn = conns.get(msg.connId)
         conns.delete(msg.connId)
-        conn?.socket.close()
+        if (conn) {
+          conn.dead = true
+          conn.socket.close()
+        }
         break
       }
     }

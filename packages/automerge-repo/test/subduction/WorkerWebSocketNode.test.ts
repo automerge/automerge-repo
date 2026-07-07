@@ -9,8 +9,8 @@
  * 2. Real threads (gated on `dist/` being built): the shipped Node worker
  *    entry running in an actual `worker_threads.Worker` with Node's native
  *    (undici) `WebSocket`, against a real `ws` server. Includes the wedge
- *    test: keepalive pongs must be answered while THIS thread is blocked in
- *    a synchronous busy-loop.
+ *    test: keepalive pongs must be answered while the test's own thread is
+ *    blocked in a synchronous busy-loop.
  */
 import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
@@ -28,7 +28,11 @@ import {
   type WebSocketLike,
 } from "../../src/subduction/worker-websocket/host.js"
 import { WorkerWebSocketTransport } from "../../src/subduction/worker-websocket/transport.js"
-import type { WorkerPortLike } from "../../src/subduction/worker-websocket/protocol.js"
+import { WorkerWebSocketEndpoint } from "../../src/subduction/websocket-endpoint.js"
+import {
+  WorkerWebSocketError,
+  type WorkerPortLike,
+} from "../../src/subduction/worker-websocket/protocol.js"
 
 // Under happy-dom `import.meta.url` is not a file: URL, so locate the
 // package root from cwd (vitest runs either at the repo root or in the
@@ -54,15 +58,6 @@ const seqOf = (frame: Uint8Array): number =>
   new DataView(frame.buffer, frame.byteOffset).getUint32(0, true)
 
 const tick = () => new Promise(r => setTimeout(r, 0))
-
-const waitUntil = async (predicate: () => boolean, timeoutMs = 5_000) => {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (predicate()) return
-    await tick()
-  }
-  throw new Error("waitUntil timed out")
-}
 
 // ── Tier 1: in-process, fake socket ─────────────────────────────────────
 
@@ -100,15 +95,17 @@ describe("worker-websocket over MessageChannel (in-process)", () => {
 
   const setup = () => {
     channel = new NodeMessageChannel()
-    let socket: FakeSocket | null = null
+    const sockets: FakeSocket[] = []
     detach = attachWebSocketHost(channel.port2 as unknown as WorkerPortLike, {
       createSocket: () => {
-        socket = new FakeSocket()
-        queueMicrotask(() => socket?.emit("open"))
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        queueMicrotask(() => socket.emit("open"))
         return socket
       },
     })
-    const getSocket = () => {
+    const getSocket = (index = -1) => {
+      const socket = sockets.at(index)
       if (!socket) throw new Error("socket not created yet")
       return socket
     }
@@ -173,12 +170,111 @@ describe("worker-websocket over MessageChannel (in-process)", () => {
     // Windowed frames drain first, then the distinct error surfaces.
     expect(seqOf(await transport.recvBytes())).toBe(0)
     expect(seqOf(await transport.recvBytes())).toBe(1)
-    await expect(transport.recvBytes()).rejects.toThrow(/maxBufferedBytes/)
+    const rejection = await transport.recvBytes().then(
+      () => null,
+      e => e as WorkerWebSocketError
+    )
+    expect(rejection?.code).toBe("backlog-exceeded")
+    expect(rejection?.message).toMatch(/maxBufferedBytes/)
+  })
+
+  it("recovers after a cap breach: a new connection on the same port works", async () => {
+    const { port, getSocket } = setup()
+    const first = await WorkerWebSocketTransport.connect(port, "ws://x", {
+      windowFrames: 1,
+      maxBufferedBytes: 100,
+    })
+
+    // Breach the cap with nothing consuming.
+    for (let seq = 0; seq < 5; seq++) {
+      getSocket().emit("message", { data: seqFrame(seq, 64) })
+    }
+    await first.closed()
+
+    // The reconnect loop's next attempt: same port, fresh connection.
+    const second = await WorkerWebSocketTransport.connect(port, "ws://x", {
+      windowFrames: 1,
+      maxBufferedBytes: 100,
+    })
+    for (let seq = 0; seq < 3; seq++) {
+      getSocket().emit("message", { data: seqFrame(seq) })
+    }
+    for (let seq = 0; seq < 3; seq++) {
+      expect(seqOf(await second.recvBytes())).toBe(seq)
+    }
+    await second.disconnect()
+  })
+
+  it("ignores malformed acks instead of corrupting the window", async () => {
+    const { port, getSocket } = setup()
+    const transport = await WorkerWebSocketTransport.connect(port, "ws://x", {
+      windowFrames: 2,
+    })
+
+    // A rogue oversized ack must not blow the window open (or wedge it).
+    port.postMessage({
+      channel: "subduction-ws-proxy",
+      type: "ws-ack",
+      connId: "nonsense",
+      count: 999,
+    })
+    port.postMessage({
+      channel: "subduction-ws-proxy",
+      type: "ws-ack",
+      connId: "nonsense",
+      count: Number.NaN,
+    })
+
+    let delivered = 0
+    const counter = (event: MessageEvent) => {
+      const data = (event as { data?: { type?: string } }).data
+      if (data?.type === "ws-bytes") delivered++
+    }
+    port.addEventListener("message", counter as (e: MessageEvent) => void)
+
+    for (let seq = 0; seq < 6; seq++) {
+      getSocket().emit("message", { data: seqFrame(seq) })
+    }
+    await tick()
+    expect(delivered).toBe(2) // window still enforced
+
+    for (let seq = 0; seq < 6; seq++) {
+      expect(seqOf(await transport.recvBytes())).toBe(seq)
+    }
+    await transport.disconnect()
+    port.removeEventListener("message", counter as (e: MessageEvent) => void)
+  })
+
+  it("shutting down one endpoint on a shared port leaves the other flowing", async () => {
+    const { port, getSocket } = setup()
+
+    const a = new WorkerWebSocketEndpoint("ws://a", { worker: port })
+    const b = new WorkerWebSocketEndpoint("ws://b", { worker: port })
+    const transportA = await a.connect()
+    const transportB = await b.connect()
+    const socketA = getSocket(0)
+    const socketB = getSocket(1)
+
+    const pendingA = transportA.recvBytes()
+    a.shutdown()
+
+    // A's transport fails and its worker-side socket closes…
+    await expect(pendingA).rejects.toThrow(/shut down/)
+    await tick()
+    expect(socketA.closed).toBe(true)
+
+    // …while B is untouched and still delivers.
+    expect(socketB.closed).toBe(false)
+    socketB.emit("message", { data: seqFrame(7) })
+    expect(seqOf(await transportB.recvBytes())).toBe(7)
+
+    await transportB.disconnect()
+    b.shutdown()
   })
 
   it("flushes the pending backlog before reporting a socket close", async () => {
     const { port, getSocket } = setup()
-    const transport = await WorkerWebSocketTransport.connect(port, "ww://x", {
+    const transport = await WorkerWebSocketTransport.connect(port, "ws://x", {
       windowFrames: 1,
     })
 
@@ -239,7 +335,7 @@ describe.skipIf(distEntry === null)(
     })
 
     it("answers keepalive pongs while the main thread is wedged", async () => {
-      // The pinging server must live off this (soon-to-be-wedged) thread:
+      // The pinging server must not share the thread we're about to wedge:
       // an eval-worker runs `ws` on its own event loop and records pongs.
       const wsPath = require.resolve("ws")
       const server = new NodeWorker(
@@ -272,7 +368,7 @@ describe.skipIf(distEntry === null)(
       )
       await new Promise(r => setTimeout(r, 200))
 
-      // Wedge THIS thread. The host worker and server worker keep running.
+      // Wedge the test thread; the host and server workers keep running.
       const wedgeStart = Date.now()
       const end = Date.now() + 1500
       while (Date.now() < end) {
@@ -339,14 +435,19 @@ describe.skipIf(distEntry === null)(
       endpoint.shutdown()
       await expect(pending).rejects.toThrow(/shut down/)
 
-      wss.close()
+      await new Promise<void>((resolve, reject) =>
+        wss.close(err => (err ? reject(err) : resolve()))
+      )
     })
+  }
+)
 
-    it("waitUntil helper is exercised", async () => {
-      let flag = false
-      setTimeout(() => (flag = true), 10)
-      await waitUntil(() => flag)
-      expect(flag).toBe(true)
-    })
+// The tiers above skip when dist/ is missing (locally, before a build).
+// In CI the build always precedes tests, so a closed gate there means the
+// dist layout moved and the real-thread suites are silently not running.
+it.runIf(process.env.CI)(
+  "dist worker entry exists (gates the suites above)",
+  () => {
+    expect(distEntry).not.toBeNull()
   }
 )

@@ -21,8 +21,8 @@
  * ```
  *
  * The socket itself is Node's native `WebSocket` (undici, Node ≥22), which
- * answers protocol pings on THIS worker's event loop — keepalives survive a
- * wedged main thread (verified: see the wedge tests).
+ * answers protocol pings on this worker's event loop, so keepalives
+ * survive a blocked main thread.
  */
 
 import { parentPort, workerData } from "node:worker_threads"

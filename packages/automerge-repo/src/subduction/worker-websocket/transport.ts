@@ -1,7 +1,7 @@
 /**
- * Main-thread half of the worker-based WebSocket transport (topology A):
- * the Subduction wasm instance stays on the main thread while the actual
- * `WebSocket` lives in a Worker, reached over a message port.
+ * Main-thread half of the worker-based WebSocket transport: the Subduction
+ * wasm instance stays on the main thread while the actual `WebSocket`
+ * lives in a Worker, reached over a message port.
  *
  * ```
  * ┌─────────── main thread ───────────┐        ┌──── Worker ────┐
@@ -29,6 +29,7 @@ import { makeLogger } from "../../Logger.js"
 import {
   DEFAULT_WINDOW_FRAMES,
   WS_PROXY_CHANNEL,
+  WorkerWebSocketError,
   isWsProxyMessage,
   type WorkerPortLike,
   type WsProxyRequest,
@@ -126,7 +127,13 @@ export class WorkerWebSocketTransport implements Transport {
           connId,
         })
         reject(
-          new Error(`WebSocket connect timed out after ${connectTimeoutMs}ms`)
+          new WorkerWebSocketError(
+            `WebSocket connect timed out after ${connectTimeoutMs}ms. ` +
+              "If this persists, the proxy worker may have failed to load " +
+              "(e.g. the bundler did not emit the worker entry \u2014 see the " +
+              "WorkerWebSocketEndpoint docs for bundler notes).",
+            "connect-timeout"
+          )
         )
       }, connectTimeoutMs)
 
@@ -141,10 +148,13 @@ export class WorkerWebSocketTransport implements Transport {
         } else if (msg.type === "ws-error" || msg.type === "ws-closed") {
           cleanup()
           reject(
-            new Error(
+            new WorkerWebSocketError(
               msg.type === "ws-error"
                 ? msg.message
-                : "WebSocket connection failed"
+                : "WebSocket connection failed",
+              msg.type === "ws-error"
+                ? (msg.code ?? "connect-failed")
+                : "connect-failed"
             )
           )
         }
@@ -192,12 +202,12 @@ export class WorkerWebSocketTransport implements Transport {
       }
 
       case "ws-closed":
-        this.#fail(new Error("WebSocket closed"))
+        this.#fail(new WorkerWebSocketError("WebSocket closed", "closed"))
         break
 
       case "ws-error":
         log.warn("worker ws error:", msg.message)
-        this.#fail(new Error(msg.message))
+        this.#fail(new WorkerWebSocketError(msg.message, msg.code ?? "closed"))
         break
 
       case "ws-open":
@@ -224,10 +234,18 @@ export class WorkerWebSocketTransport implements Transport {
     })
   }
 
-  /** Mark closed, resolve `closed()`, and reject all pending receivers. */
+  /**
+   * Mark closed, detach from the port, resolve `closed()`, and reject all
+   * pending receivers. Detaching here (rather than only in teardown paths)
+   * matters: remote close/error is the common way a connection ends, and a
+   * leaked listener would accumulate per reconnect cycle — and on Node, a
+   * listener-bearing MessagePort pins the event loop even when the worker
+   * itself is unref'd.
+   */
   #fail(err: Error) {
     this.#isClosed = true
     this.#closeReason ??= err
+    this.#port.removeEventListener("message", this.#handleMessage)
     this.#closedResolve()
     for (const ew of this.#errorWaiters) ew(err)
     this.#errorWaiters = []
@@ -273,14 +291,30 @@ export class WorkerWebSocketTransport implements Transport {
   }
 
   /**
-   * Immediately fail the transport without talking to the worker — for
-   * teardown paths where the worker is about to be (or already is)
-   * terminated and would never deliver `ws-closed`. Pending `recvBytes`
-   * calls reject; `closed()` resolves.
+   * Immediately fail the transport — for teardown paths where the worker
+   * is about to be (or already is) terminated and would never deliver
+   * `ws-closed`. Pending `recvBytes` calls reject; `closed()` resolves.
+   * A best-effort `ws-close` is still posted so that a port which
+   * *survives* (a supplied/shared worker) closes its socket instead of
+   * buffering server pushes toward the byte cap.
    */
-  abort(reason: Error = new Error("WebSocket worker terminated")): void {
+  abort(
+    reason: Error = new WorkerWebSocketError(
+      "WebSocket worker terminated",
+      "worker-terminated"
+    )
+  ): void {
     if (this.#isClosed) return
-    this.#port.removeEventListener("message", this.#handleMessage)
+    try {
+      WorkerWebSocketTransport.#post(this.#port, {
+        channel: WS_PROXY_CHANNEL,
+        type: "ws-close",
+        connId: this.#connId,
+      })
+    } catch {
+      // The port may already be terminated/closed; failing locally is
+      // all that matters then.
+    }
     this.#fail(reason)
   }
 
@@ -292,14 +326,17 @@ export class WorkerWebSocketTransport implements Transport {
   #teardown({
     fireDisconnectCallback,
   }: { fireDisconnectCallback?: boolean } = {}) {
-    this.#isClosed = true
-    this.#closedResolve()
-    this.#port.removeEventListener("message", this.#handleMessage)
+    // Close the worker-side socket, then fail locally: pending receivers
+    // must reject (the port listener detaches in `#fail`, so a `ws-closed`
+    // reply could never settle them later).
     WorkerWebSocketTransport.#post(this.#port, {
       channel: WS_PROXY_CHANNEL,
       type: "ws-close",
       connId: this.#connId,
     })
+    this.#fail(
+      new WorkerWebSocketError("WebSocket disconnected", "disconnected")
+    )
     if (fireDisconnectCallback && this.#disconnectCallback)
       this.#disconnectCallback()
   }

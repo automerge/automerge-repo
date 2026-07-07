@@ -21,8 +21,8 @@ import "./index.css"
 // A Repo always builds a Subduction source, so its Wasm must be initialized.
 initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
 
-// Like `react-todo`, but storage AND the subduction sync socket run their
-// I/O on Workers: the WebSocket lives in a worker (auto-spawned), so
+// Like `react-todo`, but both storage and the subduction sync socket run
+// their I/O on Workers: the WebSocket lives in an auto-spawned worker, so
 // keepalives and server draining survive a busy main thread.
 const repo = new Repo({
   storage: new IndexedDBWorkerStorageAdapter("automerge-repo-demo-todo-worker"),

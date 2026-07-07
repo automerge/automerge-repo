@@ -119,14 +119,15 @@ describe("WorkerWebSocketTransport (real Worker, real WebSocket)", () => {
     expect(echoed.every((v, i) => v === i % 251)).toBe(true)
   })
 
-  it("does not copy the caller's buffer out from under it", async () => {
+  it("sendBytes leaves the caller's buffer intact", async () => {
     const transport = await connect()
 
-    const payload = bytes(9, 9, 9)
+    const payload = bytes(9, 8, 7)
     await transport.sendBytes(payload)
     // sendBytes transfers a copy; the caller's view must stay usable.
     expect(payload.byteLength).toBe(3)
-    await transport.recvBytes()
+    expect(Array.from(payload)).toEqual([9, 8, 7])
+    expect(Array.from(await transport.recvBytes())).toEqual([9, 8, 7])
   })
 
   it("multiplexes two transports over one worker without cross-talk", async () => {
@@ -161,10 +162,14 @@ describe("WorkerWebSocketTransport (real Worker, real WebSocket)", () => {
   })
 
   it("rejects connect() for an unreachable endpoint", async () => {
-    // Nothing listens on port 1 — the browser socket errors out.
+    // Nothing listens on port 1. Bound the deadline so an environment that
+    // silently drops the connection (instead of refusing it) still fails
+    // fast, and assert the failure shape rather than accepting any error.
     await expect(
-      WorkerWebSocketTransport.connect(worker, "ws://localhost:1")
-    ).rejects.toThrow()
+      WorkerWebSocketTransport.connect(worker, "ws://localhost:1", {
+        connectTimeoutMs: 2_000,
+      })
+    ).rejects.toThrow(/WebSocket (error|connection failed|connect timed out)/)
   })
 
   it("closes the server-side socket on disconnect()", async () => {
@@ -212,7 +217,7 @@ describe("WorkerWebSocketEndpoint (auto-spawned worker)", () => {
 
   it("terminates its owned worker on shutdown", async () => {
     const endpoint = new WorkerWebSocketEndpoint(`ws://localhost:${port}`)
-    const transport = await endpoint.connect()
+    await endpoint.connect()
     await waitUntil(async () => (await commands.echoClientCount(port)) > 0)
 
     // Terminating the worker kills the socket — the server must observe
@@ -220,7 +225,6 @@ describe("WorkerWebSocketEndpoint (auto-spawned worker)", () => {
     endpoint.shutdown()
 
     await waitUntil(async () => (await commands.echoClientCount(port)) === 0)
-    void transport
   })
 })
 
@@ -253,7 +257,8 @@ describe("receive flow control", () => {
       })
 
       const wedgeStart = await commands.serverNow()
-      // Synchronously wedge the main thread — no events, no acks, nothing.
+      // Block the main thread synchronously; no events or acks run
+      // meanwhile.
       const end = performance.now() + 1500
       while (performance.now() < end) {
         /* burn */
@@ -263,12 +268,16 @@ describe("receive flow control", () => {
       const { framesSent, pongTimestamps } = await commands.stopFlood(port)
       expect(framesSent).toBeGreaterThan(100)
 
-      // Keepalives were answered DURING the wedge: the worker kept draining
-      // the socket, so the network process kept parsing (and ponging) pings.
+      // Keepalives were answered during the wedge: the worker kept
+      // draining the socket, so the network process kept parsing (and
+      // ponging) pings. Trim the window at both ends — wedgeEnd is
+      // captured over an RPC after the wedge releases, so pongs flushed
+      // on unwedge could otherwise masquerade as in-wedge liveness — and
+      // require well above one stray (~26 pings fit in 1500ms at 50ms).
       const pongsDuringWedge = pongTimestamps.filter(
-        t => t > wedgeStart + 200 && t < wedgeEnd
+        t => t > wedgeStart + 200 && t < wedgeEnd - 100
       )
-      expect(pongsDuringWedge.length).toBeGreaterThan(0)
+      expect(pongsDuringWedge.length).toBeGreaterThan(10)
 
       // And nothing was lost or reordered: every frame arrives, in order.
       for (let seq = 0; seq < framesSent; seq++) {

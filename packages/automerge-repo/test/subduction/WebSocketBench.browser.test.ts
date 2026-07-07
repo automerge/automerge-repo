@@ -9,10 +9,11 @@
  *
  * - "throughput": pipeline WS_BENCH_MSGS echo roundtrips of WS_BENCH_BLOB
  *   bytes. The worker hop adds a postMessage per direction, so expect the
- *   worker variant to trade some wall time...
+ *   worker variant to trade some wall time.
  * - "contention": same, while a synthetic app burns WS_BENCH_CONTENTION_MS
- *   of main-thread time per frame. mainThreadMs / maxBlockMs are the numbers
- *   topology A exists for: socket parsing/buffering happens off-thread.
+ *   of main-thread time per frame. mainThreadMs / maxBlockMs are the
+ *   numbers the worker transport exists to improve: socket parsing and
+ *   buffering happen off-thread.
  *
  * Knobs: WS_BENCH_MSGS, WS_BENCH_BLOB, WS_BENCH_REPEATS,
  * WS_BENCH_CONTENTION_MS, TEST_BROWSERS.
@@ -72,10 +73,6 @@ describe.skipIf(!ENABLED)("WebSocket transport bench (real browser)", () => {
   })
 
   const makeVariants = (): Variant[] => {
-    const endpoint = () => {
-      const ep = new WorkerWebSocketEndpoint(url)
-      return ep
-    }
     let workerEndpoint: WorkerWebSocketEndpoint | null = null
     return [
       {
@@ -85,7 +82,7 @@ describe.skipIf(!ENABLED)("WebSocket transport bench (real browser)", () => {
       {
         label: "worker",
         connect: () => {
-          workerEndpoint ??= endpoint()
+          workerEndpoint ??= new WorkerWebSocketEndpoint(url)
           return workerEndpoint.connect()
         },
         cleanup: () => workerEndpoint?.shutdown(),
@@ -95,8 +92,11 @@ describe.skipIf(!ENABLED)("WebSocket transport bench (real browser)", () => {
 
   /** Pipeline MSGS echo roundtrips of BLOB bytes through one transport. */
   const pump = async (transport: ManagedTransport, payload: Uint8Array) => {
+    // Collect send promises so a failure surfaces in this test instead of
+    // as an unhandled rejection attributed to whatever runs next.
+    const sends: Array<Promise<void>> = []
     for (let i = 0; i < MSGS; i++) {
-      void transport.sendBytes(payload)
+      sends.push(transport.sendBytes(payload))
     }
     for (let i = 0; i < MSGS; i++) {
       const echoed = await transport.recvBytes()
@@ -106,6 +106,7 @@ describe.skipIf(!ENABLED)("WebSocket transport bench (real browser)", () => {
         )
       }
     }
+    await Promise.all(sends)
   }
 
   const runVariants = async (contentionMs: number): Promise<Summary[]> => {

@@ -19,9 +19,15 @@
  */
 
 import type { Transport } from "@automerge/automerge-subduction/slim"
-import type { WorkerPortLike } from "./worker-websocket/protocol.js"
+import {
+  WorkerWebSocketError,
+  type WorkerPortLike,
+} from "./worker-websocket/protocol.js"
 import { WebSocketTransport } from "./websocket-transport.js"
-import { WorkerWebSocketTransport } from "./worker-websocket/transport.js"
+import {
+  WorkerWebSocketTransport,
+  type WorkerWebSocketConnectOptions,
+} from "./worker-websocket/transport.js"
 
 /** A subduction transport that can also report when it has closed. */
 export type ManagedTransport = Transport & { closed(): Promise<void> }
@@ -56,36 +62,19 @@ export class WebSocketEndpoint implements WebSocketEndpointInterface {
 }
 
 /**
- * A sync-server endpoint whose WebSocket lives in a Worker, keeping socket
- * I/O off the thread running the Repo. Bytes are relayed over `postMessage`
- * with transferred buffers.
- *
- * By default each endpoint lazily spawns a dedicated `Worker` from the
- * shipped proxy entry module and terminates it on shutdown. Pass `worker`
- * to control where the socket lives instead — a `Worker`, a `SharedWorker`'s
- * `port`, or any `MessagePort` running the proxy host from
- * `@automerge/automerge-repo/subduction-websocket-worker`. A supplied port
- * is never terminated (it may be shared: transports multiplex by
- * connection id, so many endpoints can pass the same one).
- *
- * The receive path is credit-windowed (see `worker-websocket/protocol.ts`):
- * a busy main thread never stalls socket reads — keepalive pongs keep
- * flowing and the server never blocks on a closed TCP window — while the
- * backlog buffers in the worker, bounded by `maxBufferedBytes`.
+ * Options for {@link WorkerWebSocketEndpoint}. Note the byte cap is
+ * per connection: N endpoints can buffer N × `maxBufferedBytes`.
  */
-export interface WorkerWebSocketEndpointOptions {
-  /** A dedicated `Worker`, a `SharedWorker`'s `port`, or any `MessagePort`. */
-  worker?: WorkerPortLike
-  /** Max un-acked frames in flight to the main thread. Default 128. */
-  windowFrames?: number
+export interface WorkerWebSocketEndpointOptions extends WorkerWebSocketConnectOptions {
   /**
-   * Max bytes buffered in the worker while the main thread lags. Exceeding
-   * it closes the socket with a distinct error (reconnect + resync
-   * recover). Default 128 MiB — sync bursts can be large.
+   * Where the socket lives: a browser dedicated `Worker`, a
+   * `SharedWorker`'s `port`, or any `MessagePort` whose far side runs the
+   * proxy host. In Node, pass a `MessageChannel` port wired to the worker
+   * via `workerData` (a `worker_threads.Worker` itself is an EventEmitter
+   * and does not satisfy {@link WorkerPortLike}); the auto-spawn path does
+   * this for you.
    */
-  maxBufferedBytes?: number
-  /** Reject a connection attempt after this long. Default 30 s. */
-  connectTimeoutMs?: number
+  worker?: WorkerPortLike
 }
 
 /** Structural view of `node:worker_threads` (avoids a @types/node dependency). */
@@ -98,8 +87,8 @@ interface NodeWorkerThreads {
 }
 
 /**
- * `node:worker_threads`, when running under Node ≥22.3 — else `null`.
- * Checked BEFORE the browser `Worker` global: DOM-emulating test
+ * `node:worker_threads`, when running under Node ≥22.3; else `null`.
+ * Checked before the browser `Worker` global: DOM-emulating test
  * environments (happy-dom, jsdom) may define a fake `Worker` that can't
  * actually run our entry module.
  *
@@ -116,11 +105,44 @@ export const nodeWorkerThreads = (): NodeWorkerThreads | null => {
   ).process
   if (!proc?.versions?.node || typeof proc.getBuiltinModule !== "function")
     return null
-  return (
-    (proc.getBuiltinModule("node:worker_threads") as NodeWorkerThreads) ?? null
-  )
+  try {
+    return (
+      (proc.getBuiltinModule("node:worker_threads") as NodeWorkerThreads) ??
+      null
+    )
+  } catch {
+    // A partial `process` shim that throws here means "not really Node".
+    return null
+  }
 }
 
+/**
+ * A sync-server endpoint whose WebSocket lives in a Worker, keeping socket
+ * I/O off the thread running the Repo. Bytes are relayed over `postMessage`
+ * with transferred buffers.
+ *
+ * By default each endpoint lazily spawns a dedicated worker from the
+ * shipped proxy entry module (browser `Worker` or Node `worker_threads`,
+ * detected at runtime) and terminates it on shutdown. Pass `worker` to
+ * control where the socket lives instead; a supplied port is never
+ * terminated and may be shared — transports multiplex by connection id,
+ * so many endpoints can pass the same one.
+ *
+ * The receive path is credit-windowed (see `worker-websocket/protocol.ts`):
+ * a busy main thread never stalls socket reads, so keepalive pongs keep
+ * flowing and the server's TCP window stays open. The backlog buffers in
+ * the worker, bounded by `maxBufferedBytes`.
+ *
+ * Bundler notes for the auto-spawn path (`new Worker(new URL(...))` inside
+ * this library): webpack 5 and workspace-linked Vite handle it; Vite
+ * consumers installing from npm must add
+ * `optimizeDeps: { exclude: ["@automerge/automerge-repo"] }` (dep
+ * pre-bundling breaks `import.meta.url`-relative worker files); plain
+ * Rollup and single-file Node bundles do not ship the entry file. In any
+ * of those environments, spawn the worker yourself from
+ * `@automerge/automerge-repo/subduction-websocket-worker` in your own
+ * source and pass it via `worker` — that pattern every bundler handles.
+ */
 export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
   #port: WorkerPortLike | null
   /** Tears down whatever `#resolvePort` spawned (browser Worker or node thread). */
@@ -150,17 +172,29 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
   }
 
   shutdown(): void {
-    // Fail live transports BEFORE terminating the worker: a hard
+    // Fail live transports before terminating the worker: a hard
     // `terminate()` kills the socket's `close` handler, so `ws-closed`
     // would never arrive and pending `recvBytes` calls would hang forever.
+    // (`abort` also posts a best-effort `ws-close`, which is what closes
+    // the socket when the port is supplied/shared and survives shutdown.)
     for (const transport of this.#transports) {
-      transport.abort(new Error("WorkerWebSocketEndpoint shut down"))
+      transport.abort(
+        new WorkerWebSocketError(
+          "WorkerWebSocketEndpoint shut down",
+          "worker-terminated"
+        )
+      )
     }
     this.#transports.clear()
 
-    this.#terminateOwned?.()
-    this.#terminateOwned = null
-    this.#port = null
+    // Only an auto-spawned worker is torn down; a supplied port is shared
+    // infrastructure and stays usable (including by this endpoint, should
+    // `connect()` be called again).
+    if (this.#terminateOwned) {
+      this.#terminateOwned()
+      this.#terminateOwned = null
+      this.#port = null
+    }
   }
 
   #resolvePort(): WorkerPortLike {
