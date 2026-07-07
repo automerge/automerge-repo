@@ -62,9 +62,13 @@ export class LMDBStorageAdapter implements StorageAdapterInterface {
   ) {
     if (typeof pathOrDb === "string") {
       this.#db = open<Uint8Array, StorageKey>({
+        ...options,
+        // Last so options can't override them (the Omit on the options
+        // type guards the honest path; this guards the `as any` path):
+        // the adapter's key ordering and value handling depend on these.
         path: pathOrDb,
         encoding: "binary",
-        ...options,
+        keyEncoding: "ordered-binary",
       })
       this.#ownsDb = true
     } else {
