@@ -940,10 +940,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   async shutdown() {
     // Quiesce Subduction first — stops reconnect loops, flushes pending
     // saves, awaits storage writes, disconnects transports, frees Wasm.
-    // On return the subduction storage bridge is closed and idle: any
-    // late-dispatched inbound frame (the Wasm side can still dispatch
-    // after disconnectAll) becomes a no-op instead of reaching the
-    // adapter, so storageSubsystem.close() below is safe to run.
+    // On return its storage bridge is closed and idle, so the
+    // storageSubsystem.close() below cannot race a late dispatch.
     await this.#subductionSource?.shutdown()
 
     // Stop traditional sync network connections

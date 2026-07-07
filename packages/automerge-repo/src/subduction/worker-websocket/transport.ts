@@ -315,8 +315,7 @@ export class WorkerWebSocketTransport implements Transport {
       // The port may already be terminated/closed; failing locally is
       // all that matters then.
     }
-    // Drop undelivered frames: teardown must not feed further wasm
-    // dispatches (which can reach storage after the adapter closes).
+    // Drop undelivered frames; see #teardown.
     this.#messageQueue = []
     this.#fail(reason)
   }
@@ -337,9 +336,8 @@ export class WorkerWebSocketTransport implements Transport {
       type: "ws-close",
       connId: this.#connId,
     })
-    // Drop undelivered frames: a locally-initiated teardown means we are
-    // shutting down — handing queued frames to the wasm now could trigger
-    // dispatches against storage that is about to close.
+    // Drop undelivered frames: on a local teardown, handing them to the
+    // wasm could trigger dispatches against storage that is about to close.
     this.#messageQueue = []
     this.#fail(
       new WorkerWebSocketError("WebSocket disconnected", "disconnected")

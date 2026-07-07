@@ -1924,42 +1924,26 @@ export class SubductionSource implements DocumentSource {
   async shutdown() {
     this.#shuttingDown = true
 
-    // 1. Stop reconnect loops and prevent new transports
     for (const mgr of this.#connectionManagers) {
       mgr.shutdown()
     }
 
-    // 2. Stop any pending heal-retry timers and prevent new schedules
     this.#scheduler.shutdown()
 
-    // 3a. Drain any queued inbound blobs synchronously so the handle
-    //     is consistent with what subduction has on disk.
     for (const entry of this.#entries.values()) this.#flushInbound(entry)
 
-    // 3b. Flush all pending throttled saves so they start executing
     for (const entry of this.#entries.values()) {
       entry.flushSave.flush()
     }
 
-    // 4. Wait for all in-flight #save() calls to complete. Saves are
-    //    store-only (no broadcast), so this settles at disk speed.
     await Promise.all(
       Array.from(this.#entries.values()).map(e => e.saveSettled)
     )
 
-    // 4b. Quiesce outbound propagation. First let any in-flight
-    //     `#doSync` rounds finish (their responses still route — the
-    //     transports stay up until step 6)...
     await Promise.all(
       Array.from(this.#entries.values()).map(e => e.syncSettled)
     )
 
-    //     ...then run one final sync round for every entry whose saved
-    //     commits were never broadcast (`#save` recorded the dirty state,
-    //     but `#scheduleRecompute` is a no-op during shutdown). Saves are
-    //     store-only, so without this a change made just before shutdown
-    //     is durable locally but never reaches the server — a short-lived
-    //     CLI process would silently drop it.
     const unbroadcast = Array.from(this.#entries.values()).filter(
       e => e.needsResync || this.#needsOutboundSync(e)
     )
@@ -1969,9 +1953,6 @@ export class SubductionSource implements DocumentSource {
           `entr${unbroadcast.length === 1 ? "y" : "ies"} with ` +
           `un-broadcast commits`
       )
-      // Bounded pool: a large dirty set must not open hundreds of
-      // concurrent sync rounds against a single (possibly
-      // single-threaded) server.
       const queue = [...unbroadcast]
       const workers = Array.from(
         { length: Math.min(16, queue.length) },
@@ -1980,9 +1961,6 @@ export class SubductionSource implements DocumentSource {
             const e = queue.pop()
             if (e === undefined) return
             try {
-              // Short deadline: a final best-effort push must not pin
-              // shutdown on an unresponsive (or already torn down)
-              // peer for the full sync timeout.
               await this.#doSync(e, SHUTDOWN_SYNC_TIMEOUT_MS)
             } catch (err) {
               this.#log.debug(
@@ -1997,12 +1975,8 @@ export class SubductionSource implements DocumentSource {
       await Promise.all(workers)
     }
 
-    // 5. Wait for SubductionStorageBridge writes to land on disk
     await this.#storage.awaitSettled()
 
-    // 6. Disconnect all Wasm-side transports gracefully.
-    //    If hydration failed, this.#subduction is a rejected promise —
-    //    treat that as a no-op (nothing to disconnect).
     let subduction: Subduction | null = null
     try {
       subduction = await this.#subduction
@@ -2021,20 +1995,10 @@ export class SubductionSource implements DocumentSource {
       this.#log.debug("error disconnecting subduction transports: %O", e)
     }
 
-    // 7. Release endpoint-owned resources (e.g. auto-spawned socket
-    //    workers) now that every transport has been disconnected.
     for (const endpoint of this.#websocketEndpoints) {
       endpoint.shutdown?.()
     }
 
-    // 8. Stop serving storage and drain in-flight bridge operations.
-    //    `disconnectAll()` does not await the Wasm side's in-flight
-    //    dispatches: a frame already handed to the listen loop (or still
-    //    crossing the worker transport's MessagePort) can reach dispatch →
-    //    storage *after* this method returns. Closing the bridge makes
-    //    such stragglers no-ops, and awaiting idle guarantees the last
-    //    adapter access has completed before Repo.shutdown() closes the
-    //    storage adapter itself (LMDB throws on post-close reads).
     this.#storage.close()
     await this.#storage.awaitIdle()
   }

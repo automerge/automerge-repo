@@ -2,17 +2,12 @@
  * Regression: inbound dispatch must not hit a closed storage adapter
  * during `Repo.shutdown()`.
  *
- * The Wasm side can dispatch an already-received frame *after*
- * `disconnectAll()` resolves (a frame sitting in the listen loop, or
- * still crossing the worker transport's MessagePort). Before the fix,
- * such a straggler reached `SubductionStorageBridge.loadAllCommits` →
- * `adapter.loadRange` after `StorageSubsystem.close()` had closed the
- * adapter — LMDB throws "Can not read from a closed database" there,
- * which surfaced as an ERROR log / unhandled rejection.
- *
- * The fix closes the bridge (and drains in-flight bridge operations)
- * at the end of `SubductionSource.shutdown()`, before Repo closes the
- * adapter: post-close operations are silent no-ops.
+ * The Wasm side can dispatch an already-received frame after
+ * `disconnectAll()` resolves; if that dispatch reaches storage once
+ * `StorageSubsystem.close()` has run, adapters like LMDB throw
+ * "Can not read from a closed database". `SubductionSource.shutdown()`
+ * closes and drains the storage bridge first, so such stragglers must
+ * resolve as no-ops — never an ERROR log or unhandled rejection.
  */
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -251,9 +246,9 @@ describe("Repo.shutdown() with a close-on-shutdown adapter", () => {
     }, 5000)
 
     // Reader attaches the same doc, then shuts down while sync frames
-    // for a burst of fresh changes are still inbound — the window in
-    // which a late dispatch used to reach the closed adapter. Slow
-    // reads widen the in-flight overlap.
+    // for a burst of fresh changes are still inbound — the window where
+    // a late dispatch could hit closed storage. Slow reads widen the
+    // in-flight overlap.
     const readerAdapter = new ClosableStorageAdapter()
     readerAdapter.readDelayMs = 5
     const reader = new Repo({
