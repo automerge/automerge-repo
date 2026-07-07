@@ -46,6 +46,8 @@ jobs:
         run: pnpm build
       - name: Install Playwright Browsers
         run: pnpm exec playwright install --with-deps
+      - name: Browser tests (worker websocket transport)
+        run: pnpm --filter @automerge/automerge-repo test:browser
       - name: Playwright react-use-presence tests
         working-directory: ./examples/react-use-presence
         run: pnpm exec playwright test

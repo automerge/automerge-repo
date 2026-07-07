@@ -113,6 +113,13 @@ export type {
   SubductionTimeouts,
   BlobInterceptor,
 } from "./subduction/source.js"
+export {
+  WebSocketEndpoint,
+  WorkerWebSocketEndpoint,
+  type WebSocketEndpointInterface,
+  type WorkerWebSocketEndpointOptions,
+} from "./subduction/websocket-endpoint.js"
+export type { WorkerPortLike } from "./subduction/worker-websocket/protocol.js"
 
 export type {
   FindProgress,

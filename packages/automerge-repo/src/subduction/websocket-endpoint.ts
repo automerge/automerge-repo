@@ -88,9 +88,43 @@ export interface WorkerWebSocketEndpointOptions {
   connectTimeoutMs?: number
 }
 
+/** Structural view of `node:worker_threads` (avoids a @types/node dependency). */
+interface NodeWorkerThreads {
+  MessageChannel: new () => { port1: WorkerPortLike; port2: unknown }
+  Worker: new (
+    url: URL,
+    opts: { workerData: unknown; transferList: unknown[] }
+  ) => { terminate(): Promise<number> | void; unref(): void }
+}
+
+/**
+ * `node:worker_threads`, when running under Node ≥22.3 — else `null`.
+ * Checked BEFORE the browser `Worker` global: DOM-emulating test
+ * environments (happy-dom, jsdom) may define a fake `Worker` that can't
+ * actually run our entry module.
+ *
+ * @internal Exported for tests only.
+ */
+export const nodeWorkerThreads = (): NodeWorkerThreads | null => {
+  const proc = (
+    globalThis as {
+      process?: {
+        versions?: { node?: string }
+        getBuiltinModule?: (id: string) => unknown
+      }
+    }
+  ).process
+  if (!proc?.versions?.node || typeof proc.getBuiltinModule !== "function")
+    return null
+  return (
+    (proc.getBuiltinModule("node:worker_threads") as NodeWorkerThreads) ?? null
+  )
+}
+
 export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
   #port: WorkerPortLike | null
-  #ownsWorker = false
+  /** Tears down whatever `#resolvePort` spawned (browser Worker or node thread). */
+  #terminateOwned: (() => void) | null = null
   #options: Omit<WorkerWebSocketEndpointOptions, "worker">
   /** Live transports, so `shutdown()` can fail them before terminate(). */
   #transports = new Set<WorkerWebSocketTransport>()
@@ -124,29 +158,44 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
     }
     this.#transports.clear()
 
-    if (this.#ownsWorker && this.#port) {
-      ;(this.#port as Worker).terminate()
-    }
+    this.#terminateOwned?.()
+    this.#terminateOwned = null
     this.#port = null
-    this.#ownsWorker = false
   }
 
   #resolvePort(): WorkerPortLike {
     if (this.#port) return this.#port
 
-    if (typeof Worker === "undefined") {
-      throw new Error(
-        "WorkerWebSocketEndpoint requires the Worker API. In this " +
-          "environment, use WebSocketEndpoint (in-thread socket) or pass " +
-          "an explicit worker port."
+    // Node first: DOM-emulating test environments may expose a fake
+    // `Worker` global, but a real Node runtime always has worker_threads.
+    const wt = nodeWorkerThreads()
+    if (wt) {
+      const channel = new wt.MessageChannel()
+      const worker = new wt.Worker(
+        new URL("./worker-websocket/worker-entry-node.js", import.meta.url),
+        { workerData: { port: channel.port2 }, transferList: [channel.port2] }
       )
+      // Never pin process exit on the proxy thread.
+      worker.unref()
+      this.#port = channel.port1
+      this.#terminateOwned = () => void worker.terminate()
+      return this.#port
     }
 
-    this.#port = new Worker(
-      new URL("./worker-websocket/worker-entry.js", import.meta.url),
-      { type: "module" }
+    if (typeof Worker !== "undefined") {
+      const worker = new Worker(
+        new URL("./worker-websocket/worker-entry.js", import.meta.url),
+        { type: "module" }
+      )
+      this.#port = worker
+      this.#terminateOwned = () => worker.terminate()
+      return this.#port
+    }
+
+    throw new Error(
+      "WorkerWebSocketEndpoint requires worker_threads (Node) or the " +
+        "Worker API (browser). In this environment, use WebSocketEndpoint " +
+        "(in-thread socket) or pass an explicit worker port."
     )
-    this.#ownsWorker = true
-    return this.#port
   }
 }
