@@ -50,6 +50,8 @@ class ClosableStorageAdapter implements StorageAdapterInterface {
   closed = false
   /** Artificial latency applied to loadRange, in ms. */
   readDelayMs = 0
+  /** Count of loadRange calls that ran to completion. */
+  completedReads = 0
 
   #check() {
     if (this.closed) throw new Error("Can not read from a closed database")
@@ -76,7 +78,9 @@ class ClosableStorageAdapter implements StorageAdapterInterface {
       await new Promise(r => setTimeout(r, this.readDelayMs))
       this.#check()
     }
-    return this.inner.loadRange(keyPrefix)
+    const result = await this.inner.loadRange(keyPrefix)
+    this.completedReads++
+    return result
   }
 
   async removeRange(keyPrefix: StorageKey) {
@@ -131,14 +135,14 @@ describe("SubductionStorageBridge close guard", () => {
     adapter.readDelayMs = 50
     const bridge = new SubductionStorageBridge(adapter)
 
-    let loadDone = false
-    const inFlight = bridge.loadAllCommits(SID).then(() => {
-      loadDone = true
-    })
+    const inFlight = bridge.loadAllCommits(SID)
 
     bridge.close()
+    expect(adapter.completedReads).toBe(0)
     await bridge.awaitIdle()
-    expect(loadDone).toBe(true)
+    // Both parallel loadRange calls inside loadAllCommits finished
+    // before awaitIdle resolved — the adapter is safe to close now.
+    expect(adapter.completedReads).toBe(2)
     await inFlight
   })
 
