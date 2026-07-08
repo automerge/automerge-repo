@@ -8,18 +8,51 @@ import {
   StorageAdapterInterface,
   type StorageKey,
 } from "@automerge/automerge-repo/slim"
+import { semaphore } from "@automerge/automerge-repo/helpers/semaphore.js"
 import fs from "fs"
 import path from "path"
+
+/**
+ * Default cap on concurrent filesystem operations. loadRange() can fan out
+ * across thousands of chunk files for a single document; without a bound,
+ * Promise.all would open that many file descriptors at once and can exhaust the
+ * process's FD limit (EMFILE).
+ */
+const DEFAULT_MAX_CONCURRENT_FILE_OPERATIONS = 100
+
+export interface NodeFSStorageAdapterOptions {
+  /**
+   * Maximum number of filesystem operations in flight at once, shared across all
+   * concurrent `loadRange` / `walkdir` calls on this adapter. Defaults to 100.
+   *
+   * @remarks
+   * Tie this to the process's file-descriptor ceiling (commonly 1024 on Linux,
+   * 256 on macOS), leaving headroom for everything else holding descriptors.
+   * The default 100 is well under typical limits while still loading a
+   * many-chunk document in parallel.
+   */
+  maxConcurrency?: number
+}
 
 export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
   private cache: { [key: string]: Uint8Array } = {}
+  // Shared per-adapter so concurrent loadRange / walkdir calls stay under the
+  // cap together rather than each getting its own budget.
+  private limit: ReturnType<typeof semaphore>
 
   /**
    * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
+   * @param options - see {@link NodeFSStorageAdapterOptions}.
    */
-  constructor(baseDirectory = "automerge-repo-data") {
+  constructor(
+    baseDirectory = "automerge-repo-data",
+    options: NodeFSStorageAdapterOptions = {}
+  ) {
     this.baseDirectory = baseDirectory
+    this.limit = semaphore(
+      options.maxConcurrency ?? DEFAULT_MAX_CONCURRENT_FILE_OPERATIONS
+    )
   }
 
   async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
@@ -71,7 +104,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     const cachedKeys = this.cachedKeys(keyPrefix)
 
     // Read filenames from disk
-    const diskFiles = await walkdir(dirPath)
+    const diskFiles = await walkdir(dirPath, this.limit)
 
     // The "keys" in the cache don't include the baseDirectory.
     // We want to de-dupe with the cached keys so we'll use getKey to normalize them.
@@ -83,13 +116,16 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     // Combine and deduplicate the lists of keys
     const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
 
-    // Load all files
+    // Load all files, bounding concurrent reads so a document with many chunks
+    // doesn't open every file descriptor at once.
     const chunks = await Promise.all(
-      allKeys.map(async keyString => {
-        const key: StorageKey = keyString.split(path.sep)
-        const data = await this.load(key)
-        return { data, key }
-      })
+      allKeys.map(keyString =>
+        this.limit(async () => {
+          const key: StorageKey = keyString.split(path.sep)
+          const data = await this.load(key)
+          return { data, key }
+        })
+      )
     )
 
     return chunks
@@ -127,13 +163,21 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 const getKey = (key: StorageKey): string => path.join(...key)
 
 /** returns all files in a directory, recursively  */
-const walkdir = async (dirPath: string): Promise<string[]> => {
+const walkdir = async (
+  dirPath: string,
+  limit: ReturnType<typeof semaphore>
+): Promise<string[]> => {
   try {
-    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true })
+    // Bound concurrent readdir calls. The slot is released as soon as the
+    // readdir resolves, before recursing, so a parent never holds a slot while
+    // waiting on its children (which would risk deadlock under a small cap).
+    const entries = await limit(() =>
+      fs.promises.readdir(dirPath, { withFileTypes: true })
+    )
     const files = await Promise.all(
       entries.map(entry => {
         const subpath = path.resolve(dirPath, entry.name)
-        return entry.isDirectory() ? walkdir(subpath) : subpath
+        return entry.isDirectory() ? walkdir(subpath, limit) : subpath
       })
     )
     return files.flat()
