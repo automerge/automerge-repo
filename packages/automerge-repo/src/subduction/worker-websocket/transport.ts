@@ -163,6 +163,20 @@ export class WorkerWebSocketTransport implements Transport {
         // whole proxy is from a different build, not just this connection.
         if (!wsProxyVersionOk(msg)) {
           cleanup()
+          // Best-effort: a *stale* host acted on our tagged ws-connect and
+          // opened a real server socket before we could detect the skew.
+          // Old builds understand ws-close (they ignore the extra `v`), so
+          // tell them to close it — otherwise the reconnect loop would leak
+          // one live server connection per attempt, forever.
+          try {
+            WorkerWebSocketTransport.#post(port, {
+              channel: WS_PROXY_CHANNEL,
+              type: "ws-close",
+              connId,
+            })
+          } catch {
+            // The port may be dying; failing locally is all that matters.
+          }
           reject(
             new WorkerWebSocketError(
               wsProxyVersionMismatch(msg),
@@ -229,6 +243,20 @@ export class WorkerWebSocketTransport implements Transport {
     // whole proxy is from a different build, not just this connection.
     if (!wsProxyVersionOk(msg)) {
       log.warn("worker ws protocol mismatch:", msg)
+      // Best-effort: a stale host may hold a live server socket for this
+      // connection (it accepted our tagged ws-connect). Old builds
+      // understand ws-close, so ask it to clean up — without this, the
+      // socket buffers server pushes with no consumer (pre-backpressure
+      // hosts have no byte cap at all).
+      try {
+        WorkerWebSocketTransport.#post(this.#port, {
+          channel: WS_PROXY_CHANNEL,
+          type: "ws-close",
+          connId: this.#connId,
+        })
+      } catch {
+        // The port may be dying; failing locally is all that matters.
+      }
       this.#fail(
         new WorkerWebSocketError(
           wsProxyVersionMismatch(msg),

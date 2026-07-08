@@ -155,19 +155,28 @@ describe("protocol version skew", () => {
     expect(sockets).toHaveLength(0) // no socket was ever opened
   })
 
-  it("connect() rejects against a stale (untagged) host", async () => {
+  it("connect() rejects against a stale (untagged) host and closes its socket", async () => {
     const channel = new NodeMessageChannel()
     openPorts.push(channel.port1, channel.port2)
 
-    // An "old build" host: understands the request shape, replies without v.
-    channel.port2.on("message", (msg: { type?: string; connId?: string }) => {
-      if (msg?.type === "ws-connect") {
-        channel.port2.postMessage({
-          channel: WS_PROXY_CHANNEL,
-          type: "ws-open",
-          connId: msg.connId,
-        })
-      }
+    // An "old build" host: understands the request shape, replies without
+    // v — and, crucially, has already opened a real server socket by the
+    // time it replies.
+    let openedConnId: string | undefined
+    const closed = new Promise<string>(resolve => {
+      channel.port2.on("message", (msg: { type?: string; connId?: string }) => {
+        if (msg?.type === "ws-connect") {
+          openedConnId = msg.connId
+          channel.port2.postMessage({
+            channel: WS_PROXY_CHANNEL,
+            type: "ws-open",
+            connId: msg.connId,
+          })
+        }
+        // The new client must tell the stale host to close the orphaned
+        // socket — old builds understand ws-close.
+        if (msg?.type === "ws-close") resolve(msg.connId!)
+      })
     })
 
     await expect(
@@ -180,9 +189,12 @@ describe("protocol version skew", () => {
       name: "WorkerWebSocketError",
       code: "protocol-mismatch",
     })
+
+    // No leaked server connection on the stale host's side.
+    await expect(closed).resolves.toBe(openedConnId)
   })
 
-  it("an established transport fails loudly on an untagged frame", async () => {
+  it("an established transport fails loudly on an untagged frame and closes its socket", async () => {
     const sockets: DrivenSocket[] = []
     const channel = makeHostedChannel(sockets)
     const transport = await WorkerWebSocketTransport.connect(
@@ -204,8 +216,12 @@ describe("protocol version skew", () => {
       code: "protocol-mismatch",
     })
     await expect(transport.closed()).resolves.toBeUndefined()
-    expect(
-      (await pending.catch((e: WorkerWebSocketError) => e)).message
-    ).toMatch(/stale cached worker chunk/)
+    const err = (await pending.catch((e: unknown) => e)) as WorkerWebSocketError
+    expect(err.message).toMatch(/stale cached worker chunk/)
+
+    // The best-effort ws-close reached the host: no orphaned socket left
+    // buffering server pushes with no consumer.
+    await tick()
+    expect(sockets[0].closed).toBe(true)
   })
 })

@@ -46,11 +46,20 @@
 import type { WorkerPortLike } from "../subduction/worker-websocket/protocol.js"
 import {
   PORT_PROVISION_CHANNEL,
+  WORKER_ERROR_CHANNEL,
   WORKER_PORT_PROTOCOL_VERSION,
   isPortProvisionMessage,
   workerPortVersionMismatch,
   workerPortVersionOk,
 } from "./protocol.js"
+
+/** A stale-build message was seen; every context that can show it, should. */
+export class PortProtocolMismatchError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "PortProtocolMismatchError"
+  }
+}
 
 /** Default {@link PortProvisionMessage.target} when only one port kind flows. */
 const DEFAULT_TARGET = "default"
@@ -66,7 +75,11 @@ export interface PortProvider {
    * Pass as the `worker` option of `WorkerWebSocketEndpoint` /
    * `IndexedDBWorkerStorageAdapter`. Resolves with the current live port,
    * or — when there is none — broadcasts a `port-request` to attached
-   * clients and waits for a donation.
+   * clients and waits for a donation. Rejects pending waits with
+   * {@link PortProtocolMismatchError} when a stale-build donation is seen
+   * (consumers retry, so a fresh tab donating later still heals); note
+   * that with zero attached clients it simply waits — a repo SharedWorker
+   * with no tabs has no one to ask.
    */
   source: () => Promise<WorkerPortLike>
 
@@ -85,7 +98,10 @@ export function makePortProvider({
   target = DEFAULT_TARGET,
 }: PortProviderOptions = {}): PortProvider {
   let current: WorkerPortLike | null = null
-  let waiters: Array<(port: WorkerPortLike) => void> = []
+  let waiters: Array<{
+    resolve: (port: WorkerPortLike) => void
+    reject: (error: Error) => void
+  }> = []
   const clients = new Set<WorkerPortLike>()
 
   const requestDonation = () => {
@@ -117,7 +133,7 @@ export function makePortProvider({
     port.start?.()
     const settled = waiters
     waiters = []
-    for (const resolve of settled) resolve(port)
+    for (const { resolve } of settled) resolve(port)
   }
 
   return {
@@ -126,8 +142,8 @@ export function makePortProvider({
     source: () =>
       current
         ? Promise.resolve(current)
-        : new Promise<WorkerPortLike>(resolve => {
-            waiters.push(resolve)
+        : new Promise<WorkerPortLike>((resolve, reject) => {
+            waiters.push({ resolve, reject })
             requestDonation()
           }),
 
@@ -140,11 +156,35 @@ export function makePortProvider({
         if (!isPortProvisionMessage(msg)) return
         if (!workerPortVersionOk(msg)) {
           // Deploy skew: refuse the donation — a port wired to a stale
-          // proxy build would misbehave in far harder-to-debug ways.
+          // proxy build would misbehave in far harder-to-debug ways. This
+          // provider usually lives in a SharedWorker whose console is
+          // invisible (`chrome://inspect` only), so being quiet here would
+          // degrade to "storage/sync silently never comes up":
+          const description = workerPortVersionMismatch(msg)
           if (!complained) {
             complained = true
-            console.error(workerPortVersionMismatch(msg))
+            // 1. The worker's own console, for completeness.
+            console.error(description)
+            // 2. The offending tab, on the error-relay channel it already
+            //    knows how to listen to (`isWorkerErrorMessage`).
+            try {
+              client.postMessage({
+                channel: WORKER_ERROR_CHANNEL,
+                v: WORKER_PORT_PROTOCOL_VERSION,
+                kind: "error",
+                message: description,
+              })
+            } catch {
+              // Port already dead; nothing to tell.
+            }
           }
+          // 3. Anyone awaiting source(): reject rather than hang forever.
+          //    Consumers sit in reconnect/retry loops, so a fresh tab
+          //    donating later still heals — but the failure is visible.
+          const settled = waiters
+          waiters = []
+          for (const { reject } of settled)
+            reject(new PortProtocolMismatchError(description))
           return
         }
         if (msg.type !== "port-offer" || msg.target !== target) return

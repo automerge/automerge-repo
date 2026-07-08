@@ -15,7 +15,11 @@ import {
   type WorkerErrorMessage,
   type WorkerStatsMessage,
 } from "../../src/worker-port/protocol.js"
-import { donatePort, makePortProvider } from "../../src/worker-port/provide.js"
+import {
+  donatePort,
+  makePortProvider,
+  PortProtocolMismatchError,
+} from "../../src/worker-port/provide.js"
 import type { WorkerPortLike } from "../../src/subduction/worker-websocket/protocol.js"
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -145,15 +149,24 @@ describe("makePortProvider / donatePort", () => {
 })
 
 describe("protocol version skew", () => {
-  it("the provider refuses an untagged port-offer and complains once", async () => {
+  it("the provider refuses an untagged port-offer, rejects waiters, and tells the tab", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       const provider = makePortProvider()
       const { port1: tabSide, port2: repoSide } = trackedChannel()
       provider.attachClient(asPort(repoSide))
 
-      let resolved = false
-      void provider.source().then(() => (resolved = true))
+      // The tab listens on the error-relay channel, as documented.
+      const tabSawError = new Promise<WorkerErrorMessage>(resolve => {
+        tabSide.on("message", (msg: unknown) => {
+          if (
+            (msg as { channel?: string })?.channel === WORKER_ERROR_CHANNEL
+          )
+            resolve(msg as WorkerErrorMessage)
+        })
+      })
+
+      const pending = provider.source()
 
       // A stale tab build donates without a version tag — twice.
       for (let i = 0; i < 2; i++) {
@@ -168,11 +181,28 @@ describe("protocol version skew", () => {
           [donated.port1]
         )
       }
-      await tick()
 
-      expect(resolved).toBe(false) // donation refused
-      expect(errorSpy).toHaveBeenCalledTimes(1) // loud, but not spammy
-      expect(String(errorSpy.mock.calls[0][0])).toMatch(/version mismatch/)
+      // 1. source() fails loudly instead of hanging forever.
+      await expect(pending).rejects.toBeInstanceOf(PortProtocolMismatchError)
+      await expect(pending).rejects.toThrow(/version mismatch/)
+
+      // 2. The offending tab is told on the error-relay channel.
+      const relayed = await tabSawError
+      expect(relayed.kind).toBe("error")
+      expect(relayed.message).toMatch(/version mismatch/)
+
+      // 3. The worker console complained once, not per message.
+      await tick()
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+
+      // 4. A healthy donation afterwards still heals. (createPort mints a
+      // fresh port per donation — a transferred port is detached.)
+      const healed = provider.source()
+      donatePort(
+        asPort(tabSide),
+        () => trackedChannel().port1 as unknown as MessagePort
+      )
+      await expect(healed).resolves.toBeDefined()
     } finally {
       errorSpy.mockRestore()
     }

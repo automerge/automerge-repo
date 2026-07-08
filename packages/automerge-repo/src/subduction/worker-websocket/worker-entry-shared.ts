@@ -8,16 +8,21 @@
  * which passes it to `WorkerWebSocketEndpoint` via the `worker` option.
  *
  * ```ts
- * // tab
- * const io = new SharedWorker(
- *   new URL(
- *     import.meta.resolve(
- *       "@automerge/automerge-repo/subduction-websocket-worker-shared"
- *     )
- *   ),
- *   { type: "module", name: "automerge-io" }
- * )
- * repoWorker.port.postMessage({ ... }, [io.port]) // donate the port
+ * // tab — donate via `donatePort` (a raw postMessage would be refused:
+ * // the provisioning protocol is version-tagged)
+ * import { donatePort } from "@automerge/automerge-repo/worker-port"
+ *
+ * donatePort(repoWorker.port, () => {
+ *   const io = new SharedWorker(
+ *     new URL(
+ *       import.meta.resolve(
+ *         "@automerge/automerge-repo/subduction-websocket-worker-shared"
+ *       )
+ *     ),
+ *     { type: "module", name: "automerge-io" }
+ *   )
+ *   return io.port
+ * })
  * ```
  *
  * Every connecting port gets its own socket host (transports multiplex by
