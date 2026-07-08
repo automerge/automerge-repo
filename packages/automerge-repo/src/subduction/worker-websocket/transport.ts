@@ -315,6 +315,8 @@ export class WorkerWebSocketTransport implements Transport {
       // The port may already be terminated/closed; failing locally is
       // all that matters then.
     }
+    // Drop undelivered frames; see #teardown.
+    this.#messageQueue = []
     this.#fail(reason)
   }
 
@@ -334,6 +336,9 @@ export class WorkerWebSocketTransport implements Transport {
       type: "ws-close",
       connId: this.#connId,
     })
+    // Drop undelivered frames: on a local teardown, handing them to the
+    // wasm could trigger dispatches against storage that is about to close.
+    this.#messageQueue = []
     this.#fail(
       new WorkerWebSocketError("WebSocket disconnected", "disconnected")
     )

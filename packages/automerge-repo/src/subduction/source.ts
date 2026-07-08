@@ -26,7 +26,7 @@ import { semaphore } from "../helpers/semaphore.js"
 import { throttle, type ThrottledFunction } from "../helpers/throttle.js"
 import { makeYielder, yieldToMacrotask } from "../helpers/yield.js"
 import { makeLogger, type Logger } from "../Logger.js"
-import { SubductionStorageBridge } from "./storage.js"
+import { BridgeClosedError, SubductionStorageBridge } from "./storage.js"
 import { SubductionConnections } from "./SubductionConnections.js"
 import {
   WebSocketEndpoint,
@@ -53,6 +53,13 @@ const DEFAULT_SYNC_TIMEOUT_MS = 60_000
  * unresponsive or half-torn-down peer.
  */
 const SHUTDOWN_SYNC_TIMEOUT_MS = 5_000
+
+/**
+ * Deadline for draining in-flight storage-bridge operations at shutdown.
+ * An adapter promise that never settles (e.g. IndexedDB in a frozen or
+ * bfcached page) must not hang `Repo.shutdown()` forever.
+ */
+const SHUTDOWN_IDLE_TIMEOUT_MS = 5_000
 
 /**
  * Default cap on how many stale-blob deletes run concurrently during a
@@ -1859,6 +1866,26 @@ export class SubductionSource implements DocumentSource {
       bridgeSids = sids
     }
 
+    // A closed bridge silently drops writes (see SubductionStorageBridge
+    // .close), so flush cannot honor its durability contract for work
+    // that hasn't already been drained. shutdown() drains everything
+    // before closing, so a quiescent flush-after-shutdown resolves
+    // cleanly; only actual droppable work rejects.
+    if (this.#storage.isClosed) {
+      const dirty = targets.filter(
+        e =>
+          e.saveDeltaPending || e.flushSave.pending || e.lastSaveError != null
+      )
+      if (dirty.length > 0) {
+        throw new BridgeClosedError(
+          `flush: storage bridge is closed; ${dirty.length} ` +
+            `document${dirty.length === 1 ? "" : "s"} with unsaved ` +
+            `changes would be dropped`
+        )
+      }
+      return
+    }
+
     // Drain queued inbound blobs synchronously so any pending
     // peer-delivered changes are applied to the handle before
     // `#saveNewCommits` walks the doc. Without this, getCommits/heads
@@ -1924,42 +1951,26 @@ export class SubductionSource implements DocumentSource {
   async shutdown() {
     this.#shuttingDown = true
 
-    // 1. Stop reconnect loops and prevent new transports
     for (const mgr of this.#connectionManagers) {
       mgr.shutdown()
     }
 
-    // 2. Stop any pending heal-retry timers and prevent new schedules
     this.#scheduler.shutdown()
 
-    // 3a. Drain any queued inbound blobs synchronously so the handle
-    //     is consistent with what subduction has on disk.
     for (const entry of this.#entries.values()) this.#flushInbound(entry)
 
-    // 3b. Flush all pending throttled saves so they start executing
     for (const entry of this.#entries.values()) {
       entry.flushSave.flush()
     }
 
-    // 4. Wait for all in-flight #save() calls to complete. Saves are
-    //    store-only (no broadcast), so this settles at disk speed.
     await Promise.all(
       Array.from(this.#entries.values()).map(e => e.saveSettled)
     )
 
-    // 4b. Quiesce outbound propagation. First let any in-flight
-    //     `#doSync` rounds finish (their responses still route — the
-    //     transports stay up until step 6)...
     await Promise.all(
       Array.from(this.#entries.values()).map(e => e.syncSettled)
     )
 
-    //     ...then run one final sync round for every entry whose saved
-    //     commits were never broadcast (`#save` recorded the dirty state,
-    //     but `#scheduleRecompute` is a no-op during shutdown). Saves are
-    //     store-only, so without this a change made just before shutdown
-    //     is durable locally but never reaches the server — a short-lived
-    //     CLI process would silently drop it.
     const unbroadcast = Array.from(this.#entries.values()).filter(
       e => e.needsResync || this.#needsOutboundSync(e)
     )
@@ -1969,9 +1980,6 @@ export class SubductionSource implements DocumentSource {
           `entr${unbroadcast.length === 1 ? "y" : "ies"} with ` +
           `un-broadcast commits`
       )
-      // Bounded pool: a large dirty set must not open hundreds of
-      // concurrent sync rounds against a single (possibly
-      // single-threaded) server.
       const queue = [...unbroadcast]
       const workers = Array.from(
         { length: Math.min(16, queue.length) },
@@ -1980,9 +1988,6 @@ export class SubductionSource implements DocumentSource {
             const e = queue.pop()
             if (e === undefined) return
             try {
-              // Short deadline: a final best-effort push must not pin
-              // shutdown on an unresponsive (or already torn down)
-              // peer for the full sync timeout.
               await this.#doSync(e, SHUTDOWN_SYNC_TIMEOUT_MS)
             } catch (err) {
               this.#log.debug(
@@ -1997,12 +2002,8 @@ export class SubductionSource implements DocumentSource {
       await Promise.all(workers)
     }
 
-    // 5. Wait for SubductionStorageBridge writes to land on disk
     await this.#storage.awaitSettled()
 
-    // 6. Disconnect all Wasm-side transports gracefully.
-    //    If hydration failed, this.#subduction is a rejected promise —
-    //    treat that as a no-op (nothing to disconnect).
     let subduction: Subduction | null = null
     try {
       subduction = await this.#subduction
@@ -2011,6 +2012,8 @@ export class SubductionSource implements DocumentSource {
       for (const endpoint of this.#websocketEndpoints) {
         endpoint.shutdown?.()
       }
+      this.#storage.close()
+      await this.#awaitStorageIdle()
       return
     }
     try {
@@ -2019,10 +2022,41 @@ export class SubductionSource implements DocumentSource {
       this.#log.debug("error disconnecting subduction transports: %O", e)
     }
 
-    // 7. Release endpoint-owned resources (e.g. auto-spawned socket
-    //    workers) now that every transport has been disconnected.
     for (const endpoint of this.#websocketEndpoints) {
       endpoint.shutdown?.()
+    }
+
+    this.#storage.close()
+    await this.#awaitStorageIdle()
+  }
+
+  /** Drain in-flight bridge operations, bounded by a deadline. */
+  async #awaitStorageIdle(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<"timeout">(resolve => {
+      timer = setTimeout(() => resolve("timeout"), SHUTDOWN_IDLE_TIMEOUT_MS)
+    })
+    try {
+      const result = await Promise.race([this.#storage.awaitIdle(), deadline])
+      if (result === "timeout") {
+        this.#log.warn(
+          `shutdown: storage bridge still busy after ` +
+            `${SHUTDOWN_IDLE_TIMEOUT_MS}ms; proceeding without full drain`
+        )
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+
+    // Surface the tripwire: shutdown drains every write path before
+    // closing the bridge, so any dropped write means that ordering was
+    // violated and data may have been silently lost.
+    const dropped = this.#storage.droppedWrites
+    if (dropped > 0) {
+      this.#log.warn(
+        `shutdown: ${dropped} write${dropped === 1 ? "" : "s"} dropped ` +
+          `after storage bridge close — teardown ordering violation`
+      )
     }
   }
 
