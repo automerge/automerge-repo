@@ -141,7 +141,23 @@ export const nodeWorkerThreads = (): NodeWorkerThreads | null => {
  * The receive path is credit-windowed (see `worker-websocket/protocol.ts`):
  * a busy main thread never stalls socket reads, so keepalive pongs keep
  * flowing and the server's TCP window stays open. The backlog buffers in
- * the worker, bounded by `maxBufferedBytes`.
+ * the worker, bounded by `maxBufferedBytes`. Tune per endpoint via
+ * `windowFrames` (max un-acked frames delivered to the consumer thread —
+ * lower it to cap how much decode work can queue there at once) and
+ * `maxBufferedBytes` (worker-side backlog cap before a fail-fast
+ * `backlog-exceeded` close; reconnect + resync recover).
+ *
+ * Health signals: the shipped browser proxy entries run a drift probe
+ * that reports event-loop stalls ≥250ms on the `am-worker-stats` channel
+ * (`isWorkerStatsMessage`), and the SharedWorker entries relay unhandled
+ * worker errors on `am-worker-error` (`isWorkerErrorMessage`) — wire both
+ * into your logging; SharedWorker consoles are otherwise only visible in
+ * `chrome://inspect/#workers`. All proxy messages are version-tagged;
+ * build skew (a stale cached worker chunk after a deploy) fails loudly
+ * with a `protocol-mismatch` error instead of misbehaving.
+ *
+ * Plain URL strings in `subductionWebsocketEndpoints` remain fully
+ * supported (in-thread `WebSocketEndpoint`); this class is an opt-in.
  *
  * Bundler notes for the auto-spawn path (`new Worker(new URL(...))` inside
  * this library): webpack 5 and workspace-linked Vite handle it; Vite
@@ -165,6 +181,13 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
   #port: WorkerPortLike | null
   /** Re-invoked for a fresh port after the cached one closes. */
   #portSource: (() => WorkerPortLike | Promise<WorkerPortLike>) | null
+  /**
+   * Single-flight guard for provider fetches: concurrent `connect()` calls
+   * while no port is cached must share one `#portSource()` invocation, or
+   * each would trigger its own donation (and leak the extras). Cleared
+   * when the fetch settles.
+   */
+  #fetchingPort: Promise<WorkerPortLike> | null = null
   /** Tears down whatever `#resolvePort` spawned (browser Worker or node thread). */
   #terminateOwned: (() => void) | null = null
   #options: Omit<WorkerWebSocketEndpointOptions, "worker">
@@ -222,9 +245,17 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
     if (this.#port) return this.#port
 
     if (this.#portSource) {
-      const port = await this.#portSource()
-      this.#watchProvidedPort(port)
-      return port
+      const source = this.#portSource
+      this.#fetchingPort ??= Promise.resolve()
+        .then(() => source())
+        .then(port => {
+          this.#watchProvidedPort(port)
+          return port
+        })
+        .finally(() => {
+          this.#fetchingPort = null
+        })
+      return this.#fetchingPort
     }
 
     // Node first: DOM-emulating test environments may expose a fake
@@ -270,6 +301,7 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
    * Provided ports are shared infrastructure and are never terminated.
    */
   #watchProvidedPort(port: WorkerPortLike) {
+    if (this.#port === port) return // provider re-supplied the live port
     this.#port = port
     const onClose = () => {
       port.removeEventListener("close", onClose)

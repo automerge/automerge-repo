@@ -24,7 +24,10 @@ import {
   DEFAULT_MAX_BUFFERED_BYTES,
   DEFAULT_WINDOW_FRAMES,
   WS_PROXY_CHANNEL,
+  WS_PROXY_PROTOCOL_VERSION,
   isWsProxyMessage,
+  wsProxyVersionMismatch,
+  wsProxyVersionOk,
   type WorkerPortLike,
   type WsProxyRequest,
   type WsProxyResponse,
@@ -94,7 +97,7 @@ export function attachWebSocketHost(
   const conns = new Map<string, Conn>()
 
   const post = (msg: WsProxyResponse, transfer?: Transferable[]) => {
-    port.postMessage(msg, transfer)
+    port.postMessage({ v: WS_PROXY_PROTOCOL_VERSION, ...msg }, transfer)
   }
 
   const postBytes = (connId: string, buf: ArrayBuffer) => {
@@ -226,6 +229,20 @@ export function attachWebSocketHost(
   const handleMessage = (event: MessageEvent) => {
     if (!isWsProxyMessage(event.data)) return
     const msg = event.data as WsProxyRequest
+
+    if (!wsProxyVersionOk(msg)) {
+      // Deploy skew: this proxy build and the client build disagree. Fail
+      // the connection loudly — the error surfaces through the transport's
+      // normal error path with a machine-readable code.
+      post({
+        channel: WS_PROXY_CHANNEL,
+        type: "ws-error",
+        connId: (msg as { connId?: string }).connId ?? "unknown",
+        message: wsProxyVersionMismatch(msg),
+        code: "protocol-mismatch",
+      })
+      return
+    }
 
     switch (msg.type) {
       case "ws-connect":

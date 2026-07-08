@@ -29,8 +29,11 @@ import { makeLogger } from "../../Logger.js"
 import {
   DEFAULT_WINDOW_FRAMES,
   WS_PROXY_CHANNEL,
+  WS_PROXY_PROTOCOL_VERSION,
   WorkerWebSocketError,
   isWsProxyMessage,
+  wsProxyVersionMismatch,
+  wsProxyVersionOk,
   type WorkerPortLike,
   type WsProxyRequest,
   type WsProxyResponse,
@@ -156,6 +159,18 @@ export class WorkerWebSocketTransport implements Transport {
       const onMessage = (event: MessageEvent) => {
         if (!isWsProxyMessage(event.data)) return
         const msg = event.data as WsProxyResponse
+        // Checked before the connId filter: an untagged response means the
+        // whole proxy is from a different build, not just this connection.
+        if (!wsProxyVersionOk(msg)) {
+          cleanup()
+          reject(
+            new WorkerWebSocketError(
+              wsProxyVersionMismatch(msg),
+              "protocol-mismatch"
+            )
+          )
+          return
+        }
         if (msg.connId !== connId) return
 
         if (msg.type === "ws-open") {
@@ -195,7 +210,7 @@ export class WorkerWebSocketTransport implements Transport {
     msg: WsProxyRequest,
     transfer?: Transferable[]
   ) {
-    port.postMessage(msg, transfer)
+    port.postMessage({ v: WS_PROXY_PROTOCOL_VERSION, ...msg }, transfer)
   }
 
   #handlePortClose = () => {
@@ -210,6 +225,18 @@ export class WorkerWebSocketTransport implements Transport {
   #handleMessage = (event: MessageEvent) => {
     if (!isWsProxyMessage(event.data)) return
     const msg = event.data as WsProxyResponse
+    // Checked before the connId filter: an untagged response means the
+    // whole proxy is from a different build, not just this connection.
+    if (!wsProxyVersionOk(msg)) {
+      log.warn("worker ws protocol mismatch:", msg)
+      this.#fail(
+        new WorkerWebSocketError(
+          wsProxyVersionMismatch(msg),
+          "protocol-mismatch"
+        )
+      )
+      return
+    }
     if (msg.connId !== this.#connId) return
 
     switch (msg.type) {

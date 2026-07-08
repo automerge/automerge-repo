@@ -4,12 +4,16 @@
  * same `close` event (Chrome ≥132) the production paths rely on.
  */
 import { MessageChannel as NodeMessageChannel } from "node:worker_threads"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { startDriftProbe } from "../../src/worker-port/drift-probe.js"
 import { createErrorRelay } from "../../src/worker-port/error-relay.js"
 import {
+  PORT_PROVISION_CHANNEL,
   WORKER_ERROR_CHANNEL,
+  isWorkerStatsMessage,
   type WorkerErrorMessage,
+  type WorkerStatsMessage,
 } from "../../src/worker-port/protocol.js"
 import { donatePort, makePortProvider } from "../../src/worker-port/provide.js"
 import type { WorkerPortLike } from "../../src/subduction/worker-websocket/protocol.js"
@@ -137,6 +141,99 @@ describe("makePortProvider / donatePort", () => {
     void other.source().then(() => (otherResolved = true))
     await tick()
     expect(otherResolved).toBe(false)
+  })
+})
+
+describe("protocol version skew", () => {
+  it("the provider refuses an untagged port-offer and complains once", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const provider = makePortProvider()
+      const { port1: tabSide, port2: repoSide } = trackedChannel()
+      provider.attachClient(asPort(repoSide))
+
+      let resolved = false
+      void provider.source().then(() => (resolved = true))
+
+      // A stale tab build donates without a version tag — twice.
+      for (let i = 0; i < 2; i++) {
+        const donated = trackedChannel()
+        tabSide.postMessage(
+          {
+            channel: PORT_PROVISION_CHANNEL,
+            type: "port-offer",
+            target: "default",
+            port: donated.port1,
+          },
+          [donated.port1]
+        )
+      }
+      await tick()
+
+      expect(resolved).toBe(false) // donation refused
+      expect(errorSpy).toHaveBeenCalledTimes(1) // loud, but not spammy
+      expect(String(errorSpy.mock.calls[0][0])).toMatch(/version mismatch/)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it("donatePort ignores an untagged port-request and complains", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const { port1: tabSide, port2: repoSide } = trackedChannel()
+      let donations = 0
+      donatePort(
+        asPort(tabSide),
+        () => {
+          donations++
+          return trackedChannel().port1 as unknown as MessagePort
+        },
+        { eager: false }
+      )
+
+      // A stale provider build requests without a version tag.
+      repoSide.postMessage({
+        channel: PORT_PROVISION_CHANNEL,
+        type: "port-request",
+        target: "default",
+      })
+      await tick()
+
+      expect(donations).toBe(0)
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+      expect(String(errorSpy.mock.calls[0][0])).toMatch(/version mismatch/)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+})
+
+describe("startDriftProbe", () => {
+  it("stays silent when healthy, reports when the loop is blocked", async () => {
+    const samples: WorkerStatsMessage[] = []
+    const stop = startDriftProbe(s => samples.push(s), {
+      intervalMs: 25,
+      reportThresholdMs: 100,
+    })
+    try {
+      // Healthy: several ticks, nothing crosses the threshold.
+      await new Promise(r => setTimeout(r, 100))
+      expect(samples).toHaveLength(0)
+
+      // Block the event loop well past the threshold.
+      const until = Date.now() + 150
+      while (Date.now() < until) {
+        /* busy-wait */
+      }
+      await new Promise(r => setTimeout(r, 50))
+
+      expect(samples.length).toBeGreaterThanOrEqual(1)
+      expect(samples[0].driftMs).toBeGreaterThanOrEqual(100)
+      expect(isWorkerStatsMessage(samples[0])).toBe(true)
+    } finally {
+      stop()
+    }
   })
 })
 

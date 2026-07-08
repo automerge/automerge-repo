@@ -20,6 +20,11 @@ import {
   WorkerStorageError,
 } from "../src/IndexedDBWorkerStorageAdapter.js"
 import { attachStorageHost } from "../src/worker-host.js"
+import {
+  STORAGE_RPC,
+  STORAGE_RPC_PROTOCOL_VERSION,
+  type StorageRpcRequest,
+} from "../src/worker-rpc.js"
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
@@ -48,7 +53,7 @@ const makeEchoSocket = (): WebSocketLike => {
     close() {
       emit("close")
     },
-    addEventListener(type: string, listener: (event?: never) => void) {
+    addEventListener(type: string, listener: (event: never) => void) {
       const list = listeners.get(type) ?? []
       list.push(listener as (event?: unknown) => void)
       listeners.set(type, list)
@@ -123,6 +128,105 @@ describe("storage + websocket hosts sharing one donated port", () => {
     // IndexedDB state is browser-global across worker restarts).
     expect(await adapter.load(["k"])).toStrictEqual(new Uint8Array([7]))
     expect(fetches).toBe(2)
+  })
+
+  it("concurrent first calls share one provider fetch", async () => {
+    let fetches = 0
+    const adapter = new IndexedDBWorkerStorageAdapter(
+      "single-flight-db",
+      "documents",
+      () => {
+        fetches++
+        return makeIoPort()
+      }
+    )
+    adapters.push(adapter)
+
+    // Fire a burst before any port exists; all must share one fetch.
+    await Promise.all([
+      adapter.save(["a"], new Uint8Array([1])),
+      adapter.save(["b"], new Uint8Array([2])),
+      adapter.loadRange([]),
+    ])
+    expect(fetches).toBe(1)
+    expect(await adapter.load(["a"])).toStrictEqual(new Uint8Array([1]))
+    expect(fetches).toBe(1)
+  })
+
+  it("heals through a provider after a non-timeout init failure", async () => {
+    /** A port whose far side answers `init` with an error. */
+    const makeInitRejectingPort = (): WorkerPortLike => {
+      const channel = new NodeMessageChannel()
+      openPorts.push(channel.port1, channel.port2)
+      const host = channel.port2 as unknown as WorkerPortLike
+      host.addEventListener("message", event => {
+        const msg = (event as MessageEvent).data as StorageRpcRequest
+        if (msg?.channel !== STORAGE_RPC) return
+        host.postMessage({
+          channel: STORAGE_RPC,
+          v: STORAGE_RPC_PROTOCOL_VERSION,
+          client: msg.client,
+          id: msg.id,
+          ok: false,
+          error: "induced init failure",
+        })
+      })
+      host.start?.()
+      return channel.port1 as unknown as WorkerPortLike
+    }
+
+    let fetches = 0
+    const adapter = new IndexedDBWorkerStorageAdapter(
+      "init-failure-db",
+      "documents",
+      () => {
+        fetches++
+        return fetches === 1 ? makeInitRejectingPort() : makeIoPort()
+      }
+    )
+    adapters.push(adapter)
+
+    // First call fails at init — but must not cache the rejection.
+    await expect(adapter.save(["k"], new Uint8Array([1]))).rejects.toThrow(
+      "induced init failure"
+    )
+
+    // Next call re-invokes the provider and succeeds on the fresh port.
+    await adapter.save(["k"], new Uint8Array([2]))
+    expect(fetches).toBe(2)
+    expect(await adapter.load(["k"])).toStrictEqual(new Uint8Array([2]))
+  })
+
+  it("fails loudly against a stale (untagged) storage worker", async () => {
+    // An "old build" host: answers init ok, but without a version tag.
+    const channel = new NodeMessageChannel()
+    openPorts.push(channel.port1, channel.port2)
+    channel.port2.on(
+      "message",
+      (msg: { channel?: string; client?: string; id?: number }) => {
+        if (msg?.channel !== STORAGE_RPC) return
+        channel.port2.postMessage({
+          channel: STORAGE_RPC,
+          client: msg.client,
+          id: msg.id,
+          ok: true,
+          result: undefined,
+        })
+      }
+    )
+
+    const adapter = new IndexedDBWorkerStorageAdapter(
+      "skew-db",
+      "documents",
+      channel.port1 as unknown as WorkerPortLike
+    )
+    adapters.push(adapter)
+
+    const failure = await adapter
+      .save(["k"], new Uint8Array([1]))
+      .catch((e: unknown) => e)
+    expect(failure).toBeInstanceOf(WorkerStorageError)
+    expect((failure as Error).message).toMatch(/version mismatch/)
   })
 
   it("a fixed donated port stays terminal after death (no provider)", async () => {

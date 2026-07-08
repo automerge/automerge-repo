@@ -9,6 +9,7 @@
 
 import {
   WORKER_ERROR_CHANNEL,
+  WORKER_PORT_PROTOCOL_VERSION,
   type WorkerErrorMessage,
 } from "./protocol.js"
 
@@ -21,6 +22,11 @@ interface ErrorRelayPort {
 export interface ErrorRelay {
   /** Start relaying to this port; removed automatically when it closes. */
   addPort(port: ErrorRelayPort): void
+  /**
+   * Fan an arbitrary (channel-tagged) message out to every registered
+   * port — e.g. drift-probe stats. Ports that throw are pruned.
+   */
+  post(message: unknown): void
   /** Remove the global listeners and forget all ports. */
   dispose(): void
 }
@@ -44,11 +50,15 @@ export function createErrorRelay(
   const ports = new Set<ErrorRelayPort>()
 
   const broadcast = (
-    msg: Omit<WorkerErrorMessage, "channel">
+    msg: Omit<WorkerErrorMessage, "channel" | "v">
   ): void => {
     for (const port of ports) {
       try {
-        port.postMessage({ channel: WORKER_ERROR_CHANNEL, ...msg })
+        port.postMessage({
+          channel: WORKER_ERROR_CHANNEL,
+          v: WORKER_PORT_PROTOCOL_VERSION,
+          ...msg,
+        })
       } catch {
         ports.delete(port) // e.g. a detached Node port
       }
@@ -78,6 +88,15 @@ export function createErrorRelay(
     addPort(port: ErrorRelayPort) {
       ports.add(port)
       port.addEventListener?.("close", () => ports.delete(port))
+    },
+    post(message: unknown) {
+      for (const port of ports) {
+        try {
+          port.postMessage(message)
+        } catch {
+          ports.delete(port) // e.g. a detached Node port
+        }
+      }
     },
     dispose() {
       scope.removeEventListener("error", onError)

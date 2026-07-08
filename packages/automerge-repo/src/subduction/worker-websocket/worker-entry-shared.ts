@@ -28,11 +28,15 @@
  * `attachWebSocketHost` and the storage package's `attachStorageHost`.
  */
 
+import { startDriftProbe } from "../../worker-port/drift-probe.js"
 import { createErrorRelay } from "../../worker-port/error-relay.js"
 import { attachWebSocketHost } from "./host.js"
 import type { WorkerPortLike } from "./protocol.js"
 
 const relay = createErrorRelay()
+// Health probe: reports event-loop stalls ≥250ms to every connected port
+// on `am-worker-stats` (see `isWorkerStatsMessage`). Silence = healthy.
+startDriftProbe(sample => relay.post(sample))
 
 const scope = globalThis as unknown as {
   onconnect: ((event: MessageEvent) => void) | null

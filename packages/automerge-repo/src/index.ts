@@ -144,15 +144,23 @@ export {
   donatePort,
   isPortProvisionMessage,
   isWorkerErrorMessage,
+  isWorkerStatsMessage,
   makePortProvider,
+  startDriftProbe,
+  WORKER_STATS_CHANNEL,
   PORT_PROVISION_CHANNEL,
   WORKER_ERROR_CHANNEL,
+  WORKER_PORT_PROTOCOL_VERSION,
+  workerPortVersionMismatch,
+  workerPortVersionOk,
   type DonatePortOptions,
+  type DriftProbeOptions,
   type ErrorRelay,
   type PortProvider,
   type PortProviderOptions,
   type PortProvisionMessage,
   type WorkerErrorMessage,
+  type WorkerStatsMessage,
 } from "./worker-port/index.js"
 export { WebSocketTransport } from "./subduction/websocket-transport.js"
 

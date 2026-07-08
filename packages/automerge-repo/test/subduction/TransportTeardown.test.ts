@@ -15,6 +15,7 @@ import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
 import { WorkerWebSocketTransport } from "../../src/subduction/worker-websocket/transport.js"
 import {
   WS_PROXY_CHANNEL,
+  WS_PROXY_PROTOCOL_VERSION,
   type WorkerPortLike,
   type WsProxyRequest,
   type WsProxyResponse,
@@ -121,7 +122,9 @@ describe("WebSocketTransport teardown", () => {
 /** Records outbound proxy requests and lets tests inject responses. */
 class FakePort implements WorkerPortLike {
   posted: WsProxyRequest[] = []
-  #listeners: Array<(event: MessageEvent) => void> = []
+  // Keyed by event type: the transport registers both "message" and
+  // "close" listeners, and only "message" listeners may see responses.
+  #listeners = new Map<string, Array<(event: MessageEvent) => void>>()
 
   postMessage(message: unknown) {
     const msg = message as WsProxyRequest
@@ -138,25 +141,27 @@ class FakePort implements WorkerPortLike {
     }
   }
 
-  addEventListener(_type: "message", listener: (event: MessageEvent) => void) {
-    this.#listeners.push(listener)
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    const list = this.#listeners.get(type) ?? []
+    list.push(listener)
+    this.#listeners.set(type, list)
   }
 
-  removeEventListener(
-    _type: "message",
-    listener: (event: MessageEvent) => void
-  ) {
-    const i = this.#listeners.indexOf(listener)
-    if (i !== -1) this.#listeners.splice(i, 1)
+  removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+    const list = this.#listeners.get(type) ?? []
+    const i = list.indexOf(listener)
+    if (i !== -1) list.splice(i, 1)
   }
 
   get listenerCount() {
-    return this.#listeners.length
+    return (this.#listeners.get("message") ?? []).length
   }
 
   respond(msg: WsProxyResponse) {
-    for (const listener of [...this.#listeners]) {
-      listener({ data: msg } as MessageEvent)
+    // Stamp the protocol version like the real host does.
+    const data = { v: WS_PROXY_PROTOCOL_VERSION, ...msg }
+    for (const listener of [...(this.#listeners.get("message") ?? [])]) {
+      listener({ data } as MessageEvent)
     }
   }
 

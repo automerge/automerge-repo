@@ -4,6 +4,37 @@
  * dependency-free so worker entry files importing it stay lean.
  */
 
+/**
+ * Wire-protocol version for all worker-port channels in this module,
+ * stamped on every message by the sender and verified by receivers.
+ *
+ * Deploy skew is real here: proxy/repo workers are often separately
+ * emitted, unhashed, Service-Worker-cached chunks, so a stale worker can
+ * end up speaking to a freshly-deployed page (or vice versa). Receivers
+ * treat a mismatch — including a missing tag from a pre-versioning build
+ * — as an error and report it loudly rather than silently ignoring or
+ * misparsing traffic. Bump on any incompatible change.
+ */
+export const WORKER_PORT_PROTOCOL_VERSION = 1
+
+/** Does an already-channel-matched message carry the version we speak? */
+export const workerPortVersionOk = (data: unknown): boolean =>
+  (data as { v?: unknown }).v === WORKER_PORT_PROTOCOL_VERSION
+
+/** Human-readable description of a version mismatch, for error surfaces. */
+export const workerPortVersionMismatch = (data: unknown): string => {
+  const got = (data as { v?: unknown }).v
+  const channel = (data as { channel?: unknown }).channel
+  return (
+    `worker-port protocol version mismatch on channel "${String(channel)}": ` +
+    `expected v${WORKER_PORT_PROTOCOL_VERSION}, got ` +
+    `${got === undefined ? "an untagged (pre-versioning) message" : `v${String(got)}`}. ` +
+    "The two contexts are running different builds — likely a stale cached " +
+    "worker chunk after a deploy. Reload / clear the worker cache so both " +
+    "sides come from the same release."
+  )
+}
+
 /** Discriminator for relayed worker errors on a (possibly shared) port. */
 export const WORKER_ERROR_CHANNEL = "am-worker-error"
 
@@ -15,6 +46,8 @@ export const WORKER_ERROR_CHANNEL = "am-worker-error"
  */
 export interface WorkerErrorMessage {
   channel: typeof WORKER_ERROR_CHANNEL
+  /** Protocol version ({@link WORKER_PORT_PROTOCOL_VERSION}). */
+  v: number
   kind: "error" | "unhandledrejection"
   message: string
   /** Script URL, when the error event carries one. */
@@ -44,6 +77,8 @@ export const PORT_PROVISION_CHANNEL = "am-port-provision"
 export type PortProvisionMessage =
   | {
       channel: typeof PORT_PROVISION_CHANNEL
+      /** Protocol version ({@link WORKER_PORT_PROTOCOL_VERSION}). */
+      v: number
       type: "port-offer"
       /** Which port this is, when one channel provisions several. */
       target: string
@@ -57,6 +92,8 @@ export type PortProvisionMessage =
     }
   | {
       channel: typeof PORT_PROVISION_CHANNEL
+      /** Protocol version ({@link WORKER_PORT_PROTOCOL_VERSION}). */
+      v: number
       type: "port-request"
       target: string
     }
@@ -68,3 +105,33 @@ export const isPortProvisionMessage = (
   typeof data === "object" &&
   data !== null &&
   (data as { channel?: unknown }).channel === PORT_PROVISION_CHANNEL
+
+/** Discriminator for worker health/timing stats on a (possibly shared) port. */
+export const WORKER_STATS_CHANNEL = "am-worker-stats"
+
+/**
+ * A timing sample from a worker's drift probe (see `startDriftProbe`):
+ * how late a periodic timer fired, i.e. how long the worker's event loop
+ * was blocked by long tasks. Emitted only when the drift crosses the
+ * probe's report threshold, so silence means a healthy worker.
+ */
+export interface WorkerStatsMessage {
+  channel: typeof WORKER_STATS_CHANNEL
+  /** Protocol version ({@link WORKER_PORT_PROTOCOL_VERSION}). */
+  v: number
+  kind: "drift"
+  /** How late the timer fired beyond its interval, in ms. */
+  driftMs: number
+  /** The probe's nominal interval, for interpreting `driftMs`. */
+  intervalMs: number
+  /** Sample time (epoch ms) on the worker's clock. */
+  at: number
+}
+
+/** Type guard for {@link WorkerStatsMessage} on a shared port. */
+export const isWorkerStatsMessage = (
+  data: unknown
+): data is WorkerStatsMessage =>
+  typeof data === "object" &&
+  data !== null &&
+  (data as { channel?: unknown }).channel === WORKER_STATS_CHANNEL

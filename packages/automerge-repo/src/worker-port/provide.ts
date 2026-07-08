@@ -46,7 +46,10 @@
 import type { WorkerPortLike } from "../subduction/worker-websocket/protocol.js"
 import {
   PORT_PROVISION_CHANNEL,
+  WORKER_PORT_PROTOCOL_VERSION,
   isPortProvisionMessage,
+  workerPortVersionMismatch,
+  workerPortVersionOk,
 } from "./protocol.js"
 
 /** Default {@link PortProvisionMessage.target} when only one port kind flows. */
@@ -90,6 +93,7 @@ export function makePortProvider({
       try {
         client.postMessage({
           channel: PORT_PROVISION_CHANNEL,
+          v: WORKER_PORT_PROTOCOL_VERSION,
           type: "port-request",
           target,
         })
@@ -100,6 +104,10 @@ export function makePortProvider({
   }
 
   const offer = (port: WorkerPortLike) => {
+    // A superseded `current` (e.g. the benign double donation when an
+    // eager donor races a port-request) is left open, not closed:
+    // consumers may have cached it, and both ends of a duplicate donation
+    // converge on the same io worker anyway. It is dropped on `close`.
     current = port
     const onClose = () => {
       port.removeEventListener("close", onClose)
@@ -126,9 +134,19 @@ export function makePortProvider({
     attachClient(client: WorkerPortLike) {
       clients.add(client)
 
+      let complained = false
       const onMessage = (event: MessageEvent) => {
         const msg = event.data
         if (!isPortProvisionMessage(msg)) return
+        if (!workerPortVersionOk(msg)) {
+          // Deploy skew: refuse the donation — a port wired to a stale
+          // proxy build would misbehave in far harder-to-debug ways.
+          if (!complained) {
+            complained = true
+            console.error(workerPortVersionMismatch(msg))
+          }
+          return
+        }
         if (msg.type !== "port-offer" || msg.target !== target) return
         // Prefer the embedded port (works in Node too); fall back to the
         // browser's transfer-list array for hand-rolled senders.
@@ -181,14 +199,29 @@ export function donatePort(
   const donate = () => {
     const port = createPort()
     client.postMessage(
-      { channel: PORT_PROVISION_CHANNEL, type: "port-offer", target, port },
+      {
+        channel: PORT_PROVISION_CHANNEL,
+        v: WORKER_PORT_PROTOCOL_VERSION,
+        type: "port-offer",
+        target,
+        port,
+      },
       [port]
     )
   }
 
+  let complained = false
   const onMessage = (event: MessageEvent) => {
     const msg = event.data
     if (!isPortProvisionMessage(msg)) return
+    if (!workerPortVersionOk(msg)) {
+      // Deploy skew: don't answer a stale provider's requests.
+      if (!complained) {
+        complained = true
+        console.error(workerPortVersionMismatch(msg))
+      }
+      return
+    }
     if (msg.type === "port-request" && msg.target === target) donate()
   }
 

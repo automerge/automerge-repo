@@ -6,6 +6,9 @@
 import { IndexedDBStorageAdapter } from "./index.js"
 import {
   STORAGE_RPC,
+  STORAGE_RPC_PROTOCOL_VERSION,
+  storageRpcVersionMismatch,
+  storageRpcVersionOk,
   type StorageRpcMethod,
   type StorageRpcRequest,
   type StorageRpcResponse,
@@ -44,12 +47,25 @@ export function makeStorageRpcDispatcher() {
   ): Promise<void> {
     if (!msg || msg.channel !== STORAGE_RPC) return
     const { client, id, method, args } = msg
+    const v = STORAGE_RPC_PROTOCOL_VERSION
+
+    // Deploy skew: a request from a different build. Answer with an error
+    // (pre-versioning adapters still understand `ok: false`), so the call
+    // rejects loudly instead of misbehaving.
+    if (!storageRpcVersionOk(msg)) {
+      reply(
+        { channel: STORAGE_RPC, v, client, id, ok: false, error: storageRpcVersionMismatch(msg) },
+        []
+      )
+      return
+    }
+
     try {
       if (method === "init") {
         const [database, store] = args as [string?, string?]
         adapters.set(client, new IndexedDBStorageAdapter(database, store))
         reply(
-          { channel: STORAGE_RPC, client, id, ok: true, result: undefined },
+          { channel: STORAGE_RPC, v, client, id, ok: true, result: undefined },
           []
         )
         return
@@ -59,13 +75,14 @@ export function makeStorageRpcDispatcher() {
       const fn = adapter[method] as (...a: unknown[]) => Promise<unknown>
       const result = await fn.apply(adapter, args)
       reply(
-        { channel: STORAGE_RPC, client, id, ok: true, result },
+        { channel: STORAGE_RPC, v, client, id, ok: true, result },
         collectTransfer(method, result)
       )
     } catch (err) {
       reply(
         {
           channel: STORAGE_RPC,
+          v,
           client,
           id,
           ok: false,

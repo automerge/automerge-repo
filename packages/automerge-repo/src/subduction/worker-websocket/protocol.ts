@@ -36,6 +36,33 @@ export const DEFAULT_MAX_BUFFERED_BYTES = 128 * 1024 * 1024
 /** Discriminator so proxy frames coexist with other port traffic. */
 export const WS_PROXY_CHANNEL = "subduction-ws-proxy"
 
+/**
+ * Wire-protocol version, stamped on every message by the sender and
+ * verified by the receiver. Deploy skew is real for this protocol: the
+ * proxy worker is often a separately-emitted (and separately-cached)
+ * chunk, so a stale worker can end up talking to a freshly-deployed
+ * client, or vice versa. A mismatch — including a missing tag from a
+ * pre-versioning build — fails loudly with a `protocol-mismatch` error
+ * instead of silently misbehaving. Bump on any incompatible change.
+ */
+export const WS_PROXY_PROTOCOL_VERSION = 1
+
+/** Does an already-channel-matched message carry the version we speak? */
+export const wsProxyVersionOk = (data: unknown): boolean =>
+  (data as { v?: unknown }).v === WS_PROXY_PROTOCOL_VERSION
+
+/** Human-readable description of a version mismatch, for error surfaces. */
+export const wsProxyVersionMismatch = (data: unknown): string => {
+  const got = (data as { v?: unknown }).v
+  return (
+    `subduction-ws-proxy protocol version mismatch: expected v${WS_PROXY_PROTOCOL_VERSION}, ` +
+    `got ${got === undefined ? "an untagged (pre-versioning) message" : `v${String(got)}`}. ` +
+    "The proxy worker and the client library are from different builds — " +
+    "likely a stale cached worker chunk after a deploy. Reload / clear the " +
+    "worker cache so both sides come from the same release."
+  )
+}
+
 /** Machine-readable cause for a {@link WorkerWebSocketError}. */
 export type WorkerWebSocketErrorCode =
   /** Worker-side receive backlog exceeded `maxBufferedBytes`. */
@@ -50,6 +77,8 @@ export type WorkerWebSocketErrorCode =
   | "disconnected"
   /** The owning endpoint shut down (worker terminated or terminating). */
   | "worker-terminated"
+  /** The two sides speak different protocol versions (deploy skew). */
+  | "protocol-mismatch"
 
 /**
  * Error type for every failure the worker-hosted transport surfaces.

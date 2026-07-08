@@ -45,7 +45,7 @@ class FakeSocket implements WebSocketLike {
     this.#emit("close")
   }
 
-  addEventListener(type: string, listener: (event?: never) => void) {
+  addEventListener(type: string, listener: (event: never) => void) {
     const list = this.#listeners.get(type) ?? []
     list.push(listener as (event?: unknown) => void)
     this.#listeners.set(type, list)
@@ -129,6 +129,33 @@ describe("WorkerWebSocketEndpoint with a port provider", () => {
     endpoint.shutdown()
   })
 
+  it("shares one provider fetch across concurrent connects", async () => {
+    const sockets: FakeSocket[] = []
+    let fetches = 0
+    let resolvePort!: (port: WorkerPortLike) => void
+    const provided = new Promise<WorkerPortLike>(r => (resolvePort = r))
+
+    const endpoint = new WorkerWebSocketEndpoint("ws://unused.example", {
+      worker: () => {
+        fetches++
+        return provided
+      },
+    })
+
+    // Both connects start before any port exists.
+    const connecting = [endpoint.connect(), endpoint.connect()]
+    resolvePort(
+      makeHostedPort(sockets).port1 as unknown as WorkerPortLike
+    )
+
+    const [a, b] = await Promise.all(connecting)
+    expect(fetches).toBe(1)
+
+    await a.disconnect()
+    await b.disconnect()
+    endpoint.shutdown()
+  })
+
   it("reuses the cached port while it is alive", async () => {
     const sockets: FakeSocket[] = []
     let fetches = 0
@@ -163,7 +190,10 @@ describe("attachWebSocketHost teardown on port close", () => {
 
     // The client (repo worker) context dies without a clean disconnect.
     channel.port1.close()
-    await tick()
+    // The `close` event propagates on its own schedule; poll with a bound
+    // rather than a single tick (which can lose a race under CPU load).
+    const deadline = Date.now() + 2000
+    while (!sockets[0].closed && Date.now() < deadline) await tick()
 
     // The host must not keep a phantom peer connected.
     expect(sockets[0].closed).toBe(true)

@@ -22,6 +22,11 @@ import type {
 
 import { IndexedDBStorageAdapter } from "./index.js"
 import {
+  STORAGE_RPC_PROTOCOL_VERSION,
+  storageRpcVersionMismatch,
+  storageRpcVersionOk,
+} from "./worker-rpc.js"
+import {
   STORAGE_RPC,
   type StorageRpcMethod,
   type StorageRpcResponse,
@@ -75,6 +80,12 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
   #port: WorkerPortLike | null = null
   /** Init handshake for the current port; cleared when the port dies. */
   #ready: Promise<void> | null = null
+  /**
+   * Single-flight guard for port acquisition: concurrent calls while no
+   * port is live must share one `#source()` invocation, or each would
+   * fetch (and leak) its own port. Cleared when the attempt settles.
+   */
+  #connecting: Promise<WorkerPortLike> | null = null
   #client = randomClientId()
   #nextId = 0
   #pending = new Map<
@@ -107,8 +118,14 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
 
   #onMessage = (e: MessageEvent) => {
     const msg = e.data as StorageRpcResponse
-    if (!msg || msg.channel !== STORAGE_RPC || msg.client !== this.#client)
+    if (!msg || msg.channel !== STORAGE_RPC) return
+    // Checked before the client filter: an untagged response means the
+    // whole worker is from a different build, not just this adapter.
+    if (!storageRpcVersionOk(msg)) {
+      this.#dropPort(new WorkerStorageError(storageRpcVersionMismatch(msg)))
       return
+    }
+    if (msg.client !== this.#client) return
     const pending = this.#pending.get(msg.id)
     if (!pending) return
     this.#pending.delete(msg.id)
@@ -164,6 +181,15 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
       return this.#port
     }
 
+    // Single-flight: piggyback on an in-progress acquisition.
+    this.#connecting ??= this.#acquirePort().finally(() => {
+      this.#connecting = null
+    })
+    return this.#connecting
+  }
+
+  /** Fetch a port from the source, wire it up, and run the init RPC. */
+  async #acquirePort(): Promise<WorkerPortLike> {
     const port = await this.#source()
     if (this.#closed)
       throw new WorkerStorageError("IndexedDB storage adapter closed")
@@ -180,7 +206,18 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
 
     const init = this.#call(port, "init", [this.#database, this.#store])
     this.#ready = this.#withInitTimeout(init, port).then(() => undefined)
-    await this.#ready
+    try {
+      await this.#ready
+    } catch (error) {
+      // Any init failure — not just the timeout — must release the port,
+      // or the rejected `#ready` stays cached and a retryable source
+      // could never heal with a fresh port.
+      if (this.#port === port)
+        this.#dropPort(
+          error instanceof Error ? error : new WorkerStorageError(String(error))
+        )
+      throw error
+    }
     return port
   }
 
@@ -209,13 +246,23 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
     const id = this.#nextId++
     return new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject })
-      port.postMessage({
-        channel: STORAGE_RPC,
-        client: this.#client,
-        id,
-        method,
-        args,
-      })
+      try {
+        port.postMessage({
+          channel: STORAGE_RPC,
+          v: STORAGE_RPC_PROTOCOL_VERSION,
+          client: this.#client,
+          id,
+          method,
+          args,
+        })
+      } catch (error) {
+        // e.g. a detached Node port throws synchronously; don't leak the
+        // pending entry (its close event may never fire).
+        this.#pending.delete(id)
+        reject(
+          error instanceof Error ? error : new WorkerStorageError(String(error))
+        )
+      }
     })
   }
 

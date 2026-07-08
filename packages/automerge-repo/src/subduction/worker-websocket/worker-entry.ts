@@ -27,7 +27,12 @@
  * tab's endpoint its port.
  */
 
+import { startDriftProbe } from "../../worker-port/drift-probe.js"
 import { attachWebSocketHost } from "./host.js"
 import type { WorkerPortLike } from "./protocol.js"
 
-attachWebSocketHost(globalThis as unknown as WorkerPortLike)
+const port = globalThis as unknown as WorkerPortLike
+attachWebSocketHost(port)
+// Health probe: reports event-loop stalls ≥250ms on `am-worker-stats`
+// (see `isWorkerStatsMessage`). A healthy proxy stays silent.
+startDriftProbe(sample => port.postMessage(sample))
