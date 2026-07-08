@@ -4,7 +4,12 @@ import { EventEmitter } from "eventemitter3"
 import { NetworkAdapterEvents, PeerMetadata } from "../index.js"
 import { PeerId } from "../types.js"
 import { Message } from "./messages.js"
-import { NetworkAdapterInterface } from "./NetworkAdapterInterface.js"
+import {
+  AdapterState,
+  NetworkAdapterInterface,
+} from "./NetworkAdapterInterface.js"
+import { AdapterStateSignal } from "./AdapterStateSignal.js"
+import { noop } from "../helpers/noop.js"
 
 /** An interface representing some way to connect to other peers
  *
@@ -22,6 +27,29 @@ export abstract class NetworkAdapter
 {
   peerId?: PeerId
   peerMetadata?: PeerMetadata
+  #adapterState: AdapterStateSignal
+
+  constructor() {
+    super()
+    this.#adapterState = new AdapterStateSignal("connecting")
+    // Defer to a microtask so subclass field initializers (which run after
+    // super() returns) have completed before we call the overridden whenReady().
+    queueMicrotask(() => {
+      void this.whenReady().then(
+        () => {
+          this.#adapterState.set("ready")
+        },
+        // whenReady() rejected: the adapter never became ready, so leave the
+        // state at "connecting". Swallow so a failing adapter does not surface
+        // as an unhandled rejection (Repo logs readiness failures separately).
+        noop
+      )
+    })
+  }
+
+  state(): AdapterState {
+    return this.#adapterState
+  }
 
   abstract isReady(): boolean
   abstract whenReady(): Promise<void>

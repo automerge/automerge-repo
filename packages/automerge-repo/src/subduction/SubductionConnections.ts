@@ -1,0 +1,120 @@
+import { makeLogger, type Logger } from "../Logger.js"
+import { Subduction } from "@automerge/automerge-subduction/slim"
+import { ConnectionManager } from "./ConnectionManager.js"
+import type {
+  ManagedTransport,
+  WebSocketEndpointInterface,
+} from "./websocket-endpoint.js"
+
+export type ConnectionState = "connecting" | "running" | "awaiting-reconnect"
+
+const RECONNECT_BASE_MS = 1000
+const RECONNECT_MAX_MS = 30000
+
+export class SubductionConnections implements ConnectionManager {
+  #connectionStates = new Map<string, ConnectionState>()
+  #log: Logger = makeLogger("automerge-repo:subduction:connections")
+  #subduction: Promise<Subduction>
+  #onChangeCallback: (() => void) | null = null
+  #generation = 0
+  #isShutdown = false
+  #pendingSleeps = new Map<ReturnType<typeof setTimeout>, () => void>()
+
+  constructor(subduction: Promise<Subduction>) {
+    this.#subduction = subduction
+  }
+
+  // ── ConnectionManager interface ─────────────────────────────────────
+
+  isConnecting(): boolean {
+    for (const state of this.#connectionStates.values()) {
+      if (state === "connecting") return true
+    }
+    return false
+  }
+
+  isConnected(): boolean {
+    for (const state of this.#connectionStates.values()) {
+      if (state === "running") return true
+    }
+    return false
+  }
+
+  generation(): number {
+    return this.#generation
+  }
+
+  onChange(callback: () => void): void {
+    this.#onChangeCallback = callback
+  }
+
+  // ── Connection management ───────────────────────────────────────────
+
+  async manageConnection(endpoint: WebSocketEndpointInterface) {
+    const url = endpoint.url
+    const serviceName = new URL(url).host
+    let backoff = RECONNECT_BASE_MS
+
+    while (!this.#isShutdown) {
+      this.#setConnectionState(url, "connecting")
+      this.#log.debug(`connecting to ${url}`)
+
+      // Tracked outside the try so the catch can close a transport that
+      // opened successfully before a later step threw — otherwise every
+      // backoff cycle would abandon a live connection (which, for
+      // worker-hosted sockets, keeps buffering server pushes toward the
+      // byte cap with no consumer).
+      let transport: ManagedTransport | null = null
+      try {
+        transport = await endpoint.connect()
+
+        if (this.#isShutdown) {
+          void transport.disconnect()
+          break
+        }
+
+        const subduction = await this.#subduction
+        await subduction.connectTransport(transport, serviceName)
+        this.#setConnectionState(url, "running")
+        this.#log.debug(`connected to ${url}`)
+        backoff = RECONNECT_BASE_MS
+
+        await transport.closed()
+        this.#log.warn(`disconnected from ${url}`)
+      } catch (e) {
+        this.#log.warn(`connect to ${url} failed:`, e)
+        if (transport) void transport.disconnect().catch(() => {})
+      }
+
+      if (this.#isShutdown) break
+
+      this.#setConnectionState(url, "awaiting-reconnect")
+      this.#log.debug(`reconnecting to ${url} in ${backoff}ms`)
+      await new Promise<void>(r => {
+        const timer = setTimeout(() => {
+          this.#pendingSleeps.delete(timer)
+          r()
+        }, backoff)
+        this.#pendingSleeps.set(timer, r)
+      })
+      backoff = Math.min(backoff * 2, RECONNECT_MAX_MS)
+    }
+  }
+
+  shutdown(): void {
+    this.#isShutdown = true
+    for (const [timer, resolve] of this.#pendingSleeps) {
+      clearTimeout(timer)
+      resolve()
+    }
+    this.#pendingSleeps.clear()
+  }
+
+  #setConnectionState(url: string, state: ConnectionState) {
+    const prev = this.#connectionStates.get(url)
+    if (prev === state) return
+    this.#connectionStates.set(url, state)
+    this.#generation++
+    this.#onChangeCallback?.()
+  }
+}

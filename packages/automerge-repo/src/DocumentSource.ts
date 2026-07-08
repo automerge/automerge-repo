@@ -38,4 +38,16 @@ export interface DocumentSource {
 
   /** Called when a document is removed from the repo. */
   detach(documentId: DocumentId): void
+
+  shareConfigChanged(): void
+
+  /**
+   * Optional: drain any pending writes for the given documents (or all
+   * documents if `documentIds` is undefined) so they are durable in
+   * this source's storage. Sources that don't buffer writes can omit
+   * this method.
+   *
+   * Called by {@link Repo.flush}.
+   */
+  flush?(documentIds?: DocumentId[]): Promise<void>
 }

@@ -71,19 +71,36 @@ todoTitleRef.change(title => {
 })
 
 // doc() return types
+//
+// Required-key paths are now `undefined`-free: the spurious `| undefined`
+// only appears for array-index / pattern hops (see below).
 const titleValue = titleRef.doc()
-// titleValue should be string | undefined
-const _tv: typeof titleValue = "" as string | undefined
+// titleValue should be string (NOT string | undefined)
+const _tv: typeof titleValue = "" as string
 
 const countValue = countRef.doc()
-// countValue should be number | undefined
-const _cv: typeof countValue = 0 as number | undefined
+// countValue should be number
+const _cv: typeof countValue = 0 as number
 
 const userValue = userRef.doc()
-// userValue should be { name: string; email: string } | undefined
-const _uv: typeof userValue = { name: "", email: "" } as
-  | { name: string; email: string }
+// userValue should be { name: string; email: string }
+const _uv: typeof userValue = { name: "", email: "" } as {
+  name: string
+  email: string
+}
+
+// Array-index hops DO carry `| undefined` (noUncheckedIndexedAccess semantics).
+const todoValue = todoRef.doc()
+const _todov: typeof todoValue = { title: "", done: false } as
+  | { title: string; done: boolean }
   | undefined
+// undefined must be assignable here
+const _todovUndef: typeof todoValue = undefined
+
+// A required key *after* an index hop stays `| undefined`.
+const todoTitleValue = todoTitleRef.doc()
+const _ttv: typeof todoTitleValue = "" as string | undefined
+const _ttvUndef: typeof todoTitleValue = undefined
 
 // Root document ref
 const rootRef = handle.sub()
@@ -131,24 +148,44 @@ titleRef2.change(title => {
 })
 
 // === Type Inference Tests ===
-// Test where type inference should work vs fail
+//
+// These assert on `InferSubType` directly (the type that drives `.sub()`
+// and `.doc()`), which avoids the `A.Doc<...>` readonly wrapper that
+// `doc()` applies and lets us check the value type *exactly*.
+import type { InferSubType } from "../../src/subdoc-handles/types.js"
 
-// ✅ SHOULD WORK: Direct string key access
-const directKeyRef = handle.sub("user", "name")
-const directKeyValue = directKeyRef.doc()
-// Hover over directKeyValue - should be: string | undefined
+// Compile-time exact-equality assertion (no runtime component).
+type Equal<X, Y> =
+  (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
+    ? true
+    : false
+type Expect<T extends true> = T
 
-// ✅ SHOULD WORK: Numeric index on array
-const numericIndexRef = handle.sub("todos", 0, "title")
-const numericIndexValue = numericIndexRef.doc()
-// Hover over numericIndexValue - should be: string | undefined
+// ✅ Direct string key access (required key → no undefined)
+type _DirectKey = Expect<Equal<InferSubType<TestDoc, ["user", "name"]>, string>>
 
-// ❓ TEST: ID pattern lookup - does this infer correctly?
-const idPatternRef = handle.sub("todos", { done: true }, "title")
-const idPatternValue = idPatternRef.doc()
-// Hover over idPatternValue - is this string | undefined or unknown?
+// ✅ Numeric index on array → `| undefined` (noUncheckedIndexedAccess)
+type _NumericIndex = Expect<
+  Equal<InferSubType<TestDoc, ["todos", 0, "title"]>, string | undefined>
+>
 
-// ❓ TEST: Nested ID pattern - does this infer correctly?
+// ✅ The array element itself is `| undefined`
+type _IndexElement = Expect<
+  Equal<
+    InferSubType<TestDoc, ["todos", 0]>,
+    { title: string; done: boolean } | undefined
+  >
+>
+
+// ✅ Pattern lookup behaves like an index hop → `| undefined`
+type _IdPattern = Expect<
+  Equal<
+    InferSubType<TestDoc, ["todos", { done: true }, "title"]>,
+    string | undefined
+  >
+>
+
+// ✅ Nested ID pattern resolves through and stays `| undefined`
 type NestedDoc = {
   users: Array<{
     id: string
@@ -157,26 +194,47 @@ type NestedDoc = {
     }
   }>
 }
-declare const nestedHandle: DocHandle<NestedDoc>
+type _NestedIdPattern = Expect<
+  Equal<
+    InferSubType<NestedDoc, ["users", { id: "123" }, "profile", "name"]>,
+    string | undefined
+  >
+>
 
-const nestedIdPatternRef = nestedHandle.sub(
-  "users",
-  { id: "123" },
-  "profile",
-  "name"
-)
-const nestedIdPatternValue = nestedIdPatternRef.doc()
-// Hover over nestedIdPatternValue - is this string | undefined or unknown?
-
-// ✅ TEST: Deep nesting with literal keys (should work)
+// ✅ Deep nesting with literal keys (all required) → no undefined
 type DeepDoc = {
   a: { b: { c: { d: { e: number } } } }
 }
-declare const deepHandle: DocHandle<DeepDoc>
+type _DeepNumber = Expect<
+  Equal<InferSubType<DeepDoc, ["a", "b", "c", "d", "e"]>, number>
+>
 
-const deepNumberRef = deepHandle.sub("a", "b", "c", "d", "e")
-const deepNumberValue = deepNumberRef.doc()
-// Hover over deepNumberValue - should be: number | undefined
+// ✅ Optional key carries `| undefined` even without an index hop
+type OptionalDoc = { meta?: { tag: string } }
+type _Optional = Expect<
+  Equal<InferSubType<OptionalDoc, ["meta"]>, { tag: string } | undefined>
+>
+// ...and a required key reached *through* an optional one stays nullable
+type _OptionalTag = Expect<
+  Equal<InferSubType<OptionalDoc, ["meta", "tag"]>, string | undefined>
+>
+
+// ✅ Chaining `.sub()` off an index handle propagates nullability:
+// the base type is already `{...} | undefined`, so the next hop stays nullable.
+type _Chained = Expect<
+  Equal<
+    InferSubType<InferSubType<TestDoc, ["todos", 0]>, ["title"]>,
+    string | undefined
+  >
+>
+
+// ✅ Root / empty path is the document itself (undefined-free)
+type _Root = Expect<Equal<InferSubType<TestDoc, []>, TestDoc>>
+
+// doc()-level integration: the root document value is usable without narrowing
+// (under strictNullChecks this also proves it is never `| undefined`).
+const rootValue = handle.sub().doc()
+rootValue.title
 
 // === String Path Type Inference Tests ===
 import type {
@@ -203,13 +261,14 @@ type DocForStringTest = {
 }
 
 type Test1 = InferSubTypeFromString<DocForStringTest, "title">
-// Should be: string
+type _Test1 = Expect<Equal<Test1, string>>
 
-type Test2 = InferSubTypeFromString<DocForStringTest, "todos/0/title">
-// Should be: string
+// `@0` is an index hop → `| undefined`
+type Test2 = InferSubTypeFromString<DocForStringTest, "todos/@0/title">
+type _Test2 = Expect<Equal<Test2, string | undefined>>
 
 type Test3 = InferSubTypeFromString<DocForStringTest, "count">
-// Should be: number
+type _Test3 = Expect<Equal<Test3, number>>
 
 // Note: in the pre-unification API there was a `refFromString(handle, "a/b/c")`
 // helper. Now `handle.sub(...)` takes variadic path inputs directly, so the
@@ -220,4 +279,8 @@ function doubleIt(ref: DocHandle<number>) {
   ref.change(n => n * 2)
 }
 
+// A deep all-required-keys path infers `DocHandle<number>` (no `| undefined`),
+// so it is assignable where a plain `DocHandle<number>` is expected.
+declare const deepHandle: DocHandle<DeepDoc>
+const deepNumberRef = deepHandle.sub("a", "b", "c", "d", "e")
 doubleIt(deepNumberRef) // Should pass

@@ -12,6 +12,20 @@ type AdapterTestContext = {
   adapter: StorageAdapterInterface
 }
 
+/** Sort chunks by key for order-insensitive comparison. */
+const byKey = <T extends { key: string[] }>(chunks: T[]): T[] =>
+  [...chunks].sort((a, b) => compareKeys(a.key, b.key))
+
+/** Segment-wise lexicographic key comparison (0 for equal keys). */
+const compareKeys = (a: string[], b: string[]): number => {
+  const len = Math.min(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    if (a[i] < b[i]) return -1
+    if (a[i] > b[i]) return 1
+  }
+  return a.length - b.length
+}
+
 const it = _it<AdapterTestContext>
 
 export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
@@ -67,16 +81,62 @@ export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
         await adapter.save(["AAAAA", "snapshot", "yyyyy"], PAYLOAD_B())
         await adapter.save(["AAAAA", "sync-state", "zzzzz"], PAYLOAD_C())
 
-        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual([
-          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-          { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_B() },
-          { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-        ])
+        // The interface makes no promise about chunk ordering (consumers
+        // concatenate for loadIncremental, which is order-invariant), so
+        // compare as sets: some adapters return insertion order, others
+        // (e.g. LMDB) return key order.
+        expect(byKey(await adapter.loadRange(["AAAAA"]))).toStrictEqual(
+          byKey([
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+            { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_B() },
+            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
+          ])
+        )
 
-        expect(await adapter.loadRange(["AAAAA", "sync-state"])).toStrictEqual([
-          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-          { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-        ])
+        expect(
+          byKey(await adapter.loadRange(["AAAAA", "sync-state"]))
+        ).toStrictEqual(
+          byKey([
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
+          ])
+        )
+      })
+
+      it("should enumerate every chunk for the empty prefix", async ({
+        adapter,
+      }) => {
+        // The empty prefix matches every key — consumers rely on
+        // `loadRange([])` for whole-store enumeration (e.g. migrating
+        // between adapters). Include a single-component key and multiple
+        // distinct first components to exercise adapter sharding schemes.
+        await adapter.save(["storage-adapter-id"], PAYLOAD_A())
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B())
+        await adapter.save(["BBBBB", "snapshot", "yyyyy"], PAYLOAD_C())
+
+        expect(byKey(await adapter.loadRange([]))).toStrictEqual(
+          byKey([
+            { key: ["storage-adapter-id"], data: PAYLOAD_A() },
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_B() },
+            { key: ["BBBBB", "snapshot", "yyyyy"], data: PAYLOAD_C() },
+          ])
+        )
+      })
+
+      it("should remove every chunk for the empty prefix and stay usable", async ({
+        adapter,
+      }) => {
+        await adapter.save(["storage-adapter-id"], PAYLOAD_A())
+        await adapter.save(["AAAAA", "sync-state", "xxxxx"], PAYLOAD_B())
+
+        await adapter.removeRange([])
+        expect(await adapter.loadRange([])).toStrictEqual([])
+
+        // The store must remain writable after whole-store removal.
+        await adapter.save(["CCCCC", "snapshot", "zzzzz"], PAYLOAD_C())
+        expect(
+          await adapter.load(["CCCCC", "snapshot", "zzzzz"])
+        ).toStrictEqual(PAYLOAD_C())
       })
 
       it("should only load values that match they key", async ({ adapter }) => {

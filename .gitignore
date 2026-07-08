@@ -2,6 +2,7 @@ node_modules
 dist
 build
 .vscode
+.pi-subagents
 .idea
 vite.config.ts.timestamp-*
 coverage
@@ -11,6 +12,7 @@ yarn-error.log
 .DS_Store
 wallaby.conf.cjs
 *.tgz
+*.tsbuildinfo
 .svelte-kit
 
 # Playwright
@@ -19,3 +21,7 @@ playwright-report/
 blob-report/
 playwright/.cache/
 playwright/.auth/
+.claude
+.pnpm-store
+.vitest-attachments/
+**/__screenshots__/

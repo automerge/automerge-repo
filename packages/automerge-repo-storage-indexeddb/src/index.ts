@@ -84,6 +84,26 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
     })
   }
 
+  async saveBatch(entries: Array<[string[], Uint8Array]>): Promise<void> {
+    if (entries.length === 0) return
+    const db = await this.dbPromise
+
+    const transaction = db.transaction(this.store, "readwrite")
+    const objectStore = transaction.objectStore(this.store)
+    for (const [keyArray, binary] of entries) {
+      objectStore.put({ key: keyArray, binary }, keyArray)
+    }
+
+    return new Promise((resolve, reject) => {
+      transaction.onerror = () => {
+        reject(transaction.error)
+      }
+      transaction.oncomplete = () => {
+        resolve()
+      }
+    })
+  }
+
   async remove(keyArray: string[]): Promise<void> {
     const db = await this.dbPromise
 
@@ -109,25 +129,39 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
 
     const transaction = db.transaction(this.store)
     const objectStore = transaction.objectStore(this.store)
-    const request = objectStore.openCursor(range)
-    const result: { data: Uint8Array; key: StorageKey }[] = []
+
+    // Use getAll + getAllKeys instead of a cursor to avoid per-row
+    // event loop yields. Returns all matching results in a single callback.
+    const valRequest = objectStore.getAll(range)
+    const keyRequest = objectStore.getAllKeys(range)
 
     return new Promise((resolve, reject) => {
       transaction.onerror = () => {
-        reject(request.error)
+        reject(transaction.error)
       }
 
-      request.onsuccess = event => {
-        const cursor = (event.target as IDBRequest).result as IDBCursorWithValue
-        if (cursor) {
-          result.push({
-            data: (cursor.value as { binary: Uint8Array }).binary,
-            key: cursor.key as StorageKey,
-          })
-          cursor.continue()
-        } else {
-          resolve(result)
+      let values: any[] | undefined
+      let keys: IDBValidKey[] | undefined
+
+      const tryResolve = () => {
+        if (!values || !keys) return
+        const result: Chunk[] = new Array(values.length)
+        for (let i = 0; i < values.length; i++) {
+          result[i] = {
+            data: (values[i] as { binary: Uint8Array }).binary,
+            key: keys[i] as StorageKey,
+          }
         }
+        resolve(result)
+      }
+
+      valRequest.onsuccess = () => {
+        values = valRequest.result
+        tryResolve()
+      }
+      keyRequest.onsuccess = () => {
+        keys = keyRequest.result
+        tryResolve()
       }
     })
   }

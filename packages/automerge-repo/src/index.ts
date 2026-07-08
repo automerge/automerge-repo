@@ -40,14 +40,14 @@ export {
 } from "./AutomergeUrl.js"
 export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
-export { setLoggerFactory, makeLogger } from "./Logger.js"
+export { initSubduction } from "./initSubduction.js"
+export { makeLogger, resetLoggerFactory, setLoggerFactory } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
 export { Presence } from "./presence/Presence.js"
 export { PeerStateView } from "./presence/PeerStateView.js"
-export type { GetStatesOpts } from "./presence/PeerStateView.js"
 export type {
+  DeviceId,
   PeerState,
-  PresenceState,
   PresenceConfig,
   PeerStatesValue,
   PresenceEvents,
@@ -55,7 +55,8 @@ export type {
   PresenceEventSnapshot,
   PresenceEventHeartbeat,
   PresenceEventGoodbye,
-  PresenceEventPruning,
+  PresenceState,
+  UserId,
 } from "./presence/types.js"
 // Type-only re-export so the {@link DEFAULT_*} references in PresenceConfig
 // resolve in typedoc, without exposing the consts to the runtime API.
@@ -106,6 +107,38 @@ export type {
   SourceState,
 } from "./DocumentQuery.js"
 export type { AbortOptions } from "./helpers/abortable.js"
+export type { DocumentSource } from "./DocumentSource.js"
+export type { Policy as SubductionPolicy } from "@automerge/automerge-subduction/slim"
+// Re-exported so consumers (notably CJS ones) can reach the same Wasm
+// instance this package initialized, without a raw ESM import() of
+// @automerge/automerge-subduction/slim.
+export { setSubductionLogLevel } from "@automerge/automerge-subduction/slim"
+export type {
+  SubductionTimeouts,
+  BlobInterceptor,
+} from "./subduction/source.js"
+export {
+  WebSocketEndpoint,
+  WorkerWebSocketEndpoint,
+  type ManagedTransport,
+  type WebSocketEndpointInterface,
+  type WorkerWebSocketEndpointOptions,
+} from "./subduction/websocket-endpoint.js"
+export {
+  WorkerWebSocketError,
+  type WorkerPortLike,
+  type WorkerWebSocketErrorCode,
+} from "./subduction/worker-websocket/protocol.js"
+export {
+  WorkerWebSocketTransport,
+  type WorkerWebSocketConnectOptions,
+} from "./subduction/worker-websocket/transport.js"
+export {
+  attachWebSocketHost,
+  type WebSocketHostOptions,
+  type WebSocketLike,
+} from "./subduction/worker-websocket/host.js"
+export { WebSocketTransport } from "./subduction/websocket-transport.js"
 
 export type {
   FindProgress,
@@ -152,6 +185,7 @@ export type {
   PathInput,
   MutableText,
   InferSubType,
+  InferSubTypeFromString,
   Pattern,
   SubChangeFn,
 } from "./subdoc-handles/types.js"

@@ -7,7 +7,7 @@ import { anyDocumentIdToAutomergeUrl } from "../../automerge-repo/dist/Automerge
 // Shared with useDocHandles
 export const wrapperCache = new Map<
   AnyDocumentId,
-  PromiseWrapper<DocHandle<unknown>>
+  PromiseWrapper<DocHandle<any>>
 >()
 // NB: this is a global cache that isn't keyed on the Repo
 //     so if your app uses the same documents in two Repos

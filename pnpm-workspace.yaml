@@ -7,6 +7,12 @@ allowBuilds:
   "@swc/core": true
   cbor-extract: true
   esbuild: true
+  # lmdb's postinstall is a no-op where a prebuilt binary exists (all
+  # mainstream platforms) and compiles via node-gyp elsewhere.
+  lmdb: true
+  # Optional native accelerator pulled in by lmdb (msgpackr); pure-JS
+  # fallback exists, but allow the build like cbor-extract above.
+  msgpackr-extract: true
   nx: true
   svelte-preprocess: true
 overrides:
@@ -14,16 +20,24 @@ overrides:
   # tmp is only pulled transitively (lerna > nx); pin the patched line (older
   # versions have a path-traversal flaw)
   tmp: ^0.2.6
-# Supply-chain guard: wait 3 days (4320 minutes) after a version is published before
-# installing it, so a malicious or compromised release has time to be detected and
-# unpublished from the registry before it can land in our dependency tree.
-minimumReleaseAge: 4320
+# Supply-chain guard (main waits 3 days after publish): disabled on the
+# subduction fork branch, which must install its own fresh prereleases
+# (e.g. @automerge/automerge-subduction) immediately after publishing them.
+minimumReleaseAge: 0
+# pnpm 11 reads these from pnpm-workspace.yaml, not .npmrc.
+# Run `pnpm publish` from the subduction fork branch (vs pnpm's default master|main).
+publishBranch: subductionjs
+# Default dist-tag for ALL publishes from this fork branch, so prereleases never
+# land on `latest` and clobber the upstream stable release. pnpm ignores
+# `.npmrc tag=...`; this is the value it actually reads.
+tag: subduction
 # Shared dependency versions kept in sync across the workspace via the `catalog:` protocol.
 # Published runtime deps are cataloged too: release publishes via `pnpm -r publish` (see
 # release.yaml), which resolves `catalog:` to a real version in the published package.json.
 # Peer ranges stay literal — they're intentionally broader than the pinned dev/runtime version.
 catalog:
-  "@automerge/automerge": ^3.2.6
+  # The subduction integration needs the fragments prerelease of automerge-core.
+  "@automerge/automerge": 3.3.0-fragments.2
   "@clack/prompts": ^1.4.0
   "@testing-library/jest-dom": ^6.9.1
   "@types/node": ^22.19.19

@@ -1,0 +1,27 @@
+{
+  "name": "@automerge/automerge-repo-demo-remote-heads",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-remote-heads",
+  "private": true,
+  "version": "2.6.0-subduction.43",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --open",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@automerge/react": "workspace:*",
+    "autoprefixer": "^10.5.0",
+    "clsx": "^2.1.1",
+    "postcss": "^8.5.15",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-error-boundary": "catalog:"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "^3.4.19",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
+  }
+}

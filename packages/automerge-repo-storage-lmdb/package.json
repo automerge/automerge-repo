@@ -1,0 +1,43 @@
+{
+  "name": "@automerge/automerge-repo-storage-lmdb",
+  "version": "2.6.0-subduction.43",
+  "description": "LMDB storage adapter for Automerge Repo (Node)",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-storage-lmdb",
+  "author": "Brooklyn Zelenka <hello@brooklynzelenka.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest",
+    "prepare": "tsc"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "lmdb": "^3.5.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "subduction"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}

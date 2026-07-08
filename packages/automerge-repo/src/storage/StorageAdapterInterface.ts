@@ -33,6 +33,23 @@ export interface StorageAdapterInterface {
   removeRange(keyPrefix: StorageKey): Promise<void>
 
   /**
+   * Save multiple key-value pairs as a staged batch.
+   *
+   * ## Two-phase semantics
+   *
+   * Implementations SHOULD apply the batch in two phases:
+   *
+   *   1. **Stage**: every entry's value is written to durable temporary
+   *      storage (e.g. tmp file + fsync). No target is observable yet.
+   *   2. **Commit**: every staged write is committed to its final
+   *      target (e.g. rename over target).
+   *
+   * If any stage operation fails, the batch is aborted before any
+   * commit happens — no entries become observable.
+   */
+  saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void>
+
+  /**
    * Release any resources the adapter holds, such as an open database
    * connection. Optional: {@link Repo.shutdown} calls it after the final flush.
    * Adapters that hold no long-lived resource (in-memory, plain filesystem) can
