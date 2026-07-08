@@ -126,13 +126,32 @@ export interface WorkerPortLike {
     type: "message",
     listener: (event: MessageEvent) => void
   ): void
+  /**
+   * `MessagePort` (Chrome ≥132, Firefox ≥121, Node ≥15) fires `close` when
+   * the far side's context is destroyed — the primary crash/death signal.
+   * A dedicated `Worker` accepts the listener but never fires it; callers
+   * must not rely on `close` alone (see connect timeouts).
+   */
+  addEventListener(type: "close", listener: () => void): void
   removeEventListener(
     type: "message",
     listener: (event: MessageEvent) => void
   ): void
+  removeEventListener(type: "close", listener: () => void): void
   /** `MessagePort` requires `start()` before events flow; `Worker` has none. */
   start?(): void
 }
+
+/**
+ * Where a consumer's worker port comes from: a concrete port, or a
+ * provider called (and re-called) whenever a fresh port is needed — e.g.
+ * a port donated by a tab into a SharedWorker, replaced after the far
+ * side crashes. Consumers cache the resolved port until its `close`
+ * event fires, then re-invoke the provider.
+ */
+export type WorkerPortSource =
+  | WorkerPortLike
+  | (() => WorkerPortLike | Promise<WorkerPortLike>)
 
 /** Type guard for inbound frames on a possibly-shared port. */
 export const isWsProxyMessage = (

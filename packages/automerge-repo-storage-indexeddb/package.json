@@ -34,6 +34,22 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./worker-adapter": {
+      "types": "./dist/IndexedDBWorkerStorageAdapter.d.ts",
+      "default": "./dist/IndexedDBWorkerStorageAdapter.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
+    },
+    "./worker-shared": {
+      "types": "./dist/worker-shared.d.ts",
+      "default": "./dist/worker-shared.js"
+    },
+    "./worker-host": {
+      "types": "./dist/worker-host.d.ts",
+      "default": "./dist/worker-host.js"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "default": "./dist/*.js"

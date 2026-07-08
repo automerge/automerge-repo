@@ -264,12 +264,20 @@ export function attachWebSocketHost(
     }
   }
 
-  port.addEventListener("message", handleMessage)
-  port.start?.()
-
-  return () => {
+  const detach = () => {
     port.removeEventListener("message", handleMessage)
+    port.removeEventListener("close", detach)
     for (const conn of conns.values()) conn.socket.close()
     conns.clear()
   }
+
+  port.addEventListener("message", handleMessage)
+  // MessagePort-only (a Worker global never fires it): the client context
+  // died, so close its sockets — the server would otherwise keep a
+  // phantom peer, and pushed frames would buffer here toward the byte cap
+  // with no consumer.
+  port.addEventListener("close", detach)
+  port.start?.()
+
+  return detach
 }

@@ -89,6 +89,10 @@ export class WorkerWebSocketTransport implements Transport {
       this.#closedResolve = r
     })
     port.addEventListener("message", this.#handleMessage)
+    // MessagePort-only (a dedicated Worker never fires it): the far side's
+    // context died, so no ws-closed will ever arrive — fail immediately
+    // rather than hanging pending recvBytes forever.
+    port.addEventListener("close", this.#handlePortClose)
     port.start?.()
   }
 
@@ -116,6 +120,18 @@ export class WorkerWebSocketTransport implements Transport {
       const cleanup = () => {
         clearTimeout(timer)
         port.removeEventListener("message", onMessage)
+        port.removeEventListener("close", onClose)
+      }
+
+      // The port's far side died while we were waiting for ws-open.
+      const onClose = () => {
+        cleanup()
+        reject(
+          new WorkerWebSocketError(
+            "worker port closed before the WebSocket opened",
+            "connect-failed"
+          )
+        )
       }
 
       const timer = setTimeout(() => {
@@ -161,6 +177,7 @@ export class WorkerWebSocketTransport implements Transport {
       }
 
       port.addEventListener("message", onMessage)
+      port.addEventListener("close", onClose)
       port.start?.()
       WorkerWebSocketTransport.#post(port, {
         channel: WS_PROXY_CHANNEL,
@@ -179,6 +196,15 @@ export class WorkerWebSocketTransport implements Transport {
     transfer?: Transferable[]
   ) {
     port.postMessage(msg, transfer)
+  }
+
+  #handlePortClose = () => {
+    this.#fail(
+      new WorkerWebSocketError(
+        "worker port closed (far side terminated)",
+        "closed"
+      )
+    )
   }
 
   #handleMessage = (event: MessageEvent) => {
@@ -246,6 +272,7 @@ export class WorkerWebSocketTransport implements Transport {
     this.#isClosed = true
     this.#closeReason ??= err
     this.#port.removeEventListener("message", this.#handleMessage)
+    this.#port.removeEventListener("close", this.#handlePortClose)
     this.#closedResolve()
     for (const ew of this.#errorWaiters) ew(err)
     this.#errorWaiters = []

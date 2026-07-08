@@ -22,6 +22,7 @@ import type { Transport } from "@automerge/automerge-subduction/slim"
 import {
   WorkerWebSocketError,
   type WorkerPortLike,
+  type WorkerPortSource,
 } from "./worker-websocket/protocol.js"
 import { WebSocketTransport } from "./websocket-transport.js"
 import {
@@ -73,8 +74,17 @@ export interface WorkerWebSocketEndpointOptions extends WorkerWebSocketConnectOp
    * via `workerData` (a `worker_threads.Worker` itself is an EventEmitter
    * and does not satisfy {@link WorkerPortLike}); the auto-spawn path does
    * this for you.
+   *
+   * May also be a **provider function** returning (a promise of) a port.
+   * The endpoint calls it lazily on first `connect()`, caches the result,
+   * and — when the port's `close` event fires (far side crashed or shut
+   * down) — discards the cache so the next reconnect attempt re-invokes
+   * the provider for a fresh port. Use this when the port is donated
+   * asynchronously by another context, e.g. a tab transferring a
+   * `MessagePort` into the SharedWorker hosting the `Repo` (Chrome cannot
+   * spawn workers from a SharedWorker).
    */
-  worker?: WorkerPortLike
+  worker?: WorkerPortSource
 }
 
 /** Structural view of `node:worker_threads` (avoids a @types/node dependency). */
@@ -142,9 +152,19 @@ export const nodeWorkerThreads = (): NodeWorkerThreads | null => {
  * of those environments, spawn the worker yourself from
  * `@automerge/automerge-repo/subduction-websocket-worker` in your own
  * source and pass it via `worker` — that pattern every bundler handles.
+ *
+ * When the `Repo` itself runs inside a **SharedWorker**, auto-spawn cannot
+ * work at all: Chrome and Safari don't expose `Worker` there
+ * (crbug.com/40695450). Have a tab spawn the proxy — e.g. the shipped
+ * SharedWorker entry `@automerge/automerge-repo/subduction-websocket-worker-shared`
+ * — and donate a `MessagePort` into the repo worker; pass a provider
+ * function via `worker` so late-arriving and replacement ports work. See
+ * `makePortProvider` / `donatePort` in `@automerge/automerge-repo/worker-port`.
  */
 export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
   #port: WorkerPortLike | null
+  /** Re-invoked for a fresh port after the cached one closes. */
+  #portSource: (() => WorkerPortLike | Promise<WorkerPortLike>) | null
   /** Tears down whatever `#resolvePort` spawned (browser Worker or node thread). */
   #terminateOwned: (() => void) | null = null
   #options: Omit<WorkerWebSocketEndpointOptions, "worker">
@@ -155,13 +175,14 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
     readonly url: string,
     { worker, ...options }: WorkerWebSocketEndpointOptions = {}
   ) {
-    this.#port = worker ?? null
+    this.#portSource = typeof worker === "function" ? worker : null
+    this.#port = typeof worker === "function" ? null : (worker ?? null)
     this.#options = options
   }
 
   async connect(): Promise<ManagedTransport> {
     const transport = await WorkerWebSocketTransport.connect(
-      this.#resolvePort(),
+      await this.#resolvePort(),
       this.url,
       this.#options
     )
@@ -197,8 +218,14 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
     }
   }
 
-  #resolvePort(): WorkerPortLike {
+  async #resolvePort(): Promise<WorkerPortLike> {
     if (this.#port) return this.#port
+
+    if (this.#portSource) {
+      const port = await this.#portSource()
+      this.#watchProvidedPort(port)
+      return port
+    }
 
     // Node first: DOM-emulating test environments may expose a fake
     // `Worker` global, but a real Node runtime always has worker_threads.
@@ -229,7 +256,25 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
     throw new Error(
       "WorkerWebSocketEndpoint requires worker_threads (Node) or the " +
         "Worker API (browser). In this environment, use WebSocketEndpoint " +
-        "(in-thread socket) or pass an explicit worker port."
+        "(in-thread socket) or pass an explicit worker port. Note that " +
+        "Chrome and Safari do not expose Worker inside a SharedWorker " +
+        "(crbug.com/40695450): spawn the proxy worker from a tab and " +
+        "transfer a MessagePort in via the `worker` option (a provider " +
+        "function is supported for late-arriving ports)."
     )
+  }
+
+  /**
+   * Cache a provider-obtained port until its far side dies, then drop the
+   * cache so the reconnect loop's next `connect()` fetches a replacement.
+   * Provided ports are shared infrastructure and are never terminated.
+   */
+  #watchProvidedPort(port: WorkerPortLike) {
+    this.#port = port
+    const onClose = () => {
+      port.removeEventListener("close", onClose)
+      if (this.#port === port) this.#port = null
+    }
+    port.addEventListener("close", onClose)
   }
 }
