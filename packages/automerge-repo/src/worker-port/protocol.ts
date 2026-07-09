@@ -8,12 +8,12 @@
  * Wire-protocol version for all worker-port channels in this module,
  * stamped on every message by the sender and verified by receivers.
  *
- * Deploy skew is real here: proxy/repo workers are often separately
- * emitted, unhashed, Service-Worker-cached chunks, so a stale worker can
- * end up speaking to a freshly-deployed page (or vice versa). Receivers
- * treat a mismatch — including a missing tag from a pre-versioning build
- * — as an error and report it loudly rather than silently ignoring or
- * misparsing traffic. Bump on any incompatible change.
+ * Proxy/repo workers are often separately emitted, separately cached
+ * chunks, so a stale worker can end up speaking to a freshly-deployed
+ * page (or vice versa). Receivers treat a mismatch — including a missing
+ * tag from a pre-versioning build — as an error and report it loudly
+ * rather than silently misparsing traffic. Bump on any incompatible
+ * change.
  */
 export const WORKER_PORT_PROTOCOL_VERSION = 1
 
@@ -120,7 +120,7 @@ export const WORKER_STATS_CHANNEL = "am-worker-stats"
  * A timing sample from a worker's drift probe (see `startDriftProbe`):
  * how late a periodic timer fired, i.e. how long the worker's event loop
  * was blocked by long tasks. Emitted only when the drift crosses the
- * probe's report threshold, so silence means a healthy worker.
+ * probe's report threshold; a healthy worker reports nothing.
  */
 export interface WorkerStatsMessage {
   channel: typeof WORKER_STATS_CHANNEL

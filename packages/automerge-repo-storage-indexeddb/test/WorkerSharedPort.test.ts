@@ -198,8 +198,8 @@ describe("storage + websocket hosts sharing one donated port", () => {
   })
 
   it("evicts a port whose postMessage throws, healing via the provider", async () => {
-    // A port that is synchronously broken: postMessage always throws and
-    // — crucially — no close event will ever fire.
+    // A synchronously broken port: postMessage always throws and no
+    // close event will ever fire.
     const throwingPort: WorkerPortLike = {
       postMessage() {
         throw new Error("detached port")

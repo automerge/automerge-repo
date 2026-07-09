@@ -1,16 +1,14 @@
 /**
  * Event-loop drift probe for worker contexts.
  *
- * Measures how late a periodic timer fires — a direct proxy for "how long
- * was this thread blocked by long tasks". Run inside a proxy worker it
- * answers the question *"are residual stalls caused by the worker, or by
- * the consumer thread?"*: a healthy proxy worker reports (near) zero
- * drift, so any backlog observed on the consumer side is the consumer's
- * own contention.
+ * Measures how late a periodic timer fires — a proxy for how long the
+ * thread was blocked by long tasks. A healthy proxy worker reports (near)
+ * zero drift, which attributes any consumer-side backlog to the consumer
+ * thread itself.
  *
  * Samples are only reported when drift crosses `reportThresholdMs`, so a
- * healthy worker emits nothing at all. The shipped worker entries start a
- * probe automatically and relay samples on the
+ * healthy worker emits nothing. The shipped browser worker entries start
+ * a probe automatically and relay samples on the
  * {@link WORKER_STATS_CHANNEL} (`am-worker-stats`); listen with
  * {@link isWorkerStatsMessage}:
  *

@@ -220,18 +220,16 @@ export function makePortProvider({
         const msg = event.data
         if (!isPortProvisionMessage(msg)) return
         if (!workerPortVersionOk(msg)) {
-          // Deploy skew: refuse the donation — a port wired to a stale
-          // proxy build would misbehave in far harder-to-debug ways. This
-          // provider usually lives in a SharedWorker whose console is
-          // invisible (`chrome://inspect` only), so being quiet here would
-          // degrade to "storage/sync silently never comes up":
+          // Deploy skew: refuse the donation and fail loudly on every
+          // surface — this usually runs in a SharedWorker whose console
+          // is hidden behind chrome://inspect, so also notify the
+          // offending tab (error-relay channel) and reject waiters
+          // instead of letting source() hang. Consumers retry, so a
+          // fresh donation still heals.
           const description = workerPortVersionMismatch(msg)
           if (!complained) {
             complained = true
-            // 1. The worker's own console, for completeness.
             console.error(description)
-            // 2. The offending tab, on the error-relay channel it already
-            //    knows how to listen to (`isWorkerErrorMessage`).
             try {
               client.postMessage({
                 channel: WORKER_ERROR_CHANNEL,
@@ -243,9 +241,6 @@ export function makePortProvider({
               // Port already dead; nothing to tell.
             }
           }
-          // 3. Anyone awaiting source(): reject rather than hang forever.
-          //    Consumers sit in reconnect/retry loops, so a fresh tab
-          //    donating later still heals — but the failure is visible.
           const settled = waiters
           waiters = []
           for (const { reject } of settled)

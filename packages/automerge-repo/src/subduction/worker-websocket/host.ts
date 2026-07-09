@@ -148,10 +148,8 @@ export function attachWebSocketHost(
       inFlight: 0,
       pending: [],
       pendingBytes: 0,
-      // Guard the arithmetic like the ws-ack path does: a NaN window
-      // would make `inFlight < windowFrames` always false (nothing ever
-      // forwarded), and a NaN byte cap would never trip (unbounded
-      // buffering). Fall back to defaults for garbage, clamp below 1.
+      // Guard like the ws-ack path: a NaN window stalls delivery and a
+      // NaN cap never trips. Defaults for garbage, clamp below 1.
       windowFrames: Number.isInteger(msg.windowFrames)
         ? Math.max(1, msg.windowFrames as number)
         : DEFAULT_WINDOW_FRAMES,
@@ -241,9 +239,8 @@ export function attachWebSocketHost(
     const msg = event.data as WsProxyRequest
 
     if (!wsProxyVersionOk(msg)) {
-      // Deploy skew: this proxy build and the client build disagree. Fail
-      // the connection loudly — the error surfaces through the transport's
-      // normal error path with a machine-readable code.
+      // Deploy skew: fail loudly through the transport's normal error
+      // path with a machine-readable code.
       post({
         channel: WS_PROXY_CHANNEL,
         type: "ws-error",
@@ -300,9 +297,8 @@ export function attachWebSocketHost(
 
   port.addEventListener("message", handleMessage)
   // MessagePort-only (a Worker global never fires it): the client context
-  // died, so close its sockets — the server would otherwise keep a
-  // phantom peer, and pushed frames would buffer here toward the byte cap
-  // with no consumer.
+  // died — close its sockets, else the server keeps a phantom peer and
+  // pushed frames buffer here unconsumed.
   port.addEventListener("close", detach)
   port.start?.()
 

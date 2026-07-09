@@ -38,12 +38,12 @@ export const WS_PROXY_CHANNEL = "subduction-ws-proxy"
 
 /**
  * Wire-protocol version, stamped on every message by the sender and
- * verified by the receiver. Deploy skew is real for this protocol: the
- * proxy worker is often a separately-emitted (and separately-cached)
- * chunk, so a stale worker can end up talking to a freshly-deployed
- * client, or vice versa. A mismatch — including a missing tag from a
- * pre-versioning build — fails loudly with a `protocol-mismatch` error
- * instead of silently misbehaving. Bump on any incompatible change.
+ * verified by the receiver. The proxy worker is often a separately
+ * emitted, separately cached chunk, so a stale worker can end up talking
+ * to a freshly-deployed client (or vice versa). A mismatch — including a
+ * missing tag from a pre-versioning build — fails loudly with a
+ * `protocol-mismatch` error instead of silently misbehaving. Bump on any
+ * incompatible change.
  */
 export const WS_PROXY_PROTOCOL_VERSION = 1
 

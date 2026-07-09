@@ -241,13 +241,10 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
         this.#options
       )
     } catch (error) {
-      // A provider-obtained port that times out or speaks the wrong
-      // protocol version is very likely dead or useless. Cache
-      // invalidation normally rides on the port's `close` event, but that
-      // event can be missed (far side died before the listener attached,
-      // or a browser below the close-event floor) — without this, every
-      // reconnect attempt would burn the full timeout against the same
-      // corpse while a healthy replacement sits in the provider.
+      // Timeout/mismatch on a provider port: evict it so the next
+      // reconnect re-invokes the provider. The `close` event alone can't
+      // be trusted here — it may have fired before our listener attached,
+      // and browsers below the close floor never fire it.
       if (
         this.#portSource &&
         error instanceof WorkerWebSocketError &&

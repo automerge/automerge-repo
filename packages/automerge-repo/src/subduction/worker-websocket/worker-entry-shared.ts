@@ -48,7 +48,7 @@ import type { WorkerPortLike } from "./protocol.js"
 
 const relay = createErrorRelay()
 // Health probe: reports event-loop stalls ≥250ms to every connected port
-// on `am-worker-stats` (see `isWorkerStatsMessage`). Silence = healthy.
+// on `am-worker-stats` (see `isWorkerStatsMessage`).
 startDriftProbe(sample => relay.post(sample))
 
 const scope = globalThis as unknown as {

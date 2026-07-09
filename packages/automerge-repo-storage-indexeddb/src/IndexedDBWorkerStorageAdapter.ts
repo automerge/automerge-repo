@@ -209,9 +209,8 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
     try {
       await this.#ready
     } catch (error) {
-      // Any init failure — not just the timeout — must release the port,
-      // or the rejected `#ready` stays cached and a retryable source
-      // could never heal with a fresh port.
+      // Release the port on any init failure, or the rejected `#ready`
+      // stays cached and a retryable source could never heal.
       if (this.#port === port)
         this.#dropPort(
           error instanceof Error ? error : new WorkerStorageError(String(error))
@@ -256,10 +255,9 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
           args,
         })
       } catch (error) {
-        // e.g. a detached Node port throws synchronously; don't leak the
-        // pending entry, and evict the port — its close event may never
-        // fire after a synchronous throw, so without this a retryable
-        // source would keep re-serving the same unusable port.
+        // A detached Node port throws synchronously and may never fire
+        // `close`: reject this call and evict the port so a retryable
+        // source can heal.
         this.#pending.delete(id)
         const wrapped =
           error instanceof Error ? error : new WorkerStorageError(String(error))
