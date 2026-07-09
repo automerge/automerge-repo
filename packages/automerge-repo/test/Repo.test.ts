@@ -1050,13 +1050,28 @@ describe("Repo", () => {
         repo.create({ b: 2 })
 
         await expect(repo.flush()).rejects.toThrow(AggregateError)
+
+        // create() also schedules a fire-and-forget throttled save per document;
+        // wait for those to run and be logged (rather than leaking past the test
+        // as unattributed stderr) and assert the failure is surfaced.
+        await vi.waitFor(() =>
+          expect(
+            errSpy.mock.calls.some(call =>
+              call.some(arg => String(arg).includes("Error saving document"))
+            )
+          ).toBe(true)
+        )
       } finally {
         errSpy.mockRestore()
       }
     })
 
-    it("shutdown() disconnects even if flush() fails", async () => {
+    it("shutdown() flushes best-effort, logging a flush failure instead of rejecting", async () => {
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const logged = (needle: string) =>
+        errSpy.mock.calls.some(call =>
+          call.some(arg => String(arg).includes(needle))
+        )
       try {
         const storage = new DummyStorageAdapter()
         const realSave = storage.save.bind(storage)
@@ -1068,11 +1083,20 @@ describe("Repo", () => {
         }
         const repo = new Repo({ storage })
         repo.create({ a: 1 })
+
+        // Drain the fire-and-forget throttled save first (while storage is open)
+        // so its log is asserted here rather than leaking into a later test.
+        await vi.waitFor(() =>
+          expect(logged("Error saving document")).toBe(true)
+        )
+
         const disconnectSpy = vi.spyOn(repo.networkSubsystem, "disconnect")
 
-        // shutdown rethrows flush's failure, but the finally must still run.
-        await expect(repo.shutdown()).rejects.toThrow(AggregateError)
+        // shutdown() is best-effort: it swallows and logs the flush failure,
+        // resolves, and still disconnects.
+        await expect(repo.shutdown()).resolves.toBeUndefined()
         expect(disconnectSpy).toHaveBeenCalledOnce()
+        expect(logged("error flushing documents during shutdown")).toBe(true)
       } finally {
         errSpy.mockRestore()
       }

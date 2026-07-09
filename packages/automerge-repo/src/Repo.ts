@@ -756,11 +756,15 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   async shutdown(): Promise<void> {
-    // Drain saves first (flush awaits all of them), then always tear down in
-    // the finally so a partial flush failure (which rejects flush) still
-    // disconnects the network and closes storage rather than leaking resources.
+    // Best-effort teardown. Drain saves first (flush awaits all of them), but
+    // swallow and log a flush failure rather than rejecting, so shutdown()
+    // always disconnects the network and closes storage instead of leaking
+    // those resources on a partial save failure. Call flush() explicitly before
+    // shutdown() if you need to observe save failures.
     try {
       await this.flush()
+    } catch (err) {
+      this.#log.error("error flushing documents during shutdown", err)
     } finally {
       this.networkSubsystem.disconnect()
       await this.storageSubsystem?.close()
