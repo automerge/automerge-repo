@@ -29,8 +29,11 @@ import { makeLogger } from "../../Logger.js"
 import {
   DEFAULT_WINDOW_FRAMES,
   WS_PROXY_CHANNEL,
+  WS_PROXY_PROTOCOL_VERSION,
   WorkerWebSocketError,
   isWsProxyMessage,
+  wsProxyVersionMismatch,
+  wsProxyVersionOk,
   type WorkerPortLike,
   type WsProxyRequest,
   type WsProxyResponse,
@@ -89,6 +92,10 @@ export class WorkerWebSocketTransport implements Transport {
       this.#closedResolve = r
     })
     port.addEventListener("message", this.#handleMessage)
+    // MessagePort-only (a dedicated Worker never fires it): the far side's
+    // context died, so no ws-closed will ever arrive — fail immediately
+    // rather than hanging pending recvBytes forever.
+    port.addEventListener("close", this.#handlePortClose)
     port.start?.()
   }
 
@@ -116,16 +123,33 @@ export class WorkerWebSocketTransport implements Transport {
       const cleanup = () => {
         clearTimeout(timer)
         port.removeEventListener("message", onMessage)
+        port.removeEventListener("close", onClose)
+      }
+
+      // The port's far side died while we were waiting for ws-open.
+      const onClose = () => {
+        cleanup()
+        reject(
+          new WorkerWebSocketError(
+            "worker port closed before the WebSocket opened",
+            "connect-failed"
+          )
+        )
       }
 
       const timer = setTimeout(() => {
         cleanup()
         // Best-effort: if the worker is alive but slow, close the socket.
-        WorkerWebSocketTransport.#post(port, {
-          channel: WS_PROXY_CHANNEL,
-          type: "ws-close",
-          connId,
-        })
+        try {
+          WorkerWebSocketTransport.#post(port, {
+            channel: WS_PROXY_CHANNEL,
+            type: "ws-close",
+            connId,
+          })
+        } catch {
+          // A detached/closed Node port throws synchronously; the reject
+          // below must still run or connect() would hang forever.
+        }
         reject(
           new WorkerWebSocketError(
             `WebSocket connect timed out after ${connectTimeoutMs}ms. ` +
@@ -140,6 +164,30 @@ export class WorkerWebSocketTransport implements Transport {
       const onMessage = (event: MessageEvent) => {
         if (!isWsProxyMessage(event.data)) return
         const msg = event.data as WsProxyResponse
+        // Checked before the connId filter: an untagged response means the
+        // whole proxy is from a different build, not just this connection.
+        if (!wsProxyVersionOk(msg)) {
+          cleanup()
+          // Best-effort: a stale host already opened a server socket for
+          // our tagged ws-connect. Old builds understand ws-close, so ask
+          // it to close rather than leak a connection per reconnect.
+          try {
+            WorkerWebSocketTransport.#post(port, {
+              channel: WS_PROXY_CHANNEL,
+              type: "ws-close",
+              connId,
+            })
+          } catch {
+            // The port may be dying; failing locally is all that matters.
+          }
+          reject(
+            new WorkerWebSocketError(
+              wsProxyVersionMismatch(msg),
+              "protocol-mismatch"
+            )
+          )
+          return
+        }
         if (msg.connId !== connId) return
 
         if (msg.type === "ws-open") {
@@ -161,6 +209,7 @@ export class WorkerWebSocketTransport implements Transport {
       }
 
       port.addEventListener("message", onMessage)
+      port.addEventListener("close", onClose)
       port.start?.()
       WorkerWebSocketTransport.#post(port, {
         channel: WS_PROXY_CHANNEL,
@@ -178,12 +227,45 @@ export class WorkerWebSocketTransport implements Transport {
     msg: WsProxyRequest,
     transfer?: Transferable[]
   ) {
-    port.postMessage(msg, transfer)
+    // Version stamped last so it always wins over anything on `msg`.
+    port.postMessage({ ...msg, v: WS_PROXY_PROTOCOL_VERSION }, transfer)
+  }
+
+  #handlePortClose = () => {
+    this.#fail(
+      new WorkerWebSocketError(
+        "worker port closed (far side terminated)",
+        "closed"
+      )
+    )
   }
 
   #handleMessage = (event: MessageEvent) => {
     if (!isWsProxyMessage(event.data)) return
     const msg = event.data as WsProxyResponse
+    // Checked before the connId filter: an untagged response means the
+    // whole proxy is from a different build, not just this connection.
+    if (!wsProxyVersionOk(msg)) {
+      log.warn("worker ws protocol mismatch:", msg)
+      // Best-effort ws-close, as in the connect path: a stale host may
+      // hold a live server socket that would otherwise buffer unconsumed.
+      try {
+        WorkerWebSocketTransport.#post(this.#port, {
+          channel: WS_PROXY_CHANNEL,
+          type: "ws-close",
+          connId: this.#connId,
+        })
+      } catch {
+        // The port may be dying; failing locally is all that matters.
+      }
+      this.#fail(
+        new WorkerWebSocketError(
+          wsProxyVersionMismatch(msg),
+          "protocol-mismatch"
+        )
+      )
+      return
+    }
     if (msg.connId !== this.#connId) return
 
     switch (msg.type) {
@@ -246,6 +328,7 @@ export class WorkerWebSocketTransport implements Transport {
     this.#isClosed = true
     this.#closeReason ??= err
     this.#port.removeEventListener("message", this.#handleMessage)
+    this.#port.removeEventListener("close", this.#handlePortClose)
     this.#closedResolve()
     for (const ew of this.#errorWaiters) ew(err)
     this.#errorWaiters = []
@@ -328,14 +411,22 @@ export class WorkerWebSocketTransport implements Transport {
   #teardown({
     fireDisconnectCallback,
   }: { fireDisconnectCallback?: boolean } = {}) {
+    // Already ended (remote close, abort, mismatch): the socket is gone
+    // and the port may be dead — nothing to post, nothing to re-fail.
+    if (this.#isClosed) return
     // Close the worker-side socket, then fail locally: pending receivers
     // must reject (the port listener detaches in `#fail`, so a `ws-closed`
     // reply could never settle them later).
-    WorkerWebSocketTransport.#post(this.#port, {
-      channel: WS_PROXY_CHANNEL,
-      type: "ws-close",
-      connId: this.#connId,
-    })
+    try {
+      WorkerWebSocketTransport.#post(this.#port, {
+        channel: WS_PROXY_CHANNEL,
+        type: "ws-close",
+        connId: this.#connId,
+      })
+    } catch {
+      // The port may already be terminated/closed (Node ports can throw
+      // synchronously); failing locally is all that matters then.
+    }
     // Drop undelivered frames: on a local teardown, handing them to the
     // wasm could trigger dispatches against storage that is about to close.
     this.#messageQueue = []

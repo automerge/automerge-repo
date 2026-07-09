@@ -51,6 +51,8 @@
       "node": "./dist/subduction/worker-websocket/worker-entry-node.js",
       "default": "./dist/subduction/worker-websocket/worker-entry.js"
     },
+    "./subduction-websocket-worker-shared": "./dist/subduction/worker-websocket/worker-entry-shared.js",
+    "./worker-port": "./dist/worker-port/index.js",
     "./helpers/*.js": "./dist/helpers/*.js"
   },
   "publishConfig": {

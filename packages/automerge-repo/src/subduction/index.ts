@@ -50,7 +50,10 @@ export {
   type WebSocketHostOptions,
   type WebSocketLike,
 } from "./worker-websocket/host.js"
-export type { WorkerPortLike } from "./worker-websocket/protocol.js"
+export type {
+  WorkerPortLike,
+  WorkerPortSource,
+} from "./worker-websocket/protocol.js"
 
 /**
  * Options for {@link setupSubduction}.

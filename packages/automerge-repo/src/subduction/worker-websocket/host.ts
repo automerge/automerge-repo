@@ -24,7 +24,10 @@ import {
   DEFAULT_MAX_BUFFERED_BYTES,
   DEFAULT_WINDOW_FRAMES,
   WS_PROXY_CHANNEL,
+  WS_PROXY_PROTOCOL_VERSION,
   isWsProxyMessage,
+  wsProxyVersionMismatch,
+  wsProxyVersionOk,
   type WorkerPortLike,
   type WsProxyRequest,
   type WsProxyResponse,
@@ -94,7 +97,8 @@ export function attachWebSocketHost(
   const conns = new Map<string, Conn>()
 
   const post = (msg: WsProxyResponse, transfer?: Transferable[]) => {
-    port.postMessage(msg, transfer)
+    // Version stamped last so it always wins over anything on `msg`.
+    port.postMessage({ ...msg, v: WS_PROXY_PROTOCOL_VERSION }, transfer)
   }
 
   const postBytes = (connId: string, buf: ArrayBuffer) => {
@@ -144,9 +148,16 @@ export function attachWebSocketHost(
       inFlight: 0,
       pending: [],
       pendingBytes: 0,
-      // A window below 1 could never forward anything; clamp.
-      windowFrames: Math.max(1, msg.windowFrames ?? DEFAULT_WINDOW_FRAMES),
-      maxBufferedBytes: msg.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES,
+      // Guard like the ws-ack path: a NaN window stalls delivery and a
+      // NaN cap never trips. Defaults for garbage, clamp below 1.
+      windowFrames: Number.isInteger(msg.windowFrames)
+        ? Math.max(1, msg.windowFrames as number)
+        : DEFAULT_WINDOW_FRAMES,
+      maxBufferedBytes:
+        Number.isFinite(msg.maxBufferedBytes) &&
+        (msg.maxBufferedBytes as number) > 0
+          ? (msg.maxBufferedBytes as number)
+          : DEFAULT_MAX_BUFFERED_BYTES,
       closedPendingFlush: false,
       dead: false,
     }
@@ -227,6 +238,19 @@ export function attachWebSocketHost(
     if (!isWsProxyMessage(event.data)) return
     const msg = event.data as WsProxyRequest
 
+    if (!wsProxyVersionOk(msg)) {
+      // Deploy skew: fail loudly through the transport's normal error
+      // path with a machine-readable code.
+      post({
+        channel: WS_PROXY_CHANNEL,
+        type: "ws-error",
+        connId: (msg as { connId?: string }).connId ?? "unknown",
+        message: wsProxyVersionMismatch(msg),
+        code: "protocol-mismatch",
+      })
+      return
+    }
+
     switch (msg.type) {
       case "ws-connect":
         handleConnect(msg)
@@ -264,12 +288,19 @@ export function attachWebSocketHost(
     }
   }
 
-  port.addEventListener("message", handleMessage)
-  port.start?.()
-
-  return () => {
+  const detach = () => {
     port.removeEventListener("message", handleMessage)
+    port.removeEventListener("close", detach)
     for (const conn of conns.values()) conn.socket.close()
     conns.clear()
   }
+
+  port.addEventListener("message", handleMessage)
+  // MessagePort-only (a Worker global never fires it): the client context
+  // died — close its sockets, else the server keeps a phantom peer and
+  // pushed frames buffer here unconsumed.
+  port.addEventListener("close", detach)
+  port.start?.()
+
+  return detach
 }

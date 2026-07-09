@@ -127,6 +127,7 @@ export {
 export {
   WorkerWebSocketError,
   type WorkerPortLike,
+  type WorkerPortSource,
   type WorkerWebSocketErrorCode,
 } from "./subduction/worker-websocket/protocol.js"
 export {
@@ -138,6 +139,31 @@ export {
   type WebSocketHostOptions,
   type WebSocketLike,
 } from "./subduction/worker-websocket/host.js"
+export {
+  createErrorRelay,
+  donatePort,
+  isPortProvisionMessage,
+  isWorkerErrorMessage,
+  isWorkerStatsMessage,
+  makePortProvider,
+  PORT_PROVISION_CHANNEL,
+  PortProtocolMismatchError,
+  startDriftProbe,
+  WORKER_ERROR_CHANNEL,
+  WORKER_PORT_PROTOCOL_VERSION,
+  WORKER_STATS_CHANNEL,
+  workerPortVersionMismatch,
+  workerPortVersionOk,
+  type DonatablePort,
+  type DonatePortOptions,
+  type DriftProbeOptions,
+  type ErrorRelay,
+  type PortProvider,
+  type PortProviderOptions,
+  type PortProvisionMessage,
+  type WorkerErrorMessage,
+  type WorkerStatsMessage,
+} from "./worker-port/index.js"
 export { WebSocketTransport } from "./subduction/websocket-transport.js"
 
 export type {
