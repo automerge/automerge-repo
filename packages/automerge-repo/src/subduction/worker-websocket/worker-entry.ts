@@ -2,17 +2,16 @@
  * Dedicated-worker entry point for the Subduction WebSocket proxy.
  *
  * `WorkerWebSocketEndpoint` spawns this automatically; you only need it
- * when supplying your own worker. Resolve the specifier in your own
- * source (bare specifiers inside `new URL(...)` only work under
- * webpack 5):
+ * when supplying your own worker. Spawn it from a file in your own
+ * source so every bundler emits the chunk (`import.meta.resolve` of a
+ * bare specifier inside `new Worker(...)` is not statically analyzable):
+ * create `ws-worker.ts` containing exactly
+ * `import "@automerge/automerge-repo/subduction-websocket-worker"`, then:
  *
  * ```ts
- * const worker = new Worker(
- *   new URL(
- *     import.meta.resolve("@automerge/automerge-repo/subduction-websocket-worker")
- *   ),
- *   { type: "module" }
- * )
+ * const worker = new Worker(new URL("./ws-worker.ts", import.meta.url), {
+ *   type: "module",
+ * })
  * const repo = new Repo({
  *   subductionWebsocketEndpoints: [
  *     new WorkerWebSocketEndpoint("wss://sync.example.com", { worker }),

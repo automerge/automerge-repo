@@ -54,10 +54,11 @@ export function createErrorRelay(
   ): void => {
     for (const port of ports) {
       try {
+        // Version stamped last so it always wins, as everywhere else.
         port.postMessage({
           channel: WORKER_ERROR_CHANNEL,
-          v: WORKER_PORT_PROTOCOL_VERSION,
           ...msg,
+          v: WORKER_PORT_PROTOCOL_VERSION,
         })
       } catch {
         ports.delete(port) // e.g. a detached Node port

@@ -30,6 +30,12 @@ import {
   type WorkerPortSource,
 } from "./worker-websocket/protocol.js"
 
+import { WebSocketTransport } from "./websocket-transport.js"
+import {
+  WorkerWebSocketTransport,
+  type WorkerWebSocketConnectOptions,
+} from "./worker-websocket/transport.js"
+
 const log = makeLogger("automerge-repo:subduction:worker-ws-endpoint")
 
 /**
@@ -48,11 +54,6 @@ const logHealthSignals = (port: WorkerPortLike): void => {
     }
   })
 }
-import { WebSocketTransport } from "./websocket-transport.js"
-import {
-  WorkerWebSocketTransport,
-  type WorkerWebSocketConnectOptions,
-} from "./worker-websocket/transport.js"
 
 /** A subduction transport that can also report when it has closed. */
 export type ManagedTransport = Transport & { closed(): Promise<void> }
