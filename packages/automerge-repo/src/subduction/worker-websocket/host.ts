@@ -97,7 +97,8 @@ export function attachWebSocketHost(
   const conns = new Map<string, Conn>()
 
   const post = (msg: WsProxyResponse, transfer?: Transferable[]) => {
-    port.postMessage({ v: WS_PROXY_PROTOCOL_VERSION, ...msg }, transfer)
+    // Version stamped last so it always wins over anything on `msg`.
+    port.postMessage({ ...msg, v: WS_PROXY_PROTOCOL_VERSION }, transfer)
   }
 
   const postBytes = (connId: string, buf: ArrayBuffer) => {

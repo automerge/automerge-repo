@@ -140,11 +140,16 @@ export class WorkerWebSocketTransport implements Transport {
       const timer = setTimeout(() => {
         cleanup()
         // Best-effort: if the worker is alive but slow, close the socket.
-        WorkerWebSocketTransport.#post(port, {
-          channel: WS_PROXY_CHANNEL,
-          type: "ws-close",
-          connId,
-        })
+        try {
+          WorkerWebSocketTransport.#post(port, {
+            channel: WS_PROXY_CHANNEL,
+            type: "ws-close",
+            connId,
+          })
+        } catch {
+          // A detached/closed Node port throws synchronously; the reject
+          // below must still run or connect() would hang forever.
+        }
         reject(
           new WorkerWebSocketError(
             `WebSocket connect timed out after ${connectTimeoutMs}ms. ` +
@@ -224,7 +229,8 @@ export class WorkerWebSocketTransport implements Transport {
     msg: WsProxyRequest,
     transfer?: Transferable[]
   ) {
-    port.postMessage({ v: WS_PROXY_PROTOCOL_VERSION, ...msg }, transfer)
+    // Version stamped last so it always wins over anything on `msg`.
+    port.postMessage({ ...msg, v: WS_PROXY_PROTOCOL_VERSION }, transfer)
   }
 
   #handlePortClose = () => {
