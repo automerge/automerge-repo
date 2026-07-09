@@ -68,6 +68,15 @@ import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
 import { noop } from "./helpers/noop.js"
+import { semaphore } from "./helpers/semaphore.js"
+
+/**
+ * Default for {@link RepoConfig.flushConcurrency}: the number of documents
+ * {@link Repo.flush} writes to storage concurrently. A sync server may hold
+ * thousands of documents; flushing them all at once would spike the storage
+ * adapter's connections / file descriptors / memory, so the fan-out is bounded.
+ */
+const DEFAULT_FLUSH_CONCURRENCY = 20
 
 export type { DocumentProgress } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
@@ -117,6 +126,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #subductionEphemeralCount = 0
   #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
   #peerId: PeerId
+  #flushConcurrency: number
 
   constructor({
     storage,
@@ -128,6 +138,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     enableRemoteHeadsGossiping = false,
     denylist = [],
     saveDebounceRate = 100,
+    flushConcurrency = DEFAULT_FLUSH_CONCURRENCY,
+    syncStateLoadConcurrency,
+    sharePolicyConcurrency,
     idFactory,
     signer,
     subductionPolicy,
@@ -140,6 +153,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     super()
     this.#peerId = peerId
     this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
+    this.#flushConcurrency = flushConcurrency
 
     this.#idFactory = idFactory || null
     // Handle legacy sharePolicy
@@ -316,6 +330,8 @@ export class Repo extends EventEmitter<RepoEvents> {
           .then(noop, err =>
             this.#log.error("network adapters failed to become ready", err)
           ),
+        syncStateLoadConcurrency,
+        sharePolicyConcurrency,
       },
       denylist
     )
@@ -899,29 +915,61 @@ export class Repo extends EventEmitter<RepoEvents> {
    *
    * @hidden this API is experimental and may change.
    * @param documents - if provided, only flushes the specified documents.
+   * @returns Promise<void>
+   *
+   * @remarks
+   * Two coordination guarantees, both aimed at flushing a large collection
+   * safely (a sync server may hold thousands of documents):
+   *
+   * - **Bounded fan-out.** At most {@link RepoConfig.flushConcurrency} document
+   *   saves run at once, instead of launching every save simultaneously.
+   * - **Drain before settle.** Every task is awaited (`allSettled`) before
+   *   `flush()` settles, even if some fail; this is what makes `flush()` safe to
+   *   `await` before teardown in {@link Repo.shutdown} (nothing is still writing
+   *   when the caller proceeds). Failures are collected and rethrown as an
+   *   `AggregateError`.
    */
   async flush(documents?: DocumentId[]): Promise<void> {
+    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
+
+    // Bound the storage-write fan-out so flushing a large collection doesn't
+    // open every write at once. State is re-read inside the limited task
+    // because a query may have changed between enqueue and execution.
+    const limit = semaphore(this.#flushConcurrency)
     const tasks: Promise<unknown>[] = []
 
     if (this.storageSubsystem) {
-      const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
-      tasks.push(
-        Promise.all(
-          ids.map(async id => {
+      for (const id of ids) {
+        tasks.push(
+          limit(async () => {
             const state = this.#queries[id]?.peek()
             if (state?.state === "ready") {
               await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
             }
           })
         )
-      )
+      }
     }
 
+    // Ask every registered DocumentSource that buffers its own writes (e.g.
+    // the Subduction source) to drain them too.
     for (const source of this.#sources.values()) {
       if (source.flush) tasks.push(source.flush(documents))
     }
 
-    await Promise.all(tasks)
+    // Drain before settle: await every task (even on failure) before flush()
+    // resolves, so teardown (shutdown) never runs while a write is still in
+    // flight. Collect failures and rethrow them as one AggregateError.
+    const results = await Promise.allSettled(tasks)
+    const failures = results
+      .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+      .map(r => r.reason)
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `flush: ${failures.length} of ${tasks.length} flush task(s) failed`
+      )
+    }
   }
 
   /**
@@ -1020,6 +1068,49 @@ export interface RepoConfig {
    * The debounce rate in milliseconds for saving documents. Defaults to 100ms.
    */
   saveDebounceRate?: number
+
+  /**
+   * Maximum number of documents {@link Repo.flush} (and {@link Repo.shutdown})
+   * write to storage concurrently. Defaults to 20.
+   *
+   * @remarks
+   * Tie this to the constraining resource of your
+   * {@link StorageAdapterInterface}:
+   * - **filesystem** (e.g. the nodefs adapter): stay well under the process's
+   *   file-descriptor ceiling; the default 20 is comfortable.
+   * - **HTTP/1.1-backed**: a browser caps connections per origin at ~6, so a
+   *   limit near that avoids head-of-line queueing you can't see.
+   * - **HTTP/2-backed**: ~100 multiplexed streams per connection, so you can go
+   *   higher.
+   * - **database-backed**: at or below the connection-pool size, leaving
+   *   headroom for other callers.
+   */
+  flushConcurrency?: number
+
+  /**
+   * Maximum number of persisted sync-state reads the synchronizer issues
+   * concurrently while adding peers to documents (one read per peer-document
+   * pair). Defaults to 20.
+   *
+   * @remarks
+   * Like {@link RepoConfig.flushConcurrency}, tie this to your
+   * {@link StorageAdapterInterface}: stay under a filesystem adapter's
+   * file-descriptor ceiling, near a browser's per-origin connection cap for an
+   * HTTP/1.1-backed adapter, or at or below a database adapter's pool size.
+   */
+  syncStateLoadConcurrency?: number
+
+  /**
+   * Maximum number of share-policy resolutions the synchronizer runs
+   * concurrently when re-evaluating which peers each document is shared with.
+   * Defaults to the synchronizer's `SHARE_POLICY_CONCURRENCY` (10).
+   *
+   * @remarks
+   * Each resolution may invoke an async {@link SharePolicy}. On a sync server
+   * with many peers and many documents, an unbounded fan-out launches one policy
+   * call per peer-document pair at once; this caps how many run together.
+   */
+  sharePolicyConcurrency?: number
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation

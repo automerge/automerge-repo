@@ -1070,6 +1070,55 @@ describe("Repo", () => {
         await flushPromise
       }
     })
+
+    it("drains all saves and rejects with an AggregateError when saves fail", async () => {
+      // allSettled, not fail-fast: every save is attempted and awaited before
+      // flush() settles, then failures are aggregated and rethrown.
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        const storage = new DummyStorageAdapter()
+        const realSave = storage.save.bind(storage)
+        storage.save = async (key, data) => {
+          // Fail only document saves; let the internal storage-adapter-id save
+          // through so Repo construction's peer-metadata lookup still resolves.
+          if (key[0] === "storage-adapter-id") return realSave(key, data)
+          throw new Error("disk full")
+        }
+        const repo = new Repo({ storage })
+        repo.create({ a: 1 })
+        repo.create({ b: 2 })
+
+        await expect(repo.flush()).rejects.toThrow(AggregateError)
+      } finally {
+        errSpy.mockRestore()
+      }
+    })
+
+    it("shutdown() disconnects even if flush() fails", async () => {
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        const storage = new DummyStorageAdapter()
+        const realSave = storage.save.bind(storage)
+        storage.save = async (key, data) => {
+          // Fail only document saves; let the internal storage-adapter-id save
+          // through so Repo construction's peer-metadata lookup still resolves.
+          if (key[0] === "storage-adapter-id") return realSave(key, data)
+          throw new Error("disk full")
+        }
+        const repo = new Repo({ storage })
+        repo.create({ a: 1 })
+        const disconnectSpy = vi.spyOn(repo.networkSubsystem, "disconnect")
+
+        // shutdown() flushes best-effort: it swallows and logs a flush failure
+        // rather than propagating it, so the rest of teardown still runs and
+        // the network is disconnected. Call repo.flush() before shutdown() to
+        // observe failures.
+        await expect(repo.shutdown()).resolves.toBeUndefined()
+        expect(disconnectSpy).toHaveBeenCalledOnce()
+      } finally {
+        errSpy.mockRestore()
+      }
+    })
   })
 
   describe("with peers (linear network)", async () => {
