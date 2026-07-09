@@ -197,6 +197,39 @@ describe("storage + websocket hosts sharing one donated port", () => {
     expect(await adapter.load(["k"])).toStrictEqual(new Uint8Array([2]))
   })
 
+  it("evicts a port whose postMessage throws, healing via the provider", async () => {
+    // A port that is synchronously broken: postMessage always throws and
+    // — crucially — no close event will ever fire.
+    const throwingPort: WorkerPortLike = {
+      postMessage() {
+        throw new Error("detached port")
+      },
+      addEventListener() {},
+      removeEventListener() {},
+    }
+
+    let fetches = 0
+    const adapter = new IndexedDBWorkerStorageAdapter(
+      "sync-throw-db",
+      "documents",
+      () => {
+        fetches++
+        return fetches === 1 ? throwingPort : makeIoPort()
+      }
+    )
+    adapters.push(adapter)
+
+    // First call fails — and must evict the broken port, not cache it.
+    await expect(adapter.save(["k"], new Uint8Array([1]))).rejects.toThrow(
+      "detached port"
+    )
+
+    // Next call re-invokes the provider and succeeds on the fresh port.
+    await adapter.save(["k"], new Uint8Array([2]))
+    expect(fetches).toBe(2)
+    expect(await adapter.load(["k"])).toStrictEqual(new Uint8Array([2]))
+  })
+
   it("fails loudly against a stale (untagged) storage worker", async () => {
     // An "old build" host: answers init ok, but without a version tag.
     const channel = new NodeMessageChannel()

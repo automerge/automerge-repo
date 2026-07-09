@@ -257,11 +257,14 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
         })
       } catch (error) {
         // e.g. a detached Node port throws synchronously; don't leak the
-        // pending entry (its close event may never fire).
+        // pending entry, and evict the port — its close event may never
+        // fire after a synchronous throw, so without this a retryable
+        // source would keep re-serving the same unusable port.
         this.#pending.delete(id)
-        reject(
+        const wrapped =
           error instanceof Error ? error : new WorkerStorageError(String(error))
-        )
+        if (this.#port === port) this.#dropPort(wrapped)
+        reject(wrapped)
       }
     })
   }

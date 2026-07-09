@@ -159,14 +159,19 @@ export interface WorkerPortLike {
    * `MessagePort` (Chrome ≥132, Firefox ≥121, Node ≥15) fires `close` when
    * the far side's context is destroyed — the primary crash/death signal.
    * A dedicated `Worker` accepts the listener but never fires it; callers
-   * must not rely on `close` alone (see connect timeouts).
+   * must not rely on `close` alone (see connect timeouts). The listener
+   * receives the browser's `Event` argument; zero-arg listeners are also
+   * assignable.
    */
-  addEventListener(type: "close", listener: () => void): void
+  addEventListener(type: "close", listener: (event: Event) => void): void
   removeEventListener(
     type: "message",
     listener: (event: MessageEvent) => void
   ): void
-  removeEventListener(type: "close", listener: () => void): void
+  removeEventListener(
+    type: "close",
+    listener: (event: Event) => void
+  ): void
   /** `MessagePort` requires `start()` before events flow; `Worker` has none. */
   start?(): void
 }
