@@ -9,12 +9,12 @@ import {
   OpenDocMessage,
 } from "../network/messages.js"
 import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
-import { DocSynchronizer } from "./DocSynchronizer.js"
+import { DocSynchronizer, SHARE_POLICY_CONCURRENCY } from "./DocSynchronizer.js"
 import type { ShareConfig } from "./DocSynchronizer.js"
+import { semaphore, type Limit } from "../helpers/semaphore.js"
 import type { DocumentSource } from "../DocumentSource.js"
 import type { DocumentQuery, SourcePriority } from "../DocumentQuery.js"
 import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
-import { semaphore, type Limit } from "../helpers/semaphore.js"
 
 /**
  * Default cap on concurrent `loadSyncState` reads. Adding a peer loads sync
@@ -63,6 +63,13 @@ export interface AutomergeSyncConfig {
    * peers have had a chance to connect.
    */
   networkReady: Promise<void>
+
+  /**
+   * Maximum number of share-policy resolutions run concurrently during
+   * {@link CollectionSynchronizer.reevaluateDocumentShare}. Defaults to
+   * {@link SHARE_POLICY_CONCURRENCY}.
+   */
+  sharePolicyConcurrency?: number
 }
 
 interface CollectionSynchronizerEvents {
@@ -96,6 +103,12 @@ export class CollectionSynchronizer
   // read per document at once.
   #loadSyncStateLimit: Limit
 
+  // One shared limiter for every share-policy resolution in the collection, so
+  // the concurrent user announce/access callbacks are capped across all
+  // documents and peers together: both the per-peer resolution on addPeer and
+  // the whole-collection re-evaluation on reevaluateDocumentShare draw from it.
+  #sharePolicyLimit: Limit
+
   constructor(config: AutomergeSyncConfig, denylist: AutomergeUrl[] = []) {
     super()
     this.#networkReady = config.networkReady
@@ -104,6 +117,9 @@ export class CollectionSynchronizer
     this.#denylist = denylist.map(url => parseAutomergeUrl(url).documentId)
     this.#loadSyncStateLimit = semaphore(
       config.syncStateLoadConcurrency ?? DEFAULT_SYNC_STATE_LOAD_CONCURRENCY
+    )
+    this.#sharePolicyLimit = semaphore(
+      config.sharePolicyConcurrency ?? SHARE_POLICY_CONCURRENCY
     )
   }
 
@@ -221,7 +237,7 @@ export class CollectionSynchronizer
 
   reevaluateDocumentShare(): void {
     for (const docSync of Object.values(this.#docSynchronizers)) {
-      docSync.reevaluateSharePolicy()
+      docSync.reevaluateSharePolicy(this.#sharePolicyLimit)
     }
   }
 
@@ -270,6 +286,7 @@ export class CollectionSynchronizer
 
     docSync.addPeer(peerId, this.#loadSyncStateFor(documentId, peerId), {
       messages,
+      limit: this.#sharePolicyLimit,
     })
   }
 

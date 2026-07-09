@@ -7,6 +7,7 @@ import withTimeout from "./helpers/withTimeout.js"
 import pause from "./helpers/pause.js"
 import { Repo } from "../src/Repo.js"
 import { PeerId } from "../src/types.js"
+import { SHARE_POLICY_CONCURRENCY } from "../src/synchronizer/DocSynchronizer.js"
 
 describe("the sharePolicy APIs", () => {
   describe("the legacy API", () => {
@@ -132,6 +133,59 @@ describe("the sharePolicy APIs", () => {
 
       const bobHandle = await bob.find(aliceHandle.url)
       expect(bobHandle.doc()).toEqual({ foo: "bar" })
+    })
+
+    it("bounds concurrent share-policy resolutions across addPeer and shareConfigChanged", async () => {
+      // Each access call parks on a deferred we control, so concurrency is
+      // observed deterministically rather than via a timed sleep. `peak` records
+      // the most that ran at once.
+      let active = 0
+      let peak = 0
+      const release: Array<() => void> = []
+      const access = () =>
+        new Promise<boolean>(resolve => {
+          active++
+          peak = Math.max(peak, active)
+          release.push(() => {
+            active--
+            resolve(true)
+          })
+        })
+
+      const repo = new Repo({
+        peerId: "alice" as PeerId,
+        shareConfig: { announce: async () => true, access },
+      })
+      const docCount = SHARE_POLICY_CONCURRENCY + 5
+      for (let i = 0; i < docCount; i++) repo.create({ i })
+
+      // Release each parked batch and let the queued resolutions start, until
+      // the fan-out is fully drained. A macrotask boundary fully flushes the
+      // release chain (resolve access -> resolveSharePolicy -> free slot -> wake
+      // the next waiter) before measuring the next batch.
+      const drain = async () => {
+        for (let i = 0; i <= docCount && release.length > 0; i++) {
+          release.splice(0).forEach(r => r())
+          await new Promise(resolve => setTimeout(resolve, 0)) // macrotask flush
+        }
+      }
+
+      // Adding one peer to every document fans out one resolution per document.
+      // The shared limiter admits its first batch synchronously, so the cap is
+      // observable immediately: at most SHARE_POLICY_CONCURRENCY in flight, the
+      // rest queued.
+      repo.synchronizer.addPeer("bob" as PeerId)
+      expect(active).toBe(SHARE_POLICY_CONCURRENCY)
+      await drain()
+      expect(peak).toBe(SHARE_POLICY_CONCURRENCY)
+      expect(active).toBe(0)
+
+      // The same limiter bounds the whole-collection re-evaluation.
+      peak = 0
+      repo.shareConfigChanged()
+      expect(active).toBe(SHARE_POLICY_CONCURRENCY)
+      await drain()
+      expect(peak).toBe(SHARE_POLICY_CONCURRENCY)
     })
 
     it("should stop sending changes to a peer who had access but was then removed", async () => {
