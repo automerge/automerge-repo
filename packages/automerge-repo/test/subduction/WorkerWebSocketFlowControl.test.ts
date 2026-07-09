@@ -110,6 +110,11 @@ describe("receive credit window", () => {
 
     // A fast server: 20 frames arrive while the consumer reads nothing.
     for (let i = 0; i < total; i++) sockets[0].push(new Uint8Array([i]))
+
+    // Bounded poll up to the window (cross-port delivery timing is
+    // load-sensitive), then two extra ticks for any (incorrect) overshoot.
+    const deadline = Date.now() + 2000
+    while (delivered < windowFrames && Date.now() < deadline) await tick()
     await tick()
     await tick()
 

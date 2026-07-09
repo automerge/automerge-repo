@@ -12,13 +12,30 @@
  * Tab ──── transfer io.port over repo port ──► repo worker uses it
  * ```
  *
- * Repo-worker side:
+ * Repo-worker side (a SharedWorker entry file). Note: one provider
+ * feeding both storage and sync means the donated port's far side must
+ * host **both** protocols — use the combined io entry
+ * `@automerge/automerge-repo-storage-indexeddb/worker-io-shared` (the
+ * single-purpose entries each serve one protocol; donating one of those
+ * here would leave the other consumer stalling on init timeouts):
  * ```ts
+ * import { Repo, WorkerWebSocketEndpoint } from "@automerge/automerge-repo/slim"
+ * import { makePortProvider } from "@automerge/automerge-repo/worker-port"
+ * import { IndexedDBWorkerStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb/worker-adapter"
+ * // (initialize Automerge/Subduction wasm here — see the slim entrypoint docs)
+ *
  * const io = makePortProvider()
- * onconnect = e => {
+ *
+ * // `onconnect` is not in TS's lib types for module workers; go through
+ * // the global scope explicitly (the shipped entries do the same):
+ * const scope = globalThis as unknown as {
+ *   onconnect: ((event: MessageEvent) => void) | null
+ * }
+ * scope.onconnect = e => {
  *   io.attachClient(e.ports[0]) // alongside your own app handshake
  * }
- * new Repo({
+ *
+ * const repo = new Repo({
  *   storage: new IndexedDBWorkerStorageAdapter("db", "docs", io.source),
  *   subductionWebsocketEndpoints: [
  *     new WorkerWebSocketEndpoint("wss://sync.example.com", { worker: io.source }),
@@ -26,11 +43,24 @@
  * })
  * ```
  *
- * Tab side:
+ * Tab side. Spawn the io worker from a file in *your own source* so every
+ * bundler resolves it — `import.meta.resolve` of a bare specifier inside
+ * `new SharedWorker(...)` is not statically analyzable (Vite won't emit
+ * the chunk). Create `io-worker.ts` next to this code containing exactly
+ * `import "@automerge/automerge-repo-storage-indexeddb/worker-io-shared"`,
+ * then:
  * ```ts
- * const repo = new SharedWorker(repoUrl, { type: "module", name: "repo" })
+ * import { donatePort } from "@automerge/automerge-repo/worker-port"
+ *
+ * const repo = new SharedWorker(new URL("./repo-worker.ts", import.meta.url), {
+ *   type: "module",
+ *   name: "repo",
+ * })
  * donatePort(repo.port, () => {
- *   const io = new SharedWorker(ioUrl, { type: "module", name: "io" })
+ *   const io = new SharedWorker(new URL("./io-worker.ts", import.meta.url), {
+ *     type: "module",
+ *     name: "automerge-io",
+ *   })
  *   return io.port
  * })
  * ```
@@ -40,7 +70,12 @@
  * crashes, the donated port's `close` event fires (Chrome ≥132), consumers
  * drop it, and the provider broadcasts a `port-request` — every listening
  * tab re-spawns (`new SharedWorker` on the same URL/name converges on one
- * fresh instance) and re-donates.
+ * fresh instance) and re-donates. (`donatePort` answers `port-request`s
+ * for as long as the tab lives; if the *repo* worker itself restarts, run
+ * `donatePort` against the respawned worker's port — donations into the
+ * dead port are silent no-ops.) For close-event gaps — a crash racing the
+ * donation, or browsers below the close floor — see
+ * {@link PortProvider.invalidate}.
  */
 
 import type { WorkerPortLike } from "../subduction/worker-websocket/protocol.js"
@@ -87,6 +122,19 @@ export interface PortProvider {
   offer(port: WorkerPortLike): void
 
   /**
+   * Evict a (suspected-dead) port from the cache and, when anything is
+   * waiting, broadcast a fresh `port-request`. Cache invalidation
+   * normally rides on the port's `close` event, but that event can be
+   * missed — it is not delivered retroactively to listeners attached
+   * after the far side died (a crash racing the donation), and browsers
+   * below the documented floor (Chrome <132) never fire it. Consumers
+   * hitting repeated connect/init timeouts against a provider-obtained
+   * port should invalidate it so the next fetch gets a fresh donation.
+   * A no-op unless `port` is (or is omitted and there is) a current port.
+   */
+  invalidate(port?: WorkerPortLike): void
+
+  /**
    * Watch a client (tab) port for `port-offer` messages and include it in
    * `port-request` broadcasts. Returns a detach function; a client whose
    * far side closes is pruned automatically.
@@ -119,16 +167,27 @@ export function makePortProvider({
     }
   }
 
+  /** Removes the current port's close listener; null when none cached. */
+  let unwatchCurrent: (() => void) | null = null
+
+  const dropCurrent = () => {
+    unwatchCurrent?.()
+    unwatchCurrent = null
+    current = null
+  }
+
   const offer = (port: WorkerPortLike) => {
     // A superseded `current` (e.g. the benign double donation when an
     // eager donor races a port-request) is left open, not closed:
     // consumers may have cached it, and both ends of a duplicate donation
     // converge on the same io worker anyway. It is dropped on `close`.
+    unwatchCurrent?.()
     current = port
     const onClose = () => {
-      port.removeEventListener("close", onClose)
-      if (current === port) current = null
+      if (current === port) dropCurrent()
+      else port.removeEventListener("close", onClose)
     }
+    unwatchCurrent = () => port.removeEventListener("close", onClose)
     port.addEventListener("close", onClose)
     port.start?.()
     const settled = waiters
@@ -138,6 +197,12 @@ export function makePortProvider({
 
   return {
     offer,
+
+    invalidate(port?: WorkerPortLike) {
+      if (!current || (port !== undefined && port !== current)) return
+      dropCurrent()
+      if (waiters.length > 0) requestDonation()
+    },
 
     source: () =>
       current
@@ -227,27 +292,35 @@ export interface DonatePortOptions {
  * Tab side of port provisioning: donate a `MessagePort` to the context on
  * the far side of `client` (the repo SharedWorker), immediately and again
  * whenever it broadcasts a `port-request`. `createPort` runs per donation
+ * and must mint a *fresh* port each time (a transferred port is detached)
  * — typically `new SharedWorker(ioUrl, ...).port`, which converges on the
  * same io worker instance across tabs while it lives, and respawns it
- * after a crash. Returns a detach function.
+ * after a crash. It may be async (e.g. awaiting a feature check before
+ * choosing the worker URL). Returns a detach function.
  */
 export function donatePort(
   client: WorkerPortLike,
-  createPort: () => MessagePort,
+  createPort: () => WorkerPortLike | Promise<WorkerPortLike>,
   { target = DEFAULT_TARGET, eager = true }: DonatePortOptions = {}
 ): () => void {
-  const donate = () => {
-    const port = createPort()
-    client.postMessage(
-      {
-        channel: PORT_PROVISION_CHANNEL,
-        v: WORKER_PORT_PROTOCOL_VERSION,
-        type: "port-offer",
-        target,
-        port,
-      },
-      [port]
-    )
+  const donate = async () => {
+    try {
+      const port = await createPort()
+      client.postMessage(
+        {
+          channel: PORT_PROVISION_CHANNEL,
+          v: WORKER_PORT_PROTOCOL_VERSION,
+          type: "port-offer",
+          target,
+          port,
+        },
+        [port as unknown as Transferable]
+      )
+    } catch (error) {
+      // e.g. `new SharedWorker(...)` failing; keep it visible — this runs
+      // in a tab, where the console is actually readable.
+      console.error("[donatePort] donation failed:", error)
+    }
   }
 
   let complained = false
@@ -262,12 +335,12 @@ export function donatePort(
       }
       return
     }
-    if (msg.type === "port-request" && msg.target === target) donate()
+    if (msg.type === "port-request" && msg.target === target) void donate()
   }
 
   client.addEventListener("message", onMessage)
   client.start?.()
-  if (eager) donate()
+  if (eager) void donate()
 
   return () => client.removeEventListener("message", onMessage)
 }

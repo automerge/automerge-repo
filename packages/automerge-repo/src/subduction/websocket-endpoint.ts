@@ -19,11 +19,35 @@
  */
 
 import type { Transport } from "@automerge/automerge-subduction/slim"
+import { makeLogger } from "../Logger.js"
+import {
+  isWorkerErrorMessage,
+  isWorkerStatsMessage,
+} from "../worker-port/protocol.js"
 import {
   WorkerWebSocketError,
   type WorkerPortLike,
   type WorkerPortSource,
 } from "./worker-websocket/protocol.js"
+
+const log = makeLogger("automerge-repo:subduction:worker-ws-endpoint")
+
+/**
+ * Auto-spawned workers report health signals (drift stats, relayed
+ * errors) on a port only this endpoint holds — without this, those
+ * messages would go nowhere. Provided/shared ports are observable by
+ * whoever owns them, so this is only wired for owned workers.
+ */
+const logHealthSignals = (port: WorkerPortLike): void => {
+  port.addEventListener("message", (event: MessageEvent) => {
+    const msg = event.data
+    if (isWorkerStatsMessage(msg)) {
+      log.warn(`proxy worker event loop stalled ${msg.driftMs}ms`)
+    } else if (isWorkerErrorMessage(msg)) {
+      log.warn(`proxy worker ${msg.kind}: ${msg.message}`, msg.stack ?? "")
+    }
+  })
+}
 import { WebSocketTransport } from "./websocket-transport.js"
 import {
   WorkerWebSocketTransport,
@@ -150,8 +174,12 @@ export const nodeWorkerThreads = (): NodeWorkerThreads | null => {
  * Health signals: the shipped browser proxy entries run a drift probe
  * that reports event-loop stalls ≥250ms on the `am-worker-stats` channel
  * (`isWorkerStatsMessage`), and the SharedWorker entries relay unhandled
- * worker errors on `am-worker-error` (`isWorkerErrorMessage`) — wire both
- * into your logging; SharedWorker consoles are otherwise only visible in
+ * worker errors on `am-worker-error` (`isWorkerErrorMessage`). In
+ * auto-spawn mode this endpoint logs both via the
+ * `automerge-repo:subduction:worker-ws-endpoint` debug logger (the port
+ * is private, so nothing else could observe them); when you supply the
+ * port — including via a provider — wire the listeners into your own
+ * logging, since SharedWorker consoles are otherwise only visible in
  * `chrome://inspect/#workers`. All proxy messages are version-tagged;
  * build skew (a stale cached worker chunk after a deploy) fails loudly
  * with a `protocol-mismatch` error instead of misbehaving.
@@ -204,11 +232,31 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
   }
 
   async connect(): Promise<ManagedTransport> {
-    const transport = await WorkerWebSocketTransport.connect(
-      await this.#resolvePort(),
-      this.url,
-      this.#options
-    )
+    const port = await this.#resolvePort()
+    let transport: WorkerWebSocketTransport
+    try {
+      transport = await WorkerWebSocketTransport.connect(
+        port,
+        this.url,
+        this.#options
+      )
+    } catch (error) {
+      // A provider-obtained port that times out or speaks the wrong
+      // protocol version is very likely dead or useless. Cache
+      // invalidation normally rides on the port's `close` event, but that
+      // event can be missed (far side died before the listener attached,
+      // or a browser below the close-event floor) — without this, every
+      // reconnect attempt would burn the full timeout against the same
+      // corpse while a healthy replacement sits in the provider.
+      if (
+        this.#portSource &&
+        error instanceof WorkerWebSocketError &&
+        (error.code === "connect-timeout" || error.code === "protocol-mismatch")
+      ) {
+        this.#unwatchProvidedPort(port)
+      }
+      throw error
+    }
     this.#transports.add(transport)
     // Drop the registry entry once the connection is over, however it ends.
     void transport.closed().then(() => this.#transports.delete(transport))
@@ -271,6 +319,7 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
       worker.unref()
       this.#port = channel.port1
       this.#terminateOwned = () => void worker.terminate()
+      logHealthSignals(this.#port)
       return this.#port
     }
 
@@ -281,6 +330,7 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
       )
       this.#port = worker
       this.#terminateOwned = () => worker.terminate()
+      logHealthSignals(this.#port)
       return this.#port
     }
 
@@ -302,11 +352,21 @@ export class WorkerWebSocketEndpoint implements WebSocketEndpointInterface {
    */
   #watchProvidedPort(port: WorkerPortLike) {
     if (this.#port === port) return // provider re-supplied the live port
+    this.#unwatch?.() // replace any watch on a superseded port
     this.#port = port
-    const onClose = () => {
-      port.removeEventListener("close", onClose)
-      if (this.#port === port) this.#port = null
-    }
+    const onClose = () => this.#unwatchProvidedPort(port)
+    this.#unwatch = () => port.removeEventListener("close", onClose)
     port.addEventListener("close", onClose)
+  }
+
+  /** Removes the current provided port's close listener, when any. */
+  #unwatch: (() => void) | null = null
+
+  /** Forget a provided port so the next connect re-invokes the provider. */
+  #unwatchProvidedPort(port: WorkerPortLike) {
+    if (this.#port !== port) return
+    this.#unwatch?.()
+    this.#unwatch = null
+    this.#port = null
   }
 }

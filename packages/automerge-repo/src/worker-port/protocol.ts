@@ -57,13 +57,20 @@ export interface WorkerErrorMessage {
   stack?: string
 }
 
-/** Type guard for {@link WorkerErrorMessage} on a shared port. */
+/**
+ * Type guard for {@link WorkerErrorMessage} on a shared port. Also
+ * requires the protocol version to match — a skewed build's messages may
+ * not have the shape the type promises. Use
+ * {@link workerPortVersionOk} / {@link workerPortVersionMismatch} to
+ * detect-and-report skew separately if needed.
+ */
 export const isWorkerErrorMessage = (
   data: unknown
 ): data is WorkerErrorMessage =>
   typeof data === "object" &&
   data !== null &&
-  (data as { channel?: unknown }).channel === WORKER_ERROR_CHANNEL
+  (data as { channel?: unknown }).channel === WORKER_ERROR_CHANNEL &&
+  workerPortVersionOk(data)
 
 /** Discriminator for port-provisioning traffic (tab → repo worker). */
 export const PORT_PROVISION_CHANNEL = "am-port-provision"
@@ -128,10 +135,15 @@ export interface WorkerStatsMessage {
   at: number
 }
 
-/** Type guard for {@link WorkerStatsMessage} on a shared port. */
+/**
+ * Type guard for {@link WorkerStatsMessage} on a shared port. Also
+ * requires the protocol version to match (see
+ * {@link isWorkerErrorMessage}).
+ */
 export const isWorkerStatsMessage = (
   data: unknown
 ): data is WorkerStatsMessage =>
   typeof data === "object" &&
   data !== null &&
-  (data as { channel?: unknown }).channel === WORKER_STATS_CHANNEL
+  (data as { channel?: unknown }).channel === WORKER_STATS_CHANNEL &&
+  workerPortVersionOk(data)

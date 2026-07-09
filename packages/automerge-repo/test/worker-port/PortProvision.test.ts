@@ -88,26 +88,36 @@ describe("makePortProvider / donatePort", () => {
     const { port1: tabSide, port2: repoSide } = trackedChannel()
     provider.attachClient(asPort(repoSide))
 
+    // eager: false keeps the donation count deterministic — an eager
+    // donation races the port-request broadcast under CPU load, producing
+    // a benign-but-count-perturbing duplicate.
     let donations = 0
-    donatePort(asPort(tabSide), () => {
-      donations++
-      return trackedChannel().port1 as unknown as MessagePort
-    })
+    donatePort(
+      asPort(tabSide),
+      () => {
+        donations++
+        return trackedChannel().port1 as unknown as MessagePort
+      },
+      { eager: false }
+    )
 
-    // Let the eager donation land before asking, else the provider
-    // broadcasts a port-request and a second (benign) donation races in.
-    await tick()
-    const first = await provider.source()
+    const first = await provider.source() // port-request → donation 1
     expect(donations).toBe(1)
 
-    // Simulate the io worker dying: close the far side of nothing — the
-    // donated port itself is closed by closing what we hold.
+    // Simulate the io worker dying: closing our end closes the pair.
     ;(first as unknown as { close(): void }).close()
-    await tick()
 
-    const second = await provider.source()
-    expect(donations).toBe(2)
+    // The close event propagates on its own schedule; poll with a bound
+    // (a single tick loses the race under parallel-suite CPU load).
+    const deadline = Date.now() + 2000
+    let second = first
+    while (second === first && Date.now() < deadline) {
+      await tick()
+      second = await provider.source()
+    }
+
     expect(second).not.toBe(first)
+    expect(donations).toBeGreaterThanOrEqual(2) // at least one re-request
   })
 
   it("asks a late-attaching client when a source() call is already waiting", async () => {
@@ -145,6 +155,46 @@ describe("makePortProvider / donatePort", () => {
     void other.source().then(() => (otherResolved = true))
     await tick()
     expect(otherResolved).toBe(false)
+  })
+})
+
+describe("invalidate", () => {
+  it("evicts a pre-dead donated port and re-requests", async () => {
+    const provider = makePortProvider()
+    const { port1: tabSide, port2: repoSide } = trackedChannel()
+    provider.attachClient(asPort(repoSide))
+
+    // A donation whose far side died BEFORE the provider attached its
+    // close listener — close is not delivered retroactively, so the
+    // provider caches a corpse it can never detect on its own.
+    const dead = trackedChannel()
+    dead.port2.close()
+    // Let the close land before offering, so no event reaches offer()'s
+    // listener.
+    await tick()
+    provider.offer(asPort(dead.port1))
+    expect(await provider.source()).toBe(dead.port1) // cached corpse
+
+    // A consumer hitting timeouts evicts it; the pending fetch triggers
+    // a fresh port-request that a live tab answers.
+    let donations = 0
+    donatePort(
+      asPort(tabSide),
+      () => {
+        donations++
+        return trackedChannel().port1 as unknown as MessagePort
+      },
+      { eager: false }
+    )
+
+    provider.invalidate(asPort(dead.port1))
+    const healed = await provider.source()
+    expect(healed).not.toBe(dead.port1)
+    expect(donations).toBe(1)
+
+    // Invalidating a non-current port is a no-op.
+    provider.invalidate(asPort(dead.port1))
+    expect(await provider.source()).toBe(healed)
   })
 })
 
@@ -228,6 +278,15 @@ describe("protocol version skew", () => {
         type: "port-request",
         target: "default",
       })
+
+      // Bounded poll for the complaint (one tick can lose the cross-port
+      // race under load), then give a donation two more chances to
+      // (incorrectly) fire.
+      const deadline = Date.now() + 2000
+      while (errorSpy.mock.calls.length === 0 && Date.now() < deadline) {
+        await tick()
+      }
+      await tick()
       await tick()
 
       expect(donations).toBe(0)
@@ -240,29 +299,32 @@ describe("protocol version skew", () => {
 })
 
 describe("startDriftProbe", () => {
-  it("stays silent when healthy, reports when the loop is blocked", async () => {
+  it("stays silent when healthy, reports when the loop is blocked", () => {
+    // Fake timers make both halves deterministic: the "healthy" phase
+    // can't be polluted by real CI stalls, and the "stall" is a clock
+    // jump instead of a CPU-burning busy-wait.
+    vi.useFakeTimers()
     const samples: WorkerStatsMessage[] = []
     const stop = startDriftProbe(s => samples.push(s), {
       intervalMs: 25,
       reportThresholdMs: 100,
     })
     try {
-      // Healthy: several ticks, nothing crosses the threshold.
-      await new Promise(r => setTimeout(r, 100))
+      // Healthy: clock and timers advance in lockstep — zero drift.
+      vi.advanceTimersByTime(100)
       expect(samples).toHaveLength(0)
 
-      // Block the event loop well past the threshold.
-      const until = Date.now() + 150
-      while (Date.now() < until) {
-        /* busy-wait */
-      }
-      await new Promise(r => setTimeout(r, 50))
+      // Stall: jump the system clock without firing timers, then let the
+      // next tick fire and observe how late it "ran".
+      vi.setSystemTime(Date.now() + 500)
+      vi.advanceTimersByTime(25)
 
       expect(samples.length).toBeGreaterThanOrEqual(1)
       expect(samples[0].driftMs).toBeGreaterThanOrEqual(100)
       expect(isWorkerStatsMessage(samples[0])).toBe(true)
     } finally {
       stop()
+      vi.useRealTimers()
     }
   })
 })

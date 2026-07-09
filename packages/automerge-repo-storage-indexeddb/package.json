@@ -46,6 +46,10 @@
       "types": "./dist/worker-shared.d.ts",
       "default": "./dist/worker-shared.js"
     },
+    "./worker-io-shared": {
+      "types": "./dist/worker-io-shared.d.ts",
+      "default": "./dist/worker-io-shared.js"
+    },
     "./worker-host": {
       "types": "./dist/worker-host.d.ts",
       "default": "./dist/worker-host.js"

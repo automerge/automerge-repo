@@ -410,14 +410,22 @@ export class WorkerWebSocketTransport implements Transport {
   #teardown({
     fireDisconnectCallback,
   }: { fireDisconnectCallback?: boolean } = {}) {
+    // Already ended (remote close, abort, mismatch): the socket is gone
+    // and the port may be dead — nothing to post, nothing to re-fail.
+    if (this.#isClosed) return
     // Close the worker-side socket, then fail locally: pending receivers
     // must reject (the port listener detaches in `#fail`, so a `ws-closed`
     // reply could never settle them later).
-    WorkerWebSocketTransport.#post(this.#port, {
-      channel: WS_PROXY_CHANNEL,
-      type: "ws-close",
-      connId: this.#connId,
-    })
+    try {
+      WorkerWebSocketTransport.#post(this.#port, {
+        channel: WS_PROXY_CHANNEL,
+        type: "ws-close",
+        connId: this.#connId,
+      })
+    } catch {
+      // The port may already be terminated/closed (Node ports can throw
+      // synchronously); failing locally is all that matters then.
+    }
     // Drop undelivered frames: on a local teardown, handing them to the
     // wasm could trigger dispatches against storage that is about to close.
     this.#messageQueue = []

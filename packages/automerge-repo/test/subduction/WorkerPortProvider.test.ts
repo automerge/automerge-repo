@@ -156,6 +156,40 @@ describe("WorkerWebSocketEndpoint with a port provider", () => {
     endpoint.shutdown()
   })
 
+  it("drops a provider port that times out, so reconnect gets a fresh one", async () => {
+    // A port whose far side never answers ws-connect — and whose `close`
+    // event never fires (simulating the missed-close race / old browsers).
+    const sockets: FakeSocket[] = []
+    let fetches = 0
+    const endpoint = new WorkerWebSocketEndpoint("ws://unused.example", {
+      worker: () => {
+        fetches++
+        if (fetches === 1) {
+          // Dead-but-open port: no host attached, no close event.
+          const channel = new NodeMessageChannel()
+          openPorts.push(channel.port1, channel.port2)
+          return channel.port1 as unknown as WorkerPortLike
+        }
+        return makeHostedPort(sockets).port1 as unknown as WorkerPortLike
+      },
+      connectTimeoutMs: 100,
+    })
+
+    await expect(endpoint.connect()).rejects.toMatchObject({
+      code: "connect-timeout",
+    })
+
+    // The timeout must have evicted the cached corpse: the next attempt
+    // re-invokes the provider and succeeds on the healthy port.
+    const transport = await endpoint.connect()
+    expect(fetches).toBe(2)
+    await transport.sendBytes(new Uint8Array([5]))
+    expect(Array.from(await transport.recvBytes())).toEqual([5])
+
+    await transport.disconnect()
+    endpoint.shutdown()
+  })
+
   it("reuses the cached port while it is alive", async () => {
     const sockets: FakeSocket[] = []
     let fetches = 0

@@ -306,6 +306,16 @@ class WorkerBackedIndexedDB implements StorageAdapterInterface {
   }
 }
 
+export interface IndexedDBWorkerStorageAdapterOptions {
+  /**
+   * Deadline for the worker to answer the `init` RPC, in ms. Default
+   * 10 000. Raise it for slow networks / cold Service-Worker caches
+   * where the worker chunk itself may take a while to load; a dead
+   * donated port surfaces as a `WorkerStorageError` after this long.
+   */
+  initTimeoutMs?: number
+}
+
 export class IndexedDBWorkerStorageAdapter implements StorageAdapterInterface {
   #impl: StorageAdapterInterface
   #closed = false
@@ -317,18 +327,21 @@ export class IndexedDBWorkerStorageAdapter implements StorageAdapterInterface {
    *   donated port heals storage. Omit it to auto-spawn a dedicated
    *   worker (falls back to in-thread IndexedDB where Workers don't
    *   exist, e.g. inside a Chrome SharedWorker).
+   * @param options - tuning knobs; see
+   *   {@link IndexedDBWorkerStorageAdapterOptions}.
    */
   constructor(
     database: string = "automerge",
     store: string = "documents",
-    worker?: WorkerPortSource
+    worker?: WorkerPortSource,
+    options: IndexedDBWorkerStorageAdapterOptions = {}
   ) {
     if (worker === undefined && typeof Worker === "undefined") {
       this.#impl = new IndexedDBStorageAdapter(database, store)
       return
     }
     try {
-      this.#impl = makeWorkerBacked(database, store, worker)
+      this.#impl = makeWorkerBacked(database, store, worker, options)
     } catch (error) {
       // e.g. WebKit contexts that reject nested module workers.
       console.warn(
@@ -374,15 +387,19 @@ export class IndexedDBWorkerStorageAdapter implements StorageAdapterInterface {
 function makeWorkerBacked(
   database: string,
   store: string,
-  worker?: WorkerPortSource
+  worker?: WorkerPortSource,
+  { initTimeoutMs }: IndexedDBWorkerStorageAdapterOptions = {}
 ): WorkerBackedIndexedDB {
   if (typeof worker === "function") {
     return new WorkerBackedIndexedDB(database, store, worker, {
       retryable: true,
+      initTimeoutMs,
     })
   }
   if (worker !== undefined) {
-    return new WorkerBackedIndexedDB(database, store, () => worker)
+    return new WorkerBackedIndexedDB(database, store, () => worker, {
+      initTimeoutMs,
+    })
   }
   // Auto-spawn: eager, so a construction failure is caught by the caller's
   // try/catch and falls back in-thread.
@@ -393,6 +410,6 @@ function makeWorkerBacked(
     database,
     store,
     () => spawned as unknown as WorkerPortLike,
-    { terminateOwned: () => spawned.terminate() }
+    { terminateOwned: () => spawned.terminate(), initTimeoutMs }
   )
 }

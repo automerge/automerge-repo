@@ -147,9 +147,18 @@ export function attachWebSocketHost(
       inFlight: 0,
       pending: [],
       pendingBytes: 0,
-      // A window below 1 could never forward anything; clamp.
-      windowFrames: Math.max(1, msg.windowFrames ?? DEFAULT_WINDOW_FRAMES),
-      maxBufferedBytes: msg.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES,
+      // Guard the arithmetic like the ws-ack path does: a NaN window
+      // would make `inFlight < windowFrames` always false (nothing ever
+      // forwarded), and a NaN byte cap would never trip (unbounded
+      // buffering). Fall back to defaults for garbage, clamp below 1.
+      windowFrames: Number.isInteger(msg.windowFrames)
+        ? Math.max(1, msg.windowFrames as number)
+        : DEFAULT_WINDOW_FRAMES,
+      maxBufferedBytes:
+        Number.isFinite(msg.maxBufferedBytes) &&
+        (msg.maxBufferedBytes as number) > 0
+          ? (msg.maxBufferedBytes as number)
+          : DEFAULT_MAX_BUFFERED_BYTES,
       closedPendingFlush: false,
       dead: false,
     }
