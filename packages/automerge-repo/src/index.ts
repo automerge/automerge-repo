@@ -154,6 +154,7 @@ export {
   WORKER_STATS_CHANNEL,
   workerPortVersionMismatch,
   workerPortVersionOk,
+  type DonatablePort,
   type DonatePortOptions,
   type DriftProbeOptions,
   type ErrorRelay,

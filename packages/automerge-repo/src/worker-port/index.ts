@@ -12,6 +12,7 @@ export {
   donatePort,
   makePortProvider,
   PortProtocolMismatchError,
+  type DonatablePort,
   type DonatePortOptions,
   type PortProvider,
   type PortProviderOptions,

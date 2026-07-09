@@ -278,6 +278,15 @@ export function makePortProvider({
   }
 }
 
+/**
+ * What a tab may donate: a transferable message port. Requiring `close()`
+ * structurally excludes non-transferable `WorkerPortLike`s — a dedicated
+ * `Worker` has `terminate()`, not `close()`, and putting one in a
+ * transfer list is a runtime `DataCloneError`. Browser `MessagePort`,
+ * `SharedWorker.port`, and Node `worker_threads` ports all qualify.
+ */
+export type DonatablePort = WorkerPortLike & { close(): void }
+
 export interface DonatePortOptions {
   /** Must match the provider's `target`. */
   target?: string
@@ -300,7 +309,7 @@ export interface DonatePortOptions {
  */
 export function donatePort(
   client: WorkerPortLike,
-  createPort: () => WorkerPortLike | Promise<WorkerPortLike>,
+  createPort: () => DonatablePort | Promise<DonatablePort>,
   { target = DEFAULT_TARGET, eager = true }: DonatePortOptions = {}
 ): () => void {
   const donate = async () => {
@@ -314,6 +323,9 @@ export function donatePort(
           target,
           port,
         },
+        // The cast bridges DOM `Transferable` vs Node's `TransferListItem`
+        // (Node ports are transferable but not assignable to the DOM
+        // union); `DonatablePort` guarantees the value itself is a port.
         [port as unknown as Transferable]
       )
     } catch (error) {
