@@ -158,8 +158,10 @@ class FakePort implements WorkerPortLike {
   }
 
   respond(msg: WsProxyResponse) {
-    // Stamp the protocol version like the real host does.
-    const data = { v: WS_PROXY_PROTOCOL_VERSION, ...msg }
+    // Stamp the protocol version like the real host does — stamp-last, so
+    // the constant always wins (tests simulating skew should post raw
+    // untagged messages instead, as the FlowControl tests do).
+    const data = { ...msg, v: WS_PROXY_PROTOCOL_VERSION }
     for (const listener of [...(this.#listeners.get("message") ?? [])]) {
       listener({ data } as MessageEvent)
     }
