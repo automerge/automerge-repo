@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
-    "autoprefixer": "^10.5.0",
+    "autoprefixer": "^10.5.2",
     "clsx": "^2.1.1",
-    "postcss": "^8.5.15",
+    "postcss": "^8.5.16",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-error-boundary": "catalog:"
