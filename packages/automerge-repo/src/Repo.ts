@@ -985,29 +985,36 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#syncStateTracker.delete(documentId)
   }
 
-  async shutdown() {
-    // Quiesce Subduction first — stops reconnect loops, flushes pending
-    // saves, awaits storage writes, disconnects transports, frees Wasm.
-    // On return its storage bridge is closed and idle, so the
-    // storageSubsystem.close() below cannot race a late dispatch.
-    await this.#subductionSource?.shutdown()
+  async shutdown(): Promise<void> {
+    // Best-effort teardown: guard each step so a failure is logged rather than
+    // thrown, so one failing step neither skips a later one nor rejects
+    // shutdown(). Call flush() explicitly before shutdown() if you need to
+    // observe save failures.
 
-    // Stop traditional sync network connections
-    this.networkSubsystem.disconnect()
-
-    // Best-effort flush: log persistence errors but don't propagate,
-    // so the rest of teardown still runs. Call `repo.flush()`
-    // explicitly before `shutdown()` if you need to observe them.
+    // Quiesce Subduction first: stops reconnect loops, flushes pending saves,
+    // awaits storage writes, disconnects transports, frees Wasm. On return its
+    // storage bridge is closed and idle, so the storageSubsystem.close() below
+    // cannot race a late dispatch.
+    try {
+      await this.#subductionSource?.shutdown()
+    } catch (err) {
+      this.#log.error("error shutting down Subduction during shutdown", err)
+    }
     try {
       await this.flush()
-    } catch (e) {
-      this.#log.warn("flush() during shutdown failed", { err: e })
+    } catch (err) {
+      this.#log.error("error flushing documents during shutdown", err)
     }
-
-    // Release the storage adapter after the flush. StorageSubsystem.close()
-    // forwards to the adapter's close?(), which terminates a worker-backed
-    // adapter's worker.
-    await this.storageSubsystem?.close()
+    try {
+      this.networkSubsystem.disconnect()
+    } catch (err) {
+      this.#log.error("error disconnecting network during shutdown", err)
+    }
+    try {
+      await this.storageSubsystem?.close()
+    } catch (err) {
+      this.#log.error("error closing storage during shutdown", err)
+    }
   }
 
   metrics(): { documents: { [key: string]: any } } {
