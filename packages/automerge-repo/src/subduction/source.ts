@@ -433,7 +433,12 @@ export class SubductionSource implements DocumentSource {
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     this.#syncTimeout = this.#syncTimeoutMs
     this.#compactionDeleteConcurrency = compactionDeleteConcurrency
-    this.#shutdownSyncConcurrency = shutdownSyncConcurrency
+    // Coerce an invalid value to the default so the semaphore() built from it in
+    // shutdown() can't throw and abort teardown.
+    this.#shutdownSyncConcurrency =
+      Number.isInteger(shutdownSyncConcurrency) && shutdownSyncConcurrency >= 1
+        ? shutdownSyncConcurrency
+        : DEFAULT_SHUTDOWN_SYNC_CONCURRENCY
     // Default roundtrip deadline forwarded to the Subduction constructor.
     // The field must be *omitted* (not passed as `undefined`) to get the
     // wasm built-in default (30 s) — passing `undefined` is coerced to a
@@ -1968,23 +1973,40 @@ export class SubductionSource implements DocumentSource {
   async shutdown() {
     this.#shuttingDown = true
 
-    // Close the storage bridge in a finally so it is released even if a teardown
-    // step below throws. Repo.shutdown() is best-effort: on a throw here it still
-    // closes the underlying storage adapter, so the bridge must already be closed
-    // or a late Wasm-side dispatch (a frame still crossing the worker transport)
-    // would race the closed adapter and raise "read from a closed database". This
-    // preserves that no-race invariant on the failure path, not just the happy one.
+    // Best-effort teardown: attempt every step even if an earlier one fails,
+    // collecting the failures. Close the storage bridge in the finally so it is
+    // released even on a throw (Repo.shutdown() closes the underlying adapter
+    // next, and a late Wasm-side dispatch would otherwise race the closed
+    // adapter and raise "read from a closed database"). Then rethrow the
+    // collected failures as an AggregateError so they surface at error level
+    // via Repo.shutdown()'s guard rather than being silently swallowed, while
+    // still not letting any single failure abort the rest of teardown.
+    const errors: unknown[] = []
+    const attempt = (what: string, step: () => void) => {
+      try {
+        step()
+      } catch (err) {
+        errors.push(
+          new Error(`subduction shutdown: ${what} failed`, { cause: err })
+        )
+      }
+    }
+
     try {
       for (const mgr of this.#connectionManagers) {
-        mgr.shutdown()
+        attempt("connection manager shutdown", () => mgr.shutdown())
       }
 
-      this.#scheduler.shutdown()
-
-      for (const entry of this.#entries.values()) this.#flushInbound(entry)
+      attempt("scheduler shutdown", () => this.#scheduler.shutdown())
 
       for (const entry of this.#entries.values()) {
-        entry.flushSave.flush()
+        const id = entry.sedimentreeId.toString().slice(0, 8)
+        attempt(`flushInbound for ${id}`, () => this.#flushInbound(entry))
+      }
+
+      for (const entry of this.#entries.values()) {
+        const id = entry.sedimentreeId.toString().slice(0, 8)
+        attempt(`flushSave for ${id}`, () => entry.flushSave.flush())
       }
 
       await Promise.all(
@@ -2011,6 +2033,9 @@ export class SubductionSource implements DocumentSource {
               try {
                 await this.#doSync(e, SHUTDOWN_SYNC_TIMEOUT_MS)
               } catch (err) {
+                // Best-effort push: these commits are persisted locally and
+                // re-sync on the next startup, so a failed final sync is not a
+                // teardown failure. Log it; do not accumulate it.
                 this.#log.debug(
                   "shutdown: final sync failed for %s: %O",
                   e.sedimentreeId.toString().slice(0, 8),
@@ -2028,27 +2053,37 @@ export class SubductionSource implements DocumentSource {
       try {
         subduction = await this.#subduction
       } catch (e) {
+        // Subduction never initialized: nothing to disconnect, not a failure.
         this.#log.debug(
           "subduction never initialized, skipping teardown: %O",
           e
         )
-        for (const endpoint of this.#websocketEndpoints) {
-          endpoint.shutdown?.()
-        }
-        return
       }
-      try {
-        await subduction.disconnectAll()
-      } catch (e) {
-        this.#log.debug("error disconnecting subduction transports: %O", e)
+      if (subduction) {
+        try {
+          await subduction.disconnectAll()
+        } catch (err) {
+          errors.push(
+            new Error("subduction shutdown: disconnecting transports failed", {
+              cause: err,
+            })
+          )
+        }
       }
 
       for (const endpoint of this.#websocketEndpoints) {
-        endpoint.shutdown?.()
+        attempt("endpoint shutdown", () => endpoint.shutdown?.())
       }
     } finally {
       this.#storage.close()
       await this.#awaitStorageIdle()
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(
+        errors,
+        `subduction shutdown: ${errors.length} teardown step(s) failed`
+      )
     }
   }
 

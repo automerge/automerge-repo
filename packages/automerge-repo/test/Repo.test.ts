@@ -41,6 +41,7 @@ import { DocumentProgress } from "../src/DocumentQuery.js"
 import { isAbortErrorLike } from "../src/helpers/abortable.js"
 import { toSedimentreeId } from "../src/subduction/helpers.js"
 import { SubductionSource } from "../src/subduction/index.js"
+import { SyncScheduler } from "../src/subduction/SyncScheduler.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -1203,6 +1204,50 @@ describe("Repo", () => {
         expect(closeSpy).toHaveBeenCalledOnce()
       } finally {
         quiesceSpy.mockRestore()
+        errSpy.mockRestore()
+      }
+    })
+
+    it("shutdown() rethrows a failed teardown step as an AggregateError and still tears down", async () => {
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const schedulerSpy = vi
+        .spyOn(SyncScheduler.prototype, "shutdown")
+        .mockImplementation(() => {
+          throw new Error("scheduler boom")
+        })
+      const logged = (str: string) =>
+        errSpy.mock.calls.some(call =>
+          call.some(arg => String(arg).includes(str))
+        )
+      try {
+        const storage = new DummyStorageAdapter()
+        const closeSpy = vi.fn(async () => {})
+        storage.close = closeSpy
+        const repo = new Repo({ storage })
+        const disconnectSpy = vi.spyOn(repo.networkSubsystem, "disconnect")
+
+        // A throwing teardown step is collected and rethrown as an
+        // AggregateError; Repo.shutdown() logs it at error yet still disconnects
+        // and closes storage (the finally released the bridge regardless).
+        await expect(repo.shutdown()).resolves.toBeUndefined()
+        expect(schedulerSpy).toHaveBeenCalledOnce()
+        expect(logged("error shutting down Subduction during shutdown")).toBe(
+          true
+        )
+        expect(disconnectSpy).toHaveBeenCalledOnce()
+        expect(closeSpy).toHaveBeenCalledOnce()
+
+        const aggregate = errSpy.mock.calls
+          .flat()
+          .find((arg): arg is AggregateError => arg instanceof AggregateError)
+        expect(aggregate).toBeInstanceOf(AggregateError)
+        expect(
+          aggregate?.errors.some(e =>
+            String((e as Error)?.message).includes("scheduler")
+          )
+        ).toBe(true)
+      } finally {
+        schedulerSpy.mockRestore()
         errSpy.mockRestore()
       }
     })
