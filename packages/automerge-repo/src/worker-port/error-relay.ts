@@ -49,9 +49,7 @@ export function createErrorRelay(
 ): ErrorRelay {
   const ports = new Set<ErrorRelayPort>()
 
-  const broadcast = (
-    msg: Omit<WorkerErrorMessage, "channel" | "v">
-  ): void => {
+  const broadcast = (msg: Omit<WorkerErrorMessage, "channel" | "v">): void => {
     for (const port of ports) {
       try {
         // Version stamped last so it always wins, as everywhere else.

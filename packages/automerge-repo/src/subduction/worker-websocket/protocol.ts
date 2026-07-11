@@ -168,10 +168,7 @@ export interface WorkerPortLike {
     type: "message",
     listener: (event: MessageEvent) => void
   ): void
-  removeEventListener(
-    type: "close",
-    listener: (event: Event) => void
-  ): void
+  removeEventListener(type: "close", listener: (event: Event) => void): void
   /** `MessagePort` requires `start()` before events flow; `Worker` has none. */
   start?(): void
 }
