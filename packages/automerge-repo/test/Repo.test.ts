@@ -1050,13 +1050,28 @@ describe("Repo", () => {
         repo.create({ b: 2 })
 
         await expect(repo.flush()).rejects.toThrow(AggregateError)
+
+        // create() also schedules a fire-and-forget throttled save per document;
+        // wait for those to run and be logged (rather than leaking past the test
+        // as unattributed stderr) and assert the failure is surfaced.
+        await vi.waitFor(() =>
+          expect(
+            errSpy.mock.calls.some(call =>
+              call.some(arg => String(arg).includes("Error saving document"))
+            )
+          ).toBe(true)
+        )
       } finally {
         errSpy.mockRestore()
       }
     })
 
-    it("shutdown() disconnects even if flush() fails", async () => {
+    it("shutdown() flushes best-effort, logging a flush failure instead of rejecting", async () => {
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const logged = (str: string) =>
+        errSpy.mock.calls.some(call =>
+          call.some(arg => String(arg).includes(str))
+        )
       try {
         const storage = new DummyStorageAdapter()
         const realSave = storage.save.bind(storage)
@@ -1068,11 +1083,53 @@ describe("Repo", () => {
         }
         const repo = new Repo({ storage })
         repo.create({ a: 1 })
+
+        // Drain the fire-and-forget throttled save first (while storage is open)
+        // so its log is asserted here rather than leaking into a later test.
+        await vi.waitFor(() =>
+          expect(logged("Error saving document")).toBe(true)
+        )
+
         const disconnectSpy = vi.spyOn(repo.networkSubsystem, "disconnect")
 
-        // shutdown rethrows flush's failure, but the finally must still run.
-        await expect(repo.shutdown()).rejects.toThrow(AggregateError)
+        // shutdown() is best-effort: it swallows and logs the flush failure,
+        // resolves, and still disconnects.
+        await expect(repo.shutdown()).resolves.toBeUndefined()
         expect(disconnectSpy).toHaveBeenCalledOnce()
+        expect(logged("error flushing documents during shutdown")).toBe(true)
+      } finally {
+        errSpy.mockRestore()
+      }
+    })
+
+    it("shutdown() is best-effort when teardown throws, still closing storage and resolving", async () => {
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const logged = (str: string) =>
+        errSpy.mock.calls.some(call =>
+          call.some(arg => String(arg).includes(str))
+        )
+      try {
+        const storage = new DummyStorageAdapter()
+        const closeSpy = vi.fn(async () => {
+          throw new Error("close failed")
+        })
+        storage.close = closeSpy
+        const repo = new Repo({ storage })
+        repo.create({ a: 1 })
+
+        // A throwing disconnect() must not skip storage close(), and a throwing
+        // close() must not reject shutdown(); each failure is logged instead.
+        const disconnectSpy = vi
+          .spyOn(repo.networkSubsystem, "disconnect")
+          .mockImplementation(() => {
+            throw new Error("disconnect failed")
+          })
+
+        await expect(repo.shutdown()).resolves.toBeUndefined()
+        expect(disconnectSpy).toHaveBeenCalledOnce()
+        expect(closeSpy).toHaveBeenCalledOnce()
+        expect(logged("error disconnecting network during shutdown")).toBe(true)
+        expect(logged("error closing storage during shutdown")).toBe(true)
       } finally {
         errSpy.mockRestore()
       }
