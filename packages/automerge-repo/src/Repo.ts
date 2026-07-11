@@ -148,6 +148,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionAdapters,
     subductionTimeouts,
     subductionCompactionDeleteConcurrency,
+    subductionShutdownSyncConcurrency,
     subductionBlobInterceptor,
   }: RepoConfig = {}) {
     super()
@@ -226,6 +227,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       policy: subductionPolicy,
       timeouts: subductionTimeouts,
       compactionDeleteConcurrency: subductionCompactionDeleteConcurrency,
+      shutdownSyncConcurrency: subductionShutdownSyncConcurrency,
       blobInterceptor: subductionBlobInterceptor,
       onRemoteHeadsChanged: (documentId, storageId, heads, timestamp) => {
         const handle = this.#queries[documentId]?.handle
@@ -1176,6 +1178,13 @@ export interface RepoConfig {
    * handles many parallel deletes well; lower it to reduce burst load.
    */
   subductionCompactionDeleteConcurrency?: number
+
+  /**
+   * Max number of entries Subduction re-syncs concurrently during shutdown's
+   * final sync round. Defaults to 16. Raise it if your sync server handles
+   * many parallel rounds well; lower it to reduce burst load on teardown.
+   */
+  subductionShutdownSyncConcurrency?: number
 
   /**
    * Optional interceptor for transforming incoming and outgoing blobs (e.g.,

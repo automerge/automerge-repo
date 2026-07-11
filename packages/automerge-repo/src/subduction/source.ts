@@ -70,6 +70,14 @@ const SHUTDOWN_IDLE_TIMEOUT_MS = 5_000
  */
 const DEFAULT_COMPACTION_DELETE_CONCURRENCY = 16
 
+/**
+ * Default cap on how many entries re-sync concurrently during shutdown's final
+ * sync round. Every entry with un-broadcast commits opens a bounded sync round;
+ * without a cap they would all fire at once. Override per-Repo via
+ * `RepoConfig.subductionShutdownSyncConcurrency`.
+ */
+const DEFAULT_SHUTDOWN_SYNC_CONCURRENCY = 16
+
 // ── Per-sedimentree state ───────────────────────────────────────────────
 //
 // `initializing`: suppress individual commit-saved events. The handle
@@ -361,6 +369,12 @@ export interface SubductionSourceOptions {
    */
   compactionDeleteConcurrency?: number
 
+  /**
+   * Max number of entries to re-sync concurrently during shutdown's final sync
+   * round. Defaults to {@link DEFAULT_SHUTDOWN_SYNC_CONCURRENCY}.
+   */
+  shutdownSyncConcurrency?: number
+
   blobInterceptor?: BlobInterceptor
 }
 
@@ -376,6 +390,7 @@ export class SubductionSource implements DocumentSource {
   #syncTimeoutMs: number
   #syncTimeout: number | null
   #compactionDeleteConcurrency: number
+  #shutdownSyncConcurrency: number
   #blobInterceptor?: BlobInterceptor
   #onRemoteHeadsChanged?: OnRemoteHeadsChanged
   #onConnectionChanged?: (connected: boolean) => void
@@ -409,6 +424,7 @@ export class SubductionSource implements DocumentSource {
     policy,
     timeouts,
     compactionDeleteConcurrency = DEFAULT_COMPACTION_DELETE_CONCURRENCY,
+    shutdownSyncConcurrency = DEFAULT_SHUTDOWN_SYNC_CONCURRENCY,
     blobInterceptor,
   }: SubductionSourceOptions) {
     this.#blobInterceptor = blobInterceptor
@@ -417,6 +433,7 @@ export class SubductionSource implements DocumentSource {
     this.#syncTimeoutMs = timeouts?.syncMs ?? DEFAULT_SYNC_TIMEOUT_MS
     this.#syncTimeout = this.#syncTimeoutMs
     this.#compactionDeleteConcurrency = compactionDeleteConcurrency
+    this.#shutdownSyncConcurrency = shutdownSyncConcurrency
     // Default roundtrip deadline forwarded to the Subduction constructor.
     // The field must be *omitted* (not passed as `undefined`) to get the
     // wasm built-in default (30 s) — passing `undefined` is coerced to a
@@ -1987,13 +2004,10 @@ export class SubductionSource implements DocumentSource {
             `entr${unbroadcast.length === 1 ? "y" : "ies"} with ` +
             `un-broadcast commits`
         )
-        const queue = [...unbroadcast]
-        const workers = Array.from(
-          { length: Math.min(16, queue.length) },
-          async () => {
-            for (;;) {
-              const e = queue.pop()
-              if (e === undefined) return
+        const limit = semaphore(this.#shutdownSyncConcurrency)
+        await Promise.all(
+          unbroadcast.map(e =>
+            limit(async () => {
               try {
                 await this.#doSync(e, SHUTDOWN_SYNC_TIMEOUT_MS)
               } catch (err) {
@@ -2003,10 +2017,9 @@ export class SubductionSource implements DocumentSource {
                   err
                 )
               }
-            }
-          }
+            })
+          )
         )
-        await Promise.all(workers)
       }
 
       await this.#storage.awaitSettled()
