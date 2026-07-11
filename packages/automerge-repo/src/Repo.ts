@@ -992,9 +992,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     // observe save failures.
 
     // Quiesce Subduction first: stops reconnect loops, flushes pending saves,
-    // awaits storage writes, disconnects transports, frees Wasm. On return its
-    // storage bridge is closed and idle, so the storageSubsystem.close() below
-    // cannot race a late dispatch.
+    // awaits storage writes, disconnects transports, frees Wasm. It closes its
+    // storage bridge in a finally (even if quiesce throws and we swallow it
+    // here), so the storageSubsystem.close() below cannot race a late Wasm
+    // dispatch against the adapter.
     try {
       await this.#subductionSource?.shutdown()
     } catch (err) {

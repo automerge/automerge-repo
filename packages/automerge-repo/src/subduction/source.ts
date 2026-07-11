@@ -1951,83 +1951,92 @@ export class SubductionSource implements DocumentSource {
   async shutdown() {
     this.#shuttingDown = true
 
-    for (const mgr of this.#connectionManagers) {
-      mgr.shutdown()
-    }
+    // Close the storage bridge in a finally so it is released even if a teardown
+    // step below throws. Repo.shutdown() is best-effort: on a throw here it still
+    // closes the underlying storage adapter, so the bridge must already be closed
+    // or a late Wasm-side dispatch (a frame still crossing the worker transport)
+    // would race the closed adapter and raise "read from a closed database". This
+    // preserves that no-race invariant on the failure path, not just the happy one.
+    try {
+      for (const mgr of this.#connectionManagers) {
+        mgr.shutdown()
+      }
 
-    this.#scheduler.shutdown()
+      this.#scheduler.shutdown()
 
-    for (const entry of this.#entries.values()) this.#flushInbound(entry)
+      for (const entry of this.#entries.values()) this.#flushInbound(entry)
 
-    for (const entry of this.#entries.values()) {
-      entry.flushSave.flush()
-    }
+      for (const entry of this.#entries.values()) {
+        entry.flushSave.flush()
+      }
 
-    await Promise.all(
-      Array.from(this.#entries.values()).map(e => e.saveSettled)
-    )
-
-    await Promise.all(
-      Array.from(this.#entries.values()).map(e => e.syncSettled)
-    )
-
-    const unbroadcast = Array.from(this.#entries.values()).filter(
-      e => e.needsResync || this.#needsOutboundSync(e)
-    )
-    if (unbroadcast.length > 0) {
-      this.#log.debug(
-        `shutdown: final sync round for ${unbroadcast.length} ` +
-          `entr${unbroadcast.length === 1 ? "y" : "ies"} with ` +
-          `un-broadcast commits`
+      await Promise.all(
+        Array.from(this.#entries.values()).map(e => e.saveSettled)
       )
-      const queue = [...unbroadcast]
-      const workers = Array.from(
-        { length: Math.min(16, queue.length) },
-        async () => {
-          for (;;) {
-            const e = queue.pop()
-            if (e === undefined) return
-            try {
-              await this.#doSync(e, SHUTDOWN_SYNC_TIMEOUT_MS)
-            } catch (err) {
-              this.#log.debug(
-                "shutdown: final sync failed for %s: %O",
-                e.sedimentreeId.toString().slice(0, 8),
-                err
-              )
+
+      await Promise.all(
+        Array.from(this.#entries.values()).map(e => e.syncSettled)
+      )
+
+      const unbroadcast = Array.from(this.#entries.values()).filter(
+        e => e.needsResync || this.#needsOutboundSync(e)
+      )
+      if (unbroadcast.length > 0) {
+        this.#log.debug(
+          `shutdown: final sync round for ${unbroadcast.length} ` +
+            `entr${unbroadcast.length === 1 ? "y" : "ies"} with ` +
+            `un-broadcast commits`
+        )
+        const queue = [...unbroadcast]
+        const workers = Array.from(
+          { length: Math.min(16, queue.length) },
+          async () => {
+            for (;;) {
+              const e = queue.pop()
+              if (e === undefined) return
+              try {
+                await this.#doSync(e, SHUTDOWN_SYNC_TIMEOUT_MS)
+              } catch (err) {
+                this.#log.debug(
+                  "shutdown: final sync failed for %s: %O",
+                  e.sedimentreeId.toString().slice(0, 8),
+                  err
+                )
+              }
             }
           }
+        )
+        await Promise.all(workers)
+      }
+
+      await this.#storage.awaitSettled()
+
+      let subduction: Subduction | null = null
+      try {
+        subduction = await this.#subduction
+      } catch (e) {
+        this.#log.debug(
+          "subduction never initialized, skipping teardown: %O",
+          e
+        )
+        for (const endpoint of this.#websocketEndpoints) {
+          endpoint.shutdown?.()
         }
-      )
-      await Promise.all(workers)
-    }
+        return
+      }
+      try {
+        await subduction.disconnectAll()
+      } catch (e) {
+        this.#log.debug("error disconnecting subduction transports: %O", e)
+      }
 
-    await this.#storage.awaitSettled()
-
-    let subduction: Subduction | null = null
-    try {
-      subduction = await this.#subduction
-    } catch (e) {
-      this.#log.debug("subduction never initialized, skipping teardown: %O", e)
       for (const endpoint of this.#websocketEndpoints) {
         endpoint.shutdown?.()
       }
+    } finally {
       this.#storage.close()
       await this.#awaitStorageIdle()
-      return
     }
-    try {
-      await subduction.disconnectAll()
-    } catch (e) {
-      this.#log.debug("error disconnecting subduction transports: %O", e)
-    }
-
-    for (const endpoint of this.#websocketEndpoints) {
-      endpoint.shutdown?.()
-    }
-
-    this.#storage.close()
-    await this.#awaitStorageIdle()
   }
 
   /** Drain in-flight bridge operations, bounded by a deadline. */
