@@ -133,9 +133,14 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
     }
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      // saveBatch has no single request to hand to rejectOnFailure; wire the
+      // transaction-level failure events (onerror and onabort) directly so the
+      // promise still settles if the batch write fails or is aborted, e.g. on
+      // quota exhaustion.
+      const fail = () =>
+        reject(transaction.error ?? new Error("IndexedDB transaction failed"))
+      transaction.onerror = fail
+      transaction.onabort = fail
       transaction.oncomplete = () => {
         resolve()
       }
