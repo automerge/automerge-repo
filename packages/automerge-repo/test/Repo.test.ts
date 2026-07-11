@@ -40,6 +40,7 @@ import { StorageId, StorageKey } from "../src/storage/types.js"
 import { DocumentProgress } from "../src/DocumentQuery.js"
 import { isAbortErrorLike } from "../src/helpers/abortable.js"
 import { toSedimentreeId } from "../src/subduction/helpers.js"
+import { SubductionSource } from "../src/subduction/index.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -1171,6 +1172,37 @@ describe("Repo", () => {
         expect(logged("error disconnecting network during shutdown")).toBe(true)
         expect(logged("error closing storage during shutdown")).toBe(true)
       } finally {
+        errSpy.mockRestore()
+      }
+    })
+
+    it("shutdown() logs and proceeds when the Subduction quiesce throws", async () => {
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const quiesceSpy = vi
+        .spyOn(SubductionSource.prototype, "shutdown")
+        .mockRejectedValue(new Error("quiesce failed"))
+      const logged = (str: string) =>
+        errSpy.mock.calls.some(call =>
+          call.some(arg => String(arg).includes(str))
+        )
+      try {
+        const storage = new DummyStorageAdapter()
+        const closeSpy = vi.fn(async () => {})
+        storage.close = closeSpy
+        const repo = new Repo({ storage })
+        const disconnectSpy = vi.spyOn(repo.networkSubsystem, "disconnect")
+
+        // Quiescing Subduction is the first teardown step; a throw there must be
+        // logged and swallowed so disconnect and storage close still run.
+        await expect(repo.shutdown()).resolves.toBeUndefined()
+        expect(quiesceSpy).toHaveBeenCalledOnce()
+        expect(logged("error shutting down Subduction during shutdown")).toBe(
+          true
+        )
+        expect(disconnectSpy).toHaveBeenCalledOnce()
+        expect(closeSpy).toHaveBeenCalledOnce()
+      } finally {
+        quiesceSpy.mockRestore()
         errSpy.mockRestore()
       }
     })
