@@ -30,11 +30,13 @@ describe("rejectOnTransactionFailure", () => {
     expect(reasons[0]).toBe(quota)
   })
 
-  it("falls back to the transaction error when the target has none", () => {
+  it("falls back to the transaction error when the failing request has none", () => {
+    // A transaction-level failure can fire onerror while the target request's
+    // .error is still null; the reason then comes from transaction.error.
     const { transaction, reasons } = wire()
     const aborted = new DOMException("aborted", "AbortError")
     transaction.error = aborted
-    transaction.onabort({ target: transaction })
+    transaction.onerror({ target: { error: null } })
     expect(reasons[0]).toBe(aborted)
   })
 
