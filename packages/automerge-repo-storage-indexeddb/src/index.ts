@@ -52,6 +52,38 @@ export function rejectOnFailure(
   transaction.onabort = fail
 }
 
+/**
+ * Like {@link rejectOnFailure} but for operations with no single request to
+ * blame: a batch write (many `put`s) or a multi-request read (`getAll` +
+ * `getAllKeys`). Reject on transaction-level failure, preferring the specific
+ * error of whichever request failed over the transaction reason.
+ *
+ * A request-level error bubbles to `transaction.onerror` with the failing
+ * request as `event.target`, and that request's `.error` is already set,
+ * whereas `transaction.error` is only assigned later when the abort runs. So
+ * reading `event.target.error` surfaces the real reason (e.g. a
+ * `QuotaExceededError` from one of the `put`s) that `transaction.error` is
+ * still null for at `onerror` time. On an explicit `abort()` the target is the
+ * transaction, so `transaction.error` is used.
+ *
+ * Exported only so it can be unit-tested directly; `@internal` keeps it out of
+ * the package's published types.
+ * @internal
+ */
+export function rejectOnTransactionFailure(
+  transaction: IDBTransaction,
+  reject: (reason: unknown) => void
+): void {
+  const fail = (event: Event) =>
+    reject(
+      (event.target as IDBRequest | null)?.error ??
+        transaction.error ??
+        new Error("IndexedDB transaction failed")
+    )
+  transaction.onerror = fail
+  transaction.onabort = fail
+}
+
 export class IndexedDBStorageAdapter implements StorageAdapterInterface {
   private dbPromise: Promise<IDBDatabase>
 
@@ -133,14 +165,9 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
     }
 
     return new Promise((resolve, reject) => {
-      // saveBatch has no single request to hand to rejectOnFailure; wire the
-      // transaction-level failure events (onerror and onabort) directly so the
-      // promise still settles if the batch write fails or is aborted, e.g. on
-      // quota exhaustion.
-      const fail = () =>
-        reject(transaction.error ?? new Error("IndexedDB transaction failed"))
-      transaction.onerror = fail
-      transaction.onabort = fail
+      // No single request to blame across the batch of put()s, so settle on the
+      // transaction, surfacing whichever put failed (e.g. on quota exhaustion).
+      rejectOnTransactionFailure(transaction, reject)
       transaction.oncomplete = () => {
         resolve()
       }
@@ -178,9 +205,9 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
 
     return new Promise((resolve, reject) => {
       // loadRange issues two requests (getAll + getAllKeys); a request-level
-      // error on either bubbles to the transaction, so wiring the transaction
-      // handlers via one request settles the promise on any failure.
-      rejectOnFailure(transaction, valRequest, reject)
+      // error on either bubbles to transaction.onerror as its event.target, so
+      // this settles the promise on any failure and reports the specific error.
+      rejectOnTransactionFailure(transaction, reject)
 
       let values: any[] | undefined
       let keys: IDBValidKey[] | undefined
