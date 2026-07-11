@@ -21,13 +21,13 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@types/ws": "^8.5.10",
+    "@types/ws": "catalog:",
     "@vitest/browser": "4.1.7",
     "@vitest/browser-playwright": "4.1.7",
     "http-server": "^14.1.1",
     "playwright": "^1.60.0",
     "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.7"
   },
