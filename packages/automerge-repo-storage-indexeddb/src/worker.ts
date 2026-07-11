@@ -1,14 +1,8 @@
 /// <reference lib="webworker" />
-/** Worker entrypoint for {@link IndexedDBWorkerStorageAdapter}. */
-import { makeStorageRpcDispatcher } from "./worker-handler.js"
-import type { StorageRpcRequest } from "./worker-rpc.js"
+/** Dedicated-worker entrypoint for {@link IndexedDBWorkerStorageAdapter}. */
+import type { WorkerPortLike } from "@automerge/automerge-repo/slim"
+import { attachStorageHost } from "./worker-host.js"
 
-const dispatch = makeStorageRpcDispatcher()
-
-self.onmessage = (e: MessageEvent) => {
-  void dispatch(e.data as StorageRpcRequest, (response, transfer) =>
-    (self as unknown as Worker).postMessage(response, transfer)
-  )
-}
+attachStorageHost(self as unknown as WorkerPortLike)
 
 export {}
