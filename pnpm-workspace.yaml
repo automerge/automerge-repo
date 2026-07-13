@@ -36,7 +36,7 @@ tag: subduction
 # release.yaml), which resolves `catalog:` to a real version in the published package.json.
 # Peer ranges stay literal — they're intentionally broader than the pinned dev/runtime version.
 catalog:
-  "@automerge/automerge": 3.3.1
+  "@automerge/automerge": 3.3.2
   "@clack/prompts": ^1.4.0
   "@testing-library/jest-dom": ^6.9.1
   "@types/node": ^22.19.19
