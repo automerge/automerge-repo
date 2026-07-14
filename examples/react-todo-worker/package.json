@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-demo-todo-worker",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-todo-worker",
   "private": true,
-  "version": "2.6.0-subduction.45",
+  "version": "2.6.0-subduction.46",
   "type": "module",
   "scripts": {
     "dev": "vite --open",
