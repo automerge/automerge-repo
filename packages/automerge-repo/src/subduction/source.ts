@@ -817,10 +817,16 @@ export class SubductionSource implements DocumentSource {
           this.#storage.listFragmentIds(sid),
         ])
         for (const c of commitIds) {
-          entry.persistedCommitHashes.add(c.toHexString())
+          const hex = c.toHexString()
+          entry.persistedCommitHashes.add(hex)
+          // Mirror into knownHashes so a reload attach does not re-persist
+          // commits already on disk (same hex as Automerge fragment metadata).
+          entry.knownHashes.add(hex)
         }
         for (const f of fragmentIds) {
-          entry.persistedFragmentHashes.add(f.toHexString())
+          const hex = f.toHexString()
+          entry.persistedFragmentHashes.add(hex)
+          entry.knownHashes.add(hex)
         }
         if (
           entry.persistedCommitHashes.size > 0 ||
