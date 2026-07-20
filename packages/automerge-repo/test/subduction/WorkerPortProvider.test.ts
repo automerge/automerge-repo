@@ -144,9 +144,7 @@ describe("WorkerWebSocketEndpoint with a port provider", () => {
 
     // Both connects start before any port exists.
     const connecting = [endpoint.connect(), endpoint.connect()]
-    resolvePort(
-      makeHostedPort(sockets).port1 as unknown as WorkerPortLike
-    )
+    resolvePort(makeHostedPort(sockets).port1 as unknown as WorkerPortLike)
 
     const [a, b] = await Promise.all(connecting)
     expect(fetches).toBe(1)

@@ -22,10 +22,10 @@
   },
   "devDependencies": {
     "@automerge/automerge": "catalog:",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "catalog:",
     "portfinder": "^1.0.38",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "publishConfig": {
     "access": "public",

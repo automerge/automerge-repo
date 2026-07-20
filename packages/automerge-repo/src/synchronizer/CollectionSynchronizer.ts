@@ -9,11 +9,20 @@ import {
   OpenDocMessage,
 } from "../network/messages.js"
 import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
-import { DocSynchronizer } from "./DocSynchronizer.js"
+import { DocSynchronizer, SHARE_POLICY_CONCURRENCY } from "./DocSynchronizer.js"
 import type { ShareConfig } from "./DocSynchronizer.js"
+import { semaphore, type Limit } from "../helpers/semaphore.js"
 import type { DocumentSource } from "../DocumentSource.js"
 import type { DocumentQuery, SourcePriority } from "../DocumentQuery.js"
 import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
+
+/**
+ * Default cap on concurrent `loadSyncState` reads. Adding a peer loads sync
+ * state once per document, and the collection adds every peer to every document
+ * (`addPeer` loops all docs, `attach` loops all peers), so on a many-document
+ * sync server an unbounded fan-out would issue that many storage reads at once.
+ */
+export const DEFAULT_SYNC_STATE_LOAD_CONCURRENCY = 20
 
 export interface AutomergeSyncConfig {
   peerId: PeerId
@@ -32,12 +41,20 @@ export interface AutomergeSyncConfig {
 
   /**
    * Load persisted sync state for a peer on a specific document. Returns
-   * undefined if no sync state is available.
+   * undefined if no sync state is available. Calls are bounded by
+   * {@link AutomergeSyncConfig.syncStateLoadConcurrency}.
    */
   loadSyncState?: (
     documentId: DocumentId,
     peerId: PeerId
   ) => Promise<A.SyncState | undefined>
+
+  /**
+   * Maximum number of {@link AutomergeSyncConfig.loadSyncState} reads run
+   * concurrently while adding peers to documents. Defaults to
+   * {@link DEFAULT_SYNC_STATE_LOAD_CONCURRENCY}.
+   */
+  syncStateLoadConcurrency?: number
 
   /**
    * Resolves when the network layer is ready to send messages.
@@ -46,6 +63,13 @@ export interface AutomergeSyncConfig {
    * peers have had a chance to connect.
    */
   networkReady: Promise<void>
+
+  /**
+   * Maximum number of share-policy resolutions run concurrently during
+   * {@link CollectionSynchronizer.reevaluateDocumentShare}. Defaults to
+   * {@link SHARE_POLICY_CONCURRENCY}.
+   */
+  sharePolicyConcurrency?: number
 }
 
 interface CollectionSynchronizerEvents {
@@ -74,12 +98,29 @@ export class CollectionSynchronizer
   #networkReady: Promise<void>
   #log = makeLogger("automerge-repo:collectionsync")
 
+  // Bounds the loadSyncState reads fanned out when peers are added to documents,
+  // so a peer connecting to a many-document collection doesn't issue one storage
+  // read per document at once.
+  #loadSyncStateLimit: Limit
+
+  // One shared limiter for every share-policy resolution in the collection, so
+  // the concurrent user announce/access callbacks are capped across all
+  // documents and peers together: both the per-peer resolution on addPeer and
+  // the whole-collection re-evaluation on reevaluateDocumentShare draw from it.
+  #sharePolicyLimit: Limit
+
   constructor(config: AutomergeSyncConfig, denylist: AutomergeUrl[] = []) {
     super()
     this.#networkReady = config.networkReady
     this.#config = config
     this.priority = config.priority
     this.#denylist = denylist.map(url => parseAutomergeUrl(url).documentId)
+    this.#loadSyncStateLimit = semaphore(
+      config.syncStateLoadConcurrency ?? DEFAULT_SYNC_STATE_LOAD_CONCURRENCY
+    )
+    this.#sharePolicyLimit = semaphore(
+      config.sharePolicyConcurrency ?? SHARE_POLICY_CONCURRENCY
+    )
   }
 
   /** Expose doc synchronizers for Repo access (e.g. metrics) */
@@ -196,7 +237,7 @@ export class CollectionSynchronizer
 
   shareConfigChanged(): void {
     for (const docSync of Object.values(this.#docSynchronizers)) {
-      docSync.reevaluateSharePolicy()
+      docSync.reevaluateSharePolicy(this.#sharePolicyLimit)
     }
   }
 
@@ -245,6 +286,7 @@ export class CollectionSynchronizer
 
     docSync.addPeer(peerId, this.#loadSyncStateFor(documentId, peerId), {
       messages,
+      limit: this.#sharePolicyLimit,
     })
   }
 
@@ -252,9 +294,10 @@ export class CollectionSynchronizer
     documentId: DocumentId,
     peerId: PeerId
   ): Promise<A.SyncState | undefined> {
-    return (
-      this.#config.loadSyncState?.(documentId, peerId) ??
-      Promise.resolve(undefined)
+    return this.#loadSyncStateLimit(
+      () =>
+        this.#config.loadSyncState?.(documentId, peerId) ??
+        Promise.resolve(undefined)
     )
   }
 }

@@ -18,7 +18,9 @@ import type { StorageRpcRequest } from "./worker-rpc.js"
  */
 export function attachStorageHost(
   port: WorkerPortLike,
-  dispatch: ReturnType<typeof makeStorageRpcDispatcher> = makeStorageRpcDispatcher()
+  dispatch: ReturnType<
+    typeof makeStorageRpcDispatcher
+  > = makeStorageRpcDispatcher()
 ): () => void {
   const onMessage = (e: MessageEvent) => {
     void dispatch(e.data as StorageRpcRequest, (response, transfer) =>

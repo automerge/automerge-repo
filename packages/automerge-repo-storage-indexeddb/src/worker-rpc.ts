@@ -18,7 +18,7 @@ export const storageRpcVersionOk = (data: unknown): boolean =>
 
 /** Human-readable description of a version mismatch, for error surfaces. */
 export const storageRpcVersionMismatch = (data: unknown): string => {
-  const got = (data as { v?: unknown }).v
+  const got = (data as { v?: number }).v
   return (
     `IndexedDB storage worker protocol version mismatch: expected ` +
     `v${STORAGE_RPC_PROTOCOL_VERSION}, got ` +

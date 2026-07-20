@@ -28,7 +28,7 @@
     "@automerge/automerge-repo": "workspace:*"
   },
   "devDependencies": {
-    "@sveltejs/package": "^2.5.7",
+    "@sveltejs/package": "^2.5.8",
     "svelte": "catalog:",
     "typescript": "catalog:"
   },
