@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "@automerge/automerge": "catalog:",
-    "@automerge/automerge-subduction": "0.16.0",
+    "@automerge/automerge-subduction": "catalog:",
     "bs58check": "^4.0.0",
     "cbor-x": "^1.6.4",
     "debug": "^4.4.3",

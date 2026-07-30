@@ -9,6 +9,9 @@ catalogs:
     '@automerge/automerge':
       specifier: 3.3.2
       version: 3.3.2
+    '@automerge/automerge-subduction':
+      specifier: 0.16.1
+      version: 0.16.1
     '@clack/prompts':
       specifier: ^1.4.0
       version: 1.5.0
@@ -91,8 +94,8 @@ importers:
         specifier: 'catalog:'
         version: 3.3.2
       '@automerge/automerge-subduction':
-        specifier: 0.16.0
-        version: 0.16.0
+        specifier: 0.16.1
+        version: 0.16.1
       '@manypkg/cli':
         specifier: ^0.25.1
         version: 0.25.1
@@ -453,8 +456,8 @@ importers:
         specifier: 'catalog:'
         version: 3.3.2
       '@automerge/automerge-subduction':
-        specifier: 0.16.0
-        version: 0.16.0
+        specifier: 'catalog:'
+        version: 0.16.1
       bs58check:
         specifier: ^4.0.0
         version: 4.0.0
@@ -804,8 +807,8 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@automerge/automerge-subduction@0.16.0':
-    resolution: {integrity: sha512-BOOn/4p8cF4LhjDUQdgM3qyZFya+M7ZuZywuC99x/kbhk4UK7dw/QcsifcHG5E1TAW4R/K17ZGFUC5nCVUSSWg==}
+  '@automerge/automerge-subduction@0.16.1':
+    resolution: {integrity: sha512-alH7U4eYn0O7sT6hNLv7CJhNODJi+QD6qfRQTNfZCxL3Q5JZdJ8lFpdvXUkBf+I3bu0GLvVlTaYPWGrBihjpIw==}
 
   '@automerge/automerge@3.3.2':
     resolution: {integrity: sha512-9vCdCL7pdQwUra66SBxPVHr+/t9epXKni9KDeak2rNBFMzABVh2u6gSpcwxi3jkR5qr047jVqZv9DlrOfVxLFw==}
@@ -5796,7 +5799,7 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@automerge/automerge-subduction@0.16.0': {}
+  '@automerge/automerge-subduction@0.16.1': {}
 
   '@automerge/automerge@3.3.2': {}
 
