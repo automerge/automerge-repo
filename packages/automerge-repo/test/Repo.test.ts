@@ -12,6 +12,7 @@ import {
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
 import { DocMetrics, Repo, ShareConfig } from "../src/Repo.js"
+import { DocumentDeletedError } from "../src/errors.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
@@ -407,6 +408,30 @@ describe("Repo", () => {
 
       assert.equal(repo.handles[handle.documentId], undefined)
       assert.equal(repo.handles[handle.documentId], undefined)
+    })
+
+    it("fails an outstanding query with DocumentDeletedError on delete", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      await pause()
+
+      // Hold the query from before the delete: `delete` drops it from the
+      // repo's cache, so a later `find` would start a fresh one and report
+      // plain unavailability instead.
+      const progress = repo.findWithProgress<TestDoc>(handle.url)
+      repo.delete(handle.documentId)
+
+      const error = await progress.whenReady().catch(e => e)
+
+      // Deletion is intentional and terminal; a storage fault may be
+      // transient. Both use the `failed` state, so the type is what tells
+      // them apart without matching on message text.
+      expect(error).toBeInstanceOf(DocumentDeletedError)
+      expect(error.documentId).toBe(handle.documentId)
+      expect(error.message).toMatch(/Document (.*) was deleted/)
     })
 
     it("can delete an existing document by url", async () => {
@@ -2539,12 +2564,12 @@ describe("Repo heads-in-URLs functionality", () => {
       const alice = new Repo({ peerId: "alice" as PeerId })
       const aliceHandle = alice.create<{ title: string }>()
       aliceHandle.change(d => (d.title = "v1"))
-      const v1Binary = await alice.export(aliceHandle.documentId)!
+      const v1Binary = await alice.export(aliceHandle.documentId)
       aliceHandle.change(d => (d.title = "v2"))
       const v2Heads = aliceHandle.heads()!
 
       const bob = new Repo({ peerId: "bob" as PeerId })
-      bob.import<{ title: string }>(v1Binary!, {
+      bob.import<{ title: string }>(v1Binary, {
         docId: aliceHandle.documentId,
       })
 

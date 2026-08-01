@@ -119,6 +119,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   #shareConfig: ShareConfig
   #seenEphemeralMessages = new HashRing(1000)
   #networkReady: boolean = false
+  /** Set when the adapters never became ready, so we could not ask anyone. */
+  #networkError: Error | undefined
 
   constructor({
     handle,
@@ -128,7 +130,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   }: {
     handle: DocHandle<unknown>
     query: DocumentQuery<unknown>
-    networkReady: Promise<void>
+    networkReady: Promise<Error | undefined>
     shareConfig: ShareConfig
   }) {
     super()
@@ -172,8 +174,9 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     )
 
     networkReady
-      .then(() => {
+      .then(error => {
         this.#networkReady = true
+        this.#networkError = error
         this.#evaluate()
       })
       .catch(() => {})
@@ -428,10 +431,16 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // query state is up-to-date when we check whether to send doc-unavailable.
     this.#updateAvailability()
 
-    // Phase 3: Notify wanting peers that the document is unavailable.
-    // Only fires when the query has settled to unavailable/failed
-    // and we have no data. The "unavailable-notified" status ensures each
-    // peer is only told once.
+    // Phase 3: Notify wanting peers that the document is unavailable. Only
+    // fires when the query has settled to unavailable/failed and we have no
+    // data. The "unavailable-notified" status ensures each peer is only told
+    // once.
+    //
+    // Including `failed` here is deliberate, and it is lossy. Locally the two
+    // states differ: `unavailable` means we established the document isn't
+    // here, `failed` means we couldn't establish anything (a storage fault,
+    // adapters that never came up). The protocol does not support this
+    // distinction.
     const queryState = this.#query.peek()
     if (
       !weHaveData &&
@@ -488,13 +497,16 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
    * - `ready`: at least one connected `has` peer's advertised initial
    *   heads are present in our doc — we have a complete copy from
    *   someone.
-   * - `unavailable`: no connected peer ever advertised the doc.
+   * - `unavailable`: no connected peer ever advertised the doc
    */
   #updateAvailability(): void {
     if (!this.#networkReady) return
 
     if (this.#peers.size === 0) {
-      this.#query.sourceUnavailable("automerge-sync")
+      // With healthy adapters and no peers there is genuinely nobody to ask,
+      // which is an answer. Pass along `#networkError` in case the adapters
+      // themselves failed.
+      this.#query.sourceUnavailable("automerge-sync", this.#networkError)
       return
     }
 
@@ -527,7 +539,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     }
 
     // No peer ever advertised the doc — all are unavailable / wants /
-    // denied.
+    // denied. Deliberately determinate even if `#networkError` is set: some
+    // adapters did come up, and every peer they gave us answered.
     this.#query.sourceUnavailable("automerge-sync")
   }
 

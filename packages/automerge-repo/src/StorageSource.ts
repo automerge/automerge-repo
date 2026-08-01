@@ -75,7 +75,12 @@ export class StorageSource implements DocumentSource {
           `Error loading document ${handle.documentId} from storage`,
           err
         )
-        query.sourceUnavailable("storage")
+        // Report it as undetermined rather than a plain negative: the read
+        // failed, so we never learned whether the document is in storage.
+        query.sourceUnavailable(
+          "storage",
+          err instanceof Error ? err : new Error(String(err))
+        )
       })
   }
 

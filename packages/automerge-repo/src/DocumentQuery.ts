@@ -4,6 +4,7 @@ import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { type FindProgress, queryStateToFindProgress } from "./_compat.js"
+import { DocumentLoadFailedError, DocumentUnavailableError } from "./errors.js"
 
 /**
  * The state a {@link DocumentSource} reports for a particular document.
@@ -82,7 +83,12 @@ export interface DocumentProgress<T> {
 
 /** Higher numbers represent earlier availability tiers. */
 export type SourcePriority = number
-type SourceInfo = { state: SourceState; priority: SourcePriority }
+type SourceInfo = {
+  state: SourceState
+  priority: SourcePriority
+  /** If unavailable due to fault */
+  error?: Error
+}
 
 const DEFAULT_SOURCE_PRIORITY = 0
 
@@ -178,7 +184,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
 
     // Already unavailable — reject immediately
     if (this.#state.state === "unavailable") {
-      throw new Error(`Document ${this.documentId} is unavailable`)
+      throw new DocumentUnavailableError(this.documentId)
     }
 
     return new Promise<DocHandle<T>>((resolve, reject) => {
@@ -196,7 +202,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
           reject(state.error)
         } else if (state.state === "unavailable") {
           cleanup()
-          reject(new Error(`Document ${this.documentId} is unavailable`))
+          reject(new DocumentUnavailableError(this.documentId))
         }
       })
 
@@ -239,14 +245,20 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   }
 
   /**
-   * A source has determined it cannot provide data right now (e.g. sync
-   * completed with no peers, or no data in local storage). The query
-   * transitions to `unavailable` if no source is still pending and the
-   * handle has no data.
+   * A source has given up on providing the document.
+   *
+   * Omitting `error` asserts a *determinate* negative: the source looked and
+   * the document is not there (an empty storage read, or peers that all replied
+   * they don't have it). Passing `error` says the source could not determine
+   * whether the document exists.
+   *
+   * That distinction decides where the query settles once every source has
+   * given up: `unavailable` only when every negative was determinate, otherwise
+   * `failed` carrying the error.
    */
-  sourceUnavailable(source: string): void {
+  sourceUnavailable(source: string, error?: Error): void {
     if (this.#failed) return
-    this.#setSource(source, "unavailable")
+    this.#setSource(source, "unavailable", error)
     this.#recompute()
   }
 
@@ -293,9 +305,10 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
     return this.#sources.get(source)?.priority ?? DEFAULT_SOURCE_PRIORITY
   }
 
-  #setSource(source: string, state: SourceState): void {
+  #setSource(source: string, state: SourceState, error?: Error): void {
     const priority = this.#sourcePriority(source)
-    this.#sources.set(source, { state, priority })
+    // `error` is present if `sourceUnavailable` was called with an error
+    this.#sources.set(source, { state, priority, error })
   }
 
   #recompute(): void {
@@ -320,8 +333,34 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
     }
 
     // All sources have settled (ready or unavailable) and we still have no
-    // data — nothing more is coming.
+    // data. If any of them gave up without being able to determine whether the
+    // document exists, we don't know that it's absent, so report that rather
+    // than claiming it isn't there.
+    const causes = this.#undeterminedCauses()
+    if (causes) {
+      return {
+        state: "failed",
+        error: new DocumentLoadFailedError(this.documentId, causes),
+        sources,
+      }
+    }
+
     return { state: "unavailable", sources }
+  }
+
+  /**
+   * Why each source gave up without determining whether the document exists,
+   * or undefined if every negative was determinate.
+   */
+  #undeterminedCauses(): Record<string, Error> | undefined {
+    let causes: Record<string, Error> | undefined
+    for (const [name, info] of this.#sources) {
+      if (info.state === "unavailable" && info.error) {
+        causes ??= {}
+        causes[name] = info.error
+      }
+    }
+    return causes
   }
 
   #sourcesView(): Record<string, SourceState> {
@@ -351,9 +390,35 @@ function statesEqual<T>(a: QueryState<T>, b: QueryState<T>): boolean {
   if (a.state === "ready" && b.state === "ready" && a.handle !== b.handle) {
     return false
   }
-  // `failed` is terminal and only reached via fail(), which is called once
-  // per query — its error doesn't churn, so we don't compare it here.
+  // `failed` is reached two ways: terminally via fail(), and derived from
+  // sources that couldn't determine absence. Both can produce a new error
+  // while the source map is unchanged:
+  //  - fail() a derived failure can be replaced by a deletion
+  //  - a source can revise an undetermined negative
+  // So the error has to be compared.
+  if (a.state === "failed" && b.state === "failed") {
+    if (!errorsEquivalent(a.error, b.error)) return false
+  }
   return sourceMapsEqual(a.sources, b.sources)
+}
+
+/**
+ * Identity, except for derived load failures: those are lazily recreated, so
+ * they have to be compared logically. Two DocumentLoadFailedErrors are
+ * equivalent when they blame the same sources with the same underlying errors.
+ */
+function errorsEquivalent(a: Error, b: Error): boolean {
+  if (a === b) return true
+  if (
+    a instanceof DocumentLoadFailedError &&
+    b instanceof DocumentLoadFailedError
+  ) {
+    const aKeys = Object.keys(a.causes)
+    const bKeys = Object.keys(b.causes)
+    if (aKeys.length !== bKeys.length) return false
+    return aKeys.every(key => a.causes[key] === b.causes[key])
+  }
+  return false
 }
 
 function sourceMapsEqual(

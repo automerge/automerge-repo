@@ -1,6 +1,7 @@
 import {
   AutomergeUrl,
   Doc,
+  DocumentDeletedError,
   generateAutomergeUrl,
 } from "@automerge/automerge-repo"
 import { render, screen, waitFor } from "@testing-library/react"
@@ -99,6 +100,10 @@ describe("useDocument", () => {
 
     // Should trigger error boundary
     expect(screen.getByTestId("error")).toHaveTextContent("Error")
+
+    const error = onError.mock.calls[0]?.[0]
+    expect(error).toBeInstanceOf(DocumentDeletedError)
+    expect(error.documentId).toBe(handleA.documentId)
 
     consoleSpy.mockRestore()
   })

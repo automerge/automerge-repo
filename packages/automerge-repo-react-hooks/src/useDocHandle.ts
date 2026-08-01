@@ -24,6 +24,18 @@ type UseDocHandleParams =
   | UseDocHandleSuspendingParams
   | UseDocHandleSynchronousParams
 
+/**
+ * Returns the handle for a document, loading it if necessary.
+ *
+ * @remarks
+ * In suspense mode a failed load is **terminal for that id**: the rejected
+ * `find()` is kept in a module-level cache and re-thrown on every subsequent
+ * render, so the nearest error boundary stays tripped even if it is reset, and
+ * even if the underlying failure was transient. This loses the distinction
+ * {@link DocumentLoadFailedError} draws against
+ * {@link DocumentUnavailableError}: nothing retries until a full reload. The
+ * synchronous form does evict the rejection, so a later render retries.
+ */
 export function useDocHandle<T>(
   id: AnyDocumentId,
   params: UseDocHandleSuspendingParams

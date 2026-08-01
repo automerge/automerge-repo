@@ -57,12 +57,12 @@ export interface AutomergeSyncConfig {
   syncStateLoadConcurrency?: number
 
   /**
-   * Resolves when the network layer is ready to send messages.
-   * Documents created before this resolves get a "network" source
-   * registered on their query to keep them in "loading" state until
-   * peers have had a chance to connect.
+   * Resolves when the network layer is ready to send messages, or with the
+   * error if the adapters never became ready. Documents created before this
+   * resolves get a "network" source registered on their query to keep them
+   * in "loading" state until peers have had a chance to connect.
    */
-  networkReady: Promise<void>
+  networkReady: Promise<Error | undefined>
 
   /**
    * Maximum number of share-policy resolutions run concurrently during
@@ -95,7 +95,7 @@ export class CollectionSynchronizer
   #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
   #denylist: DocumentId[]
   #config: AutomergeSyncConfig
-  #networkReady: Promise<void>
+  #networkReady: Promise<Error | undefined>
   #log = makeLogger("automerge-repo:collectionsync")
 
   // Bounds the loadSyncState reads fanned out when peers are added to documents,
