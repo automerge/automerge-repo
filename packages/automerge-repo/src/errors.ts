@@ -35,24 +35,45 @@ export class DocumentUnavailableError extends Error {
  * Distinct from {@link DocumentUnavailableError}, which asserts a determinate
  * negative. Here the document's absence was never established.
  *
- * {@link DocumentLoadFailedError.causes} is keyed by source name (`"storage"`,
- * `"automerge-sync"`), because more than one source can fail for unrelated
- * reasons.
+ * Extends {@link !AggregateError}: the per-source errors are also exposed as
+ * `errors`, so a structured logger (for example pino) serializes each underlying
+ * failure with its own stack, rather than the flattened message alone.
+ *
+ * {@link DocumentLoadFailedError.causes} is those same errors keyed by source
+ * name (`"storage"`, `"automerge-sync"`), because more than one source can fail
+ * for unrelated reasons.
  */
-export class DocumentLoadFailedError extends Error {
+export class DocumentLoadFailedError extends AggregateError {
   readonly documentId: DocumentId
 
   /** Why each source could not determine availability, by source name. */
-  readonly causes: Record<string, Error>
+  declare readonly causes: Record<string, Error>
 
   constructor(documentId: DocumentId, causes: Record<string, Error>) {
+    super(
+      Object.values(causes),
+      DocumentLoadFailedError.#summary(documentId, causes)
+    )
+    this.name = "DocumentLoadFailedError"
+    this.documentId = documentId
+    // `causes` is the same errors as `errors` (from AggregateError), just keyed
+    // by source. Keep it non-enumerable so a structured logger serializes
+    // `errors` once, rather than also emitting a duplicate `causes` (whose
+    // nested Errors, being non-enumerable, would log as empty `{}`).
+    Object.defineProperty(this, "causes", {
+      value: Object.freeze({ ...causes }),
+      enumerable: false,
+    })
+  }
+
+  static #summary(
+    documentId: DocumentId,
+    causes: Record<string, Error>
+  ): string {
     const detail = Object.entries(causes)
       .map(([source, cause]) => `${source}: ${cause.message}`)
       .join("; ")
-    super(`Document ${documentId} could not be loaded (${detail})`)
-    this.name = "DocumentLoadFailedError"
-    this.documentId = documentId
-    this.causes = causes
+    return `Document ${documentId} could not be loaded (${detail})`
   }
 }
 
