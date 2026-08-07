@@ -2,7 +2,11 @@
   "name": "@automerge/react",
   "version": "2.6.0-alpha.3",
   "description": "A quick-import React package for Automerge Repo",
-  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-react",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-react"
+  },
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
   "type": "module",

@@ -2,7 +2,11 @@
   "name": "@automerge/create-repo-node-app",
   "version": "2.6.0-alpha.3",
   "description": "Create an automerge-repo app for node",
-  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/create-repo-node-app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/create-repo-node-app"
+  },
   "author": "Alex Good <alex@memoryandthought.me>",
   "license": "MIT",
   "type": "module",

@@ -2,7 +2,11 @@
   "name": "@automerge/automerge-repo-network-websocket",
   "version": "2.6.0-alpha.3",
   "description": "isomorphic node/browser Websocket network adapter for Automerge Repo",
-  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-network-websocket",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-repo-network-websocket"
+  },
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
   "type": "module",

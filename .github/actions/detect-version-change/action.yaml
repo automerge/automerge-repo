@@ -1,0 +1,40 @@
+name: Detect version change
+description: Check whether the root package version changed
+
+inputs:
+  before:
+    description: Commitish containing the previous version
+    default: HEAD~1
+  after:
+    description: Commitish containing the new version
+    default: HEAD
+
+outputs:
+  changed:
+    description: Whether the version changed
+    value: ${{ steps.detect.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        BEFORE: ${{ inputs.before }}
+        AFTER: ${{ inputs.after }}
+      run: |
+        set -euo pipefail
+
+        version="$(
+          node "$GITHUB_WORKSPACE/scripts/version.mjs" \
+            has-changed "$BEFORE" "$AFTER"
+        )"
+
+        if [[ -z "$version" ]]; then
+          echo "Version did not change"
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "Version changed to $version"
+        echo "changed=true" >> "$GITHUB_OUTPUT"

@@ -9,6 +9,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "version:bump": "node scripts/version.mjs bump",
     "build": "pnpm -r build",
     "build:docs": "typedoc",
     "dev:demo": "pnpm -F @automerge/automerge-repo-demo-todo dev",
@@ -33,6 +34,11 @@
     "node": ">=22.13",
     "pnpm": "^11"
   },
+  "manypkg": {
+    "ignoredRules": [
+      "INCORRECT_REPOSITORY_FIELD"
+    ]
+  },
   "packageManager": "pnpm@11.10.0",
   "devDependencies": {
     "@automerge/automerge": "catalog:",
@@ -48,7 +54,6 @@
     "@vitest/ui": "catalog:",
     "cross-env": "^10.1.0",
     "happy-dom": "^20.10.6",
-    "lerna": "^9.0.7",
     "npm-run-all2": "^9.0.2",
     "oxfmt": "^0.52.0",
     "oxlint": "^1.72.0",
