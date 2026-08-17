@@ -57,8 +57,7 @@ export class DocumentLoadFailedError extends AggregateError {
     this.documentId = documentId
     // `causes` is the same errors as `errors` (from AggregateError), just keyed
     // by source. Keep it non-enumerable so a structured logger serializes
-    // `errors` once, rather than also emitting a duplicate `causes` (whose
-    // nested Errors, being non-enumerable, would log as empty `{}`).
+    // `errors` once.
     Object.defineProperty(this, "causes", {
       value: Object.freeze({ ...causes }),
       enumerable: false,
