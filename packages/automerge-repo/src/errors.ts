@@ -36,8 +36,7 @@ export class DocumentUnavailableError extends Error {
  * negative. Here the document's absence was never established.
  *
  * Extends {@link !AggregateError}: the per-source errors are also exposed as
- * `errors`, so a structured logger (for example pino) serializes each underlying
- * failure with its own stack, rather than the flattened message alone.
+ * `errors`.
  *
  * {@link DocumentLoadFailedError.causes} is those same errors keyed by source
  * name (`"storage"`, `"automerge-sync"`), because more than one source can fail
