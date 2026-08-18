@@ -245,6 +245,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     networkSubsystem.on("peer-disconnected", ({ peerId }) => {
       this.synchronizer.removePeer(peerId)
       this.#remoteHeadsSubscriptions.removePeer(peerId)
+      // Peer ids are minted per connection, so the entry must go now; a
+      // reconnecting peer re-announces its metadata on the "peer" event.
+      delete this.peerMetadataByPeerId[peerId]
     })
 
     // Inbound messages are untrusted peer input, so #receiveMessage can throw on

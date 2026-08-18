@@ -279,6 +279,22 @@ describe("Repo", () => {
       )
     })
 
+    it("releases a peer's metadata when it disconnects", async () => {
+      const alice = new Repo({ peerId: "alice" as PeerId })
+      const [aliceToBob] = DummyNetworkAdapter.createConnectedPair()
+      alice.networkSubsystem.addNetworkAdapter(aliceToBob)
+      await alice.networkSubsystem.whenReady()
+
+      aliceToBob.emit("peer-candidate", {
+        peerId: "bob" as PeerId,
+        peerMetadata: { storageId: "bob-storage" as any, isEphemeral: false },
+      })
+      assert.equal(alice.getStorageIdOfPeer("bob" as PeerId), "bob-storage")
+
+      aliceToBob.emit("peer-disconnected", { peerId: "bob" as PeerId })
+      assert.equal(alice.getStorageIdOfPeer("bob" as PeerId), undefined)
+    })
+
     it("should not return an unavailable handle on second request", async () => {
       const alice = new Repo({
         peerId: "alice" as PeerId,
