@@ -36,7 +36,13 @@ import type {
 } from "./subdoc-handles/types.js"
 import { KIND } from "./subdoc-handles/types.js"
 import { foreverPromise } from "./helpers/foreverPromise.js"
-import { kOnceOriginal, kOnInternal } from "./internals.js"
+import {
+  kOnceOriginal,
+  kOnInternal,
+  kReleaseDocument,
+  kRetainDocument,
+  kSeverRetention,
+} from "./internals.js"
 
 /**
  * A DocHandle is a wrapper around an Automerge document. It allows you
@@ -1046,7 +1052,8 @@ export class DocHandle<T> {
 
   /**
    * @internal Attach a repo-internal listener: stored like any other
-   * listener, but the public `off` / `removeAllListeners` leave it attached.
+   * listener, but the public `off` / `removeAllListeners` leave it attached
+   * and it does not retain the document.
    */
   [kOnInternal]<E extends keyof DocHandleEvents<T>>(
     event: E,
@@ -1054,6 +1061,21 @@ export class DocHandle<T> {
   ): this {
     this.#document.registry[kOnInternal](this, event as string, fn as any)
     return this
+  }
+
+  /** @internal External-retention hook for {@link DocumentQuery.subscribe}. */
+  [kRetainDocument](): void {
+    this.#document[kRetainDocument]()
+  }
+
+  /** @internal Balances `kRetainDocument`. */
+  [kReleaseDocument](): void {
+    this.#document[kReleaseDocument]()
+  }
+
+  /** @internal Explicit-teardown passthrough to the document (see `kSeverRetention`). */
+  [kSeverRetention](): void {
+    this.#document[kSeverRetention]()
   }
 
   /** @internal Number of handles with at least one listener attached. */

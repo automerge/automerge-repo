@@ -44,6 +44,7 @@ import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
 import { noop } from "./helpers/noop.js"
 import { semaphore } from "./helpers/semaphore.js"
+import { kOnRetainChange, kSeverRetention } from "./internals.js"
 
 /**
  * Default for {@link RepoConfig.flushConcurrency}: the number of documents
@@ -77,6 +78,14 @@ export class Repo extends EventEmitter<RepoEvents> {
   storageSubsystem?: StorageSubsystem
 
   #queries: Record<DocumentId, DocumentQuery<any>> = {}
+
+  /**
+   * Documents with at least one external retainer (public listener, query
+   * subscriber, or pending `whenReady`), driven by the document's
+   * `kOnRetainChange` callback. This strong root keeps events flowing
+   * for subscribed consumers even after they drop every handle.
+   */
+  #retainedDocuments = new Set<Document<unknown>>()
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
@@ -355,6 +364,10 @@ export class Repo extends EventEmitter<RepoEvents> {
       initialDoc ?? Automerge.init(),
       storageId => this.#syncStateTracker.getSyncInfo(documentId, storageId)
     )
+    document[kOnRetainChange] = retained => {
+      if (retained) this.#retainedDocuments.add(document)
+      else this.#retainedDocuments.delete(document)
+    }
     const handle = new DocHandle(document, {})
     const query = new DocumentQuery(handle, this.#sources)
     this.#queries[documentId] = query
@@ -602,6 +615,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     if (query) {
       query.fail(new Error(`Document ${documentId} was deleted`))
+      // Explicit teardown: drop external retention so lingering listeners
+      // can't keep the deleted document rooted in the Repo.
+      query.handle[kSeverRetention]()
     }
     delete this.#queries[documentId]
 
@@ -755,6 +771,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     for (const source of this.#sources.values()) {
       source.detach(documentId)
     }
+    // Explicit teardown: drop external retention so lingering listeners
+    // can't keep the removed document rooted in the Repo.
+    this.#queries[documentId]?.handle[kSeverRetention]()
     delete this.#queries[documentId]
     this.#syncStateTracker.delete(documentId)
   }

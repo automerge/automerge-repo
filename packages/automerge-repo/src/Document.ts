@@ -6,6 +6,12 @@ import type { StorageId } from "./storage/types.js"
 import type { SyncInfo } from "./DocHandle.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
+import {
+  kOnRetainChange,
+  kReleaseDocument,
+  kRetainDocument,
+  kSeverRetention,
+} from "./internals.js"
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
@@ -28,6 +34,43 @@ export class Document<T = unknown> {
 
   /** Sync-info lookup injected by `Repo` from its `SyncStateTracker`. */
   syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
+
+  /**
+   * External retainers: public `on`/`once` listeners plus external
+   * {@link DocumentQuery} subscribers (including pending `whenReady`
+   * waiters). Repo-internal subscriptions don't count - they exist for
+   * every document.
+   */
+  #externalRetainCount = 0;
+
+  /**
+   * Injected by `Repo`: fired on the 0-to-1 / 1-to-0 transitions so the
+   * Repo can root externally-observed documents.
+   */
+  [kOnRetainChange]?: (retained: boolean) => void;
+
+  /** Record one external retainer (see `kOnRetainChange`). */
+  [kRetainDocument](): void {
+    if (++this.#externalRetainCount === 1) this[kOnRetainChange]?.(true)
+  }
+
+  /** Release one external retainer. Extra releases are ignored. */
+  [kReleaseDocument](): void {
+    if (this.#externalRetainCount === 0) return
+    if (--this.#externalRetainCount === 0) this[kOnRetainChange]?.(false)
+  }
+
+  /**
+   * Explicit teardown (`Repo.delete` / `removeFromCache`): drop all
+   * external retention and stop reporting, so a detached document can
+   * never re-root itself.
+   */
+  [kSeverRetention](): void {
+    const wasRetained = this.#externalRetainCount > 0
+    this.#externalRetainCount = 0
+    if (wasRetained) this[kOnRetainChange]?.(false)
+    this[kOnRetainChange] = undefined
+  }
 
   /**
    * Materialized `A.view`s, keyed by heads. Heads precisely specify an
