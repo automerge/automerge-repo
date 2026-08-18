@@ -5,6 +5,7 @@ import type { DocumentId, UrlHeads } from "./types.js"
 import type { StorageId } from "./storage/types.js"
 import type { SyncInfo } from "./DocHandle.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
+import { WeakValueMap } from "./helpers/WeakValueMap.js"
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
@@ -33,8 +34,11 @@ export class Document<T = unknown> {
    * immutable state, so a view never changes once computed and the cache
    * never needs invalidating - the live doc only ever grows past these
    * heads, and `A.view` at a historical point is identical regardless.
+   *
+   * Held weakly: heads keys are unbounded over a document's life. A view
+   * stays cached while held and is recomputed on a cold read.
    */
-  #viewCache = new Map<string, A.Doc<T>>()
+  #viewCache = new WeakValueMap<string, A.Doc<T>>()
 
   constructor(
     documentId: DocumentId,
@@ -56,12 +60,10 @@ export class Document<T = unknown> {
   viewAt(heads: UrlHeads | undefined): A.Doc<T> {
     if (!heads) return this.doc
     const key = [...heads].sort().join(",")
-    let view = this.#viewCache.get(key)
-    if (!view) {
-      view = A.view(this.doc, decodeHeads(heads)) as A.Doc<T>
-      this.#viewCache.set(key, view)
-    }
-    return view
+    return this.#viewCache.getOrCompute(
+      key,
+      () => A.view(this.doc, decodeHeads(heads)) as A.Doc<T>
+    )
   }
 
   /**
