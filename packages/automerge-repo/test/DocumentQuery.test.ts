@@ -365,5 +365,48 @@ describe("DocumentQuery", () => {
       await Promise.resolve()
       expect(states).toContain("ready")
     })
+
+    it("rejects when the signal aborts between readiness and the heads wait", async () => {
+      const query = createTestQuery<{ value: string }>(docId)
+      query.handle.update(() =>
+        A.change(A.init<{ value: string }>(), d => (d.value = "v1"))
+      )
+      const v2 = A.change(A.clone(query.handle.doc()), d => (d.value = "v2"))
+      const v2Heads = encodeHeads(A.getHeads(v2))
+
+      const progress = progressAtHeads(query, v2Heads as UrlHeads)
+      const before = query.handle.listenerCount("heads-changed")
+
+      // The query is already ready, so whenReady's first phase resolves on
+      // the microtask queue; abort in the gap before the heads wait attaches.
+      const controller = new AbortController()
+      const p = progress.whenReady({ signal: controller.signal })
+      controller.abort()
+
+      await expect(p).rejects.toBe(controller.signal.reason)
+      expect(query.handle.listenerCount("heads-changed")).toBe(before)
+    })
+
+    it("aborting during the heads wait removes the listener", async () => {
+      const query = createTestQuery<{ value: string }>(docId)
+      query.handle.update(() =>
+        A.change(A.init<{ value: string }>(), d => (d.value = "v1"))
+      )
+      const v2 = A.change(A.clone(query.handle.doc()), d => (d.value = "v2"))
+      const v2Heads = encodeHeads(A.getHeads(v2))
+
+      const progress = progressAtHeads(query, v2Heads as UrlHeads)
+      const before = query.handle.listenerCount("heads-changed")
+
+      const controller = new AbortController()
+      const p = progress.whenReady({ signal: controller.signal })
+      // Let the first phase resolve and the heads wait attach its listener.
+      await Promise.resolve()
+      expect(query.handle.listenerCount("heads-changed")).toBe(before + 1)
+
+      controller.abort()
+      await expect(p).rejects.toBe(controller.signal.reason)
+      expect(query.handle.listenerCount("heads-changed")).toBe(before)
+    })
   })
 })

@@ -205,7 +205,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
         signal?.removeEventListener("abort", onAbort)
       }
 
-      signal?.addEventListener("abort", onAbort)
+      signal?.addEventListener("abort", onAbort, { once: true })
     })
   }
 
@@ -430,6 +430,7 @@ export function progressAtHeads<T>(
     },
     whenReady: async opts => {
       const upstream = await query.whenReady(opts)
+      opts?.signal?.throwIfAborted()
       if (Automerge.hasHeads(upstream.fullDoc(), decoded)) {
         return upstream.view(heads)
       }
@@ -449,7 +450,7 @@ export function progressAtHeads<T>(
           opts?.signal?.removeEventListener("abort", onAbort)
         }
         upstream.on("heads-changed", onChange)
-        opts?.signal?.addEventListener("abort", onAbort)
+        opts?.signal?.addEventListener("abort", onAbort, { once: true })
       })
     },
     // Deprecated v2-shape getters — pass through the underlying query's
