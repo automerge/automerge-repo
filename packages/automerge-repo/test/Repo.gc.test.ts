@@ -78,7 +78,8 @@ describeGC("Repo GC of dropped documents", () => {
   })
 
   it("re-loads a collected document from storage on the next find()", async () => {
-    const repo = new Repo({ storage: new DummyStorageAdapter() })
+    const storage = new DummyStorageAdapter()
+    const repo = new Repo({ storage })
     let url!: AutomergeUrl
     let probe!: WeakRef<DocHandle<TestDoc>>
 
@@ -94,6 +95,16 @@ describeGC("Repo GC of dropped documents", () => {
     // The cache miss re-loads through the ordinary ensureQuery path.
     const fresh = await repo.find<TestDoc>(url)
     expect(fresh.doc()).toEqual({ foo: "persisted" })
+
+    // The re-created document gets fresh storage wiring: a new change
+    // persists and survives a reload from the same storage in another repo.
+    fresh.change(d => {
+      d.foo = "persisted-again"
+    })
+    await repo.flush()
+    const other = new Repo({ storage })
+    const reloaded = await other.find<TestDoc>(url)
+    expect(reloaded.doc()).toEqual({ foo: "persisted-again" })
   })
 
   it("a listener keeps the document rooted after the handle is dropped", async () => {
