@@ -6,6 +6,7 @@ import type { DocumentQuery, SourcePriority } from "./DocumentQuery.js"
 import type { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import type { DocumentId } from "./types.js"
 import { asyncThrottle } from "./helpers/throttle.js"
+import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { kOnInternal } from "./internals.js"
 
 /**
@@ -17,10 +18,16 @@ export class StorageSource implements DocumentSource {
   readonly priority: SourcePriority
   #storage: StorageSubsystem
   #saveDebounceRate: number
-  #saveFns: Record<
+  /**
+   * Per-document throttled save listeners, held weakly. Each saveFn is
+   * retained by its own document cluster (it's a heads-changed listener,
+   * and a pending throttle timer pins it until the write lands), so an
+   * entry evicts itself once the document is collected.
+   */
+  #saveFns = new WeakValueMap<
     DocumentId,
     (payload: DocHandleEncodedChangePayload<any>) => void
-  > = {}
+  >()
   #log = makeLogger("automerge-repo:storage-source")
 
   constructor(
@@ -82,15 +89,15 @@ export class StorageSource implements DocumentSource {
   }
 
   detach(documentId: DocumentId): void {
-    delete this.#saveFns[documentId]
+    this.#saveFns.delete(documentId)
   }
 
   #makeSaveFn(
     documentId: DocumentId
   ): (payload: DocHandleEncodedChangePayload<any>) => void {
-    let fn = this.#saveFns[documentId]
+    let fn = this.#saveFns.get(documentId)
     if (!fn) {
-      fn = this.#saveFns[documentId] = asyncThrottle(
+      fn = asyncThrottle(
         async ({
           doc,
           handle,
@@ -111,6 +118,7 @@ export class StorageSource implements DocumentSource {
         },
         this.#saveDebounceRate
       )
+      this.#saveFns.set(documentId, fn)
     }
     return fn
   }
