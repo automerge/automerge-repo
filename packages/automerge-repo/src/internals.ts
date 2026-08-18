@@ -12,10 +12,32 @@
 
 /** `DocHandle[kOnInternal](event, fn)` / `HandleRegistry[kOnInternal](...)` -
  * attach a repo-internal listener. Stored like any other listener, but the
- * public removal paths (`off`, `removeAllListeners`) leave it attached. */
+ * public removal paths (`off`, `removeAllListeners`) leave it attached, and
+ * it is not an external retainer of the document (see `kRetainDocument`). */
 export const kOnInternal = Symbol("automerge-repo.onInternal")
+
+/** `Document[kRetainDocument]()` (and the `DocHandle` passthrough) - count
+ * one external retainer on the document. */
+export const kRetainDocument = Symbol("automerge-repo.retainDocument")
+
+/** `Document[kReleaseDocument]()` (and the `DocHandle` passthrough) -
+ * balance `kRetainDocument`. */
+export const kReleaseDocument = Symbol("automerge-repo.releaseDocument")
+
+/** `Document[kSeverRetention]()` (and the `DocHandle` passthrough) -
+ * explicit-teardown hook for `Repo.delete` / `removeFromCache`: drop all
+ * external retention and prevent re-rooting. */
+export const kSeverRetention = Symbol("automerge-repo.severRetention")
+
+/** `Document[kOnRetainChange]` - callback field assigned by `Repo`, fired on
+ * the retention refcount's 0-to-1 and 1-to-0 transitions. */
+export const kOnRetainChange = Symbol("automerge-repo.onRetainChange")
 
 /** Set on a `once()` wrapper to name the original listener, so
  * `off(event, fn)` can remove the wrapper by the function the caller
- * actually passed. */
+ * actually passed (and release its retention). */
 export const kOnceOriginal = Symbol("automerge-repo.onceOriginal")
+
+/** `DocumentQuery[kSubscribeInternal](cb)` - subscribe without externally
+ * retaining the document (repo-internal observers only). */
+export const kSubscribeInternal = Symbol("automerge-repo.subscribeInternal")

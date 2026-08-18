@@ -37,7 +37,8 @@ export class StorageSource implements DocumentSource {
     const handle = query.handle
     const saveFn = this.#makeSaveFn(handle.documentId)
 
-    // Attach throttled save listener (internal: survives consumer cleanup)
+    // Attach throttled save listener (internal: survives consumer cleanup and
+    // does not retain the document)
     handle[kOnInternal]("heads-changed", saveFn)
 
     // If the handle already has data (e.g. from create/import), persist it

@@ -7,7 +7,12 @@ import type { DocHandle } from "../DocHandle.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
-import { kOnceOriginal, kOnInternal } from "../internals.js"
+import {
+  kOnceOriginal,
+  kOnInternal,
+  kReleaseDocument,
+  kRetainDocument,
+} from "../internals.js"
 
 /** Event listener stored in the registry. Payload shape is event-specific. */
 type Listener = ((payload: any) => void) & {
@@ -55,8 +60,9 @@ export class HandleRegistry {
   /**
    * `handle → event → callback → isExternal`. Strong on handles, so any
    * handle with a listener is retained structurally - no separate retainer
-   * set. External listeners come from the public `on`/`once`; repo-internal
-   * ones (`kOnInternal`) are not removable through the public API.
+   * set. External listeners come from the public `on`/`once` and retain the
+   * document (see `kRetainDocument`); repo-internal ones (`kOnInternal`) do
+   * not, and are not removable through the public API.
    */
   readonly #listeners: Map<
     DocHandle<any>,
@@ -209,15 +215,16 @@ export class HandleRegistry {
   // Listener storage. `DocHandle.on/off/once/...` delegate here.
   // Generic over `T` so callers can pass `this` without casting; storage erases to any.
 
-  /** Attach an external (public API) listener. */
+  /** Attach an external (public API) listener. It retains the document
+   * (see `kRetainDocument`). */
   addListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
     this.#addListener(handle, event, fn, true)
   }
 
   /**
    * Attach a repo-internal listener: stored identically, but public removal
-   * leaves it attached. Named by the same symbol as `DocHandle[kOnInternal]`,
-   * which delegates here.
+   * leaves it attached and it does not retain the document. Named by the
+   * same symbol as `DocHandle[kOnInternal]`, which delegates here.
    */
   [kOnInternal]<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
     this.#addListener(handle, event, fn, false)
@@ -239,7 +246,9 @@ export class HandleRegistry {
       s = new Map()
       m.set(event, s)
     }
-    if (!s.has(fn)) s.set(fn, external)
+    if (s.has(fn)) return
+    s.set(fn, external)
+    if (external) this.document[kRetainDocument]()
   }
 
   /** Remove one external listener. If `fn` is not registered directly,
@@ -252,9 +261,12 @@ export class HandleRegistry {
     if (!s) return
     if (s.get(fn)) {
       s.delete(fn)
+      this.document[kReleaseDocument]()
     } else {
       for (const [candidate, external] of s) {
-        if (external && candidate[kOnceOriginal] === fn) s.delete(candidate)
+        if (!external || candidate[kOnceOriginal] !== fn) continue
+        s.delete(candidate)
+        this.document[kReleaseDocument]()
       }
     }
     if (s.size === 0) m.delete(event)
@@ -279,7 +291,9 @@ export class HandleRegistry {
     const s = m.get(event)
     if (!s) return
     for (const [fn, external] of s) {
-      if (external) s.delete(fn)
+      if (!external) continue
+      s.delete(fn)
+      this.document[kReleaseDocument]()
     }
     if (s.size === 0) m.delete(event)
     if (m.size === 0) this.#listeners.delete(handle)
