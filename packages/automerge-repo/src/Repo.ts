@@ -338,7 +338,6 @@ export class Repo extends EventEmitter<RepoEvents> {
           const handle = this.#queries.get(documentId)?.handle
           if (!handle) return
           this.#syncStateTracker.handleRemoteHeadsChanged(
-            documentId,
             storageId,
             remoteHeads,
             timestamp,
@@ -368,16 +367,16 @@ export class Repo extends EventEmitter<RepoEvents> {
       return existing
     }
 
-    const document = new Document(
-      documentId,
-      initialDoc ?? Automerge.init(),
-      storageId => this.#syncStateTracker.getSyncInfo(documentId, storageId)
-    )
+    const document = new Document(documentId, initialDoc ?? Automerge.init())
     document[kOnRetainChange] = retained => {
       if (retained) this.#retainedDocuments.add(document)
       else this.#retainedDocuments.delete(document)
     }
     const handle = new DocHandle(document, {})
+    // Assigned after handle creation (not via the Document constructor):
+    // the lookup closes over the root handle.
+    document.syncInfoLookup = storageId =>
+      this.#syncStateTracker.getSyncInfo(handle, storageId)
     const query = new DocumentQuery(handle, this.#sources)
     this.#queries.set(documentId, query)
 
@@ -630,7 +629,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     for (const source of this.#sources.values()) {
       source.detach(documentId)
     }
-    this.#syncStateTracker.delete(documentId)
+    if (query) {
+      this.#syncStateTracker.delete(query.handle)
+    }
 
     if (this.storageSubsystem) {
       this.storageSubsystem.removeDoc(documentId).catch(err => {
@@ -777,11 +778,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     for (const source of this.#sources.values()) {
       source.detach(documentId)
     }
-    // Explicit teardown: drop external retention so lingering listeners
-    // can't keep the removed document rooted in the Repo.
-    this.#queries.get(documentId)?.handle[kSeverRetention]()
+    const query = this.#queries.get(documentId)
+    if (query) {
+      // Explicit teardown: drop external retention so lingering listeners
+      // can't keep the removed document rooted in the Repo.
+      query.handle[kSeverRetention]()
+      this.#syncStateTracker.delete(query.handle)
+    }
     this.#queries.delete(documentId)
-    this.#syncStateTracker.delete(documentId)
   }
 
   async shutdown(): Promise<void> {
