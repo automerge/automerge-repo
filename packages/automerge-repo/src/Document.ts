@@ -83,6 +83,12 @@ export class Document<T = unknown> {
    */
   #viewCache = new WeakValueMap<string, A.Doc<T>>()
 
+  /**
+   * @param syncInfoLookup - accepted here for direct construction (e.g.
+   * tests). `Repo` cannot use it: its lookup closes over the root
+   * `DocHandle`, which is constructed from this `Document` afterwards, so
+   * `Repo` assigns {@link syncInfoLookup} post-construction instead.
+   */
   constructor(
     documentId: DocumentId,
     initialDoc: A.Doc<T>,
