@@ -1,0 +1,199 @@
+import { describe, expect, it } from "vitest"
+import { WeakValueMap } from "../src/helpers/WeakValueMap.js"
+import { flushGC, gcAvailable, waitForGC } from "./helpers/flushGC.js"
+
+const itGC = gcAvailable ? it : it.skip
+
+class Box {
+  constructor(public n: number) {}
+}
+
+describe("WeakValueMap — synchronous behavior", () => {
+  it("set/get round-trips with string keys", () => {
+    const m = new WeakValueMap<string, Box>()
+    const v = new Box(1)
+    m.set("a", v)
+    expect(m.get("a")).toBe(v)
+    expect(m.has("a")).toBe(true)
+  })
+
+  it("set/get round-trips with number keys", () => {
+    const m = new WeakValueMap<number, Box>()
+    const v = new Box(2)
+    m.set(42, v)
+    expect(m.get(42)).toBe(v)
+  })
+
+  it("get returns undefined for missing keys", () => {
+    const m = new WeakValueMap<string, Box>()
+    expect(m.get("missing")).toBeUndefined()
+    expect(m.has("missing")).toBe(false)
+  })
+
+  it("delete removes the entry", () => {
+    const m = new WeakValueMap<string, Box>()
+    const v = new Box(3)
+    m.set("a", v)
+    expect(m.delete("a")).toBe(true)
+    expect(m.get("a")).toBeUndefined()
+    expect(m.delete("a")).toBe(false)
+  })
+
+  it("set overwrites with the new value", () => {
+    const m = new WeakValueMap<string, Box>()
+    const v1 = new Box(1)
+    const v2 = new Box(2)
+    m.set("a", v1)
+    m.set("a", v2)
+    expect(m.get("a")).toBe(v2)
+  })
+
+  it("getOrCompute calls the factory only on miss", () => {
+    const m = new WeakValueMap<string, Box>()
+    let calls = 0
+    const factory = () => {
+      calls++
+      return new Box(7)
+    }
+    const a = m.getOrCompute("k", factory)
+    const b = m.getOrCompute("k", factory)
+    expect(a).toBe(b)
+    expect(calls).toBe(1)
+  })
+
+  it("entries yields [key, value] for each entry", () => {
+    const m = new WeakValueMap<string, Box>()
+    const a = new Box(1)
+    const b = new Box(2)
+    m.set("a", a)
+    m.set("b", b)
+
+    const entries = Array.from(m.entries())
+    expect(entries).toHaveLength(2)
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        ["a", a],
+        ["b", b],
+      ])
+    )
+  })
+
+  it("keys yields the key for each entry", () => {
+    const m = new WeakValueMap<string, Box>()
+    m.set("a", new Box(1))
+    m.set("b", new Box(2))
+    expect([...m.keys()].sort()).toEqual(["a", "b"])
+  })
+
+  it("values yields the value for each entry", () => {
+    const m = new WeakValueMap<string, Box>()
+    const a = new Box(1)
+    const b = new Box(2)
+    m.set("a", a)
+    m.set("b", b)
+    const values = [...m.values()]
+    expect(values).toHaveLength(2)
+    expect(values).toEqual(expect.arrayContaining([a, b]))
+  })
+
+  it("is iterable via Symbol.iterator and yields [key, value]", () => {
+    const m = new WeakValueMap<string, Box>()
+    const a = new Box(1)
+    m.set("a", a)
+    const collected: [string, Box][] = []
+    for (const entry of m) collected.push(entry)
+    expect(collected).toEqual([["a", a]])
+  })
+
+  it("iteration reflects deletions", () => {
+    const m = new WeakValueMap<string, Box>()
+    m.set("a", new Box(1))
+    m.set("b", new Box(2))
+    m.delete("a")
+    expect([...m.keys()]).toEqual(["b"])
+  })
+})
+
+describe("WeakValueMap — GC behavior", () => {
+  itGC("evicts the entry once the value is collected", async () => {
+    const m = new WeakValueMap<string, Box>()
+    let probe!: WeakRef<Box>
+
+      // Scope the strong reference to an inner block so it doesn't pin the
+      // value via the test stack frame.
+    ;(() => {
+      const v = new Box(1)
+      m.set("k", v)
+      probe = new WeakRef(v)
+    })()
+
+    expect(await waitForGC(probe)).toBe(true)
+    expect(m.get("k")).toBeUndefined()
+    // Observable proof the entry is gone: the factory runs again.
+    let factoryCalled = false
+    const fresh = m.getOrCompute("k", () => {
+      factoryCalled = true
+      return new Box(2)
+    })
+    expect(factoryCalled).toBe(true)
+    expect(fresh).toBeInstanceOf(Box)
+  })
+
+  itGC("retains the entry while the value is still referenced", async () => {
+    const m = new WeakValueMap<string, Box>()
+    const kept = new Box(1)
+    m.set("k", kept)
+
+    // Negative assertion: the value is strongly held, so a best-effort GC
+    // should NOT collect it. waitForGC would always time out here, so use
+    // the fixed-rounds variant.
+    await flushGC()
+
+    expect(m.get("k")).toBe(kept)
+  })
+
+  itGC("overwrite unregisters the previous value's finalizer", async () => {
+    // If set() did not unregister the previous value's token, then once
+    // v1 is collected its finalizer would delete the "k" entry — even
+    // though v2 is still alive.
+    const m = new WeakValueMap<string, Box>()
+    const v2 = new Box(2)
+    let v1Probe!: WeakRef<Box>
+    ;(() => {
+      const v1 = new Box(1)
+      m.set("k", v1)
+      m.set("k", v2)
+      v1Probe = new WeakRef(v1)
+    })()
+
+    expect(await waitForGC(v1Probe)).toBe(true)
+    expect(m.get("k")).toBe(v2)
+  })
+
+  itGC("evicts many entries when all values are dropped", async () => {
+    const m = new WeakValueMap<number, Box>()
+    const probes: WeakRef<Box>[] = []
+
+    ;(() => {
+      for (let i = 0; i < 1000; i++) {
+        const v = new Box(i)
+        m.set(i, v)
+        probes.push(new WeakRef(v))
+      }
+    })()
+
+    // 1000 entries — give the engine a wider budget than the default 1s.
+    expect(
+      await waitForGC(() => probes.every(r => r.deref() === undefined), 5000)
+    ).toBe(true)
+    // Observable proof keys are gone: factory runs for every key.
+    let factoryCalls = 0
+    for (let i = 0; i < 1000; i++) {
+      m.getOrCompute(i, () => {
+        factoryCalls++
+        return new Box(-1)
+      })
+    }
+    expect(factoryCalls).toBe(1000)
+  })
+})
