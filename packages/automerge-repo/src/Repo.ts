@@ -44,6 +44,7 @@ import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
 import { noop } from "./helpers/noop.js"
 import { semaphore } from "./helpers/semaphore.js"
+import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { kOnRetainChange, kSeverRetention } from "./internals.js"
 
 /**
@@ -77,7 +78,15 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   storageSubsystem?: StorageSubsystem
 
-  #queries: Record<DocumentId, DocumentQuery<any>> = {}
+  /**
+   * Per-document queries, held weakly. The document cluster itself retains
+   * the query (its heads-changed listener on the root handle closes over
+   * it), so an entry lives exactly as long as something keeps the document
+   * alive - a consumer handle or progress, an external listener (via
+   * #retainedDocuments), a pending `whenReady`, or in-flight repo work -
+   * and evicts itself afterwards.
+   */
+  #queries = new WeakValueMap<DocumentId, DocumentQuery<any>>()
 
   /**
    * Documents with at least one external retainer (public listener, query
@@ -277,7 +286,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     this.synchronizer.on("sync-state", message => {
-      const handle = this.#queries[message.documentId]?.handle
+      const handle = this.#queries.get(message.documentId)?.handle
       if (!handle) return
 
       const peerMeta = this.peerMetadataByPeerId[message.peerId]
@@ -326,7 +335,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#remoteHeadsSubscriptions.on(
         "remote-heads-changed",
         ({ documentId, storageId, remoteHeads, timestamp }) => {
-          const handle = this.#queries[documentId]?.handle
+          const handle = this.#queries.get(documentId)?.handle
           if (!handle) return
           this.#syncStateTracker.handleRemoteHeadsChanged(
             documentId,
@@ -354,7 +363,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     documentId: DocumentId,
     initialDoc?: Automerge.Doc<unknown>
   ): DocumentQuery<unknown> {
-    const existing = this.#queries[documentId]
+    const existing = this.#queries.get(documentId)
     if (existing) {
       return existing
     }
@@ -370,7 +379,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     const handle = new DocHandle(document, {})
     const query = new DocumentQuery(handle, this.#sources)
-    this.#queries[documentId] = query
+    this.#queries.set(documentId, query)
 
     // Attach all sources. Each source calls sourcePending/sourceUnavailable
     // as appropriate and sets up its own listeners. When initialDoc is
@@ -407,9 +416,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Returns all the handles we have cached. */
   get handles(): Record<DocumentId, DocHandle<any>> {
     const result: Record<DocumentId, DocHandle<any>> = {}
-    for (const [id, query] of Object.entries(this.#queries)) {
+    for (const [id, query] of this.#queries) {
       if (query.handle) {
-        result[id as DocumentId] = query.handle
+        result[id] = query.handle
       }
     }
     return result
@@ -554,10 +563,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // ensureQuery creates the query, handle, sets up all sources, and
     // registers with the sync layer (no-ops if already added).
-    if (!this.#queries[documentId]) {
-      this.#ensureQuery(documentId)
-    }
-    const query = this.#queries[documentId] as DocumentQuery<T>
+    const query = this.#ensureQuery(documentId) as DocumentQuery<T>
 
     // A URL can carry both fixed heads (`#h1|h2`) and a path suffix
     // (`/a/@0/b`). Layer the heads projection first (it gates readiness on
@@ -607,7 +613,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   delete(id: AnyDocumentId) {
     const documentId = interpretAsDocumentId(id)
 
-    const query = this.#queries[documentId]
+    const query = this.#queries.get(documentId)
     if (query?.handle) {
       // Fans out to all retained handles (root + subs) via the registry
       // and flips the document's `deleted` flag.
@@ -619,7 +625,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       // can't keep the deleted document rooted in the Repo.
       query.handle[kSeverRetention]()
     }
-    delete this.#queries[documentId]
+    this.#queries.delete(documentId)
 
     for (const source of this.#sources.values()) {
       source.detach(documentId)
@@ -670,7 +676,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const docId = args?.docId
     if (docId != null) {
       // Check if we already have a handle for this document
-      const existing = this.#queries[docId]?.handle as DocHandle<T> | null
+      const existing = this.#queries.get(docId)?.handle as DocHandle<T> | null
       if (existing) {
         existing.update(doc => Automerge.loadIncremental(doc, binary))
         return existing
@@ -733,15 +739,15 @@ export class Repo extends EventEmitter<RepoEvents> {
       return
     }
 
-    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
+    const ids = documents ?? Array.from(this.#queries.keys())
     // Bound the fan-out so flushing a large collection doesn't open every
     // storage write at once. State is re-read inside the limited task because a
-    // query may have changed between enqueue and execution.
+    // query may have changed (or been collected) between enqueue and execution.
     const limit = semaphore(this.#flushConcurrency)
     const results = await Promise.allSettled(
       ids.map(id =>
         limit(async () => {
-          const state = this.#queries[id]?.peek()
+          const state = this.#queries.get(id)?.peek()
           if (state?.state === "ready") {
             await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
           }
@@ -773,8 +779,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     // Explicit teardown: drop external retention so lingering listeners
     // can't keep the removed document rooted in the Repo.
-    this.#queries[documentId]?.handle[kSeverRetention]()
-    delete this.#queries[documentId]
+    this.#queries.get(documentId)?.handle[kSeverRetention]()
+    this.#queries.delete(documentId)
     this.#syncStateTracker.delete(documentId)
   }
 
