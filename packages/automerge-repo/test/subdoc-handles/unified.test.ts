@@ -5,6 +5,9 @@ import type { DocHandle } from "../../src/DocHandle.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
 import { splice } from "../../src/index.js"
 import { cursor } from "../../src/subdoc-handles/utils.js"
+import { flushGC, gcAvailable, waitForGC } from "../helpers/flushGC.js"
+
+const itGC = gcAvailable ? it : it.skip
 
 /**
  * Tests for the unified DocHandle/Ref API. The idea: a "ref" is now just a
@@ -733,29 +736,22 @@ describe("unified DocHandle / Ref", () => {
       expect((handle as any)._handleRetainerSize).toBe(baseline)
     })
 
-    it("survives garbage collection if listeners are attached", async () => {
-      // This only runs when the test process was started with --expose-gc
-      // (e.g. `pnpm test --exec "node --expose-gc"`). Otherwise skip quietly.
-      const gc = (globalThis as any).gc as (() => void) | undefined
-      if (typeof gc !== "function") return
-
+    itGC("survives garbage collection if listeners are attached", async () => {
       handle.change(d => {
         d.title = "Old"
       })
 
-      const events = []
+      const events: unknown[] = []
       let weak: WeakRef<DocHandle<any>> | undefined
       ;(() => {
         const sub = handle.sub("title")
         weak = new WeakRef(sub)
-        sub.on("change", v => events.push(v))
+        sub.on("change", ({ doc }) => events.push(doc))
       })()
 
-      for (let i = 0; i < 10; i++) {
-        gc()
-        await new Promise(r => setTimeout(r, 5))
-      }
-
+      // Negative assertion: the listener retains the sub-handle, so a
+      // best-effort GC must not collect it.
+      await flushGC()
       expect(weak!.deref()).toBeDefined()
 
       handle.change(d => {
@@ -764,34 +760,32 @@ describe("unified DocHandle / Ref", () => {
       expect(events).toEqual(["New"])
     })
 
-    it("prunes trie nodes for sub-handles that are garbage-collected", async () => {
-      // Only runs under --expose-gc; skip quietly otherwise.
-      const gc = (globalThis as any).gc as (() => void) | undefined
-      if (typeof gc !== "function") return
+    itGC(
+      "prunes trie nodes for sub-handles that are garbage-collected",
+      async () => {
+        handle.change(d => {
+          d.items = [{ id: "seed", v: 0 }]
+        })
+        const baselineNodes = (handle as any)._trieNodeCount
 
-      handle.change(d => {
-        d.items = [{ id: "seed", v: 0 }]
-      })
-      const baselineNodes = (handle as any)._trieNodeCount
+        // Create many transient sub-handles at distinct pattern paths, holding
+        // no references and attaching no listeners - they're weakly held only.
+        ;(() => {
+          for (let i = 0; i < 200; i++) {
+            handle.sub("items", { id: `transient-${i}` }).doc()
+          }
+        })()
 
-      // Create many transient sub-handles at distinct pattern paths, holding
-      // no references and attaching no listeners - they're weakly held only.
-      ;(() => {
-        for (let i = 0; i < 200; i++) {
-          handle.sub("items", { id: `transient-${i}` }).doc()
-        }
-      })()
+        expect((handle as any)._trieNodeCount).toBeGreaterThan(baselineNodes)
 
-      expect((handle as any)._trieNodeCount).toBeGreaterThan(baselineNodes)
-
-      for (let i = 0; i < 10; i++) {
-        gc()
-        await new Promise(r => setTimeout(r, 5))
+        // Once the transient handles are collected, the finalizer prunes their
+        // nodes back toward the baseline (bounded by live handles).
+        expect(
+          await waitForGC(
+            () => (handle as any)._trieNodeCount < baselineNodes + 50
+          )
+        ).toBe(true)
       }
-
-      // Once the transient handles are collected, the finalizer prunes their
-      // nodes back toward the baseline (bounded by live handles).
-      expect((handle as any)._trieNodeCount).toBeLessThan(baselineNodes + 50)
-    })
+    )
   })
 })
