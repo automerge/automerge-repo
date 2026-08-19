@@ -2378,6 +2378,73 @@ describe("Repo", () => {
     })
   })
 
+  describe("peer re-engagement after cache eviction", () => {
+    it("resumes pushing updates to a passive peer with persisted sync state", async () => {
+      // A relay-shaped repo: announces nothing, allows access, persists.
+      const storage = new DummyStorageAdapter()
+      const server = new Repo({
+        peerId: "server" as PeerId,
+        storage,
+        sharePolicy: async () => false,
+        saveDebounceRate: 1,
+      })
+      const alice = new Repo({ peerId: "alice" as PeerId, saveDebounceRate: 1 })
+      const bob = new Repo({ peerId: "bob" as PeerId, saveDebounceRate: 1 })
+
+      // Wire the pairs by hand: the server only persists sync state for
+      // peers that announce a storageId, which connectRepos' empty
+      // peer-candidate metadata doesn't carry.
+      const connectToServer = (repo: Repo, peerId: PeerId) => {
+        const [toServer, fromServer] = DummyNetworkAdapter.createConnectedPair()
+        repo.networkSubsystem.addNetworkAdapter(toServer)
+        server.networkSubsystem.addNetworkAdapter(fromServer)
+        toServer.emit("peer-candidate", {
+          peerId: "server" as PeerId,
+          peerMetadata: {},
+        })
+        fromServer.emit("peer-candidate", {
+          peerId,
+          peerMetadata: {
+            storageId: `${peerId}-storage` as any,
+            isEphemeral: false,
+          },
+        })
+      }
+      connectToServer(alice, "alice" as PeerId)
+      connectToServer(bob, "bob" as PeerId)
+      await Promise.all([
+        alice.networkSubsystem.whenReady(),
+        bob.networkSubsystem.whenReady(),
+        server.networkSubsystem.whenReady(),
+      ])
+
+      const aliceHandle = alice.create<{ foo: string }>({ foo: "v1" })
+      const { documentId } = aliceHandle
+
+      // Bob requests the document through the server and syncs it.
+      const bobHandle = await bob.find<{ foo: string }>(aliceHandle.url)
+      expect(bobHandle.doc()).toEqual({ foo: "v1" })
+
+      // Wait for the server to persist sync state for both peers.
+      await vi.waitFor(async () => {
+        const chunks = await storage.loadRange([documentId, "sync-state"])
+        expect(chunks.length).toBeGreaterThanOrEqual(2)
+      })
+
+      // Evict the document from the server while bob stays connected.
+      await server.removeFromCache(documentId)
+      expect(server.handles[documentId]).toBeUndefined()
+
+      // Alice edits: the server re-creates its synchronizer from the
+      // inbound message and must resume pushing to bob, whose engagement
+      // is known only from his persisted sync state.
+      aliceHandle.change(d => {
+        d.foo = "v2"
+      })
+      await vi.waitFor(() => expect(bobHandle.doc()).toEqual({ foo: "v2" }))
+    })
+  })
+
   describe("the denylist", () => {
     it("should immediately return an unavailable message in response to a request for a denylisted document", async () => {
       const storage = new DummyStorageAdapter()

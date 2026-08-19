@@ -568,6 +568,15 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       documentId: this.#handle.documentId,
     })
 
+    // A persisted sync state with shared heads is evidence this peer has
+    // synced this document before: restore its engagement so a re-created
+    // synchronizer (after cache eviction) resumes pushing updates to a
+    // passively-subscribed peer instead of waiting for it to speak first.
+    if (syncState && state.sharedHeads.length > 0 && !peer.hasRequested) {
+      peer.hasRequested = true
+      if (sharePolicyState === "share") sharePolicyState = "announce"
+    }
+
     peer.sharePolicyState = sharePolicyState
 
     // Denied peers: keep them in the map but don't activate normally.
