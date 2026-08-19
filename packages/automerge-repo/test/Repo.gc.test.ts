@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { Repo } from "../src/Repo.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import type { DocHandle } from "../src/DocHandle.js"
@@ -30,6 +30,31 @@ describeGC("Repo GC of dropped documents", () => {
     })()
 
     expect(await waitForGC(probe, 2000)).toBe(true)
+    expect(repo.handles[documentId]).toBeUndefined()
+    expect(repo.synchronizer.docSynchronizers[documentId]).toBeUndefined()
+  })
+
+  it("collects a document once root and sub-handles are all dropped", async () => {
+    const repo = new Repo()
+    let documentId!: DocumentId
+    let rootProbe!: WeakRef<DocHandle<any>>
+    let subProbe!: WeakRef<DocHandle<string>>
+
+      // Scope root and sub together, with listener churn on the sub, so the
+      // whole cluster (root, subs, registry wiring) must collapse as a unit.
+    ;(() => {
+      const root = repo.create<any>({ nested: { value: "dropped" } })
+      documentId = root.documentId
+      const sub = root.sub("nested", "value")
+      const listener = () => {}
+      sub.on("change", listener)
+      sub.off("change", listener)
+      rootProbe = new WeakRef(root)
+      subProbe = new WeakRef(sub)
+    })()
+
+    expect(await waitForGC(rootProbe, 2000)).toBe(true)
+    expect(await waitForGC(subProbe, 2000)).toBe(true)
     expect(repo.handles[documentId]).toBeUndefined()
     expect(repo.synchronizer.docSynchronizers[documentId]).toBeUndefined()
   })
@@ -192,5 +217,84 @@ describeGC("Repo GC of dropped documents", () => {
     // A fresh find re-requests the document from alice.
     const again = await bob.find<TestDoc>(aliceHandle.url)
     expect(again.doc()).toEqual({ foo: "shared" })
+  })
+})
+
+describeGC("Repo GC cross-cutting pins", () => {
+  const SAVE_DEBOUNCE_MS = 100
+
+  it("a pending save throttle pins the handle until it fires", async () => {
+    // The heads-changed save listener retains {handle, doc} through the
+    // throttle's pending setTimeout, so a change always reaches storage
+    // even if the consumer drops the handle immediately afterwards.
+    // Partial fake timers capture the throttle while setImmediate stays
+    // real for the GC helpers' macrotask yields.
+    let probe!: WeakRef<DocHandle<TestDoc>>
+    const repo = new Repo({
+      storage: new DummyStorageAdapter(),
+      saveDebounceRate: SAVE_DEBOUNCE_MS,
+    })
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      ;(() => {
+        const handle = repo.create<TestDoc>({ foo: "bar" })
+        handle.change(d => {
+          d.foo = "baz"
+        })
+        probe = new WeakRef(handle)
+      })()
+
+      // The throttle timer has not fired: its closure pins the handle.
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+
+      // Fire the pending save (and sync) throttles, releasing the closures.
+      await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS * 2 + 50)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("a repo.handles snapshot pins; a later snapshot reflects the drop", async () => {
+    let probe!: WeakRef<DocHandle<TestDoc>>
+    let documentId!: DocumentId
+    let snapshot: Record<DocumentId, DocHandle<any>> | undefined
+    const repo = new Repo({
+      storage: new DummyStorageAdapter(),
+      saveDebounceRate: SAVE_DEBOUNCE_MS,
+    })
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      ;(() => {
+        const handle = repo.create<TestDoc>({ foo: "bar" })
+        documentId = handle.documentId
+        probe = new WeakRef(handle)
+      })()
+      await repo.flush()
+      await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS * 2 + 50)
+      // The snapshot Record strongly references the handle.
+      snapshot = repo.handles
+    } finally {
+      vi.useRealTimers()
+    }
+
+    await flushGC()
+    expect(probe.deref()).toBeDefined()
+    expect(snapshot![documentId]).toBeDefined()
+
+    snapshot = undefined
+    // Handle collected AND a fresh snapshot no longer lists it (the weak
+    // map's iterator skips dead entries).
+    expect(
+      await waitForGC(
+        () =>
+          probe.deref() === undefined && repo.handles[documentId] === undefined,
+        2000
+      )
+    ).toBe(true)
   })
 })
