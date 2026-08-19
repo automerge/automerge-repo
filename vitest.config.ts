@@ -23,7 +23,11 @@ export default defineConfig({
       skipFull: true,
       exclude: [
         "**/fuzz",
-        "**/helpers",
+        // Test doubles and shared test utilities that live under src.
+        // Real src helpers (throttle, semaphore, WeakValueMap, ...) are
+        // shipped code and stay measured.
+        "**/src/helpers/Dummy*",
+        "**/src/helpers/tests/**",
         "**/coverage",
         "examples/**/*",
         "docs/**/*",
