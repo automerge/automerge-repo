@@ -137,6 +137,30 @@ describe("Document external retention", () => {
       expect(changes).toEqual([true, false])
     })
 
+    it("off(event) without a callback releases that event's external listeners", () => {
+      const document = makeDocument({ count: 1 })
+      const changes: boolean[] = []
+      document[kOnRetainChange] = retained => changes.push(retained)
+      const handle = new DocHandle<TestDoc>(document, {})
+
+      const listenerA = () => {}
+      const listenerB = () => {}
+      const internal = () => {}
+      handle[kOnInternal]("change", internal)
+      handle.on("change", listenerA)
+      handle.on("change", listenerB)
+      handle.on("heads-changed", listenerA)
+      expect(handle.listeners("change")).toContain(listenerA)
+
+      handle.off("change")
+      expect(handle.listeners("change")).toEqual([internal])
+      // Still retained by the heads-changed listener.
+      expect(changes).toEqual([true])
+
+      handle.off("heads-changed")
+      expect(changes).toEqual([true, false])
+    })
+
     it("adding the same listener twice retains once", () => {
       const document = makeDocument({ count: 1 })
       const changes: boolean[] = []
@@ -163,6 +187,30 @@ describe("Document external retention", () => {
       expect(changes).toEqual([true])
 
       unsubscribe()
+      unsubscribe()
+      expect(changes).toEqual([true, false])
+    })
+
+    it("subscribing the same callback internally then externally stays balanced", () => {
+      const document = makeDocument({ count: 1 })
+      const changes: boolean[] = []
+      document[kOnRetainChange] = retained => changes.push(retained)
+      const handle = new DocHandle<TestDoc>(document, {})
+      const query = new DocumentQuery(handle)
+
+      const callback = () => {}
+      const unsubInternal = query[kSubscribeInternal](callback)
+      const unsubExternal = query.subscribe(callback)
+      expect(changes).toEqual([])
+
+      // The duplicate external subscription owns nothing: its unsubscribe
+      // neither removes the internal entry nor releases retention.
+      unsubExternal()
+      unsubInternal()
+      expect(changes).toEqual([])
+
+      const unsubscribe = query.subscribe(callback)
+      expect(changes).toEqual([true])
       unsubscribe()
       expect(changes).toEqual([true, false])
     })
