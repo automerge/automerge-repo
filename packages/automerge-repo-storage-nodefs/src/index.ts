@@ -36,7 +36,17 @@ export interface NodeFSStorageAdapterOptions {
 
 export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
-  private cache: { [key: string]: Uint8Array } = {}
+  /**
+   * In-flight writes, readable until their file write settles. `writeFile`
+   * is not atomic and a concurrent `load`/`loadRange` must see a chunk the
+   * moment `save` is called, so reads are served from here while a write is
+   * pending. Entries are dropped once the last overlapping write for their
+   * key completes, so memory is bounded by concurrent writes, not by every
+   * chunk ever saved.
+   */
+  private cache: {
+    [key: string]: { binary: Uint8Array; pendingWrites: number }
+  } = {}
   // Shared per-adapter so concurrent loadRange / walkdir calls stay under the
   // cap together rather than each getting its own budget.
   private limit: ReturnType<typeof semaphore>
@@ -57,7 +67,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
   async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
     const key = getKey(keyArray)
-    if (this.cache[key]) return this.cache[key]
+    if (this.cache[key]) return this.cache[key].binary
 
     const filePath = this.getFilePath(keyArray)
 
@@ -73,12 +83,27 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
   async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
     const key = getKey(keyArray)
-    this.cache[key] = binary
+    let entry = this.cache[key]
+    if (entry) {
+      entry.binary = binary
+      entry.pendingWrites++
+    } else {
+      entry = this.cache[key] = { binary, pendingWrites: 1 }
+    }
 
     const filePath = this.getFilePath(keyArray)
 
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
-    await fs.promises.writeFile(filePath, binary)
+    try {
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+      await fs.promises.writeFile(filePath, binary)
+    } finally {
+      // Drop the entry once the last overlapping write for this key settles.
+      // A remove()/removeRange() may have replaced or deleted it meanwhile;
+      // only the entry this write incremented is decremented.
+      if (this.cache[key] === entry && --entry.pendingWrites === 0) {
+        delete this.cache[key]
+      }
+    }
   }
 
   async remove(keyArray: string[]): Promise<void> {
