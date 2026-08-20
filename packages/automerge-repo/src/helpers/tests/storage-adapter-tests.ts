@@ -8,6 +8,13 @@ const PAYLOAD_C = () => new Uint8Array([2, 111, 74, 131, 236, 96, 142, 193])
 
 const LARGE_PAYLOAD = new Uint8Array(100000).map(() => Math.random() * 256)
 
+const byKey = (a: { key: string[] }, b: { key: string[] }): number =>
+  a.key.join("/").localeCompare(b.key.join("/"))
+
+/** Chunk order is not part of the loadRange contract; compare sorted. */
+const sortedByKey = <T extends { key: string[] }>(chunks: T[]): T[] =>
+  chunks.toSorted(byKey)
+
 type AdapterTestContext = {
   adapter: StorageAdapterInterface
 }
@@ -67,16 +74,22 @@ export function runStorageAdapterTests(setup: SetupFn, title?: string): void {
         await adapter.save(["AAAAA", "snapshot", "yyyyy"], PAYLOAD_B())
         await adapter.save(["AAAAA", "sync-state", "zzzzz"], PAYLOAD_C())
 
-        expect(await adapter.loadRange(["AAAAA"])).toStrictEqual([
-          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-          { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_B() },
-          { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-        ])
+        expect(sortedByKey(await adapter.loadRange(["AAAAA"]))).toStrictEqual(
+          sortedByKey([
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+            { key: ["AAAAA", "snapshot", "yyyyy"], data: PAYLOAD_B() },
+            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
+          ])
+        )
 
-        expect(await adapter.loadRange(["AAAAA", "sync-state"])).toStrictEqual([
-          { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
-          { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
-        ])
+        expect(
+          sortedByKey(await adapter.loadRange(["AAAAA", "sync-state"]))
+        ).toStrictEqual(
+          sortedByKey([
+            { key: ["AAAAA", "sync-state", "xxxxx"], data: PAYLOAD_A() },
+            { key: ["AAAAA", "sync-state", "zzzzz"], data: PAYLOAD_C() },
+          ])
+        )
       })
 
       it("should only load values that match they key", async ({ adapter }) => {
