@@ -41,8 +41,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
    * is not atomic and a concurrent `load`/`loadRange` must see a chunk the
    * moment `save` is called, so reads are served from here while a write is
    * pending. Entries are dropped once the last overlapping write for their
-   * key completes, so memory is bounded by concurrent writes, not by every
-   * chunk ever saved.
+   * key completes.
    */
   private cache: {
     [key: string]: { binary: Uint8Array; pendingWrites: number }
