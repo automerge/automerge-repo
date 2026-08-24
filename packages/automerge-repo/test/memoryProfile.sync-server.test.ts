@@ -47,10 +47,32 @@ async function until(cond: () => boolean, what: string, timeoutMs = 60_000) {
   throw new Error(`timed out waiting for ${what}`)
 }
 
+/**
+ * Wait out the storage save throttle before sampling. Longer than the Repo's
+ * default 100ms saveDebounceRate so a round's writes have been issued rather
+ * than still sitting in a pending throttle, which would hold the document.
+ */
+const SETTLE_MS = 150
+
+/**
+ * GC passes per sample. A pass is `gc()` plus a macrotask yield, so a
+ * finalizer scheduled by one collection can run before the next: a
+ * WeakValueMap entry is only pruned by the FinalizationRegistry callback that
+ * follows its value being collected, so observing the released state can take
+ * more than one pass.
+ *
+ * Deliberate headroom rather than a tuned threshold. Measured on both a
+ * pinning and a collecting build, going from 1 pass to 10 moves the reported
+ * heap by less than 0.5% and never changes the document counts, which are
+ * exact either way. Six keeps samples clear of that boundary at negligible
+ * cost.
+ */
+const GC_PASSES_PER_SAMPLE = 6
+
 /** Let save-throttle timers fire, then force GC with macrotask yields. */
 async function settleAndGC() {
-  await pause(150)
-  for (let i = 0; i < 6; i++) {
+  await pause(SETTLE_MS)
+  for (let i = 0; i < GC_PASSES_PER_SAMPLE; i++) {
     globalThis.gc?.()
     await yieldMacrotask()
   }
