@@ -196,9 +196,7 @@ describe("SubductionStorageBridge close guard", () => {
     // swallowed by the close guard.
     adapter.close()
 
-    await expect(bridge.loadAllCommits(SID)).rejects.toThrow(
-      /closed database/i
-    )
+    await expect(bridge.loadAllCommits(SID)).rejects.toThrow(/closed database/i)
     await expect(bridge.saveSedimentreeId(SID)).rejects.toThrow(
       /closed database/i
     )

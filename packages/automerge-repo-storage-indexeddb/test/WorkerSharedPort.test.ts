@@ -275,8 +275,6 @@ describe("storage + websocket hosts sharing one donated port", () => {
     ;(port as unknown as { close(): void }).close()
     await tick()
 
-    await expect(adapter.load(["k"])).rejects.toBeInstanceOf(
-      WorkerStorageError
-    )
+    await expect(adapter.load(["k"])).rejects.toBeInstanceOf(WorkerStorageError)
   })
 })

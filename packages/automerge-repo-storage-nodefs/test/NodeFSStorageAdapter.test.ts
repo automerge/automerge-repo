@@ -1,7 +1,7 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest"
 import { runStorageAdapterTests } from "../../automerge-repo/src/helpers/tests/storage-adapter-tests"
 import { NodeFSStorageAdapter } from "../src"
 
@@ -106,23 +106,21 @@ describe("NodeFSStorageAdapter", () => {
       expect(keyStrings).toContain(weirdKey.join("/"))
     })
 
-    // ─── Cache rollback on failure ─────────────────────────────────────
+    // ─── Cache lifetime on failure ─────────────────────────────────────
     //
-    // The adapter populates its in-memory cache synchronously so that
-    // fire-and-forget saves are observable within the same process. If
-    // the on-disk write subsequently fails, the cache must roll back so
-    // it never exposes bytes that aren't durable on disk.
+    // The adapter caches a write only while it is in flight so that a
+    // fire-and-forget save is observable within the same process, then
+    // drops the entry once the write settles. A failed write must still
+    // drop cleanly: it must never leave a phantom entry in the cache map
+    // or the prefix index that would surface bytes absent from disk.
 
-    it("save() rolls the cache back to the prior value on write failure", async () => {
+    it("save() drops the failed key from cache and index on write failure", async () => {
       const key = ["AAAAAAAA", "snapshot", "hash"]
       await adapter.save(key, new Uint8Array([1, 1, 1]))
 
       // Force the next write to fail by dropping a regular file where
-      // the nested shard directory would need to exist for a different
-      // key. More reliable: drop a regular file where this key's own
-      // parent directory would be recreated after a remove. Easiest
-      // reliable approach: point a FRESH key at a path under a pre-
-      // existing file-not-directory.
+      // a fresh key's parent directory would need to be created, so its
+      // mkdir fails.
       const blockerKey = ["BBBBBBBB", "snapshot", "hash"]
       const adapterAny = adapter as unknown as {
         getFilePath(k: string[]): string
@@ -136,53 +134,22 @@ describe("NodeFSStorageAdapter", () => {
         adapter.save(blockerKey, new Uint8Array([9, 9, 9]))
       ).rejects.toBeDefined()
 
-      // Cache must not report the failed key as having any value.
+      // The failed key must not be reported as having any value.
       expect(await adapter.load(blockerKey)).toBeUndefined()
 
-      // A previously-saved key's cache must be untouched.
+      // A previously-saved key is still readable (from disk).
       const prior = await adapter.load(key)
       expect(prior).toBeDefined()
       expect(Array.from(prior!)).toEqual([1, 1, 1])
 
       // loadRange consults the prefix index (not the cache map directly),
-      // so it would expose a phantom key if rollback failed to de-index.
-      // load() alone cannot catch that desync.
+      // so it would expose a phantom key if the failed write failed to
+      // de-index. load() alone cannot catch that desync.
       const phantom = await adapter.loadRange(["BBBBBBBB"])
       expect(phantom.map(c => c.key)).not.toContainEqual(blockerKey)
 
       const intact = await adapter.loadRange(["AAAAAAAA"])
       expect(intact).toStrictEqual([{ key, data: new Uint8Array([1, 1, 1]) }])
-    })
-
-    it("save() restores the prior cache value when overwriting an existing key fails", async () => {
-      const key = ["AAAAAAAA", "snapshot", "hash"]
-      await adapter.save(key, new Uint8Array([1, 1, 1]))
-
-      // Clobber the parent directory's *file entry* for this key with a
-      // directory so the next rename over it fails.
-      const adapterAny = adapter as unknown as {
-        getFilePath(k: string[]): string
-      }
-      const existingFile = adapterAny.getFilePath(key)
-      fs.rmSync(existingFile)
-      fs.mkdirSync(existingFile) // now a directory where a file should be
-
-      await expect(
-        adapter.save(key, new Uint8Array([2, 2, 2]))
-      ).rejects.toBeDefined()
-
-      // Cache should have rolled back to the original bytes (1,1,1),
-      // NOT the attempted (2,2,2). load() consults the cache first, so
-      // if we rolled back correctly we get [1,1,1].
-      const loaded = await adapter.load(key)
-      expect(loaded).toBeDefined()
-      expect(Array.from(loaded!)).toEqual([1, 1, 1])
-
-      // The prefix index must still list the key exactly once with the
-      // rolled-back bytes. (Rollback-to-prior must keep the key indexed,
-      // unlike rollback-of-a-new-key which de-indexes it.)
-      const ranged = await adapter.loadRange(["AAAAAAAA"])
-      expect(ranged).toStrictEqual([{ key, data: new Uint8Array([1, 1, 1]) }])
     })
 
     // ─── saveBatch ────────────────────────────────────────────────────
@@ -226,10 +193,9 @@ describe("NodeFSStorageAdapter", () => {
 
     it("saveBatch() aborts the whole batch when any entry's setup fails", async () => {
       // Staged semantics: if any entry can't be prepared (e.g. its
-      // target directory can't be created), the whole batch is
-      // aborted before any rename happens. No entry should end up
-      // observable on disk, and all cache entries should be rolled
-      // back.
+      // target directory can't be created), the whole batch is aborted
+      // before any rename happens. No entry should end up observable on
+      // disk, and every in-flight cache entry is released.
       const okKey1 = ["AAAAAAAA", "snapshot", "one"]
       const okKey2 = ["AAAAAAAA", "snapshot", "two"]
       const badKey = ["BBBBBBBB", "snapshot", "hash"]
@@ -251,15 +217,16 @@ describe("NodeFSStorageAdapter", () => {
         ])
       ).rejects.toBeDefined()
 
-      // None of the entries should be observable: the batch was
-      // aborted before any commit. Read via a fresh adapter to verify
-      // on-disk state bypassing any in-memory cache.
+      // None of the entries should be observable: the batch was aborted
+      // before any commit. Read via a fresh adapter to verify on-disk
+      // state bypassing any in-memory cache.
       const fresh = new NodeFSStorageAdapter(dir)
       expect(await fresh.load(okKey1)).toBeUndefined()
       expect(await fresh.load(okKey2)).toBeUndefined()
       expect(await fresh.load(badKey)).toBeUndefined()
 
-      // The in-memory cache must also be rolled back for all entries.
+      // The writer's own reads must agree (its in-flight cache entries
+      // were all released, so reads fall through to the empty disk).
       expect(await adapter.load(okKey1)).toBeUndefined()
       expect(await adapter.load(okKey2)).toBeUndefined()
       expect(await adapter.load(badKey)).toBeUndefined()
@@ -272,14 +239,14 @@ describe("NodeFSStorageAdapter", () => {
       expect(bShard.map(c => c.key)).not.toContainEqual(badKey)
     })
 
-    it("saveBatch() with a commit-phase failure keeps successful entries and rolls back only the failed one", async () => {
-      // Stage phase succeeds for every entry (tmp files are created
-      // in <dir>/.tmp/). The commit phase's rename fails for badKey
-      // because its target path already exists as a directory; the
-      // other entries rename successfully. Expected outcome:
-      //   - successful entries are observable on disk and in cache
-      //   - failed entry's cache is rolled back
-      //   - load(badKey) throws EISDIR (directory squatting on a key
+    it("saveBatch() with a commit-phase failure keeps successful entries and drops the failed one", async () => {
+      // Stage phase succeeds for every entry (tmp files are created in
+      // <dir>/.tmp/). The commit phase's rename fails for badKey because
+      // its target path already exists as a directory; the other entries
+      // rename successfully. Expected outcome:
+      //   - successful entries are durable on disk
+      //   - the failed entry never becomes a readable value
+      //   - load(badKey) throws EISDIR (a directory squatting on a key
       //     path is a corruption signal that must propagate)
       //   - no tmp files remain
       const okKey1 = ["AAAAAAAA", "snapshot", "one"]
@@ -291,7 +258,6 @@ describe("NodeFSStorageAdapter", () => {
       // mkdir of the parent succeeds.
       const adapterAny = adapter as unknown as {
         getFilePath(k: string[]): string
-        cache: Record<string, Uint8Array>
       }
       const badTarget = adapterAny.getFilePath(badKey)
       fs.mkdirSync(path.dirname(badTarget), { recursive: true })
@@ -311,7 +277,8 @@ describe("NodeFSStorageAdapter", () => {
       expect(Array.from((await fresh.load(okKey1))!)).toEqual([1])
       expect(Array.from((await fresh.load(okKey2))!)).toEqual([2])
 
-      // Successful entries remain in the writer's cache too.
+      // The writer's own reads agree (its cache entries were released on
+      // settle, so these read through to disk).
       expect(Array.from((await adapter.load(okKey1))!)).toEqual([1])
       expect(Array.from((await adapter.load(okKey2))!)).toEqual([2])
 
@@ -324,15 +291,6 @@ describe("NodeFSStorageAdapter", () => {
       await expect(fresh.load(badKey)).rejects.toMatchObject({
         code: "EISDIR",
       })
-
-      // Direct cache-state check: the failed entry is rolled back in
-      // the writer's cache. The successful entries retain their new
-      // bytes. (Separating this from the load() assertions above
-      // isolates cache behavior from the EISDIR-propagation behavior.)
-      const keyStr = (k: string[]) => k.join(path.sep)
-      expect(adapterAny.cache[keyStr(badKey)]).toBeUndefined()
-      expect(Array.from(adapterAny.cache[keyStr(okKey1)])).toEqual([1])
-      expect(Array.from(adapterAny.cache[keyStr(okKey2)])).toEqual([2])
 
       // No staged tmp files should remain — successful renames moved
       // them to targets; the failing rename's tmp was unlinked.
@@ -349,6 +307,115 @@ describe("NodeFSStorageAdapter", () => {
         { key: okKey2, data: new Uint8Array([2]) },
       ])
       expect(await adapter.loadRange(["BBBBBBBB"])).toStrictEqual([])
+    })
+  })
+
+  // ─── Write cache lifetime ────────────────────────────────────────────
+  //
+  // The in-memory cache exists only for read-after-write consistency while
+  // a write is in flight; it is dropped once the write settles so a
+  // long-running process does not accumulate its whole storage directory in
+  // memory. Overlapping writes to one key are refcounted. These tests gate
+  // the commit (rename) step to hold a write in flight.
+
+  describe("write cache lifetime", () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    const cacheSize = (adapter: NodeFSStorageAdapter) =>
+      Object.keys((adapter as unknown as { cache: object }).cache).length
+
+    it("does not retain chunk bytes after writes settle", async () => {
+      const { adapter, teardown } = await setup()
+      try {
+        await adapter.save(["doc-a", "chunk1"], new Uint8Array([1]))
+        await adapter.save(["doc-a", "chunk2"], new Uint8Array([2]))
+        await adapter.save(["doc-b", "chunk1"], new Uint8Array([3]))
+
+        assert.equal(cacheSize(adapter), 0)
+        assert.deepEqual(
+          await adapter.load(["doc-a", "chunk2"]),
+          new Uint8Array([2])
+        )
+      } finally {
+        teardown()
+      }
+    })
+
+    it("serves an in-flight write to concurrent readers", async () => {
+      const { adapter, teardown } = await setup()
+      try {
+        // Hold the commit (rename) open so the reads below race the
+        // still-in-flight write. The cache entry lives until the write
+        // settles, so the reads must see the written bytes from it.
+        let releaseRename!: () => void
+        const gate = new Promise<void>(resolve => {
+          releaseRename = resolve
+        })
+        const originalRename = fs.promises.rename.bind(fs.promises)
+        vi.spyOn(fs.promises, "rename").mockImplementation(async (...args) => {
+          await gate
+          return originalRename(...(args as [never, never]))
+        })
+
+        const pendingSave = adapter.save(
+          ["doc-a", "chunk1"],
+          new Uint8Array([7])
+        )
+        assert.deepEqual(
+          await adapter.load(["doc-a", "chunk1"]),
+          new Uint8Array([7]),
+          "a read racing an in-flight write must see the written bytes"
+        )
+        const range = await adapter.loadRange(["doc-a"])
+        assert.equal(range.length, 1)
+        assert.deepEqual(range[0].data, new Uint8Array([7]))
+
+        releaseRename()
+        await pendingSave
+        assert.equal(cacheSize(adapter), 0)
+      } finally {
+        teardown()
+      }
+    })
+
+    it("keeps the latest bytes readable across overlapping saves to one key", async () => {
+      const { adapter, teardown } = await setup()
+      try {
+        // Gate the commit (rename) of every overlapping write so both are
+        // in flight at once. rename does not carry the payload, so collect
+        // the releasers and fire them in call order.
+        const releases: Array<() => void> = []
+        const originalRename = fs.promises.rename.bind(fs.promises)
+        vi.spyOn(fs.promises, "rename").mockImplementation(async (...args) => {
+          await new Promise<void>(resolve => releases.push(resolve))
+          return originalRename(...(args as [never, never]))
+        })
+
+        // Both saves run cacheSet synchronously before their first await,
+        // so the single cache entry already holds the latest bytes ([2])
+        // with a refcount of 2.
+        const first = adapter.save(["doc-a", "chunk1"], new Uint8Array([1]))
+        const second = adapter.save(["doc-a", "chunk1"], new Uint8Array([2]))
+
+        // Wait until both writes have reached the gated rename.
+        await vi.waitFor(() => assert.equal(releases.length, 2))
+
+        releases[0]()
+        await Promise.race([first, second])
+        assert.deepEqual(
+          await adapter.load(["doc-a", "chunk1"]),
+          new Uint8Array([2]),
+          "the entry must survive until the last overlapping write settles"
+        )
+
+        releases[1]()
+        await Promise.all([first, second])
+        assert.equal(cacheSize(adapter), 0)
+      } finally {
+        teardown()
+      }
     })
   })
 })

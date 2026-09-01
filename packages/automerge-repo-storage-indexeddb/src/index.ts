@@ -10,6 +10,80 @@ import {
   type StorageKey,
 } from "@automerge/automerge-repo/slim"
 
+/**
+ * Reject on any failure of `transaction` or its `request`, so the caller's
+ * promise always settles.
+ *
+ * A failure can surface through more than one event, so all are wired:
+ *   - `request.onerror` fires for a request-level failure (e.g. a constraint
+ *     violation).
+ *   - `transaction.onerror` / `transaction.onabort` fire for a transaction-level
+ *     failure (quota exhaustion, an I/O error, an explicit abort). They also
+ *     fire when an unhandled request error bubbles up and aborts the
+ *     transaction.
+ *
+ * The reason prefers `transaction.error` because, per the IndexedDB spec, it is
+ * either a reference to the same error the failing request raised (so nothing
+ * is lost) or the transaction-level reason such as `QuotaExceededError`, for
+ * which `request.error` is null. `request.error` is the fallback for the moment
+ * a request fails before the abort has set `transaction.error`. If both are
+ * null (an explicit `abort()`), a generic error is used.
+ *
+ * Exported only so it can be unit-tested directly; `@internal` keeps it out of
+ * the package's published types.
+ * @internal
+ */
+export function rejectOnFailure(
+  transaction: IDBTransaction,
+  request: IDBRequest,
+  reject: (reason: unknown) => void
+): void {
+  const fail = () =>
+    reject(
+      transaction.error ??
+        request.error ??
+        new Error("IndexedDB transaction failed")
+    )
+  // A request error bubbles to the transaction, so `fail` may run more than
+  // once; that is harmless because `reject` is a no-op once the promise has
+  // settled.
+  request.onerror = fail
+  transaction.onerror = fail
+  transaction.onabort = fail
+}
+
+/**
+ * Like {@link rejectOnFailure} but for operations with no single request to
+ * blame: a batch write (many `put`s) or a multi-request read (`getAll` +
+ * `getAllKeys`). Reject on transaction-level failure, preferring the specific
+ * error of whichever request failed over the transaction reason.
+ *
+ * A request-level error bubbles to `transaction.onerror` with the failing
+ * request as `event.target`, and that request's `.error` is already set,
+ * whereas `transaction.error` is only assigned later when the abort runs. So
+ * reading `event.target.error` surfaces the real reason (e.g. a
+ * `QuotaExceededError` from one of the `put`s) that `transaction.error` is
+ * still null for at `onerror` time. On an explicit `abort()` the target is the
+ * transaction, so `transaction.error` is used.
+ *
+ * Exported only so it can be unit-tested directly; `@internal` keeps it out of
+ * the package's published types.
+ * @internal
+ */
+export function rejectOnTransactionFailure(
+  transaction: IDBTransaction,
+  reject: (reason: unknown) => void
+): void {
+  const fail = (event: Event) =>
+    reject(
+      (event.target as IDBRequest | null)?.error ??
+        transaction.error ??
+        new Error("IndexedDB transaction failed")
+    )
+  transaction.onerror = fail
+  transaction.onabort = fail
+}
+
 export class IndexedDBStorageAdapter implements StorageAdapterInterface {
   private dbPromise: Promise<IDBDatabase>
 
@@ -52,9 +126,7 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
     const request = objectStore.get(keyArray)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(request.error)
-      }
+      rejectOnFailure(transaction, request, reject)
 
       request.onsuccess = event => {
         const result = (event.target as IDBRequest).result
@@ -72,12 +144,10 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
 
     const transaction = db.transaction(this.store, "readwrite")
     const objectStore = transaction.objectStore(this.store)
-    objectStore.put({ key: keyArray, binary: binary }, keyArray)
+    const request = objectStore.put({ key: keyArray, binary: binary }, keyArray)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      rejectOnFailure(transaction, request, reject)
       transaction.oncomplete = () => {
         resolve()
       }
@@ -95,9 +165,9 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
     }
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      // No single request to blame across the batch of put()s, so settle on the
+      // transaction, surfacing whichever put failed (e.g. on quota exhaustion).
+      rejectOnTransactionFailure(transaction, reject)
       transaction.oncomplete = () => {
         resolve()
       }
@@ -109,12 +179,10 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
 
     const transaction = db.transaction(this.store, "readwrite")
     const objectStore = transaction.objectStore(this.store)
-    objectStore.delete(keyArray)
+    const request = objectStore.delete(keyArray)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      rejectOnFailure(transaction, request, reject)
       transaction.oncomplete = () => {
         resolve()
       }
@@ -136,9 +204,10 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
     const keyRequest = objectStore.getAllKeys(range)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      // loadRange issues two requests (getAll + getAllKeys); a request-level
+      // error on either bubbles to transaction.onerror as its event.target, so
+      // this settles the promise on any failure and reports the specific error.
+      rejectOnTransactionFailure(transaction, reject)
 
       let values: any[] | undefined
       let keys: IDBValidKey[] | undefined
@@ -174,12 +243,10 @@ export class IndexedDBStorageAdapter implements StorageAdapterInterface {
 
     const transaction = db.transaction(this.store, "readwrite")
     const objectStore = transaction.objectStore(this.store)
-    objectStore.delete(range)
+    const request = objectStore.delete(range)
 
     return new Promise((resolve, reject) => {
-      transaction.onerror = () => {
-        reject(transaction.error)
-      }
+      rejectOnFailure(transaction, request, reject)
       transaction.oncomplete = () => {
         resolve()
       }

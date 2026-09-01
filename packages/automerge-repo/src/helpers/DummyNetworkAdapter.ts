@@ -1,5 +1,5 @@
-import { pause } from "../../src/helpers/pause.js"
-import { Message, NetworkAdapter, PeerId } from "../../src/index.js"
+import { pause } from "./pause.js"
+import { Message, NetworkAdapter, PeerId } from "../index.js"
 
 export class DummyNetworkAdapter extends NetworkAdapter {
   #sendMessage?: SendMessageFn

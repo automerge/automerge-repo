@@ -1,0 +1,63 @@
+name: Create release tag
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: create-release-tag
+  cancel-in-progress: false
+
+jobs:
+  create-tag:
+    name: Create and publish release tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect version change
+        id: version
+        uses: ./.github/actions/detect-version-change
+        with:
+          before: ${{ github.event.before }}
+          after: ${{ github.sha }}
+
+      - name: Verify package versions
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node scripts/version.mjs check
+
+      - name: Create tag
+        id: tag
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GIT_COMMITTER_NAME: ${{ github.actor }}
+          GIT_COMMITTER_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          created_tag="$(node scripts/version.mjs tag "$GITHUB_SHA")"
+          git push origin "$created_tag"
+          echo "tag=$created_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch publish workflow
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        # Run the trusted workflow definition from main; release.yaml checks out
+        # the tag supplied as input before building and publishing.
+        run: gh workflow run release.yaml --ref main --field tag="$TAG"

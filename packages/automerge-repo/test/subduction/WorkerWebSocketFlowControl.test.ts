@@ -95,7 +95,10 @@ describe("receive credit window", () => {
     let delivered = 0
     const counter = (event: MessageEvent) => {
       const msg = event.data
-      if (isWsProxyMessage(msg) && (msg as { type: string }).type === "ws-bytes")
+      if (
+        isWsProxyMessage(msg) &&
+        (msg as { type: string }).type === "ws-bytes"
+      )
         delivered++
     }
     clientPort.addEventListener("message", counter)
@@ -141,7 +144,10 @@ describe("protocol version skew", () => {
 
     const reply = new Promise<{ code?: string; message: string }>(resolve => {
       channel.port1.on("message", (msg: unknown) => {
-        if (isWsProxyMessage(msg) && (msg as { type: string }).type === "ws-error")
+        if (
+          isWsProxyMessage(msg) &&
+          (msg as { type: string }).type === "ws-error"
+        )
           resolve(msg as { code?: string; message: string })
       })
     })

@@ -23,7 +23,7 @@ export const workerPortVersionOk = (data: unknown): boolean =>
 
 /** Human-readable description of a version mismatch, for error surfaces. */
 export const workerPortVersionMismatch = (data: unknown): string => {
-  const got = (data as { v?: unknown }).v
+  const got = (data as { v?: number }).v
   const channel = (data as { channel?: unknown }).channel
   return (
     `worker-port protocol version mismatch on channel "${String(channel)}": ` +

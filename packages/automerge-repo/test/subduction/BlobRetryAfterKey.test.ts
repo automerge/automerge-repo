@@ -12,7 +12,6 @@ import { type BlobInterceptor } from "../../src/subduction/source.js"
 import { WebSocketTransport } from "../../src/subduction/websocket-transport.js"
 import { toSedimentreeId } from "../../src/subduction/helpers.js"
 import { waitFor } from "../helpers/waitFor.js"
-import { wait } from "../helpers/wait.js"
 
 const PREFIX = new Uint8Array([0xe2, 0xe2, 0xee, 0x02])
 
@@ -20,9 +19,16 @@ const PREFIX = new Uint8Array([0xe2, 0xe2, 0xee, 0x02])
  * An interceptor that can pause decryption, simulating a peer whose decryption
  * key has not arrived yet.
  */
-function makeGatedInterceptor(): BlobInterceptor & { rejectIncoming: boolean } {
+function makeGatedInterceptor(): BlobInterceptor & {
+  rejectIncoming: boolean
+  rejectedCount: number
+} {
   const interceptor = {
     rejectIncoming: false,
+    // How many incoming blobs have been rejected because the key has not
+    // arrived. Lets a test await the moment a peer has actually processed
+    // (and declined) a blob instead of sleeping for a fixed interval.
+    rejectedCount: 0,
 
     async transformOutgoing(
       _documentId: DocumentId,
@@ -41,9 +47,13 @@ function makeGatedInterceptor(): BlobInterceptor & { rejectIncoming: boolean } {
       _commitId: string,
       blob: Uint8Array
     ) {
-      if (interceptor.rejectIncoming) return null
+      if (interceptor.rejectIncoming) {
+        interceptor.rejectedCount++
+        return null
+      }
       if (
-        blob.length < PREFIX.length || !PREFIX.every((b, i) => blob[i] === b)
+        blob.length < PREFIX.length ||
+        !PREFIX.every((b, i) => blob[i] === b)
       ) {
         return null
       }
@@ -160,7 +170,14 @@ describe("blobs that arrive before their key", () => {
       expect(blobs?.length ?? 0).toBeGreaterThan(1)
     }, 10_000)
 
-    await wait(2000)
+    // Wait until Bob has actually received the new blob and its interceptor
+    // declined it (the key has not arrived) rather than sleeping for a fixed
+    // interval. That rejection is the point at which the blob could wrongly be
+    // applied; transformIncoming returning null means it was not, so Bob must
+    // still show the old value.
+    await waitFor(() => {
+      expect(bobInterceptor.rejectedCount).toBeGreaterThan(0)
+    }, 10_000)
     expect(bobHandle.doc()!.text).toBe("before")
 
     bobInterceptor.rejectIncoming = false

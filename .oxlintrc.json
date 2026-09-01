@@ -36,7 +36,8 @@
               "@automerge/automerge-repo",
               "@automerge/automerge-repo/*",
               "!@automerge/automerge-repo/slim",
-              "!@automerge/automerge-repo/slim/*"
+              "!@automerge/automerge-repo/slim/*",
+              "!@automerge/automerge-repo/worker-port"
             ],
             "message": "Import from @automerge/automerge-repo/slim instead of @automerge/automerge-repo"
           }

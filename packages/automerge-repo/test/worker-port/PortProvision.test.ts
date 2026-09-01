@@ -127,11 +127,9 @@ describe("makePortProvider / donatePort", () => {
     const { port1: tabSide, port2: repoSide } = trackedChannel()
     const donated = trackedChannel()
     // eager: false — this tab only answers explicit requests.
-    donatePort(
-      asPort(tabSide),
-      () => donated.port1 as unknown as MessagePort,
-      { eager: false }
-    )
+    donatePort(asPort(tabSide), () => donated.port1 as unknown as MessagePort, {
+      eager: false,
+    })
 
     provider.attachClient(asPort(repoSide))
     await expect(pending).resolves.toBeDefined()
@@ -209,9 +207,7 @@ describe("protocol version skew", () => {
       // The tab listens on the error-relay channel, as documented.
       const tabSawError = new Promise<WorkerErrorMessage>(resolve => {
         tabSide.on("message", (msg: unknown) => {
-          if (
-            (msg as { channel?: string })?.channel === WORKER_ERROR_CHANNEL
-          )
+          if ((msg as { channel?: string })?.channel === WORKER_ERROR_CHANNEL)
             resolve(msg as WorkerErrorMessage)
         })
       })

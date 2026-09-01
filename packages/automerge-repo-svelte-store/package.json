@@ -2,7 +2,11 @@
   "name": "@automerge/automerge-repo-svelte-store",
   "version": "2.6.0-subduction.48",
   "description": "A Svelte store containing your automerge documents",
-  "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-svelte-store",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-repo-svelte-store"
+  },
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -28,7 +32,7 @@
     "@automerge/automerge-repo": "workspace:*"
   },
   "devDependencies": {
-    "@sveltejs/package": "^2.5.7",
+    "@sveltejs/package": "^2.5.8",
     "svelte": "catalog:",
     "typescript": "catalog:"
   },

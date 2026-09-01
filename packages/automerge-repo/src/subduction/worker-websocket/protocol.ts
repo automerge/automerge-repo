@@ -53,7 +53,7 @@ export const wsProxyVersionOk = (data: unknown): boolean =>
 
 /** Human-readable description of a version mismatch, for error surfaces. */
 export const wsProxyVersionMismatch = (data: unknown): string => {
-  const got = (data as { v?: unknown }).v
+  const got = (data as { v?: number }).v
   return (
     `subduction-ws-proxy protocol version mismatch: expected v${WS_PROXY_PROTOCOL_VERSION}, ` +
     `got ${got === undefined ? "an untagged (pre-versioning) message" : `v${String(got)}`}. ` +
@@ -168,10 +168,7 @@ export interface WorkerPortLike {
     type: "message",
     listener: (event: MessageEvent) => void
   ): void
-  removeEventListener(
-    type: "close",
-    listener: (event: Event) => void
-  ): void
+  removeEventListener(type: "close", listener: (event: Event) => void): void
   /** `MessagePort` requires `start()` before events flow; `Worker` has none. */
   start?(): void
 }

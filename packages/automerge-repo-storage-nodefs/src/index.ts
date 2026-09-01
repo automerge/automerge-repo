@@ -45,6 +45,7 @@ import {
   StorageAdapterInterface,
   type StorageKey,
 } from "@automerge/automerge-repo/slim"
+import { semaphore } from "@automerge/automerge-repo/helpers/semaphore.js"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
@@ -52,30 +53,74 @@ import path from "node:path"
 
 const IS_POSIX = os.platform() !== "win32"
 
+/**
+ * Default cap on concurrent filesystem operations. loadRange() can fan out
+ * across thousands of chunk files for a single document; without a bound,
+ * Promise.all would open that many file descriptors at once and can exhaust the
+ * process's FD limit (EMFILE).
+ */
+const DEFAULT_MAX_CONCURRENT_FILE_OPERATIONS = 100
+
+export interface NodeFSStorageAdapterOptions {
+  /**
+   * Maximum number of filesystem operations in flight at once, shared across all
+   * concurrent `loadRange` / `walkdir` calls on this adapter. Defaults to 100.
+   *
+   * @remarks
+   * Tie this to the process's file-descriptor ceiling (commonly 1024 on Linux,
+   * 256 on macOS), leaving headroom for everything else holding descriptors.
+   * The default 100 is well under typical limits while still loading a
+   * many-chunk document in parallel.
+   */
+  maxConcurrency?: number
+}
+
+/** One cache entry: the in-flight bytes plus a refcount of overlapping writes. */
+type CacheEntry = { binary: Uint8Array; pendingWrites: number }
+
 export class NodeFSStorageAdapter implements StorageAdapterInterface {
   private baseDirectory: string
   private tmpDirectory: string
   private tmpDirectoryReady: Promise<void> | undefined
   // Null-prototype so keys like "constructor" or "toString" can't
   // collide with Object.prototype properties and fool the existence
-  // checks in load/cacheSet/cacheDelete.
-  private cache: { [key: string]: Uint8Array } = Object.create(null)
+  // checks in load/cacheSet/cacheRelease.
+  //
+  // Entries live only while a write for their key is in flight: writeFile
+  // and rename are not atomic, so a concurrent load/loadRange must see a
+  // chunk the moment save is called, until the rename makes it visible on
+  // disk. Refcounted across overlapping saves to the same key and dropped
+  // when the last write settles, so a settled write is read from disk, not
+  // memory. This bounds memory by concurrent writes rather than by the total
+  // data ever saved.
+  private cache: { [key: string]: CacheEntry } = Object.create(null)
 
   // Prefix index over the keys present in `cache`, so `loadRange` can find
   // matching cached keys in O(matches) instead of O(total cache size). The
   // O(total) scan made bulk operations quadratic: creating or syncing
   // thousands of documents calls `loadRange` once per document (sources
   // scan storage on attach), and each scan walked every key written so
-  // far. Kept in lockstep with `cache` via cacheSet/cacheDelete.
+  // far. Kept in lockstep with `cache` via cacheSet/cacheDelete/cacheRelease.
   private keyIndex: KeyTrieNode = { children: new Map(), key: null, seq: 0 }
   private keySeq = 0
 
+  // Shared per-adapter so concurrent loadRange / walkdir calls stay under the
+  // cap together rather than each getting its own budget.
+  private limit: ReturnType<typeof semaphore>
+
   /**
    * @param baseDirectory - The path to the directory to store data in. Defaults to "./automerge-repo-data".
+   * @param options - see {@link NodeFSStorageAdapterOptions}.
    */
-  constructor(baseDirectory = "automerge-repo-data") {
+  constructor(
+    baseDirectory = "automerge-repo-data",
+    options: NodeFSStorageAdapterOptions = {}
+  ) {
     this.baseDirectory = baseDirectory
     this.tmpDirectory = path.join(baseDirectory, TMP_DIR_NAME)
+    this.limit = semaphore(
+      options.maxConcurrency ?? DEFAULT_MAX_CONCURRENT_FILE_OPERATIONS
+    )
   }
 
   /**
@@ -108,7 +153,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
 
   async load(keyArray: StorageKey): Promise<Uint8Array | undefined> {
     const key = getKey(keyArray)
-    if (this.cache[key]) return this.cache[key]
+    if (this.cache[key]) return this.cache[key].binary
 
     const filePath = this.getFilePath(keyArray)
 
@@ -124,17 +169,15 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
   }
 
   async save(keyArray: StorageKey, binary: Uint8Array): Promise<void> {
-    // Rollback semantics: if the rename has not yet completed, on-disk
-    // state is unchanged and we roll the cache back to match. Once the
-    // rename completes, on-disk state is the new bytes (visible to
-    // concurrent readers), so we do NOT roll back — cache matches disk.
-    // A subsequent fsyncDir failure means the rename may not be durable
-    // across a crash, but the bytes are still present and observable;
-    // rolling back in that case would make cache diverge from disk.
-    // The caller learns about the durability gap via the rejection.
+    // The cache serves reads only while this write is in flight. writeFile
+    // and rename are not atomic, so a concurrent load/loadRange must see the
+    // new bytes from the moment save is called until the rename makes them
+    // visible on disk. Once the write settles (success or failure) the entry
+    // is released below, so a settled write is served from disk: on success
+    // disk has the new bytes; on failure the rename never happened, so disk
+    // still has the old bytes.
     const key = getKey(keyArray)
-    const prev = this.cache[key]
-    this.cacheSet(key, binary)
+    const entry = this.cacheSet(key, binary)
 
     const filePath = this.getFilePath(keyArray)
     const dir = path.dirname(filePath)
@@ -143,172 +186,148 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
       await this.ensureTmpDirectory()
       await fs.promises.mkdir(dir, { recursive: true })
       await atomicWrite(filePath, this.makeTmpPath(), binary)
-    } catch (err) {
-      if (this.cache[key] === binary) {
-        this.cacheRollback(key, prev)
-      }
-      throw err
+      await fsyncDir(dir)
+    } finally {
+      this.cacheRelease(key, entry)
     }
-
-    await fsyncDir(dir)
   }
 
   async saveBatch(entries: Array<[StorageKey, Uint8Array]>): Promise<void> {
     if (entries.length === 0) return
 
-    const prevByKey: Array<[string, Uint8Array | undefined, Uint8Array]> = []
-    for (const [keyArray, binary] of entries) {
+    // Cache every entry while its write is in flight, then release them all
+    // once the batch settles (success or failure) in the finally below, so
+    // reads fall through to disk afterwards. Overlapping writes to the same
+    // key are refcounted by cacheSet/cacheRelease.
+    const cached = entries.map(([keyArray, binary]): [string, CacheEntry] => {
       const key = getKey(keyArray)
-      prevByKey.push([key, this.cache[key], binary])
-      this.cacheSet(key, binary)
+      return [key, this.cacheSet(key, binary)]
+    })
+    const releaseAll = () => {
+      for (const [key, entry] of cached) this.cacheRelease(key, entry)
     }
 
-    const rollbackAllCache = () => {
-      for (const [key, prev, ours] of prevByKey) {
-        if (this.cache[key] === ours) {
-          this.cacheRollback(key, prev)
-        }
-      }
-    }
-
-    const rollbackCacheForIndices = (indices: number[]) => {
-      for (const i of indices) {
-        const [key, prev, ours] = prevByKey[i]
-        if (this.cache[key] === ours) {
-          this.cacheRollback(key, prev)
-        }
-      }
-    }
-
-    // Ensure the tmp directory exists once for the whole batch.
     try {
+      // Ensure the tmp directory exists once for the whole batch.
       await this.ensureTmpDirectory()
-    } catch (err) {
-      rollbackAllCache()
-      throw err
-    }
 
-    // Ensure every target's parent directory exists (deduped by
-    // directory path). mkdir is `recursive: true`, idempotent.
-    const targetDirs = new Set<string>()
-    for (const [keyArray] of entries) {
-      targetDirs.add(path.dirname(this.getFilePath(keyArray)))
-    }
-    try {
+      // Ensure every target's parent directory exists (deduped by
+      // directory path). mkdir is `recursive: true`, idempotent.
+      const targetDirs = new Set<string>()
+      for (const [keyArray] of entries) {
+        targetDirs.add(path.dirname(this.getFilePath(keyArray)))
+      }
       await Promise.all(
         Array.from(targetDirs).map(d =>
           fs.promises.mkdir(d, { recursive: true })
         )
       )
-    } catch (err) {
-      rollbackAllCache()
-      throw err
-    }
 
-    // ── Phase 1: Stage ─────────────────────────────────────────────
-    const tmpPaths: string[] = entries.map(() => this.makeTmpPath())
-    const targetPaths: string[] = entries.map(([keyArray]) =>
-      this.getFilePath(keyArray)
-    )
-
-    const stageResults = await Promise.all(
-      entries.map(([, binary], i) =>
-        stageToTmp(tmpPaths[i], binary).then(
-          () => ({ ok: true as const }),
-          err => ({ ok: false as const, err })
-        )
+      // ── Phase 1: Stage ─────────────────────────────────────────────
+      const tmpPaths: string[] = entries.map(() => this.makeTmpPath())
+      const targetPaths: string[] = entries.map(([keyArray]) =>
+        this.getFilePath(keyArray)
       )
-    )
 
-    const stageFailures: number[] = []
-    let firstStageErr: unknown
-    for (let i = 0; i < stageResults.length; i++) {
-      const r = stageResults[i]
-      if (!r.ok) {
-        stageFailures.push(i)
-        if (firstStageErr === undefined) firstStageErr = r.err
-      }
-    }
-
-    if (stageFailures.length > 0) {
-      await Promise.all(
-        tmpPaths.map(async tmpPath => {
-          try {
-            await fs.promises.unlink(tmpPath)
-          } catch (cleanupErr: any) {
-            if (cleanupErr?.code === "ENOENT") return
-            console.debug(
-              `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPath}:`,
-              cleanupErr
-            )
-          }
-        })
-      )
-      rollbackAllCache()
-      throw firstStageErr
-    }
-
-    // ── Phase 2: Commit ────────────────────────────────────────────
-    const commitResults = await Promise.all(
-      tmpPaths.map((tmpPath, i) =>
-        fs.promises.rename(tmpPath, targetPaths[i]).then(
-          () => ({ ok: true as const }),
-          err => ({ ok: false as const, err })
-        )
-      )
-    )
-
-    const commitFailures: number[] = []
-    let firstCommitErr: unknown
-    for (let i = 0; i < commitResults.length; i++) {
-      const r = commitResults[i]
-      if (!r.ok) {
-        commitFailures.push(i)
-        if (firstCommitErr === undefined) firstCommitErr = r.err
-      }
-    }
-
-    if (commitFailures.length > 0) {
-      await Promise.all(
-        commitFailures.map(async i => {
-          try {
-            await fs.promises.unlink(tmpPaths[i])
-          } catch (cleanupErr) {
-            console.debug(
-              `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPaths[i]}:`,
-              cleanupErr
-            )
-          }
-        })
-      )
-      rollbackCacheForIndices(commitFailures)
-
-      // fsync the parent directories of any entries whose rename
-      // *did* succeed, so their renames are durable across a crash
-      // even though we're about to throw. Otherwise a partial-commit
-      // saveBatch leaves successful renames observable but not
-      // durable, which is strictly weaker than a single save().
-      const successDirs = new Set<string>()
-      commitResults.forEach((r, i) => {
-        if (r.ok) successDirs.add(path.dirname(targetPaths[i]))
-      })
-
-      const fsyncResults = await Promise.allSettled(
-        Array.from(successDirs).map(d => fsyncDir(d))
-      )
-      fsyncResults.forEach(r => {
-        if (r.status === "rejected") {
-          console.debug(
-            `[automerge-repo-storage-nodefs] fsyncDir failed during partial-commit recovery:`,
-            r.reason
+      const stageResults = await Promise.all(
+        entries.map(([, binary], i) =>
+          stageToTmp(tmpPaths[i], binary).then(
+            () => ({ ok: true as const }),
+            err => ({ ok: false as const, err })
           )
+        )
+      )
+
+      const stageFailures: number[] = []
+      let firstStageErr: unknown
+      for (let i = 0; i < stageResults.length; i++) {
+        const r = stageResults[i]
+        if (!r.ok) {
+          stageFailures.push(i)
+          if (firstStageErr === undefined) firstStageErr = r.err
         }
-      })
+      }
 
-      throw firstCommitErr
+      if (stageFailures.length > 0) {
+        await Promise.all(
+          tmpPaths.map(async tmpPath => {
+            try {
+              await fs.promises.unlink(tmpPath)
+            } catch (cleanupErr: any) {
+              if (cleanupErr?.code === "ENOENT") return
+              console.debug(
+                `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPath}:`,
+                cleanupErr
+              )
+            }
+          })
+        )
+        throw firstStageErr
+      }
+
+      // ── Phase 2: Commit ────────────────────────────────────────────
+      const commitResults = await Promise.all(
+        tmpPaths.map((tmpPath, i) =>
+          fs.promises.rename(tmpPath, targetPaths[i]).then(
+            () => ({ ok: true as const }),
+            err => ({ ok: false as const, err })
+          )
+        )
+      )
+
+      const commitFailures: number[] = []
+      let firstCommitErr: unknown
+      for (let i = 0; i < commitResults.length; i++) {
+        const r = commitResults[i]
+        if (!r.ok) {
+          commitFailures.push(i)
+          if (firstCommitErr === undefined) firstCommitErr = r.err
+        }
+      }
+
+      if (commitFailures.length > 0) {
+        await Promise.all(
+          commitFailures.map(async i => {
+            try {
+              await fs.promises.unlink(tmpPaths[i])
+            } catch (cleanupErr) {
+              console.debug(
+                `[automerge-repo-storage-nodefs] failed to clean up staged tmp file ${tmpPaths[i]}:`,
+                cleanupErr
+              )
+            }
+          })
+        )
+
+        // fsync the parent directories of any entries whose rename
+        // *did* succeed, so their renames are durable across a crash
+        // even though we're about to throw. Otherwise a partial-commit
+        // saveBatch leaves successful renames observable but not
+        // durable, which is strictly weaker than a single save().
+        const successDirs = new Set<string>()
+        commitResults.forEach((r, i) => {
+          if (r.ok) successDirs.add(path.dirname(targetPaths[i]))
+        })
+
+        const fsyncResults = await Promise.allSettled(
+          Array.from(successDirs).map(d => fsyncDir(d))
+        )
+        fsyncResults.forEach(r => {
+          if (r.status === "rejected") {
+            console.debug(
+              `[automerge-repo-storage-nodefs] fsyncDir failed during partial-commit recovery:`,
+              r.reason
+            )
+          }
+        })
+
+        throw firstCommitErr
+      }
+
+      await Promise.all(Array.from(targetDirs).map(d => fsyncDir(d)))
+    } finally {
+      releaseAll()
     }
-
-    await Promise.all(Array.from(targetDirs).map(d => fsyncDir(d)))
   }
 
   async remove(keyArray: string[]): Promise<void> {
@@ -331,7 +350,7 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     const cachedKeys = this.cachedKeys(keyPrefix)
 
     // Read filenames from disk
-    const diskFiles = await walkdir(dirPath)
+    const diskFiles = await walkdir(dirPath, this.limit)
 
     // The "keys" in the cache don't include the baseDirectory.
     // We want to de-dupe with the cached keys so we'll use getKey to
@@ -345,13 +364,16 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     // Combine and deduplicate the lists of keys
     const allKeys = [...new Set([...cachedKeys, ...diskKeys])]
 
-    // Load all files
+    // Load all files, bounding concurrent reads so a document with many chunks
+    // doesn't open every file descriptor at once.
     const chunks = await Promise.all(
-      allKeys.map(async keyString => {
-        const key: StorageKey = keyString.split(path.sep)
-        const data = await this.load(key)
-        return { data, key }
-      })
+      allKeys.map(keyString =>
+        this.limit(async () => {
+          const key: StorageKey = keyString.split(path.sep)
+          const data = await this.load(key)
+          return { data, key }
+        })
+      )
     )
 
     return chunks
@@ -390,11 +412,21 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
     await fs.promises.rm(dirPath, { recursive: true, force: true })
   }
 
-  /** Set a cache entry, keeping the prefix index in sync. */
-  private cacheSet(key: string, binary: Uint8Array): void {
-    if (this.cache[key] === undefined)
+  /**
+   * Cache a value while its write is in flight, keeping the prefix index in
+   * sync, and return the entry. Refcounts overlapping writes to the same key;
+   * pair each call with a {@link cacheRelease} once the write settles.
+   */
+  private cacheSet(key: string, binary: Uint8Array): CacheEntry {
+    let entry = this.cache[key]
+    if (entry === undefined) {
       trieInsert(this.keyIndex, key, this.keySeq++)
-    this.cache[key] = binary
+      entry = this.cache[key] = { binary, pendingWrites: 1 }
+    } else {
+      entry.binary = binary
+      entry.pendingWrites++
+    }
+    return entry
   }
 
   /** Delete a cache entry, keeping the prefix index in sync. */
@@ -405,13 +437,17 @@ export class NodeFSStorageAdapter implements StorageAdapterInterface {
   }
 
   /**
-   * Restore a cache entry to its value prior to a failed write. If there
-   * was no prior entry the key is removed (and de-indexed); otherwise the
-   * prior bytes are restored (the key remains indexed).
+   * Release one in-flight write on a key. Drops the cache entry (and its
+   * index entry) once the last overlapping write for the key settles. A
+   * remove()/removeRange() may have replaced or deleted the entry meanwhile;
+   * the identity check ensures only the entry this write incremented is
+   * decremented.
    */
-  private cacheRollback(key: string, prev: Uint8Array | undefined): void {
-    if (prev === undefined) this.cacheDelete(key)
-    else this.cache[key] = prev
+  private cacheRelease(key: string, entry: CacheEntry): void {
+    if (this.cache[key] === entry && --entry.pendingWrites === 0) {
+      delete this.cache[key]
+      trieDelete(this.keyIndex, key)
+    }
   }
 
   private cachedKeys(keyPrefix: string[]): string[] {
@@ -706,11 +742,17 @@ const fsyncDir = async (dir: string): Promise<void> => {
 }
 
 /** returns all files in a directory, recursively  */
-const walkdir = async (dirPath: string): Promise<string[]> => {
+const walkdir = async (
+  dirPath: string,
+  limit: ReturnType<typeof semaphore>
+): Promise<string[]> => {
   try {
-    const entries = await fs.promises.readdir(dirPath, {
-      withFileTypes: true,
-    })
+    // Bound concurrent readdir calls. The slot is released as soon as the
+    // readdir resolves, before recursing, so a parent never holds a slot while
+    // waiting on its children (which would risk deadlock under a small cap).
+    const entries = await limit(() =>
+      fs.promises.readdir(dirPath, { withFileTypes: true })
+    )
     const files = await Promise.all(
       entries.map(entry => {
         // Never descend into the tmp directory: `loadRange([])` walks
@@ -718,7 +760,7 @@ const walkdir = async (dirPath: string): Promise<string[]> => {
         // not surface as chunks.
         if (entry.isDirectory() && entry.name === TMP_DIR_NAME) return []
         const subpath = path.resolve(dirPath, entry.name)
-        return entry.isDirectory() ? walkdir(subpath) : subpath
+        return entry.isDirectory() ? walkdir(subpath, limit) : subpath
       })
     )
     return files.flat()

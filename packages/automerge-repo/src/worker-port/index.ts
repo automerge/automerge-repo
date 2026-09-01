@@ -4,10 +4,7 @@
  * subpath does not pull in the `Repo` or any wasm.
  */
 export { createErrorRelay, type ErrorRelay } from "./error-relay.js"
-export {
-  startDriftProbe,
-  type DriftProbeOptions,
-} from "./drift-probe.js"
+export { startDriftProbe, type DriftProbeOptions } from "./drift-probe.js"
 export {
   donatePort,
   makePortProvider,

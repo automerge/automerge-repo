@@ -54,7 +54,14 @@ export function makeStorageRpcDispatcher() {
     // rejects loudly instead of misbehaving.
     if (!storageRpcVersionOk(msg)) {
       reply(
-        { channel: STORAGE_RPC, v, client, id, ok: false, error: storageRpcVersionMismatch(msg) },
+        {
+          channel: STORAGE_RPC,
+          v,
+          client,
+          id,
+          ok: false,
+          error: storageRpcVersionMismatch(msg),
+        },
         []
       )
       return
