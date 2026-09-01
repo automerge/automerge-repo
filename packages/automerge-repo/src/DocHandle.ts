@@ -1090,24 +1090,24 @@ export class DocHandle<T, Mode extends DocHandleMode = "value"> {
   // live in the registry, keyed by handle. The Map there holds handles
   // strongly, so any handle with a listener is naturally retained.
 
-  on<E extends keyof DocHandleEvents<T>>(
+  on<E extends keyof DocHandleEvents<T, Mode>>(
     event: E,
-    fn: DocHandleEvents<T>[E]
+    fn: DocHandleEvents<T, Mode>[E]
   ): this {
     this.#document.registry.addListener(this, event as string, fn as any)
     return this
   }
 
-  addListener<E extends keyof DocHandleEvents<T>>(
+  addListener<E extends keyof DocHandleEvents<T, Mode>>(
     event: E,
-    fn: DocHandleEvents<T>[E]
+    fn: DocHandleEvents<T, Mode>[E]
   ): this {
     return this.on(event, fn)
   }
 
-  once<E extends keyof DocHandleEvents<T>>(
+  once<E extends keyof DocHandleEvents<T, Mode>>(
     event: E,
-    fn: DocHandleEvents<T>[E]
+    fn: DocHandleEvents<T, Mode>[E]
   ): this {
     const reg = this.#document.registry
     const wrapper = (payload: unknown) => {
@@ -1118,9 +1118,9 @@ export class DocHandle<T, Mode extends DocHandleMode = "value"> {
     return this
   }
 
-  off<E extends keyof DocHandleEvents<T>>(
+  off<E extends keyof DocHandleEvents<T, Mode>>(
     event: E,
-    fn?: DocHandleEvents<T>[E]
+    fn?: DocHandleEvents<T, Mode>[E]
   ): this {
     const reg = this.#document.registry
     if (fn === undefined) reg.removeAllListenersForEvent(this, event as string)
@@ -1128,14 +1128,16 @@ export class DocHandle<T, Mode extends DocHandleMode = "value"> {
     return this
   }
 
-  removeListener<E extends keyof DocHandleEvents<T>>(
+  removeListener<E extends keyof DocHandleEvents<T, Mode>>(
     event: E,
-    fn?: DocHandleEvents<T>[E]
+    fn?: DocHandleEvents<T, Mode>[E]
   ): this {
     return this.off(event, fn)
   }
 
-  removeAllListeners<E extends keyof DocHandleEvents<T>>(event?: E): this {
+  removeAllListeners<E extends keyof DocHandleEvents<T, Mode>>(
+    event?: E
+  ): this {
     const reg = this.#document.registry
     if (event === undefined) reg.removeAllListenersForHandle(this)
     else reg.removeAllListenersForEvent(this, event as string)
@@ -1143,25 +1145,25 @@ export class DocHandle<T, Mode extends DocHandleMode = "value"> {
   }
 
   /** Number of listeners attached for the given event. */
-  listenerCount<E extends keyof DocHandleEvents<T>>(event: E): number {
+  listenerCount<E extends keyof DocHandleEvents<T, Mode>>(event: E): number {
     return this.#document.registry.listenerCountFor(this, event as string)
   }
 
   /** Snapshot of currently-registered listener functions for the given event. */
-  listeners<E extends keyof DocHandleEvents<T>>(
+  listeners<E extends keyof DocHandleEvents<T, Mode>>(
     event: E
-  ): DocHandleEvents<T>[E][] {
+  ): DocHandleEvents<T, Mode>[E][] {
     return this.#document.registry.listenersFor(
       this,
       event as string
-    ) as DocHandleEvents<T>[E][]
+    ) as DocHandleEvents<T, Mode>[E][]
   }
 
   /** Names of events with at least one listener attached. */
-  eventNames(): (keyof DocHandleEvents<T>)[] {
+  eventNames(): (keyof DocHandleEvents<T, Mode>)[] {
     return this.#document.registry.eventNamesFor(
       this
-    ) as (keyof DocHandleEvents<T>)[]
+    ) as (keyof DocHandleEvents<T, Mode>)[]
   }
 
   /**
@@ -1169,9 +1171,9 @@ export class DocHandle<T, Mode extends DocHandleMode = "value"> {
    * listener storage. Fires *only* this handle's listeners; use
    * `delete()` to fan out the document-level lifecycle events.
    */
-  emit<E extends keyof DocHandleEvents<T>>(
+  emit<E extends keyof DocHandleEvents<T, Mode>>(
     event: E,
-    payload: Parameters<DocHandleEvents<T>[E] & ((p: any) => any)>[0]
+    payload: Parameters<DocHandleEvents<T, Mode>[E]>[0]
   ): boolean {
     return this.#document.registry.emit(this, event as string, payload)
   }
@@ -1336,34 +1338,42 @@ export type DocHandleOptions<T> =
 // EXTERNAL EVENTS
 
 /** These are the events that this DocHandle emits to external listeners */
-export interface DocHandleEvents<T> {
-  "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
-  change: (payload: DocHandleChangePayload<T>) => void
-  delete: (payload: DocHandleDeletePayload<T>) => void
-  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
+export interface DocHandleEvents<T, Mode extends DocHandleMode = "value"> {
+  "heads-changed": (payload: DocHandleEncodedChangePayload<T, Mode>) => void
+  change: (payload: DocHandleChangePayload<T, Mode>) => void
+  delete: (payload: DocHandleDeletePayload<T, Mode>) => void
+  "ephemeral-message": (
+    payload: DocHandleEphemeralMessagePayload<T, Mode>
+  ) => void
   "ephemeral-message-outbound": (
-    payload: DocHandleOutboundEphemeralMessagePayload<T>
+    payload: DocHandleOutboundEphemeralMessagePayload<T, Mode>
   ) => void
   "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
 }
 
 /** Emitted when this document's heads have changed */
-export interface DocHandleEncodedChangePayload<T> {
-  handle: DocHandle<T>
-  doc: A.Doc<T>
+export interface DocHandleEncodedChangePayload<
+  T,
+  Mode extends DocHandleMode = "value",
+> {
+  handle: DocHandle<T, Mode>
+  doc: DocHandleState<T, Mode>
 }
 
 /** Emitted when this document has changed */
-export interface DocHandleChangePayload<T> {
+export interface DocHandleChangePayload<
+  T,
+  Mode extends DocHandleMode = "value",
+> {
   /** The handle that changed */
-  handle: DocHandle<T>
+  handle: DocHandle<T, Mode>
   /**
    * The value after the change, scoped to this handle. For a root handle
    * this is the whole document; for a sub-handle it is the value at the
    * handle's path (i.e. equal to `handle.doc()`). `undefined` when the
    * change removed the handle's scope.
    */
-  doc: A.Doc<T> | undefined
+  doc: DocHandleDoc<T, Mode> | undefined
   /**
    * The patches representing the change, with paths **relative to this
    * handle's scope**. For a root handle these are whole-document paths; for
@@ -1381,29 +1391,45 @@ export interface DocHandleChangePayload<T> {
    * Information about the change. Note: `before`/`after` here are
    * whole-document snapshots, not scoped.
    */
-  patchInfo: A.PatchInfo<T>
+  patchInfo: {
+    before: DocHandleState<T, Mode>
+    after: DocHandleState<T, Mode>
+    source: A.PatchSource
+  }
 }
 
 /** Emitted when this document is deleted */
-export interface DocHandleDeletePayload<T> {
-  handle: DocHandle<T>
+export interface DocHandleDeletePayload<
+  T,
+  Mode extends DocHandleMode = "value",
+> {
+  handle: DocHandle<T, Mode>
 }
 
 /** Emitted when this document has been marked unavailable */
-export interface DocHandleUnavailablePayload<T> {
-  handle: DocHandle<T>
+export interface DocHandleUnavailablePayload<
+  T,
+  Mode extends DocHandleMode = "value",
+> {
+  handle: DocHandle<T, Mode>
 }
 
 /** Emitted when an ephemeral message is received for the document */
-export interface DocHandleEphemeralMessagePayload<T> {
-  handle: DocHandle<T>
+export interface DocHandleEphemeralMessagePayload<
+  T,
+  Mode extends DocHandleMode = "value",
+> {
+  handle: DocHandle<T, Mode>
   senderId: PeerId
   message: unknown
 }
 
 /** Emitted when an ephemeral message is sent for this document */
-export interface DocHandleOutboundEphemeralMessagePayload<T> {
-  handle: DocHandle<T>
+export interface DocHandleOutboundEphemeralMessagePayload<
+  T,
+  Mode extends DocHandleMode = "value",
+> {
+  handle: DocHandle<T, Mode>
   data: Uint8Array
 }
 
