@@ -40,6 +40,10 @@ import { StorageId, StorageKey } from "../src/storage/types.js"
 import { DocumentProgress } from "../src/DocumentQuery.js"
 import { isAbortErrorLike } from "../src/helpers/abortable.js"
 import { toSedimentreeId } from "../src/subduction/helpers.js"
+import {
+  CountingStorageAdapter,
+  MemoryStorageAdapter,
+} from "./helpers/storage.js"
 
 describe("Repo", () => {
   describe("constructor", () => {
@@ -2876,5 +2880,44 @@ describe("Repo inbound message handling", () => {
     } finally {
       errSpy.mockRestore()
     }
+  })
+})
+
+describe("repo restart", () => {
+  it("reloads documents from memory storage without extra writes", async () => {
+    const storage = new CountingStorageAdapter(new MemoryStorageAdapter())
+    const urls: AutomergeUrl[] = []
+
+    {
+      const repo = new Repo({
+        network: [],
+        storage,
+      })
+      for (let index = 0; index < 100; index++) {
+        const handle = repo.create<{ index: number }>({ index })
+        urls.push(handle.url)
+      }
+      await repo.flush()
+      await repo.shutdown()
+    }
+
+    expect(storage.writeOps).toBeGreaterThan(0)
+    storage.resetCounters()
+
+    {
+      const repo = new Repo({
+        network: [],
+        storage,
+      })
+      for (const url of urls) {
+        const handle = await repo.find<{ index: number }>(url)
+        await handle.whenReady(["ready"])
+        expect(handle.doc()?.index).toBeDefined()
+      }
+      await repo.shutdown()
+    }
+
+    expect(storage.writeOps).toBe(0)
+    expect(storage.readOps).toBeGreaterThan(0)
   })
 })
