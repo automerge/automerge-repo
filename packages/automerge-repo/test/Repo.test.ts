@@ -2443,6 +2443,73 @@ describe("Repo", () => {
       })
       await vi.waitFor(() => expect(bobHandle.doc()).toEqual({ foo: "v2" }))
     })
+
+    it("does not re-engage a peer whose persisted sync state shares no heads", async () => {
+      // The re-engagement predicate requires sharedHeads.length > 0 as proof
+      // the peer actually received the document. A peer that exchanged sync
+      // messages without converging leaves a persisted state with no shared
+      // heads, and must not be treated as subscribed: announcing to it would
+      // hand the document to a peer this share policy never granted it to.
+      const storage = new DummyStorageAdapter()
+      const server = new Repo({
+        peerId: "server" as PeerId,
+        storage,
+        sharePolicy: async () => false,
+        saveDebounceRate: 1,
+      })
+      const alice = new Repo({ peerId: "alice" as PeerId, saveDebounceRate: 1 })
+      const eve = new Repo({ peerId: "eve" as PeerId, saveDebounceRate: 1 })
+
+      const connectToServer = (repo: Repo, peerId: PeerId) => {
+        const [toServer, fromServer] = DummyNetworkAdapter.createConnectedPair()
+        repo.networkSubsystem.addNetworkAdapter(toServer)
+        server.networkSubsystem.addNetworkAdapter(fromServer)
+        toServer.emit("peer-candidate", {
+          peerId: "server" as PeerId,
+          peerMetadata: {},
+        })
+        fromServer.emit("peer-candidate", {
+          peerId,
+          peerMetadata: {
+            storageId: `${peerId}-storage` as any,
+            isEphemeral: false,
+          },
+        })
+      }
+      connectToServer(alice, "alice" as PeerId)
+      await alice.networkSubsystem.whenReady()
+      await server.networkSubsystem.whenReady()
+
+      const aliceHandle = alice.create<{ foo: string }>({ foo: "v1" })
+      const { documentId } = aliceHandle
+      await vi.waitFor(async () => {
+        const chunks = await storage.loadRange([documentId, "sync-state"])
+        expect(chunks.length).toBeGreaterThanOrEqual(1)
+      })
+
+      // Eve has a persisted sync state for this document but never received
+      // it: an initial state shares no heads.
+      await server.storageSubsystem!.saveSyncState(
+        documentId,
+        "eve-storage" as any,
+        A.initSyncState()
+      )
+      connectToServer(eve, "eve" as PeerId)
+      await eve.networkSubsystem.whenReady()
+
+      await server.removeFromCache(documentId)
+
+      // Alice edits; the server re-creates the synchronizer and re-engages
+      // only peers with shared heads. Eve is not one of them.
+      aliceHandle.change(d => {
+        d.foo = "v2"
+      })
+      await vi.waitFor(() =>
+        expect(server.handles[documentId]?.doc()).toEqual({ foo: "v2" })
+      )
+      await pause(50)
+      expect(eve.handles[documentId]).toBeUndefined()
+    })
   })
 
   describe("the denylist", () => {
