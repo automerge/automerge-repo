@@ -4,19 +4,14 @@
  * value is GC'd.
  *
  * Use for pure optimization caches where:
- *   - the key is a primitive (e.g. a stringified path, a stringified head, a
- *     document id),
+ *   - the key is a primitive
  *   - V can be cheaply reconstructed on miss,
  *   - "cache hit" is never observable as program state.
  *
  * Why not `WeakMap`? `WeakMap` keys must be `WeakKey` (object or registered
- * symbol). It cannot be keyed on a `number` or a `string` — try
- * `new WeakMap<string, T>()` and TypeScript rejects it. `WeakValueMap` fills
- * exactly that gap: primitive keys, weak values, with the same automatic
- * eviction guarantee that `WeakMap` provides for object keys.
- *
- * If your key *is* an object, prefer the built-in `WeakMap` instead — it ships
- * with the language and has cleaner lifetime semantics for that shape.
+ * symbol). It cannot be keyed on a `number` or a `string`. `WeakValueMap` fills
+ * that gap with the same automatic eviction guarantee that `WeakMap` provides
+ * for object keys.
  *
  * @example
  *   // Cache view handles by stringified heads.
@@ -75,9 +70,8 @@ export class WeakValueMap<K extends number | string, V extends WeakKey> {
   // no way to observe one, and the only way for a value to be in the
   // underlying map is to be alive at the moment we yield it.
   //
-  // No `size` — it would lie. The count can change between calls
-  // without any mutation, just from GC, so any single read would be
-  // immediately stale.
+  // No `size`. The count can change between calls just from GC, so any
+  // single read would be immediately stale.
 
   *entries(): IterableIterator<[K, V]> {
     for (const [key, ref] of this.#map) {
@@ -89,8 +83,6 @@ export class WeakValueMap<K extends number | string, V extends WeakKey> {
   [Symbol.iterator](): IterableIterator<[K, V]> {
     return this.entries()
   }
-
-  // keys/values iterate #map directly: skips entries()'s per-entry tuple.
 
   *keys(): IterableIterator<K> {
     for (const [key, ref] of this.#map) {

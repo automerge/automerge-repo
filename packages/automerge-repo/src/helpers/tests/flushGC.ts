@@ -22,18 +22,10 @@
  * being flaky. The defenses here are deliberate:
  *
  *   - **Adaptive polling, not fixed sleeps.** {@link waitForGC} exits as
- *     soon as collection is observed, so a fast engine pays ~5 ms while a
- *     loaded CI machine still gets the full timeout budget. No wall-clock
- *     "wait N seconds and hope" anywhere in the success path.
- *   - **Timeout is a failure budget, not a wait.** The success path never
- *     pays the timeout. The 1 s default exists only so a genuine leak
- *     surfaces as a deterministic failed assertion within bounded time
- *     instead of hanging the suite.
+ *     soon as collection is observed: no wall-clock waits.
  *   - **Boolean return + explicit `expect(...).toBe(true)`.** A timeout
- *     turns into a loud failed assertion, never a silent pass. Compare
- *     `await flushGC(); expect(probe.deref()).toBeUndefined()`, where a
- *     missed collection produces a useful error only by luck of which
- *     assertion fires first.
+ *     failure to GC can be identified separately from the expected state
+ *     being asserted.
  *   - **Macrotask yield is mandatory.** V8 retains the value returned by
  *     `WeakRef.deref()` until the end of the current Job — and microtask
  *     boundaries (`Promise.resolve()`, `queueMicrotask`) empirically do
