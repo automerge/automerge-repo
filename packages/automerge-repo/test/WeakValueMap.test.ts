@@ -145,8 +145,7 @@ describe("WeakValueMap — GC behavior", () => {
     m.set("k", kept)
 
     // Negative assertion: the value is strongly held, so a best-effort GC
-    // should NOT collect it. waitForGC would always time out here, so use
-    // the fixed-rounds variant.
+    // should NOT collect it.
     await flushGC()
 
     expect(m.get("k")).toBe(kept)
