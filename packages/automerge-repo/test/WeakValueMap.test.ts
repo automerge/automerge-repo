@@ -169,11 +169,10 @@ describe("WeakValueMap — GC behavior", () => {
     expect(m.get("k")).toBe(v2)
   })
 
-  // These verify the observable contract: once a value is collected the key
-  // behaves as absent, so the caller recomputes. They deliberately don't
-  // assert that the FinalizationRegistry pruned the backing entry — cleanup
-  // callbacks are best-effort, so such an assertion would report test
-  // ordering rather than our behaviour.
+  // These verify the observable contract: a collected value stops being
+  // served. They don't assert the FinalizationRegistry pruned the entry —
+  // cleanup callbacks are best-effort, so that would report test ordering.
+  // WeakValueMap.registry.test.ts covers the prune deterministically.
   itGC("evicts many entries when all values are dropped", async () => {
     const m = new WeakValueMap<number, Box>()
     const probes: WeakRef<Box>[] = []

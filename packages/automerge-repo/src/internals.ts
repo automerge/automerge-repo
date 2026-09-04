@@ -42,6 +42,10 @@ export const kOnHeadsChanged = Symbol("automerge-repo.onHeadsChanged")
  * actually passed (and release its retention). */
 export const kOnceOriginal = Symbol("automerge-repo.onceOriginal")
 
+/** `WeakValueMap[kEntryCount]` - entries in the backing map, live or not.
+ * The public surface skips dead entries. */
+export const kEntryCount = Symbol("automerge-repo.entryCount")
+
 /** `DocumentQuery[kSubscribeInternal](cb)` - subscribe without externally
  * retaining the document (repo-internal observers only). */
 export const kSubscribeInternal = Symbol("automerge-repo.subscribeInternal")
