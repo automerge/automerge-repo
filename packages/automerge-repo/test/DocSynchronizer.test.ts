@@ -8,6 +8,7 @@ import {
 } from "../src/AutomergeUrl.js"
 import { DocHandle } from "../src/DocHandle.js"
 import { DocumentQuery } from "../src/DocumentQuery.js"
+import { DocumentLoadFailedError } from "../src/errors.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { MessageContents } from "../src/network/messages.js"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
@@ -64,6 +65,100 @@ describe("DocSynchronizer", () => {
   it("takes the handle passed into it", () => {
     const { handle, docSynchronizer } = setup()
     assert(docSynchronizer.documentId === handle.documentId)
+  })
+
+  describe("availability with no peers", () => {
+    /** An empty handle plus a query with sync registered as a source. */
+    const setupEmpty = () => {
+      const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const emptyHandle = createTestHandle<TestDoc>(docId)
+      const query = new DocumentQuery(emptyHandle as DocHandle<unknown>)
+      query.sourcePending("automerge-sync")
+      return { emptyHandle, query }
+    }
+
+    it("settles unavailable when the network is healthy and nobody is connected", async () => {
+      const { emptyHandle, query } = setupEmpty()
+
+      new DocSynchronizer({
+        handle: emptyHandle as DocHandle<unknown>,
+        query,
+        networkReady: Promise.resolve(undefined),
+        shareConfig: defaultShareConfig,
+      })
+
+      await vi.waitFor(() => assert.notEqual(query.peek().state, "loading"))
+
+      // Working adapters with no peers is a real answer: there is nobody
+      // left to ask, so the document is genuinely not obtainable.
+      assert.equal(query.peek().state, "unavailable")
+    })
+
+    it("still tells wanting peers unavailable when the query failed", async () => {
+      // Deliberate lossiness, see Phase 3 in DocSynchronizer: a `failed` query
+      // means we couldn't determine anything, but we must still respond.
+      const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const aliceHandle = createTestHandle<TestDoc>(docId)
+      const aliceQuery = new DocumentQuery(aliceHandle)
+      aliceQuery.sourcePending("automerge-sync")
+      aliceQuery.sourceUnavailable("storage", new Error("disk fault"))
+
+      const aliceSync = new DocSynchronizer({
+        handle: aliceHandle as DocHandle<unknown>,
+        query: aliceQuery as DocumentQuery<unknown>,
+        networkReady,
+        shareConfig: defaultShareConfig,
+      })
+
+      // A peer that wants the document from us.
+      const drewHandle = createTestHandle<TestDoc>(docId)
+      const drewSync = createDocSynchronizer(drewHandle as DocHandle<unknown>)
+      const drewReqP = eventPromise(drewSync, "message")
+      drewSync.addPeer(alice, Promise.resolve(undefined))
+      const drewReq = await drewReqP
+
+      const aliceMessages: MessageContents[] = []
+      aliceSync.on("message", m => aliceMessages.push(m))
+      aliceSync.addPeer("drew" as PeerId, Promise.resolve(undefined))
+      await new Promise(setImmediate)
+
+      aliceSync.receiveMessage({ ...drewReq, senderId: "drew" as PeerId })
+
+      await vi.waitFor(() =>
+        assert.ok(
+          aliceMessages.find(
+            m => m.type === "doc-unavailable" && m.targetId === "drew"
+          ),
+          "a failed query should still settle the wanting peer"
+        )
+      )
+      assert.equal(aliceQuery.peek().state, "failed")
+    })
+
+    it("settles failed when the adapters never became ready", async () => {
+      const { emptyHandle, query } = setupEmpty()
+      const adapterFailure = new Error("adapters failed to become ready")
+
+      new DocSynchronizer({
+        handle: emptyHandle as DocHandle<unknown>,
+        query,
+        networkReady: Promise.resolve(adapterFailure),
+        shareConfig: defaultShareConfig,
+      })
+
+      await vi.waitFor(() => assert.notEqual(query.peek().state, "loading"))
+
+      // Same zero peers, but we never got to ask anyone, so claiming the
+      // document is absent would be asserting something we never learned.
+      const state = query.peek()
+      assert.equal(state.state, "failed")
+      if (state.state === "failed") {
+        // Attributed to sync specifically, so a caller can tell an
+        // unreachable network from a storage fault.
+        const { causes } = state.error as DocumentLoadFailedError
+        assert.equal(causes["automerge-sync"], adapterFailure)
+      }
+    })
   })
 
   it("emits a syncMessage when addPeer is called", async () => {

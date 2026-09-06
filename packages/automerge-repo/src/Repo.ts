@@ -16,6 +16,7 @@ import {
   progressAtPath,
   type DocumentProgress,
 } from "./DocumentQuery.js"
+import { DocumentDeletedError } from "./errors.js"
 import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
 import { StorageSource } from "./StorageSource.js"
 import { SyncStateTracker } from "./SyncStateTracker.js"
@@ -42,7 +43,7 @@ import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
-import { noop } from "./helpers/noop.js"
+
 import { semaphore } from "./helpers/semaphore.js"
 
 /**
@@ -186,16 +187,19 @@ export class Repo extends EventEmitter<RepoEvents> {
           if (!storageId || isEph) return
           return this.storageSubsystem.loadSyncState(documentId, storageId)
         },
-        // Resolve to void once the adapters are ready, or on adapter failure
-        // (logged): networkReady gates "peers have had their chance to connect",
-        // so a failed network should let documents settle rather than hang, and
-        // it must never reject (no consumer acts on the rejection, and an
-        // unhandled one would surface before any DocSynchronizer attaches).
-        networkReady: networkSubsystem
-          .whenReady()
-          .then(noop, err =>
+        // Resolves once the adapters are ready, or with the failure cause if
+        // they never became ready. `networkReady` gates "peers have had their
+        // chance to connect", so a failed network should let documents settle
+        // rather than hang, and it must never reject. The error is carried so
+        // sync can distinguish "there was nobody to ask" from "we asked and
+        // nobody had it".
+        networkReady: networkSubsystem.whenReady().then(
+          () => undefined,
+          (err: unknown) => {
             this.#log.error("network adapters failed to become ready", err)
-          ),
+            return err instanceof Error ? err : new Error(String(err))
+          }
+        ),
         syncStateLoadConcurrency,
         sharePolicyConcurrency,
       },
@@ -597,7 +601,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       query.handle.delete()
     }
     if (query) {
-      query.fail(new Error(`Document ${documentId} was deleted`))
+      query.fail(new DocumentDeletedError(documentId))
     }
     delete this.#queries[documentId]
 
@@ -622,10 +626,16 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Exports a document to a binary format.
    * @param id - The url or documentId of the handle to export
    *
-   * @returns Promise<Uint8Array | undefined> - A Promise containing the binary document,
-   * or undefined if the document is unavailable.
+   * @returns A Promise containing the binary document.
+   *
+   * @remarks
+   * This waits on {@link Repo.find}, so it rejects rather than resolving when
+   * the document doesn't arrive: {@link DocumentUnavailableError} when every
+   * source determined it isn't there, {@link DocumentLoadFailedError} when at
+   * least one source couldn't determine anything, {@link DocumentDeletedError}
+   * if it was deleted locally.
    */
-  async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
+  async export(id: AnyDocumentId): Promise<Uint8Array> {
     const handle = await this.find(id)
     return Automerge.save(handle.fullDoc())
   }

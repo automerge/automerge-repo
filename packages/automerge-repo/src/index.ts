@@ -40,6 +40,11 @@ export {
 } from "./AutomergeUrl.js"
 export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
+export {
+  DocumentDeletedError,
+  DocumentLoadFailedError,
+  DocumentUnavailableError,
+} from "./errors.js"
 export { setLoggerFactory, makeLogger } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
 export { Presence } from "./presence/Presence.js"

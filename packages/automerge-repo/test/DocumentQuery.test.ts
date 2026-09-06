@@ -1,6 +1,11 @@
 import { next as A } from "@automerge/automerge"
 import { describe, expect, it, vi } from "vitest"
 import { DocumentQuery, progressAtHeads } from "../src/DocumentQuery.js"
+import {
+  DocumentDeletedError,
+  DocumentLoadFailedError,
+  DocumentUnavailableError,
+} from "../src/errors.js"
 import { encodeHeads } from "../src/AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
 import { createTestQuery } from "./helpers/testHandle.js"
@@ -106,6 +111,157 @@ describe("DocumentQuery", () => {
 
       query.sourcePending("source-a")
       expect(query.peek().state).toBe("loading")
+    })
+
+    it("transitions to failed when a source gave up without determining absence", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("source-a")
+      query.sourceUnavailable("source-a", new Error("read failed"))
+
+      const state = query.peek()
+      expect(state.state).toBe("failed")
+      if (state.state === "failed") {
+        expect(state.error).toBeInstanceOf(DocumentLoadFailedError)
+        const { causes } = state.error as DocumentLoadFailedError
+        expect(causes["source-a"].message).toBe("read failed")
+      }
+    })
+
+    it("collects a cause per source rather than reporting only the first", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("storage")
+      query.sourcePending("automerge-sync")
+      query.sourceUnavailable("storage", new Error("disk on fire"))
+      query.sourceUnavailable("automerge-sync", new Error("adapters down"))
+
+      const state = query.peek()
+      expect(state.state).toBe("failed")
+      if (state.state === "failed") {
+        const { causes } = state.error as DocumentLoadFailedError
+        expect(Object.keys(causes).sort()).toEqual([
+          "automerge-sync",
+          "storage",
+        ])
+        expect(state.error.message).toMatch(/storage: disk on fire/)
+        expect(state.error.message).toMatch(/automerge-sync: adapters down/)
+      }
+    })
+
+    it("stays unavailable when only determinate sources gave up", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("source-a")
+      query.sourcePending("source-b")
+      query.sourceUnavailable("source-a")
+      query.sourceUnavailable("source-b")
+
+      expect(query.peek().state).toBe("unavailable")
+    })
+
+    it("prefers failed over unavailable when sources are mixed", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("determinate")
+      query.sourcePending("undetermined")
+      // One source has a real answer, the other never found out. We don't
+      // collectively know the document is absent, so we must not say so.
+      query.sourceUnavailable("determinate")
+      query.sourceUnavailable("undetermined", new Error("could not reach"))
+
+      expect(query.peek().state).toBe("failed")
+    })
+
+    it("stays loading while a source is still pending, whatever the others report", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("storage")
+      query.sourcePending("automerge-sync")
+      // Storage gave up without learning anything, but sync hasn't answered:
+      // a peer may still supply the document, so this is not a settled state.
+      query.sourceUnavailable("storage", new Error("read failed"))
+
+      expect(query.peek().state).toBe("loading")
+
+      // ...and only settles once the last source reports.
+      query.sourceUnavailable("automerge-sync")
+      expect(query.peek().state).toBe("failed")
+    })
+
+    it("leaves the derived failed state when a source retries", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("source-a")
+      query.sourceUnavailable("source-a", new Error("read failed"))
+      expect(query.peek().state).toBe("failed")
+
+      query.sourcePending("source-a")
+      expect(query.peek().state).toBe("loading")
+
+      loadInto(query, [makeBlob({ count: 7 })])
+      expect(query.peek().state).toBe("ready")
+    })
+
+    it("lets a terminal fail() replace a derived failure", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("storage")
+      query.sourceUnavailable("storage", new Error("disk on fire"))
+      const stateBefore = query.peek()
+      expect(stateBefore.state).toBe("failed")
+      if (stateBefore.state === "failed") {
+        expect(stateBefore.error).not.toBeInstanceOf(DocumentDeletedError)
+      }
+      expect(query.peek().state)
+
+      const subscriber = vi.fn()
+      query.subscribe(subscriber)
+      query.fail(new DocumentDeletedError(docId))
+
+      const state = query.peek()
+      expect(state.state).toBe("failed")
+      if (state.state === "failed") {
+        expect(state.error).toBeInstanceOf(DocumentDeletedError)
+      }
+      expect(subscriber).toHaveBeenCalledTimes(1)
+    })
+
+    it("picks up a second undetermined cause reported later", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("storage")
+      query.sourcePending("automerge-sync")
+      query.sourceUnavailable("automerge-sync")
+      query.sourceUnavailable("storage", new Error("first"))
+
+      const subscriber = vi.fn()
+      query.subscribe(subscriber)
+      query.sourceUnavailable("automerge-sync", new Error("adapters down"))
+
+      const state = query.peek()
+      if (state.state !== "failed") throw new Error("expected failed")
+      const { causes } = state.error as DocumentLoadFailedError
+      expect(Object.keys(causes).sort()).toEqual(["automerge-sync", "storage"])
+      expect(subscriber).toHaveBeenCalledTimes(1)
+    })
+
+    it("does not churn subscribers while the causes are unchanged", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("storage")
+      const cause = new Error("disk on fire")
+      query.sourceUnavailable("storage", cause)
+
+      const subscriber = vi.fn()
+      query.subscribe(subscriber)
+      // Re-reporting the identical cause rebuilds the error object, which
+      // must not read as a transition.
+      query.sourceUnavailable("storage", cause)
+      query.sourceUnavailable("storage", cause)
+
+      expect(subscriber).not.toHaveBeenCalled()
+    })
+
+    it("clears a stale error when a source reports a determinate negative", () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("source-a")
+      query.sourceUnavailable("source-a", new Error("read failed"))
+      expect(query.peek().state).toBe("failed")
+
+      query.sourceUnavailable("source-a")
+      expect(query.peek().state).toBe("unavailable")
     })
 
     it("transitions from unavailable to ready when data arrives", () => {
@@ -262,6 +418,49 @@ describe("DocumentQuery", () => {
       await promise
 
       expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function))
+    })
+
+    it("rejects with DocumentUnavailableError when already unavailable", async () => {
+      const query = createTestQuery(docId)
+      query.sourceUnavailable("test")
+      expect(query.peek().state).toBe("unavailable")
+
+      await expect(query.whenReady()).rejects.toThrow(DocumentUnavailableError)
+    })
+
+    it("rejects with DocumentUnavailableError when it becomes unavailable while waiting", async () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("test")
+
+      const promise = query.whenReady()
+      query.sourceUnavailable("test")
+
+      await expect(promise).rejects.toThrow(DocumentUnavailableError)
+    })
+
+    it("reports the documentId on the error", async () => {
+      const query = createTestQuery(docId)
+      query.sourceUnavailable("storage")
+      query.sourceUnavailable("sync")
+
+      const error = await query.whenReady().catch(e => e)
+
+      expect(error).toBeInstanceOf(DocumentUnavailableError)
+      expect(error.documentId).toBe(docId)
+    })
+
+    it("distinguishes a determinate negative from an undetermined one by type", async () => {
+      const determinate = createTestQuery(docId)
+      determinate.sourceUnavailable("storage")
+      await expect(determinate.whenReady()).rejects.toBeInstanceOf(
+        DocumentUnavailableError
+      )
+
+      const undetermined = createTestQuery(docId)
+      undetermined.sourceUnavailable("storage", new Error("read failed"))
+      await expect(undetermined.whenReady()).rejects.toBeInstanceOf(
+        DocumentLoadFailedError
+      )
     })
   })
 
