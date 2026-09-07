@@ -21,6 +21,7 @@ import {
   DocHandle,
   DocumentId,
   LegacyDocumentId,
+  Message,
   PeerId,
   SharePolicy,
 } from "../src/index.js"
@@ -2475,6 +2476,7 @@ describe("Repo", () => {
             isEphemeral: false,
           },
         })
+        return toServer
       }
       connectToServer(alice, "alice" as PeerId)
       await alice.networkSubsystem.whenReady()
@@ -2494,8 +2496,12 @@ describe("Repo", () => {
         "eve-storage" as any,
         A.initSyncState()
       )
-      connectToServer(eve, "eve" as PeerId)
+      const evesLink = connectToServer(eve, "eve" as PeerId)
       await eve.networkSubsystem.whenReady()
+
+      // Record what the server sends Eve.
+      const evesMessages: Message[] = []
+      evesLink.on("message", message => evesMessages.push(message))
 
       await server.removeFromCache(documentId)
 
@@ -2507,7 +2513,7 @@ describe("Repo", () => {
       await vi.waitFor(() =>
         expect(server.handles[documentId]?.doc()).toEqual({ foo: "v2" })
       )
-      await pause(50)
+      expect(evesMessages.filter(m => m.documentId === documentId)).toEqual([])
       expect(eve.handles[documentId]).toBeUndefined()
     })
   })
