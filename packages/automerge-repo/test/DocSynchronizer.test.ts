@@ -694,4 +694,79 @@ describe("DocSynchronizer", () => {
       assert.deepStrictEqual(openedFor, [bob])
     })
   })
+  describe("a peer re-engaged from persisted sync state", () => {
+    /** Access without announce: served on request, never pushed to. */
+    const accessOnly: ShareConfig = {
+      announce: async () => false,
+      access: async () => true,
+    }
+
+    /** A sync state that records heads already shared with the peer. */
+    const syncStateSharing = (doc: Automerge.Doc<TestDoc>) => {
+      let ourDoc = Automerge.clone(doc)
+      let theirDoc = Automerge.init<TestDoc>()
+      let ours = Automerge.initSyncState()
+      let theirs = Automerge.initSyncState()
+      for (;;) {
+        const [nextOurs, toThem] = Automerge.generateSyncMessage(ourDoc, ours)
+        ours = nextOurs
+        if (toThem) {
+          ;[theirDoc, theirs] = Automerge.receiveSyncMessage(
+            theirDoc,
+            theirs,
+            toThem
+          )
+        }
+        const [nextTheirs, toUs] = Automerge.generateSyncMessage(
+          theirDoc,
+          theirs
+        )
+        theirs = nextTheirs
+        if (toUs) {
+          ;[ourDoc, ours] = Automerge.receiveSyncMessage(ourDoc, ours, toUs)
+        }
+        if (!toThem && !toUs) return ours
+      }
+    }
+
+    it("emits open-doc so it is resubscribed to remote-heads gossip", async () => {
+      const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const handle = createTestHandle<TestDoc>(docId)
+      handle.update(() => Automerge.from<TestDoc>({ foo: "bar" }))
+      const shared = syncStateSharing(handle.doc()!)
+      assert.ok(shared.sharedHeads.length > 0, "the peer must share heads")
+
+      const docSync = createDocSynchronizer(
+        handle as DocHandle<unknown>,
+        undefined,
+        accessOnly
+      )
+      const openedFor: PeerId[] = []
+      docSync.on("open-doc", e => openedFor.push(e.peerId))
+
+      docSync.addPeer(bob, Promise.resolve(shared))
+      await new Promise(setImmediate)
+
+      assert.deepStrictEqual(openedFor, [bob])
+    })
+
+    it("does not emit open-doc when no heads were ever shared", async () => {
+      const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const handle = createTestHandle<TestDoc>(docId)
+      handle.update(() => Automerge.from<TestDoc>({ foo: "bar" }))
+
+      const docSync = createDocSynchronizer(
+        handle as DocHandle<unknown>,
+        undefined,
+        accessOnly
+      )
+      const openedFor: PeerId[] = []
+      docSync.on("open-doc", e => openedFor.push(e.peerId))
+
+      docSync.addPeer(bob, Promise.resolve(Automerge.initSyncState()))
+      await new Promise(setImmediate)
+
+      assert.deepStrictEqual(openedFor, [])
+    })
+  })
 })
