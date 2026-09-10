@@ -1,4 +1,3 @@
-import { DummyNetworkAdapter } from "../../src/helpers/DummyNetworkAdapter.js"
 import { Repo, ShareConfig, SharePolicy } from "../../src/Repo.js"
 import { PeerId } from "../../src/types.js"
 import connectRepos from "./connectRepos.js"

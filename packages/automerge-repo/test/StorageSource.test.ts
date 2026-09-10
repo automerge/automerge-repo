@@ -27,8 +27,9 @@ describe("StorageSource", () => {
 
     // Slow-load adapter: defer the load() resolution until we say so.
     let releaseLoad: (() => void) | null = null
+    // Not a spread of `adapter`: that would drop the prototype, and every
+    // method of the interface is bound explicitly here anyway.
     const slowAdapter = {
-      ...adapter,
       loadRange: adapter.loadRange.bind(adapter),
       load: adapter.load.bind(adapter),
       save: adapter.save.bind(adapter),

@@ -1309,7 +1309,7 @@ describe("Ref", () => {
       const ref = handle.sub("data")
 
       const changePromise = new Promise<void>(resolve => {
-        ref.on("change", ({ doc, patches, scopeReplaced }) => {
+        ref.on("change", ({ patches, scopeReplaced }) => {
           expect(scopeReplaced).toBe(false)
           expect(Array.isArray(patches)).toBe(true)
           expect(patches.length).toBeGreaterThan(0)

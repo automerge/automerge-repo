@@ -11,7 +11,7 @@ import {
   generateAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
-import { DocMetrics, Repo, ShareConfig } from "../src/Repo.js"
+import { DocMetrics, Repo } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
 import {
@@ -31,14 +31,11 @@ import {
   LargeObject,
   generateLargeObject,
 } from "./helpers/generate-large-object.js"
-import twoPeers from "./helpers/twoPeers.js"
 import connectRepos from "./helpers/connectRepos.js"
-import awaitState from "./helpers/awaitState.js"
 import withTimeout from "./helpers/withTimeout.js"
 import { getRandomItem } from "./helpers/getRandomItem.js"
 import { TestDoc } from "./types.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
-import { DocumentProgress } from "../src/DocumentQuery.js"
 import { isAbortErrorLike } from "../src/helpers/abortable.js"
 
 describe("Repo", () => {
@@ -576,7 +573,7 @@ describe("Repo", () => {
       const repo2 = new Repo({
         storage,
       })
-      const handle2 = await repo2.find(handle.url)
+      await repo2.find(handle.url)
       assert.deepEqual(storage.keys(), initialKeys)
     })
 
@@ -602,7 +599,7 @@ describe("Repo", () => {
         const repo2 = new Repo({
           storage,
         })
-        const handle2 = await repo2.find(handle.url)
+        await repo2.find(handle.url)
         assert(storage.keys().length !== 0)
       }
     })
@@ -963,7 +960,7 @@ describe("Repo", () => {
     }
 
     it("should not be in a new repo yet because the storage is slow", async () => {
-      const { pausedStorage, repo, handle, handle2 } = setup()
+      const { pausedStorage, handle, handle2 } = setup()
       expect((await handle).doc().foo).toEqual("first")
       expect((await handle2).doc().foo).toEqual("second")
 
@@ -974,7 +971,7 @@ describe("Repo", () => {
 
       // Could not find the document that is not yet saved because of slow storage.
       await expect(async () => {
-        const reloadedHandle = await repo2.find<{ foo: string }>(handle.url)
+        await repo2.find<{ foo: string }>(handle.url)
       }).rejects.toThrow(/Document (.*) is unavailable/)
       expect(pausedStorage.keys()).to.deep.equal([])
     })
@@ -1245,7 +1242,7 @@ describe("Repo", () => {
       const aliceToBob = new DummyNetworkAdapter({
         startReady: true,
         sendMessage: message => {
-          if (!dropAliceToBobMessages) deliver(bobToAlice, message)
+          if (!dropAliceToBobMessages) void deliver(bobToAlice, message)
         },
       })
       bobToAlice = new DummyNetworkAdapter({
@@ -1920,7 +1917,7 @@ describe("Repo", () => {
 
       // Now create a repo pointing at the storage containing the document and
       // connect it to the other end of the MessageChannel
-      const b = new Repo({
+      new Repo({
         storage,
         peerId: "b" as PeerId,
         network: [new MessageChannelNetworkAdapter(ba)],
@@ -2113,10 +2110,9 @@ describe("Repo", () => {
     })
 
     it("should load sync state from storage", async () => {
-      const { bobRepo, teardown, charlie, charlieRepo, bobStorage, bob } =
-        await setup({
-          connectAlice: false,
-        })
+      const { bobRepo, teardown, charlieRepo, bobStorage } = await setup({
+        connectAlice: false,
+      })
 
       // create a new doc and count sync messages
       const bobHandle = bobRepo.create<TestDoc>()
@@ -2155,7 +2151,7 @@ describe("Repo", () => {
       )
 
       // lookup doc we've previously created and count the messages
-      bob2Repo.find(bobHandle.documentId)
+      void bob2Repo.find(bobHandle.documentId)
       let bob2SyncMessages = 0
       bob2Repo.networkSubsystem.on("message", message => {
         if (message.type === "sync") {
@@ -2548,7 +2544,7 @@ describe("Repo", () => {
       ])
 
       await expect(async () => {
-        const clientDoc = await client.find(doc.url)
+        await client.find(doc.url)
       }).rejects.toThrow(/Document (.*) is unavailable/)
 
       const openDocs = Object.keys(server.metrics().documents).length
@@ -2745,7 +2741,7 @@ describe("Repo heads-in-URLs functionality", () => {
   })
 
   it("getHeadsFromUrl returns heads array if present or undefined", () => {
-    const { repo, handle } = setup()
+    const { handle } = setup()
     const heads = handle.heads()!
     const url = stringifyAutomergeUrl({ documentId: handle.documentId, heads })
     expect(getHeadsFromUrl(url)).toEqual(heads)
@@ -2755,7 +2751,7 @@ describe("Repo heads-in-URLs functionality", () => {
   })
 
   it("isValidAutomergeUrl returns true for valid URLs", () => {
-    const { repo, handle } = setup()
+    const { handle } = setup()
     const url = generateAutomergeUrl()
     expect(isValidAutomergeUrl(url)).toBe(true)
 
@@ -2767,14 +2763,14 @@ describe("Repo heads-in-URLs functionality", () => {
   })
 
   it("isValidAutomergeUrl returns false for invalid URLs", () => {
-    const { repo, handle } = setup()
+    setup()
     expect(isValidAutomergeUrl("not a url")).toBe(false)
     expect(isValidAutomergeUrl("automerge:invalidid")).toBe(false)
     expect(isValidAutomergeUrl("automerge:validid#invalidhead")).toBe(false)
   })
 
   it("parseAutomergeUrl extracts documentId and heads", () => {
-    const { repo, handle } = setup()
+    const { handle } = setup()
     const url = stringifyAutomergeUrl({
       documentId: handle.documentId,
       heads: handle.heads()!,
@@ -2785,7 +2781,7 @@ describe("Repo heads-in-URLs functionality", () => {
   })
 
   it("stringifyAutomergeUrl creates valid URL", () => {
-    const { repo, handle } = setup()
+    const { handle } = setup()
     const url = stringifyAutomergeUrl({
       documentId: handle.documentId,
       heads: handle.heads()!,
@@ -2905,7 +2901,7 @@ describe("Repo.find() abort behavior", () => {
       })
 
       const handle = await alice.create2({ foo: "bar" })
-      const bobHandle = await bob.find(handle.url)
+      await bob.find(handle.url)
 
       assert.notEqual(bobEvents.length, 0)
       assert(
@@ -2932,7 +2928,7 @@ describe("Repo.find() abort behavior", () => {
       })
 
       const handle = await alice.create2({ foo: "bar" })
-      const bobHandle = await bob.find(handle.url)
+      await bob.find(handle.url)
 
       assert.notEqual(bobEvents.length, 0)
       assert(

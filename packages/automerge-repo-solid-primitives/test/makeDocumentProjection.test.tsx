@@ -207,7 +207,9 @@ describe("makeDocumentProjection", () => {
         initialProps: [handle],
       }
     )
-    testEffect(() => {
+    // No `done` callback, so this promise never settles: register the
+    // effect and move on.
+    void testEffect(() => {
       createEffect(() => {
         fn(doc?.projects[1].title)
       })
