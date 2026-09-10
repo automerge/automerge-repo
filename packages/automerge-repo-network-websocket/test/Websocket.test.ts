@@ -24,6 +24,9 @@ import { WebSocketClientAdapter } from "../src/WebSocketClientAdapter.js"
 import { WebSocketServerAdapter } from "../src/WebSocketServerAdapter.js"
 import { encodeHeads } from "../../automerge-repo/dist/AutomergeUrl.js"
 
+/** Convergence takes a handful of round trips; the bug this guards is unbounded. */
+const MAX_SYNC_EXCHANGES = 20
+
 describe("Websocket adapters", () => {
   const browserPeerId = "browser" as PeerId
   const serverPeerId = "server" as PeerId
@@ -401,6 +404,45 @@ describe("Websocket adapters", () => {
       })
     }
 
+    /**
+     * Reads messages from a socket in order, buffering from the moment it is
+     * created so that a message arriving between reads is queued, not dropped.
+     */
+    function messageReader(socket: WebSocket) {
+      const received: Buffer[] = []
+      const waiting: ((msg: Buffer) => void)[] = []
+      socket.on("message", msg => {
+        const resolve = waiting.shift()
+        if (resolve) resolve(msg as Buffer)
+        else received.push(msg as Buffer)
+      })
+      const next = (): Promise<Buffer> =>
+        new Promise(resolve => {
+          const msg = received.shift()
+          if (msg) resolve(msg)
+          else waiting.push(resolve)
+        })
+      return {
+        next,
+        /** Null if nothing arrives within `ms`. Anything that arrives later
+         * stays buffered for the next read. */
+        nextWithin: (ms: number): Promise<Buffer | null> => {
+          const msg = received.shift()
+          if (msg) return Promise.resolve(msg)
+          return new Promise(resolve => {
+            const settle = (value: Buffer | null) => {
+              clearTimeout(timer)
+              const i = waiting.indexOf(settle as (m: Buffer) => void)
+              if (i !== -1) waiting.splice(i, 1)
+              resolve(value)
+            }
+            const timer = setTimeout(() => settle(null), ms)
+            waiting.push(settle as (m: Buffer) => void)
+          })
+        },
+      }
+    }
+
     it("should disconnect from a closed client", async () => {
       const {
         serverAdapter,
@@ -701,10 +743,7 @@ describe("Websocket adapters", () => {
         }
       }
 
-      function assertIsPeerMessage(msg: Buffer | null) {
-        if (msg == null) {
-          throw new Error("expected a peer message, got null")
-        }
+      function assertIsPeerMessage(msg: Buffer) {
         let decoded = CBOR.decode(msg)
         if (decoded.type !== "peer") {
           throw new Error(`expected a peer message, got type: ${decoded.type}`)
@@ -713,11 +752,8 @@ describe("Websocket adapters", () => {
 
       function assertIsSyncMessage(
         forDocument: DocumentId,
-        msg: Buffer | null
+        msg: Buffer
       ): SyncMessage {
-        if (msg == null) {
-          throw new Error("expected a peer message, got null")
-        }
         let decoded = CBOR.decode(msg)
         if (decoded.type !== "sync") {
           throw new Error(`expected a peer message, got type: ${decoded.type}`)
@@ -743,6 +779,18 @@ describe("Websocket adapters", () => {
 
       // Now create a websocket sync server with the original document in it's storage
       const adapter = new WebSocketServerAdapter(socket)
+
+      // A join from a peerId that already has a socket must close the old one
+      // and emit peer-disconnected before announcing the new connection.
+      // Observed on this adapter, not the one setupServer() returns unused.
+      const peerEvents: string[] = []
+      adapter.on("peer-disconnected", ({ peerId }) =>
+        peerEvents.push(`disconnected:${peerId}`)
+      )
+      adapter.on("peer-candidate", ({ peerId }) =>
+        peerEvents.push(`candidate:${peerId}`)
+      )
+
       const repo = new Repo({
         network: [adapter],
         storage,
@@ -759,6 +807,7 @@ describe("Websocket adapters", () => {
       // Simulate the initial websocket connection
       let clientSocket = new WebSocket(serverUrl)
       await once(clientSocket, "open")
+      let serverMessages = messageReader(clientSocket)
 
       // Run through the client/server hello
       clientSocket.send(
@@ -769,8 +818,7 @@ describe("Websocket adapters", () => {
         })
       )
 
-      let response = await messageOrTimeout(clientSocket)
-      assertIsPeerMessage(response)
+      assertIsPeerMessage(await serverMessages.next())
 
       // Okay now we start syncing
 
@@ -792,8 +840,7 @@ describe("Websocket adapters", () => {
         })
       )
 
-      response = await messageOrTimeout(clientSocket)
-      assertIsSyncMessage(documentId, response)
+      assertIsSyncMessage(documentId, await serverMessages.next())
 
       // Now, assume either the network or the server is going slow, so the
       // server thinks it has sent the response above, but for whatever reason
@@ -804,6 +851,7 @@ describe("Websocket adapters", () => {
 
       clientSocket = new WebSocket(serverUrl)
       await once(clientSocket, "open")
+      serverMessages = messageReader(clientSocket)
 
       // and we also make a change to the client doc
       clientDoc = A.change(clientDoc, d => (d.foo = "quoxen"))
@@ -817,11 +865,17 @@ describe("Websocket adapters", () => {
         })
       )
 
-      response = await messageOrTimeout(clientSocket)
-      assertIsPeerMessage(response)
+      assertIsPeerMessage(await serverMessages.next())
 
       // Now, we start syncing. If we're not buggy, this loop should terminate.
+      // The bug shows up as an unbounded exchange, so bound it rather than
+      // letting it run into the suite timeout.
+      let exchanges = 0
       while (true) {
+        assert.ok(
+          ++exchanges <= MAX_SYNC_EXCHANGES,
+          `sync did not converge within ${MAX_SYNC_EXCHANGES} exchanges`
+        )
         ;[clientState, message] = A.generateSyncMessage(clientDoc, clientState)
         if (message) {
           clientSocket.send(
@@ -834,7 +888,7 @@ describe("Websocket adapters", () => {
             })
           )
         }
-        const response = await messageOrTimeout(clientSocket)
+        const response = await serverMessages.nextWithin(100)
         if (response) {
           const decoded = assertIsSyncMessage(documentId, response)
           ;[clientDoc, clientState] = A.receiveSyncMessage(
@@ -846,8 +900,6 @@ describe("Websocket adapters", () => {
         if (response == null && message == null) {
           break
         }
-        // Make sure shit has time to happen
-        await pause(50)
       }
 
       // we encode localHeads for consistency with URL formatted heads
@@ -856,6 +908,12 @@ describe("Websocket adapters", () => {
       if (!headsAreSame(encodeHeads(localHeads), remoteHeads)) {
         throw new Error("heads not equal")
       }
+
+      assert.deepStrictEqual(peerEvents, [
+        "candidate:client",
+        "disconnected:client",
+        "candidate:client",
+      ])
     })
 
     describe("teardown (resource-leak regressions)", () => {
