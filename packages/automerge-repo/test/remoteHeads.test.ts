@@ -2,6 +2,7 @@ import { next as A } from "@automerge/automerge/slim"
 import assert from "assert"
 import { describe, it } from "vitest"
 import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
+import { whenPeersConnected } from "./helpers/whenPeerConnected.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import {
@@ -296,8 +297,5 @@ async function connectRepos(a: Repo, b: Repo) {
   const bAdapter = new MessageChannelNetworkAdapter(b2a)
   a.networkSubsystem.addNetworkAdapter(aAdapter)
   b.networkSubsystem.addNetworkAdapter(bAdapter)
-  await Promise.all([
-    a.networkSubsystem.whenReady(),
-    a.networkSubsystem.whenReady(),
-  ])
+  await whenPeersConnected(a, b)
 }
