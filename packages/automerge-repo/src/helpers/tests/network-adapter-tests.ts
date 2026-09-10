@@ -176,15 +176,18 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
       const aliceHandle = aliceRepo.create<TestDoc>()
       const charlieHandle = await charlieRepo.find(aliceHandle.url)
 
-      // pause to give charlie a chance to let alice know it wants the doc
-      await pause(100)
+      // A broadcast is dropped, not queued, for a peer whose share policy
+      // has not resolved yet. Charlie speaking first proves every hop
+      // between them has resolved, in either topology.
+      const atAlice = eventPromise(aliceHandle, "ephemeral-message")
+      charlieHandle.broadcast({ presence: "charlie" })
+      await atAlice
 
+      const atCharlie = eventPromise(charlieHandle, "ephemeral-message")
       const alicePresenceData = { presence: "alice" }
       aliceHandle.broadcast(alicePresenceData)
 
-      const { message } = await eventPromise(charlieHandle, "ephemeral-message")
-
-      assert.deepStrictEqual(message, alicePresenceData)
+      assert.deepStrictEqual((await atCharlie).message, alicePresenceData)
       teardown()
     })
 
