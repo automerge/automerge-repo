@@ -5,7 +5,7 @@ import "@testing-library/jest-dom"
 import { cleanup } from "@testing-library/react"
 import { afterEach } from "vitest"
 import { RepoContext } from "../src/useRepo"
-import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter"
+import { DummyNetworkAdapter } from "@automerge/automerge-repo/helpers/DummyNetworkAdapter.js"
 
 afterEach(() => {
   cleanup()
@@ -19,7 +19,7 @@ export interface ExampleDoc {
   }
 }
 
-export function setup(latency = 100) {
+export function setup(latency = 0) {
   const [adapterBob, adapterServer] = DummyNetworkAdapter.createConnectedPair({
     latency,
   })
@@ -71,7 +71,7 @@ export function setup(latency = 100) {
   }
 }
 
-export function setupPairedRepos(latency = 10) {
+export function setupPairedRepos(latency = 0) {
   // Create two connected repos with network delay
   const [adapterCreator, adapterFinder] =
     DummyNetworkAdapter.createConnectedPair({
