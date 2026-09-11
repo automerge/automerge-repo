@@ -18,7 +18,7 @@ import {
   isRequestMessage,
 } from "../network/messages.js"
 import { DocumentId, PeerId } from "../types.js"
-import { asyncThrottle } from "../helpers/throttle.js"
+import { asyncThrottle, type AsyncThrottled } from "../helpers/throttle.js"
 import { semaphore, type Limit } from "../helpers/semaphore.js"
 import { HashRing } from "../helpers/HashRing.js"
 import type { DocumentQuery } from "../DocumentQuery.js"
@@ -122,6 +122,12 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   #seenEphemeralMessages = new HashRing(1000)
   #networkReady: boolean = false
   #stampEphemeralMessage: () => EphemeralStamp
+  #detached = false
+  #onChange: AsyncThrottled<[], void>
+  #onEphemeralOutbound: (
+    payload: DocHandleOutboundEphemeralMessagePayload<unknown>
+  ) => void
+  #unsubscribeQuery: () => void
 
   constructor({
     handle,
@@ -146,13 +152,14 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     this.#stampEphemeralMessage = stampEphemeralMessage
     query.sourcePending("automerge-sync")
 
-    query.subscribe(() => {
+    this.#unsubscribeQuery = query.subscribe(() => {
       // Anything internal to the query changed — either the public state
       // transitioned (e.g. data arrived from storage) or the source mix
       // changed (e.g. a higher-priority source gave up). Mark peers dirty
       // so #evaluate sends new data when the handle has it, and re-run
       // #evaluate so we can act on the new source mix (e.g. stop deferring
       // availability decisions).
+      if (this.#detached) return
       for (const peer of this.#peers.values()) {
         if (peer.syncState) peer.dirty = true
       }
@@ -165,23 +172,25 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     const docId = handle.documentId.slice(0, 5)
     this.#log = makeLogger(`automerge-repo:docsync:${docId}`)
 
-    handle.on(
-      "change",
-      asyncThrottle(async () => {
-        // Mark all active peers dirty — we have new data to send.
-        for (const peer of this.#peers.values()) {
-          if (peer.syncState) peer.dirty = true
-        }
-        this.#evaluate()
-      }, this.syncDebounceRate)
-    )
+    this.#onChange = asyncThrottle(async () => {
+      if (this.#detached) return
+      // Mark all active peers dirty — we have new data to send.
+      for (const peer of this.#peers.values()) {
+        if (peer.syncState) peer.dirty = true
+      }
+      this.#evaluate()
+    }, this.syncDebounceRate)
+    handle.on("change", this.#onChange)
 
-    handle.on("ephemeral-message-outbound", payload =>
+    this.#onEphemeralOutbound = payload => {
+      if (this.#detached) return
       this.#broadcastToPeers(payload)
-    )
+    }
+    handle.on("ephemeral-message-outbound", this.#onEphemeralOutbound)
 
     networkReady
       .then(() => {
+        if (this.#detached) return
         this.#networkReady = true
         this.#evaluate()
       })
@@ -194,6 +203,22 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
   get documentId(): DocumentId {
     return this.#handle.documentId
+  }
+
+  /**
+   * Stop syncing this document. Cancels an armed evaluate throttle, drops
+   * handle/query listeners, and ignores further {@link #evaluate} work.
+   * Called from {@link CollectionSynchronizer.detach} on `removeFromCache`
+   * / `delete`. Safe to call more than once.
+   */
+  detach(): void {
+    if (this.#detached) return
+    this.#detached = true
+    this.#onChange.cancel()
+    this.#handle.off("change", this.#onChange)
+    this.#handle.off("ephemeral-message-outbound", this.#onEphemeralOutbound)
+    this.#unsubscribeQuery()
+    this.#peers.clear()
   }
 
   // PUBLIC API
@@ -384,6 +409,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
    * 3. Whether to send doc-unavailable to wanting peers
    */
   #evaluate(): void {
+    if (this.#detached) return
     const doc = this.#handle.fullDoc()
     const weHaveData = A.getHeads(doc).length > 0
     const supplierExists = this.#anyActivePeerOfType("has")
