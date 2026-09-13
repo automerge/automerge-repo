@@ -42,8 +42,18 @@ export class PeerPresenceInfo<State extends PresenceState> {
    *
    * @param peerId
    * @param value
+   * @param hasSnapshot whether this update carries the peer's full state
+   * snapshot
    */
-  update({ peerId, value }: { peerId: PeerId; value: Partial<State> }) {
+  update({
+    peerId,
+    value,
+    hasSnapshot,
+  }: {
+    peerId: PeerId
+    value: Partial<State>
+    hasSnapshot?: boolean
+  }) {
     const peerState = this.#peerStates.value[peerId]
     const existingState = peerState?.value ?? ({} as State)
     const now = Date.now()
@@ -53,6 +63,7 @@ export class PeerPresenceInfo<State extends PresenceState> {
         peerId,
         lastSeenAt: now,
         lastActiveAt: now,
+        hasSnapshot: hasSnapshot ?? peerState?.hasSnapshot ?? false,
         value: {
           ...existingState,
           ...value,
