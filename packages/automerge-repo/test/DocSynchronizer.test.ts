@@ -394,6 +394,57 @@ describe("DocSynchronizer", () => {
     )
   })
 
+  it("does not answer a wanting peer while storage is still loading", async () => {
+    const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const aliceHandle = createTestHandle<TestDoc>(docId)
+    const aliceQuery = new DocumentQuery(
+      aliceHandle,
+      new Map([
+        ["storage", { priority: 1 }],
+        ["automerge-sync", { priority: 0 }],
+      ])
+    )
+    const aliceSync = new DocSynchronizer({
+      handle: aliceHandle as DocHandle<unknown>,
+      query: aliceQuery as DocumentQuery<unknown>,
+      networkReady,
+      shareConfig: { announce: async () => false, access: async () => true },
+    })
+
+    const bobHandle = createTestHandle<TestDoc>(docId)
+    const bobSync = createDocSynchronizer(bobHandle as DocHandle<unknown>)
+    const bobReqP = eventPromise(bobSync, "message")
+    bobSync.addPeer(alice, Promise.resolve(undefined))
+    const bobReq = await bobReqP
+
+    const aliceMessages: MessageContents[] = []
+    aliceSync.on("message", m => aliceMessages.push(m))
+    aliceSync.addPeer(bob, Promise.resolve(undefined))
+    await new Promise(setImmediate)
+    aliceSync.receiveMessage({ ...bobReq, senderId: bob })
+    await new Promise(setImmediate)
+
+    assert.deepEqual(
+      aliceMessages
+        .filter(m => m.targetId === bob)
+        .map(m => ({
+          type: m.type,
+          heads:
+            m.type === "sync" ? Automerge.decodeSyncMessage(m.data).heads : [],
+        })),
+      [],
+      "should not reply to a requesting peer before storage settles"
+    )
+
+    aliceQuery.sourceUnavailable("storage")
+    await new Promise(setImmediate)
+    await new Promise(setImmediate)
+    assert.ok(
+      aliceMessages.some(m => m.targetId === bob),
+      "should reply once storage has settled"
+    )
+  })
+
   it("denied peer's queued sync messages get doc-unavailable", async () => {
     const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
     const handle = createTestHandle<TestDoc>(docId)
