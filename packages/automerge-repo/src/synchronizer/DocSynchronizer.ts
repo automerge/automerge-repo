@@ -400,13 +400,13 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       if (!peer.dirty) continue
 
       // If an earlier source is still deciding whether it can provide this
-      // document, don't publish an outbound request that other peers may
-      // interpret as evidence that we do not have it. This is how we wait
-      // for the storage source to complete before announcing that a document
-      // is unavailable (for example)
+      // document, don't publish an outbound request or an empty reply to a
+      // requestor that other peers may interpret as evidence that we do not
+      // have it. This is how we wait for the storage source to complete before
+      // announcing that a document is unavailable (for example)
       if (
         !weHaveData &&
-        peer.status.type === "unknown" &&
+        (peer.status.type === "unknown" || peer.status.type === "wants") &&
         this.#query.shouldDeferAvailability("automerge-sync")
       ) {
         continue
