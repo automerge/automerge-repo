@@ -1,10 +1,11 @@
 import { defineConfig } from "vitest/config"
 import path from "path"
-import solid from "vite-plugin-solid"
 
-export default defineConfig({
+// The settings every package inherits. Exported separately from the default
+// config because a project config that declares `projects` is treated as a
+// nested project container, and the glob would resolve relative to the package.
+export const sharedConfig = defineConfig({
   test: {
-    projects: ["packages/*"],
     globals: true,
     setupFiles: [path.join(__dirname, "./testSetup.ts")],
 
@@ -32,5 +33,12 @@ export default defineConfig({
         "**/test/**/*",
       ],
     },
+  },
+})
+
+export default defineConfig({
+  test: {
+    ...sharedConfig.test,
+    projects: ["packages/*"],
   },
 })

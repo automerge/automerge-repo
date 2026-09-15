@@ -1,8 +1,11 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import {
+  anyDocumentIdToAutomergeUrl,
+  AnyDocumentId,
+  DocHandle,
+} from "@automerge/automerge-repo/slim"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
-import { anyDocumentIdToAutomergeUrl } from "../../automerge-repo/dist/AutomergeUrl.js"
 
 // Shared with useDocHandles
 export const wrapperCache = new Map<
@@ -56,6 +59,9 @@ export function useDocHandle<T>(
   }
 
   let wrapper = id ? wrapperCache.get(id) : undefined
+  // oxlint-disable react/refs -- the Suspense path needs wrapper.read() to
+  // throw synchronously, so the wrapper and its AbortController are built
+  // during render rather than in an effect.
   if (!wrapper && id) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
@@ -64,6 +70,7 @@ export function useDocHandle<T>(
     wrapper = wrapPromise(promise)
     wrapperCache.set(id, wrapper)
   }
+  // oxlint-enable react/refs
 
   /* From here we split into two paths: suspense and not.
    * In the suspense path, we return the wrapper directly.
