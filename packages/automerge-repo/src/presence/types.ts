@@ -12,6 +12,12 @@ export type PeerState<State extends PresenceState> = {
   peerId: PeerId
   lastActiveAt: number
   lastSeenAt: number
+  /**
+   * Whether a full state snapshot has been received from this peer. Entries
+   * created by partial `update` messages have this set to false until a
+   * `snapshot` message arrives.
+   */
+  hasSnapshot: boolean
   value: State
 }
 
@@ -24,6 +30,11 @@ type PresenceMessageUpdate = {
 type PresenceMessageSnapshot = {
   type: "snapshot"
   state: any
+  /**
+   * When true, the sender is announcing its state to newly discovered peers
+   * and asks peers that already know it to reply with their own snapshot.
+   */
+  request?: boolean
 }
 
 type PresenceMessageHeartbeat = {
