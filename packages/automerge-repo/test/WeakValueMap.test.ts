@@ -119,8 +119,8 @@ describe("WeakValueMap — GC behavior", () => {
     const m = new WeakValueMap<string, Box>()
     let probe!: WeakRef<Box>
 
-      // Scope the strong reference to an inner block so it doesn't pin the
-      // value via the test stack frame.
+    // Scope the strong reference to an inner block so it doesn't pin the
+    // value via the test stack frame.
     ;(() => {
       const v = new Box(1)
       m.set("k", v)

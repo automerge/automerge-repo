@@ -56,6 +56,9 @@ export function useDocHandle<T>(
   }
 
   let wrapper = id ? wrapperCache.get(id) : undefined
+  // oxlint-disable react/refs -- the Suspense path needs wrapper.read() to
+  // throw synchronously, so the wrapper and its AbortController are built
+  // during render rather than in an effect.
   if (!wrapper && id) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
@@ -64,6 +67,7 @@ export function useDocHandle<T>(
     wrapper = wrapPromise(promise)
     wrapperCache.set(id, wrapper)
   }
+  // oxlint-enable react/refs
 
   /* From here we split into two paths: suspense and not.
    * In the suspense path, we return the wrapper directly.

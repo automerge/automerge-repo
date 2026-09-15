@@ -9,6 +9,7 @@ export function useSet<T>(items: T[]): Set<T> {
     if (identical(set, newSet)) {
       return
     }
+    // oxlint-disable-next-line react/set-state-in-effect -- derives a Set from props and skips the update when identical
     setSet(newSet)
   }, [set, items])
   return set
