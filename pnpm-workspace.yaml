@@ -39,10 +39,18 @@ catalog:
   react-error-boundary: ^6.1.2
   rollup-plugin-visualizer: ^7.0.1
   svelte: ^5.56.4
-  typescript: ^6.0.3
+  typescript: ^7.0.2
   uuid: ^14.0.1
   vite: ^8.1.3
   vite-plugin-dts: ^5.0.3
   vite-plugin-wasm: ^3.6.0
   vitest: ^4.1.10
   ws: ^8.21.0
+
+# For the two places that cannot take TypeScript 7: the root, because typedoc
+# caps at 6.0.x and resolves typescript as a peer from there, and svelte-store,
+# because svelte2tsx calls the TS6 compiler API with no fallback. react-hooks
+# and solid-primitives take 7 via unplugin-dts's @typescript/typescript6.
+catalogs:
+  ts6:
+    typescript: ^6.0.3
