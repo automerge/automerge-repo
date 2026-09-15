@@ -41,8 +41,8 @@ describe("Document view cache", () => {
     const { document, oldHeads } = setup()
     let probe!: WeakRef<object>
 
-      // Scope the strong reference to an inner block so it doesn't pin the
-      // view via the test stack frame.
+    // Scope the strong reference to an inner block so it doesn't pin the
+    // view via the test stack frame.
     ;(() => {
       probe = new WeakRef(document.viewAt(oldHeads))
     })()
