@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-svelte-store",
-  "version": "2.6.0-alpha.4",
+  "version": "2.6.0-alpha.5",
   "description": "A Svelte store containing your automerge documents",
   "repository": {
     "type": "git",
