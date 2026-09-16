@@ -1,3 +1,5 @@
+import { kEntryCount } from "../internals.js"
+
 /**
  * Map keyed by a primitive (`number | string`) where values are held weakly.
  * Dead entries are removed automatically via `FinalizationRegistry` once the
@@ -88,6 +90,11 @@ export class WeakValueMap<K extends number | string, V extends WeakKey> {
     for (const [key, ref] of this.#map) {
       if (ref.deref() !== undefined) yield key
     }
+  }
+
+  /** @internal Entries in the backing map, live or not. For tests. */
+  get [kEntryCount](): number {
+    return this.#map.size
   }
 
   *values(): IterableIterator<V> {

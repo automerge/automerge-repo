@@ -382,6 +382,28 @@ describe("Repo", () => {
       assert.equal(v?.foo, "bar")
     })
 
+    it("keeps saving and serving a document after a consumer's removeAllListeners", async () => {
+      const { repo, storageAdapter } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.on("change", () => {})
+
+      handle.removeAllListeners()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      await repo.flush()
+
+      const repo2 = new Repo({
+        storage: storageAdapter,
+      })
+      const reloaded = await repo2.find<TestDoc>(handle.url)
+      assert.equal(reloaded.doc()?.foo, "bar")
+
+      const again = await repo.find<TestDoc>(handle.url)
+      assert.equal(again, handle)
+      assert.equal(again.doc()?.foo, "bar")
+    })
+
     it("can save several documents in quick succession", async () => {
       // See https://github.com/automerge/automerge-repo/pull/471
       const { repo, storageAdapter } = setup()
@@ -862,9 +884,10 @@ describe("Repo", () => {
 
         // Count concurrent sync-state saves by intercepting the adapter's
         // save method and filtering by the sync-state key prefix. The Repo
-        // wraps StorageSubsystem.saveSyncState with asyncThrottle keyed by
-        // storageId, so even across many rapid events the adapter should
-        // never see two sync-state saves in flight for the same storageId.
+        // wraps StorageSubsystem.saveSyncState with asyncThrottle keyed per
+        // document and storageId, so even across many rapid events the
+        // adapter should never see two sync-state saves in flight for the
+        // same document and storageId.
         let concurrent = 0
         let maxConcurrent = 0
         let syncStateSaveCalls = 0
@@ -2426,6 +2449,17 @@ describe("Repo", () => {
       const bobHandle = await bob.find<{ foo: string }>(aliceHandle.url)
       expect(bobHandle.doc()).toEqual({ foo: "v1" })
 
+      // The server's sync-state tracker records bob's acknowledged heads,
+      // readable through any server-side handle's injected lookup.
+      await (async () => {
+        const serverHandle = await server.find<{ foo: string }>(aliceHandle.url)
+        await vi.waitFor(() =>
+          expect(
+            serverHandle.getSyncInfo("bob-storage" as any)?.lastHeads
+          ).toEqual(bobHandle.heads())
+        )
+      })()
+
       // Wait for the server to persist sync state for both peers.
       await vi.waitFor(async () => {
         const chunks = await storage.loadRange([documentId, "sync-state"])
@@ -2439,10 +2473,12 @@ describe("Repo", () => {
       // Alice edits: the server re-creates its synchronizer from the
       // inbound message and must resume pushing to bob, whose engagement
       // is known only from his persisted sync state.
+      const bobSawV2 = eventPromise(bobHandle, "heads-changed")
       aliceHandle.change(d => {
         d.foo = "v2"
       })
-      await vi.waitFor(() => expect(bobHandle.doc()).toEqual({ foo: "v2" }))
+      await bobSawV2
+      expect(bobHandle.doc()).toEqual({ foo: "v2" })
     })
 
     it("does not re-engage a peer whose persisted sync state shares no heads", async () => {
