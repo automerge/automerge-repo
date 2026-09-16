@@ -1,6 +1,6 @@
 {
   "name": "@automerge/create-repo-node-app",
-  "version": "2.6.0-alpha.3",
+  "version": "2.6.0-alpha.4",
   "description": "Create an automerge-repo app for node",
   "repository": {
     "type": "git",
