@@ -1,6 +1,6 @@
 {
   "name": "@automerge/vanillajs",
-  "version": "2.6.0-alpha.3",
+  "version": "2.6.0-alpha.4",
   "description": "A quick-import vanilla JS package for Automerge Repo",
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-network-websocket",
-  "version": "2.6.0-alpha.3",
+  "version": "2.6.0-alpha.4",
   "description": "isomorphic node/browser Websocket network adapter for Automerge Repo",
   "repository": {
     "type": "git",
