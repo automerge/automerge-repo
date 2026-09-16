@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@automerge/automerge':
-      specifier: 3.3.2
-      version: 3.3.2
+      specifier: 3.5.0
+      version: 3.5.0
     '@automerge/automerge-subduction':
       specifier: 0.17.2
       version: 0.17.2
@@ -92,7 +92,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-subduction':
         specifier: 'catalog:'
         version: 0.17.2
@@ -454,7 +454,7 @@ importers:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-subduction':
         specifier: 'catalog:'
         version: 0.17.2
@@ -566,7 +566,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -584,7 +584,7 @@ importers:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -630,7 +630,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -810,8 +810,8 @@ packages:
   '@automerge/automerge-subduction@0.17.2':
     resolution: {integrity: sha512-b1cvwgSpZypZT1cYAlheoNuQkyKHjwgxe7gFlB+p6Ta5MWH19NB2VlMbTQX0n/aMhlOPIBhm/0tpeOYPojTHYw==}
 
-  '@automerge/automerge@3.3.2':
-    resolution: {integrity: sha512-9vCdCL7pdQwUra66SBxPVHr+/t9epXKni9KDeak2rNBFMzABVh2u6gSpcwxi3jkR5qr047jVqZv9DlrOfVxLFw==}
+  '@automerge/automerge@3.5.0':
+    resolution: {integrity: sha512-ejbqJWfXWM2QbTcUK/5ugYiQiyOP7LYVAp/RuSvthCc07oek0FClMxEuouuhjrLjVPDSI34RP1ftGc45PF7WRA==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -5801,7 +5801,7 @@ snapshots:
 
   '@automerge/automerge-subduction@0.17.2': {}
 
-  '@automerge/automerge@3.3.2': {}
+  '@automerge/automerge@3.5.0': {}
 
   '@babel/code-frame@7.29.0':
     dependencies:
