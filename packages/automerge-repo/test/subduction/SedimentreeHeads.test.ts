@@ -62,9 +62,6 @@ const automerge = Automerge as unknown as {
 const commitIdOf = (hash: string): CommitId =>
   CommitId.fromBytes(Uint8Array.from(Buffer.from(hash, "hex")))
 
-const treeId = (): SedimentreeId =>
-  SedimentreeId.fromBytes(new Uint8Array(32).fill(7))
-
 /**
  * Appends changes until one hashes with a `00` prefix, i.e. is a level>=1 commit that automerge
  * packs as a fragment head. Stopping at the first such hash makes the shape deterministic: the
@@ -96,23 +93,20 @@ const metadataOf = (doc: A.Doc<unknown>) => ({
 })
 
 /**
- * Replays the snapshots into one Subduction the way `SubductionSource` streams a live document:
- * each snapshot contributes only the records not already sent, bundled from that snapshot. With
- * `alsoLoose`, that document's newest change is additionally stored as a loose commit (its own
- * hash, deps and bytes, all from automerge). Returns the heads Subduction then advertises.
+ * An accept-only peer, fed the way `SubductionSource` streams a live document: each record once,
+ * as it appears, and nothing ever deleted. `sync(doc)` sends the records of that snapshot not
+ * sent before, bundled from it. `storeNewestLoose(doc)` additionally stores the snapshot's newest
+ * change as a loose commit — its own hash, deps and bytes, all from automerge.
  */
-const advertisedHeads = async (
-  snapshots: A.Doc<unknown>[],
-  { alsoLoose }: { alsoLoose?: A.Doc<unknown> } = {}
-): Promise<string[]> => {
-  const id = treeId()
+const receiver = async () => {
+  const id = SedimentreeId.fromBytes(new Uint8Array(32).fill(7))
   const subduction = new Subduction({
     signer: await MemorySigner.generate(),
     storage: new MemoryStorage(),
   })
-
   const known = new Set<string>()
-  for (const doc of snapshots) {
+
+  const sync = async (doc: A.Doc<unknown>) => {
     const { commitMetas, fragmentMetas } = metadataOf(doc)
     const newCommits = commitMetas.filter(meta => !known.has(meta.head))
     const newFragments = fragmentMetas.filter(meta => !known.has(meta.head))
@@ -157,8 +151,8 @@ const advertisedHeads = async (
     for (const meta of [...newCommits, ...newFragments]) known.add(meta.head)
   }
 
-  if (alsoLoose) {
-    const bytes = A.getLastLocalChange(alsoLoose)
+  const storeNewestLoose = async (doc: A.Doc<unknown>) => {
+    const bytes = A.getLastLocalChange(doc)
     if (!bytes) throw new Error("no local change to store loose")
     const { hash, deps } = A.decodeChange(bytes)
     await subduction.addCommitsBatch(id, [
@@ -174,23 +168,26 @@ const advertisedHeads = async (
     ])
   }
 
-  const all = await subduction.getAllHeads()
-  const entry = all.find(candidate => candidate.id.toString() === id.toString())
-  return (entry?.heads ?? []).map(head => head.toHexString()).sort()
+  return { subduction, sync, storeNewestLoose }
 }
 
 describe("Subduction.getAllHeads over automerge-emitted records", () => {
   it("control: a single snapshot advertises exactly the document head", async () => {
     const { after } = buildDocument()
-
     // Once the fragment forms, level 0 is empty — there is no loose commit left to go stale.
     expect(metadataOf(after).commitMetas).toHaveLength(0)
-    expect(await advertisedHeads([after])).toEqual(A.getHeads(after))
+
+    const peer = await receiver()
+    await peer.sync(after)
+
+    const [tree] = await peer.subduction.getAllHeads()
+    expect(tree.heads.map(head => head.toHexString())).toEqual(
+      A.getHeads(after)
+    )
   })
 
   it("BUG: loose commits synced before the fragment formed linger as heads", async () => {
     const { before, after, looseTip } = buildDocument()
-    const [documentHead] = A.getHeads(after)
 
     // Precondition (automerge >= 3.5.0): the fragment must not list its own head as a checkpoint,
     // or sedimentree erases the fragment and this test would see {N-1} for the older reason.
@@ -198,11 +195,16 @@ describe("Subduction.getAllHeads over automerge-emitted records", () => {
     expect(fragmentMetas).toHaveLength(1)
     expect(fragmentMetas[0].checkpoints).not.toContain(fragmentMetas[0].head)
 
-    // What an incremental receiver accumulates: N-1 loose commits, then one fragment. The
-    // document has a single head, but Subduction also advertises the absorbed loose tip.
-    expect(await advertisedHeads([before, after])).toEqual(
-      [documentHead, looseTip].sort()
-    )
+    // What an incremental receiver accumulates: N-1 loose commits, then one fragment.
+    const peer = await receiver()
+    await peer.sync(before)
+    await peer.sync(after)
+
+    // The document has a single head; Subduction also advertises the absorbed loose tip.
+    const [tree] = await peer.subduction.getAllHeads()
+    const advertised = tree.heads.map(head => head.toHexString()).sort()
+    expect(advertised).not.toEqual(A.getHeads(after))
+    expect(advertised).toEqual([...A.getHeads(after), looseTip].sort())
   })
 
   it("control: the extra head disappears once the loose DAG can see the successor", async () => {
@@ -210,8 +212,14 @@ describe("Subduction.getAllHeads over automerge-emitted records", () => {
 
     // Same records plus change N stored loose as well: N-1 now has a loose successor, so only the
     // fragment head survives. The missing edge is in the loose-commit DAG, not in storage.
-    expect(
-      await advertisedHeads([before, after], { alsoLoose: after })
-    ).toEqual(A.getHeads(after))
+    const peer = await receiver()
+    await peer.sync(before)
+    await peer.sync(after)
+    await peer.storeNewestLoose(after)
+
+    const [tree] = await peer.subduction.getAllHeads()
+    expect(tree.heads.map(head => head.toHexString())).toEqual(
+      A.getHeads(after)
+    )
   })
 })
