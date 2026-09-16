@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-storage-nodefs",
-  "version": "2.6.0-alpha.4",
+  "version": "2.6.0-alpha.5",
   "description": "Simple Node filesystem storage adapter for Automerge Repo",
   "repository": {
     "type": "git",
