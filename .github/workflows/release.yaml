@@ -18,9 +18,11 @@ permissions:
   contents: write
   id-token: write
 
+# Serialize releases because all versions share the npm latest/next dist-tags.
 concurrency:
-  group: publish-${{ inputs.tag || github.ref_name }}
+  group: publish-release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   publish:
@@ -35,20 +37,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
       - name: Verify package versions
         shell: bash
         run: |
           set -euo pipefail
 
           node scripts/version.mjs check --tag "$RELEASE_TAG"
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Enable pnpm
-        run: corepack enable pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -83,7 +86,13 @@ jobs:
             exit 0
           fi
 
+          release_args=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            release_args+=(--prerelease --latest=false)
+          fi
+
           gh release create "$RELEASE_TAG" \
             --verify-tag \
             --title "$RELEASE_TAG" \
-            --generate-notes
+            --generate-notes \
+            "${release_args[@]}"

@@ -14,6 +14,7 @@ permissions:
 concurrency:
   group: create-release-tag
   cancel-in-progress: false
+  queue: max
 
 jobs:
   create-tag:
@@ -30,6 +31,16 @@ jobs:
         with:
           before: ${{ github.event.before }}
           after: ${{ github.sha }}
+
+      - uses: actions/setup-node@v6
+        if: steps.version.outputs.changed == 'true'
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v6
+        if: steps.version.outputs.changed == 'true'
+        with:
+          run_install: false
 
       - name: Verify package versions
         if: steps.version.outputs.changed == 'true'
