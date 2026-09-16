@@ -1,24 +1,12 @@
 /**
- * Repro: `Subduction.getAllHeads()` disagrees with the materialized automerge document for a
- * tree whose newest change lives in a fragment.
+ * Repro: `Subduction.getAllHeads()` advertises a stale loose commit as a head after an
+ * incremental sync, so it disagrees with the materialized automerge document.
  *
- * Two distinct defects produce that symptom:
- *
- * 1. DROPPED — fixed at the producer in `@automerge/automerge` 3.5.0. Up to 3.4.x,
- *    `getFragmentMetadata` listed a fragment's own head among its checkpoints, and sedimentree's
- *    `heads_assuming_minimal` (sedimentree_core 0.14.2) excludes every id referenced as a
- *    checkpoint with no exception for the fragment's own head, so the fragment erased itself and
- *    the tree was advertised at the pre-fragment loose tip. Tracked as
- *    inkandswitch/subduction#301. Fragments already in storage still carry the self-checkpoint,
- *    so the sedimentree side of that fix still matters for existing data; this file only pins
- *    that newly emitted fragments no longer trigger it.
- *
- * 2. KEPT — still open. A receiver that synced loose commits before the fragment formed holds
- *    loose commits 1..N-1 plus a fragment whose head N is not itself a loose commit. That is the
- *    normal incremental path: `SubductionSource` sends each record once, as it appears, and an
- *    accept-only peer never deletes. Sedimentree's loose-commit DAG then sees no successor for
- *    N-1 and advertises it as a head beside N, while automerge, reading the whole change graph,
- *    knows N-1 is interior.
+ * A receiver that synced loose commits before the fragment formed holds loose commits 1..N-1
+ * plus a fragment whose head N is not itself a loose commit. That is the normal incremental
+ * path: `SubductionSource` sends each record once, as it appears, and an accept-only peer never
+ * deletes. Sedimentree's loose-commit DAG then sees no successor for N-1 and advertises it as a
+ * head beside N, while automerge, reading the whole change graph, knows N-1 is interior.
  *
  * Every value fed to Subduction below comes from `Automerge.getFragmentMetadata` and
  * `Automerge.bundleFragmentMetadata` — the same calls `SubductionSource` makes in
@@ -26,9 +14,16 @@
  * WHEN it looks: one snapshot before the fragment-forming change and one after, exactly as an
  * incremental sync would.
  *
- * Consequence either way: a peer advertising sedimentree heads permanently disagrees with a peer
+ * Consequence: a peer advertising sedimentree heads permanently disagrees with a peer
  * advertising materialized automerge heads although both hold identical bytes, so collection
  * sync reports a differing document forever.
+ *
+ * History: up to `@automerge/automerge` 3.4.x the same tree produced the opposite failure —
+ * `getFragmentMetadata` listed the fragment's own head among its checkpoints, sedimentree's head
+ * filter erased the fragment, and only the stale loose tip was advertised
+ * (inkandswitch/subduction#301). 3.5.0 stopped emitting the self-checkpoint; the BUG test below
+ * asserts that precondition so a downgrade fails for the right reason. Fragments already in
+ * storage still carry it.
  */
 import { next as A } from "@automerge/automerge"
 import * as Automerge from "@automerge/automerge"
@@ -185,16 +180,6 @@ const advertisedHeads = async (
 }
 
 describe("Subduction.getAllHeads over automerge-emitted records", () => {
-  it("automerge 3.5.0 no longer lists a fragment's own head among its checkpoints", () => {
-    const { after } = buildDocument()
-    const { fragmentMetas } = metadataOf(after)
-    expect(fragmentMetas).toHaveLength(1)
-
-    // The producer-side fix for the DROPPED bug; <= 3.4.x returned `checkpoints: [head]` here.
-    const [fragment] = fragmentMetas
-    expect(fragment.checkpoints).not.toContain(fragment.head)
-  })
-
   it("control: a single snapshot advertises exactly the document head", async () => {
     const { after } = buildDocument()
 
@@ -206,6 +191,12 @@ describe("Subduction.getAllHeads over automerge-emitted records", () => {
   it("BUG: loose commits synced before the fragment formed linger as heads", async () => {
     const { before, after, looseTip } = buildDocument()
     const [documentHead] = A.getHeads(after)
+
+    // Precondition (automerge >= 3.5.0): the fragment must not list its own head as a checkpoint,
+    // or sedimentree erases the fragment and this test would see {N-1} for the older reason.
+    const { fragmentMetas } = metadataOf(after)
+    expect(fragmentMetas).toHaveLength(1)
+    expect(fragmentMetas[0].checkpoints).not.toContain(fragmentMetas[0].head)
 
     // What an incremental receiver accumulates: N-1 loose commits, then one fragment. The
     // document has a single head, but Subduction also advertises the absorbed loose tip.
