@@ -7,11 +7,11 @@ settings:
 catalogs:
   default:
     '@automerge/automerge':
-      specifier: 3.3.2
-      version: 3.3.2
+      specifier: 3.5.0
+      version: 3.5.0
     '@automerge/automerge-subduction':
-      specifier: 0.16.1
-      version: 0.16.1
+      specifier: 0.17.2
+      version: 0.17.2
     '@clack/prompts':
       specifier: ^1.4.0
       version: 1.5.0
@@ -92,10 +92,10 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-subduction':
         specifier: 'catalog:'
-        version: 0.16.1
+        version: 0.17.2
       '@manypkg/cli':
         specifier: ^0.25.1
         version: 0.25.1
@@ -454,10 +454,10 @@ importers:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-subduction':
         specifier: 'catalog:'
-        version: 0.16.1
+        version: 0.17.2
       bs58check:
         specifier: ^4.0.0
         version: 4.0.0
@@ -566,7 +566,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -584,7 +584,7 @@ importers:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -630,7 +630,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -807,11 +807,11 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@automerge/automerge-subduction@0.16.1':
-    resolution: {integrity: sha512-alH7U4eYn0O7sT6hNLv7CJhNODJi+QD6qfRQTNfZCxL3Q5JZdJ8lFpdvXUkBf+I3bu0GLvVlTaYPWGrBihjpIw==}
+  '@automerge/automerge-subduction@0.17.2':
+    resolution: {integrity: sha512-b1cvwgSpZypZT1cYAlheoNuQkyKHjwgxe7gFlB+p6Ta5MWH19NB2VlMbTQX0n/aMhlOPIBhm/0tpeOYPojTHYw==}
 
-  '@automerge/automerge@3.3.2':
-    resolution: {integrity: sha512-9vCdCL7pdQwUra66SBxPVHr+/t9epXKni9KDeak2rNBFMzABVh2u6gSpcwxi3jkR5qr047jVqZv9DlrOfVxLFw==}
+  '@automerge/automerge@3.5.0':
+    resolution: {integrity: sha512-ejbqJWfXWM2QbTcUK/5ugYiQiyOP7LYVAp/RuSvthCc07oek0FClMxEuouuhjrLjVPDSI34RP1ftGc45PF7WRA==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -5799,9 +5799,9 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@automerge/automerge-subduction@0.16.1': {}
+  '@automerge/automerge-subduction@0.17.2': {}
 
-  '@automerge/automerge@3.3.2': {}
+  '@automerge/automerge@3.5.0': {}
 
   '@babel/code-frame@7.29.0':
     dependencies:
