@@ -157,10 +157,11 @@ export class CollectionSynchronizer
   detach(documentId: DocumentId): void {
     this.#log.debug(`removing document ${documentId}`)
     const docSync = this.#docSynchronizers[documentId]
+    // detach() cancels the evaluate throttle and drops handle listeners;
+    // removePeer would call #evaluate against a document the caller may
+    // be about to Automerge.free().
     if (docSync) {
-      for (const peerId of this.peers) {
-        docSync.removePeer(peerId)
-      }
+      docSync.detach()
     }
     delete this.#docSynchronizers[documentId]
   }

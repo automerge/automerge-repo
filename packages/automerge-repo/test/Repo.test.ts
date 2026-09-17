@@ -729,6 +729,28 @@ describe("Repo", () => {
         await repo.removeFromCache(badDocumentId)
         assert(Object.keys(repo.handles).length === handleCacheSize)
       })
+
+      it("removeFromCache does not evaluate after the document is freed", async () => {
+        // Regression for #729: a change arms DocSynchronizer's 100ms
+        // evaluate throttle; removeFromCache used to leave that timer
+        // running, so Automerge.free inside the debounce window made
+        // #evaluate's fullDoc() hit freed WASM as an unhandled rejection.
+        vi.useFakeTimers()
+        try {
+          const repo = new Repo({})
+          const handle = repo.create<{ text: string }>({ text: "hello" })
+          await handle.whenReady()
+          handle.change(d => {
+            d.text = "arms the throttle"
+          })
+          const doc = handle.doc()!
+          await repo.removeFromCache(handle.documentId)
+          A.free(doc)
+          await vi.advanceTimersByTimeAsync(500)
+        } finally {
+          vi.useRealTimers()
+        }
+      })
     })
 
     describe("registerHandleWithSubsystems", () => {
