@@ -26,6 +26,7 @@
     "@testing-library/dom": "^10.0.0",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "^16.3.0",
+    "@typescript/typescript6": "^6.0.2",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-error-boundary": "catalog:",
