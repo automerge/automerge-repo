@@ -1,14 +1,17 @@
 # Subduction integration
 
-**Status:** Design draft. The architectural direction below is agreed; API names
-and signatures are proposals, not a finalized public interface.
+**Status:** Agreed direction and initial scope, ready for an executable scaffold.
+API names and signatures remain provisional; the remaining implementation checks
+are listed at the end.
 
 ## Summary
 
 Replace Repo's built-in storage, network, and legacy synchronization machinery
-with an injected **sedimentree backend**. Repo will exchange loose commits,
-fragments, and opaque blobs with that backend rather than storage keys, network
-messages, or Automerge sync states.
+with a **sedimentree backend**. Repo will exchange loose commits, fragments, and
+opaque blobs with that backend rather than storage keys, network messages, or
+Automerge sync states. `new Repo()` constructs a default Subduction backend;
+`new Repo({ backend })` uses the supplied backend instead, without also starting
+the default.
 
 Provide two concrete implementations:
 
@@ -26,13 +29,15 @@ or adopt its current integration API wholesale.
 
 The objective is not just interchangeable sync protocols. Sedimentrees should
 become the common representation beneath Repo, allowing future document
-implementations based on CRDTs other than Automerge.
+implementations based on CRDTs other than Automerge. For expediency, Repo retains
+its Automerge dependency and gains the default Subduction dependency in this
+work. Splitting out a core independent of both is a later project.
 
 ## Goals and non-goals
 
 ### Goals
 
-- Inject one sedimentree backend into the Repo constructor.
+- Accept one injected sedimentree backend, with Subduction as the default.
 - Make the contract composable: a separate package can combine legacy and
   Subduction backends, including cross-propagation, without Repo special cases or
   access to either backend's private implementation.
@@ -49,8 +54,9 @@ implementations based on CRDTs other than Automerge.
 
 ### Non-goals for this work
 
-- Implementing another CRDT, generic public handles, or a complete CRDT plugin
-  registry. The first Repo-to-sedimentree translation remains Automerge-specific.
+- Implementing another CRDT, generic public handles, a complete CRDT plugin
+  registry, or a dependency-free core Repo package. The first Repo-to-sedimentree
+  translation remains Automerge-specific.
 - Implementing multiple protocol stacks or backend-combination logic inside
   core Repo. Simultaneous operation belongs in an injected composite backend,
   not in a special dual-protocol Repo mode.
@@ -67,15 +73,15 @@ implementations based on CRDTs other than Automerge.
 
 Relevant code on `main`, under `packages/automerge-repo/src/`:
 
-| Code | Current responsibility |
-| --- | --- |
-| `Repo.ts` | Constructs and wires storage, network, synchronizer, remote-head tracking, and document sources; owns queries and lifecycle operations. |
-| `Document.ts`, `DocHandle.ts` | Own Automerge state, mutations, views, sub-handles, and document events. |
-| `DocumentQuery.ts` | Combines document state and source observations into public loading/availability state. |
-| `DocumentSource.ts` | Defines source attachment/detachment and availability priority. |
-| `StorageSource.ts`, `storage/` | Load and save Automerge snapshots/incrementals; persist sync state and storage identity. |
-| `synchronizer/`, `network/` | Run legacy sync, discover documents, evaluate sharing, and route messages. |
-| `SyncStateTracker.ts`, `RemoteHeadsSubscriptions.ts` | Track remote heads, persist legacy sync state, and implement legacy gossip. |
+| Code                                                 | Current responsibility                                                                                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `Repo.ts`                                            | Constructs and wires storage, network, synchronizer, remote-head tracking, and document sources; owns queries and lifecycle operations. |
+| `Document.ts`, `DocHandle.ts`                        | Own Automerge state, mutations, views, sub-handles, and document events.                                                                |
+| `DocumentQuery.ts`                                   | Combines document state and source observations into public loading/availability state.                                                 |
+| `DocumentSource.ts`                                  | Defines source attachment/detachment and availability priority.                                                                         |
+| `StorageSource.ts`, `storage/`                       | Load and save Automerge snapshots/incrementals; persist sync state and storage identity.                                                |
+| `synchronizer/`, `network/`                          | Run legacy sync, discover documents, evaluate sharing, and route messages.                                                              |
+| `SyncStateTracker.ts`, `RemoteHeadsSubscriptions.ts` | Track remote heads, persist legacy sync state, and implement legacy gossip.                                                             |
 
 `DocumentSource` is a useful existing integration point, but is **not** the new
 backend contract: it exposes `DocumentQuery` and `DocHandle`, putting the boundary
@@ -122,7 +128,9 @@ children are not registered as additional Repo document sources.
 ### Core Repo
 
 Repo continues to own document identity, queries, application handles, and their
-lifecycle. Initially, document operations remain Automerge-specific.
+lifecycle. Initially, document operations remain Automerge-specific. The default
+constructor creates a Subduction backend, but document orchestration operates
+through the same contract used by explicitly injected backends.
 
 A small translation layer extracts sedimentree records from Automerge state and
 applies incoming record blobs to that state. It must not contain transport,
@@ -137,10 +145,13 @@ backend facts; it does not decide whether an application document is usable.
 Incoming replication must work without calling `Repo.find()` or creating public
 handles. A legacy backend may need an internal Automerge document to serve a
 peer; that is its implementation detail, not an application document in Repo.
+Application-facing discovery reports IDs, not materialized handles. Applications
+that want a handle explicitly call `find()`; merely discovering or replicating
+a document does not populate Repo's handle cache.
 
 ### Packaging
 
-Proposed responsibilities, with final package names still to be chosen:
+Initial responsibilities, with final package names still to be chosen:
 
 - **Contract package:** plain sedimentree data types, backend interfaces, and
   shared conformance-test support. No Repo, Automerge, or Subduction runtime
@@ -148,8 +159,11 @@ Proposed responsibilities, with final package names still to be chosen:
 - **Automerge translation module/package:** small reusable conversion helpers,
   shared by core Repo and the legacy backend. Depends on Automerge and the
   contract, not Repo. Avoid duplicating fragment extraction logic.
-- **Core Repo:** public document API and translation orchestration. Depends on
-  the contract and Automerge translation, not concrete or composite backends.
+- **Repo package:** public document API and translation orchestration. Depends
+  on the contract, Automerge translation, and the Subduction backend for default
+  construction. It does not depend on the legacy or composite implementation.
+  A separately packaged core with no Automerge or Subduction dependency is
+  deferred; the contract package is independent of both from the outset.
 - **Legacy package:** legacy translation, synchronizers, storage subsystem,
   network subsystem, remote-head gossip, and existing adapter implementations.
 - **Subduction package:** Subduction wrapper, connection management, and its
@@ -166,6 +180,8 @@ to retain legacy implementations in core Repo.
 Example usage, with provisional names:
 
 ```ts
+const defaultRepo = new Repo() // owns a default Subduction backend
+
 const backend = new LegacyBackend({
   storage,
   network,
@@ -183,6 +199,12 @@ despite the generic `backend` name.
 Composition is a design requirement, not something to try after freezing the
 interface. The simplest test is whether a third-party package can implement a
 legacy/Subduction bridge using only the contract available to Repo.
+
+The first composite is a migration bridge, not a general routing framework.
+Bridging is explicitly enabled and bidirectional for all eligible 16-byte-ID
+documents. Native Subduction IDs stay in Subduction. Per-document route selection
+and primary/quorum write policies are deferred. Ephemeral messages follow the
+same routes as document history.
 
 Illustrative configuration, with policy names still provisional:
 
@@ -216,12 +238,15 @@ ever seen. The metadata/equivalence contract must make this implementable
 without decoding Automerge documents in the composition package.
 
 Preserve child-scoped loading, synchronization, failure, and remote-head
-observations. A complete child checkpoint can provide useful data while another
-child is still loading; a missing or failed child must not erase healthy data.
-The aggregate initial-load checkpoint follows settlement of the participating
-child loads and records failures, rather than treating them as empty stores.
-Do not promise an atomic snapshot across independent stores. Likewise, absence
-requires all relevant child lookups to settle, not whichever responds first.
+observations. A complete initial snapshot from any one child or remote source
+is sufficient for Repo readiness, once Repo has processed and verified its
+checkpoint. Other children may still be loading; a missing or failed child must
+not erase healthy data. The aggregate initial-load checkpoint follows settlement
+of the participating child loads and records failures, rather than treating them
+as empty stores. Repo does not need to wait for this aggregate checkpoint if a
+complete copy is already available. Do not promise an atomic snapshot across
+independent stores. Absence, unlike readiness, requires all relevant child
+lookups to settle, not whichever responds first.
 
 ### Discovery and inbound demand
 
@@ -230,7 +255,9 @@ can receive data or a request for a sedimentree that Repo has never opened.
 The common contract therefore also needs:
 
 - Coordinated enumeration of existing sedimentree IDs and observation of new
-  IDs/activity, without eagerly materializing application documents.
+  IDs/activity, without eagerly materializing application documents. Collection
+  observation uses bounded pull/replay and explicit rescan, like document
+  observation; the composite reconciles history with bounded background work.
 - Notification of unresolved inbound demand, with a bounded way to allow the
   composite to obtain data from another child before the requesting child
   concludes that the sedimentree is unavailable.
@@ -239,22 +266,23 @@ A plain discovery event does not solve the second requirement: a legacy child
 could otherwise send `doc-unavailable` before the composite has loaded data
 already present in Subduction. The demand-resolution handshake must handle
 recursive requests, deadlines, cancellation, and the absence of a resolver.
-Whether this is a resolver registration or a deferrable observation is an open
-interface decision to validate in the first slice.
+Whether this is a resolver registration or a deferrable observation is an API
+detail to validate in the real-backend milestone (1b), before bulk extraction.
 
-The composite may retain bridge interest independently of application watches.
-The configured routing policy determines its scope; closing a Repo watch must
-not accidentally disable a sync server's cross-protocol forwarding. On restart,
-inventory reconciliation must recover missed cross-propagation rather than
-rely solely on notifications from the previous process.
+The composite retains bridge interest for routed documents independently of
+application watches. Closing a Repo watch must not disable cross-protocol
+forwarding. On restart, inventory and history reconciliation must recover missed
+cross-propagation rather than rely solely on notifications from the previous
+process. Matching inventories of IDs alone do not prove matching history.
 
 ### Durability and partial failure
 
-Start with a simple all-participating-children write policy: a composite `store`
-resolves only once every selected child store has settled successfully, without
-waiting for either network. A child's failure does not undo successful writes to
-another child. Drain all writes, report child-attributed aggregate failures, and
-permit retries without duplicate effects. There is no distributed transaction.
+The initial write policy requires all participating children: a composite
+`store` resolves only once every selected child store has settled successfully,
+without waiting for either network. A child's failure does not undo successful
+writes to another child. Drain all writes, report child-attributed aggregate
+failures, and permit retries without duplicate effects. There is no distributed
+transaction.
 
 `flush` first drains the cross-propagation work captured by its barrier, then
 flushes the affected children. A child flush alone cannot cover work still in a
@@ -270,20 +298,27 @@ reflect its configured guarantee, including memory-only children.
 
 ### Routing, identities, and ephemerals
 
-Bridging is an explicit routing/authorization choice. Permission to receive data
-on one network is not automatically permission to publish it on another.
-Child policies still apply, and the composite must not infer authorization or
-identity equivalence from matching document or peer IDs.
+The initial format convention is carried by the logical document ID: a 16-byte
+ID denotes ordinary, unencrypted Automerge data and is eligible for legacy
+routing. Every other ID length is excluded from legacy. The Subduction wrapper's
+32-byte padding does not change that classification; see
+[Document ID mapping](#document-id-mapping). No format-negotiation protocol or
+general capability registry is needed initially. Legacy still validates payloads
+and rejects malformed or unsupported data; the ID convention is not proof that
+the bytes are valid.
+
+Enabling the migration bridge is an explicit authorization choice. Permission to
+receive data on one network is not automatically permission to publish it on
+another. Child policies still apply, and matching document or peer IDs do not
+establish authorization or identity equivalence.
 
 Scope backend observations and peer identities by their child provenance. A
-legacy storage UUID and a Subduction verifying key remain distinct. For trees
-mirrored into both children, supported payloads are limited to their compatible
-intersection: generic composition does not give the legacy backend support for
-encrypted blobs or other CRDT formats.
+legacy storage UUID and a Subduction verifying key remain distinct.
 
-Ephemeral fanout and cross-protocol relay need stable message identity across
-children and forwarding hops. A bytes-only publish API that lets each child
-mint an unrelated identity is insufficient. The common envelope must preserve
+The first usable migration bridge includes best-effort ephemeral relay, not just
+document history. Ephemeral fanout and cross-protocol relay need stable message
+identity across children and forwarding hops. A bytes-only publish API that lets
+each child mint an unrelated identity is insufficient. The common envelope must preserve
 message ID and origin separately from the authenticated transport sender; see
 [Ephemerals, remote identity, and API migration](#ephemerals-remote-identity-and-api-migration).
 Relay/deduplication must work in a topology with multiple composite bridges, not
@@ -324,27 +359,65 @@ ownership. Callers must not be able to mutate a buffer while it is being stored;
 implementations must copy or define an ownership transfer, not rely on convention
 across asynchronous calls.
 
-Record identity and blob identity must be distinguished. In particular, do not
-assume a fragment is uniquely identified for every purpose by its head, or that
-two transformed representations of one logical commit are interchangeable.
-Canonical equality and conflict rules must be settled against the sedimentree
-model before implementing deduplication.
+### Logical identity, representation, and coverage
+
+The logical record key is `(sedimentree ID, record kind, commit ID)`. For a loose
+commit the last component is its own ID; for a fragment it is the fragment head.
+A loose commit and a fragment with the same head remain distinct records.
+`CommitId` is an opaque, caller-supplied 32-byte identifier. The Automerge
+translation uses its change hash, not a hash recomputed from the stored blob.
+
+This matches the published upstream implementation: `sedimentree_core` 0.14.2
+uses separate commit and fragment maps keyed by `CommitId`, and separate sets
+for their synchronization fingerprints. See the [CommitId definition][commit-id]
+and [map/fingerprint implementation][sedimentree-identity].
+
+Logical identity is not exact representation equality. Keep boundary/checkpoint
+metadata and blob identity distinct from the logical key. Upstream storage uses
+content-addressed representations and permits conflicting payloads under the
+same logical ID; the in-memory sedimentree uses a lower-content-digest tiebreaker
+when such variants are inserted. That is conflict resolution, not proof of
+semantic equivalence. See the [storage contract][subduction-storage] and
+[tiebreaker implementation][sedimentree-tiebreaker].
+
+The integration must validate duplicate/conflict behavior against its selected
+backend versions. A set of previously seen heads is not sufficient validation of
+arbitrary incoming representations. Likewise, identifying a fragment does not
+by itself prove which other records its history covers. Composition must handle
+equivalent repackagings using sedimentree metadata rather than blob equality or
+Automerge decoding; physical reclamation remains backend-owned.
+
+[commit-id]: https://docs.rs/sedimentree_core/0.14.2/sedimentree_core/loose_commit/id/struct.CommitId.html
+[sedimentree-identity]: https://docs.rs/sedimentree_core/0.14.2/src/sedimentree_core/sedimentree.rs.html#40-51
+[subduction-storage]: https://docs.rs/crate/subduction_core/0.18.2/source/src/storage/traits.rs
+[sedimentree-tiebreaker]: https://docs.rs/sedimentree_core/0.14.2/src/sedimentree_core/sedimentree.rs.html#25-38
 
 ### Document ID mapping
 
-Keep URL parsing and document-to-sedimentree mapping outside the backend contract.
-Existing Automerge URLs must continue to identify the same documents when using
-the legacy backend.
+Keep URL parsing outside the backend contract. Plain logical IDs retain their
+byte length so backends and the composite can apply the routing convention
+without importing Repo's URL types. Existing Automerge URLs must continue to
+identify the same documents when using the legacy backend.
 
-The branch's `subduction/helpers.ts` pads document IDs to 32 bytes on the way in
-and takes the first 16 bytes on the way out. That is not a reversible mapping for
-general sedimentree IDs and must not become the general contract.
+The initial mapping is:
 
-Define a compatibility mapping for existing UUID-based documents and a lossless
-representation for native sedimentree IDs. Only reverse a legacy embedding when
-it is actually in the legacy image; never silently truncate arbitrary IDs.
-Resolve how non-UUID document IDs, including those from `idFactory`, are handled
-before freezing the interface.
+- **16 bytes:** a legacy-compatible, unencrypted Automerge document. This applies
+  to all 16-byte IDs, not only syntactically valid UUIDs. The Subduction backend
+  embeds it as the original 16 bytes followed by 16 zero bytes.
+- **32 bytes outside that reserved range:** a native Subduction ID, preserved
+  without truncation and never routed to legacy. New native IDs are expected to
+  be Ed25519 public keys.
+- **32 bytes ending in 16 zero bytes at the Subduction boundary:** reserved
+  exclusively for the legacy embedding; reverse it to the first 16 bytes. Native
+  ID creation must exclude this range, even when IDs are generated as keys.
+- **Other lengths:** never route to legacy. Support for such IDs from `idFactory`
+  needs an explicit lossless mapping before use; reject unsupported lengths
+  rather than silently padding, truncating, or introducing collisions.
+
+Padding/unpadding belongs inside the Subduction backend. A caller cannot claim a
+reserved-range value as a distinct native ID. This replaces the branch helper's
+unconditional truncation with an unambiguous, lossless round-trip for supported
+logical IDs.
 
 ## Backend operations
 
@@ -381,9 +454,11 @@ interest for automatic synchronization. `synchronize()` explicitly requests a
 bounded round, for example after a user-requested retry; it is not required after
 every local edit.
 
-An async stream is proposed to make ordering and lifetime explicit. A callback
-API is also possible if it provides the same guarantees. We should validate the
-semantics before committing to either spelling.
+Observation is a pull-driven async stream with bounded replay and an explicit
+`rescan-required` outcome when a consumer falls behind. Async iteration must not
+hide an unbounded push queue. Initially, sequence positions are internal and
+process-local; durable, externally managed cursors are not required. Event
+spelling and the exact reset handshake remain implementation details to validate.
 
 ### 1. Initial loading and live observation are one operation
 
@@ -398,12 +473,14 @@ The event sequence includes:
 - Subsequent record batches and synchronization observations.
 - Remote-head observations and ephemeral messages.
 - Typed failures, with operation and retryability information.
+- An explicit rescan requirement if the bounded replay window is exceeded.
 
 At `open`, the implementation establishes a finite initial cut and a watch.
-Initial batches describe enough data to reconstruct that cut, and every change
-after it is delivered as an update. Overlap and duplicate delivery are permitted;
-missing history is not. Concurrent compaction must not remove records needed by
-the initial enumeration before their replacements are covered by the stream.
+Initial batches describe enough data to reconstruct that cut. Subsequent history
+is delivered as updates, or recovered through an explicitly signaled rescan if
+the consumer falls behind. Overlap and duplicate delivery are permitted; silent
+history loss is not. Concurrent compaction must not remove records needed by the
+initial enumeration before their replacements are covered by the stream.
 
 The initial checkpoint is not delayed indefinitely by ongoing writes or an
 unreachable network. It means local enumeration is complete, not that all remote
@@ -411,14 +488,15 @@ data has arrived. A new watch must also be able to observe records previously
 stored by this process; suppressing self-echoes must never hide data from another
 watch.
 
-This interface is implemented by the backend itself. A Subduction wrapper may
-initially observe its storage internally, but no caller should have to supply or
-listen to that storage to receive data. Prefer an upstream Subduction data-event
-API once available.
+This interface is implemented by the backend itself. Subduction's existing
+storage wrapper provides gap-free observation and is the initial implementation
+path, despite being somewhat clunky. Keep it private to the backend: callers do
+not supply or listen to storage to observe data. A future upstream data-event or
+pull API can replace it without changing the caller-facing boundary.
 
 ### 2. Storing, persisting, and replicating are separate
 
-Proposed guarantees for `store`:
+Guarantees for `store`:
 
 - Resolution means the history represented by all submitted records is
   recoverable under the backend's declared persistence model. A persistent
@@ -430,7 +508,8 @@ Proposed guarantees for `store`:
 - Repeating an equivalent batch is safe. A failed write may have partially
   persisted; callers must be able to retry the whole batch.
 - Invalid metadata or unsupported payloads reject rather than silently becoming
-  missing data. Exact duplicate/conflict rules depend on canonical record identity.
+  missing data. Exact duplicate/conflict handling must respect the distinction
+  between logical identity and representation equality, with conformance tests.
 
 All-or-nothing transactions are not required of legacy storage adapters. However,
 persistence must never acknowledge a fragment replacement while losing both its
@@ -479,12 +558,26 @@ Resolving `synchronize()` does not mean the stream consumer has applied those
 events yet. Repo derives readiness only after processing the relevant checkpoint
 and asking the CRDT translation whether its materialized state satisfies it.
 
-Initially, preserve the existing public behavior where possible: locally
-available documents can be ready while background sync continues; missing
-documents wait for startup and current sources to have a chance; a later peer
-can make an unavailable document available again. Explicitly test initial
-hydration so receipt of an arbitrary first blob does not prematurely expose a
-partial initial document.
+**A complete initial snapshot from any one source is sufficient for readiness.**
+Complete means relative to that source's initial checkpoint, not globally up to
+date with all peers:
+
+- A usable, complete local load can make Repo ready without waiting for network
+  synchronization.
+- Otherwise, reaching one remote peer's advertised initial heads is sufficient,
+  once Repo has processed the corresponding stream checkpoint and verified the
+  history is present. Do not wait for all peers or for synchronization to stop.
+- The same rule applies to children of a composite. Other sources may continue
+  loading or synchronizing in the background.
+- With no usable data, wait for startup and relevant source lookups to settle
+  before reporting unavailable. Successful empty local lookups plus no peers, or
+  all consulted sources reporting no data, can establish current unavailability;
+  a later peer can supply the document. Lookup failures and timeouts are errors,
+  not proof of absence.
+
+Explicitly test initial hydration: receipt of an arbitrary first blob does not
+satisfy the rule. For example, receiving `A` from a peer advertising the history
+`A -> B -> C` is insufficient until the advertised checkpoint at `C` is satisfied.
 
 On main, `DocumentQuery` becomes ready whenever the handle has non-empty heads,
 regardless of pending sources. Meeting this guarantee requires staging initial
@@ -500,26 +593,38 @@ The CRDT translation decides how to encode fragments. The backend maintains a
 sufficient sedimentree representation and may reclaim provably redundant local
 records only after replacement data is persisted.
 
-Prefer backend-owned reclamation based on sedimentree metadata. Do not put a
-`removeBlob()` loop in Repo, or infer redundancy from absence in a partially
-hydrated application document. Records not yet decoded or decrypted must remain
-safe.
+For the Subduction backend, physical reclamation should be owned by Subduction,
+not a Repo or wrapper-side `removeBlob()` loop. Do not port the branch's strategy
+of inferring deletion candidates from the current application document: a
+replacement visible in Automerge may not yet be persisted, and a partially
+hydrated document may omit records it still needs. Unread or undecoded records
+must remain safe, as must concurrent enumerations.
 
-If Subduction cannot yet perform safe reclamation through its public API, keep
-redundant records initially or add an explicit replacement/coverage operation.
-Storage growth is preferable to unproven deletion. Whether metadata alone is
-sufficient, and how proof of coverage is represented, is an implementation
-validation item—not an assumption to bury in a save callback.
+The initial scaffold may create and store fragments while retaining superseded
+records. Fragment formation and physical cleanup are separate operations.
+Storage growth is preferable to unproven deletion; wrapper-side reclamation is
+out of scope initially. Validate any later Subduction-owned reclamation against
+persisted coverage and reader safety, adding upstream facilities if necessary.
+This does not require replacing legacy's existing snapshot/incremental storage
+compaction with a new sedimentree store.
 
 ### 5. Backpressure and resource limits
 
 Opening many documents or receiving a large history must not create unbounded
 storage reads, writes, listener callbacks, or buffered blobs.
 
-The implementation must bound work and delivery queues. It may coalesce status
-observations and batch records. It must not silently drop record updates: use
-producer backpressure, a replayable durable cursor, or an explicit rescan
-protocol. The selected mechanism must also work for the legacy implementation.
+The implementation must bound work and delivery queues. Consumers pull bounded
+batches, and a bounded replay window covers intervening updates. If that window
+is exceeded, report `rescan-required` rather than silently dropping history or
+buffering indefinitely. This applies to document and collection observation,
+including the legacy implementation.
+
+On rescan, Repo or the composite restarts observation from a fresh finite cut.
+Merge recovered history into existing state; do not clear the document, lose
+pending local edits, or treat an incomplete old stream as a satisfied checkpoint.
+The backend must retain the history needed for recovery, not discard the only
+copy when dropping replay entries. Status observations may be coalesced.
+Ephemerals are best-effort and are not recovered by history replay/rescan.
 
 Use metadata-first extraction and bundle only new records. Avoid serializing
 every fragment on each edit, applying one handle update per received blob, or
@@ -527,9 +632,9 @@ performing full-collection work for every per-document event.
 
 ### 6. Lifecycle and ownership
 
-Proposed initial ownership rule: a backend instance has one owner, either Repo
-or a parent composite backend. Repo shutdown closes its injected backend; a
-composite closes its children. Shared ownership and cyclic composition are not
+A backend instance has one owner, either Repo or a parent composite backend.
+Repo shutdown closes its injected or default backend; a composite closes its
+children. Shared ownership and cyclic composition are not
 implicit and would require a separate lifetime contract. Multiple sessions for
 one sedimentree have independent lifetimes, even when the backend shares work
 between them. Ending stream consumption must release its watch, not leave an
@@ -539,12 +644,18 @@ An abort signal on `find` or a synchronization wait cancels that caller's wait,
 not other sessions or already accepted persistence. Session close, rather than
 cancelling a wait, is how the caller releases its interest.
 
-| Operation | Meaning |
-| --- | --- |
-| Session close | Release local observation/interest; stop future delivery and release listeners. Do not delete data or cancel already accepted writes. |
-| Repo cache eviction | Stop local document work, preserve pending edits, close its watch, then release handles/query bookkeeping. Remote replication may continue inside the backend. |
-| Local deletion | Quiesce that document's local producers, invalidate existing watches, drain/order earlier work, and remove locally retained data and relevant protocol state. Not a replicated tombstone. |
-| Backend close | Reject new work, quiesce producers/reconnect loops, drain accepted persistence, stop delivery, disconnect transports, and release storage/WASM resources. |
+| Operation           | Meaning                                                                                                                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Session close       | Release local observation/interest; stop future delivery and release listeners. Do not delete data or cancel already accepted writes.                                                     |
+| Repo cache eviction | Stop local document work, preserve pending edits, close its watch, then release handles/query bookkeeping. Remote replication may continue inside the backend.                            |
+| Local deletion      | Quiesce that document's local producers, invalidate existing watches, drain/order earlier work, and remove locally retained data and relevant protocol state. Not a replicated tombstone. |
+| Backend close       | Reject new work, quiesce producers/reconnect loops, drain accepted persistence, stop delivery, disconnect transports, and release storage/WASM resources.                                 |
+
+`Repo.delete(id)` returns `Promise<void>`. It invalidates existing handles and
+stops their producers immediately, before awaiting local persistence operations.
+The promise resolves only after local data and relevant protocol state have been
+removed from the participating backends, and rejects on deletion failure. This
+replaces the current fire-and-forget storage removal.
 
 Deletion needs a generation/barrier rule: a load, save, or sync callback started
 before deletion must not resurrect the old local generation. Reject new local
@@ -558,9 +669,12 @@ failures. Backend close should surface failures after attempting all cleanup;
 Repo can retain its documented best-effort shutdown policy, with explicit
 `flush()` available to callers that need to observe persistence errors.
 
-Do not promise both an unconditional timeout and a completed durability barrier
-for a storage operation that cannot be cancelled. Define an explicit failure or
-forced-close policy rather than silently dropping writes and reporting success.
+Normal shutdown has no unconditional forced timeout. Repo first quiesces local
+producers and submits/drains its pending translation work; backend close drains
+accepted persistence before releasing the resources it needs. An uncancellable
+storage operation that hangs indefinitely can therefore keep shutdown pending.
+A separate forced-close policy is deferred. Do not silently drop writes or report
+a completed durability barrier merely because a timeout expired.
 
 ## Automerge translation
 
@@ -570,7 +684,8 @@ This layer is responsible for:
 2. Encoding only records not already represented in the backend.
 3. Applying incoming blobs in batches, preserving concurrent local edits.
 4. Relating backend commit heads to Automerge history and readiness.
-5. Converting between document/URL identities and sedimentree identities.
+5. Converting document/URL identities to plain logical IDs. Subduction's native
+   padding/unpadding remains inside its backend, not the CRDT translation.
 
 Known backend records must be recorded before applying inbound data to a handle,
 so the resulting handle events do not immediately write it all back. Local
@@ -626,6 +741,12 @@ necessarily preserving the exact incoming record packaging. In particular,
 verify recovery of records with missing dependencies: materialized heads alone
 are not proof that all submitted history was persisted.
 
+A preliminary check with main's Automerge 3.2.6 confirmed this risk: accepting a
+change with a missing predecessor leaves heads unchanged; full save/load retained
+it, while `saveSince` from the existing heads did not. Current `saveDoc()` also
+skips unchanged heads. Add a regression test against the deliberately selected
+Automerge version before reusing this persistence path for backend `store`.
+
 This means the common contract preserves history/coverage, not exact enumeration
 of every record ever submitted. A later read may return an equivalent compacted
 representation. A backend must still supply enough data and metadata to satisfy
@@ -641,9 +762,9 @@ extraction; it is not part of the sedimentree contract.
 `CollectionSynchronizer` currently discovers unknown documents by calling
 Repo's `ensureQuery`. Replace that with backend-owned internal document
 registration. Preserve inbound discovery, sync-server operation, and sharing
-without requiring an application watch. If Repo retains an application-facing
-discovery event, it should be driven by an explicit backend observation, not be a
-prerequisite for accepting data.
+without requiring an application watch. Application-facing discovery is an
+ID-only observation driven by the backend, not a prerequisite for accepting data
+and not a reason to create a Repo query or public handle.
 
 Retain and test:
 
@@ -662,10 +783,11 @@ initial cost, measure it, and avoid introducing a backdoor that passes
 `Automerge.Doc` across the common interface to optimize it away. Server-only
 internal documents and their derived metadata must be evictable and reloadable.
 
-The backend must reject unsupported payload formats predictably. There is no
-promise that a future non-Automerge CRDT or encrypted representation will work
-through legacy sync. How format compatibility is declared at setup is an open
-API question; silent attempts to decode arbitrary blobs are not the contract.
+The backend accepts only 16-byte logical document IDs, which designate ordinary,
+unencrypted Automerge data. Reject other IDs before attempting legacy storage or
+sync, and reject malformed/unsupported payloads predictably. This convention
+replaces a generic format-capability negotiation API for the initial work; it
+does not make arbitrary or encrypted CRDT payloads compatible with legacy.
 
 ## Subduction backend
 
@@ -676,14 +798,16 @@ Responsibilities include:
 
 - Mapping plain records/IDs to Subduction values and releasing WASM resources.
 - Coordinating initial enumeration and subsequent data notifications.
-- Local persistence and safe compaction.
+- Local persistence, retaining redundant records until Subduction-owned
+  reclamation is available and validated.
 - Connections, subscriptions, retry scheduling, and bounded synchronization.
 - Remote-head, connection, error, and ephemeral observations.
 
 Automerge fragment extraction and handle mutation move to the translation layer.
-Storage callbacks, if temporarily required, stay private to this backend. Prefer
-small upstream Subduction changes over a permanent wrapper that must reverse
-engineer storage writes to learn what the sync engine has done.
+Use the existing storage wrapper for gap-free observation initially, keeping its
+callbacks private to this backend. A cleaner upstream observation API is future
+work, not a prerequisite for the scaffold. Physical reclamation should likewise
+be supplied by Subduction rather than recreated in the wrapper.
 
 Blob transformations need a separately reviewed placement, for example a
 sedimentree-layer decorator. Do not conflate logical commit identity with the
@@ -701,56 +825,92 @@ a new message identity. Map existing legacy session/count stamps and Subduction
 payload envelopes without conflating a relayed origin claim with authenticated
 transport identity. The exact encoding and mappings need interoperability tests.
 
-Delivery is best-effort, not persisted. Each concrete backend owns its
-protocol-specific relay/loop suppression; a composite additionally deduplicates
-and, when configured, relays across children. A standalone Subduction backend
-must not depend on a legacy synchronizer to do this. Preserve document-scoped
-broadcast behavior, including sub-handle fanout, without promising reliable
-delivery.
+Delivery is best-effort, not persisted or recoverable through rescan. Each
+concrete backend owns its protocol-specific relay/loop suppression. When the
+migration bridge is enabled, the composite also deduplicates and relays across
+children for the same eligible documents as persistent history. A standalone
+Subduction backend must not depend on a legacy synchronizer to do this. Preserve
+document-scoped broadcast behavior, including sub-handle fanout, without
+promising reliable delivery.
 
 Connection/session identity, a durable legacy storage ID, and a Subduction
 verifying-key identity are different concepts. The observation types should
 preserve those distinctions rather than cast all three to `StorageId`.
 Remote-head observations are claims about known history, not proof of durable
 remote backup. Persisting/replaying observations and legacy gossip belong to the
-backend; Repo needs only the generic view required by its document API.
+backend; Repo needs only the generic view required by its document API. Initially,
+protocol-specific peer, connection-identity, and storage-identity APIs live on
+the corresponding backends. Any remote-head observations retained on Repo must
+preserve identity kind and backend provenance; there is no invented single
+`repo.peerId` for a composite.
 
 Public API migration should be explicit:
 
-| Current API | Proposed destination |
-| --- | --- |
-| `storage`, `network`, `isEphemeral`, legacy sharing/gossip/tuning options | Legacy backend construction/configuration. |
-| Subduction signer, endpoint, timeout, policy options | Subduction backend construction/configuration. |
-| `networkSubsystem`, `storageSubsystem`, `synchronizer`, peer metadata table | Remove from core Repo; expose backend-specific diagnostics only where needed. |
-| `storageId()`, `getStorageIdOfPeer()`, `subscribeToRemotes()` | Legacy backend APIs or explicit compatibility facade. |
-| `shareConfigChanged()` | Backend-specific policy invalidation; not a generic signal for retrying decryption. |
-| `peers`, `peerId`, remote-head APIs | Define generic identity/observation semantics, then provide compatibility mappings where meaningful. |
-| `flush`, deletion, cache eviction, shutdown | Remain Repo operations, implemented through translation barriers and backend lifecycle. |
-| Document progress, metrics, discovery events | Preserve useful behavior; stop exposing legacy source names/protocol state as the generic model. |
+| Current API                                                                 | Proposed destination                                                                                       |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `storage`, `network`, `isEphemeral`, legacy sharing/gossip/tuning options   | Legacy backend construction/configuration.                                                                 |
+| Subduction signer, endpoint, timeout, policy options                        | Subduction backend construction/configuration.                                                             |
+| `networkSubsystem`, `storageSubsystem`, `synchronizer`, peer metadata table | Remove from core Repo; expose backend-specific diagnostics only where needed.                              |
+| `storageId()`, `getStorageIdOfPeer()`, `subscribeToRemotes()`               | Legacy backend APIs or explicit compatibility facade.                                                      |
+| `shareConfigChanged()`                                                      | Backend-specific policy invalidation; not a generic signal for retrying decryption.                        |
+| `peers`, `peerId`                                                           | Backend-specific APIs initially; a composite has multiple scoped identities, not one synthetic peer ID.    |
+| Remote-head APIs                                                            | Generic observations only where useful to the document API, preserving identity kind and child provenance. |
+| `flush`, cache eviction, shutdown                                           | Remain Repo operations, implemented through translation barriers and backend lifecycle.                    |
+| `delete`                                                                    | Remains a Repo operation; invalidates handles immediately and returns a promise for local removal.         |
+| Document progress and metrics                                               | Preserve useful behavior; stop exposing legacy source names/protocol state as the generic model.           |
+| Document discovery                                                          | ID-only backend-driven observation; applications explicitly call `find()` if they want handles.            |
 
-Do not make `new Repo()` silently construct legacy machinery. Decide whether an
-explicit backend is required or a small in-memory sedimentree backend provides
-the local-only default. Neither choice should implicitly initialize Subduction
-WASM or import Node adapters.
+`new Repo()` constructs a default Subduction backend, never legacy machinery.
+This permits a concrete Subduction dependency and its WASM initialization in the
+Repo package for now. Explicit backend injection replaces the default rather
+than constructing both. Backend-specific configuration stays on backend
+constructors; the exact default signer, storage, and connection setup needs
+implementation validation. Browser entrypoints must still exclude Node-only
+adapters. A core independent of both Automerge and Subduction is future work.
 
 ## Implementation plan
 
-### 1. Validate the contract with a narrow vertical slice
+### 1a. Build the minimal executable scaffold
 
-- Settle record identity, ID mapping, payload compatibility, and the
-  load/watch/checkpoint protocol enough to implement them.
-- Verify the required Automerge APIs and dependency update independently.
-- Build a minimal deterministic in-memory backend/test double and translation.
-- Implement legacy translation for create, edit, persist, reload, and two-peer
-  sync; check interoperability with an unmodified legacy Repo.
-- Exercise the same operations with a thin experimental Subduction wrapper.
-- Compose the two using only public interfaces. Validate edits in both directions
-  between legacy-only and Subduction-only peers, an unopened document requested
-  on one side but stored on the other, and one failing child store.
+This is the first deliverable, not the complete real-backend validation milestone:
 
-This phase is a design test, not a wholesale extraction. It should expose an
-impossible contract, duplicate-materialization costs, or missing upstream
-Subduction facilities before moving all the legacy code.
+- Introduce provisional plain contract types: logical IDs, record metadata and
+  bytes, checkpoints, failures, rescan signaling, and ephemeral envelopes. Keep
+  the contract independent of Repo, Automerge, and Subduction runtime types.
+- Verify the required Automerge APIs and dependency update independently, then
+  build the small reusable translation module.
+- Build a deterministic in-memory backend/test double exercising load/watch,
+  bounded replay/rescan, idempotent store, flush, deletion, and session/backend
+  lifetime. It is test infrastructure, not Repo's user-facing default.
+- Connect translation and document readiness through a small internal controller.
+  `DocumentSource` may be temporary scaffolding, not the public backend contract.
+- Test synchronous creation without a later edit, edits, complete initial load,
+  session/cache reopen, no-op reload without write-back, duplicate delivery,
+  edits during loading, retryable store failures, and flush of pending translation
+  work. Exercise readiness from one complete source and recovery after rescan.
+
+Keep real networking, wholesale adapter movement, production composition, and
+wrapper-side reclamation out of this first patch. Types may evolve; a fake that
+preserves exact records does not prove cross-backend equivalence or durability.
+
+### 1b. Validate real backends and composition before bulk extraction
+
+- Implement experimental legacy translation for create, edit, persist, reload,
+  and two-peer sync; check interoperability with an unmodified legacy Repo.
+- Verify durable recovery of out-of-order records with missing dependencies.
+- Exercise the same operations with a thin Subduction wrapper using the existing
+  storage observation path and no wrapper-side reclamation.
+- Compose them using only public interfaces. Validate edits in both directions,
+  an unopened legacy-compatible document requested on one side but stored on the
+  other, and recovery after one child store fails.
+- Prove that equivalent fragment/loose-commit representations reach a forwarding
+  fixed point without Automerge decoding in the composite. Matching logical keys
+  alone are not a substitute for testing representation/conflict handling.
+- Validate stable ephemeral identity mappings through a mixed-protocol bridge.
+
+This milestone is a design test, not a wholesale extraction. It must expose an
+impossible contract, duplicate-materialization costs, or missing Subduction
+facilities before freezing the interface or moving all the legacy machinery.
 
 ### 2. Extract main's legacy machinery
 
@@ -773,16 +933,23 @@ not. Concurrent operation is implemented through the composite backend.
 - Port or reimplement only the connection, persistence, and synchronization
   pieces needed by the contract.
 - Move relevant branch regression tests to the new boundary.
-- Replace storage-event coupling upstream where practical; keep any temporary
-  adaptation encapsulated.
-- Validate fragments, compaction, late-arriving data, retry behavior, and shutdown
-  under real Subduction transport/storage implementations.
+- Encapsulate the existing storage observation path; replace it upstream when a
+  cleaner API is available, without blocking initial integration.
+- Validate fragments, late-arriving data, retry behavior, and shutdown under real
+  Subduction transport/storage implementations. Keep redundant records until
+  Subduction-owned reclamation satisfies the coverage and persistence guarantees.
+- Wire default Subduction construction and explicit backend override without
+  importing legacy machinery or Node-only adapters into browser entrypoints.
 
 ### 4. Implement and validate the composition package
 
 - Combine backend instances without importing their private APIs or core Repo.
+- Implement the simple migration policy: explicitly enabled bidirectional
+  bridging for 16-byte-ID documents, including ephemerals; native Subduction
+  IDs are never forwarded to legacy.
 - Implement inventory/demand coordination, cross-propagation, and child-scoped
-  observations, preserving the per-child checkpoints and errors.
+  observations, preserving per-child checkpoints and errors. Require every
+  selected child store to succeed before acknowledging a composite write.
 - Cover forwarding recovery, partial write/delete failures, bounded work,
   teardown, and mixed-protocol ephemeral loops.
 - Test with real legacy/Subduction implementations as well as fake children.
@@ -796,7 +963,8 @@ not. Concurrent operation is implemented through the composite backend.
 - Document constructor/import changes and backend capability differences.
 - Decide whether forwarding packages or a legacy constructor facade are needed.
 - Verify browser/Node dependency boundaries and the absence of runtime cycles.
-- Keep non-Automerge public document APIs and E2EE follow-up work separate.
+- Keep a dependency-free core, non-Automerge public document APIs, and E2EE as
+  separate follow-up work.
 
 ## Test strategy and acceptance criteria
 
@@ -807,17 +975,22 @@ Run against every backend for its supported payload format:
 - Gap-free initial load plus watch, including writes before/while opening and
   concurrent fragment replacement.
 - Batched and duplicate delivery; local self-echoes; out-of-order dependencies.
+- Logical identity versus representation equality, including a loose commit and
+  fragment sharing a head, and explicit handling of conflicting representations.
 - Failed/partially persisted stores followed by idempotent retries.
 - Local durability independent of network availability.
 - Flush barriers under concurrent edits, bounded work, and aggregated failures.
-- Session close, cache eviction/reopen, local deletion with late callbacks, and
-  backend shutdown with in-flight work.
+- Session close, cache eviction/reopen, awaitable local deletion with late
+  callbacks and partial failures, and backend shutdown with in-flight work.
+  Uncancellable writes keep normal close pending until they settle.
 - No peers versus startup pending versus negative response versus failed sync;
   later peer arrival and retry.
-- Slow consumers and large histories without silent update loss or unbounded
-  queues.
+- Slow consumers and large histories with bounded queues, explicit rescan after
+  replay overflow, and recovery without loss of local edits or history.
 - Remote-head checkpoint ordering and ephemeral sender/loop semantics.
-- Lossless ID conversion and predictable rejection of unsupported formats.
+- Lossless 16/32-byte ID conversion, reserved-range enforcement, exclusion of
+  non-16-byte logical IDs from legacy, and predictable rejection of unsupported
+  ID lengths or malformed/unsupported payloads.
 
 ### Composition tests
 
@@ -830,14 +1003,16 @@ Run the composite through the shared contract suite and add mixed-topology tests
 - Child inventories diverge on startup, then reconcile without losing history.
 - Duplicate records and different equivalent fragment packagings stop
   circulating; multiple bridges and reconnects do not cause write storms.
-- One child's data remains usable while another loads or fails; child provenance
-  and synchronization checkpoints remain accurate.
+- One child's complete initial snapshot makes Repo ready while another loads or
+  fails; child provenance and synchronization checkpoints remain accurate.
 - Partial store failures, retry, restart, and flush cover outstanding forwarding,
   not just operations already submitted to children.
 - Ephemeral identities survive fanout and relay; identical payloads from distinct
   broadcasts are not incorrectly deduplicated.
-- Routing policies prevent unintended cross-network disclosure and unsupported
-  payloads fail predictably.
+- Bridging is explicitly enabled and respects child policies; native Subduction
+  IDs never enter legacy, and unsupported payloads fail predictably.
+- Closing application watches does not disable forwarding; discovery itself
+  never creates public handles.
 - Cache eviction, deletion, and shutdown cannot leave forwarding loops, drop
   acknowledged work, or resurrect an old local generation.
 
@@ -847,7 +1022,10 @@ Use a deterministic backend to test translation and public behavior without
 network machinery: synchronous create, clone/import/export, changes, views and
 fixed-head queries, initial hydration, sub-handles, progress, broadcasts, and
 no-op reloads. Ensure changes made during load/save are retained and initial
-creation is persisted even if there is no later edit.
+creation is persisted even if there is no later edit. Cover default Subduction
+construction versus explicit backend injection without starting both. Test
+immediate handle invalidation with awaitable deletion, initial readiness from
+one local or remote checkpoint, and rescan merging without clearing local state.
 
 Retain useful tests from main's `Repo.test.ts`, `DocumentQuery.test.ts`,
 `StorageSource.test.ts`, `SharePolicy.test.ts`, `EphemeralMessages.test.ts`,
@@ -863,8 +1041,12 @@ in the old `SubductionSource`.
 
 ### Completion criteria
 
-- Core Repo has no legacy wire messages, adapter construction, sync-state
-  persistence, or concrete Subduction dependency.
+- Repo document orchestration has no legacy wire messages, adapter construction,
+  or sync-state persistence. The Repo package may depend on Subduction for
+  default construction; all document work crosses the common contract.
+- `new Repo()` owns a default Subduction backend; injecting another backend does
+  not initialize an additional default backend. Dependency-free core packaging
+  is not a completion requirement.
 - Concrete and composite backends work through the same sedimentree-level
   contract with no `DocHandle`, `DocumentQuery`, or `Automerge.Doc` in it.
 - Legacy-backed Repo reads existing storage and exchanges documents with an
@@ -873,43 +1055,60 @@ in the old `SubductionSource`.
   ephemeral messages and remote-head observation.
 - One Repo can use both protocols through an external composite backend. The
   composition package can bridge legacy-only and Subduction-only peers using
-  only the common public contract, without changes to Repo.
-- Lifecycle and durability guarantees are tested, not inferred from timers.
-- The contract admits opaque payloads from another CRDT; the legacy backend's
-  Automerge-only limitation is explicit.
+  only the common public contract, without changes to Repo. Its initial migration
+  policy includes ephemerals and acknowledges writes only after every selected
+  child store succeeds.
+- Lifecycle and durability guarantees are tested, not inferred from timers:
+  awaitable local deletion, draining shutdown without a forced timeout, and
+  bounded observation with explicit rescan are part of the contract.
+- A complete initial snapshot from any one source is sufficient for readiness;
+  lookup errors are not treated as absence, and later data can restore availability.
+- Replication/discovery does not require public handles, and backend-specific
+  identities remain scoped rather than flattened into legacy storage IDs.
+- The contract admits opaque payloads from another CRDT; legacy is limited to
+  ordinary Automerge data under 16-byte logical IDs. No format negotiation is
+  required for the initial integration.
+- Repo and the Subduction wrapper do not independently reclaim superseded
+  records. Retaining redundancy until Subduction can safely reclaim it is allowed.
 
-## Questions to resolve before freezing the API
+## Remaining implementation decisions and validation
 
-1. **Record identity and equivalence:** What canonically identifies fragments and
-   transformed blob representations? Which equivalent repackagings may a backend
-   return? Can all proposed compaction decisions be proved from metadata?
-2. **IDs:** How do existing UUID URLs, longer document IDs, and native sedimentree
-   IDs round-trip without collisions or truncation?
-3. **Observation:** Async stream or callbacks? What provides bounded buffering,
-   initial cut/checkpoints, and replay after overflow or interruption?
-4. **Readiness:** Which initial remote checkpoints should Repo wait for when no
-   complete local document exists? How do failures surface without falsely
-   declaring absence or leaving a query pending forever?
-5. **Compatibility:** How does a backend declare accepted payload formats and
-   identity/observation capabilities without inventing CRDT type negotiation for
-   the legacy wire protocol?
-6. **Discovery and identity APIs:** Which existing Repo events/getters remain
-   generic, and which move to backend-specific APIs? Should discovery ever
-   automatically materialize an application handle?
-7. **Lifecycle:** What is the policy for an uncancellable storage operation during
-   close? Is persistent deletion separately awaitable through Repo's public API?
-8. **Upstream work:** Which Subduction APIs are missing for coordinated data
-   observation and safe reclamation, and which should be added upstream instead
-   of emulated indefinitely?
-9. **Default and packaging:** Require an explicit backend or provide local-only
-   memory behavior? What package names and temporary compatibility exports are
-   appropriate for release?
-10. **Composition:** How do inventory observation and bounded inbound-demand
-    resolution cooperate without recursion or premature unavailability? What
-    coverage and ephemeral identity information is needed to prevent loops?
-    Which routing/write policies and partial-failure recovery guarantees should
-    the first composition package support?
+The initial architectural choices above are settled. The following are concrete
+API details and feasibility checks for the scaffold and real-backend validation,
+not reasons to reopen the agreed scope:
 
-These questions should be answered with the vertical slice and conformance tests,
-not by copying the current Subduction API or preserving all of main's incidental
-internal interfaces.
+1. **Plain types and representation handling:** choose canonical ID/metadata
+   encodings, byte ownership, and exact event/result types. Validate duplicate and
+   conflict handling against the selected upstream versions, keeping logical
+   identity distinct from representation equality and history coverage.
+2. **Observation and readiness mechanics:** specify sequence/checkpoint correlation,
+   bounded replay sizes, the rescan/reset handshake, and stream-consumption
+   lifetime. Choose staging or an explicit readiness predicate so arbitrary first
+   blobs cannot expose a partial initial load. Validate the existing Subduction
+   storage observation path under races and slow consumers.
+3. **Legacy feasibility:** select and test the Automerge dependency, fragment
+   extraction, out-of-order persistence, wire/storage interoperability, and the
+   private document-access port. Measure duplicate-materialization costs and
+   ensure server-side documents can be evicted and reloaded.
+4. **Composition mechanics:** choose resolver registration or deferrable inbound
+   demand, including deadlines, cancellation, and recursion prevention. Validate
+   inventory/history reconciliation, bounded forwarding, fixed-point behavior for
+   equivalent repackagings, and recovery after partial store/delete failures.
+5. **Ephemeral encoding and observations:** map legacy sender/session/count stamps
+   and Subduction envelopes without changing identity on relay. Test multiple
+   bridges, bounded deduplication, and separation of origin from authenticated
+   sender. Specify the generic remote-head/progress view without flattening
+   backend-specific identities.
+6. **Default construction and ID creation:** choose the default Subduction signer,
+   storage, connection, and initialization setup without leaking backend-specific
+   settings into Repo orchestration. Specify how Repo creates native key-based
+   IDs and handles `idFactory` values outside the supported 16/32-byte mapping;
+   the reserved legacy range and exclusion from legacy routing are fixed.
+7. **Packaging and migration:** choose package names, browser/Node entrypoints, and
+   any temporary forwarding exports or legacy facade. Repo's default Subduction
+   dependency is allowed; a dependency-free core is deferred.
+
+Subduction-owned physical reclamation and a cleaner upstream observation API can
+follow later. They are not prerequisites for the first scaffold. Use the
+vertical slice and conformance tests to resolve the remaining details, not a
+wholesale copy of the branch integration or main's incidental private interfaces.
