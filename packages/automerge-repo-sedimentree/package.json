@@ -1,0 +1,36 @@
+{
+  "name": "@automerge/automerge-repo-sedimentree",
+  "version": "2.6.0-alpha.3",
+  "private": true,
+  "description": "Experimental plain sedimentree backend contract for Automerge Repo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-repo-sedimentree"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

@@ -699,11 +699,14 @@ flush/status reporting. `clone` and `import` must submit their complete intended
 history; they must not accidentally retain only changes after a temporary empty
 document. Loading a document without changing it must not rewrite all its data.
 
-Main's lockfile currently resolves Automerge 3.2.6; the inspected Subduction
-branch pins 3.3.2 and uses `getFragmentMetadata` and `bundleFragmentMetadata`.
-Validate and deliberately update the Automerge dependency needed for this
-translation. Do not import private WASM internals or assume a branch file will
-work against main's current dependency set.
+The scaffold deliberately pins Automerge 3.3.2, upgrading main's 3.2.6 dependency
+for the public experimental `getFragmentMetadata` and `bundleFragmentMetadata`
+APIs also used by the inspected Subduction branch. Keep the upgrade covered by
+Repo regression tests; do not import private WASM internals. Fragment bundles
+must not be forwarded unchanged to older Automerge runtimes through legacy sync.
+The translator normalizes full Automerge fragment checkpoint hashes to the
+sedimentree model's 12-byte prefixes, distinct from full readiness-checkpoint
+heads.
 
 Keep this work separate from generalizing the public document API. The backend
 contract should admit another CRDT without importing Automerge, even while Repo
@@ -872,7 +875,14 @@ adapters. A core independent of both Automerge and Subduction is future work.
 
 ### 1a. Build the minimal executable scaffold
 
-This is the first deliverable, not the complete real-backend validation milestone:
+This is the first deliverable, not the complete real-backend validation milestone.
+The foundation is now implemented in the private workspace packages
+`automerge-repo-sedimentree` (plain contract and testing-only memory backend) and
+`automerge-repo-sedimentree-automerge` (pure translation). Tests exercise their
+round-trip, checkpoint ordering, and rescan boundary. Repo's public constructor
+and existing legacy orchestration are unchanged. The internal document controller,
+Repo readiness gate, and pending/in-flight/acknowledged write barriers remain the
+next integration step; this does not mark all of phase 1a complete.
 
 - Introduce provisional plain contract types: logical IDs, record metadata and
   bytes, checkpoints, failures, rescan signaling, and ephemeral envelopes. Keep
