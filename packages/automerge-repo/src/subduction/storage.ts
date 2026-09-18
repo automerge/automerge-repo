@@ -590,6 +590,28 @@ export class SubductionStorageBridge implements SedimentreeStorage {
     })
   }
 
+  /**
+   * The encoded signed fragment records of a sedimentree, with the head each
+   * is stored under. Blobs are not loaded.
+   */
+  async listSignedFragments(
+    sedimentreeId: SedimentreeId
+  ): Promise<Array<{ head: CommitId; signedFragment: Uint8Array }>> {
+    return this.guarded("listSignedFragments", [], async () => {
+      const chunks = await this.adapter.loadRange([
+        this.prefix,
+        FRAGMENTS_PREFIX,
+        sedimentreeId.toString(),
+      ])
+      return chunks
+        .filter(chunk => chunk.key.length === 4 && chunk.data)
+        .map(chunk => ({
+          head: CommitId.fromBytes(hexToBytes(chunk.key[3])),
+          signedFragment: chunk.data!,
+        }))
+    })
+  }
+
   async loadAllFragments(
     sedimentreeId: SedimentreeId
   ): Promise<FragmentWithBlob[]> {
