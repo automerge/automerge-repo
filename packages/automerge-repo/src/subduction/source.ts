@@ -34,6 +34,10 @@ import {
 } from "./websocket-endpoint.js"
 import { SyncScheduler } from "./SyncScheduler.js"
 import { AdapterConnections } from "./AdapterConnections.js"
+import {
+  fragmentCheckpoints,
+  selfCheckpointRepair,
+} from "./fragmentCheckpoints.js"
 
 export type { OnHealExhausted } from "./SyncScheduler.js"
 
@@ -224,6 +228,16 @@ interface SedimentreeEntry {
   pendingInbound: Uint8Array[]
   /** Guard against scheduling overlapping microtask flushes. */
   inboundFlushScheduled: boolean
+
+  /**
+   * Settles once `attach` has read the stored records (seeding the sets
+   * above) and stored again, without the self-reference, any fragment that
+   * lists its own head among its checkpoints. `#doSync` waits for it:
+   * subduction keeps one fragment per head in memory, the one with the lower
+   * digest, so a rewrite that lands after a sync round has loaded the tree
+   * can lose to the stored fragment, and that round pushes the stored one.
+   */
+  storageScanned: Promise<void>
 }
 
 /** Callback for remote heads changes from subduction peers. */
@@ -795,6 +809,7 @@ export class SubductionSource implements DocumentSource {
       hasUntransformedBlobs: false,
       retryTransformAfterSync: false,
       transformRetryScheduled: false,
+      storageScanned: Promise.resolve(),
     })
 
     query.sourcePending("subduction")
@@ -819,14 +834,15 @@ export class SubductionSource implements DocumentSource {
     // this, the sets would only ever reflect saves observed by this
     // process; data hydrated from disk would be invisible to
     // compaction even though it may be defunct relative to the
-    // current minimal sedimentree.
-    void (async () => {
+    // current minimal sedimentree. The same read finds fragments that list
+    // their own head among their checkpoints, which are stored again
+    // without it (see `storageScanned`).
+    const entry = this.#entries.get(sidStr)!
+    entry.storageScanned = (async () => {
       try {
-        const entry = this.#entries.get(sidStr)
-        if (!entry) return
-        const [commitIds, fragmentIds] = await Promise.all([
+        const [commitIds, fragments] = await Promise.all([
           this.#storage.listCommitIds(sid),
-          this.#storage.listFragmentIds(sid),
+          this.#storage.listSignedFragments(sid),
         ])
         for (const c of commitIds) {
           const hex = c.toHexString()
@@ -835,11 +851,12 @@ export class SubductionSource implements DocumentSource {
           // commits already on disk (same hex as Automerge fragment metadata).
           entry.knownHashes.add(hex)
         }
-        for (const f of fragmentIds) {
-          const hex = f.toHexString()
+        for (const { head } of fragments) {
+          const hex = head.toHexString()
           entry.persistedFragmentHashes.add(hex)
           entry.knownHashes.add(hex)
         }
+        await this.#repairSelfCheckpointedFragments(entry, fragments)
         if (
           entry.persistedCommitHashes.size > 0 ||
           entry.persistedFragmentHashes.size > 0
@@ -1093,6 +1110,10 @@ export class SubductionSource implements DocumentSource {
 
     try {
       const subduction = await this.#subduction
+
+      // A fragment repaired at attach must replace the stored one before
+      // this round loads the tree (see `storageScanned`).
+      await entry.storageScanned
 
       // Flush any pending throttled save and wait for in-progress saves
       // to complete. This ensures that all locally-known commits have
@@ -1584,7 +1605,7 @@ export class SubductionSource implements DocumentSource {
     const newFragments = newFragmentMetas.map((m, i) => ({
       head: m.head,
       boundary: m.boundary,
-      checkpoints: m.checkpoints,
+      checkpoints: fragmentCheckpoints(m),
       bytes: newFragmentBytes[i],
     }))
 
@@ -1863,6 +1884,58 @@ export class SubductionSource implements DocumentSource {
       // because automerge will simply re-apply the redundant bytes.
       this.#log.debug(
         `compaction failed for ${sid.toString().slice(0, 8)}: %O`,
+        e
+      )
+    }
+  }
+
+  /**
+   * Store again, without the self-reference, each of `entry`'s persisted
+   * fragments that lists its own head among its checkpoints (see
+   * `fragmentCheckpoints.ts`); clients on automerge < 3.5 wrote every
+   * fragment that way. Records are keyed by head, so the rewrite replaces the
+   * stored one. The stored blob is reused as is, so a blob an interceptor
+   * transformed stays transformed.
+   */
+  async #repairSelfCheckpointedFragments(
+    entry: SedimentreeEntry,
+    fragments: Array<{ head: CommitId; signedFragment: Uint8Array }>
+  ): Promise<void> {
+    const sid = entry.sedimentreeId
+    try {
+      const inputs: FragmentInput[] = []
+      for (const { head, signedFragment } of fragments) {
+        const parts = selfCheckpointRepair(signedFragment)
+        if (!parts) continue
+        const stored = await this.#storage.loadFragment(sid, head)
+        if (!stored) continue
+        const blob = new Uint8Array(stored.blob)
+        const fragment = new Fragment(
+          sid,
+          CommitId.fromBytes(parts.head),
+          parts.boundary.map(b => CommitId.fromBytes(b)),
+          // Subduction keeps checkpoints as 12-byte prefixes of the ids it
+          // is given, so padding a stored prefix back to an id is lossless.
+          parts.checkpoints.map(c => {
+            const id = new Uint8Array(32)
+            id.set(c)
+            return CommitId.fromBytes(id)
+          }),
+          new BlobMeta(blob)
+        )
+        inputs.push(new FragmentInput(fragment, blob))
+      }
+      if (inputs.length === 0) return
+      const subduction = await this.#subduction
+      await subduction.storeBuiltBatch(sid, [], inputs)
+      this.#log.info(
+        `re-stored ${inputs.length} fragment(s) of ` +
+          `${sid.toString().slice(0, 8)} that listed their own head among ` +
+          `their checkpoints`
+      )
+    } catch (e) {
+      this.#log.warn(
+        `failed to repair fragments of ${sid.toString().slice(0, 8)}:`,
         e
       )
     }
