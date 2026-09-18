@@ -27,6 +27,24 @@ pnpm dev
 pnpm test
 ```
 
+### Memory profiling
+
+`packages/automerge-repo/test/memoryProfile.sync-server.test.ts` measures how a
+relay-shaped Repo's memory evolves as ephemeral clients come and go. It is
+skipped unless `MEMORY_PROFILE` is set; `scripts/memory-profile.ts` drives it:
+
+```sh
+pnpm profile:collect                 # sample the working tree
+pnpm profile:compare main my-branch  # sample each ref, then chart
+pnpm profile:chart                   # redraw from ./profiles
+```
+
+Samples and the chart go in `./profiles`, which is not tracked. `pnpm
+profile:compare` gives each ref its own Git worktree, installed from that ref's
+own lockfile, and runs the harness from the invoking tree in all of them: one
+harness, and each library measured against the dependencies it pins. Run `node
+scripts/memory-profile.ts help` for the rest.
+
 ## Releasing
 
 There are two things you might want to know here. Firstly "how do I release a new version?" and secondly "what actually happens when we release a new version?". We'll start with the second question, but you can jump straight to the [how to release](#how-to-release) section if you're here for the first.
