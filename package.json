@@ -30,7 +30,10 @@
     "lint:check-types:packages": "pnpm --filter './packages/*' exec tsc --noEmit",
     "lint:check-types:examples": "pnpm --filter './examples/react-*' exec tsc --noEmit && pnpm -F @automerge/automerge-repo-demo-counter-svelte check",
     "check:bundles": "node scripts/check-bundles.ts",
-    "lint:check-types:scripts": "tsc --noEmit -p scripts/tsconfig.json"
+    "lint:check-types:scripts": "tsc --noEmit -p scripts/tsconfig.json",
+    "profile:collect": "node scripts/memory-profile.ts collect",
+    "profile:compare": "node scripts/memory-profile.ts compare",
+    "profile:chart": "node scripts/memory-profile.ts chart"
   },
   "engines": {
     "node": ">=22.18",
@@ -54,6 +57,7 @@
     "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@vitest/ui": "catalog:",
+    "chart.js": "^4.5.1",
     "cross-env": "^10.1.0",
     "happy-dom": "^20.10.6",
     "npm-run-all2": "^9.0.2",
