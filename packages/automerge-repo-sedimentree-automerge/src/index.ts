@@ -148,9 +148,9 @@ export function validateRecord(record: SedimentreeRecord): SedimentreeRecord {
 }
 
 // Public chunk framing: https://automerge.org/automerge-binary-format-spec/
-// 3.3.2 additionally uses type 3 for fragment bundles. The public readers can
-// ignore trailing chunks, and loadIncremental can silently stop on corruption.
-// Validate the entire record envelope before submitting ANY of a batch to it.
+// Fragment bundles use type 3. readBundle accepts trailing chunks, and even in
+// 3.5.0 loadIncremental can silently stop at corruption in a mixed batch.
+// Check each entire record envelope before submitting ANY of a batch to it.
 function assertSingleChunk(blob: Uint8Array, kinds: readonly number[]): void {
   if (
     blob[0] !== 0x85 ||

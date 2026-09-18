@@ -699,11 +699,14 @@ flush/status reporting. `clone` and `import` must submit their complete intended
 history; they must not accidentally retain only changes after a temporary empty
 document. Loading a document without changing it must not rewrite all its data.
 
-The scaffold deliberately pins Automerge 3.3.2, upgrading main's 3.2.6 dependency
+The scaffold deliberately pins Automerge 3.5.0, upgrading main's 3.2.6 dependency
 for the public experimental `getFragmentMetadata` and `bundleFragmentMetadata`
-APIs also used by the inspected Subduction branch. Keep the upgrade covered by
-Repo regression tests; do not import private WASM internals. Fragment bundles
-must not be forwarded unchanged to older Automerge runtimes through legacy sync.
+APIs also used by the inspected Subduction branch, plus subsequent fixes.
+In particular, fragment checkpoints now exclude the head and boundary hashes;
+the head remains in the fragment members. This has a dedicated regression test.
+Keep the upgrade covered by Repo regression tests; do not import private WASM
+internals. Fragment bundles must not be forwarded unchanged to older Automerge
+runtimes through legacy sync.
 The translator normalizes full Automerge fragment checkpoint hashes to the
 sedimentree model's 12-byte prefixes, distinct from full readiness-checkpoint
 heads.
@@ -879,10 +882,16 @@ This is the first deliverable, not the complete real-backend validation mileston
 The foundation is now implemented in the private workspace packages
 `automerge-repo-sedimentree` (plain contract and testing-only memory backend) and
 `automerge-repo-sedimentree-automerge` (pure translation). Tests exercise their
-round-trip, checkpoint ordering, and rescan boundary. Repo's public constructor
-and existing legacy orchestration are unchanged. The internal document controller,
-Repo readiness gate, and pending/in-flight/acknowledged write barriers remain the
-next integration step; this does not mark all of phase 1a complete.
+round-trip, checkpoint ordering, and rescan boundary. The private
+`SedimentreeDocumentController` now connects `Document`, `DocHandle`, and
+`DocumentQuery` to these interfaces. It captures creation history, tracks failed
+and in-flight writes independently of self-echo, fences flush barriers before
+later edits, and gates readiness on a consumed, satisfied checkpoint. Tests cover
+reentrant/concurrent edits during loading, rescan, retries, and lifecycle fencing.
+Repo's public constructor and existing legacy orchestration are unchanged: this
+is not yet a public `Repo({ backend })` path or a completed production migration.
+Backlog coalescing/resource limits and integration with Repo's cache/lifecycle
+still need work; the private controller currently serializes captured write jobs.
 
 - Introduce provisional plain contract types: logical IDs, record metadata and
   bytes, checkpoints, failures, rescan signaling, and ephemeral envelopes. Keep
@@ -904,6 +913,27 @@ wrapper-side reclamation out of this first patch. Types may evolve; a fake that
 preserves exact records does not prove cross-backend equivalence or durability.
 
 ### 1b. Validate real backends and composition before bulk extraction
+
+An early, private `automerge-repo-sedimentree-subduction` experiment now exercises
+actual `@automerge/subduction` 0.21.2 WASM signing/storage with the internal
+controller, including fresh-process recovery. Automerge fragment extraction and
+application remain in the translator using raw `@automerge/automerge` 3.5.0.
+The backend experiment is **local-only, commit-only, exclusively owned**, with
+explicitly injected signer and atomic-per-record byte storage.
+It neither simulates networking nor wraps the memory backend. A failed native
+store forces active observations to rescan, including ambiguous writes that
+persisted before rejecting. Batch rollback is not required.
+
+The real adapter's fragment support is blocked on a lossless native metadata path,
+not on Automerge's fragment APIs: `@automerge/subduction` 0.21.2's published native
+`Fragment` API has no checkpoint getter, and its constructor takes full commit
+IDs rather than the contract's checkpoint prefixes. This prototype explicitly
+rejects fragments, including persisted fragment records; it does not invent empty
+checkpoints or decode Automerge inside the backend. An upstream API addition or
+a separately validated persisted metadata extension is needed for fragment
+interoperability; real two-peer behavior also remains unimplemented. The remaining
+validation below is still required before freezing the interface or changing
+Repo's default.
 
 - Implement experimental legacy translation for create, edit, persist, reload,
   and two-peer sync; check interoperability with an unmodified legacy Repo.

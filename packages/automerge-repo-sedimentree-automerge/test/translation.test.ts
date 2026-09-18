@@ -101,6 +101,24 @@ describe("metadata-first extraction", () => {
     })
   })
 
+  it("excludes heads and boundaries from fragment checkpoints while retaining heads in members", () => {
+    // Regression for Automerge 3.5.0: 3.3.2 included the head in checkpoints.
+    const metadata = A.getFragmentMetadata(fixture).filter(
+      meta => meta.level > 0
+    )
+    const bundled = A.getFragments(fixture)
+    expect(metadata.length).toBeGreaterThan(0)
+    expect(bundled).toHaveLength(metadata.length)
+    for (const fragment of [...metadata, ...bundled]) {
+      expect(fragment.members).toContain(fragment.head)
+      const excluded = new Set([fragment.head, ...fragment.boundary])
+      expect(fragment.checkpoints.some(hash => excluded.has(hash))).toBe(false)
+      expect(A.getFragmentMeta(fixture, fragment.head)?.checkpoints).toEqual(
+        fragment.checkpoints
+      )
+    }
+  })
+
   it("inspects without bundling; bundles only selected native metadata", () => {
     const getMetadata = vi.spyOn(A, "getFragmentMetadata")
     const bundle = vi.spyOn(A, "bundleFragmentMetadata")

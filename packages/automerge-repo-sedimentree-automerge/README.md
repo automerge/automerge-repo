@@ -1,6 +1,6 @@
 # Automerge ↔ sedimentree (experimental)
 
-Private, provisional translation helpers for Automerge **3.3.2** and
+Private, provisional translation helpers for Automerge **3.5.0** and
 `@automerge/automerge-repo-sedimentree`. Public exports of this experimental
 package are not a stable API. There is no Repo, controller, backend, storage,
 network, or runtime initialization here. The library imports **Automerge slim**;
@@ -28,6 +28,9 @@ deduplicated metadata sets, applies the optional predicate, and calls
 `bundleFragmentMetadata` **only for the selected native metadata**. Level zero
 becomes loose commits; higher levels become fragments. Full Automerge checkpoint
 hashes become the contract's **12-byte prefixes**, using `checkpointForCommit`.
+The pinned version includes the [3.5.0 fragment checkpoint fix](https://raw.githubusercontent.com/automerge/automerge/4d2a8f6bfecfb7f1e4fca126e6d2122ac526f903/javascript/CHANGELOG.md):
+checkpoints exclude the fragment's head and boundary hashes, while the head
+remains in its members. Regression tests cover metadata and bundled APIs.
 No fragments are decoded or serialized to make the selection. Metadata passed to
 the predicate is frozen; output bytes belong to the caller.
 
@@ -70,10 +73,11 @@ Targets are full commit IDs, not fragment checkpoint prefixes.
 - Each record must contain exactly one complete chunk: a loose change (possibly
   compressed), or a fragment bundle. We validate the public [binary chunk
   framing and checksum](https://automerge.org/automerge-binary-format-spec/)
-  explicitly. In 3.3.2, `readBundle` ignores trailing chunks and `loadIncremental`
-  can silently discard records on checksum corruption. Uncompressed change and
-  bundle checksums use SHA-256; compressed changes retain the uncompressed change
-  hash's checksum. All records are checked before any are applied.
+  explicitly. In 3.5.0, `readBundle` still ignores trailing chunks, and
+  `loadIncremental` can silently stop at a corrupt checksum in mixed batches or
+  when updating a nonempty document. We retain prevalidation of the whole input
+  batch before any record is applied. Uncompressed change and bundle checksums
+  use SHA-256; compressed changes retain the uncompressed change hash's checksum.
 - Public `readBundle` verifies parseability and exposes the encoded changes. We
   check unique member hashes, the single tip against the claimed head, and
   membership of every claimed checkpoint prefix in the encoded history.
@@ -90,9 +94,9 @@ Targets are full commit IDs, not fragment checkpoint prefixes.
   A future backend must retain pending records or persist a format proven to
   preserve them (for example, a full Automerge save), not acknowledge persistence
   based only on current heads or extraction results.
-- Automerge fragment APIs are experimental. 3.3.2 bundles are not generally
-  readable by 3.2.6; legacy interoperability must use supported changes/full
-  snapshots rather than forwarding this bundle encoding unchanged.
+- Automerge fragment APIs are experimental. The original 3.3.2 bundles were not
+  generally readable by 3.2.6; legacy interoperability must use supported
+  changes/full snapshots rather than assuming older runtimes accept bundles.
 
 Tests use a fixed-actor, all-times-zero 2,000-change fixture, plus deterministic
 forks. They cover metadata-only selection, fragments and loose commits, duplicates,

@@ -92,9 +92,13 @@ const DEFAULT_SOURCE_PRIORITY = 0
  *
  * The query derives its overall state from the handle and source states:
  *
- * - Handle has data (non-empty heads) → `ready`
+ * - Handle has data (non-empty heads) → `ready` by default
  * - No data, any source is `pending` → `loading`
  * - No data, all sources are `unavailable` → `unavailable`
+ *
+ * Internal checkpoint consumers can opt into `initialSnapshotPending`. Then a
+ * nonempty prefix stays `loading` until `markInitialSnapshotComplete()` confirms
+ * one complete source. Legacy source behavior is unchanged unless opted in.
  *
  * Sources report whether they are still trying (`sourcePending`) or have
  * given up (`sourceUnavailable`). The query detects data arrival
@@ -121,11 +125,14 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   #subscribers = new Set<(state: QueryState<T>) => void>()
   #state: QueryState<T>
   #failed = false
+  #initialSnapshotPending: boolean
 
   constructor(
     handle: DocHandle<T>,
-    sources: Map<string, { priority: SourcePriority }> = new Map()
+    sources: Map<string, { priority: SourcePriority }> = new Map(),
+    options: { initialSnapshotPending?: boolean } = {}
   ) {
+    this.#initialSnapshotPending = options.initialSnapshotPending ?? false
     this.documentId = handle.documentId
     this.#handle = handle
     // New sources are treated as `pending` from registration: we expect them
@@ -210,6 +217,12 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   }
 
   // -- Source methods (internal only) --
+
+  /** Opt-in snapshot gate: a consumer has verified one complete initial source. */
+  markInitialSnapshotComplete(): void {
+    this.#initialSnapshotPending = false
+    this.#recompute()
+  }
 
   /**
    * A source is actively working on obtaining the document (e.g. sync in
@@ -307,8 +320,10 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   #computeState(): QueryState<T> {
     const sources = this.#sourcesView()
 
-    // Handle has data → ready, regardless of source states
+    // By default any heads suffice. Internal checkpoint consumers can opt in
+    // to waiting for a complete initial snapshot instead of a nonempty prefix.
     if (this.#handleHasData()) {
+      if (this.#initialSnapshotPending) return { state: "loading", sources }
       return { state: "ready", handle: this.#handle, sources }
     }
 

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { DocumentQuery, progressAtHeads } from "../src/DocumentQuery.js"
 import { encodeHeads } from "../src/AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
-import { createTestQuery } from "./helpers/testHandle.js"
+import { createTestHandle, createTestQuery } from "./helpers/testHandle.js"
 
 const docId = "test-doc-id" as DocumentId
 
@@ -24,6 +24,26 @@ function loadInto(query: DocumentQuery<any>, blobs: Uint8Array[]) {
 }
 
 describe("DocumentQuery", () => {
+  it("optionally waits for an explicit initial snapshot, then stays ready", async () => {
+    const query = new DocumentQuery(
+      createTestHandle(docId),
+      new Map([["storage", { priority: 0 }]]),
+      { initialSnapshotPending: true }
+    )
+    const ready = vi.fn()
+    const wait = query.whenReady().then(ready)
+    loadInto(query, [makeBlob({ prefix: true })])
+    query.sourceReady("storage")
+    await Promise.resolve()
+    expect(query.peek().state).toBe("loading")
+    expect(ready).not.toHaveBeenCalled()
+    query.markInitialSnapshotComplete()
+    await wait
+    expect(ready).toHaveBeenCalledWith(query.handle)
+    query.sourcePending("other")
+    expect(query.peek().state).toBe("ready")
+  })
+
   describe("initial state", () => {
     it("has a handle from construction", () => {
       const query = createTestQuery(docId)

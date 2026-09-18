@@ -31,6 +31,8 @@
   },
   "dependencies": {
     "@automerge/automerge": "catalog:",
+    "@automerge/automerge-repo-sedimentree": "workspace:*",
+    "@automerge/automerge-repo-sedimentree-automerge": "workspace:*",
     "bs58check": "^4.0.0",
     "cbor-x": "catalog:",
     "debug": "catalog:",
