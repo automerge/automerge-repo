@@ -1,8 +1,11 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import {
+  anyDocumentIdToAutomergeUrl,
+  AnyDocumentId,
+  DocHandle,
+} from "@automerge/automerge-repo/slim"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
-import { anyDocumentIdToAutomergeUrl } from "../../automerge-repo/dist/AutomergeUrl.js"
 
 // Shared with useDocHandles
 export const wrapperCache = new Map<

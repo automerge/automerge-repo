@@ -20,18 +20,20 @@
     "preinstall": "npx only-allow pnpm",
     "repocheck": "manypkg check",
     "format": "oxfmt",
-    "lint": "oxfmt --check . && oxlint && pnpm run lint:check-types",
+    "lint": "oxfmt --check . && oxlint && pnpm run lint:check-types && pnpm run check:bundles",
     "test": "vitest",
     "test:log": "cross-env DEBUG='automerge-repo:*' vitest",
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
     "watch": "pnpm run --parallel --stream -r watch ",
-    "lint:check-types": "pnpm run lint:check-types:packages && pnpm run lint:check-types:examples",
+    "lint:check-types": "pnpm run lint:check-types:packages && pnpm run lint:check-types:examples && pnpm run lint:check-types:scripts",
     "lint:check-types:packages": "pnpm --filter './packages/*' exec tsc --noEmit",
-    "lint:check-types:examples": "pnpm --filter './examples/react-*' exec tsc --noEmit && pnpm -F @automerge/automerge-repo-demo-counter-svelte check"
+    "lint:check-types:examples": "pnpm --filter './examples/react-*' exec tsc --noEmit && pnpm -F @automerge/automerge-repo-demo-counter-svelte check",
+    "check:bundles": "node scripts/check-bundles.ts",
+    "lint:check-types:scripts": "tsc --noEmit -p scripts/tsconfig.json"
   },
   "engines": {
-    "node": ">=22.13",
+    "node": ">=22.18",
     "pnpm": "^11"
   },
   "manypkg": {

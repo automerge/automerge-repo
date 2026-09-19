@@ -25,7 +25,13 @@ export default defineConfig({
     },
     target: "esnext",
     rollupOptions: {
-      external: [/^@automerge\//, "solid-js", "solid-js/store"],
+      // Bundle this package's own source and nothing else. Matching on
+      // specifiers alone missed workspace siblings, which vite resolves to a
+      // path before the check.
+      external: (id: string) =>
+        !id.startsWith("\0") &&
+        !id.startsWith(".") &&
+        !id.startsWith(resolve(__dirname, "src")),
     },
   },
   resolve: {

@@ -22,7 +22,13 @@ export default defineConfig({
     },
     target: "esnext",
     rollupOptions: {
-      external: [/^@automerge\//, "react", "react/jsx-runtime", "react-dom"],
+      // Bundle this package's own source and nothing else. Matching on
+      // specifiers alone missed workspace siblings, which vite resolves to a
+      // path before the check, so parts of automerge-repo were inlined.
+      external: (id: string) =>
+        !id.startsWith("\0") &&
+        !id.startsWith(".") &&
+        !id.startsWith(resolve(__dirname, "src")),
       output: {
         globals: {
           react: "React",
