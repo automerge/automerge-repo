@@ -1,8 +1,8 @@
 import { defineConfig, mergeConfig } from "vitest/config"
-import rootConfig from "../../vitest.config"
+import { sharedConfig } from "../../vitest.config"
 
 export default mergeConfig(
-  rootConfig,
+  sharedConfig,
   defineConfig({
     test: {
       environment: "node",

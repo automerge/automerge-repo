@@ -1,16 +1,16 @@
 import { defineConfig, mergeConfig } from "vitest/config"
-import rootConfig from "../../vitest.config"
+import { sharedConfig } from "../../vitest.config"
 import solid from "vite-plugin-solid"
 
 export default mergeConfig(
-  rootConfig,
+  sharedConfig,
   defineConfig({
     plugins: [solid()],
     test: {
       // environment inherited from the root config (happy-dom)
       deps: {
         optimizer: {
-          web: {
+          client: {
             enabled: true,
           },
         },

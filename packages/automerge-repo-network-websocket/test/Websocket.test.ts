@@ -1,6 +1,7 @@
 import { next as A } from "@automerge/automerge"
 import {
   AutomergeUrl,
+  encodeHeads,
   DocHandle,
   DocumentId,
   PeerId,
@@ -22,7 +23,6 @@ import { afterEach, describe, it, vi } from "vitest"
 import WebSocket, { WebSocketServer } from "ws"
 import { WebSocketClientAdapter } from "../src/WebSocketClientAdapter.js"
 import { WebSocketServerAdapter } from "../src/WebSocketServerAdapter.js"
-import { encodeHeads } from "../../automerge-repo/dist/AutomergeUrl.js"
 
 describe("Websocket adapters", () => {
   const browserPeerId = "browser" as PeerId
