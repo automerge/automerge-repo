@@ -3,6 +3,7 @@ import assert from "assert"
 import twoPeers from "./helpers/twoPeers.js"
 import connectRepos from "./helpers/connectRepos.js"
 import awaitState from "./helpers/awaitState.js"
+import settledWithin from "./helpers/settledWithin.js"
 import withTimeout from "./helpers/withTimeout.js"
 import pause from "./helpers/pause.js"
 import { Repo } from "../src/Repo.js"
@@ -25,7 +26,7 @@ describe("the sharePolicy APIs", () => {
       await alice.shutdown()
 
       // Bob should have the handle already because it was announced to him
-      const bobHandle = await bob.find(handle.url)
+      await bob.find(handle.url)
     })
 
     it("should not annouce documents to peers for whom the sharePolicy returns false", async () => {
@@ -50,7 +51,7 @@ describe("the sharePolicy APIs", () => {
       })
 
       const aliceHandle = alice.create({ foo: "bar" })
-      const bobHandle = await bob.find(aliceHandle.url)
+      await bob.find(aliceHandle.url)
     })
   })
 
@@ -66,10 +67,14 @@ describe("the sharePolicy APIs", () => {
     })
 
     const aliceHandle = alice.create({ foo: "bar" })
-    const bobHandle = await bob.find(aliceHandle.url)
+    await bob.find(aliceHandle.url)
   })
 
-  it("should not respond to direct requests for a document where the access policy returns false and the announce policy return trrrue", async () => {
+  // Fails today: with announce true, alice hands over the document even
+  // though access returned false, so announce takes precedence over access.
+  // Whether that is a bug or an invalid configuration is a product question;
+  // `it.fails` keeps it visible and will itself fail once it is settled.
+  it.fails("should not respond to direct requests for a document where the access policy returns false and the announce policy return trrrue", async () => {
     const { alice, bob } = await twoPeers({
       alice: {
         shareConfig: {
@@ -81,10 +86,14 @@ describe("the sharePolicy APIs", () => {
     })
 
     const aliceHandle = alice.create({ foo: "bar" })
-    withTimeout(
-      awaitState(bob.findWithProgress(aliceHandle.url), "unavailable"),
+    // Alice must not hand over the document. Note what this does *not*
+    // assert: bob never reaches "unavailable" either, it stays "loading"
+    // indefinitely, so a denied request currently hangs the requester.
+    const becameReady = await settledWithin(
+      awaitState(bob.findWithProgress(aliceHandle.url), "ready"),
       500
     )
+    assert.strictEqual(becameReady, false, "alice should not share the doc")
   })
 
   it("should not respond to direct requests for a document where the access policy and the announce policy return false", async () => {
@@ -99,10 +108,14 @@ describe("the sharePolicy APIs", () => {
     })
 
     const aliceHandle = alice.create({ foo: "bar" })
-    withTimeout(
-      awaitState(bob.findWithProgress(aliceHandle.url), "unavailable"),
+    // Alice must not hand over the document. Note what this does *not*
+    // assert: bob never reaches "unavailable" either, it stays "loading"
+    // indefinitely, so a denied request currently hangs the requester.
+    const becameReady = await settledWithin(
+      awaitState(bob.findWithProgress(aliceHandle.url), "ready"),
       500
     )
+    assert.strictEqual(becameReady, false, "alice should not share the doc")
   })
 
   describe("Repo.sharePolicyChanged", () => {

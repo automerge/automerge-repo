@@ -1,7 +1,7 @@
 import { next as A } from "@automerge/automerge"
 import assert from "assert"
 import { decode } from "cbor-x"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import {
   encodeHeads,
   generateAutomergeUrl,
@@ -16,7 +16,7 @@ describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
   const setup = (options?: any) => {
-    const { quick, documentId, doc, ...rest } = options ?? {}
+    const { quick: _quick, documentId, doc, ...rest } = options ?? {}
     let id = documentId ?? TEST_ID
     const document = new Document<TestDoc>(id, doc ?? A.init<TestDoc>())
     const handle = new DocHandle<TestDoc>(document, rest)
@@ -77,7 +77,6 @@ describe("DocHandle", () => {
     handle.change(d => (d.foo = "baz"))
     assert.equal(handle.isReady(), true)
 
-    const history = handle.history()
     assert.deepEqual(handle.history().length, 2)
   })
 
@@ -222,7 +221,6 @@ describe("DocHandle", () => {
 
   it("should allow direct access to decoded changes", async () => {
     const handle = setup()
-    const time = Date.now()
     handle.change(d => (d.foo = "foo"), { message: "commitMessage" })
     assert.equal(handle.isReady(), true)
 
@@ -234,7 +232,6 @@ describe("DocHandle", () => {
 
   it("should allow direct access to a specific decoded change", async () => {
     const handle = setup()
-    const time = Date.now()
     handle.change(d => (d.foo = "foo"), { message: "commitMessage" })
     handle.change(d => (d.foo = "foo"), { message: "commitMessage2" })
     handle.change(d => (d.foo = "foo"), { message: "commitMessage3" })

@@ -1,7 +1,6 @@
 import { next as A } from "@automerge/automerge"
 import {
   AutomergeUrl,
-  DocHandle,
   DocumentId,
   PeerId,
   Repo,
@@ -18,7 +17,7 @@ import * as CBOR from "cbor-x"
 import { EventEmitter, once } from "events"
 import http from "http"
 import { getPortPromise as getAvailablePort } from "portfinder"
-import { afterEach, describe, it, vi } from "vitest"
+import { describe, it, vi } from "vitest"
 import WebSocket, { WebSocketServer } from "ws"
 import { WebSocketClientAdapter } from "../src/WebSocketClientAdapter.js"
 import { WebSocketServerAdapter } from "../src/WebSocketServerAdapter.js"
@@ -50,7 +49,7 @@ describe("Websocket adapters", () => {
         clients: [browser],
       } = await setup()
 
-      const helloPromise = new Promise((resolve, reject) => {
+      const helloPromise = new Promise((resolve, _reject) => {
         socket.once("connection", ws => {
           ws.once("message", (message: any) => resolve(message))
         })
@@ -140,7 +139,7 @@ describe("Websocket adapters", () => {
           peerId: browserPeerId,
         })
 
-        const serverRepo = new Repo({
+        new Repo({
           network: [serverAdapter],
           peerId: serverPeerId,
         })
@@ -159,7 +158,7 @@ describe("Websocket adapters", () => {
         // Restart the server (on the same port)
         const { serverAdapter } = await setupServer({ port, retryInterval })
 
-        const serverRepo = new Repo({
+        new Repo({
           network: [serverAdapter],
           peerId: serverPeerId,
         })
@@ -237,7 +236,7 @@ describe("Websocket adapters", () => {
       await new Promise<void>(resolve => server.listen(port, resolve))
       const serverAdapter = new WebSocketServerAdapter(serverSocket, retry)
 
-      const serverRepo = new Repo({
+      new Repo({
         network: [serverAdapter],
         peerId: serverPeerId,
       })
@@ -308,7 +307,7 @@ describe("Websocket adapters", () => {
       await new Promise<void>(resolve => server.listen(port, resolve))
       const serverAdapter = new WebSocketServerAdapter(serverSocket)
 
-      const serverRepo = new Repo({
+      new Repo({
         network: [serverAdapter],
         peerId: "server" as PeerId,
       })
@@ -328,7 +327,6 @@ describe("Websocket adapters", () => {
       const {
         serverAdapter,
         server,
-        serverUrl,
         clients: [browser],
       } = await setup()
 
@@ -368,7 +366,7 @@ describe("Websocket adapters", () => {
   })
 
   describe("WebSocketServerAdapter", () => {
-    const serverResponse = async (clientHello: Object) => {
+    const serverResponse = async (clientHello: object) => {
       const { serverSocket, serverUrl } = await setup({
         clientCount: 0,
       })
@@ -440,7 +438,7 @@ describe("Websocket adapters", () => {
       await new Promise<void>(resolve => server.listen(port, resolve))
       const serverAdapter = new WebSocketServerAdapter(serverSocket, retry)
 
-      const serverRepo = new Repo({
+      new Repo({
         network: [serverAdapter],
         peerId: serverPeerId,
       })
@@ -475,7 +473,7 @@ describe("Websocket adapters", () => {
 
       // Create a repo listening on the socket
       const serverAdapter = new WebSocketServerAdapter(serverSocket)
-      const serverRepo = new Repo({
+      new Repo({
         network: [serverAdapter],
         peerId: serverPeerId,
       })
@@ -927,11 +925,7 @@ const setup = async (options: SetupOptions = {}) => {
 }
 
 const setupServer = async (options: SetupOptions = {}) => {
-  const {
-    clientCount = 1,
-    retryInterval = 1000,
-    port = await getPort(),
-  } = options
+  const { retryInterval = 1000, port = await getPort() } = options
   const serverUrl = `ws://localhost:${port}`
   const server = http.createServer()
   const serverSocket = new WebSocketServer({ server })
@@ -941,11 +935,7 @@ const setupServer = async (options: SetupOptions = {}) => {
 }
 
 const setupClient = async (options: SetupOptions = {}) => {
-  const {
-    clientCount = 1,
-    retryInterval = 1000,
-    port = await getPort(),
-  } = options
+  const { retryInterval = 1000, port = await getPort() } = options
   const serverUrl = `ws://localhost:${port}`
   return new WebSocketClientAdapter(serverUrl, retryInterval)
 }

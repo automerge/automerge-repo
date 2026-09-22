@@ -72,8 +72,8 @@ describe("asyncThrottle", () => {
       await pause(20) // simulate real async work
     }, 30)
 
-    throttled(1) // T=0: schedules fn at T=30 (DELAY)
-    throttled(2) // T≈0: clears previous timeout, reschedules at T=30
+    void throttled(1) // T=0: schedules fn at T=30 (DELAY)
+    void throttled(2) // T≈0: clears previous timeout, reschedules at T=30
     const last = throttled(3) // T≈0: clears previous, reschedules at T=30 with args=3
     await vi.advanceTimersByTimeAsync(50) // T≈50: fn starts at T=30 with args=3, finishes at T=50
     await last
@@ -192,7 +192,7 @@ const makeProbe = () => {
   let concurrent = 0
   let maxConcurrent = 0
   return {
-    async fn() {
+    fn: async () => {
       concurrent++
       maxConcurrent = Math.max(maxConcurrent, concurrent)
       await pause(FN_DURATION)
