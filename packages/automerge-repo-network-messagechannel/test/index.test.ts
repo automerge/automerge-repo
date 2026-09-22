@@ -5,6 +5,10 @@ import {
   MessageChannelNetworkAdapter,
 } from "../src/index.js"
 import { Repo } from "@automerge/automerge-repo/slim"
+import {
+  eventPromise,
+  eventPromises,
+} from "@automerge/automerge-repo/helpers/eventPromise.js"
 
 // bob is the hub, alice and charlie are spokes
 describe("MessageChannelNetworkAdapter", () => {
@@ -58,26 +62,26 @@ describe("MessageChannelNetworkAdapter", () => {
 
   it("should close the network adapter when a 'leave' message is received", async () => {
     const { port1: aliceToBob, port2: bobToAlice } = new MessageChannel()
-    const alice = new Repo({
-      network: [
-        new MessageChannelNetworkAdapter(aliceToBob, { useWeakRef: false }),
-      ],
+    const aliceAdapter = new MessageChannelNetworkAdapter(aliceToBob, {
+      useWeakRef: false,
     })
-    const bob = new Repo({
-      network: [
-        new MessageChannelNetworkAdapter(bobToAlice, { useWeakRef: true }),
-      ],
+    const bobAdapter = new MessageChannelNetworkAdapter(bobToAlice, {
+      useWeakRef: true,
     })
+    const alice = new Repo({ network: [aliceAdapter] })
+    const bob = new Repo({ network: [bobAdapter] })
 
-    await Promise.all([
-      alice.networkSubsystem.whenReady(),
-      bob.networkSubsystem.whenReady(),
-    ])
+    // whenReady() force-readies after 100ms with or without a handshake, so
+    // it does not imply the remote peer id that `leave` needs.
+    await eventPromises([aliceAdapter, bobAdapter], "peer-candidate")
+
+    // alice's adapter emits close synchronously inside disconnect()
+    const aliceClosed = eventPromise(aliceAdapter, "close")
+    const bobClosed = eventPromise(bobAdapter, "close")
 
     alice.networkSubsystem.disconnect()
 
-    // Wait for bob to process the leave message
-    await new Promise(r => setTimeout(r, 100))
+    await Promise.all([aliceClosed, bobClosed])
 
     assert.equal(bob.networkSubsystem.adapters.length, 0)
     assert.equal(alice.networkSubsystem.adapters.length, 0)
