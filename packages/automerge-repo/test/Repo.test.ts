@@ -1495,14 +1495,10 @@ describe("Repo", () => {
         bcChannel.port1.close()
       }
 
+      // Reuse the adapter already on `ab`: a second one there answers every
+      // frame too, so both would reply to bob's `arrive`.
       function connectAliceToBob() {
-        aliceRepo.networkSubsystem.addNetworkAdapter(
-          new MessageChannelNetworkAdapter(ab)
-        )
-      }
-
-      if (connectAlice) {
-        connectAliceToBob()
+        aliceRepo.networkSubsystem.addNetworkAdapter(aliceNetworkAdapter)
       }
 
       const aliceHandle = aliceRepo.create<TestDoc>()
