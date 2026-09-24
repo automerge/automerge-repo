@@ -20,6 +20,20 @@ export class StorageSource implements DocumentSource {
     DocumentId,
     (payload: DocHandleEncodedChangePayload<any>) => void
   > = {}
+  /**
+   * Number of live save listeners per document. Clusters normally share one;
+   * detach() stops that sharing, so an older cluster may outlive a re-attach.
+   */
+  #liveSaveFns = new Map<DocumentId, number>()
+  #forgetOnCollect = new FinalizationRegistry<DocumentId>(documentId => {
+    const live = (this.#liveSaveFns.get(documentId) ?? 1) - 1
+    if (live > 0) {
+      this.#liveSaveFns.set(documentId, live)
+      return
+    }
+    this.#liveSaveFns.delete(documentId)
+    this.#storage.forget(documentId)
+  })
   #log = makeLogger("automerge-repo:storage-source")
 
   constructor(
@@ -93,6 +107,8 @@ export class StorageSource implements DocumentSource {
           doc,
           handle,
         }: DocHandleEncodedChangePayload<any>): Promise<void> => {
+          // A throttled save must not write a deleted document back.
+          if (handle.isDeleted()) return
           try {
             await this.#storage.saveDoc(handle.documentId, doc)
           } catch (err) {
@@ -109,6 +125,11 @@ export class StorageSource implements DocumentSource {
         },
         this.#saveDebounceRate
       )
+      this.#liveSaveFns.set(
+        documentId,
+        (this.#liveSaveFns.get(documentId) ?? 0) + 1
+      )
+      this.#forgetOnCollect.register(fn, documentId)
     }
     return fn
   }
