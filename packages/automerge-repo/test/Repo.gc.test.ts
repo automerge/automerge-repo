@@ -8,6 +8,7 @@ import type { AutomergeUrl, DocumentId, PeerId } from "../src/index.js"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
 import type { Message } from "../src/network/messages.js"
 import connectRepos from "./helpers/connectRepos.js"
+import { linkRepos } from "./helpers/linkRepos.js"
 import { flushGC, gcAvailable, waitForGC } from "./helpers/flushGC.js"
 
 const describeGC = gcAvailable ? describe : describe.skip
@@ -501,5 +502,50 @@ describeGC("Repo GC cross-cutting pins", () => {
 
     await flushGC()
     expect(probes.every(probe => probe.deref() !== undefined)).toBe(true)
+  })
+
+  it("a storage-less viewer keeps receiving changes after the server releases the document", async () => {
+    // The server announces nothing, so it sends a document only to peers
+    // that asked for it. The viewer has no storage, so the server keeps no
+    // sync state for it.
+    const server = new Repo({
+      peerId: "server" as PeerId,
+      storage: new DummyStorageAdapter(),
+      shareConfig: { announce: async () => false, access: async () => true },
+    })
+    const editor = new Repo({
+      peerId: "editor" as PeerId,
+      storage: new DummyStorageAdapter(),
+    })
+    const viewer = new Repo({ peerId: "viewer" as PeerId })
+    await linkRepos(editor, server)
+    await linkRepos(viewer, server)
+
+    const editorHandle = editor.create<{ n: number }>({ n: 0 })
+    const { documentId } = editorHandle
+    const viewerHandle = await viewer.find<{ n: number }>(editorHandle.url)
+
+    let probe!: WeakRef<DocHandle<unknown>>
+    ;(() => {
+      probe = new WeakRef(server.handles[documentId])
+    })()
+    expect(await waitForGC(probe, 3000)).toBe(true)
+
+    const received = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("viewer never received the change")),
+        2000
+      )
+      viewerHandle.on("change", ({ doc }) => {
+        if (doc?.n !== 1) return
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+    editorHandle.change(d => {
+      d.n = 1
+    })
+    await received
+    expect(viewerHandle.doc()).toEqual({ n: 1 })
   })
 })

@@ -132,6 +132,14 @@ export class CollectionSynchronizer
    */
   #pinnedRequests = new Map<PeerId, Set<DocSynchronizer>>()
   #maxPinnedRequestsPerPeer: number
+
+  /**
+   * Documents each connected peer has sent a sync or request message for,
+   * kept for the life of the connection. A synchronizer re-created after its
+   * document was released reads it to resume sending to peers that asked
+   * earlier, which a storage-less peer has no persisted sync state for.
+   */
+  #requestedBy = new Map<PeerId, Set<DocumentId>>()
   #denylist: DocumentId[]
   #config: AutomergeSyncConfig
   #networkReady: Promise<void>
@@ -212,6 +220,8 @@ export class CollectionSynchronizer
   addPeer(peerId: PeerId): void {
     this.#log.debug(`adding ${peerId} & synchronizing with them`)
     this.#peers.add(peerId)
+    // A new connection starts a new record, even without a disconnect.
+    this.#requestedBy.delete(peerId)
     for (const docSync of this.#docSynchronizers.values()) {
       this.#addPeerToDoc(peerId, docSync, [])
     }
@@ -224,6 +234,7 @@ export class CollectionSynchronizer
       docSync.removePeer(peerId)
     }
     this.#pinnedRequests.delete(peerId)
+    this.#requestedBy.delete(peerId)
   }
 
   get peers(): PeerId[] {
@@ -262,6 +273,15 @@ export class CollectionSynchronizer
     ) {
       this.#log.debug(`ignoring ${message.type} from unknown peer`)
       return
+    }
+
+    if (message.type === "sync" || message.type === "request") {
+      let requested = this.#requestedBy.get(message.senderId)
+      if (!requested) {
+        requested = new Set()
+        this.#requestedBy.set(message.senderId, requested)
+      }
+      requested.add(documentId)
     }
 
     // Ensure we have a DocSynchronizer for this document.
@@ -375,6 +395,7 @@ export class CollectionSynchronizer
     docSync.addPeer(peerId, this.#loadSyncStateFor(documentId, peerId), {
       messages,
       limit: this.#sharePolicyLimit,
+      hasRequested: this.#requestedBy.get(peerId)?.has(documentId) ?? false,
     })
   }
 

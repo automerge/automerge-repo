@@ -228,6 +228,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
    *
    * @param peerId The remote ID of the peer we are adding
    * @param syncState
+   * @param options.hasRequested The peer asked for this document earlier in
+   * its connection, so it is re-engaged like a peer with persisted sync state.
    */
   addPeer(
     peerId: PeerId,
@@ -235,9 +237,11 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     {
       messages = [],
       limit = runUnbounded,
+      hasRequested = false,
     }: {
       messages?: (SyncMessage | RequestMessage)[]
       limit?: Limit
+      hasRequested?: boolean
     } = {}
   ): void {
     const previous = this.#peers.get(peerId)
@@ -273,7 +277,14 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // so adding one peer to many documents does not fan out unbounded callbacks.
     Promise.all([syncState, limit(() => this.#resolveSharePolicy(peerId))])
       .then(([syncState, sharePolicyState]) =>
-        this.#activatePeer(peerId, peer, isNewPeer, syncState, sharePolicyState)
+        this.#activatePeer(
+          peerId,
+          peer,
+          isNewPeer,
+          syncState,
+          sharePolicyState,
+          hasRequested
+        )
       )
       .catch(err => {
         this.#log.error(
@@ -610,7 +621,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     peer: PeerState,
     isNewPeer: boolean,
     syncState: A.SyncState | undefined,
-    sharePolicyState: SharePolicyState
+    sharePolicyState: SharePolicyState,
+    requestedEarlier = false
   ): void {
     // Peer may have been removed while we were loading, or addPeer may have
     // been called again. In either case, this activation is stale. (note this
@@ -639,7 +651,9 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // synced this document before: restore its engagement so a re-created
     // synchronizer (after cache eviction) resumes pushing updates to a
     // passively-subscribed peer instead of waiting for it to speak first.
-    if (syncState && state.sharedHeads.length > 0 && !peer.hasRequested) {
+    // A request earlier in this connection is the same evidence.
+    const syncedBefore = syncState && state.sharedHeads.length > 0
+    if ((syncedBefore || requestedEarlier) && !peer.hasRequested) {
       peer.hasRequested = true
       if (sharePolicyState === "share") sharePolicyState = "announce"
     }

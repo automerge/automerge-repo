@@ -9,8 +9,12 @@ import {
   DEFAULT_MAX_PINNED_REQUESTS_PER_PEER,
   DEFAULT_SYNC_STATE_LOAD_CONCURRENCY,
 } from "../src/synchronizer/CollectionSynchronizer.js"
-import { PeerId } from "../src/types.js"
-import { SyncMessage } from "../src/network/messages.js"
+import { DocumentId, PeerId, SessionId } from "../src/types.js"
+import {
+  DocMessage,
+  MessageContents,
+  SyncMessage,
+} from "../src/network/messages.js"
 import { DocumentQuery } from "../src/DocumentQuery.js"
 import { TestDoc } from "./types.js"
 import { createTestQuery } from "./helpers/testHandle.js"
@@ -343,5 +347,108 @@ describe("CollectionSynchronizer", () => {
       await new Promise(resolve => setTimeout(resolve, 0)) // macrotask flush
     }
     assert.equal(peak, DEFAULT_SYNC_STATE_LOAD_CONCURRENCY)
+  })
+
+  describe("a peer that asked for a document earlier in its connection", () => {
+    /** Access without announce: a peer is sent a document only on request. */
+    const accessOnly = {
+      announce: async () => false,
+      access: async () => true,
+    }
+
+    const settle = async () => {
+      for (let i = 0; i < 3; i++) await new Promise(setImmediate)
+    }
+
+    const readyQuery = (documentId: DocumentId) => {
+      const query = createTestQuery<unknown>(documentId)
+      query.handle.update(() => Automerge.from<TestDoc>({ foo: "bar" }))
+      return query
+    }
+
+    /**
+     * Alice sends `first` for a document; the document is then released and
+     * re-created. Returns what the re-created synchronizer sends alice.
+     */
+    const askReleaseRecreate = async (
+      first: (documentId: DocumentId) => DocMessage,
+      between: () => void = () => {}
+    ) => {
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      synchronizer = new CollectionSynchronizer(
+        createConfig({
+          shareConfig: accessOnly,
+          ensureQuery: id => {
+            const query = readyQuery(id)
+            synchronizer.attach(query)
+            return query
+          },
+        })
+      )
+      synchronizer.addPeer(alice)
+      await settle()
+      synchronizer.receiveMessage(first(documentId))
+      await settle()
+      between()
+
+      synchronizer.detach(documentId)
+      const sent: MessageContents[] = []
+      synchronizer.on("message", m => {
+        if (m.targetId === alice && m.type === "sync") sent.push(m)
+      })
+      synchronizer.attach(readyQuery(documentId))
+      await settle()
+      return sent
+    }
+
+    const request = (documentId: DocumentId): DocMessage => {
+      const [, data] = Automerge.generateSyncMessage(
+        Automerge.init(),
+        Automerge.initSyncState()
+      )
+      return {
+        type: "request",
+        senderId: alice,
+        targetId: "test" as PeerId,
+        documentId,
+        data: data!,
+      }
+    }
+
+    it("is sent the re-created document", async () => {
+      const sent = await askReleaseRecreate(request)
+      assert.equal(sent.length, 1)
+    })
+
+    it("is not after it reconnects", async () => {
+      const sent = await askReleaseRecreate(request, () => {
+        synchronizer.removePeer(alice)
+        synchronizer.addPeer(alice)
+      })
+      assert.deepStrictEqual(sent, [])
+    })
+
+    it("is not after a new connection replaces the old one", async () => {
+      const sent = await askReleaseRecreate(request, () => {
+        synchronizer.addPeer(alice)
+      })
+      assert.deepStrictEqual(sent, [])
+    })
+
+    it("is not when it only sent ephemeral messages", async () => {
+      const sent = await askReleaseRecreate(documentId => ({
+        type: "ephemeral",
+        senderId: alice,
+        targetId: "test" as PeerId,
+        documentId,
+        sessionId: "session-1" as SessionId,
+        count: 1,
+        // cbor: { foo: "bar" }
+        data: new Uint8Array([
+          0xa1, 0x63, 0x66, 0x6f, 0x6f, 0x63, 0x62, 0x61, 0x72,
+        ]),
+      }))
+      assert.deepStrictEqual(sent, [])
+    })
   })
 })
