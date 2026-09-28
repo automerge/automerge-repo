@@ -17,11 +17,15 @@
  * is forced, and memory plus live-document counts are sampled.
  *
  * Only APIs common to the compared refs are used.
+ *
+ * A second, separately gated phase measures active editing instead of idle
+ * memory; see "sync-server active-editing profile" below.
  */
 import * as fs from "node:fs"
 import { describe, it } from "vitest"
 import { Repo } from "../src/Repo.js"
-import type { AutomergeUrl, PeerId } from "../src/index.js"
+import type { DocHandle } from "../src/DocHandle.js"
+import type { AutomergeUrl, Message, PeerId } from "../src/index.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
 import { pause } from "../src/helpers/pause.js"
@@ -176,5 +180,209 @@ describe.runIf(OUT)("sync-server memory profile", () => {
         2
       )
     )
+  }, 600_000)
+})
+
+/**
+ * Active-editing phase: how often a sync server reloads documents that a
+ * client keeps editing in bursts separated by pauses, and what that costs.
+ *
+ *   ACTIVE_PROFILE=/tmp/active.json ACTIVE_RELEASE_MS=30000 \
+ *     ACTIVE_PAUSE_MS=1000 NODE_OPTIONS=--expose-gc npx vitest run \
+ *     --project @automerge/automerge-repo \
+ *     packages/automerge-repo/test/memoryProfile.sync-server.test.ts
+ *
+ * One persistent client edits ACTIVE_DOCS documents in each burst, then
+ * pauses. The server has storage and an announce-nothing share policy and
+ * never touches a document itself. With ACTIVE_GC=forced (the default) GC
+ * is forced at the end of every pause, the worst case for reloads; with
+ * ACTIVE_GC=natural it is left to the engine. Reloads are counted with the
+ * `doc-loaded` doc-metric. ACTIVE_RELEASE_MS sets releaseUnobservedAfterMs
+ * (a number or `Infinity`; unset uses the default, and refs without the
+ * option ignore it).
+ */
+const ACTIVE_OUT = process.env.ACTIVE_PROFILE
+
+describe.runIf(ACTIVE_OUT)("sync-server active-editing profile", () => {
+  const env = (name: string, fallback: number) => {
+    const value = process.env[name]
+    return value === undefined || value === "" ? fallback : Number(value)
+  }
+  const releaseEnv = process.env.ACTIVE_RELEASE_MS
+  const RELEASE_MS =
+    releaseEnv === undefined || releaseEnv === ""
+      ? undefined
+      : Number(releaseEnv)
+  const PAUSE_MS = env("ACTIVE_PAUSE_MS", 1000)
+  const BURSTS = env("ACTIVE_BURSTS", 8)
+  const DOCS = env("ACTIVE_DOCS", 20)
+  const HISTORY = env("ACTIVE_HISTORY", 200)
+  const CHANGES_PER_BURST = env("ACTIVE_CHANGES_PER_BURST", 5)
+  const FORCED_GC = (process.env.ACTIVE_GC ?? "forced") === "forced"
+
+  it("samples reloads and memory across editing bursts", async () => {
+    const server = new Repo({
+      peerId: "server" as PeerId,
+      storage: new DummyStorageAdapter(),
+      sharePolicy: async () => false,
+      ...(RELEASE_MS === undefined
+        ? {}
+        : { releaseUnobservedAfterMs: RELEASE_MS }),
+    })
+    const client = new Repo({
+      peerId: "client" as PeerId,
+      storage: new DummyStorageAdapter(),
+    })
+
+    let reloads = 0
+    server.on("doc-metrics", event => {
+      if (event.type === "doc-loaded") reloads++
+    })
+    let majorGCs = 0
+    const observer = new PerformanceObserver(list => {
+      for (const entry of list.getEntries()) {
+        // NODE_PERFORMANCE_GC_MAJOR
+        if ((entry as any).detail?.kind === 4) majorGCs++
+      }
+    })
+    observer.observe({ entryTypes: ["gc"] })
+
+    // Connect with real peer metadata so each side keeps the other's sync
+    // state, and count the sync bytes the client sends.
+    let bytesToServer = 0
+    let toClient!: DummyNetworkAdapter
+    const toServer: DummyNetworkAdapter = new DummyNetworkAdapter({
+      startReady: true,
+      sendMessage: (message: Message) => {
+        if ("data" in message && message.data) {
+          bytesToServer += message.data.byteLength
+        }
+        setImmediate(() => toClient.receive(message))
+      },
+    })
+    toClient = new DummyNetworkAdapter({
+      startReady: true,
+      sendMessage: (message: Message) =>
+        setImmediate(() => toServer.receive(message)),
+    })
+    // Adapters drop messages until the repo connects them, which waits for
+    // its storage id.
+    const connected = [toServer, toClient].map(
+      adapter =>
+        new Promise<void>(resolve => {
+          const connect = adapter.connect.bind(adapter)
+          adapter.connect = (peerId: PeerId) => {
+            connect(peerId)
+            resolve()
+          }
+        })
+    )
+    client.networkSubsystem.addNetworkAdapter(toServer)
+    server.networkSubsystem.addNetworkAdapter(toClient)
+    await Promise.all(connected)
+    const serverStorageId = (await server.storageId())!
+    const clientStorageId = await client.storageId()
+    toServer.emit("peer-candidate", {
+      peerId: server.peerId,
+      peerMetadata: { storageId: serverStorageId, isEphemeral: false },
+    })
+    toClient.emit("peer-candidate", {
+      peerId: client.peerId,
+      peerMetadata: { storageId: clientStorageId, isEphemeral: false },
+    })
+
+    // The server has acknowledged every client document at its heads.
+    const sorted = (heads: readonly string[]) => [...heads].sort().join(",")
+    const converged = (handles: DocHandle<SyncDoc>[]) => () =>
+      handles.every(handle => {
+        const info = handle.getSyncInfo(serverStorageId)
+        return (
+          info !== undefined &&
+          sorted(info.lastHeads) === sorted(handle.heads())
+        )
+      })
+
+    const handles: DocHandle<SyncDoc>[] = []
+    for (let d = 0; d < DOCS; d++) {
+      const handle = client.create<SyncDoc>({ log: [] })
+      for (let c = 0; c < HISTORY; c++) {
+        handle.change(doc => {
+          doc.log.push(`doc ${d} history ${c} ${PAYLOAD}`)
+        })
+      }
+      handles.push(handle)
+    }
+    await until(converged(handles), "initial sync")
+    await server.flush()
+    await settleAndGC()
+
+    const bursts: Array<Record<string, number>> = []
+    for (let burst = 0; burst < BURSTS; burst++) {
+      const reloadsBefore = reloads
+      const bytesBefore = bytesToServer
+      const gcsBefore = majorGCs
+      const start = performance.now()
+      for (const handle of handles) {
+        for (let c = 0; c < CHANGES_PER_BURST; c++) {
+          handle.change(doc => {
+            doc.log.push(`burst ${burst} change ${c} ${PAYLOAD}`)
+          })
+        }
+      }
+      await until(converged(handles), `burst ${burst} to sync`)
+      const syncMs = performance.now() - start
+
+      // The idle time between bursts is what this phase measures, so it is a
+      // real wall-clock wait.
+      await pause(PAUSE_MS)
+      if (FORCED_GC) {
+        for (let i = 0; i < GC_PASSES_PER_SAMPLE; i++) {
+          globalThis.gc?.()
+          await yieldMacrotask()
+        }
+      }
+
+      bursts.push({
+        burst,
+        reloads: reloads - reloadsBefore,
+        bytesToServer: bytesToServer - bytesBefore,
+        syncMs: Math.round(syncMs),
+        majorGCs: majorGCs - gcsBefore,
+        residentDocs: Object.keys(server.handles).length,
+        heapUsedMB: toMB(process.memoryUsage().heapUsed),
+      })
+    }
+    observer.disconnect()
+
+    const total = (key: string) =>
+      bursts.reduce((sum, sample) => sum + sample[key], 0)
+    fs.writeFileSync(
+      ACTIVE_OUT!,
+      JSON.stringify(
+        {
+          meta: {
+            releaseUnobservedAfterMs: RELEASE_MS ?? "default",
+            pauseMs: PAUSE_MS,
+            bursts: BURSTS,
+            docs: DOCS,
+            history: HISTORY,
+            changesPerBurst: CHANGES_PER_BURST,
+            gc: FORCED_GC ? "forced" : "natural",
+          },
+          summary: {
+            reloadsPerBurst: total("reloads") / BURSTS,
+            bytesToServerPerBurst: Math.round(total("bytesToServer") / BURSTS),
+            syncMsPerBurst: Math.round(total("syncMs") / BURSTS),
+            finalResidentDocs: bursts[bursts.length - 1].residentDocs,
+            finalHeapUsedMB: bursts[bursts.length - 1].heapUsedMB,
+          },
+          bursts,
+        },
+        null,
+        2
+      )
+    )
+    await client.shutdown()
+    await server.shutdown()
   }, 600_000)
 })
