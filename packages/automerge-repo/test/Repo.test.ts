@@ -881,9 +881,10 @@ describe("Repo", () => {
 
         // Count concurrent sync-state saves by intercepting the adapter's
         // save method and filtering by the sync-state key prefix. The Repo
-        // wraps StorageSubsystem.saveSyncState with asyncThrottle keyed by
-        // storageId, so even across many rapid events the adapter should
-        // never see two sync-state saves in flight for the same storageId.
+        // wraps StorageSubsystem.saveSyncState with asyncThrottle keyed per
+        // document and storageId, so even across many rapid events the
+        // adapter should never see two sync-state saves in flight for the
+        // same document and storageId.
         let concurrent = 0
         let maxConcurrent = 0
         let syncStateSaveCalls = 0
