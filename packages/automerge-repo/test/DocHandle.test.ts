@@ -289,6 +289,22 @@ describe("DocHandle", () => {
       })
     }))
 
+  it("off(event, fn) removes a once() listener by the original function", () => {
+    const handle = setup()
+    const listener = vi.fn()
+
+    handle.once("change", listener)
+    expect(handle.listenerCount("change")).toBe(1)
+
+    handle.off("change", listener)
+    expect(handle.listenerCount("change")).toBe(0)
+
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+    expect(listener).not.toHaveBeenCalled()
+  })
+
   it("should update the internal doc prior to emitting the change message", async () => {
     const handle = setup()
 

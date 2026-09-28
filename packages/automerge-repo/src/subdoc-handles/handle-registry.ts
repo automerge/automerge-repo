@@ -7,9 +7,12 @@ import type { DocHandle } from "../DocHandle.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
+import { kOnceOriginal } from "../internals.js"
 
 /** Event listener stored in the registry. Payload shape is event-specific. */
-type Listener = (payload: any) => void
+type Listener = ((payload: any) => void) & {
+  [kOnceOriginal]?: (payload: any) => void
+}
 
 /**
  * A change accumulated for one handle during dispatch: patches already
@@ -216,12 +219,20 @@ export class HandleRegistry {
     s.add(fn)
   }
 
+  /** Remove one listener. If `fn` is not registered directly, remove the
+   * `once()` wrappers registered for it. */
   removeListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
     const m = this.#listeners.get(handle)
     if (!m) return
     const s = m.get(event)
     if (!s) return
-    s.delete(fn)
+    if (s.has(fn)) {
+      s.delete(fn)
+    } else {
+      for (const candidate of s) {
+        if (candidate[kOnceOriginal] === fn) s.delete(candidate)
+      }
+    }
     if (s.size === 0) m.delete(event)
     if (m.size === 0) this.#listeners.delete(handle)
   }
