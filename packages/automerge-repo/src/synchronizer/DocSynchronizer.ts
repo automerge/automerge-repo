@@ -165,7 +165,10 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       // Use queueMicrotask to avoid re-entrancy: #evaluate calls
       // #updateAvailability which can trigger query transitions,
       // which would synchronously re-enter here.
-      queueMicrotask(() => this.#evaluate())
+      queueMicrotask(() => {
+        this.#applyHeldMessages()
+        this.#evaluate()
+      })
     })
 
     const docId = handle.documentId.slice(0, 5)
@@ -389,6 +392,32 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     return "denied"
   }
 
+  // HOLDING FOR STORAGE
+
+  /**
+   * Whether inbound sync messages must wait: the document is empty and
+   * storage has not been checked yet. A change applied to the empty document
+   * would be dropped when storage replaces it, and the peer would then
+   * re-send the whole document.
+   */
+  #holdingForStorage(): boolean {
+    return (
+      A.getHeads(this.#handle.fullDoc()).length === 0 &&
+      this.#query.shouldDeferAvailability("automerge-sync")
+    )
+  }
+
+  /** Apply the messages held by {@link #holdingForStorage}, in order. */
+  #applyHeldMessages(): void {
+    if (this.#holdingForStorage()) return
+    for (const peer of this.#peers.values()) {
+      if (!peer.syncState || peer.pendingMessages.length === 0) continue
+      const queued = peer.pendingMessages
+      peer.pendingMessages = []
+      for (const msg of queued) this.#receiveSyncMessage(msg)
+    }
+  }
+
   // THE EVALUATE LOOP
 
   /**
@@ -406,6 +435,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // Until we have, we shouldn't respond to requestors.
     const awaitingSupplierData =
       supplierExists && this.#hasPendingSupplierHeads(doc)
+    const holdingForStorage = this.#holdingForStorage()
 
     // Phase 1: Send outbound sync messages to dirty peers.
     for (const [peerId, peer] of this.#peers) {
@@ -417,14 +447,10 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       // document, don't publish an outbound request or an empty reply to a
       // requestor that other peers may interpret as evidence that we do not
       // have it. This is how we wait for the storage source to complete before
-      // announcing that a document is unavailable (for example)
-      if (
-        !weHaveData &&
-        (peer.status.type === "unknown" || peer.status.type === "wants") &&
-        this.#query.shouldDeferAvailability("automerge-sync")
-      ) {
-        continue
-      }
+      // announcing that a document is unavailable (for example). A peer that
+      // has the document waits too: its messages are held until storage has
+      // been checked, so a reply now would come from the empty document.
+      if (holdingForStorage) continue
 
       // Invariant 4: If we don't have data but a supplier exists,
       // only talk to the supplier. Don't fan out requests to other peers.
@@ -652,6 +678,13 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       this.emit("open-doc", { documentId: this.documentId, peerId })
     }
 
+    // Held messages are applied once storage has been checked.
+    if (this.#holdingForStorage()) {
+      peer.dirty = true
+      this.#evaluate()
+      return
+    }
+
     // Drain queued messages in order.
     const queued = peer.pendingMessages
     peer.pendingMessages = []
@@ -828,8 +861,9 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       peer.awaitingAnswer = false
     }
 
-    // If sync state is still loading, queue for later.
-    if (!peer.syncState) {
+    // If sync state is still loading, or storage has not been checked yet,
+    // queue for later.
+    if (!peer.syncState || this.#holdingForStorage()) {
       peer.pendingMessages.push(message)
       return
     }
