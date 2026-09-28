@@ -45,6 +45,10 @@ own lockfile, and runs the harness from the invoking tree in all of them: one
 harness, and each library measured against the dependencies it pins. Run `node
 scripts/memory-profile.ts help` for the rest.
 
+To measure a ref that keeps idle documents loaded for a release period, pass a
+short one, for example `pnpm profile:compare main my-branch --release-ms 1000`.
+Each sample then waits out twice the period.
+
 ## Releasing
 
 There are two things you might want to know here. Firstly "how do I release a new version?" and secondly "what actually happens when we release a new version?". We'll start with the second question, but you can jump straight to the [how to release](#how-to-release) section if you're here for the first.
