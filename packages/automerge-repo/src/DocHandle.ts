@@ -36,6 +36,7 @@ import type {
 } from "./subdoc-handles/types.js"
 import { KIND } from "./subdoc-handles/types.js"
 import { foreverPromise } from "./helpers/foreverPromise.js"
+import { kOnceOriginal } from "./internals.js"
 
 /**
  * A DocHandle is a wrapper around an Automerge document. It allows you
@@ -963,10 +964,13 @@ export class DocHandle<T> {
     fn: DocHandleEvents<T>[E]
   ): this {
     const reg = this.#document.registry
-    const wrapper = (payload: unknown) => {
+    const wrapper: ((payload: unknown) => void) & {
+      [kOnceOriginal]?: (payload: unknown) => void
+    } = payload => {
       reg.removeListener(this, event as string, wrapper)
       ;(fn as any)(payload)
     }
+    wrapper[kOnceOriginal] = fn as (payload: unknown) => void
     reg.addListener(this, event as string, wrapper)
     return this
   }
