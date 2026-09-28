@@ -29,6 +29,8 @@ type StorageSubsystemEvents = {
     sinceHeads: A.Heads
     savedHeads: A.Heads
   }) => void
+  /** A save reached the storage adapter: `savedHeads` are now durable. */
+  "doc-stored": (arg: { documentId: DocumentId; savedHeads: A.Heads }) => void
 }
 
 /**
@@ -127,6 +129,18 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   }
 
   // AUTOMERGE DOCUMENT STORAGE
+
+  /**
+   * Total size in bytes of the document's chunks in storage, as last loaded
+   * or saved by this subsystem; 0 when unknown.
+   */
+  storedSize(documentId: DocumentId): number {
+    let size = 0
+    for (const chunk of this.#chunkInfos.get(documentId) ?? []) {
+      size += chunk.size
+    }
+    return size
+  }
 
   /**
    * Loads and combines document chunks from storage, with snapshots first.
@@ -275,6 +289,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
         size: binary.length,
       })
       headsHandle.update(A.getHeads(doc))
+      this.emit("doc-stored", { documentId, savedHeads: A.getHeads(doc) })
     } else {
       return Promise.resolve()
     }
@@ -322,6 +337,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
       this.#chunkInfos.set(documentId, newChunkInfos)
       headsHandle.update(A.getHeads(doc))
+      this.emit("doc-stored", { documentId, savedHeads: A.getHeads(doc) })
     } finally {
       this.#compacting = false
     }

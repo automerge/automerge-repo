@@ -114,6 +114,9 @@ export class Repo extends EventEmitter<RepoEvents> {
    */
   #keepAlive?: KeepAlive<DocumentQuery<unknown>>
   #releaseUnobservedAfterMs: number
+  #maxUnobservedBytes: number
+  /** Each query's document, to tell whether it is externally retained. */
+  #documents = new WeakMap<DocumentQuery<unknown>, Document<unknown>>()
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
@@ -150,6 +153,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     sharePolicyConcurrency,
     maxPinnedRequestsPerPeer,
     releaseUnobservedAfterMs,
+    maxUnobservedBytes = Infinity,
     idFactory,
   }: RepoConfig = {}) {
     super()
@@ -198,6 +202,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (this.#releaseUnobservedAfterMs > 0) {
       this.#keepAlive = new KeepAlive(this.#releaseUnobservedAfterMs)
     }
+    this.#maxUnobservedBytes = maxUnobservedBytes
+    if (!(maxUnobservedBytes >= 0)) {
+      throw new RangeError(
+        `maxUnobservedBytes must be a number >= 0, got ${maxUnobservedBytes}`
+      )
+    }
+    storageSubsystem?.on("doc-stored", ({ documentId }) => {
+      const query = this.#queries.get(documentId)
+      if (!query || !this.#keepAlive) return
+      this.#keepAlive.resize(query, storageSubsystem.storedSize(documentId))
+      this.#enforceByteCap()
+    })
     this.#syncStateTracker = new SyncStateTracker(
       this.storageSubsystem,
       saveDebounceRate
@@ -410,6 +426,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     document[kOnRetainChange] = retained => {
       if (retained) this.#retainedDocuments.add(document)
       else this.#retainedDocuments.delete(document)
+      // An observed document is held by its observers, not the release
+      // setting; its period starts when it becomes unobserved.
+      if (retained) this.#keepAlive?.delete(query)
+      else this.#markActive(query)
     }
     const handle = new DocHandle(document, {})
     // Assigned after handle creation (not via the Document constructor):
@@ -418,6 +438,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#syncStateTracker.getSyncInfo(handle, storageId)
     const query = new DocumentQuery(handle, this.#sources)
     this.#queries.set(documentId, query)
+    this.#documents.set(query, document)
     if (this.#keepAlive) {
       document[kOnHeadsChanged] = () => this.#markActive(query)
     }
@@ -449,7 +470,23 @@ export class Repo extends EventEmitter<RepoEvents> {
     ) {
       return
     }
-    this.#keepAlive.touch(query)
+    const document = this.#documents.get(query)
+    if (document && this.#retainedDocuments.has(document)) return
+    this.#keepAlive.touch(
+      query,
+      this.storageSubsystem?.storedSize(query.documentId) ?? 0
+    )
+    this.#enforceByteCap()
+  }
+
+  /**
+   * Release the least recently active documents held by the release setting
+   * until their stored size fits {@link RepoConfig.maxUnobservedBytes}.
+   */
+  #enforceByteCap(): void {
+    if (!this.#keepAlive) return
+    if (this.#keepAlive.totalSize <= this.#maxUnobservedBytes) return
+    this.#keepAlive.trimTo(this.#maxUnobservedBytes)
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -680,11 +717,11 @@ export class Repo extends EventEmitter<RepoEvents> {
       query.handle.delete()
     }
     if (query) {
-      this.#keepAlive?.delete(query)
       query.fail(new Error(`Document ${documentId} was deleted`))
       // Explicit teardown: drop external retention so lingering listeners
       // can't keep the deleted document rooted in the Repo.
       query.handle[kSeverRetention]()
+      this.#keepAlive?.delete(query)
     }
     this.#queries.delete(documentId)
 
@@ -841,10 +878,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     const query = this.#queries.get(documentId)
     if (query) {
-      this.#keepAlive?.delete(query)
       // Explicit teardown: drop external retention so lingering listeners
       // can't keep the removed document rooted in the Repo.
       query.handle[kSeverRetention]()
+      this.#keepAlive?.delete(query)
       this.#syncStateTracker.delete(query.handle)
     }
     this.#queries.delete(documentId)
@@ -1003,6 +1040,21 @@ export interface RepoConfig {
    * {@link Repo.delete} release a document at once in every mode.
    */
   releaseUnobservedAfterMs?: number
+
+  /**
+   * Upper bound, in bytes of stored size, on the documents kept loaded by
+   * {@link RepoConfig.releaseUnobservedAfterMs}. When they exceed
+   * it, the least recently active are released first. Defaults to
+   * `Infinity` (no cap).
+   *
+   * @remarks
+   * The size is what the document occupies in storage, a proxy for its
+   * memory use, so the cap applies only to a repo with storage. Documents
+   * with listeners or progress subscriptions are not counted; documents
+   * whose handles you hold without a listener are, since the repo cannot
+   * see those references.
+   */
+  maxUnobservedBytes?: number
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation
