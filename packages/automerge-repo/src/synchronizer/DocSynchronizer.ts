@@ -79,6 +79,7 @@ interface PeerState {
   dirty: boolean // needs outbound sync message
   hasRequested: boolean // true if peer ever sent request/sync for this doc
   isPresent: boolean // true if peer ever sent an ephemeral message for this doc
+  awaitingAnswer: boolean // requested; not yet sent the doc or doc-unavailable
 }
 
 interface DocSynchronizerEvents {
@@ -87,6 +88,8 @@ interface DocSynchronizerEvents {
   "open-doc": (arg: OpenDocMessage) => void
   "peer-status": (arg: PeerStatusPayload) => void
   metrics: (arg: DocSyncMetrics) => void
+  /** Whether `peerId` is awaiting an answer to its request for this document. */
+  "awaiting-answer": (peerId: PeerId, awaiting: boolean) => void
 }
 
 /**
@@ -123,6 +126,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   #seenEphemeralMessages = new HashRing(1000)
   #networkReady: boolean = false
   #stampEphemeralMessage: () => EphemeralStamp
+  /** Peers last reported as awaiting an answer via `awaiting-answer`. */
+  #reportedAwaiting = new Set<PeerId>()
 
   constructor({
     handle,
@@ -244,6 +249,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       dirty: true,
       hasRequested: false,
       isPresent: false,
+      awaitingAnswer: false,
     }
     // Note that we completely replace any existing state here. This is necessary
     // because once the sync state and share policy are resolved we call
@@ -252,6 +258,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // Replacing the state means that `#activatePeer` will ignore all racing `addPeer`
     // except the most recent call
     this.#peers.set(peerId, peer)
+    this.#updateAwaitingAnswer()
 
     // If we don't have data yet, a new peer might provide it — re-mark
     // the sync source as pending to prevent premature unavailability.
@@ -297,9 +304,14 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       case "ephemeral":
         this.#receiveEphemeralMessage(message)
         break
-      case "doc-unavailable":
+      case "doc-unavailable": {
         this.#setPeerStatus(message.senderId, { type: "unavailable" })
+        // A peer that reports the document unavailable no longer awaits it.
+        // Like a sync message's, the senderId is trusted as given.
+        const peer = this.#peers.get(message.senderId)
+        if (peer) peer.awaitingAnswer = false
         break
+      }
       default:
         throw new Error(`unknown message type: ${(message as any).type}`)
     }
@@ -328,6 +340,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
           if (newPolicy === "denied" && peer.hasRequested) {
             // Peer lost access — notify them
+            peer.awaitingAnswer = false
             this.emit("message", {
               type: "doc-unavailable",
               documentId: this.documentId,
@@ -447,6 +460,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       for (const [peerId, peer] of this.#peers) {
         if (peer.status.type === "wants") {
           this.#setPeerStatus(peerId, { type: "unavailable-notified" })
+          peer.awaitingAnswer = false
           this.emit("message", {
             type: "doc-unavailable",
             documentId: this.#handle.documentId,
@@ -454,6 +468,26 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
           } as MessageContents<DocumentUnavailableMessage>)
         }
       }
+    }
+
+    this.#updateAwaitingAnswer()
+  }
+
+  /**
+   * An unanswered peer request is in-flight work, like a pending storage
+   * load: report each peer's transitions so the collection keeps the
+   * document loaded until the peer is answered or leaves.
+   */
+  #updateAwaitingAnswer(): void {
+    for (const peerId of this.#reportedAwaiting) {
+      if (this.#peers.get(peerId)?.awaitingAnswer) continue
+      this.#reportedAwaiting.delete(peerId)
+      this.emit("awaiting-answer", peerId, false)
+    }
+    for (const [peerId, peer] of this.#peers) {
+      if (!peer.awaitingAnswer || this.#reportedAwaiting.has(peerId)) continue
+      this.#reportedAwaiting.add(peerId)
+      this.emit("awaiting-answer", peerId, true)
     }
   }
 
@@ -596,6 +630,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       peer.pendingMessages = []
       for (const _msg of queued) {
         peer.hasRequested = true
+        peer.awaitingAnswer = false
         this.emit("message", {
           type: "doc-unavailable",
           documentId: this.documentId,
@@ -711,6 +746,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
     const syncState = peer.syncState!
     const isNew = A.getHeads(doc).length === 0
+    // With data, this sync (or one already in flight) answers a request.
+    if (!isNew) peer.awaitingAnswer = false
 
     const start = performance.now()
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
@@ -780,6 +817,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // Update peer status based on message type.
     if (isRequestMessage(message)) {
       this.#setPeerStatus(message.senderId, { type: "wants" })
+      peer.awaitingAnswer = true
     }
     const decoded = A.decodeSyncMessage(message.data)
     if (decoded.heads.length > 0) {
@@ -787,6 +825,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
         type: "has",
         theirInitialHeads: decoded.heads,
       })
+      peer.awaitingAnswer = false
     }
 
     // If sync state is still loading, queue for later.
@@ -797,6 +836,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
     // Denied peers: track status above but don't apply sync data.
     if (peer.sharePolicyState === "denied") {
+      peer.awaitingAnswer = false
       this.emit("message", {
         type: "doc-unavailable",
         documentId: this.#handle.documentId,

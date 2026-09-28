@@ -12,7 +12,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { MessageContents } from "../src/network/messages.js"
 import { DocSynchronizer } from "../src/synchronizer/DocSynchronizer.js"
 import type { ShareConfig } from "../src/synchronizer/DocSynchronizer.js"
-import { PeerId, SessionId } from "../src/types.js"
+import { DocumentId, PeerId, SessionId } from "../src/types.js"
 import { TestDoc } from "./types.js"
 import { createTestHandle, createTestQuery } from "./helpers/testHandle.js"
 
@@ -743,6 +743,207 @@ describe("DocSynchronizer", () => {
       await new Promise(setImmediate)
 
       assert.deepStrictEqual(openedFor, [bob])
+    })
+  })
+
+  describe("a peer awaiting an answer to its request", () => {
+    const requestFrom = (peerId: PeerId, documentId: DocumentId) => {
+      const [, data] = Automerge.generateSyncMessage(
+        Automerge.init(),
+        Automerge.initSyncState()
+      )
+      return {
+        type: "request" as const,
+        senderId: peerId,
+        targetId: alice,
+        documentId,
+        data: data!,
+      }
+    }
+
+    /** Alice has no data: bob asks for it while charlie has yet to answer. */
+    const setupRelay = async (shareConfig?: ShareConfig) => {
+      const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const handle = createTestHandle<TestDoc>(docId)
+      const docSync = createDocSynchronizer(
+        handle as DocHandle<unknown>,
+        undefined,
+        shareConfig
+      )
+      const awaiting: string[] = []
+      docSync.on("awaiting-answer", (peerId, a) =>
+        awaiting.push(`${peerId}:${a}`)
+      )
+      const messages: MessageContents[] = []
+      docSync.on("message", m => messages.push(m))
+
+      docSync.addPeer(bob, Promise.resolve(undefined))
+      docSync.addPeer(charlie, Promise.resolve(undefined))
+      await new Promise(setImmediate)
+      docSync.receiveMessage(requestFrom(bob, docId))
+
+      return { docId, handle, docSync, awaiting, messages }
+    }
+
+    it("is reported until it is sent the document", async () => {
+      const { handle, docSync, awaiting } = await setupRelay()
+      assert.deepStrictEqual(awaiting, ["bob:true"])
+
+      const answered = new Promise<void>(resolve =>
+        docSync.on("message", m => {
+          if (m.targetId !== bob || m.type !== "sync") return
+          if (Automerge.decodeSyncMessage(m.data).heads.length > 0) resolve()
+        })
+      )
+      handle.update(() => Automerge.from<TestDoc>({ foo: "found" }))
+      await answered
+
+      assert.deepStrictEqual(awaiting, ["bob:true", "bob:false"])
+    })
+
+    it("is reported until it is told the document is unavailable", async () => {
+      const { docId, docSync, awaiting, messages } = await setupRelay()
+      assert.deepStrictEqual(awaiting, ["bob:true"])
+
+      docSync.receiveMessage({
+        type: "doc-unavailable",
+        senderId: charlie,
+        targetId: alice,
+        documentId: docId,
+      })
+
+      assert.ok(
+        messages.some(m => m.type === "doc-unavailable" && m.targetId === bob)
+      )
+      assert.deepStrictEqual(awaiting, ["bob:true", "bob:false"])
+    })
+
+    it("is reported until it reports the document unavailable itself", async () => {
+      const { docId, docSync, awaiting } = await setupRelay()
+      assert.deepStrictEqual(awaiting, ["bob:true"])
+
+      docSync.receiveMessage({
+        type: "doc-unavailable",
+        senderId: bob,
+        targetId: alice,
+        documentId: docId,
+      })
+
+      assert.deepStrictEqual(awaiting, ["bob:true", "bob:false"])
+    })
+
+    it("is reported until it sends the document itself", async () => {
+      const { docId, docSync, awaiting } = await setupRelay()
+      assert.deepStrictEqual(awaiting, ["bob:true"])
+
+      const [, data] = Automerge.generateSyncMessage(
+        Automerge.from<TestDoc>({ foo: "bob's" }),
+        Automerge.initSyncState()
+      )
+      docSync.receiveMessage({
+        type: "sync",
+        senderId: bob,
+        targetId: alice,
+        documentId: docId,
+        data: data!,
+      })
+
+      assert.deepStrictEqual(awaiting, ["bob:true", "bob:false"])
+    })
+
+    it("is reported until it loses access", async () => {
+      let bobAllowed = true
+      const { docSync, awaiting, messages } = await setupRelay({
+        announce: async peerId => peerId !== bob || bobAllowed,
+        access: async peerId => peerId !== bob || bobAllowed,
+      })
+      assert.deepStrictEqual(awaiting, ["bob:true"])
+
+      bobAllowed = false
+      const toldUnavailable = new Promise<void>(resolve =>
+        docSync.on("message", m => {
+          if (m.type === "doc-unavailable" && m.targetId === bob) resolve()
+        })
+      )
+      docSync.reevaluateSharePolicy()
+      await toldUnavailable
+
+      assert.ok(messages.some(m => m.type === "doc-unavailable"))
+      assert.deepStrictEqual(awaiting, ["bob:true", "bob:false"])
+    })
+
+    it("is not reported for a peer denied access", async () => {
+      const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const handle = createTestHandle<TestDoc>(docId)
+      const docSync = createDocSynchronizer(
+        handle as DocHandle<unknown>,
+        undefined,
+        { announce: async () => false, access: async peerId => peerId !== bob }
+      )
+      const awaiting: string[] = []
+      docSync.on("awaiting-answer", (peerId, a) =>
+        awaiting.push(`${peerId}:${a}`)
+      )
+      docSync.addPeer(bob, Promise.resolve(undefined))
+      docSync.addPeer(charlie, Promise.resolve(undefined))
+      await new Promise(setImmediate)
+
+      docSync.receiveMessage(requestFrom(bob, docId))
+
+      assert.deepStrictEqual(awaiting, [])
+    })
+
+    it("is reported until a queued request is refused at activation", async () => {
+      const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const handle = createTestHandle<TestDoc>(docId)
+      const docSync = createDocSynchronizer(
+        handle as DocHandle<unknown>,
+        undefined,
+        { announce: async () => false, access: async peerId => peerId !== bob }
+      )
+      const awaiting: string[] = []
+      docSync.on("awaiting-answer", (peerId, a) =>
+        awaiting.push(`${peerId}:${a}`)
+      )
+      docSync.addPeer(charlie, Promise.resolve(undefined))
+      await new Promise(setImmediate)
+      const syncState = Promise.withResolvers<undefined>()
+      docSync.addPeer(bob, syncState.promise)
+      docSync.receiveMessage(requestFrom(bob, docId))
+      assert.deepStrictEqual(awaiting, ["bob:true"])
+
+      const refused = new Promise<void>(resolve =>
+        docSync.on("message", m => {
+          if (m.type === "doc-unavailable" && m.targetId === bob) resolve()
+        })
+      )
+      syncState.resolve(undefined)
+      await refused
+
+      assert.deepStrictEqual(awaiting, ["bob:true", "bob:false"])
+    })
+
+    it("is reported until it disconnects", async () => {
+      const { docSync, awaiting } = await setupRelay()
+      assert.deepStrictEqual(awaiting, ["bob:true"])
+
+      docSync.removePeer(bob)
+
+      assert.deepStrictEqual(awaiting, ["bob:true", "bob:false"])
+    })
+
+    it("is not reported when the request can be answered at once", async () => {
+      const { handle, docSynchronizer } = setup()
+      const awaiting: string[] = []
+      docSynchronizer.on("awaiting-answer", (peerId, a) =>
+        awaiting.push(`${peerId}:${a}`)
+      )
+      docSynchronizer.addPeer(bob, Promise.resolve(undefined))
+      await new Promise(setImmediate)
+
+      docSynchronizer.receiveMessage(requestFrom(bob, handle.documentId))
+
+      assert.deepStrictEqual(awaiting, [])
     })
   })
 })

@@ -26,6 +26,13 @@ import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
  */
 export const DEFAULT_SYNC_STATE_LOAD_CONCURRENCY = 20
 
+/**
+ * Default for {@link AutomergeSyncConfig.maxPinnedRequestsPerPeer}. A pinned
+ * document this repo does not yet have costs an estimated 16 KB, so the worst
+ * case is about 16 MB per peer.
+ */
+export const DEFAULT_MAX_PINNED_REQUESTS_PER_PEER = 1000
+
 export interface AutomergeSyncConfig {
   peerId: PeerId
 
@@ -77,6 +84,14 @@ export interface AutomergeSyncConfig {
    * Allocates one {@link EphemeralStamp} per outbound broadcast.
    */
   stampEphemeralMessage: () => EphemeralStamp
+
+  /**
+   * Maximum number of documents one peer's unanswered requests keep loaded.
+   * Requests over the cap are still served, but their documents are not
+   * pinned. Defaults to {@link DEFAULT_MAX_PINNED_REQUESTS_PER_PEER};
+   * `Infinity` disables the cap.
+   */
+  maxPinnedRequestsPerPeer?: number
 }
 
 interface CollectionSynchronizerEvents {
@@ -109,6 +124,14 @@ export class CollectionSynchronizer
    * ensureQuery/attach, re-loading persisted sync state.
    */
   #docSynchronizers = new WeakValueMap<DocumentId, DocSynchronizer>()
+
+  /**
+   * Synchronizers owing a peer an answer to its request, held strongly per
+   * peer: nothing local references the document while we wait upstream on
+   * the peer's behalf. Capped per peer by `maxPinnedRequestsPerPeer`.
+   */
+  #pinnedRequests = new Map<PeerId, Set<DocSynchronizer>>()
+  #maxPinnedRequestsPerPeer: number
   #denylist: DocumentId[]
   #config: AutomergeSyncConfig
   #networkReady: Promise<void>
@@ -137,6 +160,13 @@ export class CollectionSynchronizer
     this.#sharePolicyLimit = semaphore(
       config.sharePolicyConcurrency ?? SHARE_POLICY_CONCURRENCY
     )
+    this.#maxPinnedRequestsPerPeer =
+      config.maxPinnedRequestsPerPeer ?? DEFAULT_MAX_PINNED_REQUESTS_PER_PEER
+    if (!(this.#maxPinnedRequestsPerPeer >= 0)) {
+      throw new RangeError(
+        `maxPinnedRequestsPerPeer must be a number >= 0, got ${config.maxPinnedRequestsPerPeer}`
+      )
+    }
   }
 
   /** Expose doc synchronizers for Repo access (e.g. metrics). A snapshot
@@ -169,6 +199,7 @@ export class CollectionSynchronizer
     this.#log.debug(`removing document ${documentId}`)
     const docSync = this.#docSynchronizers.get(documentId)
     if (docSync) {
+      // Removing each peer also releases the requests it pinned.
       for (const peerId of this.peers) {
         docSync.removePeer(peerId)
       }
@@ -192,6 +223,7 @@ export class CollectionSynchronizer
     for (const docSync of this.#docSynchronizers.values()) {
       docSync.removePeer(peerId)
     }
+    this.#pinnedRequests.delete(peerId)
   }
 
   get peers(): PeerId[] {
@@ -219,6 +251,16 @@ export class CollectionSynchronizer
         documentId,
         targetId: message.senderId,
       })
+      return
+    }
+
+    // Sync and request messages open per-peer state that only removePeer
+    // releases, so they are accepted only from connected peers.
+    if (
+      (message.type === "sync" || message.type === "request") &&
+      !this.#peers.has(message.senderId)
+    ) {
+      this.#log.debug(`ignoring ${message.type} from unknown peer`)
       return
     }
 
@@ -292,8 +334,35 @@ export class CollectionSynchronizer
     docSync.on("open-doc", event => this.emit("open-doc", event))
     docSync.on("sync-state", event => this.emit("sync-state", event))
     docSync.on("metrics", event => this.emit("metrics", event))
+    docSync.on("awaiting-answer", (peerId, awaiting) =>
+      this.#setPinnedRequest(docSync, peerId, awaiting)
+    )
 
     return docSync
+  }
+
+  #setPinnedRequest(
+    docSync: DocSynchronizer,
+    peerId: PeerId,
+    awaiting: boolean
+  ): void {
+    let pinned = this.#pinnedRequests.get(peerId)
+    if (!awaiting) {
+      pinned?.delete(docSync)
+      if (pinned?.size === 0) this.#pinnedRequests.delete(peerId)
+      return
+    }
+    // A detached synchronizer is being torn down and a departed peer's pins
+    // are already released: neither may pin.
+    if (this.#docSynchronizers.get(docSync.documentId) !== docSync) return
+    if (!this.#peers.has(peerId)) return
+    // Over the cap the request is still served, but not pinned.
+    if ((pinned?.size ?? 0) >= this.#maxPinnedRequestsPerPeer) return
+    if (!pinned) {
+      pinned = new Set()
+      this.#pinnedRequests.set(peerId, pinned)
+    }
+    pinned.add(docSync)
   }
 
   #addPeerToDoc(

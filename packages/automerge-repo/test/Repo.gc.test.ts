@@ -1,14 +1,49 @@
+import { next as A } from "@automerge/automerge"
 import { describe, expect, it, vi } from "vitest"
 import { Repo } from "../src/Repo.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import type { DocHandle } from "../src/DocHandle.js"
+import { NetworkAdapter } from "../src/index.js"
 import type { AutomergeUrl, DocumentId, PeerId } from "../src/index.js"
+import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import type { Message } from "../src/network/messages.js"
 import connectRepos from "./helpers/connectRepos.js"
 import { flushGC, gcAvailable, waitForGC } from "./helpers/flushGC.js"
 
 const describeGC = gcAvailable ? describe : describe.skip
 
 type TestDoc = { foo: string }
+
+/**
+ * An always-connected adapter whose remote side the test drives by hand:
+ * `arrive` announces a peer, `deliver` injects a message from it, and every
+ * message the repo sends goes to `onSend`.
+ */
+class ScriptedAdapter extends NetworkAdapter {
+  onSend: (message: Message) => void = () => {}
+  isReady() {
+    return true
+  }
+  whenReady() {
+    return Promise.resolve()
+  }
+  connect(peerId: PeerId) {
+    this.peerId = peerId
+  }
+  disconnect() {}
+  send(message: Message) {
+    this.onSend(message)
+  }
+  arrive(peerId: PeerId) {
+    this.emit("peer-candidate", { peerId, peerMetadata: {} })
+  }
+  leave(peerId: PeerId) {
+    this.emit("peer-disconnected", { peerId })
+  }
+  deliver(message: Message) {
+    this.emit("message", message)
+  }
+}
 
 /**
  * End-to-end tests for the consumer-driven memory model: holding a handle
@@ -296,5 +331,175 @@ describeGC("Repo GC cross-cutting pins", () => {
         2000
       )
     ).toBe(true)
+  })
+
+  it("a peer's unanswered request pins the document until it is answered", async () => {
+    // Relay shape: the relay has no copy, so it asks upstream on the
+    // requester's behalf. Nothing local references the document meanwhile.
+    const toRequester = new ScriptedAdapter()
+    const toUpstream = new ScriptedAdapter()
+    const fromRelay = new ScriptedAdapter()
+    const relay = new Repo({
+      peerId: "relay" as PeerId,
+      network: [toRequester, toUpstream],
+    })
+    const upstream = new Repo({
+      peerId: "upstream" as PeerId,
+      network: [fromRelay],
+      shareConfig: { announce: async () => false, access: async () => true },
+    })
+    const upstreamHandle = upstream.create<TestDoc>({ foo: "found" })
+    const { documentId } = upstreamHandle
+
+    // Hold the relay's messages to upstream until released.
+    let release!: () => void
+    const released = new Promise<void>(resolve => (release = resolve))
+    let asked!: () => void
+    const askedUpstream = new Promise<void>(resolve => (asked = resolve))
+    toUpstream.onSend = message => {
+      asked()
+      void released.then(() => fromRelay.deliver(message))
+    }
+    fromRelay.onSend = message =>
+      queueMicrotask(() => toUpstream.deliver(message))
+
+    let answered!: () => void
+    const answeredRequester = new Promise<void>(resolve => (answered = resolve))
+    toRequester.onSend = message => {
+      if (message.type !== "sync") return
+      if (A.decodeSyncMessage(message.data).heads.length > 0) answered()
+    }
+
+    toRequester.arrive("requester" as PeerId)
+    toUpstream.arrive("upstream" as PeerId)
+    fromRelay.arrive("relay" as PeerId)
+
+    const [, request] = A.generateSyncMessage(A.init(), A.initSyncState())
+    toRequester.deliver({
+      type: "request",
+      senderId: "requester" as PeerId,
+      targetId: "relay" as PeerId,
+      documentId,
+      data: request!,
+    })
+    await askedUpstream
+
+    let probe!: WeakRef<DocHandle<unknown>>
+    ;(() => {
+      probe = new WeakRef(relay.handles[documentId])
+    })()
+
+    await flushGC()
+    expect(probe.deref()).toBeDefined()
+
+    release()
+    await answeredRequester
+    expect(upstreamHandle.doc()).toEqual({ foo: "found" })
+
+    // (The sync-throttle timer pins it briefly; the budget outlasts it.)
+    expect(await waitForGC(probe, 3000)).toBe(true)
+  })
+
+  /**
+   * A relay without the document between a scripted requester and a
+   * connected upstream that never answers, so every request stays unanswered.
+   */
+  const setupSilentRelay = (options: { maxPinnedRequestsPerPeer?: number }) => {
+    const toRequester = new ScriptedAdapter()
+    const toUpstream = new ScriptedAdapter()
+    const relay = new Repo({
+      peerId: "relay" as PeerId,
+      network: [toRequester, toUpstream],
+      ...options,
+    })
+    const asked = new Map<DocumentId, () => void>()
+    toUpstream.onSend = message => {
+      if ("documentId" in message && message.documentId) {
+        asked.get(message.documentId)?.()
+      }
+    }
+    toRequester.arrive("requester" as PeerId)
+    toUpstream.arrive("upstream" as PeerId)
+
+    /** Deliver the requester's request; resolve once the relay asks upstream. */
+    const request = async (): Promise<{
+      documentId: DocumentId
+      probe: WeakRef<DocHandle<unknown>>
+    }> => {
+      const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+      const askedUpstream = new Promise<void>(resolve =>
+        asked.set(documentId, resolve)
+      )
+      const [, data] = A.generateSyncMessage(A.init(), A.initSyncState())
+      toRequester.deliver({
+        type: "request",
+        senderId: "requester" as PeerId,
+        targetId: "relay" as PeerId,
+        documentId,
+        data: data!,
+      })
+      await askedUpstream
+      let probe!: WeakRef<DocHandle<unknown>>
+      ;(() => {
+        probe = new WeakRef(relay.handles[documentId])
+      })()
+      return { documentId, probe }
+    }
+
+    return { relay, toRequester, request }
+  }
+
+  it("removeFromCache releases a document pinned by an unanswered request", async () => {
+    const { relay, request } = setupSilentRelay({})
+    const { documentId, probe } = await request()
+
+    await flushGC()
+    expect(probe.deref()).toBeDefined()
+
+    await relay.removeFromCache(documentId)
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("delete releases a document pinned by an unanswered request", async () => {
+    const { relay, request } = setupSilentRelay({})
+    const { documentId, probe } = await request()
+
+    await flushGC()
+    expect(probe.deref()).toBeDefined()
+
+    relay.delete(documentId)
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("the requester disconnecting releases the pin", async () => {
+    const { toRequester, request } = setupSilentRelay({})
+    const { probe } = await request()
+
+    await flushGC()
+    expect(probe.deref()).toBeDefined()
+
+    toRequester.leave("requester" as PeerId)
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("pins at most maxPinnedRequestsPerPeer documents per peer", async () => {
+    const { request } = setupSilentRelay({ maxPinnedRequestsPerPeer: 1 })
+    const first = await request()
+    const second = await request()
+
+    // The request over the cap was still forwarded upstream (request()
+    // resolved), but only the first document is pinned.
+    expect(await waitForGC(second.probe, 2000)).toBe(true)
+    await flushGC()
+    expect(first.probe.deref()).toBeDefined()
+  })
+
+  it("maxPinnedRequestsPerPeer: Infinity is accepted and pins unanswered requests", async () => {
+    const { request } = setupSilentRelay({ maxPinnedRequestsPerPeer: Infinity })
+    const probes = []
+    for (let i = 0; i < 5; i++) probes.push((await request()).probe)
+
+    await flushGC()
+    expect(probes.every(probe => probe.deref() !== undefined)).toBe(true)
   })
 })

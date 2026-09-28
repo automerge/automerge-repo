@@ -129,6 +129,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     flushConcurrency = DEFAULT_FLUSH_CONCURRENCY,
     syncStateLoadConcurrency,
     sharePolicyConcurrency,
+    maxPinnedRequestsPerPeer,
     idFactory,
   }: RepoConfig = {}) {
     super()
@@ -216,6 +217,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           ),
         syncStateLoadConcurrency,
         sharePolicyConcurrency,
+        maxPinnedRequestsPerPeer,
         stampEphemeralMessage: () => networkSubsystem.stampEphemeralMessage(),
       },
       denylist
@@ -909,6 +911,18 @@ export interface RepoConfig {
    * call per peer-document pair at once; this caps how many run together.
    */
   sharePolicyConcurrency?: number
+
+  /**
+   * Maximum number of documents one peer's unanswered requests keep loaded
+   * while this repo asks other peers on its behalf. Defaults to 1000 (about
+   * 16 MB per peer at worst); `Infinity` disables the cap.
+   *
+   * @remarks
+   * Requests over the cap are still served, but their documents may be
+   * released before the answer arrives. The cap bounds what a broken or
+   * hostile peer can pin.
+   */
+  maxPinnedRequestsPerPeer?: number
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation

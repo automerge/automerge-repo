@@ -6,6 +6,7 @@ import { Repo } from "../src/Repo.js"
 import {
   CollectionSynchronizer,
   AutomergeSyncConfig,
+  DEFAULT_MAX_PINNED_REQUESTS_PER_PEER,
   DEFAULT_SYNC_STATE_LOAD_CONCURRENCY,
 } from "../src/synchronizer/CollectionSynchronizer.js"
 import { PeerId } from "../src/types.js"
@@ -119,6 +120,52 @@ describe("CollectionSynchronizer", () => {
       queueMicrotask(done)
     }))
 
+  it("rejects a negative or NaN maxPinnedRequestsPerPeer", () => {
+    for (const maxPinnedRequestsPerPeer of [-1, NaN]) {
+      assert.throws(
+        () =>
+          new CollectionSynchronizer(
+            createConfig({ maxPinnedRequestsPerPeer })
+          ),
+        RangeError
+      )
+    }
+  })
+
+  it("defaults maxPinnedRequestsPerPeer to 1000", () => {
+    assert.equal(DEFAULT_MAX_PINNED_REQUESTS_PER_PEER, 1000)
+  })
+
+  it("ignores sync and request messages from a sender that is not a connected peer", () => {
+    let ensured = 0
+    synchronizer = new CollectionSynchronizer(
+      createConfig({
+        ensureQuery: () => {
+          ensured++
+          return createReadyQuery()
+        },
+      })
+    )
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const [, data] = Automerge.generateSyncMessage(
+      Automerge.init(),
+      Automerge.initSyncState()
+    )
+
+    for (const type of ["sync", "request"] as const) {
+      synchronizer.receiveMessage({
+        type,
+        senderId: "not-a-peer" as PeerId,
+        targetId: "test" as PeerId,
+        documentId,
+        data: data!,
+      })
+    }
+
+    assert.equal(ensured, 0)
+    assert.equal(synchronizer.docSynchronizers[documentId], undefined)
+  })
+
   it("removes document", async () => {
     const query = createReadyQuery()
     synchronizer.attach(query)
@@ -177,6 +224,7 @@ describe("CollectionSynchronizer", () => {
         data: syncData,
       }
 
+      repo.synchronizer.addPeer("remote-peer" as PeerId)
       await repo.removeFromCache(documentId)
       assert(
         repo.synchronizer.docSynchronizers[documentId] === undefined,
