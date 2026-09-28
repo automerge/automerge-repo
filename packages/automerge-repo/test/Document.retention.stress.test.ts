@@ -128,7 +128,7 @@ describe("Repo retention under churn (GC-backed)", () => {
   itGC(
     "listener churn across many documents leaves nothing rooted",
     async () => {
-      const repo = new Repo()
+      const repo = new Repo({ releaseUnobservedAfterMs: 0 })
       const probes: WeakRef<DocHandle<TestDoc>>[] = []
 
       ;(() => {
@@ -151,7 +151,7 @@ describe("Repo retention under churn (GC-backed)", () => {
   )
 
   itGC("held listeners root all documents until removed", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     const probes: WeakRef<DocHandle<TestDoc>>[] = []
     const documentIds: DocumentId[] = []
 
@@ -185,7 +185,7 @@ describe("Repo retention under churn (GC-backed)", () => {
   })
 
   itGC("a re-rooted document survives dropping the handle again", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     let url!: AutomergeUrl
     let documentId!: DocumentId
 

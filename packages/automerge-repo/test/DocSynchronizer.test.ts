@@ -946,4 +946,71 @@ describe("DocSynchronizer", () => {
       assert.deepStrictEqual(awaiting, [])
     })
   })
+
+  describe("activity", () => {
+    const requestFrom = (peerId: PeerId, documentId: DocumentId) => {
+      const [, data] = Automerge.generateSyncMessage(
+        Automerge.init(),
+        Automerge.initSyncState()
+      )
+      return {
+        type: "request" as const,
+        senderId: peerId,
+        targetId: alice,
+        documentId,
+        data: data!,
+      }
+    }
+
+    it("is reported when a peer's message is applied", async () => {
+      const { handle, docSynchronizer } = setup()
+      let activity = 0
+      docSynchronizer.on("activity", () => activity++)
+      docSynchronizer.addPeer(bob, Promise.resolve(undefined))
+      await new Promise(setImmediate)
+
+      docSynchronizer.receiveMessage(requestFrom(bob, handle.documentId))
+      assert.equal(activity, 1)
+    })
+
+    it("is not reported for a denied peer's message", async () => {
+      const docId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const handle = createTestHandle<TestDoc>(docId)
+      handle.update(() => Automerge.from<TestDoc>({ foo: "" }))
+      const docSync = createDocSynchronizer(
+        handle as DocHandle<unknown>,
+        undefined,
+        { announce: async () => false, access: async () => false }
+      )
+      let activity = 0
+      docSync.on("activity", () => activity++)
+      docSync.addPeer(bob, Promise.resolve(undefined))
+      await new Promise(setImmediate)
+
+      docSync.receiveMessage(requestFrom(bob, docId))
+      assert.equal(activity, 0)
+    })
+
+    it("is not reported for an ephemeral message", async () => {
+      const { handle, docSynchronizer } = setup()
+      let activity = 0
+      docSynchronizer.on("activity", () => activity++)
+      docSynchronizer.addPeer(bob, Promise.resolve(undefined))
+      await new Promise(setImmediate)
+
+      docSynchronizer.receiveMessage({
+        type: "ephemeral",
+        senderId: bob,
+        targetId: alice,
+        documentId: handle.documentId,
+        sessionId: "session-1" as SessionId,
+        count: 1,
+        // cbor: { foo: "bar" }
+        data: new Uint8Array([
+          0xa1, 0x63, 0x66, 0x6f, 0x6f, 0x63, 0x62, 0x61, 0x72,
+        ]),
+      })
+      assert.equal(activity, 0)
+    })
+  })
 })

@@ -39,7 +39,7 @@ export {
   decodeHeads,
 } from "./AutomergeUrl.js"
 export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
-export { Repo } from "./Repo.js"
+export { Repo, DEFAULT_RELEASE_UNOBSERVED_AFTER_MS } from "./Repo.js"
 export { setLoggerFactory, makeLogger } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
 export { Presence } from "./presence/Presence.js"

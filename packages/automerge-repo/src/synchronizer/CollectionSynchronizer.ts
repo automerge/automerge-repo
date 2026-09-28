@@ -99,6 +99,8 @@ interface CollectionSynchronizerEvents {
   "sync-state": (payload: SyncStatePayload) => void
   "open-doc": (arg: OpenDocMessage) => void
   metrics: (arg: DocSyncMetrics) => void
+  /** A peer's sync or request message for the document was applied. */
+  activity: (documentId: DocumentId) => void
 }
 
 /**
@@ -354,6 +356,7 @@ export class CollectionSynchronizer
     docSync.on("open-doc", event => this.emit("open-doc", event))
     docSync.on("sync-state", event => this.emit("sync-state", event))
     docSync.on("metrics", event => this.emit("metrics", event))
+    docSync.on("activity", () => this.emit("activity", docSync.documentId))
     docSync.on("awaiting-answer", (peerId, awaiting) =>
       this.#setPinnedRequest(docSync, peerId, awaiting)
     )

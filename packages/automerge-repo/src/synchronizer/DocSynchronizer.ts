@@ -90,6 +90,8 @@ interface DocSynchronizerEvents {
   metrics: (arg: DocSyncMetrics) => void
   /** Whether `peerId` is awaiting an answer to its request for this document. */
   "awaiting-answer": (peerId: PeerId, awaiting: boolean) => void
+  /** A peer's sync or request message passed the share policy and was applied. */
+  activity: () => void
 }
 
 /**
@@ -921,6 +923,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
       return newDoc
     })
+    this.emit("activity")
   }
 
   // EPHEMERAL MESSAGES
