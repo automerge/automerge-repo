@@ -8,9 +8,9 @@ import {
   type SedimentreeEvent,
   type SedimentreeId,
   type SyncRoundResult,
-} from "@automerge/automerge-repo-sedimentree"
-import { MemoryBackend } from "@automerge/automerge-repo-sedimentree/testing"
-import { extractRecords } from "@automerge/automerge-repo-sedimentree-automerge"
+} from "@automerge/automerge-repo/sedimentree"
+import { MemoryBackend } from "@automerge/automerge-repo/sedimentree/testing"
+import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
 import { SedimentreeDocumentController } from "../src/SedimentreeDocumentController.js"
 import type { DocumentId } from "../src/types.js"
 

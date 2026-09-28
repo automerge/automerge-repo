@@ -6,14 +6,14 @@ import type {
   SedimentreeId,
   SedimentreeSession,
   SyncRoundResult,
-} from "@automerge/automerge-repo-sedimentree"
+} from "@automerge/automerge-repo/sedimentree"
 import {
   applyRecords,
   extractRecords,
   getRecordMetadata,
   recordMetadataKey,
   satisfiesCheckpoint,
-} from "@automerge/automerge-repo-sedimentree-automerge"
+} from "@automerge/automerge-repo/sedimentree/automerge"
 import { Document } from "./Document.js"
 import { DocHandle } from "./DocHandle.js"
 import { DocumentQuery, type DocumentProgress } from "./DocumentQuery.js"

@@ -1,8 +1,8 @@
 # Subduction integration
 
-**Status:** Agreed direction and initial scope, ready for an executable scaffold.
-API names and signatures remain provisional; the remaining implementation checks
-are listed at the end.
+**Status:** Executable scaffold and a local Subduction commit/fragment prototype.
+The public Repo migration and real network/composition validation remain pending.
+API names and signatures are provisional; remaining checks are listed below.
 
 ## Summary
 
@@ -151,26 +151,34 @@ a document does not populate Repo's handle cache.
 
 ### Packaging
 
-Initial responsibilities, with final package names still to be chosen:
+The contract and translation now live in Repo rather than separate packages.
+The module boundaries remain explicit:
 
-- **Contract package:** plain sedimentree data types, backend interfaces, and
-  shared conformance-test support. No Repo, Automerge, or Subduction runtime
-  dependency.
-- **Automerge translation module/package:** small reusable conversion helpers,
-  shared by core Repo and the legacy backend. Depends on Automerge and the
-  contract, not Repo. Avoid duplicating fragment extraction logic.
-- **Repo package:** public document API and translation orchestration. Depends
-  on the contract, Automerge translation, and the Subduction backend for default
-  construction. It does not depend on the legacy or composite implementation.
-  A separately packaged core with no Automerge or Subduction dependency is
-  deferred; the contract package is independent of both from the outset.
-- **Legacy package:** legacy translation, synchronizers, storage subsystem,
-  network subsystem, remote-head gossip, and existing adapter implementations.
-- **Subduction package:** Subduction wrapper, connection management, and its
-  storage/transport integration.
-- **Composition package:** combines backend instances using only the public
-  contract. Owns routing, cross-propagation, aggregate observations, failure
-  handling, and child lifetimes; needs no Automerge or Subduction internals.
+- **`automerge-repo`:** public document API and orchestration, plus lightweight
+  subpath exports:
+  - **`/sedimentree`:** plain records, IDs, events, and backend interfaces. No
+    external runtime imports and no import of Repo orchestration.
+  - **`/sedimentree/testing`:** the testing-only memory backend; not re-exported
+    by the contract entrypoint. Shared contract tests live in Repo's test tree.
+  - **`/sedimentree/automerge`:** pure translation shared by Repo and the future
+    legacy backend. Imports Automerge slim without initializing WASM or loading
+    Repo orchestration. This is not the legacy sync implementation.
+- **`automerge-repo-legacy-sync` (future extraction):** legacy translation,
+  synchronizers, storage, network, remote-head gossip, and existing adapters.
+- **`automerge-repo-subduction`:** the separate Subduction backend, currently a
+  private local-only experiment, with connection/transport integration pending.
+  It depends on Repo but imports only `/sedimentree` at runtime.
+- **Composition package (future):** combines backend instances through the same
+  public contract. Owns routing, cross-propagation, aggregate observations,
+  failure handling, and child lifetimes; needs no document orchestration or
+  Automerge/Subduction internals.
+
+Backend dependencies or peer dependencies on Repo are permitted. What matters
+is the runtime module boundary: backend imports must not enter Repo's constructor
+or initialize a default backend. Repo's eventual default Subduction dependency
+must preserve that boundary. This packaging change does not wire backend
+injection or change the public constructor; the existing legacy orchestration
+is still in Repo. A dependency-free core package remains deferred.
 
 The existing adapter implementations can become subpath exports of the legacy
 package. Browser consumers must not pull in Node filesystem or server WebSocket
@@ -879,10 +887,10 @@ adapters. A core independent of both Automerge and Subduction is future work.
 ### 1a. Build the minimal executable scaffold
 
 This is the first deliverable, not the complete real-backend validation milestone.
-The foundation is now implemented in the private workspace packages
-`automerge-repo-sedimentree` (plain contract and testing-only memory backend) and
-`automerge-repo-sedimentree-automerge` (pure translation). Tests exercise their
-round-trip, checkpoint ordering, and rescan boundary. The private
+The foundation is now implemented in Repo's `/sedimentree`,
+`/sedimentree/testing`, and `/sedimentree/automerge` subpaths (contract, testing-only
+memory backend, and pure translation). Tests exercise their round-trip,
+checkpoint ordering, rescan boundary, and side-effect-free package imports. The private
 `SedimentreeDocumentController` now connects `Document`, `DocHandle`, and
 `DocumentQuery` to these interfaces. It captures creation history, tracks failed
 and in-flight writes independently of self-echo, fences flush barriers before
@@ -914,26 +922,32 @@ preserves exact records does not prove cross-backend equivalence or durability.
 
 ### 1b. Validate real backends and composition before bulk extraction
 
-An early, private `automerge-repo-sedimentree-subduction` experiment now exercises
-actual `@automerge/subduction` 0.21.2 WASM signing/storage with the internal
-controller, including fresh-process recovery. Automerge fragment extraction and
-application remain in the translator using raw `@automerge/automerge` 3.5.0.
-The backend experiment is **local-only, commit-only, exclusively owned**, with
-explicitly injected signer and atomic-per-record byte storage.
-It neither simulates networking nor wraps the memory backend. A failed native
-store forces active observations to rescan, including ambiguous writes that
-persisted before rejecting. Batch rollback is not required.
+The private `automerge-repo-subduction` experiment exercises actual
+Subduction WASM signing/storage with the internal controller, including
+fresh-process recovery of a fragmented 2,000-change Automerge history. Fragment
+extraction and application remain in the translator using raw
+`@automerge/automerge` 3.5.0. The backend is **local-only, exclusively owned**, with
+an explicitly injected signer and atomic-per-record byte storage; it supports
+both loose commits and fragments without simulating networking or decoding CRDT
+blobs. A failed native store forces active observations to rescan, including
+ambiguous writes that persisted before rejecting. Batch rollback is not required.
+Failed deletion similarly invalidates collection observations for rescan.
 
-The real adapter's fragment support is blocked on a lossless native metadata path,
-not on Automerge's fragment APIs: `@automerge/subduction` 0.21.2's published native
-`Fragment` API has no checkpoint getter, and its constructor takes full commit
-IDs rather than the contract's checkpoint prefixes. This prototype explicitly
-rejects fragments, including persisted fragment records; it does not invent empty
-checkpoints or decode Automerge inside the backend. An upstream API addition or
-a separately validated persisted metadata extension is needed for fragment
-interoperability; real two-peer behavior also remains unimplemented. The remaining
-validation below is still required before freezing the interface or changing
-Repo's default.
+The native metadata blocker is resolved by locally linking the sibling
+Subduction build, which adds `Checkpoint`, `Fragment.fromCheckpointPrefixes`, and
+checkpoint/tree-ID getters. Its package version is still 0.21.2, but these APIs
+are not in the published 0.21.2 package; a new upstream release is needed for a
+portable dependency pin. Signed fragment metadata roundtrips through compound
+storage without a sidecar, invented checkpoint values, or native wire parsing.
+Commit and fragment records sharing a head are retained separately. Conflicting
+same-kind representations still reject rather than proving variant equivalence;
+physical reclamation remains disabled. Readiness retains targets mentioned only
+by fragment boundaries, whose history claims a standalone blob cannot prove.
+
+Real two-peer behavior and composition remain unimplemented. Full-history
+validation on each saved record can make batch writes quadratic, and submission
+backpressure remains production work. The validation below is still required
+before freezing the interface or changing Repo's default.
 
 - Implement experimental legacy translation for create, edit, persist, reload,
   and two-peer sync; check interoperability with an unmodified legacy Repo.
@@ -1144,9 +1158,10 @@ not reasons to reopen the agreed scope:
    settings into Repo orchestration. Specify how Repo creates native key-based
    IDs and handles `idFactory` values outside the supported 16/32-byte mapping;
    the reserved legacy range and exclusion from legacy routing are fixed.
-7. **Packaging and migration:** choose package names, browser/Node entrypoints, and
-   any temporary forwarding exports or legacy facade. Repo's default Subduction
-   dependency is allowed; a dependency-free core is deferred.
+7. **Packaging and migration:** preserve the lightweight Repo subpath boundary
+   when adding default Subduction construction. Finalize legacy/composite
+   entrypoints and any temporary forwarding exports or legacy facade. Repo's
+   default Subduction dependency is allowed; a dependency-free core is deferred.
 
 Subduction-owned physical reclamation and a cleaner upstream observation API can
 follow later. They are not prerequisites for the first scaffold. Use the

@@ -31,8 +31,6 @@
   },
   "dependencies": {
     "@automerge/automerge": "catalog:",
-    "@automerge/automerge-repo-sedimentree": "workspace:*",
-    "@automerge/automerge-repo-sedimentree-automerge": "workspace:*",
     "bs58check": "^4.0.0",
     "cbor-x": "catalog:",
     "debug": "catalog:",
@@ -44,6 +42,18 @@
   "exports": {
     ".": "./dist/entrypoints/fullfat.js",
     "./slim": "./dist/entrypoints/slim.js",
+    "./sedimentree": {
+      "types": "./dist/sedimentree/index.d.ts",
+      "default": "./dist/sedimentree/index.js"
+    },
+    "./sedimentree/automerge": {
+      "types": "./dist/sedimentree/automerge/index.d.ts",
+      "default": "./dist/sedimentree/automerge/index.js"
+    },
+    "./sedimentree/testing": {
+      "types": "./dist/sedimentree/testing/index.d.ts",
+      "default": "./dist/sedimentree/testing/index.js"
+    },
     "./helpers/*.js": "./dist/helpers/*.js"
   },
   "publishConfig": {

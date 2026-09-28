@@ -32,6 +32,25 @@ Other packages in this monorepo include:
   Likely only useful for experimentation, but allows simple (inefficient) tab-to-tab data
   synchronization
 
+## Experimental sedimentree backend modules
+
+The backend extraction exposes three lightweight subpaths; their APIs remain
+provisional:
+
+- [`@automerge/automerge-repo/sedimentree`](./src/sedimentree/README.md): plain
+  records, IDs, events, and the backend contract. No external runtime imports.
+- [`@automerge/automerge-repo/sedimentree/automerge`](./src/sedimentree/automerge/README.md):
+  pure Automerge translation; imports Automerge slim but does not initialize it.
+- `@automerge/automerge-repo/sedimentree/testing`: the deterministic memory backend
+  for contract and document tests.
+
+These entrypoints do not import Repo orchestration. Backends can depend on this
+package without loading its constructor. The separate experimental
+[`@automerge/automerge-repo-subduction`](../automerge-repo-subduction/README.md)
+implements the contract using Subduction. The public Repo constructor still uses
+the existing legacy configuration; backend injection and the legacy-sync package
+extraction are not implemented yet.
+
 ## Usage
 
 This library provides two main components: the `Repo` itself, and the `DocHandle`s it contains.

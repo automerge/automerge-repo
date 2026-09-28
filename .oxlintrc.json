@@ -36,9 +36,11 @@
               "@automerge/automerge-repo",
               "@automerge/automerge-repo/*",
               "!@automerge/automerge-repo/slim",
-              "!@automerge/automerge-repo/slim/*"
+              "!@automerge/automerge-repo/slim/*",
+              "!@automerge/automerge-repo/sedimentree",
+              "!@automerge/automerge-repo/sedimentree/*"
             ],
-            "message": "Import from @automerge/automerge-repo/slim instead of @automerge/automerge-repo"
+            "message": "Import from @automerge/automerge-repo/slim or its lightweight sedimentree subpaths instead of the fullfat entrypoint"
           }
         ]
       }
