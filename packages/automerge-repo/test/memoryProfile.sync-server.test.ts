@@ -17,6 +17,17 @@
  * is forced, and memory plus live-document counts are sampled.
  *
  * Only APIs common to the compared refs are used.
+ *
+ * Optional knobs, recorded in the output meta when set:
+ *
+ *   MEMORY_PROFILE_RELEASE_MS  passed to the server Repo as
+ *                              releaseUnobservedAfterMs; a ref without that
+ *                              option ignores it
+ *   MEMORY_PROFILE_SETTLE_MS   ms to wait before each sample (default 150,
+ *                              or twice the release period plus 150)
+ *
+ * A ref with a release period keeps an idle document for one to two periods,
+ * so sample after more than two, or documents still inside it count as held.
  */
 import * as fs from "node:fs"
 import { describe, it } from "vitest"
@@ -29,6 +40,20 @@ import { pause } from "../src/helpers/pause.js"
 type SyncDoc = { log: string[] }
 
 const OUT = process.env.MEMORY_PROFILE
+
+/** A non-negative millisecond count from the environment, if set. */
+function envMs(name: string): number | undefined {
+  const raw = process.env[name]
+  if (raw === undefined || raw === "") return undefined
+  const ms = Number(raw)
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw new Error(`${name} must be a non-negative number of ms, got "${raw}"`)
+  }
+  return ms
+}
+
+const SETTLE_MS_OVERRIDE = envMs("MEMORY_PROFILE_SETTLE_MS")
+const RELEASE_MS = envMs("MEMORY_PROFILE_RELEASE_MS")
 
 const ROUNDS = 24
 const NEW_DOCS_PER_ROUND = 15
@@ -52,7 +77,8 @@ async function until(cond: () => boolean, what: string, timeoutMs = 60_000) {
  * default 100ms saveDebounceRate so a round's writes have been issued rather
  * than still sitting in a pending throttle, which would hold the document.
  */
-const SETTLE_MS = 150
+const SETTLE_MS =
+  SETTLE_MS_OVERRIDE ?? (RELEASE_MS === undefined ? 150 : 2 * RELEASE_MS + 150)
 
 /**
  * GC passes per sample. A pass is `gc()` plus a macrotask yield, so a
@@ -83,10 +109,15 @@ const toMB = (bytes: number) => Math.round((bytes / 1048576) * 100) / 100
 describe.runIf(OUT)("sync-server memory profile", () => {
   it("samples server memory across ephemeral client sessions", async () => {
     const storage = new DummyStorageAdapter()
+    // Spread rather than a literal property, so refs whose RepoConfig lacks the
+    // option still typecheck.
+    const release =
+      RELEASE_MS === undefined ? {} : { releaseUnobservedAfterMs: RELEASE_MS }
     const server = new Repo({
       peerId: "server" as PeerId,
       storage,
       sharePolicy: async () => false,
+      ...release,
     })
 
     const knownUrls: AutomergeUrl[] = []
@@ -169,6 +200,10 @@ describe.runIf(OUT)("sync-server memory profile", () => {
             newDocsPerRound: NEW_DOCS_PER_ROUND,
             changesPerDoc: CHANGES_PER_DOC,
             revisitsPerRound: REVISITS_PER_ROUND,
+            ...(SETTLE_MS_OVERRIDE === undefined && RELEASE_MS === undefined
+              ? {}
+              : { settleMs: SETTLE_MS }),
+            ...(RELEASE_MS === undefined ? {} : { releaseMs: RELEASE_MS }),
           },
           samples,
         },

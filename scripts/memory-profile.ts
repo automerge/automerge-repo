@@ -37,9 +37,28 @@ const METRICS = [
   },
 ]
 
+/**
+ * Harness knobs. Each is set through its environment variable, which a flag
+ * sets for the run, and is recorded in the harness meta when set.
+ */
+const KNOBS = [
+  {
+    flag: "--settle-ms",
+    env: "MEMORY_PROFILE_SETTLE_MS",
+    meta: "settleMs",
+    tag: "settle",
+  },
+  {
+    flag: "--release-ms",
+    env: "MEMORY_PROFILE_RELEASE_MS",
+    meta: "releaseMs",
+    tag: "release",
+  },
+]
+
 const usage = `Usage:
-  memory-profile.ts collect
-  memory-profile.ts compare <ref> <ref> [<ref>...]
+  memory-profile.ts collect [options]
+  memory-profile.ts compare <ref> <ref> [<ref>...] [options]
   memory-profile.ts chart
   memory-profile.ts help
 
@@ -66,7 +85,21 @@ Commands:
     Chart.js are inlined, so the page needs no network.
 
   help, --help, -h
-    Show this help text.`
+    Show this help text.
+
+Options, for collect and compare:
+  --release-ms <ms>
+    Pass this to the server Repo as releaseUnobservedAfterMs. A ref without
+    that option ignores it. Sets MEMORY_PROFILE_RELEASE_MS.
+
+  --settle-ms <ms>
+    Wait this long before each sample. Defaults to 150, or with --release-ms
+    to twice the release period plus 150, since an idle document stays loaded
+    for one to two periods. Sets MEMORY_PROFILE_SETTLE_MS.
+
+  To measure a ref that keeps idle documents loaded, pass a short
+  --release-ms. Set values are added to the sample's label, so the chart
+  tells the runs apart.`
 
 type Sample = Record<string, number>
 
@@ -82,6 +115,35 @@ type Provenance = {
 }
 
 type Profile = HarnessOutput & Provenance & { collectedAt: string }
+
+/** Split knob flags from the rest of the arguments into environment values. */
+function parseKnobs(args: string[]) {
+  const rest: string[] = []
+  const env: Record<string, string> = {}
+  for (let i = 0; i < args.length; i++) {
+    const [flag, inline] = args[i].split(/=(.*)/s)
+    const knob = KNOBS.find(k => k.flag === flag)
+    if (!knob) {
+      if (args[i].startsWith("-")) throw new Error(usage)
+      rest.push(args[i])
+      continue
+    }
+    const value = inline ?? args[++i]
+    const ms = Number(value)
+    if (!value || !Number.isFinite(ms) || ms < 0) {
+      throw new Error(`${knob.flag} needs a non-negative number of ms.`)
+    }
+    env[knob.env] = value
+  }
+  return { rest, env }
+}
+
+/** Label suffix naming the knobs a run set, read back from its meta. */
+function knobTags(meta: Record<string, number>) {
+  return KNOBS.filter(k => meta[k.meta] !== undefined)
+    .map(k => ` ${k.tag}=${meta[k.meta]}ms`)
+    .join("")
+}
 
 function main([command, ...args]: string[]) {
   switch (command) {
@@ -102,20 +164,22 @@ function main([command, ...args]: string[]) {
   }
 }
 
-function collect(args: string[]) {
-  if (args.length !== 0) throw new Error(usage)
+function collect(argv: string[]) {
+  const { rest, env } = parseKnobs(argv)
+  if (rest.length !== 0) throw new Error(usage)
   const commit = git(["rev-parse", "HEAD"])
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"])
   const ref = branch === "HEAD" ? short(commit) : branch
   const dirty = git(["status", "--porcelain"]) !== ""
-  runHarness(REPO_ROOT, {
-    ref,
-    commit,
-    label: `${ref}@${short(commit)}${dirty ? "+dirty" : ""}`,
-  })
+  runHarness(
+    REPO_ROOT,
+    { ref, commit, label: `${ref}@${short(commit)}${dirty ? "+dirty" : ""}` },
+    env
+  )
 }
 
-function compare(refs: string[]) {
+function compare(argv: string[]) {
+  const { rest: refs, env } = parseKnobs(argv)
   if (refs.length < 2) throw new Error(usage)
   // Up front: a run is minutes per ref, too long to find out the last one was
   // a typo.
@@ -130,7 +194,7 @@ function compare(refs: string[]) {
       install(tree, ref)
       mkdirSync(dirname(path.join(tree, HARNESS)), { recursive: true })
       writeFileSync(path.join(tree, HARNESS), harness)
-      runHarness(tree, { ref, commit, label: `${ref}@${short(commit)}` })
+      runHarness(tree, { ref, commit, label: `${ref}@${short(commit)}` }, env)
     } finally {
       spawnSync("git", ["worktree", "remove", "--force", tree], {
         cwd: REPO_ROOT,
@@ -168,12 +232,17 @@ function install(tree: string, ref: string) {
 
 /**
  * Run the harness in `cwd` and write its samples, with the provenance of the
- * code they describe, to a sample file named after the label.
+ * code they describe, to a sample file named after the label. Knobs the run
+ * set are appended to the label.
  *
  * --expose-gc goes on unconditionally: the harness needs globalThis.gc and not
  * every ref wires up vitest's execArgv.
  */
-function runHarness(cwd: string, provenance: Provenance) {
+function runHarness(
+  cwd: string,
+  provenance: Provenance,
+  knobEnv: Record<string, string>
+) {
   const vitest = path.join(cwd, "node_modules", ".bin", "vitest")
   if (!existsSync(vitest)) {
     throw new Error(`${vitest} is missing. Run pnpm install.`)
@@ -187,6 +256,7 @@ function runHarness(cwd: string, provenance: Provenance) {
       stdio: "inherit",
       env: {
         ...process.env,
+        ...knobEnv,
         MEMORY_PROFILE: samplePath,
         NODE_OPTIONS: [process.env.NODE_OPTIONS, "--expose-gc"]
           .filter(Boolean)
@@ -197,13 +267,15 @@ function runHarness(cwd: string, provenance: Provenance) {
       throw new Error(`The harness failed for ${provenance.label}.`)
     }
     const output = JSON.parse(readFileSync(samplePath, "utf8")) as HarnessOutput
+    const label = provenance.label + knobTags(output.meta)
     const profile: Profile = {
       ...provenance,
+      label,
       collectedAt: new Date().toISOString(),
       ...output,
     }
     mkdirSync(PROFILE_DIR, { recursive: true })
-    const file = path.join(PROFILE_DIR, `${fileSafe(provenance.label)}.json`)
+    const file = path.join(PROFILE_DIR, `${fileSafe(label)}.json`)
     writeFileSync(file, JSON.stringify(profile, null, 2))
     console.log(file)
   } finally {
@@ -264,6 +336,9 @@ function renderChart(profiles: Profile[]) {
 <table id="summary"><caption>Final round</caption></table>
 <script type="application/json" id="profile-data">${embed(profiles)}</script>
 <script type="application/json" id="metric-data">${embed(METRICS)}</script>
+<script type="application/json" id="knob-data">${embed(
+    KNOBS.map(k => k.meta)
+  )}</script>
 <script type="application/json" id="axis-data">${embed({
     key: X_KEY,
     label: X_LABEL,
@@ -300,16 +375,21 @@ function pageScript() {
 const profiles = read("profile-data")
 const metrics = read("metric-data")
 const axis = read("axis-data")
+// Knobs vary between runs on purpose and are in each label; only the
+// workload has to match.
+const knobs = read("knob-data")
+const workloadOf = profile =>
+  Object.entries(profile.meta).filter(entry => !knobs.includes(entry[0]))
 const palette = ["#2f6faf", "#c2483b", "#2e7d5b", "#b07a12", "#6b4c9a", "#3e7c8c"]
 const color = i => palette[i % palette.length]
 const last = profile => profile.samples[profile.samples.length - 1]
 
-const workload = Object.entries(profiles[0].meta)
+const workload = workloadOf(profiles[0])
   .map(entry => entry[0] + " " + entry[1])
   .join(", ")
 document.getElementById("workload").textContent = workload
 
-const shape = profile => JSON.stringify(profile.meta)
+const shape = profile => JSON.stringify(workloadOf(profile))
 const mismatched = profiles.filter(p => shape(p) !== shape(profiles[0]))
 if (mismatched.length > 0) {
   const warning = document.getElementById("warning")
