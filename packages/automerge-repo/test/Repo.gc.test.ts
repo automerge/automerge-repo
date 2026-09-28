@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DEFAULT_RELEASE_UNOBSERVED_AFTER_MS, Repo } from "../src/Repo.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
@@ -919,6 +919,7 @@ describeGC("Repo release of unobserved documents", () => {
       const handle = repo.create<TestDoc>({ foo: "kept" })
       documentId = handle.documentId
       probe = new WeakRef(handle)
+      handle.on("change", () => {})
     })()
 
     await flushGC()
@@ -942,5 +943,140 @@ describeGC("Repo release of unobserved documents", () => {
     expect(probe.deref()).toBeDefined()
     repo.delete(documentId)
     expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  describe("maxUnobservedBytes", () => {
+    /** Incompressible text, so stored sizes are predictable. */
+    const noise = (length: number, seed: number) => {
+      let x = seed
+      let text = ""
+      for (let i = 0; i < length; i++) {
+        x = (x * 1103515245 + 12345) % 2147483648
+        text += String.fromCharCode(33 + (x % 94))
+      }
+      return text
+    }
+    const CAP = 4000
+    const SAVE_DEBOUNCE_MS = 100
+
+    const createRepo = () =>
+      new Repo({
+        storage: new DummyStorageAdapter(),
+        saveDebounceRate: SAVE_DEBOUNCE_MS,
+        releaseUnobservedAfterMs: Infinity,
+        maxUnobservedBytes: CAP,
+      })
+
+    /** Create a flushed document of about 1.6 KB stored and drop the handle. */
+    const createStored = async (repo: Repo, seed: number) => {
+      let documentId!: DocumentId
+      let probe!: WeakRef<DocHandle<TestDoc>>
+      ;(() => {
+        const handle = repo.create<TestDoc>({ foo: noise(2000, seed) })
+        documentId = handle.documentId
+        probe = new WeakRef(handle)
+      })()
+      await repo.flush([documentId])
+      return { documentId, probe }
+    }
+
+    /** Fire the pending save throttles, which pin their documents. */
+    const fireSaveThrottles = () =>
+      vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS * 2)
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("releases the least recently active documents over the cap", async () => {
+      const repo = createRepo()
+      const first = await createStored(repo, 1)
+      const second = await createStored(repo, 2)
+      const sizes = [first, second].map(({ documentId }) =>
+        repo.storageSubsystem!.storedSize(documentId)
+      )
+      expect(sizes[0] + sizes[1]).toBeLessThanOrEqual(CAP)
+
+      const third = await createStored(repo, 3)
+      expect(
+        sizes[0] +
+          sizes[1] +
+          repo.storageSubsystem!.storedSize(third.documentId)
+      ).toBeGreaterThan(CAP)
+
+      await fireSaveThrottles()
+      expect(await waitForGC(first.probe, 2000)).toBe(true)
+      await flushGC()
+      expect(second.probe.deref()).toBeDefined()
+      expect(third.probe.deref()).toBeDefined()
+    })
+
+    it("rejects a negative or NaN cap", () => {
+      for (const maxUnobservedBytes of [-1, NaN]) {
+        expect(() => new Repo({ maxUnobservedBytes })).toThrow(RangeError)
+      }
+    })
+
+    it("counts the size a document reaches through an incremental save", async () => {
+      const repo = createRepo()
+      const first = await createStored(repo, 1)
+      const second = await createStored(repo, 2)
+      const before = repo.storageSubsystem!.storedSize(second.documentId)
+
+      ;(() => {
+        repo.handles[second.documentId].change((d: any) => {
+          d.more = noise(1000, 3)
+        })
+      })()
+      await repo.flush([second.documentId])
+      const after = repo.storageSubsystem!.storedSize(second.documentId)
+      expect(after).toBeGreaterThan(before)
+      expect(
+        repo.storageSubsystem!.storedSize(first.documentId) + after
+      ).toBeGreaterThan(CAP)
+
+      await fireSaveThrottles()
+      expect(await waitForGC(first.probe, 2000)).toBe(true)
+      await flushGC()
+      expect(second.probe.deref()).toBeDefined()
+    })
+
+    it("does not count a document observed by a listener", async () => {
+      const repo = createRepo()
+      const listener = () => {}
+      let observedId!: DocumentId
+      ;(() => {
+        const handle = repo.create<TestDoc>({ foo: noise(2000, 1) })
+        observedId = handle.documentId
+        handle.on("change", listener)
+      })()
+      await repo.flush([observedId])
+      const second = await createStored(repo, 2)
+      const third = await createStored(repo, 3)
+
+      // Activity while observed does not count it either. (Scoped so the
+      // repo.handles snapshot doesn't pin the other documents.)
+      ;(() => {
+        repo.handles[observedId].change((d: any) => {
+          d.touched = true
+        })
+      })()
+      await repo.flush([observedId])
+      await fireSaveThrottles()
+      await flushGC()
+      expect(second.probe.deref()).toBeDefined()
+
+      // Once unobserved it counts, as the most recently active.
+      ;(() => {
+        repo.handles[observedId].off("change", listener)
+      })()
+      expect(await waitForGC(second.probe, 2000)).toBe(true)
+      await flushGC()
+      expect(third.probe.deref()).toBeDefined()
+      expect(repo.handles[observedId]).toBeDefined()
+    })
   })
 })
