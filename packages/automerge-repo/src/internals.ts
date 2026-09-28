@@ -10,6 +10,11 @@
  * @internal
  */
 
+/** `DocHandle[kOnInternal](event, fn)` / `HandleRegistry[kOnInternal](...)` -
+ * attach a repo-internal listener. Stored like any other listener, but the
+ * public removal paths (`off`, `removeAllListeners`) leave it attached. */
+export const kOnInternal = Symbol("automerge-repo.onInternal")
+
 /** Set on a `once()` wrapper to name the original listener, so
  * `off(event, fn)` can remove the wrapper by the function the caller
  * actually passed. */
