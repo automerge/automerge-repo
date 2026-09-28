@@ -1,6 +1,7 @@
 import { next as A } from "@automerge/automerge"
 import { describe, expect, it, vi } from "vitest"
-import { Repo } from "../src/Repo.js"
+import { DEFAULT_RELEASE_UNOBSERVED_AFTER_MS, Repo } from "../src/Repo.js"
+import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import type { DocHandle } from "../src/DocHandle.js"
 import { NetworkAdapter } from "../src/index.js"
@@ -54,7 +55,7 @@ class ScriptedAdapter extends NetworkAdapter {
  */
 describeGC("Repo GC of dropped documents", () => {
   it("collects a document once the consumer drops its handle", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     let documentId!: DocumentId
     let probe!: WeakRef<DocHandle<TestDoc>>
 
@@ -71,7 +72,7 @@ describeGC("Repo GC of dropped documents", () => {
   })
 
   it("collects a document once root and sub-handles are all dropped", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     let documentId!: DocumentId
     let rootProbe!: WeakRef<DocHandle<any>>
     let subProbe!: WeakRef<DocHandle<string>>
@@ -96,7 +97,7 @@ describeGC("Repo GC of dropped documents", () => {
   })
 
   it("keeps a document alive while the consumer holds a handle", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     const handle = repo.create<TestDoc>({ foo: "held" })
 
     // Negative assertion: a best-effort GC must not evict a held document.
@@ -107,7 +108,7 @@ describeGC("Repo GC of dropped documents", () => {
   })
 
   it("keeps a held document loaded after the consumer's removeAllListeners", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     const handle = repo.create<TestDoc>({ foo: "held" })
     handle.on("change", () => {})
     handle.removeAllListeners()
@@ -119,7 +120,7 @@ describeGC("Repo GC of dropped documents", () => {
   })
 
   it("keeps the whole document alive while only a sub-handle is held", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     let sub!: DocHandle<string>
     let rootProbe!: WeakRef<DocHandle<any>>
 
@@ -140,7 +141,7 @@ describeGC("Repo GC of dropped documents", () => {
 
   it("re-loads a collected document from storage on the next find()", async () => {
     const storage = new DummyStorageAdapter()
-    const repo = new Repo({ storage })
+    const repo = new Repo({ storage, releaseUnobservedAfterMs: 0 })
     let url!: AutomergeUrl
     let probe!: WeakRef<DocHandle<TestDoc>>
 
@@ -169,7 +170,7 @@ describeGC("Repo GC of dropped documents", () => {
   })
 
   it("a listener keeps the document rooted after the handle is dropped", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     let url!: AutomergeUrl
     let documentId!: DocumentId
     const events: string[] = []
@@ -209,7 +210,7 @@ describeGC("Repo GC of dropped documents", () => {
   })
 
   it("removeFromCache severs listener rooting", async () => {
-    const repo = new Repo()
+    const repo = new Repo({ releaseUnobservedAfterMs: 0 })
     let documentId!: DocumentId
     let probe!: WeakRef<DocHandle<TestDoc>>
 
@@ -231,7 +232,10 @@ describeGC("Repo GC of dropped documents", () => {
     // Sync-server shape: bob receives and serves a document without any
     // local consumer ever holding a handle to it.
     const alice = new Repo({ peerId: "alice" as PeerId })
-    const bob = new Repo({ peerId: "bob" as PeerId })
+    const bob = new Repo({
+      peerId: "bob" as PeerId,
+      releaseUnobservedAfterMs: 0,
+    })
     await connectRepos(alice, bob)
 
     const aliceHandle = alice.create<TestDoc>({ foo: "shared" })
@@ -269,6 +273,7 @@ describeGC("Repo GC cross-cutting pins", () => {
     const repo = new Repo({
       storage: new DummyStorageAdapter(),
       saveDebounceRate: SAVE_DEBOUNCE_MS,
+      releaseUnobservedAfterMs: 0,
     })
 
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
@@ -301,6 +306,7 @@ describeGC("Repo GC cross-cutting pins", () => {
     const repo = new Repo({
       storage: new DummyStorageAdapter(),
       saveDebounceRate: SAVE_DEBOUNCE_MS,
+      releaseUnobservedAfterMs: 0,
     })
 
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
@@ -342,6 +348,7 @@ describeGC("Repo GC cross-cutting pins", () => {
     const fromRelay = new ScriptedAdapter()
     const relay = new Repo({
       peerId: "relay" as PeerId,
+      releaseUnobservedAfterMs: 0,
       network: [toRequester, toUpstream],
     })
     const upstream = new Repo({
@@ -410,6 +417,7 @@ describeGC("Repo GC cross-cutting pins", () => {
     const toUpstream = new ScriptedAdapter()
     const relay = new Repo({
       peerId: "relay" as PeerId,
+      releaseUnobservedAfterMs: 0,
       network: [toRequester, toUpstream],
       ...options,
     })
@@ -511,6 +519,7 @@ describeGC("Repo GC cross-cutting pins", () => {
     const server = new Repo({
       peerId: "server" as PeerId,
       storage: new DummyStorageAdapter(),
+      releaseUnobservedAfterMs: 0,
       shareConfig: { announce: async () => false, access: async () => true },
     })
     const editor = new Repo({
@@ -547,5 +556,391 @@ describeGC("Repo GC cross-cutting pins", () => {
     })
     await received
     expect(viewerHandle.doc()).toEqual({ n: 1 })
+  })
+})
+
+describeGC("Repo release of unobserved documents", () => {
+  const PERIOD = 1000
+  /** Longer than DocSynchronizer's change throttle. */
+  const SYNC_THROTTLE_MS = 150
+
+  /** Let messages in flight between linked repos be delivered. */
+  const settle = async () => {
+    for (let i = 0; i < 20; i++) await new Promise(setImmediate)
+  }
+
+  /** Resolves once `handle` has `heads`. */
+  const untilHeads = (handle: DocHandle<unknown>, heads: A.Heads) =>
+    new Promise<void>(resolve => {
+      if (A.equals(handle.heads(), heads)) return resolve()
+      const onHeads = () => {
+        if (!A.equals(handle.heads(), heads)) return
+        handle.off("heads-changed", onHeads)
+        resolve()
+      }
+      handle.on("heads-changed", onHeads)
+    })
+
+  it("without storage, keeps a dropped document by default", async () => {
+    const repo = new Repo()
+    let url!: AutomergeUrl
+    let probe!: WeakRef<DocHandle<TestDoc>>
+    fakeRepoTimers()
+    try {
+      ;(() => {
+        const handle = repo.create<TestDoc>({ foo: "only copy" })
+        url = handle.url
+        probe = new WeakRef(handle)
+      })()
+
+      vi.advanceTimersByTime(3 * DEFAULT_RELEASE_UNOBSERVED_AFTER_MS)
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+    const found = await repo.find<TestDoc>(url)
+    expect(found).toBe(probe.deref())
+    expect(found.doc()).toEqual({ foo: "only copy" })
+  })
+
+  it("without storage, a dropped repo is collectable once its connection closes", async () => {
+    const server = new Repo({ storage: new DummyStorageAdapter() })
+    const probe = await (async () => {
+      const client = new Repo()
+      const [toServer, toClient] = DummyNetworkAdapter.createConnectedPair()
+      client.networkSubsystem.addNetworkAdapter(toServer)
+      server.networkSubsystem.addNetworkAdapter(toClient)
+      toServer.peerCandidate(server.peerId)
+      toClient.peerCandidate(client.peerId)
+      const handle = client.create<TestDoc>({ foo: "client copy" })
+      await server.find<TestDoc>(handle.url)
+      toServer.disconnect()
+      toClient.disconnect()
+      return new WeakRef(client)
+    })()
+
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("Infinity keeps the handle, synchronizer and sync info of a dropped document", async () => {
+    const a = new Repo({
+      peerId: "a" as PeerId,
+      storage: new DummyStorageAdapter(),
+      releaseUnobservedAfterMs: Infinity,
+    })
+    const b = new Repo({
+      peerId: "b" as PeerId,
+      storage: new DummyStorageAdapter(),
+    })
+    await linkRepos(a, b)
+    const storageIdOfB = a.getStorageIdOfPeer(b.peerId)!
+    expect(storageIdOfB).toBeDefined()
+
+    let url!: AutomergeUrl
+    let documentId!: DocumentId
+    let handleProbe!: WeakRef<DocHandle<TestDoc>>
+    let docSyncProbe!: WeakRef<object>
+    await (async () => {
+      const handle = a.create<TestDoc>({ foo: "synced" })
+      url = handle.url
+      documentId = handle.documentId
+      const synced = new Promise<void>(resolve =>
+        handle.on("remote-heads", function onRemoteHeads({ storageId }) {
+          if (storageId !== storageIdOfB) return
+          if (
+            !A.equals(
+              handle.getSyncInfo(storageIdOfB)!.lastHeads,
+              handle.heads()
+            )
+          )
+            return
+          handle.off("remote-heads", onRemoteHeads)
+          resolve()
+        })
+      )
+      await b.find(url)
+      await synced
+      handleProbe = new WeakRef(handle)
+      docSyncProbe = new WeakRef(a.synchronizer.docSynchronizers[documentId])
+    })()
+
+    await flushGC()
+    const found = await a.find<TestDoc>(url)
+    expect(found).toBe(handleProbe.deref())
+    expect(a.synchronizer.docSynchronizers[documentId]).toBe(
+      docSyncProbe.deref()
+    )
+    expect(found.getSyncInfo(storageIdOfB)?.lastHeads).toEqual(found.heads())
+  })
+
+  /** Fake every timer the repo uses; setImmediate stays real for GC and delivery. */
+  const fakeRepoTimers = () =>
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+    })
+
+  it("with storage, releases a dropped document after the default period", async () => {
+    fakeRepoTimers()
+    try {
+      const repo = new Repo({ storage: new DummyStorageAdapter() })
+      let documentId!: DocumentId
+      let probe!: WeakRef<DocHandle<TestDoc>>
+      ;(() => {
+        const handle = repo.create<TestDoc>({ foo: "stored" })
+        documentId = handle.documentId
+        probe = new WeakRef(handle)
+      })()
+      await repo.flush([documentId])
+      // Fire the save throttle, which pins the document until it runs.
+      const throttle = 1000
+      await vi.advanceTimersByTimeAsync(throttle)
+
+      vi.advanceTimersByTime(DEFAULT_RELEASE_UNOBSERVED_AFTER_MS - throttle)
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+
+      vi.advanceTimersByTime(DEFAULT_RELEASE_UNOBSERVED_AFTER_MS)
+      expect(await waitForGC(probe, 2000)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects a negative or NaN period", () => {
+    for (const releaseUnobservedAfterMs of [-1, NaN]) {
+      expect(() => new Repo({ releaseUnobservedAfterMs })).toThrow(RangeError)
+    }
+  })
+
+  it("a finite period does not keep a document this repo does not have", async () => {
+    const network = new ScriptedAdapter()
+    const repo = new Repo({
+      peerId: "server" as PeerId,
+      storage: new DummyStorageAdapter(),
+      network: [network],
+      releaseUnobservedAfterMs: 60_000,
+    })
+    network.arrive("requester" as PeerId)
+    const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
+    const unavailable = new Promise<void>(resolve => {
+      network.onSend = message => {
+        if (message.type === "doc-unavailable") resolve()
+      }
+    })
+    const [, data] = A.generateSyncMessage(A.init(), A.initSyncState())
+    network.deliver({
+      type: "request",
+      senderId: "requester" as PeerId,
+      targetId: "server" as PeerId,
+      documentId,
+      data: data!,
+    })
+    await unavailable
+
+    let probe!: WeakRef<DocHandle<unknown>>
+    ;(() => {
+      probe = new WeakRef(repo.handles[documentId])
+    })()
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("a change to a removed document does not keep it again", async () => {
+    const repo = new Repo({ releaseUnobservedAfterMs: Infinity })
+    let probe!: WeakRef<DocHandle<TestDoc>>
+    await (async () => {
+      const handle = repo.create<TestDoc>({ foo: "kept" })
+      probe = new WeakRef(handle)
+      await repo.removeFromCache(handle.documentId)
+      handle.change(d => {
+        d.foo = "after removal"
+      })
+    })()
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("shutdown stops the release timer", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+    try {
+      const repo = new Repo({ releaseUnobservedAfterMs: PERIOD })
+      repo.create<TestDoc>({ foo: "x" })
+      expect(vi.getTimerCount()).toBe(1)
+      await repo.shutdown()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("a finite period releases a document one to two periods after its last activity", async () => {
+    fakeRepoTimers()
+    try {
+      const repo = new Repo({ releaseUnobservedAfterMs: PERIOD })
+      let probe!: WeakRef<DocHandle<TestDoc>>
+      ;(() => {
+        probe = new WeakRef(repo.create<TestDoc>({ foo: "kept a while" }))
+      })()
+
+      vi.advanceTimersByTime(PERIOD)
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+
+      vi.advanceTimersByTime(PERIOD)
+      expect(await waitForGC(probe, 2000)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("a local change restarts the period", async () => {
+    fakeRepoTimers()
+    try {
+      const repo = new Repo({ releaseUnobservedAfterMs: PERIOD })
+      let probe!: WeakRef<DocHandle<TestDoc>>
+      let handle: DocHandle<TestDoc> | undefined = repo.create<TestDoc>({
+        foo: "first",
+      })
+      ;(() => {
+        probe = new WeakRef(handle!)
+      })()
+
+      vi.advanceTimersByTime(PERIOD)
+      handle.change(d => {
+        d.foo = "second"
+      })
+      handle = undefined
+
+      // Two periods after creation, one after the change.
+      vi.advanceTimersByTime(PERIOD)
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+
+      vi.advanceTimersByTime(PERIOD)
+      expect(await waitForGC(probe, 2000)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("a peer's change restarts the period", async () => {
+    fakeRepoTimers()
+    try {
+      const server = new Repo({
+        peerId: "server" as PeerId,
+        releaseUnobservedAfterMs: PERIOD,
+      })
+      const editor = new Repo({ peerId: "editor" as PeerId })
+      await linkRepos(editor, server)
+      const handle = editor.create<TestDoc>({ foo: "first" })
+      const { documentId } = handle
+
+      let probe!: WeakRef<DocHandle<unknown>>
+      await (async () => {
+        const serverHandle = await server.find(handle.url)
+        await untilHeads(serverHandle, handle.heads())
+        probe = new WeakRef(serverHandle)
+      })()
+
+      vi.advanceTimersByTime(PERIOD)
+      handle.change(d => {
+        d.foo = "second"
+      })
+      // Fire the editor's sync throttle so the change is sent, then the
+      // throttles it triggers, and let the replies settle.
+      vi.advanceTimersByTime(SYNC_THROTTLE_MS)
+      await untilHeads(server.handles[documentId], handle.heads())
+      vi.advanceTimersByTime(SYNC_THROTTLE_MS)
+      await settle()
+
+      // Two periods after the first activity, one after the second.
+      vi.advanceTimersByTime(PERIOD - 2 * SYNC_THROTTLE_MS)
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+
+      vi.advanceTimersByTime(PERIOD)
+      expect(await waitForGC(probe, 2000)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("a peer's request restarts the period", async () => {
+    fakeRepoTimers()
+    try {
+      const network = new ScriptedAdapter()
+      const repo = new Repo({
+        peerId: "server" as PeerId,
+        network: [network],
+        releaseUnobservedAfterMs: PERIOD,
+      })
+      network.arrive("requester" as PeerId)
+      let documentId!: DocumentId
+      let probe!: WeakRef<DocHandle<TestDoc>>
+      ;(() => {
+        const handle = repo.create<TestDoc>({ foo: "requested" })
+        documentId = handle.documentId
+        probe = new WeakRef(handle)
+      })()
+      await settle()
+
+      vi.advanceTimersByTime(PERIOD)
+      const answered = new Promise<void>(resolve => {
+        network.onSend = message => {
+          if (message.type === "sync") resolve()
+        }
+      })
+      const [, request] = A.generateSyncMessage(A.init(), A.initSyncState())
+      network.deliver({
+        type: "request",
+        senderId: "requester" as PeerId,
+        targetId: "server" as PeerId,
+        documentId,
+        data: request!,
+      })
+      await answered
+
+      // Two periods after creation, one after the request.
+      vi.advanceTimersByTime(PERIOD)
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+
+      vi.advanceTimersByTime(PERIOD)
+      expect(await waitForGC(probe, 2000)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("removeFromCache releases a kept document at once", async () => {
+    const repo = new Repo({ releaseUnobservedAfterMs: Infinity })
+    let documentId!: DocumentId
+    let probe!: WeakRef<DocHandle<TestDoc>>
+    ;(() => {
+      const handle = repo.create<TestDoc>({ foo: "kept" })
+      documentId = handle.documentId
+      probe = new WeakRef(handle)
+    })()
+
+    await flushGC()
+    expect(probe.deref()).toBeDefined()
+    await repo.removeFromCache(documentId)
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("delete releases a kept document at once", async () => {
+    const repo = new Repo({ releaseUnobservedAfterMs: Infinity })
+    let documentId!: DocumentId
+    let probe!: WeakRef<DocHandle<TestDoc>>
+    ;(() => {
+      const handle = repo.create<TestDoc>({ foo: "kept" })
+      documentId = handle.documentId
+      probe = new WeakRef(handle)
+      handle.on("change", () => {})
+    })()
+
+    await flushGC()
+    expect(probe.deref()).toBeDefined()
+    repo.delete(documentId)
+    expect(await waitForGC(probe, 2000)).toBe(true)
   })
 })

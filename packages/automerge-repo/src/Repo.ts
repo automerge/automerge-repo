@@ -45,7 +45,12 @@ import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
 import { noop } from "./helpers/noop.js"
 import { semaphore } from "./helpers/semaphore.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
-import { kOnRetainChange, kSeverRetention } from "./internals.js"
+import { KeepAlive } from "./helpers/KeepAlive.js"
+import {
+  kOnHeadsChanged,
+  kOnRetainChange,
+  kSeverRetention,
+} from "./internals.js"
 
 /**
  * Default for {@link RepoConfig.flushConcurrency}: the number of documents
@@ -54,6 +59,13 @@ import { kOnRetainChange, kSeverRetention } from "./internals.js"
  * adapter's connections / file descriptors / memory, so the fan-out is bounded.
  */
 const DEFAULT_FLUSH_CONCURRENCY = 20
+
+/**
+ * Default for {@link RepoConfig.releaseUnobservedAfterMs} when the repo has
+ * storage: an unobserved document is released 30 to 60 seconds after its last
+ * activity. Without storage the default is `Infinity`.
+ */
+export const DEFAULT_RELEASE_UNOBSERVED_AFTER_MS = 30_000
 
 export type { DocumentProgress } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
@@ -83,8 +95,8 @@ export class Repo extends EventEmitter<RepoEvents> {
    * the query (its heads-changed listener on the root handle closes over
    * it), so an entry lives exactly as long as something keeps the document
    * alive - a consumer handle or progress, an external listener (via
-   * #retainedDocuments), a pending `whenReady`, or in-flight repo work -
-   * and evicts itself afterwards.
+   * #retainedDocuments), a pending `whenReady`, in-flight repo work, or
+   * recent activity (via #keepAlive) - and evicts itself afterwards.
    */
   #queries = new WeakValueMap<DocumentId, DocumentQuery<any>>()
 
@@ -95,6 +107,13 @@ export class Repo extends EventEmitter<RepoEvents> {
    * for subscribed consumers even after they drop every handle.
    */
   #retainedDocuments = new Set<Document<unknown>>()
+
+  /**
+   * Queries held after their last activity, per
+   * {@link RepoConfig.releaseUnobservedAfterMs}. Undefined when that is 0.
+   */
+  #keepAlive?: KeepAlive<DocumentQuery<unknown>>
+  #releaseUnobservedAfterMs: number
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
@@ -130,6 +149,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     syncStateLoadConcurrency,
     sharePolicyConcurrency,
     maxPinnedRequestsPerPeer,
+    releaseUnobservedAfterMs,
     idFactory,
   }: RepoConfig = {}) {
     super()
@@ -166,6 +186,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.storageSubsystem = storageSubsystem
+
+    this.#releaseUnobservedAfterMs =
+      releaseUnobservedAfterMs ??
+      (storageSubsystem ? DEFAULT_RELEASE_UNOBSERVED_AFTER_MS : Infinity)
+    if (!(this.#releaseUnobservedAfterMs >= 0)) {
+      throw new RangeError(
+        `releaseUnobservedAfterMs must be a number >= 0, got ${releaseUnobservedAfterMs}`
+      )
+    }
+    if (this.#releaseUnobservedAfterMs > 0) {
+      this.#keepAlive = new KeepAlive(this.#releaseUnobservedAfterMs)
+    }
     this.#syncStateTracker = new SyncStateTracker(
       this.storageSubsystem,
       saveDebounceRate
@@ -232,6 +264,11 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Forward sync metrics events
     this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
+
+    this.synchronizer.on("activity", documentId => {
+      const query = this.#queries.get(documentId)
+      if (query) this.#markActive(query)
+    })
 
     // Track which peers have which documents open (for remote heads gossiping)
     this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
@@ -381,6 +418,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#syncStateTracker.getSyncInfo(handle, storageId)
     const query = new DocumentQuery(handle, this.#sources)
     this.#queries.set(documentId, query)
+    if (this.#keepAlive) {
+      document[kOnHeadsChanged] = () => this.#markActive(query)
+    }
 
     // Attach all sources. Each source calls sourcePending/sourceUnavailable
     // as appropriate and sets up its own listeners. When initialDoc is
@@ -390,7 +430,26 @@ export class Repo extends EventEmitter<RepoEvents> {
       source.attach(query)
     }
 
+    this.#markActive(query)
+
     return query
+  }
+
+  /**
+   * Record activity on a document for {@link RepoConfig.releaseUnobservedAfterMs}.
+   * With a finite period, an empty document (one we do not have) is not kept.
+   */
+  #markActive(query: DocumentQuery<unknown>): void {
+    if (!this.#keepAlive) return
+    // A removed or deleted document must not be kept again.
+    if (this.#queries.get(query.documentId) !== query) return
+    if (
+      this.#releaseUnobservedAfterMs !== Infinity &&
+      query.handle.heads().length === 0
+    ) {
+      return
+    }
+    this.#keepAlive.touch(query)
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -621,6 +680,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       query.handle.delete()
     }
     if (query) {
+      this.#keepAlive?.delete(query)
       query.fail(new Error(`Document ${documentId} was deleted`))
       // Explicit teardown: drop external retention so lingering listeners
       // can't keep the deleted document rooted in the Repo.
@@ -781,6 +841,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     const query = this.#queries.get(documentId)
     if (query) {
+      this.#keepAlive?.delete(query)
       // Explicit teardown: drop external retention so lingering listeners
       // can't keep the removed document rooted in the Repo.
       query.handle[kSeverRetention]()
@@ -810,6 +871,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     } catch (err) {
       this.#log.error("error closing storage during shutdown", err)
     }
+    this.#keepAlive?.clear()
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -923,6 +985,24 @@ export interface RepoConfig {
    * hostile peer can pin.
    */
   maxPinnedRequestsPerPeer?: number
+
+  /**
+   * How long, in milliseconds, the repo keeps an unobserved document loaded
+   * after its last activity. `0` releases it at the next garbage collection
+   * once nothing observes it; `Infinity` never releases it.
+   *
+   * Defaults to {@link DEFAULT_RELEASE_UNOBSERVED_AFTER_MS} with storage and
+   * `Infinity` without storage.
+   *
+   * @remarks
+   * A document is observed while a consumer holds a handle, progress or
+   * listener for it. Activity is a change (local or from a peer), a load,
+   * or a peer's sync or request message; ephemeral messages do not count.
+   * An unobserved document is released 1 to 2 periods after its last
+   * activity and reloads on next use. {@link Repo.removeFromCache} and
+   * {@link Repo.delete} release a document at once in every mode.
+   */
+  releaseUnobservedAfterMs?: number
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation

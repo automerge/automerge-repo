@@ -16,7 +16,7 @@ const whenConnected = (adapter: DummyNetworkAdapter): Promise<void> => {
 
 /**
  * Connects two repos with a fresh adapter pair and resolves once each has
- * the other as a peer. Counts the sync bytes `left` sends to `right`.
+ * the other as a peer, announcing each repo's storage id. Counts the sync bytes `left` sends to `right`.
  * Delivery takes a macrotask, so an exchange that never converges still
  * lets a test's failure budget fire. `unlink` disconnects both sides.
  */
@@ -47,8 +47,18 @@ export async function linkRepos(left: Repo, right: Repo) {
     eventPromise(left.networkSubsystem, "peer"),
     eventPromise(right.networkSubsystem, "peer"),
   ])
-  toRight.peerCandidate(right.peerId)
-  toLeft.peerCandidate(left.peerId)
+  const metadataOf = async (repo: Repo) => ({
+    storageId: await repo.storageId(),
+    isEphemeral: repo.storageSubsystem === undefined,
+  })
+  toRight.emit("peer-candidate", {
+    peerId: right.peerId,
+    peerMetadata: await metadataOf(right),
+  })
+  toLeft.emit("peer-candidate", {
+    peerId: left.peerId,
+    peerMetadata: await metadataOf(left),
+  })
   await peered
 
   const unlink = () => {

@@ -33,6 +33,10 @@ export const kSeverRetention = Symbol("automerge-repo.severRetention")
  * the retention refcount's 0-to-1 and 1-to-0 transitions. */
 export const kOnRetainChange = Symbol("automerge-repo.onRetainChange")
 
+/** `Document[kOnHeadsChanged]` - callback field assigned by `Repo`, fired
+ * whenever the document's heads move (local change, sync or load). */
+export const kOnHeadsChanged = Symbol("automerge-repo.onHeadsChanged")
+
 /** Set on a `once()` wrapper to name the original listener, so
  * `off(event, fn)` can remove the wrapper by the function the caller
  * actually passed (and release its retention). */

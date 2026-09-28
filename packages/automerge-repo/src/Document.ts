@@ -7,6 +7,7 @@ import type { SyncInfo } from "./DocHandle.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import {
+  kOnHeadsChanged,
   kOnRetainChange,
   kReleaseDocument,
   kRetainDocument,
@@ -48,6 +49,9 @@ export class Document<T = unknown> {
    * Repo can root externally-observed documents.
    */
   [kOnRetainChange]?: (retained: boolean) => void;
+
+  /** Injected by `Repo`: fired whenever the heads move. */
+  [kOnHeadsChanged]?: () => void;
 
   /** Record one external retainer (see `kOnRetainChange`). */
   [kRetainDocument](): void {
@@ -130,6 +134,7 @@ export class Document<T = unknown> {
     const beforeHeads = A.getHeads(before)
     const afterHeads = A.getHeads(after)
     if (arrayEqual(beforeHeads, afterHeads)) return
+    this[kOnHeadsChanged]?.()
     this.registry.dispatchHeadsChanged(after)
     const patches = A.diff(after, beforeHeads, afterHeads)
     if (patches.length > 0) {
