@@ -36,7 +36,7 @@ import type {
 } from "./subdoc-handles/types.js"
 import { KIND } from "./subdoc-handles/types.js"
 import { foreverPromise } from "./helpers/foreverPromise.js"
-import { kOnceOriginal } from "./internals.js"
+import { kOnceOriginal, kOnInternal } from "./internals.js"
 
 /**
  * A DocHandle is a wrapper around an Automerge document. It allows you
@@ -975,6 +975,11 @@ export class DocHandle<T> {
     return this
   }
 
+  /**
+   * Remove `fn` (or, without `fn`, every listener) for `event`. Listeners the
+   * repo attaches for storage autosave, query updates and sync are not
+   * removed.
+   */
   off<E extends keyof DocHandleEvents<T>>(
     event: E,
     fn?: DocHandleEvents<T>[E]
@@ -992,6 +997,10 @@ export class DocHandle<T> {
     return this.off(event, fn)
   }
 
+  /**
+   * Remove every listener, or every listener for `event`. Listeners the repo
+   * attaches for storage autosave, query updates and sync are not removed.
+   */
   removeAllListeners<E extends keyof DocHandleEvents<T>>(event?: E): this {
     const reg = this.#document.registry
     if (event === undefined) reg.removeAllListenersForHandle(this)
@@ -1034,6 +1043,18 @@ export class DocHandle<T> {
   }
 
   // Internal accessors (registry / tests)
+
+  /**
+   * @internal Attach a repo-internal listener: stored like any other
+   * listener, but the public `off` / `removeAllListeners` leave it attached.
+   */
+  [kOnInternal]<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    fn: DocHandleEvents<T>[E]
+  ): this {
+    this.#document.registry[kOnInternal](this, event as string, fn as any)
+    return this
+  }
 
   /** @internal Number of handles with at least one listener attached. */
   get _handleRetainerSize(): number {

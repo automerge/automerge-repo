@@ -7,7 +7,7 @@ import type { DocHandle } from "../DocHandle.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
-import { kOnceOriginal } from "../internals.js"
+import { kOnceOriginal, kOnInternal } from "../internals.js"
 
 /** Event listener stored in the registry. Payload shape is event-specific. */
 type Listener = ((payload: any) => void) & {
@@ -53,11 +53,15 @@ export class HandleRegistry {
   }>(token => this.#pruneDeadHandle(token.path, token.variantKey))
 
   /**
-   * `handle → event → callbacks`. Strong on handles, so any handle with a
-   * listener is retained structurally - no separate retainer set.
+   * `handle → event → callback → isExternal`. Strong on handles, so any
+   * handle with a listener is retained structurally - no separate retainer
+   * set. External listeners come from the public `on`/`once`; repo-internal
+   * ones (`kOnInternal`) are not removable through the public API.
    */
-  readonly #listeners: Map<DocHandle<any>, Map<string, Set<Listener>>> =
-    new Map()
+  readonly #listeners: Map<
+    DocHandle<any>,
+    Map<string, Map<Listener, boolean>>
+  > = new Map()
 
   constructor(readonly document: Document<any>) {}
 
@@ -205,7 +209,26 @@ export class HandleRegistry {
   // Listener storage. `DocHandle.on/off/once/...` delegate here.
   // Generic over `T` so callers can pass `this` without casting; storage erases to any.
 
+  /** Attach an external (public API) listener. */
   addListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
+    this.#addListener(handle, event, fn, true)
+  }
+
+  /**
+   * Attach a repo-internal listener: stored identically, but public removal
+   * leaves it attached. Named by the same symbol as `DocHandle[kOnInternal]`,
+   * which delegates here.
+   */
+  [kOnInternal]<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
+    this.#addListener(handle, event, fn, false)
+  }
+
+  #addListener<T>(
+    handle: DocHandle<T>,
+    event: string,
+    fn: Listener,
+    external: boolean
+  ): void {
     let m = this.#listeners.get(handle)
     if (!m) {
       m = new Map()
@@ -213,38 +236,52 @@ export class HandleRegistry {
     }
     let s = m.get(event)
     if (!s) {
-      s = new Set()
+      s = new Map()
       m.set(event, s)
     }
-    s.add(fn)
+    if (!s.has(fn)) s.set(fn, external)
   }
 
-  /** Remove one listener. If `fn` is not registered directly, remove the
-   * `once()` wrappers registered for it. */
+  /** Remove one external listener. If `fn` is not registered directly,
+   * remove the `once()` wrappers registered for it. Repo-internal listeners
+   * are not removable through the public API. */
   removeListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
     const m = this.#listeners.get(handle)
     if (!m) return
     const s = m.get(event)
     if (!s) return
-    if (s.has(fn)) {
+    if (s.get(fn)) {
       s.delete(fn)
     } else {
-      for (const candidate of s) {
-        if (candidate[kOnceOriginal] === fn) s.delete(candidate)
+      for (const [candidate, external] of s) {
+        if (external && candidate[kOnceOriginal] === fn) s.delete(candidate)
       }
     }
     if (s.size === 0) m.delete(event)
     if (m.size === 0) this.#listeners.delete(handle)
   }
 
+  /** Remove every external listener on the handle. Repo-internal listeners
+   * (autosave, query recompute, sync) survive consumer cleanup. */
   removeAllListenersForHandle<T>(handle: DocHandle<T>): void {
-    this.#listeners.delete(handle)
+    const m = this.#listeners.get(handle)
+    if (!m) return
+    for (const event of Array.from(m.keys())) {
+      this.removeAllListenersForEvent(handle, event)
+    }
   }
 
+  /** Remove every external listener for one event; repo-internal listeners
+   * survive (see `removeAllListenersForHandle`). */
   removeAllListenersForEvent<T>(handle: DocHandle<T>, event: string): void {
     const m = this.#listeners.get(handle)
     if (!m) return
-    m.delete(event)
+    const s = m.get(event)
+    if (!s) return
+    for (const [fn, external] of s) {
+      if (external) s.delete(fn)
+    }
+    if (s.size === 0) m.delete(event)
     if (m.size === 0) this.#listeners.delete(handle)
   }
 
@@ -254,7 +291,7 @@ export class HandleRegistry {
 
   listenersFor<T>(handle: DocHandle<T>, event: string): Listener[] {
     const s = this.#listeners.get(handle)?.get(event)
-    return s ? Array.from(s) : []
+    return s ? Array.from(s.keys()) : []
   }
 
   listenerCountFor<T>(handle: DocHandle<T>, event: string): number {
@@ -279,7 +316,7 @@ export class HandleRegistry {
   emit<T>(handle: DocHandle<T>, event: string, payload: unknown): boolean {
     const s = this.#listeners.get(handle)?.get(event)
     if (!s || s.size === 0) return false
-    for (const fn of Array.from(s)) {
+    for (const fn of Array.from(s.keys())) {
       try {
         ;(fn as any)(payload)
       } catch (e) {
