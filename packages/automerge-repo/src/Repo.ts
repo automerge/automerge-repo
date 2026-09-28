@@ -3,6 +3,7 @@ import { makeLogger } from "./Logger.js"
 import { EventEmitter } from "eventemitter3"
 import {
   binaryToDocumentId,
+  encodeHeads,
   generateAutomergeUrl,
   interpretAsDocumentId,
   isValidAutomergeUrl,
@@ -42,6 +43,7 @@ import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
+import { headsAreSame } from "./helpers/headsAreSame.js"
 import { noop } from "./helpers/noop.js"
 import { semaphore } from "./helpers/semaphore.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
@@ -115,6 +117,11 @@ export class Repo extends EventEmitter<RepoEvents> {
   #keepAlive?: KeepAlive<DocumentQuery<unknown>>
   #releaseUnobservedAfterMs: number
   #maxUnobservedBytes: number
+  /**
+   * Documents whose last save failed, held until a save at their current
+   * heads succeeds. Used only with {@link RepoConfig.retainUntilSaved}.
+   */
+  #unsaved = new Set<DocumentQuery<unknown>>()
   /** Each query's document, to tell whether it is externally retained. */
   #documents = new WeakMap<DocumentQuery<unknown>, Document<unknown>>()
 
@@ -154,6 +161,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     maxPinnedRequestsPerPeer,
     releaseUnobservedAfterMs,
     maxUnobservedBytes = Infinity,
+    retainUntilSaved = false,
     idFactory,
   }: RepoConfig = {}) {
     super()
@@ -208,12 +216,35 @@ export class Repo extends EventEmitter<RepoEvents> {
         `maxUnobservedBytes must be a number >= 0, got ${maxUnobservedBytes}`
       )
     }
-    storageSubsystem?.on("doc-stored", ({ documentId }) => {
+    storageSubsystem?.on("doc-stored", ({ documentId, savedHeads }) => {
       const query = this.#queries.get(documentId)
-      if (!query || !this.#keepAlive) return
+      if (!query) return
+      if (
+        this.#unsaved.has(query) &&
+        headsAreSame(
+          encodeHeads(savedHeads),
+          encodeHeads(Automerge.getHeads(query.handle.fullDoc()))
+        )
+      ) {
+        this.#unsaved.delete(query)
+      }
+      if (!this.#keepAlive) return
       this.#keepAlive.resize(query, storageSubsystem.storedSize(documentId))
       this.#enforceByteCap()
     })
+    if (retainUntilSaved) {
+      storageSubsystem?.on("doc-save-failed", ({ documentId, savedHeads }) => {
+        const query = this.#queries.get(documentId)
+        if (!query) return
+        // Nothing is left unsaved if the failed save was for other heads (a
+        // later save covers the current ones) or another save has already
+        // stored the current heads.
+        const heads = Automerge.getHeads(query.handle.fullDoc())
+        if (!headsAreSame(encodeHeads(savedHeads), encodeHeads(heads))) return
+        if (storageSubsystem.hasStoredHeads(documentId, heads)) return
+        this.#unsaved.add(query)
+      })
+    }
     this.#syncStateTracker = new SyncStateTracker(
       this.storageSubsystem,
       saveDebounceRate
@@ -722,6 +753,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       // can't keep the deleted document rooted in the Repo.
       query.handle[kSeverRetention]()
       this.#keepAlive?.delete(query)
+      this.#unsaved.delete(query)
     }
     this.#queries.delete(documentId)
 
@@ -882,6 +914,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       // can't keep the removed document rooted in the Repo.
       query.handle[kSeverRetention]()
       this.#keepAlive?.delete(query)
+      this.#unsaved.delete(query)
       this.#syncStateTracker.delete(query.handle)
     }
     this.#queries.delete(documentId)
@@ -909,6 +942,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#log.error("error closing storage during shutdown", err)
     }
     this.#keepAlive?.clear()
+    this.#unsaved.clear()
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -1055,6 +1089,19 @@ export interface RepoConfig {
    * see those references.
    */
   maxUnobservedBytes?: number
+
+  /**
+   * Keep a document loaded after a failed save until a later save at its
+   * current heads succeeds, however long that takes. Defaults to `false`.
+   *
+   * @remarks
+   * Without it, a document whose save failed is released like any other,
+   * and its unsaved changes survive only where a peer has synced them.
+   * Enable it only if your storage recovers from failures; while it does
+   * not, those documents stay in memory. The next change or
+   * {@link Repo.flush} retries the save.
+   */
+  retainUntilSaved?: boolean
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation

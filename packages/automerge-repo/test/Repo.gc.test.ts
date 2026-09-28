@@ -1080,3 +1080,170 @@ describeGC("Repo release of unobserved documents", () => {
     })
   })
 })
+
+describeGC("Repo retainUntilSaved", () => {
+  const SAVE_DEBOUNCE_MS = 100
+
+  /** Storage whose saves reject while `failing` is set. */
+  class FlakyStorageAdapter extends DummyStorageAdapter {
+    failing = false
+    override async save(key: string[], binary: Uint8Array) {
+      if (this.failing) throw new Error("storage unavailable")
+      return super.save(key, binary)
+    }
+  }
+
+  /**
+   * A document stored at "v1", then changed to "v2" while storage fails.
+   * Resolves once the failed save has settled; the handle is dropped.
+   */
+  const failedSave = async (repo: Repo, storage: FlakyStorageAdapter) => {
+    let url!: AutomergeUrl
+    let probe!: WeakRef<DocHandle<TestDoc>>
+    const failed = new Promise<void>(resolve =>
+      repo.storageSubsystem!.once("doc-save-failed", () => resolve())
+    )
+    await (async () => {
+      const handle = repo.create<TestDoc>({ foo: "v1" })
+      url = handle.url
+      probe = new WeakRef(handle)
+      await repo.flush([handle.documentId])
+      storage.failing = true
+      handle.change(d => {
+        d.foo = "v2"
+      })
+    })()
+    await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS * 2)
+    await failed
+    return { url, probe }
+  }
+
+  const storedValue = async (storage: FlakyStorageAdapter, url: AutomergeUrl) =>
+    (await new Repo({ storage }).find<TestDoc>(url)).doc().foo
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("keeps a document whose save failed until a save at its heads succeeds", async () => {
+    const storage = new FlakyStorageAdapter()
+    const repo = new Repo({
+      storage,
+      saveDebounceRate: SAVE_DEBOUNCE_MS,
+      releaseUnobservedAfterMs: 0,
+      retainUntilSaved: true,
+    })
+    const { url, probe } = await failedSave(repo, storage)
+
+    await flushGC()
+    expect(probe.deref()).toBeDefined()
+
+    storage.failing = false
+    await repo.flush()
+    expect(await waitForGC(probe, 2000)).toBe(true)
+    expect(await storedValue(storage, url)).toBe("v2")
+  })
+
+  for (const how of ["removeFromCache", "delete", "shutdown"] as const) {
+    it(`${how} releases a document kept after a failed save`, async () => {
+      const storage = new FlakyStorageAdapter()
+      const repo = new Repo({
+        storage,
+        saveDebounceRate: SAVE_DEBOUNCE_MS,
+        releaseUnobservedAfterMs: 0,
+        retainUntilSaved: true,
+      })
+      const { url, probe } = await failedSave(repo, storage)
+      const documentId = url.slice("automerge:".length) as DocumentId
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+
+      if (how === "delete") repo.delete(documentId)
+      else if (how === "removeFromCache") await repo.removeFromCache(documentId)
+      else await repo.shutdown()
+      expect(await waitForGC(probe, 2000)).toBe(true)
+    })
+  }
+
+  it("releases a document whose failed save raced a successful save of the same heads", async () => {
+    /** Storage that holds document saves while `holding` is set. */
+    class HeldSaveStorageAdapter extends DummyStorageAdapter {
+      holding = false
+      held: {
+        write: () => Promise<void>
+        settle: PromiseWithResolvers<void>
+      }[] = []
+      #onHeld = () => {}
+      override async save(key: string[], binary: Uint8Array) {
+        if (!this.holding || key[1] === "sync-state") {
+          return super.save(key, binary)
+        }
+        const settle = Promise.withResolvers<void>()
+        this.held.push({ write: () => super.save(key, binary), settle })
+        this.#onHeld()
+        return settle.promise
+      }
+      /** Resolves once `count` saves are held. */
+      untilHeld(count: number) {
+        return new Promise<void>(resolve => {
+          this.#onHeld = () => {
+            if (this.held.length >= count) resolve()
+          }
+          this.#onHeld()
+        })
+      }
+    }
+
+    const storage = new HeldSaveStorageAdapter()
+    const repo = new Repo({
+      storage,
+      saveDebounceRate: SAVE_DEBOUNCE_MS,
+      releaseUnobservedAfterMs: 0,
+      retainUntilSaved: true,
+    })
+    let probe!: WeakRef<DocHandle<TestDoc>>
+    let flushed!: Promise<void>
+    await (async () => {
+      const handle = repo.create<TestDoc>({ foo: "v1" })
+      probe = new WeakRef(handle)
+      await repo.flush([handle.documentId])
+      storage.holding = true
+      handle.change(d => {
+        d.foo = "v2"
+      })
+      // A flush and the throttled save both write the same heads.
+      flushed = repo.flush([handle.documentId])
+    })()
+    await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS * 2)
+    await storage.untilHeld(2)
+
+    const [first, second] = storage.held
+    await first.write()
+    first.settle.resolve()
+    await flushed
+    const failed = new Promise<void>(resolve =>
+      repo.storageSubsystem!.once("doc-save-failed", () => resolve())
+    )
+    second.settle.reject(new Error("storage unavailable"))
+    await failed
+
+    expect(await waitForGC(probe, 2000)).toBe(true)
+  })
+
+  it("is off by default", async () => {
+    const storage = new FlakyStorageAdapter()
+    const repo = new Repo({
+      storage,
+      saveDebounceRate: SAVE_DEBOUNCE_MS,
+      releaseUnobservedAfterMs: 0,
+    })
+    const { url, probe } = await failedSave(repo, storage)
+
+    expect(await waitForGC(probe, 2000)).toBe(true)
+    storage.failing = false
+    expect(await storedValue(storage, url)).toBe("v1")
+  })
+})
