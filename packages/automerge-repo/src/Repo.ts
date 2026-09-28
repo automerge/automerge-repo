@@ -1051,9 +1051,9 @@ export interface RepoConfig {
    * 16 MB per peer at worst); `Infinity` disables the cap.
    *
    * @remarks
-   * Requests over the cap are still served, but their documents may be
-   * released before the answer arrives. The cap bounds what a broken or
-   * hostile peer can pin.
+   * Requests over the cap are still served, but their documents are not
+   * pinned. The cap bounds what a broken or hostile peer can pin. The
+   * default is generous for well-behaved peers.
    */
   maxPinnedRequestsPerPeer?: number
 
@@ -1072,6 +1072,10 @@ export interface RepoConfig {
    * An unobserved document is released 1 to 2 periods after its last
    * activity and reloads on next use. {@link Repo.removeFromCache} and
    * {@link Repo.delete} release a document at once in every mode.
+   *
+   * Apps and sync servers: keep the default. Without storage, keep
+   * `Infinity` unless another peer holds your data, and release documents
+   * by hand with {@link Repo.removeFromCache}.
    */
   releaseUnobservedAfterMs?: number
 
@@ -1087,19 +1091,21 @@ export interface RepoConfig {
    * with listeners or progress subscriptions are not counted; documents
    * whose handles you hold without a listener are, since the repo cannot
    * see those references.
+   *
+   * Sync servers: set it to bound memory, sized from your own measurements,
+   * since a loaded document takes more memory than its stored size.
    */
   maxUnobservedBytes?: number
 
   /**
    * Keep a document loaded after a failed save until a later save at its
-   * current heads succeeds, however long that takes. Defaults to `false`.
+   * current heads succeeds. Defaults to `false`.
    *
    * @remarks
    * Without it, a document whose save failed is released like any other,
-   * and its unsaved changes survive only where a peer has synced them.
-   * Enable it only if your storage recovers from failures; while it does
-   * not, those documents stay in memory. The next change or
-   * {@link Repo.flush} retries the save.
+   * and its unsaved changes survive only on peers that synced them. With
+   * it, those documents stay in memory until storage recovers, so enable it
+   * only if yours does. The next change or `repo.flush()` retries the save.
    */
   retainUntilSaved?: boolean
 
