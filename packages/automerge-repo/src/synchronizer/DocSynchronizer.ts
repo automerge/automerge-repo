@@ -578,9 +578,11 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // synced this document before: restore its engagement so a re-created
     // synchronizer (after cache eviction) resumes pushing updates to a
     // passively-subscribed peer instead of waiting for it to speak first.
-    if (syncState && state.sharedHeads.length > 0 && !peer.hasRequested) {
+    const reEngaged = Boolean(
+      syncState && state.sharedHeads.length > 0 && !peer.hasRequested
+    )
+    if (reEngaged) {
       peer.hasRequested = true
-      if (sharePolicyState === "share") sharePolicyState = "announce"
     }
 
     peer.sharePolicyState = sharePolicyState
@@ -606,12 +608,15 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     }
 
     // Only emit "open-doc" when the peer has actually interacted with
-    // this document. "announce" peers are proactively shared with, and
-    // peers with pending messages have explicitly requested the doc.
+    // this document. "announce" peers are proactively shared with, peers
+    // with pending messages have explicitly requested the doc, and a
+    // re-engaged peer interacted before the synchronizer was recreated.
     // "share" peers without pending messages are just passively available.
     if (
       isNewPeer &&
-      (sharePolicyState === "announce" || peer.pendingMessages.length > 0)
+      (sharePolicyState === "announce" ||
+        peer.pendingMessages.length > 0 ||
+        reEngaged)
     ) {
       this.emit("open-doc", { documentId: this.documentId, peerId })
     }
