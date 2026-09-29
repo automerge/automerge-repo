@@ -296,6 +296,25 @@ describe("Repo", () => {
       assert.equal(alice.getStorageIdOfPeer("bob" as PeerId), undefined)
     })
 
+    it("drops a peer and its adapter once a DummyNetworkAdapter pair disconnects", async () => {
+      const server = new Repo({ peerId: "server" as PeerId })
+      const client = new Repo({ peerId: "client" as PeerId })
+      const [toServer, toClient] = DummyNetworkAdapter.createConnectedPair()
+      client.networkSubsystem.addNetworkAdapter(toServer)
+      server.networkSubsystem.addNetworkAdapter(toClient)
+      toServer.peerCandidate("server" as PeerId)
+      toClient.peerCandidate("client" as PeerId)
+      assert.deepStrictEqual(server.peers, ["client"])
+
+      toServer.disconnect()
+      toClient.disconnect()
+
+      assert.deepStrictEqual(server.peers, [])
+      assert.deepStrictEqual(server.networkSubsystem.adapters, [])
+      assert.deepStrictEqual(client.peers, [])
+      assert.deepStrictEqual(client.networkSubsystem.adapters, [])
+    })
+
     it("should not return an unavailable handle on second request", async () => {
       const alice = new Repo({
         peerId: "alice" as PeerId,

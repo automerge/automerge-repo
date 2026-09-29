@@ -146,4 +146,19 @@ describe("Network subsystem", () => {
     assert.deepStrictEqual(disconnectedPeers, [])
     assert.deepStrictEqual(sentViaActive, ["sync"])
   })
+
+  it("forgets a DummyNetworkAdapter and its peer once the adapter disconnects", () => {
+    const { networkAdapter, peerId, peerMetadata } = setup()
+    const network = new NetworkSubsystem([networkAdapter], peerId, peerMetadata)
+    const disconnectedPeers: PeerId[] = []
+    network.on("peer-disconnected", ({ peerId }) => {
+      disconnectedPeers.push(peerId)
+    })
+
+    networkAdapter.peerCandidate("remote" as PeerId)
+    networkAdapter.disconnect()
+
+    assert.deepStrictEqual(disconnectedPeers, ["remote"])
+    assert.deepStrictEqual(network.adapters, [])
+  })
 })
