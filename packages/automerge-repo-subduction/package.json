@@ -2,7 +2,7 @@
   "name": "@automerge/automerge-repo-subduction",
   "version": "2.6.0-alpha.3",
   "private": true,
-  "description": "Experimental local Subduction sedimentree backend for commits and fragments",
+  "description": "Experimental Subduction sedimentree backend with authenticated peer sync",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/automerge/automerge-repo.git",

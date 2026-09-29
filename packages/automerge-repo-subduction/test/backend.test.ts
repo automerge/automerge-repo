@@ -480,7 +480,15 @@ describe("real local Subduction", () => {
     await second
     const aggregate = await failure
     expect(aggregate).toBeInstanceOf(AggregateError)
-    expect(aggregate.errors).toHaveLength(1)
+    // Local submissions and native storage callbacks have independent ledgers;
+    // the same I/O failure may be represented in both. Neither may be forgotten
+    // or reported again by the next barrier.
+    const failures = aggregate.errors.flatMap((error: unknown) =>
+      error instanceof AggregateError ? error.errors : [error]
+    )
+    expect(failures.map(String)).toContainEqual(
+      expect.stringContaining("first failed")
+    )
     await backend.flush()
   })
 

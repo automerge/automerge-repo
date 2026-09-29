@@ -1,8 +1,9 @@
 # Subduction integration
 
-**Status:** Executable scaffold and a local Subduction commit/fragment prototype.
-The public Repo migration and real network/composition validation remain pending.
-API names and signatures are provisional; remaining checks are listed below.
+**Status:** Executable scaffold and authenticated two-peer Subduction sync for
+commits/fragments, tested through the backend contract and internal controller.
+Public Repo migration, production transport wiring, legacy interoperability, and
+composition remain pending. APIs are provisional; remaining checks are below.
 
 ## Summary
 
@@ -166,7 +167,8 @@ The module boundaries remain explicit:
 - **`automerge-repo-legacy-sync` (future extraction):** legacy translation,
   synchronizers, storage, network, remote-head gossip, and existing adapters.
 - **`automerge-repo-subduction`:** the separate Subduction backend, currently a
-  private local-only experiment, with connection/transport integration pending.
+  private experiment supporting explicit authenticated transports and real
+  two-peer sync. Production connection/transport integration remains pending.
   It depends on Repo but imports only `/sedimentree` at runtime.
 - **Composition package (future):** combines backend instances through the same
   public contract. Owns routing, cross-propagation, aggregate observations,
@@ -926,10 +928,10 @@ The private `automerge-repo-subduction` experiment exercises actual
 Subduction WASM signing/storage with the internal controller, including
 fresh-process recovery of a fragmented 2,000-change Automerge history. Fragment
 extraction and application remain in the translator using raw
-`@automerge/automerge` 3.5.0. The backend is **local-only, exclusively owned**, with
-an explicitly injected signer and atomic-per-record byte storage; it supports
-both loose commits and fragments without simulating networking or decoding CRDT
-blobs. A failed native store forces active observations to rescan, including
+`@automerge/automerge` 3.5.0. Storage remains **exclusively owned**, with an
+explicitly injected signer and atomic-per-record byte storage. The backend now
+supports explicit authenticated native transports and real two-peer sync of
+loose commits and fragments, without simulated reconciliation or CRDT decoding. A failed native store forces active observations to rescan, including
 ambiguous writes that persisted before rejecting. Batch rollback is not required.
 Failed deletion similarly invalidates collection observations for rescan.
 
@@ -944,9 +946,33 @@ same-kind representations still reject rather than proving variant equivalence;
 physical reclamation remains disabled. Readiness retains targets mentioned only
 by fragment boundaries, whose history claims a standalone blob cannot prove.
 
-Real two-peer behavior and composition remain unimplemented. Full-history
+Two-peer tests now exercise actual native authentication, wire reconciliation,
+signing/ingestion, and separate persistent stores over a deterministic framed-byte
+transport. They cover initial controller readiness, a fragmented 2,000-change
+history and receiver restart, bidirectional/concurrent edits, automatic propagation
+without a source session, independent sessions, and reconnect. Explicit rounds
+retain authenticated per-peer identity and outcomes. Native success is not a
+remote durability receipt or proof of exact representation equality; native
+head-based reconciliation can omit differing same-kind/head representations.
+
+Network waiting uses a separate queue from local stores/flush. The storage bridge
+serializes complete read/write transactions and installs observation cuts before
+releasing its queue. Live checkpoints follow persisted records; remote-heads
+callbacks are advertisements, not ingestion barriers. Failure tests cover
+request timeouts, aborting only a caller's wait, failed onboarding, delayed and
+ambiguous incoming saves, deletion, flush, shutdown, and recovery after reconnect.
+Retired engines lose storage access before draining accepted incoming operations:
+native `disconnectAll()` alone does not drain already-dispatched handlers.
+
+This is still experimental: native has no document-unsubscribe API, and deletion
+or storage-error recovery conservatively disconnects **all** peers. Callers must
+supply fresh authenticated transports to reconnect. Network ephemerals explicitly
+reject as unsupported. Native's default allow-all policy is suitable only for
+explicitly trusted peers in this experiment. Production dialing/retry, policy,
+socket/browser transport testing, and bounded subscription management remain.
+Legacy interoperability and composition are still unimplemented. Full-history
 validation on each saved record can make batch writes quadratic, and submission
-backpressure remains production work. The validation below is still required
+backpressure remains production work. The remaining validation below is required
 before freezing the interface or changing Repo's default.
 
 - Implement experimental legacy translation for create, edit, persist, reload,

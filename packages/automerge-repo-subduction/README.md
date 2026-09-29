@@ -1,9 +1,9 @@
 # Automerge Repo Subduction backend (experimental)
 
-**Private experiment, not production-ready. Local-only, exclusive owner.
-Supports loose commits and fragments; no transports, peers, compaction, or CRDT dependencies.** This is a
-real `@automerge/subduction` engine and storage bridge, not a MemoryBackend
-facade. For local development the dependency is currently linked to
+**Private experiment, not production-ready. Exclusively owned storage, with
+explicit authenticated peer connections. Supports loose commits and fragments;
+no compaction or CRDT dependencies.** This is a real `@automerge/subduction`
+engine and storage bridge, not a MemoryBackend facade or a simulated protocol. For local development the dependency is currently linked to
 `../../../subduction/subduction_wasm` (relative to this package), whose package
 version is still **0.21.2** but includes unreleased fragment metadata APIs.
 
@@ -72,6 +72,75 @@ owned by this backend: no other engine, tab, process, or caller may mutate it
 while the backend is alive. Storage is borrowed and is not closed or erased by
 backend close. Concurrent multi-owner access and hostile storage are unsupported.
 
+## Authenticated peer connections
+
+Pass an already authenticated native transport to `backend.addConnection()`.
+For example, on the dialing side (the remote side must concurrently call native
+`AuthenticatedTransport.accept()` and add its result to its own backend):
+
+```ts
+import { AuthenticatedTransport, PeerId } from "@automerge/subduction"
+
+const expectedPeer = new PeerId(remotePublicKeyBytes)
+try {
+  const authenticated = await AuthenticatedTransport.setup(
+    transport, // native Transport: sendBytes/recvBytes/disconnect/onDisconnect
+    signer,
+    expectedPeer
+  )
+  try {
+    await backend.addConnection(authenticated)
+  } finally {
+    authenticated.free()
+  }
+} catch (error) {
+  await transport.disconnect()
+  throw error
+} finally {
+  expectedPeer.free()
+}
+```
+
+`addConnection` borrows the authenticated wrapper until its promise settles;
+native clones the connection. Keep the underlying JS transport alive until the
+backend disconnects it. The returned boolean identifies a newly installed
+connection, not necessarily a previously unknown peer. Callers own dialing,
+handshake failure cleanup/deadlines, and reconnection; a Promise race alone does
+not cancel a native handshake. Native WebSocket/long-poll authenticated wrappers
+can also supply `toTransport()`; those conversions consume their wrappers.
+
+Opening a session automatically schedules a document sync. Successful local
+stores schedule propagation even without a session. Adding a connection replays
+open interests and the local stored-ID inventory, so reconnecting with fresh
+transports retrieves missed edits. There is no remote inventory discovery,
+automatic dialer, timer-based retry, or production connection manager here.
+This experiment uses native's default **allow-all authorization**; authenticated
+identity is not an application sharing policy. Use only explicitly trusted peers.
+
+Synchronization uses a separate queue from local persistence, with one running
+round globally and coalesced automatic follow-up work per document. Each round snapshots connected
+peers and returns their authenticated identities and individual outcomes.
+`complete` describes native round success, **not remote durability, CRDT
+readiness, exact representation equality, or global convergence**. Native wire
+diffs use minimized, head-based metadata: differing same-kind/head variants may
+never be transmitted even though the bridge rejects them if actually received.
+A sender's final requested-data sends are not remote ingestion acknowledgments.
+
+`syncTimeoutMilliseconds` defaults to 5,000 ms per native peer request. It covers
+request send/response waiting, not arbitrary local storage or handshake work.
+Aborting `session.synchronize()` cancels that caller's wait only. Remote-heads
+events are advertisements and can precede ingestion; readiness checkpoints come
+from serialized persisted-record cuts, never directly from that callback.
+
+Native has no document-unsubscribe API: closing a session releases that observer,
+not the connection's protocol subscriptions. Other sessions continue normally.
+**Deletion and storage-error recovery conservatively disconnect all peers**,
+including those used by unrelated documents; reconnect explicitly afterward.
+Network ephemerals are not implemented: publication with connected peers rejects
+with `unsupported`, rather than silently pretending to send. With no peers it
+remains a no-op. Composition, permissions, socket/browser integration tests, and
+production subscription/resource management remain future work.
+
 ## Persistence and integrity
 
 Stores call real `Subduction.storeBuiltBatch`, **not** network-awaiting `addBatch`.
@@ -114,17 +183,21 @@ Successful stores verify that every submitted representation is recoverable.
 
 ## Ordering, observations, limits
 
-A single serialized owner queue reserves order synchronously at `open`, `store`,
-`observeCollection`, and synchronization calls. An initial cut is finite and
-reserved before later writes, even before the first iterator pull. Snapshot
-acquisition uses this queue; consumption does not hold it. Each observer owns
+A serialized owner queue reserves local operations synchronously at `open`,
+`store`, and `observeCollection`. A separate storage queue serializes whole
+transactions, including native incoming writes and reads. Observations are
+installed **inside** those read transactions, with no snapshot-to-watch gap.
+A synchronization call captures earlier local work but performs network waiting
+outside the owner queue. Initial cuts are finite and established before the
+first iterator pull; consumption holds neither queue. Each observer owns
 its delivered bytes. Only successful compound saves produce live notifications;
-a partially failed batch can already be observed and recovered. A failed native
-store forces active document/collection watches to rescan: a byte-store save may
-have committed data before rejecting, so retry deduplication alone cannot repair
-missed notifications. Retry does not require rollback. Successful stores publish
-a live checkpoint after their data. Local synchronization emits an ordered `no-peers` result;
-aborting cancels only the caller's wait. Ephemeral publication has no recipients.
+a partially failed batch can already be observed and recovered. Failed native
+mutations force affected document/collection watches to rescan: a byte-store save
+may have committed data before rejecting, so retry deduplication alone cannot
+repair missed notifications. Retry does not require rollback. Successful incoming
+and local saves publish coalesced live checkpoints after their data. Explicit and
+automatic rounds emit ordered synchronization results; rounds started without
+connections report `no-peers`, not global absence.
 
 Readiness checkpoints are conservative, not necessarily minimal frontiers. Only
 loose-commit dependencies prune delivered heads. Fragment boundary/checkpoint
@@ -135,31 +208,40 @@ Live replay is bounded per watch; overflow replaces pending delivery with a
 terminal `rescan-required`. Iterator return/session close/backend close wake
 pending pulls immediately. Initial asynchronous failures emit `failure` and end.
 Deletion synchronously fences the old generation, rejects stores during its
-barrier, drains prior queued work, calls native `removeSedimentree`, and cleans
-up compound storage. A failed/ambiguous deletion forces active collection
+barrier, disconnects peers, revokes the old engine's storage access, drains
+accepted operations, calls native `removeSedimentree`, and cleans up compound
+storage. A failed/ambiguous deletion forces active collection
 observers to rescan rather than retaining an incorrect inventory. Later explicit
 acquisition is permitted. Close rejects new
-work, fences notifications, drains accepted operations, disconnects/frees native
-resources, and does not use a forced timeout.
+work and ends observations immediately, cancels peer waits, then drains accepted
+local work. It revokes the engine's storage view before draining incoming writes
+and freeing resources. Native `disconnectAll()` alone does **not** drain incoming
+handlers; late calls from retired engines reject instead of resurrecting deleted
+history. Close does not use a forced timeout.
 
-Flush captures only already accepted targeted stores, drains **all** of them,
-and aggregates failures. Failed attempts remain in a process-local ledger
-until a captured flush (or close) reports them; a successful retry does not erase
-an unreported failure. Concurrent barriers may both report the same failure.
-Completed successful attempts are not retained. Close reports unflushed failures
-after attempting cleanup.
+Flush captures accepted targeted local stores and native storage mutations,
+drains **all** captured work, and aggregates failures without waiting for peers.
+It does not cover network messages that have not yet entered the storage bridge.
+Failed attempts remain in process-local ledgers until flush/close reports them;
+a successful retry does not erase an unreported failure. Local submissions and
+native mutations are tracked independently, so the same underlying I/O error may
+appear in both ledgers (and in overlapping barriers). A settled-failure sweep also
+reports failures from captured local jobs that entered native storage after the
+flush call, without waiting for later writes. Completed successful attempts are
+not retained. Close reports unflushed failures after attempting cleanup.
 
 Default limits:
 
-| Option             |                                                                 Default |
-| ------------------ | ----------------------------------------------------------------------: |
-| `maxRecordBytes`   |                               16 MiB (native signed metadata plus blob) |
-| `maxSnapshotBytes` |          64 MiB (plain encoded history budget per tree and input batch) |
-| `maxRecords`       | 10,000 per tree; namespace enumeration also capped at 3× this many keys |
-| `batchRecords`     |                        128 (input maximum and initial delivery maximum) |
-| `batchBytes`       |                1 MiB initial delivery target; one larger record allowed |
-| `replayEvents`     |                                                           128 per watch |
-| `replayBytes`      |                                                         4 MiB per watch |
+| Option                    |                                                                 Default |
+| ------------------------- | ----------------------------------------------------------------------: |
+| `syncTimeoutMilliseconds` |                                        5,000 ms per native peer request |
+| `maxRecordBytes`          |                               16 MiB (native signed metadata plus blob) |
+| `maxSnapshotBytes`        |          64 MiB (plain encoded history budget per tree and input batch) |
+| `maxRecords`              | 10,000 per tree; namespace enumeration also capped at 3× this many keys |
+| `batchRecords`            |                        128 (input maximum and initial delivery maximum) |
+| `batchBytes`              |                1 MiB initial delivery target; one larger record allowed |
+| `replayEvents`            |                                                           128 per watch |
+| `replayBytes`             |                                                         4 MiB per watch |
 
 This intentionally simple experiment scans history to validate/store/checkpoint.
 Record and snapshot budgets count both kinds together. Each saved record currently
@@ -199,7 +281,18 @@ recovery, and deletion. A deterministic 2,000-change fixture exercises real
 Automerge bundles alongside loose commits. Opaque fragment tests separately cover
 nonempty checkpoints, same-head records of different kinds, corruption, limits,
 partial writes, and lifecycle barriers. These tests use real `Document`/`DocHandle`/`DocumentQuery`
-but **not Repo's public constructor**, which is still unchanged. Fresh-process
+but **not Repo's public constructor**, which is still unchanged.
+
+`network.test.ts` uses real authenticated Subduction wire traffic over a copying,
+FIFO, paired byte transport. It covers initial controller readiness, fragmented
+history and receiver restart, bidirectional/concurrent edits, unopened source
+documents, independent sessions, reconnect, and peer/heads identity. The transport
+is test-only; authentication, reconciliation, ingestion, and disk recovery are
+real native operations, not mocked. `network-lifecycle.test.ts` covers request
+timeouts, cancellation, failed onboarding, delayed and ambiguous incoming writes,
+flush/close barriers, deletion fencing, and retry after reconnect.
+`storage-bridge.test.ts` separately stresses serialized transaction races and
+native input lifetimes. Fresh-process
 package import tests check that the contract/testing/translation subpaths and this
 backend do not load Repo orchestration or initialize WASM implicitly.
 
@@ -214,7 +307,7 @@ pnpm exec tsx test/fresh-process.ts read /path/to/test-directory fragments
 ```
 
 No test-only memory backend, Repo storage adapter, private contract runtime,
-CRDT parser, or network behavior is used by the backend implementation. Only its
+CRDT parser, or simulated network behavior is used by the backend implementation. Only its
 integration tests depend on Automerge and Repo's private controller.
 
 The controller's focused test typecheck is available separately from the existing
