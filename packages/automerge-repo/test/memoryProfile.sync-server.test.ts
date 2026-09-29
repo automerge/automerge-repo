@@ -167,8 +167,15 @@ describe.runIf(OUT)("sync-server memory profile", () => {
         return created.every(url => stored.has(url.split(":")[1]))
       }, `round ${round} documents to reach server storage`)
 
+      // End the session the way a real adapter does, so each repo drops the
+      // other's peer and adapter even on refs whose DummyNetworkAdapter only
+      // clears a flag on disconnect. A repeated event is ignored.
       toServer.disconnect()
       toClient.disconnect()
+      toServer.emit("peer-disconnected", { peerId: "server" as PeerId })
+      toServer.emit("close")
+      toClient.emit("peer-disconnected", { peerId: client.peerId })
+      toClient.emit("close")
     }
 
     for (let round = 0; round < ROUNDS; round++) {
