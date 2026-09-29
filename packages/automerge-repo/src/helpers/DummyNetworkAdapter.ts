@@ -5,6 +5,7 @@ export class DummyNetworkAdapter extends NetworkAdapter {
   #sendMessage?: SendMessageFn
 
   #connected = false
+  #peers = new Set<PeerId>()
   #ready = false
   #readyResolver?: () => void
   #readyPromise: Promise<void> = new Promise<void>(resolve => {
@@ -44,11 +45,19 @@ export class DummyNetworkAdapter extends NetworkAdapter {
     this.peerId = peerId
   }
 
+  // Report the announced peers as gone and close, as the MessageChannel
+  // adapter does, so the repo drops this adapter.
   disconnect() {
     this.#connected = false
+    for (const peerId of this.#peers) {
+      this.emit("peer-disconnected", { peerId })
+    }
+    this.#peers.clear()
+    this.emit("close")
   }
 
   peerCandidate(peerId: PeerId) {
+    this.#peers.add(peerId)
     this.emit("peer-candidate", { peerId, peerMetadata: {} })
   }
 
