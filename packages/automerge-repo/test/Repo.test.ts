@@ -1232,7 +1232,7 @@ describe("Repo", () => {
       }
 
       const numberOfPeers = 10
-      const { repos } = await createNConnectedRepos(numberOfPeers, 10)
+      const { repos } = await createNConnectedRepos(numberOfPeers)
 
       const handle0 = repos[0].create()
       handle0.change((d: any) => {
