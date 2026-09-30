@@ -119,9 +119,7 @@ To route output through your own logger (winston, pino, bunyan, etc.), call `set
 import { setLoggerFactory } from "@automerge/automerge-repo"
 import winston from "winston"
 
-const logger = winston.createLogger({
-  /* ... */
-})
+const logger = winston.createLogger({/* ... */})
 
 setLoggerFactory(namespace => ({
   debug: (msg, ...args) => logger.debug(msg, { namespace, args }),

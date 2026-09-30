@@ -25,7 +25,9 @@ import {
 // Create a repo with your chosen adapters
 const repo = new Repo({
   network: [
-    new MessageChannelNetworkAdapter(/* your message channel to another repo here */),
+    new MessageChannelNetworkAdapter(
+      /* your message channel to another repo here */
+    ),
     new IndexedDBStorageAdapter(),
     new WebSocketClientAdapter("wss://sync.automerge.org"),
   ],

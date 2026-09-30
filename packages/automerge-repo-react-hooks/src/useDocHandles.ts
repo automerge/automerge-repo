@@ -91,6 +91,7 @@ export function useDocHandles<T>(
         }
       )
     } else {
+      // oxlint-disable-next-line react/set-state-in-effect -- mirrors async handle state into React state
       setHandleMap(nextHandleMap)
     }
     return () => {

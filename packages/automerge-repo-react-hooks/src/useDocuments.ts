@@ -56,6 +56,7 @@ export function useDocuments<T>(
     })
 
     // Clear docs that are no longer in handleMap
+    // oxlint-disable-next-line react/set-state-in-effect -- mirrors async handle state into React state
     setDocMap(prev => {
       const next = new Map(prev)
       for (const [id] of next) {
