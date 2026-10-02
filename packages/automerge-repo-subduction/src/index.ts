@@ -47,8 +47,6 @@ interface EngineGeneration {
 export interface SubductionBackendOptions {
   signer: NativeSigner
   storage: LocalByteStore
-  /** Explicit declaration of the injected store's recoverability (not fsync). */
-  persistence: "memory" | "persistent"
   /** Native request deadline, not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number
   maxRecordBytes?: number
@@ -137,9 +135,8 @@ function waitOnly<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
  * Initialize Subduction WASM before construction. Storage is exclusively owned.
  */
 export class SubductionBackend implements SedimentreeBackend {
-  readonly persistence: "memory" | "persistent"
   private readonly limits: Required<
-    Omit<SubductionBackendOptions, "signer" | "storage" | "persistence">
+    Omit<SubductionBackendOptions, "signer" | "storage">
   >
   private readonly bridge: StorageBridge
   private engine: N.Subduction
@@ -168,12 +165,6 @@ export class SubductionBackend implements SedimentreeBackend {
 
   constructor(options: SubductionBackendOptions) {
     this.signer = options.signer
-    if (
-      options.persistence !== "memory" &&
-      options.persistence !== "persistent"
-    )
-      throw new TypeError("Declare the byte store's persistence explicitly")
-    this.persistence = options.persistence
     this.limits = {
       syncTimeoutMilliseconds: options.syncTimeoutMilliseconds ?? 5000,
       maxRecordBytes: options.maxRecordBytes ?? 16 * 1024 * 1024,

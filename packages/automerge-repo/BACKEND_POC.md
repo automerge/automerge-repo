@@ -16,12 +16,15 @@ and changes awaitable; remove legacy adapters; defer the new query interface.
 - `new Repo()` keeps documents locally, with no fake backend or Subduction import.
 - `new Repo({ backend })` owns an injected sedimentree backend, including its
   shutdown. Signers and byte stores retain their backend-documented ownership.
+  Each backend documents its own local durability guarantee; the contract has no
+  `persistence` classification property.
 - `create()` and `import()` return `Promise<DocHandle<T>>`. Backend creation
   allocates an ID and stores initial history before returning, without waiting
   for peers. Local-only creation uses a random 32-byte ID outside the native
   reserved zero-suffix range. Existing URL/UUID utilities remain compatible.
 - `change()` mutates and dispatches synchronously, returning a promise for local
-  recoverability. A rejected save does not undo the edit. `update()`, `merge()`,
+  recoverability under that backend's documented guarantee, not peer delivery.
+  A rejected save does not undo the edit. `update()`, `merge()`,
   and scoped `remove()` also return persistence promises. `changeAt()` retains
   its synchronous heads return; use `flush()` to await its persistence.
 - `clone()` is async because it allocates and stores a new document. It preserves

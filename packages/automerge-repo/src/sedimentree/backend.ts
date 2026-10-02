@@ -81,12 +81,6 @@ import type { RecordBatch } from "./records.js"
  */
 export interface SedimentreeBackend {
   /**
-   * The local recoverability promised by successful stores: process-local memory
-   * or the documented guarantees of persistent storage (not necessarily fsync).
-   */
-  readonly persistence: "memory" | "persistent"
-
-  /**
    * Use the requested ID or mint one, then store initial history locally.
    * An ID that already holds records rejects with a create/conflict error;
    * an empty ID is available. Supplied IDs are a backend-only option, not Repo.create.
@@ -117,9 +111,10 @@ export interface SedimentreeBackend {
   open(id: SedimentreeId): SedimentreeSession
 
   /**
-   * Resolve when ALL submitted history is recoverable under `persistence`, not
-   * when a peer receives it or an observer consumes it. Schedule propagation
-   * according to backend policy even when there is no open session for the ID.
+   * Resolve when ALL submitted history is recoverable under the backend's
+   * documented local durability guarantee, not when a peer receives it or an
+   * observer consumes it. Schedule propagation according to backend policy even
+   * when there is no open session for the ID.
    *
    * A batch is NOT a transaction: rejection may leave some records persisted
    * and observed. No rollback is required. Retrying the whole equivalent batch

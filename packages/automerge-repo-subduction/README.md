@@ -37,7 +37,6 @@ const signer = MemorySigner.generate()
 const backend = new SubductionBackend({
   signer,
   storage: byteStore,
-  persistence: "persistent", // explicit claim about your injected store
 })
 // ... use the plain SedimentreeBackend contract ...
 await backend.close()
@@ -64,8 +63,8 @@ list(prefix: string): Promise<string[]> // full keys with this prefix
 ```
 
 `save` **must atomically replace one entire value**. Successful resolution must
-mean recoverable under the declared `persistence`; `persistent` need not mean
-fsync. Missing values are `undefined`, not empty buffers; `remove` is idempotent.
+mean recoverable under the store's documented guarantees (not necessarily fsync).
+Missing values are `undefined`, not empty buffers; `remove` is idempotent.
 Do not mutate supplied bytes. The namespace `subduction-v1/` must be exclusively
 owned by this backend: no other engine, tab, process, or caller may mutate it
 while the backend is alive. Storage is borrowed and is not closed or erased by

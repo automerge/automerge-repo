@@ -48,7 +48,6 @@ interface Tree {
  * Persistence is synchronous and process-local, so flush's barrier is immediate.
  */
 export class MemoryBackend implements SedimentreeBackend {
-  readonly persistence = "memory" as const
   readonly #options: Required<MemoryBackendOptions>
   readonly #trees = new Map<SedimentreeId, Tree>()
   readonly #collection: ReplayLog<CollectionObservation>

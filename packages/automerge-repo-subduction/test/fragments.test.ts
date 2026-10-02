@@ -60,7 +60,6 @@ describe("local Subduction fragments", () => {
     const backend = new SubductionBackend({
       signer,
       storage,
-      persistence: "persistent",
       ...limits,
     })
     backends.push(backend)

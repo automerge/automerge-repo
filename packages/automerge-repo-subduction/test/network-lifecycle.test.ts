@@ -112,7 +112,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
       backend: new SubductionBackend({
         storage: disk,
         signer,
-        persistence: "persistent",
         syncTimeoutMilliseconds: syncTimeout,
       }),
     }

@@ -43,7 +43,6 @@ describe("public Repo with native Subduction", () => {
     const backend = new SubductionBackend({
       storage: disk,
       signer,
-      persistence: "persistent",
       syncTimeoutMilliseconds: 1000,
     })
     const result = {

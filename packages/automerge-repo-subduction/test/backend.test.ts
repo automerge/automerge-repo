@@ -52,7 +52,6 @@ describe("real local Subduction", () => {
     const backend = new SubductionBackend({
       storage,
       signer,
-      persistence: "persistent",
       ...limits,
     })
     backends.push(backend)

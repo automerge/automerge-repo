@@ -313,7 +313,6 @@ describe("MemoryBackend exact-representation / no-network model", () => {
 
   it("flush settles local persistence without starting a network round or waiting for consumers", async () => {
     const backend = create()
-    expect(backend.persistence).toBe("memory")
     const session = backend.open(treeId())
     const iterator = session.events[Symbol.asyncIterator]()
     await initial(iterator)
