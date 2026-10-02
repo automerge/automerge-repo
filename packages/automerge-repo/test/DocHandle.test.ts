@@ -10,6 +10,7 @@ import {
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { Document } from "../src/Document.js"
+import type { StorageId } from "../src/DocHandle.js"
 import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
@@ -26,6 +27,18 @@ describe("DocHandle", () => {
   it("should take the UUID passed into it", () => {
     const handle = setup({ quick: true })
     assert.equal(handle.documentId, TEST_ID)
+  })
+
+  it("shares document-owned remote sync info across root and sub-handles", () => {
+    const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>())
+    const handle = new DocHandle(document)
+    const peer = "peer" as StorageId
+    const heads = A.getHeads(A.from({ count: 1 }))
+    document.recordRemoteHeads(peer, heads)
+    expect(handle.getSyncInfo(peer)?.lastHeads).toEqual(encodeHeads(heads))
+    expect(handle.sub("foo").getSyncInfo(peer)).toEqual(
+      handle.getSyncInfo(peer)
+    )
   })
 
   /** HISTORY TRAVERSAL
@@ -589,31 +602,27 @@ describe("DocHandle", () => {
       }
     })
 
-    it("getSyncInfo delegates to the lookup injected at construction", () => {
-      const sentinel = {
-        lastHeads: encodeHeads(["abcd"]),
-        lastSyncTimestamp: 12345,
-      }
-      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>(), sid =>
-        sid === "storage-1" ? sentinel : undefined
-      )
+    it("getSyncInfo reads remote heads recorded by Document", () => {
+      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>())
+      document.recordRemoteHeads("storage-1" as StorageId, ["abcd"])
       const handle = new DocHandle<TestDoc>(document, {})
-      assert.deepEqual(handle.getSyncInfo("storage-1" as any), sentinel)
+      expect(handle.getSyncInfo("storage-1" as StorageId)).toMatchObject({
+        lastHeads: encodeHeads(["abcd"]),
+        lastSyncTimestamp: expect.any(Number),
+      })
       assert.equal(handle.getSyncInfo("storage-2" as any), undefined)
     })
 
-    it("view handles inherit the sync info lookup", () => {
-      const sentinel = {
-        lastHeads: encodeHeads(["abcd"]),
-        lastSyncTimestamp: 12345,
-      }
-      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>(), sid =>
-        sid === "storage-1" ? sentinel : undefined
-      )
+    it("view handles share Document sync info", () => {
+      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>())
+      document.recordRemoteHeads("storage-1" as StorageId, ["abcd"])
       const handle = new DocHandle<TestDoc>(document, {})
       handle.update(d => A.change(d, x => (x.foo = "bar")))
       const view = handle.view(handle.heads())
-      assert.deepEqual(view.getSyncInfo("storage-1" as any), sentinel)
+      assert.deepEqual(
+        view.getSyncInfo("storage-1" as StorageId),
+        handle.getSyncInfo("storage-1" as StorageId)
+      )
     })
   })
 

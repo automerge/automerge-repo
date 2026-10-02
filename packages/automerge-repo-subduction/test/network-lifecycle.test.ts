@@ -253,7 +253,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await rm(root, { recursive: true, force: true })
   }, 30000)
 
-  it("does not claim absence from native successful empty replies, and later pushes still persist", async () => {
+  it("keeps observing native successful empty replies, and later pushes still persist", async () => {
     const a = peer(),
       b = peer()
     const nativeSync = N.Subduction.prototype.syncWithPeer
@@ -277,12 +277,11 @@ describe("authenticated network failure and lifecycle barriers", () => {
     )
     const observed = await observe(b)
     await connect(a, b)
-    await bounded(observed.done, "unsupported empty acquisition ends")
+    await vi.waitFor(() => {
+      expect(observed.events.some(e => e.type === "synchronized")).toBe(true)
+    }, wait)
     expect(replies).toContainEqual({ success: true, heads: 0 })
-    expect(observed.events.at(-1)).toMatchObject({
-      type: "failure",
-      error: { operation: "open", code: "unsupported", retryable: false },
-    })
+    expect(observed.events.some(e => e.type === "failure")).toBe(false)
     expect(
       observed.events
         .filter(e => e.type === "synchronized")

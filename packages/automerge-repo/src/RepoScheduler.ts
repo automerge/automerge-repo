@@ -191,7 +191,7 @@ export class RepoScheduler {
       error => {
         this.#consumers.delete(consumer)
         if (!this.#stopping && this.#delegates.has(delegate))
-          delegate.fail(error)
+          delegate.sourceUnavailable(error)
       }
     )
   }
@@ -248,7 +248,7 @@ export class RepoScheduler {
       delegate.onEvent(event)
     }
     if (!this.#stopping && this.#sessions.get(delegate) === session)
-      delegate.fail(new Error("Backend observation ended"))
+      delegate.sourceUnavailable(new Error("Backend observation ended"))
   }
 
   /** Drain local history, release interest, and retain stored history. */

@@ -1,6 +1,6 @@
 import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
-import { decodeHeads } from "./AutomergeUrl.js"
+import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { StorageId, SyncInfo } from "./DocHandle.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
@@ -26,8 +26,7 @@ export class Document<T = unknown> {
   deleted = false
   closed = false
 
-  /** Sync-info lookup injected by the document's backend delegate. */
-  syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
+  #syncInfo = new Map<StorageId, SyncInfo>()
 
   /** Capture local history synchronously, before reentrant listeners run. */
   commit?: (doc: A.Doc<any>) => Promise<void>
@@ -45,16 +44,25 @@ export class Document<T = unknown> {
    */
   #viewCache = new WeakValueMap<string, A.Doc<T>>()
 
-  constructor(
-    documentId: DocumentId,
-    initialDoc: A.Doc<T>,
-    syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
-  ) {
+  constructor(documentId: DocumentId, initialDoc: A.Doc<T>) {
     this.documentId = documentId
     this.doc = initialDoc
-    this.syncInfoLookup = syncInfoLookup
     this.registry = new HandleRegistry(this)
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
+  }
+
+  getSyncInfo(storageId: StorageId): SyncInfo | undefined {
+    return this.#syncInfo.get(storageId)
+  }
+
+  recordRemoteHeads(storageId: StorageId, heads: readonly string[]): void {
+    const encoded = encodeHeads([...heads])
+    const timestamp = Date.now()
+    this.#syncInfo.set(storageId, {
+      lastHeads: encoded,
+      lastSyncTimestamp: timestamp,
+    })
+    this.registry.dispatchRemoteHeads(storageId, encoded, timestamp)
   }
 
   /**

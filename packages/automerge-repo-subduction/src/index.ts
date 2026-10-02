@@ -466,29 +466,11 @@ export class SubductionBackend implements SedimentreeBackend {
         }
         if (!this.closed && !this.deleting.has(id))
           for (const [watch, tree] of this.watches)
-            if (tree === id && (!recipient || watch === recipient)) {
+            if (tree === id && (!recipient || watch === recipient))
               watch.push(
                 { type: "synchronized", result },
                 64 + result.checkpoint.heads.length * 32 + outcomes.length * 128
               )
-              // Native success and empty heads are not an absence proof: its
-              // responder cache may lag durable writes and pushes can arrive later.
-              if (
-                !records.length &&
-                !remoteHasHeads &&
-                (result.outcome === "complete" ||
-                  outcomes.some(peer => peer.error?.code === "unsupported"))
-              )
-                watch.finish({
-                  type: "failure",
-                  sequence: ++this.sequence,
-                  error: new BackendError(
-                    "open",
-                    "unsupported",
-                    "Native sync cannot establish availability for an empty connected lookup; remote absence is not proven"
-                  ),
-                })
-            }
       })
       return result
     } finally {

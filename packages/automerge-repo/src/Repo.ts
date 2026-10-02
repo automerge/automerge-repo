@@ -179,7 +179,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         if (existing.delegate) await this.#scheduler!.detach(existing.delegate)
         this.#checkOpen()
         this.#entries.delete(id)
-        return this.#register(id, doc).handle
+        return this.#register<T>(id, doc).handle
       }
       if (existing.delegate) {
         existing.delegate.onEvent({
@@ -188,7 +188,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           phase: "initial",
           records: extractRecords(doc),
         })
-        existing.delegate.attach(existing.handle, true)
+        existing.delegate.created()
       } else {
         await existing.document.applyMutation(
           current => A.merge(current, A.clone(doc)),
@@ -197,7 +197,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       }
       return existing.handle
     }
-    return this.#register(id, doc).handle
+    return this.#register<T>(id, doc).handle
   }
 
   #localId(): DocumentId {
@@ -220,7 +220,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   #register<T>(id: DocumentId, initial?: A.Doc<T>): Entry<T> {
-    const document = new Document(id, initial ?? A.init<T>())
+    const document = new Document<T>(id, initial ?? A.init<T>())
     const handle = new DocHandle(document)
     const query = new DocumentQuery(handle, new Map(), {
       initialSnapshotPending: !!this.#scheduler && !initial,
@@ -234,10 +234,10 @@ export class Repo extends EventEmitter<RepoEvents> {
         document,
         query,
         (tree, records) => scheduler.submit(tree, records),
-        () => scheduler.synchronize(delegate)
+        () => scheduler.synchronize(delegate),
+        !!initial
       )
       entry.delegate = delegate
-      delegate.attach(handle, !!initial)
       handle.on("ephemeral-message-outbound", ({ data }) => {
         void scheduler
           .publishEphemeral(delegate, {
@@ -255,7 +255,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       try {
         this.#scheduler!.open(entry.delegate)
       } catch (error) {
-        entry.delegate.fail(error)
+        entry.delegate.sourceUnavailable(error)
       }
     }
     this.emit("document", { handle })

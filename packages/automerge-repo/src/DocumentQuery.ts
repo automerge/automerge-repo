@@ -128,6 +128,10 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
     return this.#state
   }
 
+  get snapshotPending(): boolean {
+    return this.#initialSnapshotPending
+  }
+
   subscribe(callback: (state: QueryState<T>) => void): () => void {
     this.#subscribers.add(callback)
     return () => this.#subscribers.delete(callback)

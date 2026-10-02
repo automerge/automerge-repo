@@ -57,12 +57,16 @@ and changes awaitable; remove legacy adapters; defer the new query interface.
 `Document` owns Automerge state and the existing handle registry. A narrow commit
 hook captures local records before user listeners run. Incoming application uses
 the same event machinery but bypasses local persistence. Reentrant dispatch is
-queued in snapshot order so patch payloads remain internally consistent.
+queued in snapshot order so patch payloads remain internally consistent. Remote
+heads and sync-info timestamps live on the shared Document, not on its delegate.
 
 `DocumentDelegate` translates records, verifies checkpoints, tracks representation
 separately from save confirmation and owns exact unsaved batches. Ambiguous writes
 retry original bytes; self-echoes neither generate writes nor acknowledge failures.
 Rescan keeps document state and unsaved history, resetting source readiness targets.
+Delegate construction installs its commit hook and initial query source immediately;
+checkpoint verification uses query snapshot state rather than separate completion
+or failure flags. Document owns closed/deleted lifecycle state.
 
 `RepoScheduler` owns sessions, per-ID write ordering, bounded cross-document local
 operation concurrency, rescan, detach, deletion generation fences and teardown.
@@ -151,11 +155,10 @@ settings required by current declarations. Package typechecks and the focused
 backend and native test configs are the checked targets. This does not suppress
 runtime execution of the retained suites.
 
-Final verification: 45 test files passed, one skipped; 876 tests passed, three
-skipped (`vitest run --maxWorkers 4`). All retained packages build and typecheck.
-Focused backend/native test typechecks, formatting, lint, workspace manifest
-validation and `git diff --check` pass. Changes remain uncommitted in the separate
-worktree; no original PoC files were edited by this implementation.
+Stage 1 changes preserve a live session for empty connected lookups. A no-peer
+round marks the query unavailable for now; an empty round with connected peers
+remains loading because native success alone cannot prove whether data will
+arrive later. Neither result is evidence of global absence.
 
 ## Remaining limits
 
@@ -167,11 +170,11 @@ storage, non-streaming/quadratic history scans, replay budgets and conservative
 all-peer disconnection during deletion/storage-error recovery.
 
 Native successful empty reconciliation does not distinguish proven absence from
-late/stale advertisements. Empty connected acquisition without advertised heads
-now terminates with `open/unsupported`, not a false `unavailable` result or an
-indefinite wait. Nonempty advertisements keep waiting for verified ingestion.
-Late writes are still persisted; explicitly detach/reacquire a failed lookup to
-retry. Reliable remote absence requires a native protocol/API capability.
+late/stale advertisements. The query stays loading after an empty connected
+round, keeping the session open for new data or ephemerals. No-peer rounds can
+settle as unavailable without closing the session.
+Reliable remote absence still needs native protocol/API support. Nonempty
+advertisements still require verified ingestion.
 
 Production dialing, network ephemerals, scheduling/coalescing beyond bounded local
 concurrency, variant-equivalence reclamation, legacy/composite backends, Keyhive

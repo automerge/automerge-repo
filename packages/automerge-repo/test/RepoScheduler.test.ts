@@ -27,7 +27,7 @@ function gate() {
   return { promise, resolve }
 }
 function attach(scheduler: RepoScheduler, documentId = id(1), open = true) {
-  const document = new Document(
+  const document = new Document<{ count: number }>(
     documentId as unknown as DocumentId,
     A.from({ count: 0 })
   )
@@ -38,14 +38,38 @@ function attach(scheduler: RepoScheduler, documentId = id(1), open = true) {
     document,
     query,
     (id, records) => scheduler.submit(id, records),
-    () => scheduler.synchronize(delegate)
+    () => scheduler.synchronize(delegate),
+    true
   )
-  delegate.attach(handle, true)
   if (open) scheduler.open(delegate)
   return { delegate, document, handle, query }
 }
 
 describe("RepoScheduler", () => {
+  it("marks an unexpectedly ended observation unavailable without closing the handle", async () => {
+    const backend = new MemoryBackend()
+    const originalOpen = backend.open.bind(backend)
+    vi.spyOn(backend, "open").mockImplementation(documentId => {
+      const session = originalOpen(documentId)
+      return {
+        ...session,
+        events: (async function* () {})(),
+        close: () => session.close(),
+      }
+    })
+    const scheduler = new RepoScheduler(backend)
+    const { query, handle } = attach(scheduler)
+    await vi.waitFor(() =>
+      expect(query.peek().sources.backend).toBe("unavailable")
+    )
+    expect(query.peek().state).toBe("ready")
+    await handle.change(d => {
+      d.count = 2
+    })
+    expect(handle.doc()?.count).toBe(2)
+    await scheduler.close()
+  })
+
   it("bounds cross-document concurrency without global head-of-line blocking", async () => {
     const backend = new MemoryBackend()
     const blocked = gate()

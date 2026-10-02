@@ -28,7 +28,9 @@ import type { RecordBatch } from "./records.js"
  *   events may race a store promise or expose remote data before it is persisted.
  * - `local-load-complete`: local enumeration reached its checkpoint. `found`
  *   says whether that cut contained records, not whether their dependencies are
- *   materialized or any peer has data. Empty local storage is not global absence.
+ *   materialized or any peer has data. When `found` is false, checkpoint heads
+ *   are empty. Empty local storage is not global absence. Sync events follow
+ *   this initial completion event, not precede it.
  * - `checkpoint`: a position and history heads, ordered after associated record
  *   deliveries. The consumer must process those records and verify history
  *   inclusion using its CRDT; nonempty heads or the first blob are not enough.
@@ -41,8 +43,8 @@ import type { RecordBatch } from "./records.js"
  * - `ephemeral`: best-effort, nonpersistent application data. The envelope's
  *   claimed origin is distinct from the authenticated transport `sender`.
  * - `failure`: an operation-scoped error, not an empty lookup. Retryable failures
- *   leave the watch usable; terminal failures must end it rather than leave a
- *   pending read hanging. Explicit operations can also reject their promises.
+ *   leave the watch usable; nonretryable failures may end it. Neither proves
+ *   global absence. Explicit operations can also reject their promises.
  * - `rescan-required`: the replay window no longer covers this consumer. It is
  *   the final event on that stream. Reopen for a fresh cut and merge into the
  *   existing state, preserving local edits. Stored history remains recoverable;

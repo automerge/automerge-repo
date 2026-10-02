@@ -89,6 +89,20 @@ export function backendContract(
       expect(live.sequence).toBeGreaterThan(loaded.complete.checkpoint.sequence)
     })
 
+    it("reports an empty initial checkpoint before synchronization events", async () => {
+      const session = backend.open(treeId())
+      const iterator = session.events[Symbol.asyncIterator]()
+      const round = session.synchronize()
+      const loaded = await initial(iterator)
+      expect(loaded.complete).toMatchObject({
+        found: false,
+        checkpoint: { heads: [] },
+      })
+      expect((await event(iterator, "synchronized")).result).toBeDefined()
+      await round
+      await session.close()
+    })
+
     it("snapshots caller-owned metadata at the store call", async () => {
       const parents = [cid(2)]
       const write = backend.store(treeId(), [commit(3, parents)])

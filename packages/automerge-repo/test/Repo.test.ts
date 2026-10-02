@@ -12,6 +12,7 @@ import {
 } from "../src/AutomergeUrl.js"
 import { MemoryBackend } from "../src/sedimentree/testing/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
+import { extractRecords } from "../src/sedimentree/automerge/index.js"
 import type { BinaryDocumentId } from "../src/types.js"
 
 function gate() {
@@ -279,7 +280,7 @@ describe("backend-driven Repo", () => {
     await r.delete(handle.url)
     expect(handle.isDeleted()).toBe(true)
     expect(deleted).toHaveBeenCalledTimes(1)
-    await expect(r.find(handle.url)).rejects.toThrow("unavailable")
+    expect(r.findWithProgress(handle.url).peek().state).toBe("loading")
     const imported = await r.import(A.save(A.from({ count: 10 })), {
       docId: handle.documentId,
     })
@@ -343,8 +344,10 @@ describe("backend-driven Repo", () => {
     let finding: Promise<unknown> | undefined
     let rejected: Promise<unknown> | undefined
     handle.on("delete", () => {
-      finding = r.find(handle.documentId)
-      rejected = expect(finding).rejects.toThrow()
+      const controller = new AbortController()
+      finding = r.find(handle.documentId, { signal: controller.signal })
+      rejected = expect(finding).rejects.toBe("cancelled")
+      controller.abort("cancelled")
     })
     await backend.deleteLocal(
       sedimentreeId(documentIdToBinary(handle.documentId)!)
@@ -412,11 +415,44 @@ describe("backend-driven Repo", () => {
     const one = r.find(url, { signal: controller.signal })
     const rejected = expect(one).rejects.toBe("cancelled")
     const two = r.find(url)
-    const unavailable = expect(two).rejects.toThrow("unavailable")
+    const stillWaiting = vi.fn()
+    void two.then(stillWaiting, stillWaiting)
     controller.abort("cancelled")
     await rejected
     expect(r.findWithProgress(url).peek().state).toBe("loading")
     synchronize.resolve()
-    await unavailable
+    expect(stillWaiting).not.toHaveBeenCalled()
+    expect(r.findWithProgress(url).peek().state).toBe("loading")
+  })
+
+  it("makes an empty lookup unavailable without preventing later history", async () => {
+    const backend = new MemoryBackend()
+    const r = repo(backend)
+    const url = generateAutomergeUrl()
+    const { documentId } = parseAutomergeUrl(url)
+    const progress = r.findWithProgress<{ count: number }>(url)
+    const states: string[] = []
+    progress.subscribe(state => states.push(state.state))
+    await vi.waitFor(() => expect(progress.peek().state).toBe("unavailable"))
+    await backend.store(
+      sedimentreeId(documentIdToBinary(documentId)!),
+      extractRecords(A.from({ count: 3 }))
+    )
+    await vi.waitFor(() => expect(progress.peek().state).toBe("ready"))
+    expect((await r.find<{ count: number }>(url)).doc()).toEqual({ count: 3 })
+    expect(states).toContain("unavailable")
+    expect(states).not.toContain("failed")
+  })
+
+  it("reports open errors as source unavailability, not document failure", async () => {
+    const backend = new MemoryBackend()
+    vi.spyOn(backend, "open").mockImplementation(() => {
+      throw new Error("open failed")
+    })
+    const r = repo(backend)
+    const progress = r.findWithProgress(generateAutomergeUrl())
+    expect(progress.peek().state).toBe("unavailable")
+    expect(progress.peek().sources.backend).toBe("unavailable")
+    expect(progress.peek().state).not.toBe("failed")
   })
 })

@@ -386,7 +386,9 @@ describe("public Repo with native Subduction", () => {
     expect(deleted).toHaveBeenCalledTimes(1)
     expect(subDeleted).toHaveBeenCalledTimes(1)
     await p.repo.shutdown()
-    await expect(peer(p.storage).repo.find(handle.url)).rejects.toThrow()
+    expect(peer(p.storage).repo.findWithProgress(handle.url).peek().state).toBe(
+      "loading"
+    )
   })
 
   it("reports storage failure from change and flush, but shutdown is best effort", async () => {
@@ -405,38 +407,25 @@ describe("public Repo with native Subduction", () => {
     await expect(p.repo.shutdown()).resolves.toBeUndefined()
   })
 
-  it("rejects an unknown connected lookup as unsupported, not proven absent", async () => {
+  it("keeps an empty connected lookup open for later data", async () => {
     const a = peer(),
       b = peer()
     await connect(a, b)
     const url = generateAutomergeUrl()
-    const abort = new AbortController()
-    const timer = setTimeout(() => abort.abort(new Error("Lookup hung")), 3000)
-    try {
-      await expect(
-        b.repo.find(url, { signal: abort.signal })
-      ).rejects.toMatchObject({
-        operation: "open",
-        code: "unsupported",
-        retryable: false,
-      })
-      expect(b.repo.findWithProgress(url).peek().state).toBe("failed")
-      const { documentId } = parseAutomergeUrl(url)
-      await a.repo.import<State>(A.save(A.from<State>({ count: 9 })), {
-        docId: documentId,
-      })
-      await vi.waitFor(async () => {
-        expect(
-          (await b.storage.list("subduction-v1/")).some(key =>
-            key.includes("/commits/")
-          )
-        ).toBe(true)
-      }, wait)
-      await b.repo.removeFromCache(documentId)
-      expect((await b.repo.find<State>(url)).doc()).toEqual({ count: 9 })
-    } finally {
-      clearTimeout(timer)
-    }
+    const progress = b.repo.findWithProgress(url)
+    expect(progress.peek().state).toBe("loading")
+    const { documentId } = parseAutomergeUrl(url)
+    await a.repo.import<State>(A.save(A.from<State>({ count: 9 })), {
+      docId: documentId,
+    })
+    await vi.waitFor(async () => {
+      expect(
+        (await b.storage.list("subduction-v1/")).some(key =>
+          key.includes("/commits/")
+        )
+      ).toBe(true)
+    }, wait)
+    expect((await b.repo.find<State>(url)).doc()).toEqual({ count: 9 })
   }, 10000)
 
   it("waits for delayed incoming history without reporting unavailable", async () => {

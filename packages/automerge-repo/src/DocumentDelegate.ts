@@ -1,8 +1,7 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Document } from "./Document.js"
-import type { DocHandle, StorageId, SyncInfo } from "./DocHandle.js"
+import type { StorageId } from "./DocHandle.js"
 import type { DocumentQuery } from "./DocumentQuery.js"
-import { encodeHeads } from "./AutomergeUrl.js"
 import { decode } from "./helpers/cbor.js"
 import type { PeerId } from "./types.js"
 import {
@@ -32,39 +31,35 @@ export class DocumentDelegate<T> {
   #represented = new Set<string>()
   #unsaved = new Set<WriteJob>()
   #targets = new Map<"local" | "live" | "sync", HistoryCheckpoint>()
-  #syncInfo = new Map<StorageId, SyncInfo>()
-  #complete = false
-  #localEmpty = false
-  #closed = false
-  #failed = false
-  handle!: DocHandle<T>
 
   constructor(
     readonly id: SedimentreeId,
     readonly document: Document<T>,
     readonly query: DocumentQuery<T>,
     private submit: (id: SedimentreeId, records: RecordBatch) => Promise<void>,
-    private synchronize: () => Promise<SyncRoundResult>
+    private synchronize: () => Promise<SyncRoundResult>,
+    created = false
   ) {
-    query.markInitialSnapshotPending()
     document.commit = doc => this.commit(doc)
-    document.syncInfoLookup = id => this.#syncInfo.get(id)
-  }
-
-  attach(handle: DocHandle<T>, created = false): void {
-    this.handle = handle
     this.#remember(this.document.doc)
     if (created) {
-      this.#complete = true
       this.query.markInitialSnapshotComplete()
       this.query.sourceReady("backend")
     } else {
+      this.query.markInitialSnapshotPending()
       this.query.sourcePending("backend")
     }
   }
 
+  /** Creation may finish while a lookup is already observing this document. */
+  created(): void {
+    this.#targets.clear()
+    this.query.markInitialSnapshotComplete()
+    this.query.sourceReady("backend")
+  }
+
   commit(doc: A.Doc<T>): Promise<void> {
-    if (this.#closed || this.document.closed)
+    if (this.document.closed)
       return Promise.reject(new Error("Delegate is closed"))
     const attempts = [...this.#unsaved].map(
       job => job.pending ?? this.#schedule(job)
@@ -138,7 +133,7 @@ export class DocumentDelegate<T> {
   }
 
   onEvent(event: SedimentreeEvent): void {
-    if (this.#closed || this.#failed || this.document.closed) return
+    if (this.document.closed || this.query.peek().state === "failed") return
     switch (event.type) {
       case "records": {
         const next = applyRecords(this.document.doc, event.records)
@@ -149,22 +144,20 @@ export class DocumentDelegate<T> {
         break
       }
       case "local-load-complete":
-        this.#localEmpty = !event.found
         this.#checkpoint("local", event.checkpoint)
-        if (!this.#complete) void this.synchronize().catch(() => {})
+        if (this.query.snapshotPending)
+          void this.synchronize().catch(error => this.sourceUnavailable(error))
         break
       case "checkpoint":
         this.#checkpoint("live", event.checkpoint)
         break
       case "synchronized": {
         this.#checkpoint("sync", event.result.checkpoint)
-        const { outcome, peers } = event.result
+        const { outcome, peers, checkpoint } = event.result
         if (
-          outcome !== "failed" &&
-          !peers.some(peer => peer.outcome === "failed") &&
-          !this.#complete &&
-          this.#localEmpty &&
+          this.query.snapshotPending &&
           this.#targets.size === 0 &&
+          checkpoint.heads.length === 0 &&
           A.getHeads(this.document.doc).length === 0 &&
           (outcome === "no-peers" ||
             (outcome === "complete" &&
@@ -176,20 +169,16 @@ export class DocumentDelegate<T> {
         break
       }
       case "failure":
-        if (!event.error.retryable) this.fail(event.error)
+        if (event.error.retryable)
+          this.document.log.error("backend failure: %o", event.error)
+        else this.sourceUnavailable(event.error)
         break
       case "deleted":
         this.markDeleted()
         break
       case "remote-heads": {
         const id = event.remote.id as StorageId
-        const heads = encodeHeads([...event.heads])
-        const timestamp = Date.now()
-        this.#syncInfo.set(id, {
-          lastHeads: heads,
-          lastSyncTimestamp: timestamp,
-        })
-        this.document.registry.dispatchRemoteHeads(id, heads, timestamp)
+        this.document.recordRemoteHeads(id, event.heads)
         break
       }
       case "ephemeral":
@@ -204,23 +193,19 @@ export class DocumentDelegate<T> {
         break
       case "rescan-required":
         this.#targets.clear()
-        this.#localEmpty = false
-        if (!this.#complete) this.query.sourcePending("backend")
+        if (this.query.snapshotPending) this.query.sourcePending("backend")
         break
     }
   }
 
-  fail(reason: unknown): void {
-    if (this.#failed) return
-    this.#failed = true
-    this.query.fail(
-      reason instanceof Error ? reason : new Error(String(reason))
-    )
+  sourceUnavailable(reason: unknown): void {
+    if (this.document.closed) return
+    this.document.log.error("backend observation unavailable: %o", reason)
+    this.query.sourceUnavailable("backend")
   }
 
   /** Quiesce mutations without discarding accepted/failed persistence. */
   close(): void {
-    this.#closed = true
     this.document.closed = true
   }
 
@@ -228,7 +213,6 @@ export class DocumentDelegate<T> {
     this.close()
     const notify = !this.document.deleted
     this.document.deleted = true
-    this.#failed = true
     // Invalidate acquisition before delete listeners can synchronously find the ID.
     this.query.fail(new Error("Document deleted"))
     if (notify) this.document.registry.dispatchDelete()
@@ -242,16 +226,20 @@ export class DocumentDelegate<T> {
     source: "local" | "live" | "sync",
     checkpoint: HistoryCheckpoint
   ): void {
-    if (this.#failed || this.#complete || checkpoint.heads.length === 0) return
+    if (
+      this.query.peek().state === "failed" ||
+      !this.query.snapshotPending ||
+      checkpoint.heads.length === 0
+    )
+      return
     if (!this.#targets.has(source)) this.#targets.set(source, checkpoint)
     this.#checkTargets()
   }
 
   #checkTargets(): void {
-    if (this.#complete) return
+    if (!this.query.snapshotPending) return
     for (const target of this.#targets.values()) {
       if (satisfiesCheckpoint(this.document.doc, target.heads)) {
-        this.#complete = true
         this.#targets.clear()
         this.query.markInitialSnapshotComplete()
         this.query.sourceReady("backend")

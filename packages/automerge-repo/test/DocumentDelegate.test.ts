@@ -11,6 +11,7 @@ import { PRESENCE_MESSAGE_MARKER } from "../src/presence/constants.js"
 import type { DocumentId, PeerId } from "../src/types.js"
 import type { StorageId } from "../src/DocHandle.js"
 import {
+  BackendError,
   commitId,
   sedimentreeId,
   type RecordBatch,
@@ -42,9 +43,9 @@ function setup(
     document,
     query,
     submit,
-    sync
+    sync,
+    created
   )
-  delegate.attach(handle, created)
   return { document, handle, query, delegate, submit, sync }
 }
 
@@ -179,6 +180,37 @@ describe("DocumentDelegate", () => {
       records: extractRecords(remote),
       phase: "initial",
       sequence: 1,
+    })
+    expect(query.peek().state).toBe("ready")
+  })
+
+  it("settles an empty local cut with no peers, without permanently failing", () => {
+    const { delegate, query } = setup()
+    delegate.onEvent({
+      type: "local-load-complete",
+      found: false,
+      checkpoint: { sequence: 0, heads: [] },
+    })
+    delegate.onEvent({
+      type: "synchronized",
+      result: {
+        roundId: "empty",
+        checkpoint: { sequence: 0, heads: [] },
+        outcome: "no-peers",
+        peers: [],
+      },
+    })
+    expect(query.peek().state).toBe("unavailable")
+    const remote = A.from({ count: 3 })
+    delegate.onEvent({
+      type: "records",
+      records: extractRecords(remote),
+      phase: "live",
+      sequence: 1,
+    })
+    delegate.onEvent({
+      type: "checkpoint",
+      checkpoint: { sequence: 1, heads: A.getHeads(remote).map(commitId) },
     })
     expect(query.peek().state).toBe("ready")
   })
@@ -320,6 +352,42 @@ describe("DocumentDelegate", () => {
       },
     })
     expect(query.peek().state).toBe("unavailable")
+    expect(query.peek().sources.backend).toBe("unavailable")
+  })
+
+  it("logs backend failures without poisoning a later checkpoint or edits", async () => {
+    const { delegate, query, handle } = setup()
+    delegate.onEvent({
+      type: "failure",
+      sequence: 0,
+      error: new BackendError("synchronize", "io", "retry", true),
+    })
+    expect(query.peek().state).toBe("loading")
+    delegate.onEvent({
+      type: "failure",
+      sequence: 1,
+      error: new BackendError("open", "io", "read failed"),
+    })
+    expect(query.peek().state).toBe("unavailable")
+    const remote = A.from({ count: 4 })
+    delegate.onEvent({
+      type: "records",
+      records: extractRecords(remote),
+      sequence: 2,
+      phase: "live",
+    })
+    delegate.onEvent({
+      type: "checkpoint",
+      checkpoint: {
+        sequence: 2,
+        heads: A.getHeads(remote).map(commitId),
+      },
+    })
+    expect(query.peek().state).toBe("ready")
+    await handle.change((d: { count: number }) => {
+      d.count = 5
+    })
+    expect(handle.doc()?.count).toBe(5)
   })
 
   it("preserves historical views and rejects mutation after close", async () => {

@@ -369,7 +369,7 @@ export class DocHandle<T> {
 
   /** Returns the heads and the timestamp of the last update for the storageId. */
   getSyncInfo(storageId: StorageId): SyncInfo | undefined {
-    return this.#document.syncInfoLookup?.(storageId)
+    return this.#document.getSyncInfo(storageId)
   }
 
   /**
