@@ -136,6 +136,40 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@22.20.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
 
+  packages/automerge-react:
+    dependencies:
+      '@automerge/automerge-repo':
+        specifier: workspace:*
+        version: link:../automerge-repo
+      '@automerge/automerge-repo-react-hooks':
+        specifier: workspace:*
+        version: link:../automerge-repo-react-hooks
+      '@automerge/automerge-repo-subduction':
+        specifier: workspace:*
+        version: link:../automerge-repo-subduction
+      '@automerge/subduction':
+        specifier: link:/Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
+        version: link:../../../subduction/subduction_wasm
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.0
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.17
+      react:
+        specifier: 'catalog:'
+        version: 19.2.7
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.7(react@19.2.7)
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@22.20.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+
   packages/automerge-repo:
     dependencies:
       '@automerge/automerge':
@@ -271,7 +305,7 @@ importers:
         version: link:../automerge-repo
       '@automerge/subduction':
         specifier: link:/Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
-        version: link:../../../../../../../../../../Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
+        version: link:../../../subduction/subduction_wasm
       cbor-x:
         specifier: 'catalog:'
         version: 1.6.4

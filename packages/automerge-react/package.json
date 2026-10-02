@@ -1,0 +1,57 @@
+{
+  "name": "@automerge/react",
+  "version": "2.6.0-alpha.5",
+  "description": "Repo, React hooks and Subduction in one convenience package",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-react"
+  },
+  "author": "Peter van Hardenberg <pvh@pvh.ca>",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest --watch"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-react-hooks": "workspace:*",
+    "@automerge/automerge-repo-subduction": "workspace:*",
+    "@automerge/subduction": "0.23.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./slim": {
+      "types": "./dist/slim.d.ts",
+      "default": "./dist/slim.js"
+    }
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}

@@ -93,9 +93,11 @@ constructs storage adapters and synchronizers.
 
 Removed core legacy storage/network/synchronizer machinery, adapter interfaces and
 exports, sync-state persistence and gossip management, and all five adapter
-packages. Removed their incompatible umbrellas, generators, templates, examples
-and sync server rather than leaving a broken workspace. React hooks, Solid
-primitives and Svelte stores remain and expose awaitable update callbacks.
+packages. Removed incompatible generators, templates, examples and sync server
+rather than leaving a broken workspace. The `@automerge/react` umbrella is
+restored separately to re-export Repo, hooks and the private Subduction package,
+without legacy adapters; it remains private until Subduction is publishable.
+React hooks, Solid primitives and Svelte stores expose awaitable update callbacks.
 
 Removed already-deprecated handle state helpers, `getRemoteHeads`, progress
 compatibility getters and legacy compatibility types. Legacy-only Repo options,
