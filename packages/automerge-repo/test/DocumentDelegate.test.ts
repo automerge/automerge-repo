@@ -406,6 +406,42 @@ describe("DocumentDelegate", () => {
     expect(handle.doc()?.count).toBe(2)
   })
 
+  it("settles failed partial loading and can later verify the complete history", async () => {
+    const { delegate, query } = setup()
+    const prefix = A.from({ count: 1 })
+    const complete = A.change(A.clone(prefix), doc => {
+      doc.count = 2
+    })
+    delegate.onEvent({
+      type: "records",
+      records: extractRecords(prefix),
+      sequence: 0,
+      phase: "initial",
+    })
+    delegate.onEvent({
+      type: "local-load-complete",
+      found: true,
+      checkpoint: { sequence: 0, heads: A.getHeads(complete).map(commitId) },
+    })
+    expect(query.peek().state).toBe("loading")
+    const waiting = query.whenReady()
+    const unavailable = expect(waiting).rejects.toThrow("unavailable")
+    delegate.onEvent({
+      type: "failure",
+      sequence: 1,
+      error: new BackendError("observe", "io", "read interrupted"),
+    })
+    expect(query.peek().state).toBe("unavailable")
+    await unavailable
+    delegate.onEvent({
+      type: "records",
+      records: extractRecords(complete),
+      sequence: 2,
+      phase: "live",
+    })
+    expect(query.peek().state).toBe("ready")
+  })
+
   it("rescan replaces stale initial targets without discarding unsaved writes", async () => {
     const submit = vi.fn(async (_id: unknown, _records: RecordBatch) => {})
     submit.mockRejectedValueOnce(new Error("disk full"))

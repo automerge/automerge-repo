@@ -256,6 +256,20 @@ All 164 native package tests pass; full workspace run: 981 passed, 3 skipped
 focused backend/native test typechecks, oxlint, repository formatting and
 `git diff --check` pass. No browser integration run or multi-owner safety claim.
 
+Final lifecycle review also found an incomplete-history failure case: a source
+became unavailable after delivering a prefix, but the checkpoint gate left the
+query loading indefinitely. The query now becomes unavailable if no source is
+pending, without exposing the incomplete prefix as ready. A later verified
+checkpoint still recovers to ready. The regression was reproduced before the fix.
+
+Final verification: 982 tests passed, three skipped (54 files passed, one skipped).
+All retained packages build; focused backend/native test typechecks, lint,
+formatting, workspace manifest validation and whitespace checks pass. The feature
+port review found no correctness/security defects; one low-priority duplicated
+ID-conversion heuristic remains. The legacy standalone test typecheck and real
+browser coverage remain the gaps described above. All stages and followup fixes
+are committed separately on `acc/repo-backend-poc`; nothing is pushed or merged.
+
 Production dialing beyond this experimental helper,
 scheduling/coalescing beyond bounded local concurrency, variant-equivalence
 reclamation, legacy/composite backends, Keyhive and the next query API remain

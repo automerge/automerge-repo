@@ -291,7 +291,11 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
 
     // Handle has data → ready, regardless of source states
     if (this.#handleHasData()) {
-      if (this.#initialSnapshotPending) return { state: "loading", sources }
+      if (this.#initialSnapshotPending)
+        return {
+          state: this.#hasAnySource("pending") ? "loading" : "unavailable",
+          sources,
+        }
       return { state: "ready", handle: this.#handle, sources }
     }
 
