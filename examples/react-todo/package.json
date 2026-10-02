@@ -1,0 +1,31 @@
+{
+  "name": "@automerge/automerge-repo-demo-todo",
+  "repository": "https://github.com/automerge/automerge-repo/tree/main/examples/react-todo",
+  "private": true,
+  "version": "2.6.0-alpha.5",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --open",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@automerge/react": "workspace:*",
+    "@automerge/subduction": "0.23.0",
+    "autoprefixer": "^10.5.2",
+    "clsx": "^2.1.1",
+    "postcss": "^8.5.26",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-error-boundary": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "^3.4.19",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
+  }
+}

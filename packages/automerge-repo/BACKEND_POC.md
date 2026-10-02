@@ -148,6 +148,11 @@ The standalone guide demo remains in its source worktree; usage examples here li
 in the package README. IndexedDB lifecycle/schema handling and recovery tests are
 more extensive here; no real-browser or multi-owner guarantee is added.
 
+The React todo demo is restored separately using the private `@automerge/react`
+umbrella, a Subduction peer and `IndexedDBByteStore`. It intentionally shares
+its demo database across tabs despite the single-owner storage restriction;
+`examples/react-todo/README.md` explains the risk and local server setup.
+
 ## Validation
 
 Build packages before testing fresh-process package exports. In this environment

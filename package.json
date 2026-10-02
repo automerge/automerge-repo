@@ -12,6 +12,7 @@
     "version:bump": "node scripts/version.mjs bump",
     "build": "pnpm -r build",
     "build:docs": "typedoc",
+    "dev:demo": "pnpm --filter @automerge/automerge-repo-demo-todo dev",
     "dev": "pnpm watch",
     "pub": "pnpm publish -r",
     "preinstall": "npx only-allow pnpm",
