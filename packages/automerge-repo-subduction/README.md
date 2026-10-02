@@ -378,14 +378,17 @@ installed **inside** those read transactions, with no snapshot-to-watch gap.
 A synchronization call captures earlier local work but performs network waiting
 outside the owner queue. Initial cuts are finite and established before the
 first iterator pull; consumption holds neither queue. Each observer owns
-its delivered bytes. Only successful compound saves produce live notifications;
-a partially failed batch can already be observed and recovered. Failed native
-mutations force affected document/collection watches to rescan: a byte-store save
-may have committed data before rejecting, so retry deduplication alone cannot
-repair missed notifications. Retry does not require rollback. Successful incoming
-and local saves publish coalesced live checkpoints after their data. Explicit and
-automatic rounds emit ordered synchronization results; rounds started without
-connections report `no-peers`, not global absence.
+its delivered bytes. Successful saves also notify when an identical record is
+already in storage, without rewriting its bytes. This recovers notifications missed
+by an external writer or a save that persisted then rejected. Consumers must apply
+duplicate durable deliveries idempotently; repeated duplicates count against live
+replay limits and can require a rescan. This does not make concurrent multi-owner
+storage safe: exclusive backend ownership is still required. A partially failed
+batch can already be observed and recovered. Failed native mutations force affected
+document/collection watches to rescan; retry does not require rollback. Successful
+incoming and local saves publish coalesced live checkpoints after their data.
+Explicit and automatic rounds emit ordered synchronization results; rounds started
+without connections report `no-peers`, not global absence.
 
 Readiness checkpoints are conservative, not necessarily minimal frontiers. Only
 loose-commit dependencies prune delivered heads. Fragment boundary/checkpoint

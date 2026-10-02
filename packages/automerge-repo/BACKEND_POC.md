@@ -3,9 +3,10 @@
 ## Baseline and scope
 
 Branch `acc/repo-backend-poc` starts at `main` (`f1ee0bb3`). Its backend guide is
-`acc/repo-poc` at `7420b917`, including supplied-ID backend creation. This is a
-new integration, not a wholesale merge of that experiment. The original worktree
-and branch are unchanged.
+`acc/repo-poc` at `7420b917`, including supplied-ID backend creation. Subsequent
+stages adopt its delegate/scheduler simplifications and feature commits through
+`4030acbb`. This is a selective integration, not a wholesale merge. This work
+does not modify `main` or the original PoC worktree.
 
 Agreed scope: wire the optional backend into delegate/scheduler orchestration;
 keep main's non-deprecated document API where feasible; make creation, import,
@@ -113,7 +114,7 @@ application loggers. Remote-head timestamps are local
 advertisement receipt times, not evidence of peer persistence. Backend identity
 strings in those events are not interchangeable with legacy storage identities.
 
-## Differences from the guide PoC
+## Differences from the original guide
 
 | Guide PoC                                        | This PoC                                                                      |
 | ------------------------------------------------ | ----------------------------------------------------------------------------- |
@@ -131,6 +132,19 @@ Kept the guide's plain contract packaging, no default backend, record translatio
 local-durability distinction, checkpoint verification and original-byte retry
 lessons. The private document controller and new public query/handle types were
 not ported.
+
+Compared with the current guide (`4030acbb`), both paths now share the simplified
+backend contract, connection helpers, signed ephemeral sender semantics,
+IndexedDB storage and duplicate-record notification recovery. This branch keeps
+main's Document, full DocHandle/subhandle registry, DocumentQuery-derived results,
+deprecated findWithProgress, async import/clone and flush/shutdown instead of
+RepoHandle, direct-report RepoQuery and dispose. Observation failures mark a source
+unavailable rather than closing an otherwise usable handle; deletion and shutdown
+still fence lifecycle operations. Connected empty lookups stay live and loading
+until backend evidence arrives, not terminally failed as in the original baseline.
+The standalone guide demo remains in its source worktree; usage examples here live
+in the package README. IndexedDB lifecycle/schema handling and recovery tests are
+more extensive here; no real-browser or multi-owner guarantee is added.
 
 ## Validation
 
@@ -202,14 +216,15 @@ Publication/control waits do not block local persistence; no-peer sends are not
 replayed, and rescans cannot recover messages. Existing full DocHandle/subhandle
 events and Presence use the session path without adding a PoC RepoHandle or
 delegate lifecycle state. Native tests cover subscription/reconnect/retirement,
-wrapper lifetimes, isolation and no persistence/echo/replay. No later storage
-changes from `4030acbb` are included.
+wrapper lifetimes, isolation and no persistence/echo/replay. The later storage
+followup is documented separately below.
 
 Stage 6 ports only the IndexedDB byte store and its tests from `be196e22`, plus
 the source README section adapted to `shutdown()`. It exports `IndexedDBByteStore`
 from the Subduction package and adds test-only `fake-indexeddb` 6.2.5. Native
 0.23.0, existing backend features, and Document/Repo/DocHandle APIs are unchanged;
-the later `4030acbb` storage fix and source worktree README/demo edits are excluded.
+source worktree README/demo edits are excluded. The later `4030acbb` storage fix
+is ported separately below.
 The store opens lazily, snapshots save bytes synchronously, waits for transaction
 completion, validates object-store schema and byte values, and supports close,
 version-change and unexpected-close reopening. Rejected blocked opens close any
@@ -224,6 +239,22 @@ workspace run: 977 passed, 3 skipped (54 files passed, 1 skipped). Core/native
 builds, all package typechecks, focused backend/native test typechecks, oxlint,
 repository formatting and `git diff --check` pass. IndexedDB lifecycle tests use
 fake-indexeddb, including its forced-close helper; no browser integration run.
+
+Post-IndexedDB followup ports `4030acbb`: exact existing durable records notify
+observers on successful native save, without rewriting bytes; conflicting
+representations still reject. Duplicate durable delivery must be idempotent and
+counts against bounded replay, with terminal `rescan-required` on overflow.
+Regressions cover sequential external writes before/after watch installation,
+native duplicate hydration, persisted-then-rejected retry notification without
+another record write, and repeated duplicate overflow. This does not establish
+concurrent multi-owner safety; one live backend per database remains required.
+Ephemeral deduplication, IndexedDB and public Repo APIs are unchanged.
+
+Followup validation: regressions fail before the bridge fix and pass afterward.
+All 164 native package tests pass; full workspace run: 981 passed, 3 skipped
+(54 files passed, 1 skipped). Native package build, all package typechecks,
+focused backend/native test typechecks, oxlint, repository formatting and
+`git diff --check` pass. No browser integration run or multi-owner safety claim.
 
 Production dialing beyond this experimental helper,
 scheduling/coalescing beyond bounded local concurrency, variant-equivalence

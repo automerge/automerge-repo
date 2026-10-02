@@ -577,6 +577,8 @@ export class StorageBridge implements N.SedimentreeStorage {
           "conflict",
           `Different representation for an existing ${record.kind} key`
         )
+      // Another writer or an ambiguous save may have missed this notification.
+      this.saved(sid, record)
       return
     }
     if (values.length + 1 > this.limits.maxRecords)
@@ -585,7 +587,7 @@ export class StorageBridge implements N.SedimentreeStorage {
       throw new Error("Snapshot byte limit exceeded")
     await this.storage.save(recordPath(tree, record.kind, key), frame)
     // Only resolved saves notify. Ambiguous failures are handled by the owner's
-    // rescan/retry path; already saved records never depend on a later batch item.
+    // rescan/retry path; an already saved record notifies on retry.
     this.saved(sid, record)
   }
 

@@ -160,6 +160,63 @@ describe("real local Subduction", () => {
     await collection.return!()
   })
 
+  it.each(["before", "after"])(
+    "delivers an exact native duplicate written externally %s watch installation",
+    async timing => {
+      const a = create()
+      if (timing === "before") await a.store(tree, [record(1)])
+      const b = create()
+      const loaded = await initial(b.open(tree))
+      expect(loaded.records).toEqual(timing === "before" ? [record(1)] : [])
+      const collection = b.observeCollection()[Symbol.asyncIterator]()
+      if (timing === "before") await collection.next()
+      expect((await collection.next()).value).toMatchObject({
+        type: "local-load-complete",
+      })
+      if (timing === "after") await a.store(tree, [record(1)])
+      // Sequential external writes test notification recovery, not shared ownership.
+      const save = vi.spyOn(storage, "save")
+      const hydration = vi.spyOn(N.Subduction.prototype, "getCommits")
+      await b.store(tree, [record(1)])
+      expect(await next(loaded.iterator)).toMatchObject({
+        type: "records",
+        phase: "live",
+        records: [record(1)],
+      })
+      expect(await next(loaded.iterator)).toMatchObject({
+        type: "checkpoint",
+        checkpoint: { heads: [cid(1)] },
+      })
+      expect((await collection.next()).value).toMatchObject({
+        type: "document",
+        phase: "live",
+        id: tree,
+      })
+      expect(
+        save.mock.calls.filter(([key]) => key.includes("/commits/"))
+      ).toEqual([])
+      expect((await initial(b.open(tree))).records).toEqual([record(1)])
+      expect(hydration).toHaveBeenCalledOnce()
+      await expect(hydration.mock.results[0].value).resolves.toHaveLength(1)
+      await loaded.iterator.return!()
+      await collection.return!()
+    }
+  )
+
+  it("bounds repeated durable duplicate notifications with rescan-required", async () => {
+    const backend = create({ replayEvents: 2 })
+    await backend.store(tree, [record(1)])
+    const { iterator } = await initial(backend.open(tree))
+    const save = vi.spyOn(storage, "save")
+    for (let i = 0; i < 3; i++) await backend.store(tree, [record(1)])
+    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
+    expect((await iterator.next()).done).toBe(true)
+    expect(
+      save.mock.calls.filter(([key]) => key.includes("/commits/"))
+    ).toEqual([])
+    expect((await initial(backend.open(tree))).records).toEqual([record(1)])
+  })
+
   it("maps 16-byte IDs by zero-padding, preserves native 32-byte IDs without truncation", async () => {
     const full = sedimentreeId("ab".repeat(16) + "cd".repeat(16))
     for (const id of [tree, full]) {
@@ -359,7 +416,23 @@ describe("real local Subduction", () => {
     expect((await collection.next()).value).toMatchObject({
       type: "rescan-required",
     })
+    const retry = await initial(backend.open(tree))
+    expect(retry.records).toEqual([record(1)])
+    const writes = vi
+      .mocked(storage.save)
+      .mock.calls.filter(([key]) => key.includes("/commits/")).length
     await backend.store(tree, [record(1)])
+    expect(await next(retry.iterator)).toMatchObject({
+      type: "records",
+      phase: "live",
+      records: [record(1)],
+    })
+    expect(
+      vi
+        .mocked(storage.save)
+        .mock.calls.filter(([key]) => key.includes("/commits/"))
+    ).toHaveLength(writes)
+    await retry.iterator.return!()
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
     const fresh = backend.observeCollection()[Symbol.asyncIterator]()
     expect((await fresh.next()).value).toMatchObject({

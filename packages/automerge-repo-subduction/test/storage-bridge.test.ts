@@ -202,6 +202,21 @@ function dispose(value: unknown): void {
 }
 
 describe("StorageBridge native transaction serialization", () => {
+  it("notifies when another bridge already saved an identical record without rewriting bytes", async () => {
+    const storage = new MemoryStore()
+    const firstSaved = vi.fn(),
+      secondSaved = vi.fn()
+    const a = new StorageBridge(storage, limits, firstSaved)
+    const b = new StorageBridge(storage, limits, secondSaved)
+    await save(a, first)
+    await save(b, first)
+    expect(firstSaved.mock.calls).toEqual([[tree, first]])
+    expect(secondSaved.mock.calls).toEqual([[tree, first]])
+    expect(storage.calls.filter(call => call.startsWith("save:"))).toHaveLength(
+      1
+    )
+  })
+
   it("serializes same-head conflicts and exact retries, but allows both kinds", async () => {
     const storage = new MemoryStore(),
       saved = vi.fn(),
@@ -224,6 +239,8 @@ describe("StorageBridge native transaction serialization", () => {
     expect(outcomes[2]).toMatchObject({ reason: { code: "conflict" } })
     expect(saved.mock.calls).toEqual([
       [tree, first],
+      [tree, first],
+      [tree, fragment],
       [tree, fragment],
     ])
     expect(failed).toHaveBeenCalledOnce()
@@ -347,11 +364,18 @@ describe("StorageBridge native transaction serialization", () => {
     await expect(bridge.flush()).resolves.toBeUndefined()
     storage.afterSave = undefined
     await batch(bridge, [first, second, third])
-    // A durable-but-rejected record is an exact retry, not a second save.
+    // An exact retry doesn't save again, but recovers missed notifications.
     expect(saved.mock.calls).toEqual([
       [tree, first],
+      [tree, first],
+      [tree, second],
       [tree, third],
     ])
+    expect(
+      storage.calls.filter(
+        call => call.startsWith("save:") && call.includes("/commits/")
+      )
+    ).toHaveLength(3)
   })
 
   it("reports synchronous preparation errors through failed and flush", async () => {
