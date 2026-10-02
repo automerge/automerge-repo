@@ -41,7 +41,9 @@ import type { RecordBatch } from "./records.js"
  * - `remote-heads`: a peer's advertised history, not proof that we have it or
  *   that the peer has durably stored our writes.
  * - `ephemeral`: best-effort, nonpersistent application data. The envelope's
- *   claimed origin is distinct from the authenticated transport `sender`.
+ *   claimed origin is distinct from `sender`, the authenticated signed originator
+ *   (not necessarily the immediate relay/transport peer). Consumers use `sender`
+ *   for application sender identity; claimed origin is untrusted loop metadata.
  * - `failure`: an operation-scoped error, not an empty lookup. Retryable failures
  *   leave the watch usable; nonretryable failures may end it. Neither proves
  *   global absence. Explicit operations can also reject their promises.
@@ -219,7 +221,9 @@ export interface BackendIdentity {
   readonly path: readonly string[]
 }
 
-/** Allocated once before fanout. Forwarders preserve ID and claimed origin. */
+/** Globally unique message ID, allocated once before fanout. Forwarders preserve
+ * ID and claimed origin, even when forwarding under a different signing identity.
+ */
 export interface EphemeralEnvelope {
   readonly messageId: string
   readonly origin: BackendIdentity
@@ -270,6 +274,7 @@ export type SedimentreeEvent =
       readonly type: "ephemeral"
       readonly sequence: number
       readonly message: EphemeralEnvelope
+      /** Authenticated signed originator, not the claimed origin or relay peer. */
       readonly sender: BackendIdentity
     }
   | {

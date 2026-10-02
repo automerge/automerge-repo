@@ -5,7 +5,7 @@ explicit authenticated peer connections. Supports loose commits and fragments;
 no compaction or CRDT dependencies.** This is a real `@automerge/subduction`
 engine and storage bridge, not a MemoryBackend facade or a simulated protocol.
 The adapter targets `@automerge/subduction` **0.23.0**, including its native
-fragment metadata APIs.
+fragment metadata and ephemeral pubsub APIs.
 
 ## Quick start
 
@@ -218,23 +218,12 @@ and missing connections. `stats.remoteHeads` is response metadata, not an
 authoritative inventory: the responder cache can lag already-persisted writes.
 Neither empty remote heads nor an empty local checkpoint proves absence.
 
-After a successful connected round, an empty local cut with no advertised remote
-heads emits a non-retryable `BackendError("open", "unsupported", ...)` to the
-session. Public `repo.find()` therefore rejects with `unsupported`, not
-`unavailable`, rather than hanging. The native exchange still reports `complete`;
-that does not imply that initial document acquisition is supported. If the peer
-advertises nonempty heads, delayed ingestion remains pending and is not failed
-by this empty-lookup check. No native response is mapped to peer `unavailable`.
-An unsuccessful response with no transport errors is similarly unsupported,
-not proof of absence; an empty acquisition ends with the same `open` error.
-
-This conservative limit can reject a real document during a remote cache-lag
-window. The failed observation ends, but later native writes may still persist;
-explicitly evict/reacquire after data arrives. A failed Repo query is terminal.
-Do not broaden Repo's unavailable condition to include successful empty local
-checkpoints. A reliable missing-document result needs a native existence/absence
-response with defined consistency semantics; neither a timeout nor a second
-empty sync round supplies that guarantee.
+An empty connected lookup stays loading with its session live for later history
+or ephemerals. Native `complete` does not prove absence or document readiness.
+No native response is mapped to peer `unavailable`; a no-peer round may mark the
+query unavailable for now without closing its session. A reliable missing-document
+result needs a native existence/absence response with defined consistency
+semantics; neither a timeout nor a second empty round supplies that guarantee.
 
 Read-only Rust evidence: `subduction_core/src/handler/sync.rs`,
 `recv_batch_sync_request` (cache-coherence note, ephemeral empty tree, unconditional
@@ -243,15 +232,49 @@ Read-only Rust evidence: `subduction_core/src/handler/sync.rs`,
 `subduction_wasm/src/subduction.rs`, `PeerBatchSyncResult`; and
 `subduction_wasm/src/sync_stats.rs`, `remote_heads` (heads-only metadata getter).
 
-Native has no document-unsubscribe API: closing a session releases that observer,
+Native has no durable document-unsubscribe API: closing a session releases that observer,
 not the connection's protocol subscriptions. Other sessions continue normally.
 **Deletion and storage-error recovery conservatively disconnect all peers**,
 including those used by unrelated documents; helper-managed connections retry
 automatically, while low-level callers must reconnect explicitly afterward.
-Network ephemerals are not implemented: publication with connected peers rejects
-with `unsupported`, rather than silently pretending to send. With no peers it
-remains a no-op. Composition, permissions, socket/browser integration tests, and
-production subscription/resource management remain future work.
+Composition, permissions, socket/browser integration tests, and production
+subscription/resource management remain future work.
+
+### Ephemeral messages
+
+`session.publishEphemeral(envelope)` publishes best-effort, nonpersistent messages
+on the document's native topic. Repo's `handle.broadcast(message)` uses this path.
+The first initialized session subscribes; the last released session unsubscribes,
+including iterator return, overflow, failure, and deletion. Native reconnects replay
+current interests, and replacement engines restore active interests. Neither
+publication nor subscription waits block the local persistence queue.
+Ephemeral control failures emit nonterminal, droppable `failure` events with
+operation `ephemeral`; they do not end durable observation or synchronization.
+Durable sync interests accepted during first onboarding are replayed after
+installation succeeds, including newly stored, unopened documents.
+
+The private CBOR envelope is `[1, messageId, { kind, id, path }, payload]`.
+The entire encoded envelope must be at most 65,536 bytes (64 KiB), not just its
+payload. IDs and identity strings must be nonempty and at most 256 characters;
+identity paths contain at most 16 such strings. Inputs are copied before async
+work; each observer receives independent payload/path copies. Malformed or
+oversized incoming envelopes are dropped. Requires native 0.23+ pubsub APIs.
+
+`message.origin` is untrusted loop metadata. The event's `sender` is the native
+signature-verified originating signer, not necessarily the immediate relay.
+DocHandle/Presence sender identity comes from `sender.id`, never claimed origin.
+Repo filters returned envelopes claiming its own session origin. Native handles
+forwarding and wire deduplication; the adapter also suppresses signed self messages
+and caches the last 4,096 full-topic/message-ID pairs across engine replacements.
+Distinct IDs with identical payloads remain distinct messages. No direct local echo.
+Message IDs must uniquely identify envelopes across all publishers on a topic.
+Forwarders preserve IDs; deduplication ignores signer identity to suppress
+cross-signer bridge loops. Reusing an ID can drop a different envelope.
+
+With no connected peers, publication is a no-op, never replayed later. Resolution
+is not a delivery acknowledgment: native can drop failed sends without rejecting.
+No receipts, retries, persistence or discovery; rescans cannot recover missed
+messages. Buffer pressure drops ephemerals before durable observations.
 
 ## Persistence and integrity
 
@@ -397,6 +420,11 @@ copying, FIFO, paired byte transport. Authentication, reconciliation, ingestion,
 and disk recovery are real native operations, not mocked. It covers request
 timeouts, cancellation, failed onboarding, delayed and ambiguous incoming writes,
 flush/close barriers, deletion fencing, and retry after reconnect.
+`ephemeral.test.ts` covers CBOR validation, encoded-byte limits and bounded
+full-topic deduplication. `ephemeral-network.test.ts` covers native publication,
+signed originators through relays/cycles, Repo broadcasts, isolation, no echo or
+persistence/replay, subscription reconciliation, retirement and wrapper lifetimes.
+`watch.test.ts` covers lossy pressure handling without displacing durable events.
 `storage-bridge.test.ts` separately stresses serialized transaction races and
 native input lifetimes. Fresh-process
 package import tests check that the contract/testing/translation subpaths and this

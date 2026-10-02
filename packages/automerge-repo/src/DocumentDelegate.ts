@@ -38,7 +38,8 @@ export class DocumentDelegate<T> {
     readonly query: DocumentQuery<T>,
     private submit: (id: SedimentreeId, records: RecordBatch) => Promise<void>,
     private synchronize: () => Promise<SyncRoundResult>,
-    created = false
+    created = false,
+    private origin?: string
   ) {
     document.commit = doc => this.commit(doc)
     this.#remember(this.document.doc)
@@ -168,7 +169,16 @@ export class DocumentDelegate<T> {
         break
       }
       case "failure":
-        if (event.error.retryable)
+        if (event.error.operation === "ephemeral") {
+          try {
+            this.document.log.error(
+              "ephemeral operation failed: %o",
+              event.error
+            )
+          } catch {
+            // Application logging must not interrupt durable observation.
+          }
+        } else if (event.error.retryable)
           this.document.log.error("backend failure: %o", event.error)
         else this.sourceUnavailable(event.error)
         break
@@ -181,13 +191,18 @@ export class DocumentDelegate<T> {
         break
       }
       case "ephemeral":
+        if (event.message.origin.id === this.origin) break
         try {
           this.document.registry.dispatchEphemeral(
-            event.message.origin.id as PeerId,
-            decode(event.message.payload)
+            event.sender.id as PeerId,
+            decode(new Uint8Array(event.message.payload))
           )
         } catch (error) {
-          this.document.log.error("invalid ephemeral message: %o", error)
+          try {
+            this.document.log.error("invalid ephemeral message: %o", error)
+          } catch {
+            // Application logging must not interrupt durable observation.
+          }
         }
         break
       case "rescan-required":

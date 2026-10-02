@@ -3,7 +3,7 @@
 export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private initial: T[] = []
   private initialIndex = 0
-  private live: { value: T; bytes: number }[] = []
+  private live: { value: T; bytes: number; droppable: boolean }[] = []
   private liveBytes = 0
   private ready = false
   private ended = false
@@ -32,16 +32,22 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
     this.active = true
     this.wake?.()
   }
-  push(value: T, bytes = 64): void {
+  push(value: T, bytes = 64, droppable = false): void {
     if (this.ended || !this.active) return
-    if (
+    while (
       this.live.length >= this.maxEvents ||
       this.liveBytes + bytes > this.maxBytes
     ) {
-      this.finish(this.overflow())
-      return
+      if (droppable) return
+      // Lossy traffic must not displace durable observations or force a rescan.
+      const index = this.live.findIndex(entry => entry.droppable)
+      if (index < 0) {
+        this.finish(this.overflow())
+        return
+      }
+      this.liveBytes -= this.live.splice(index, 1)[0].bytes
     }
-    this.live.push({ value, bytes })
+    this.live.push({ value, bytes, droppable })
     this.liveBytes += bytes
     this.wake?.()
   }

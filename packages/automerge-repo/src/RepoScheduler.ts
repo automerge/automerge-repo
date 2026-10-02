@@ -197,7 +197,7 @@ export class RepoScheduler {
       : Promise.reject(new Error("No active session"))
   }
 
-  publishEphemeral<T>(
+  async publishEphemeral<T>(
     delegate: DocumentDelegate<T>,
     message: EphemeralEnvelope
   ): Promise<void> {

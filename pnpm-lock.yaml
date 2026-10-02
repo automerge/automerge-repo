@@ -272,6 +272,9 @@ importers:
       '@automerge/subduction':
         specifier: link:/Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
         version: link:../../../../../../../../../../Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
+      cbor-x:
+        specifier: 'catalog:'
+        version: 1.6.4
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'

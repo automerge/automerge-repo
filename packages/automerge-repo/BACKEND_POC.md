@@ -105,10 +105,11 @@ describe materialized document statistics, not protocol metrics; legacy
 `doc-metrics` instrumentation is not implemented.
 
 DocHandle broadcast/presence and remote-head events retain their shapes through
-the backend session. Ephemeral `senderId` remains the claimed original source,
-not the immediate authenticated relay; it is not authentication evidence.
-Broadcast failures are logged; native Subduction currently
-rejects network ephemerals as unsupported. Remote-head timestamps are local
+the backend session. Ephemeral `senderId` is the authenticated signed originator,
+not the claimed origin or necessarily the immediate relay. Claimed origin is
+untrusted loop metadata; Repo filters its own returned origin. Publication and
+operation `ephemeral` failures are logged, nonterminal, and isolated from throwing
+application loggers. Remote-head timestamps are local
 advertisement receipt times, not evidence of peer persistence. Backend identity
 strings in those events are not interchangeable with legacy storage identities.
 
@@ -192,9 +193,19 @@ package: WebSocket discovery, connection status, timeout, cancellation and retry
 The peer owns its generated signer; injected signers and stores remain borrowed.
 Close Repo with `shutdown()` before closing the peer. The package README includes
 a usage example; this worktree has no `examples/subduction-poc` directory to adapt
-from the guide PoC. No IndexedDB or network ephemerals are included.
+from the guide PoC. No IndexedDB is included.
 
-Production dialing beyond this experimental helper, network ephemerals,
+Stage 5 ports only `acc/repo-poc` commit `5fa3b25f`: native ephemeral topic
+subscription, best-effort publication, CBOR envelope validation, signed sender
+identity, bounded topic/message-ID deduplication and lossy watch pressure handling.
+Publication/control waits do not block local persistence; no-peer sends are not
+replayed, and rescans cannot recover messages. Existing full DocHandle/subhandle
+events and Presence use the session path without adding a PoC RepoHandle or
+delegate lifecycle state. Native tests cover subscription/reconnect/retirement,
+wrapper lifetimes, isolation and no persistence/echo/replay. No later storage
+changes from `4030acbb` are included.
+
+Production dialing beyond this experimental helper,
 scheduling/coalescing beyond bounded local concurrency, variant-equivalence
 reclamation, legacy/composite backends, Keyhive and the next query API remain
 deferred. This PoC is not a production release.

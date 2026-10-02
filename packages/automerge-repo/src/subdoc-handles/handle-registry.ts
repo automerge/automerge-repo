@@ -271,7 +271,11 @@ export class HandleRegistry {
       try {
         ;(fn as any)(payload)
       } catch (e) {
-        this.document.log.error("error in handle listener: %o", e)
+        try {
+          this.document.log.error("error in handle listener: %o", e)
+        } catch {
+          // Application logging must not prevent remaining listeners from running.
+        }
       }
     }
     return true

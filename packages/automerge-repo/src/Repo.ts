@@ -235,7 +235,8 @@ export class Repo extends EventEmitter<RepoEvents> {
         query,
         (tree, records) => scheduler.submit(tree, records),
         () => scheduler.synchronize(delegate),
-        !!initial
+        !!initial,
+        this.#origin.id
       )
       entry.delegate = delegate
       handle.on("ephemeral-message-outbound", ({ data }) => {
@@ -245,9 +246,13 @@ export class Repo extends EventEmitter<RepoEvents> {
             origin: this.#origin,
             payload: data,
           })
-          .catch(error =>
-            this.#log.error("ephemeral publication failed", error)
-          )
+          .catch(error => {
+            try {
+              this.#log.error("ephemeral publication failed", error)
+            } catch {
+              // Application logging must not reject this detached send.
+            }
+          })
       })
     }
     this.#entries.set(id, entry)

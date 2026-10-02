@@ -52,6 +52,12 @@ Deletion invalidates existing sessions and supersedes queued old-generation
 records with a final `deleted` event. A later explicit open/store can reacquire
 the ID. Deletion is not a replicated tombstone. A closed backend rejects new work.
 
+Ephemeral envelopes carry untrusted claimed `origin` for loop suppression.
+The event's `sender` identifies the authenticated signed originator, not the
+immediate relay/transport peer. Application sender identity comes from `sender`,
+never from the envelope's claimed origin. Ephemeral data is not persisted or
+recovered by rescan.
+
 ## Deterministic memory test double
 
 ```ts

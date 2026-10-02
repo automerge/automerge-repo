@@ -8,6 +8,7 @@
   },
   "include": [
     "Repo.test.ts",
+    "Repo.ephemeral.test.ts",
     "DocumentDelegate.test.ts",
     "RepoScheduler.test.ts",
     "sedimentree/**/*.ts",

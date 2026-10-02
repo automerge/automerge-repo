@@ -351,6 +351,47 @@ describe("authenticated network failure and lifecycle barriers", () => {
     }
   })
 
+  it("automatically syncs unopened documents stored during first onboarding", async () => {
+    const a = peer(),
+      b = peer()
+    const native = (a.backend as unknown as { engine: N.Subduction }).engine
+    const entered = deferred(),
+      release = deferred()
+    releases.push(release.resolve)
+    const add = native.addConnection.bind(native)
+    vi.spyOn(native, "addConnection").mockImplementation(async transport => {
+      entered.resolve()
+      await release.promise
+      return add(transport)
+    })
+    const onboarding = track(connect(a, b))
+    await bounded(entered.promise, "onboarding after inventory preparation")
+    await bounded(
+      track(
+        (async () => {
+          await a.backend.store(tree, records)
+          await a.backend.flush()
+        })()
+      ),
+      "store unopened document during paused onboarding",
+      800
+    )
+    expect(await b.storage.list("subduction-v1/")).toEqual([])
+    release.resolve()
+    await bounded(onboarding, "resume onboarding")
+    // No remote session or explicit sync may mask a missed automatic replay.
+    await vi.waitFor(
+      async () => {
+        const stored = await b.storage.list("subduction-v1/")
+        expect(stored.filter(key => key.includes("/commits/"))).toHaveLength(
+          records.length
+        )
+      },
+      { ...wait, timeout: 2000 }
+    )
+    expect(initialRecords((await observe(b)).events)).toEqual(records)
+  })
+
   it("reports the authenticated peer and timeout while store/flush stay local despite dropped responses", async () => {
     const a = peer(),
       b = peer()

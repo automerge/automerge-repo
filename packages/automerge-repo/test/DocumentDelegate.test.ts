@@ -50,7 +50,7 @@ function setup(
 }
 
 describe("DocumentDelegate", () => {
-  it("keeps original ephemeral source identity distinct from its relay", () => {
+  it("uses authenticated ephemeral sender, not claimed origin", () => {
     const { delegate, handle } = setup(A.from({ count: 0 }), undefined, true)
     const listener = vi.fn()
     const sub = handle.sub("count")
@@ -58,7 +58,7 @@ describe("DocumentDelegate", () => {
     delegate.onEvent({
       type: "ephemeral",
       sequence: 1,
-      sender: { kind: "test", id: "relay", path: [] },
+      sender: { kind: "test", id: "signed-originator", path: ["relay"] },
       message: {
         messageId: "message-1",
         origin: { kind: "test", id: "original-source", path: [] },
@@ -67,7 +67,7 @@ describe("DocumentDelegate", () => {
     })
     expect(listener).toHaveBeenCalledWith({
       handle: sub,
-      senderId: "original-source",
+      senderId: "signed-originator",
       message: { hello: "world" },
     })
   })
@@ -82,7 +82,7 @@ describe("DocumentDelegate", () => {
       delegate.onEvent({
         type: "ephemeral",
         sequence: 1,
-        sender: { kind: "test", id: "relay", path: [] },
+        sender: { kind: "test", id: "signed-originator", path: ["relay"] },
         message: {
           messageId: "message-1",
           origin: { kind: "test", id: "original-source", path: [] },
@@ -97,7 +97,7 @@ describe("DocumentDelegate", () => {
         },
       })
       expect(
-        presence.getPeerStates().value["original-source" as PeerId]?.value
+        presence.getPeerStates().value["signed-originator" as PeerId]?.value
       ).toEqual({ name: "remote" })
     } finally {
       presence.stop()
