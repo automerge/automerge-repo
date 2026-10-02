@@ -27,9 +27,9 @@ describe("Ref", () => {
   let repo: Repo
   let handle: DocHandle<any>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     repo = new Repo()
-    handle = repo.create()
+    handle = await repo.create()
   })
 
   describe("value resolution", () => {
@@ -688,9 +688,9 @@ describe("Ref", () => {
       expect(ref4.equals(ref1)).toBe(true)
     })
 
-    it("should throw when URL documentId does not match handle", () => {
+    it("should throw when URL documentId does not match handle", async () => {
       // Create a second handle with a different documentId
-      const handle2 = repo.create()
+      const handle2 = await repo.create()
 
       // Get URL from first handle
       const ref1 = handle.sub("value")
@@ -1885,8 +1885,8 @@ describe("Ref", () => {
       expect(emailRef.contains(nameRef)).toBe(false)
     })
 
-    it("should return false for different documents", () => {
-      const handle2 = repo.create()
+    it("should return false for different documents", async () => {
+      const handle2 = await repo.create()
       handle.change(d => {
         d.value = 1
       })
@@ -2034,8 +2034,8 @@ describe("Ref", () => {
       expect(range1.overlaps(range2)).toBe(false)
     })
 
-    it("should return false for different documents", () => {
-      const handle2 = repo.create()
+    it("should return false for different documents", async () => {
+      const handle2 = await repo.create()
       handle.change(d => {
         d.text = "Hello"
       })
@@ -2314,8 +2314,8 @@ describe("Ref", () => {
       expect(refA).not.toBe(refB)
     })
 
-    it("should return different refs for different handles", () => {
-      const handle2 = repo.create()
+    it("should return different refs for different handles", async () => {
+      const handle2 = await repo.create()
       handle.change(d => {
         d.value = 1
       })

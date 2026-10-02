@@ -38,7 +38,7 @@ type UseDocumentParams =
 
 export type UseDocumentReturn<T> = [
   Doc<T>,
-  (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void,
+  (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => Promise<void>,
 ]
 
 export function useDocument<T>(
@@ -48,11 +48,11 @@ export function useDocument<T>(
 export function useDocument<T>(
   id: AnyDocumentId | undefined,
   params?: UseDocumentSynchronousParams
-): UseDocumentReturn<T> | [undefined, () => void]
+): UseDocumentReturn<T> | [undefined, () => Promise<void>]
 export function useDocument<T>(
   id: AnyDocumentId | undefined,
   params: UseDocumentParams = { suspense: false }
-): UseDocumentReturn<T> | [undefined, () => void] {
+): UseDocumentReturn<T> | [undefined, () => Promise<void>] {
   // @ts-expect-error -- typescript doesn't realize we're discriminating these types the same way in both functions
   const handle = useDocHandle<T>(id, params)
   // Initialize with current doc state
@@ -84,7 +84,7 @@ export function useDocument<T>(
 
   const changeDoc = useCallback(
     (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => {
-      handle!.change(changeFn, options)
+      return handle!.change(changeFn, options)
     },
     [handle]
   )
@@ -94,7 +94,7 @@ export function useDocument<T>(
   }
 
   if (!doc) {
-    return [undefined, () => {}]
+    return [undefined, async () => {}]
   }
   return [doc, changeDoc]
 }

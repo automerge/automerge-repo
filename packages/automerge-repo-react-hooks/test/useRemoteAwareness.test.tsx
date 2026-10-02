@@ -28,8 +28,8 @@ describe("useRemoteAwareness", () => {
       )
     }
 
-    it("should initialize with empty peer states", () => {
-      const { handleA, wrapper } = setup()
+    it("should initialize with empty peer states", async () => {
+      const { handleA, wrapper } = await setup()
 
       const { getByTestId } = render(
         <Component handle={handleA} localUserId="local-user" />,
@@ -41,7 +41,7 @@ describe("useRemoteAwareness", () => {
     })
 
     it("should receive and store remote peer states", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
 
       const { getByTestId } = render(
         <Component handle={handleA} localUserId="local-user" />,
@@ -67,7 +67,7 @@ describe("useRemoteAwareness", () => {
     })
 
     it("should filter out messages from local user", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
 
       const { getByTestId } = render(
         <Component handle={handleA} localUserId="local-user" />,
@@ -93,7 +93,7 @@ describe("useRemoteAwareness", () => {
     })
 
     it("should update heartbeat timestamps when receiving messages", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const mockGetTime = vi.fn(() => 1000)
 
       const ComponentWithTime = () => {
@@ -132,7 +132,7 @@ describe("useRemoteAwareness", () => {
     it("should prune offline peers after timeout", async () => {
       vi.useFakeTimers()
       try {
-        const { handleA, wrapper } = setup()
+        const { handleA, wrapper } = await setup()
         let currentTime = 1000
         const mockGetTime = vi.fn(() => currentTime)
 
@@ -184,7 +184,7 @@ describe("useRemoteAwareness", () => {
     })
 
     it("should cleanup listeners on unmount", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const removeListenerSpy = vi.spyOn(handleA, "removeListener")
 
       const { unmount } = render(
@@ -223,16 +223,16 @@ describe("useRemoteAwareness", () => {
       )
     }
 
-    it("should not crash when handle is undefined", () => {
-      const { wrapper } = setup()
+    it("should not crash when handle is undefined", async () => {
+      const { wrapper } = await setup()
 
       expect(() => {
         render(<Component localUserId="local-user" />, { wrapper })
       }).not.toThrow()
     })
 
-    it("should return empty peer states when handle is undefined", () => {
-      const { wrapper } = setup()
+    it("should return empty peer states when handle is undefined", async () => {
+      const { wrapper } = await setup()
 
       const { getByTestId } = render(<Component localUserId="local-user" />, {
         wrapper,
@@ -243,7 +243,7 @@ describe("useRemoteAwareness", () => {
     })
 
     it("should handle transition from undefined to defined handle", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
 
       const { rerender, getByTestId } = render(
         <Component localUserId="local-user" />,
@@ -276,7 +276,7 @@ describe("useRemoteAwareness", () => {
     })
 
     it("should handle transition from defined to undefined handle", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
 
       const { rerender, getByTestId } = render(
         <Component handle={handleA} localUserId="local-user" />,
@@ -312,7 +312,7 @@ describe("useRemoteAwareness", () => {
     })
 
     it("should not attempt to add listeners when handle is undefined", async () => {
-      const { wrapper } = setup()
+      const { wrapper } = await setup()
 
       // This should not throw any errors
       const { unmount } = render(<Component localUserId="local-user" />, {

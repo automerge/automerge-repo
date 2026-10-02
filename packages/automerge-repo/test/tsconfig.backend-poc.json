@@ -1,0 +1,16 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "Repo.test.ts",
+    "DocumentDelegate.test.ts",
+    "RepoScheduler.test.ts",
+    "sedimentree/**/*.ts",
+    "sedimentree-automerge/**/*.ts"
+  ]
+}

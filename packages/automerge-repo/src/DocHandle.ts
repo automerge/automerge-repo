@@ -8,7 +8,6 @@ import {
 import { Document } from "./Document.js"
 import { encode } from "./helpers/cbor.js"
 import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
-import { StorageId } from "./storage/types.js"
 import {
   isCursorMarker,
   isPattern,
@@ -35,7 +34,6 @@ import type {
   Segment,
 } from "./subdoc-handles/types.js"
 import { KIND } from "./subdoc-handles/types.js"
-import { foreverPromise } from "./helpers/foreverPromise.js"
 
 /**
  * A DocHandle is a wrapper around an Automerge document. It allows you
@@ -127,10 +125,6 @@ export class DocHandle<T> {
     })
   }
 
-  // TODO: remove the legacy state-machine accessors below in the next major.
-  // Handles are only handed out to consumers in the `ready` state, so the
-  // only meaningful transition that remains is ready → deleted.
-
   /**
    * @returns true if the document has not been deleted.
    * Repo only hands out handles that already have data, so this is `true`
@@ -147,41 +141,6 @@ export class DocHandle<T> {
    * @returns true if the document has been marked as deleted.
    */
   isDeleted = () => this.#document.deleted
-
-  /**
-   * @returns true if the document is currently unavailable.
-   * @deprecated Always returns false - `find()` rejects on unavailable docs
-   * rather than returning a handle. Will be removed in the next major.
-   */
-  isUnavailable = () => false
-
-  /**
-   * @returns true if the handle is in one of the given states.
-   * @deprecated Will be removed in the next major.
-   */
-  inState = (states: HandleState[]) => states.includes(this.state)
-
-  /** @hidden */
-  get state(): HandleState {
-    return this.#document.deleted ? "deleted" : "ready"
-  }
-
-  /**
-   * Returns a promise that resolves when the handle is in one of the given
-   * states (default `["ready"]`).
-   *
-   * @deprecated Handles are always ready when handed out by `Repo.find` /
-   * `Repo.create`. Will be removed in the next major.
-   */
-  async whenReady(awaitStates: HandleState[] = ["ready"]): Promise<void> {
-    if (awaitStates.includes(this.state)) return
-    if (awaitStates.includes("deleted")) {
-      await new Promise<void>(resolve => this.once("delete", () => resolve()))
-      return
-    }
-    // No path to other states from a handed-out handle.
-    return foreverPromise
-  }
 
   /**
    * The document (or subtree of one) that this handle is pointing at.
@@ -383,9 +342,11 @@ export class DocHandle<T> {
    * @throws if a handle has fixed heads
    * @hidden
    */
-  update(callback: (doc: A.Doc<T>) => A.Doc<T>) {
+  update(callback: (doc: A.Doc<T>) => A.Doc<T>): Promise<void> {
     this.#throwIfFixedHeads("update")
-    this.#document.applyMutation(callback as (doc: A.Doc<any>) => A.Doc<any>)
+    return this.#document.applyMutation(
+      callback as (doc: A.Doc<any>) => A.Doc<any>
+    )
   }
 
   #throwIfFixedHeads(operation: string) {
@@ -406,15 +367,6 @@ export class DocHandle<T> {
     // noop - state machine removed
   }
 
-  /** Returns the latest known heads for the given peer's storageId, or
-   * undefined if we have not received sync info from that peer.
-   *
-   * @deprecated Use {@link DocHandle.getSyncInfo} instead. Will be removed in the next major.
-   */
-  getRemoteHeads(storageId: StorageId): UrlHeads | undefined {
-    return this.#document.syncInfoLookup?.(storageId)?.lastHeads
-  }
-
   /** Returns the heads and the timestamp of the last update for the storageId. */
   getSyncInfo(storageId: StorageId): SyncInfo | undefined {
     return this.#document.syncInfoLookup?.(storageId)
@@ -429,8 +381,8 @@ export class DocHandle<T> {
    * instead of mutating it which will prevent clean merges. This may be what you want, but
    * `doc.foo = { ...doc.foo, bar: "baz" }` is not equivalent to `doc.foo.bar = "baz"`.
    *
-   * Local changes will be stored (by the StorageSubsystem) and synchronized (by the
-   * DocSynchronizer) to any peers you are sharing it with.
+   * Mutation and events are immediate. The returned promise resolves once local
+   * history is recoverable; it does not wait for peers or remote durability.
    *
    * On sub-handles a non-function `callback` is shorthand for "replace
    * the value at this path" (e.g. `counterSub.change(42)`). Function-typed
@@ -447,15 +399,14 @@ export class DocHandle<T> {
   change(
     callbackOrValue: A.ChangeFn<T> | SubChangeFn<T> | T,
     options: A.ChangeOptions<T> = {}
-  ) {
+  ): Promise<void> {
     this.#throwIfFixedHeads("change")
     if (this.#path.length === 0 && !this.#range) {
-      this.#document.applyMutation(doc =>
+      return this.#document.applyMutation(doc =>
         A.change(doc as A.Doc<T>, options, callbackOrValue as A.ChangeFn<T>)
       )
-      return
     }
-    this.#document.applyMutation(doc =>
+    return this.#document.applyMutation(doc =>
       A.change(doc as A.Doc<T>, options, mutable => {
         this.#applyScopedChange(mutable as A.Doc<any>, callbackOrValue)
       })
@@ -466,6 +417,7 @@ export class DocHandle<T> {
    * Makes a change as if the document were at `heads`.
    *
    * @returns A set of heads representing the concurrent change that was made.
+   * Persistence is captured immediately; use `Repo.flush()` to await it.
    */
   changeAt(
     heads: UrlHeads,
@@ -483,7 +435,7 @@ export class DocHandle<T> {
             this.#applyScopedChange(d as A.Doc<any>, callback as SubChangeFn<T>)
           }) as A.ChangeFn<T>)
 
-    this.#document.applyMutation(doc => {
+    void this.#document.applyMutation(doc => {
       const result = A.changeAt(doc as A.Doc<T>, decoded, options, inner)
       resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
       return result.newDoc
@@ -518,7 +470,7 @@ export class DocHandle<T> {
     otherHandle: DocHandle<T>
   ) {
     this.#throwIfFixedHeads("merge")
-    this.update(doc => A.merge(doc, otherHandle.fullDoc()))
+    return this.update(doc => A.merge(doc, otherHandle.fullDoc()))
   }
 
   /**
@@ -576,12 +528,12 @@ export class DocHandle<T> {
   }
 
   /** Remove the value at this sub-handle's path from the underlying document. */
-  remove(): void {
+  remove(): Promise<void> {
     if (this.#path.length === 0 && !this.#range) {
       throw new Error("Cannot remove the root document")
     }
     this.#throwIfFixedHeads("remove")
-    this.#document.applyMutation(doc =>
+    return this.#document.applyMutation(doc =>
       A.change(doc as A.Doc<T>, mutable => {
         this.#applyScopedRemove(mutable as A.Doc<any>)
       })
@@ -1045,6 +997,14 @@ export class DocHandle<T> {
   _receiveInboundEphemeral(senderId: PeerId, message: unknown): void {
     this.#document.registry.dispatchEphemeral(senderId, message)
   }
+
+  /** @internal Scope an event's snapshot, not a later reentrant edit. */
+  _docAt(doc: A.Doc<any>): A.Doc<T> | undefined {
+    const path = this.#getPropPath(doc)
+    return scopedValue(doc, path, this.#range, () =>
+      this.#rangePositions(doc, path)
+    ) as A.Doc<T> | undefined
+  }
 }
 
 // Module-private helpers
@@ -1160,6 +1120,9 @@ export type SyncInfo = {
   lastSyncTimestamp: number
 }
 
+/** Opaque peer-storage identity, independent of legacy storage adapters. */
+export type StorageId = string & { __storageId: true }
+
 /** @hidden */
 export type DocHandleOptions<T> =
   | // NEW DOCUMENTS
@@ -1266,38 +1229,3 @@ export interface DocHandleRemoteHeadsPayload {
   heads: UrlHeads
   timestamp: number
 }
-
-// STATE MACHINE TYPES & CONSTANTS
-
-// state
-
-/**
- * Possible internal states for a DocHandle
- */
-export const HandleState = {
-  /** The handle has been created but not yet loaded or requested */
-  IDLE: "idle",
-  /** We are waiting for storage to finish loading */
-  LOADING: "loading",
-  /** We are waiting for someone in the network to respond to a sync request */
-  REQUESTING: "requesting",
-  /** The document is available */
-  READY: "ready",
-  /** The document has been unloaded from the handle, to free memory usage */
-  UNLOADED: "unloaded",
-  /** The document has been deleted from the repo */
-  DELETED: "deleted",
-  /** The document was not available in storage or from any connected peers */
-  UNAVAILABLE: "unavailable",
-} as const
-export type HandleState = (typeof HandleState)[keyof typeof HandleState]
-
-export const {
-  IDLE,
-  LOADING,
-  REQUESTING,
-  READY,
-  UNLOADED,
-  DELETED,
-  UNAVAILABLE,
-} = HandleState

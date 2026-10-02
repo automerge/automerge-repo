@@ -1,0 +1,38 @@
+{
+  "name": "@automerge/automerge-repo-subduction",
+  "version": "2.6.0-alpha.5",
+  "private": true,
+  "description": "Experimental Subduction sedimentree backend with authenticated peer sync",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-repo-subduction"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/subduction": "0.23.0"
+  },
+  "devDependencies": {
+    "@automerge/automerge": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

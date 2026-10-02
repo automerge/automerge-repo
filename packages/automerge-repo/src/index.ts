@@ -6,8 +6,8 @@
  * format and sync protocol but doesn't provide the plumbing to use these tools
  * in a JS application. `automerge-repo` provides the plumbing.
  *
- * The main entry point is the {@link Repo} class, which you instantiate with
- * a {@link StorageAdapter} and zero or more {@link NetworkAdapter}s. Once you
+ * The main entry point is the {@link Repo} class, with an optional sedimentree
+ * backend for storage and synchronization. Once you
  * have a repo you can use it to create {@link DocHandle}s. {@link DocHandle}s
  * are a reference to a document, identified by a {@link AutomergeUrl}, a place to
  * listen for changes to the document, and to make new changes.
@@ -17,12 +17,10 @@
  * ```typescript
  * import { Repo } from "@automerge/automerge-repo";
  *
- * const repo = new Repo({
- *   storage: <storage adapter>,
- *   network: [<network adapter>, <network adapter>]
- * })
+ * const repo = new Repo()
  *
- * const handle = repo.create
+ * const handle = await repo.create({ count: 0 })
+ * await handle.change(doc => { doc.count++ })
  * ```
  */
 
@@ -64,11 +62,6 @@ export type {
   DEFAULT_PEER_TTL_MS,
 } from "./presence/constants.js"
 
-export { NetworkAdapter } from "./network/NetworkAdapter.js"
-export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.js"
-export { isRepoMessage } from "./network/messages.js"
-export { StorageAdapter } from "./storage/StorageAdapter.js"
-export type { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
 import { next as Automerge, type ObjID } from "@automerge/automerge/slim"
 
 /** @hidden **/
@@ -85,8 +78,8 @@ export type {
   DocHandleEvents,
   DocHandleOptions,
   DocHandleOutboundEphemeralMessagePayload,
-  HandleState,
   SyncInfo,
+  StorageId,
 } from "./DocHandle.js"
 
 export type {
@@ -96,8 +89,6 @@ export type {
   RepoEvents,
   RepoFindOptions,
   DocMetrics,
-  ShareConfig,
-  SharePolicy,
 } from "./Repo.js"
 
 export type {
@@ -106,42 +97,6 @@ export type {
   SourceState,
 } from "./DocumentQuery.js"
 export type { AbortOptions } from "./helpers/abortable.js"
-
-export type {
-  FindProgress,
-  FindProgressWithMethods,
-  ProgressSignal,
-} from "./_compat.js"
-
-export type {
-  NetworkAdapterEvents,
-  OpenPayload,
-  PeerCandidatePayload,
-  PeerDisconnectedPayload,
-  PeerMetadata,
-} from "./network/NetworkAdapterInterface.js"
-
-export type {
-  NetworkSubsystemEvents,
-  PeerPayload,
-} from "./network/NetworkSubsystem.js"
-
-export type {
-  DocumentUnavailableMessage,
-  EphemeralMessage,
-  Message,
-  RepoMessage,
-  RequestMessage,
-  SyncMessage,
-} from "./network/messages.js"
-
-export type {
-  Chunk,
-  ChunkInfo,
-  ChunkType,
-  StorageKey,
-  StorageId,
-} from "./storage/types.js"
 
 export * from "./types.js"
 

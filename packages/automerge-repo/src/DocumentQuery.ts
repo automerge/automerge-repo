@@ -3,10 +3,12 @@ import { DocHandle } from "./DocHandle.js"
 import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
-import { type FindProgress, queryStateToFindProgress } from "./_compat.js"
+import { makeLogger } from "./Logger.js"
+
+const log = makeLogger("automerge-repo:query")
 
 /**
- * The state a {@link DocumentSource} reports for a particular document.
+ * The state a source reports for a particular document.
  *
  * - `pending`: the source is actively trying to obtain data (sync in
  *   progress, storage lookup outstanding, etc.).
@@ -61,23 +63,6 @@ export interface DocumentProgress<T> {
    * aborted wait rejects with `signal.reason`.
    */
   whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T>>
-
-  /**
-   * @deprecated read via `peek().state`. Will be removed in the next major
-   * release.
-   */
-  // TODO: remove in the next major
-  get state(): FindProgress<T>["state"]
-
-  /**
-   * @deprecated Will be removed in the next major release.
-   */
-  // TODO: remove in the next major
-  get progress(): number | undefined
-
-  /** @deprecated read via `peek()` — `error` is only set on the `failed` state. Will be removed in the next major release. */
-  // TODO: remove in the next major
-  get error(): Error | undefined
 }
 
 /** Higher numbers represent earlier availability tiers. */
@@ -107,11 +92,6 @@ const DEFAULT_SOURCE_PRIORITY = 0
  * The public-facing API is `DocumentProgress<T>`, which exposes only the
  * read-only observation methods.
  *
- * There are a bunch of things in here which only exist for compatibility with
- * earlier versions of the library. The interface introduced in automerge-repo
- * v2 had `state`, `handle`, `error`, and `progress` properties directly on
- * the result object returned by `findWithProgress`. The new `peek()` method
- * replaces these legacy properties - they should be removed in the next major.
  */
 export class DocumentQuery<T> implements DocumentProgress<T> {
   readonly documentId: DocumentId
@@ -121,11 +101,14 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   #subscribers = new Set<(state: QueryState<T>) => void>()
   #state: QueryState<T>
   #failed = false
+  #initialSnapshotPending: boolean
 
   constructor(
     handle: DocHandle<T>,
-    sources: Map<string, { priority: SourcePriority }> = new Map()
+    sources: Map<string, { priority: SourcePriority }> = new Map(),
+    options: { initialSnapshotPending?: boolean } = {}
   ) {
+    this.#initialSnapshotPending = options.initialSnapshotPending ?? false
     this.documentId = handle.documentId
     this.#handle = handle
     // New sources are treated as `pending` from registration: we expect them
@@ -143,22 +126,6 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
 
   peek(): QueryState<T> {
     return this.#state
-  }
-
-  /** @deprecated read via `peek().state`. Will be removed in the next major. */
-  get state(): FindProgress<T>["state"] {
-    return queryStateToFindProgress(this.#state, this.#handle).state
-  }
-
-  /** @deprecated read via `peek()` — `handle` is only set on the `ready` state. Will be removed in the next major. */
-  get progress(): number | undefined {
-    const legacy = queryStateToFindProgress(this.#state, this.#handle)
-    return legacy.state === "loading" ? legacy.progress : undefined
-  }
-
-  /** @deprecated read via `peek()` — `error` is only set on the `failed` state. Will be removed in the next major. */
-  get error(): Error | undefined {
-    return this.#state.state === "failed" ? this.#state.error : undefined
   }
 
   subscribe(callback: (state: QueryState<T>) => void): () => void {
@@ -210,6 +177,17 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   }
 
   // -- Source methods (internal only) --
+
+  markInitialSnapshotPending(): void {
+    this.#initialSnapshotPending = true
+    this.#recompute()
+  }
+
+  /** One complete source checkpoint has been verified against document history. */
+  markInitialSnapshotComplete(): void {
+    this.#initialSnapshotPending = false
+    this.#recompute()
+  }
 
   /**
    * A source is actively working on obtaining the document (e.g. sync in
@@ -309,6 +287,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
 
     // Handle has data → ready, regardless of source states
     if (this.#handleHasData()) {
+      if (this.#initialSnapshotPending) return { state: "loading", sources }
       return { state: "ready", handle: this.#handle, sources }
     }
 
@@ -333,8 +312,14 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   #transition(next: QueryState<T>): void {
     if (statesEqual(this.#state, next)) return
     this.#state = next
-    for (const callback of this.#subscribers) {
-      callback(next)
+    for (const callback of [...this.#subscribers]) {
+      try {
+        void Promise.resolve(callback(next)).catch(error => {
+          log.error("error in query subscriber: %o", error)
+        })
+      } catch (error) {
+        log.error("error in query subscriber: %o", error)
+      }
     }
   }
 
@@ -351,8 +336,8 @@ function statesEqual<T>(a: QueryState<T>, b: QueryState<T>): boolean {
   if (a.state === "ready" && b.state === "ready" && a.handle !== b.handle) {
     return false
   }
-  // `failed` is terminal and only reached via fail(), which is called once
-  // per query — its error doesn't churn, so we don't compare it here.
+  if (a.state === "failed" && b.state === "failed" && a.error !== b.error)
+    return false
   return sourceMapsEqual(a.sources, b.sources)
 }
 
@@ -431,38 +416,36 @@ export function progressAtHeads<T>(
     whenReady: async opts => {
       const upstream = await query.whenReady(opts)
       opts?.signal?.throwIfAborted()
-      if (Automerge.hasHeads(upstream.fullDoc(), decoded)) {
-        return upstream.view(heads)
-      }
       return new Promise<DocHandle<T>>((resolve, reject) => {
         const onAbort = () => {
           cleanup()
           reject(opts!.signal!.reason)
         }
         const onChange = () => {
-          if (Automerge.hasHeads(upstream.fullDoc(), decoded)) {
+          const state = stateAtHeads()
+          if (state.state === "ready") {
             cleanup()
-            resolve(upstream.view(heads))
+            resolve(state.handle)
+          } else if (state.state === "failed") {
+            cleanup()
+            reject(state.error)
+          } else if (state.state === "unavailable") {
+            cleanup()
+            reject(new Error(`Document ${query.documentId} is unavailable`))
           }
         }
         const cleanup = () => {
+          unsubscribe()
           upstream.off("heads-changed", onChange)
           opts?.signal?.removeEventListener("abort", onAbort)
         }
+        const unsubscribe = query.subscribe(onChange)
         upstream.on("heads-changed", onChange)
         opts?.signal?.addEventListener("abort", onAbort, { once: true })
+        // The query or signal may have changed while root readiness was awaited.
+        if (opts?.signal?.aborted) onAbort()
+        else onChange()
       })
-    },
-    // Deprecated v2-shape getters — pass through the underlying query's
-    // discriminator. Callers using these read `.handle` off `peek()` instead.
-    get state() {
-      return query.state
-    },
-    get progress() {
-      return query.progress
-    },
-    get error() {
-      return query.error
     },
   }
 }
@@ -491,14 +474,5 @@ export function progressAtPath<T>(
     peek: () => mapState(inner.peek()),
     subscribe: cb => inner.subscribe(s => cb(mapState(s))),
     whenReady: async opts => scope(await inner.whenReady(opts)),
-    get state() {
-      return inner.state
-    },
-    get progress() {
-      return inner.progress
-    },
-    get error() {
-      return inner.error
-    },
   }
 }

@@ -1,4 +1,4 @@
-import { type PeerId, Repo, type AutomergeUrl } from "@automerge/automerge-repo"
+import { Repo, type AutomergeUrl } from "@automerge/automerge-repo"
 import { renderHook, testEffect } from "@solidjs/testing-library"
 import { describe, expect, it, vi } from "vitest"
 import { RepoContext } from "../src/context.js"
@@ -13,9 +13,7 @@ interface ExampleDoc {
 
 describe("useDocSignal", () => {
   function setup() {
-    const repo = new Repo({
-      peerId: "bob" as PeerId,
-    })
+    const repo = new Repo()
 
     const create = () =>
       repo.create<ExampleDoc>({
@@ -42,9 +40,10 @@ describe("useDocSignal", () => {
 
   it("should return the initial document value", async () => {
     const { create, options } = setup()
+    const created = await create()
 
     await testEffect(done => {
-      const [doc] = useDocSignal<ExampleDoc>(create().url, options)
+      const [doc] = useDocSignal<ExampleDoc>(created.url, options)
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.key).toBe("value")
@@ -57,9 +56,10 @@ describe("useDocSignal", () => {
 
   it("should notify on a property change", async () => {
     const { create, options } = setup()
+    const created = await create()
 
     await testEffect(done => {
-      const [doc, handle] = useDocSignal<ExampleDoc>(create().url, options)
+      const [doc, handle] = useDocSignal<ExampleDoc>(created.url, options)
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.key).toBe("value")
@@ -78,7 +78,7 @@ describe("useDocSignal", () => {
 
   it("should return the handle as the second element", async () => {
     const { create, options } = setup()
-    const created = create()
+    const created = await create()
 
     await testEffect(done => {
       const [, handle] = useDocSignal<ExampleDoc>(created.url, options)
@@ -95,9 +95,10 @@ describe("useDocSignal", () => {
 
   it("should update when an array element changes", async () => {
     const { create, options } = setup()
+    const created = await create()
 
     await testEffect(done => {
-      const [doc, handle] = useDocSignal<ExampleDoc>(create().url, options)
+      const [doc, handle] = useDocSignal<ExampleDoc>(created.url, options)
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.array).toEqual([1, 2, 3])
@@ -113,9 +114,10 @@ describe("useDocSignal", () => {
 
   it("should update when a nested property changes", async () => {
     const { create, options } = setup()
+    const created = await create()
 
     await testEffect(done => {
-      const [doc, handle] = useDocSignal<ExampleDoc>(create().url, options)
+      const [doc, handle] = useDocSignal<ExampleDoc>(created.url, options)
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.nested.title).toBe("hello")
@@ -131,6 +133,7 @@ describe("useDocSignal", () => {
 
   it("should work with a signal url", async () => {
     const { create, wrapper } = setup()
+    const [first, second] = await Promise.all([create(), create()])
     const [url, setURL] = createSignal<AutomergeUrl>()
     const {
       result: [doc, handle],
@@ -144,13 +147,13 @@ describe("useDocSignal", () => {
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()).toBeUndefined()
-          setURL(create().url)
+          setURL(first.url)
         } else if (run == 1) {
           expect(doc()?.key).toBe("value")
           handle()?.change(doc => (doc.key = "hello world!"))
         } else if (run == 2) {
           expect(doc()?.key).toBe("hello world!")
-          setURL(create().url)
+          setURL(second.url)
         } else if (run == 3) {
           expect(doc()?.key).toBe("value")
           done()
@@ -163,6 +166,7 @@ describe("useDocSignal", () => {
 
   it("should clear the signal when the url returns to nothing", async () => {
     const { create, options } = setup()
+    const [first, second] = await Promise.all([create(), create()])
     const [url, setURL] = createSignal<AutomergeUrl>()
 
     const done = testEffect(done => {
@@ -170,14 +174,14 @@ describe("useDocSignal", () => {
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(handle()).toBe(undefined)
-          setURL(create().url)
+          setURL(first.url)
         } else if (run == 1) {
           expect(doc()?.key).toBe("value")
           expect(handle()).not.toBe(undefined)
           setURL(undefined)
         } else if (run == 2) {
           expect(handle()).toBe(undefined)
-          setURL(create().url)
+          setURL(second.url)
         } else if (run == 3) {
           expect(doc()?.key).toBe("value")
           expect(handle()).not.toBe(undefined)
@@ -191,9 +195,10 @@ describe("useDocSignal", () => {
 
   it("should work without a context if given a repo in options", async () => {
     const { create, repo } = setup()
+    const created = await create()
 
     await testEffect(done => {
-      const [doc] = useDocSignal<ExampleDoc>(create().url, { repo })
+      const [doc] = useDocSignal<ExampleDoc>(created.url, { repo })
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.key).toBe("value")
@@ -206,11 +211,12 @@ describe("useDocSignal", () => {
 
   it("should be coarse-grained: any change triggers re-read of the whole doc", async () => {
     const { create, options } = setup()
+    const created = await create()
 
     const signalFn = vi.fn()
 
     await testEffect(done => {
-      const [doc, handle] = useDocSignal<ExampleDoc>(create().url, options)
+      const [doc, handle] = useDocSignal<ExampleDoc>(created.url, options)
       createEffect((run: number = 0) => {
         signalFn(doc()?.key, doc()?.array)
         if (run == 0) {
@@ -241,7 +247,7 @@ describe("useDocSignal", () => {
   it("should work with a slow handle", async () => {
     const { repo } = setup()
 
-    const slowHandle = repo.create({
+    const slowHandle = await repo.create({
       key: "slow",
       array: [],
       nested: { title: "slow" },
@@ -274,8 +280,8 @@ describe("useDocSignal", () => {
 
   it("should not apply updates from a previous handle after url changes", async () => {
     const { create, options } = setup()
-    const h1 = create()
-    const h2 = create()
+    const h1 = await create()
+    const h2 = await create()
 
     const [url, setURL] = createSignal<AutomergeUrl>(h1.url)
 

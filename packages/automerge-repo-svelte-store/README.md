@@ -193,7 +193,7 @@ Convenience method to load a document from the repo in context or a provided rep
 
 The document store returned by `find()` and `create()` implements Svelte's writable store contract with these additional methods:
 
-- `change(fn)`: Make changes to the document
+- `change(fn)`: Apply edits immediately; return `Promise<void>` for persistence. Await it to observe persistence failures.
 - `url`: Get the document URL
 - `documentId`: Get the document ID
 - `handle`: Access the underlying Automerge document handle

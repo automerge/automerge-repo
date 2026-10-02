@@ -2,8 +2,7 @@ import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
-import type { StorageId } from "./storage/types.js"
-import type { SyncInfo } from "./DocHandle.js"
+import type { StorageId, SyncInfo } from "./DocHandle.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 
@@ -25,9 +24,15 @@ export class Document<T = unknown> {
 
   /** Set by {@link DocHandle.delete} on any handle into this document. */
   deleted = false
+  closed = false
 
-  /** Sync-info lookup injected by `Repo` from its `SyncStateTracker`. */
+  /** Sync-info lookup injected by the document's backend delegate. */
   syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
+
+  /** Capture local history synchronously, before reentrant listeners run. */
+  commit?: (doc: A.Doc<any>) => Promise<void>
+  #events: (() => void)[] = []
+  #dispatching = false
 
   /**
    * Materialized `A.view`s, keyed by heads. Heads precisely specify an
@@ -71,7 +76,12 @@ export class Document<T = unknown> {
    * out via the registry. No dispatch if heads didn't move. Pairing
    * mutation and dispatch here means callers can't forget the dispatch.
    */
-  applyMutation(mutator: (doc: A.Doc<any>) => A.Doc<any>): void {
+  applyMutation(
+    mutator: (doc: A.Doc<any>) => A.Doc<any>,
+    options: { incoming?: boolean } = {}
+  ): Promise<void> {
+    if (this.deleted) throw new Error("Document is deleted")
+    if (this.closed) throw new Error("Document is closed")
     const before = this.doc
     const after = mutator(before)
     // Always adopt the new snapshot even when heads are unchanged -
@@ -80,16 +90,31 @@ export class Document<T = unknown> {
     this.doc = after
     const beforeHeads = A.getHeads(before)
     const afterHeads = A.getHeads(after)
-    if (arrayEqual(beforeHeads, afterHeads)) return
-    this.registry.dispatchHeadsChanged(after)
+    const stored = options.incoming
+      ? Promise.resolve()
+      : (this.commit?.(after) ?? Promise.resolve())
+    void stored.catch(() => {})
+    if (arrayEqual(beforeHeads, afterHeads)) return stored
     const patches = A.diff(after, beforeHeads, afterHeads)
-    if (patches.length > 0) {
-      this.registry.dispatchChange(after, patches, {
-        before,
-        after,
-        source: "change",
-      })
+    this.#events.push(() => {
+      this.registry.dispatchHeadsChanged(after)
+      if (patches.length > 0) {
+        this.registry.dispatchChange(after, patches, {
+          before,
+          after,
+          source: "change",
+        })
+      }
+    })
+    if (!this.#dispatching) {
+      this.#dispatching = true
+      try {
+        while (this.#events.length) this.#events.shift()!()
+      } finally {
+        this.#dispatching = false
+      }
     }
+    return stored
   }
 }
 

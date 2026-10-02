@@ -31,8 +31,8 @@ describe("useLocalAwareness", () => {
       )
     }
 
-    it("should initialize with initial state", () => {
-      const { handleA, wrapper } = setup()
+    it("should initialize with initial state", async () => {
+      const { handleA, wrapper } = await setup()
       const initialState = { foo: "bar" }
 
       const { getByTestId } = render(
@@ -50,7 +50,7 @@ describe("useLocalAwareness", () => {
     })
 
     it("should broadcast state changes when handle is defined", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const broadcastSpy = vi.spyOn(handleA, "broadcast")
 
       const { getByText, getByTestId } = render(
@@ -86,7 +86,7 @@ describe("useLocalAwareness", () => {
     })
 
     it("should send periodic heartbeats", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const broadcastSpy = vi.spyOn(handleA, "broadcast")
       const initialState = { heartbeat: true }
 
@@ -106,7 +106,7 @@ describe("useLocalAwareness", () => {
     })
 
     it("should not broadcast if userId is not set", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const broadcastSpy = vi.spyOn(handleA, "broadcast")
 
       render(
@@ -122,7 +122,7 @@ describe("useLocalAwareness", () => {
     })
 
     it("should cleanup on unmount", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
 
       const { unmount } = render(
         <Component
@@ -167,8 +167,8 @@ describe("useLocalAwareness", () => {
       )
     }
 
-    it("should not crash when handle is undefined", () => {
-      const { wrapper } = setup()
+    it("should not crash when handle is undefined", async () => {
+      const { wrapper } = await setup()
 
       expect(() => {
         render(<Component userId="user1" initialState={{ test: true }} />, {
@@ -177,8 +177,8 @@ describe("useLocalAwareness", () => {
       }).not.toThrow()
     })
 
-    it("should still maintain local state when handle is undefined", () => {
-      const { wrapper } = setup()
+    it("should still maintain local state when handle is undefined", async () => {
+      const { wrapper } = await setup()
       const initialState = { foo: "bar" }
 
       const { getByTestId } = render(
@@ -192,7 +192,7 @@ describe("useLocalAwareness", () => {
     })
 
     it("should update local state without broadcasting when handle is undefined", async () => {
-      const { wrapper } = setup()
+      const { wrapper } = await setup()
 
       const { getByText, getByTestId } = render(
         <Component userId="user1" initialState={{ initial: true }} />,
@@ -213,7 +213,7 @@ describe("useLocalAwareness", () => {
     })
 
     it("should handle transition from undefined to defined handle", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const broadcastSpy = vi.spyOn(handleA, "broadcast")
 
       const { rerender, getByText } = render(
@@ -243,7 +243,7 @@ describe("useLocalAwareness", () => {
     })
 
     it("should handle transition from defined to undefined handle", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const broadcastSpy = vi.spyOn(handleA, "broadcast")
 
       const { rerender } = render(

@@ -5,14 +5,14 @@
 export type AutomergeUrl = string & { __documentUrl: true } // for opening / linking
 
 /**
- * The base58check-encoded UUID of a document. This is the string following the `automerge:`
+ * The base58check-encoded 16- or 32-byte ID of a document. This follows `automerge:`
  * protocol prefix in an AutomergeUrl; for example, `4NMNnkMhL8jXrdJ9jamS58PAVdXu`. When recording
  * links to an Automerge document in another Automerge document, you should store a
  * {@link AutomergeUrl} instead.
  */
 export type DocumentId = string & { __documentId: true } // for logging
 
-/** The unencoded UUID of a document. Typically you should use a {@link AutomergeUrl} instead. */
+/** The unencoded 16- or 32-byte ID. Typically use an {@link AutomergeUrl} instead. */
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
 /**

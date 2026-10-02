@@ -1,9 +1,8 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
 import type { UrlHeads, PeerId } from "../types.js"
-import type { StorageId } from "../storage/types.js"
 import type { Document } from "../Document.js"
-import type { DocHandle } from "../DocHandle.js"
+import type { DocHandle, StorageId } from "../DocHandle.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
@@ -324,7 +323,7 @@ export class HandleRegistry {
       if (scoped.patches.length === 0 && !scoped.scopeReplaced) continue
       this.emit(handle, "change", {
         handle,
-        doc: handle.doc(),
+        doc: handle._docAt(doc),
         patches: scoped.patches,
         scopeReplaced: scoped.scopeReplaced,
         patchInfo,

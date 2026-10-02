@@ -1,56 +1,35 @@
 # Automerge Repo
 
-Automerge Repo is a wrapper for the [Automerge](https://github.com/automerge/automerge) CRDT library
-which provides facilities to support working with many documents at once, as well as pluggable
-networking and storage.
+Automerge Repo manages many [Automerge](https://github.com/automerge/automerge)
+documents with pluggable persistence and synchronization backends.
 
-## Getting started
+This branch is an experimental backend proof of concept. Contracts and
+integration behavior remain provisional; it is not a production-ready replacement
+for the released adapter-based implementation.
 
-After cloning this repo, run `pnpm install` and `pnpm build`.
+## Development
 
-This is a monorepo containing the following packages:
+Run `pnpm install`, then `pnpm build`. Use `pnpm dev` to watch packages and
+`pnpm test` to run tests.
 
-- [automerge-repo](/packages/automerge-repo/): The core library. Handles dispatch of events and
-  provides shared functionality such as deciding which peers to connect to or when to write data out
-  to storage. Start here.
+## Packages
 
-#### Demos / Example Code
+- [automerge-repo](./packages/automerge-repo/): Core Repo and DocHandle APIs.
+- [automerge-repo-subduction](./packages/automerge-repo-subduction/): Subduction backend.
+- [automerge-repo-react-hooks](./packages/automerge-repo-react-hooks/): React hooks.
+- [automerge-repo-svelte-store](./packages/automerge-repo-svelte-store/): Svelte stores.
+- [automerge-repo-solid-primitives](./packages/automerge-repo-solid-primitives/): Solid primitives.
 
-- [automerge-repo-demo-todo](/examples/react-todo/): A React-based to-do list.
-- [automerge-repo-demo-counter](/examples/react-counter/): A React-based demonstration
-  application.
-- [automerge-repo-demo-counter-svelte](/examples/svelte-counter/): A Svelte-based
-  example project.
-- [sync-server](/examples/sync-server): A very simple sync server which the other examples can use
-  - Please note this is different from [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server)
+## Backend Migration
 
-#### Front-end adapters
+`Repo.create()` and `Repo.import()` return `Promise<DocHandle<T>>`.
+`DocHandle.change()` applies edits immediately and returns a `Promise<void>`
+for persistence. Await that promise to observe persistence failures.
+`Repo.find()`, `flush()`, and `shutdown()` remain asynchronous.
 
-- [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
-  React.
-- [automerge-repo-svelte-store](/packages/automerge-repo-svelte-store/): A custom store for use with
-  Svelte.
-- [automerge-repo-solid-primitives](/packages/automerge-repo-solid-primitives/): Primitives for use with
-  Solid JS.
+Document bindings use `find()` for loading. Hooks retain deprecated
+`findWithProgress().peek()` only where a synchronous initial value is needed.
 
-#### Storage adapters
-
-- [automerge-repo-storage-indexeddb](/packages/automerge-repo-storage-indexeddb/): A storage
-  adapter to persist data in a browser.
-- [automerge-repo-storage-nodefs](/packages/automerge-repo-storage-nodefs/): A storage adapter to
-  write changes to the filesystem.
-
-#### Network adapters
-
-- [automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/): Network adapters
-  for both sides of a client/server configuration over websocket.
-- [automerge-repo-network-messagechannel](/packages/automerge-repo-network-messagechannel/): A
-  network adapter that uses the [MessageChannel
-  API](https://developer.mozilla.org/en-US/docs/Web/API/MessageChannel) to communicate between tabs.
-- [automerge-repo-network-broadcastchannel](/packages/automerge-repo-network-broadcastchannel/):
-  Likely only useful for experimentation, but allows simple (inefficient) tab-to-tab data
-  synchronization.
-
-Please note that a reference sync-server peer which demonstrates the use of
-[automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/)
-is available at [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server) (this is different from [sync-server](/examples/sync-server)).
+Legacy network/storage adapter packages, their umbrella packages, templates,
+sync server, and examples have been removed. A legacy backend is deferred;
+the old adapter configuration is not supported by this proof of concept.

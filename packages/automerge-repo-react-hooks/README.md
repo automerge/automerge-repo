@@ -19,6 +19,13 @@ Most hooks depend on RepoContext being available.
 
 Return a document & updater fn, by ID.
 
+The updater applies edits immediately and returns `Promise<void>` for persistence.
+Await it to observe persistence failures. Await `repo.create()` or `repo.import()`
+before passing the resulting handle's URL to a hook.
+
 #### [useDocHandle](./src/useDocHandle.ts)
 
 Return a handle, by ID.
+
+Loading uses `repo.find()`. Synchronous initial values still use the deprecated
+progress peek; replacing that peek with a promise would introduce loading flicker.

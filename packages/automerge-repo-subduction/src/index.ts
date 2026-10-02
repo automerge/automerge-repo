@@ -1,0 +1,1014 @@
+import * as N from "@automerge/subduction/slim"
+import {
+  BackendError,
+  commitId,
+  copyRecord,
+  equalRecords,
+  recordBytes,
+  recordHead,
+  recordKey,
+  sedimentreeId,
+  type BackendIdentity,
+  type BackendOperation,
+  type CollectionObservation,
+  type HistoryCheckpoint,
+  type SedimentreeRecord,
+  type RecordBatch,
+  type SedimentreeBackend,
+  type SedimentreeEvent,
+  type SedimentreeId,
+  type SedimentreeSession,
+  type SyncRoundResult,
+} from "@automerge/automerge-repo/sedimentree"
+import {
+  StorageBridge,
+  nativeId,
+  logicalId,
+  unsigned,
+  unsignedFragment,
+  type LocalByteStore,
+} from "./storage.js"
+import { Watch } from "./watch.js"
+
+export type { LocalByteStore } from "./storage.js"
+export { MemoryByteStore } from "./MemoryByteStore.js"
+/** Borrowed interface: the caller keeps the signer alive through backend.close(). */
+export type NativeSigner = N.Signer
+/** Authenticate outside the backend; addConnection borrows this wrapper. */
+export type AuthenticatedTransport = N.AuthenticatedTransport
+
+interface EngineGeneration {
+  active: boolean
+  stopping?: Promise<void>
+  work: Set<Promise<unknown>>
+  repairScheduled?: boolean
+}
+
+export interface SubductionBackendOptions {
+  signer: NativeSigner
+  storage: LocalByteStore
+  /** Explicit declaration of the injected store's recoverability (not fsync). */
+  persistence: "memory" | "persistent"
+  /** Native request deadline, not a deadline on local storage or handshake. */
+  syncTimeoutMilliseconds?: number
+  maxRecordBytes?: number
+  maxSnapshotBytes?: number
+  maxRecords?: number
+  batchRecords?: number
+  batchBytes?: number
+  replayEvents?: number
+  replayBytes?: number
+}
+
+function error(
+  operation: BackendOperation,
+  cause: unknown,
+  terminal = false
+): BackendError {
+  if (cause instanceof BackendError)
+    return new BackendError(
+      operation,
+      cause.code,
+      cause.message,
+      !terminal && cause.retryable,
+      { cause }
+    )
+  return new BackendError(operation, "io", String(cause), !terminal, { cause })
+}
+function checkpoint(
+  sequence: number,
+  records: readonly SedimentreeRecord[]
+): HistoryCheckpoint {
+  const heads = new Set(records.map(recordHead))
+  for (const record of records)
+    if (record.kind === "commit")
+      for (const parent of record.parents) heads.delete(parent)
+  // Loose-commit dependencies are validated by the translator. Fragment
+  // boundaries/checkpoint prefixes are not authenticated by a standalone blob:
+  // they cannot justify dropping another delivered head's readiness target.
+  // Extra historical heads are safe because readiness checks history inclusion.
+  return { sequence, heads: [...heads].sort() }
+}
+function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
+  if (value.type === "records")
+    return { ...value, records: value.records.map(copyRecord) }
+  if (value.type === "checkpoint" || value.type === "local-load-complete")
+    return {
+      ...value,
+      checkpoint: { ...value.checkpoint, heads: [...value.checkpoint.heads] },
+    }
+  if (value.type === "synchronized")
+    return {
+      ...value,
+      result: {
+        ...value.result,
+        checkpoint: {
+          ...value.result.checkpoint,
+          heads: [...value.result.checkpoint.heads],
+        },
+        peers: value.result.peers.map(p => ({
+          ...p,
+          peer: { ...p.peer, path: [...p.peer.path] },
+        })),
+      },
+    }
+  if (value.type === "remote-heads")
+    return {
+      ...value,
+      remote: { ...value.remote, path: [...value.remote.path] },
+      heads: [...value.heads],
+    }
+  return { ...value }
+}
+function waitOnly<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  return new Promise<T>((resolve, reject) => {
+    const abort = () =>
+      reject(signal.reason ?? new Error("Synchronization wait aborted"))
+    if (signal.aborted) abort()
+    else signal.addEventListener("abort", abort, { once: true })
+    promise
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort))
+  })
+}
+
+/** EXPERIMENTAL: real WASM persistence and authenticated peer sync.
+ * Initialize Subduction WASM before construction. Storage is exclusively owned.
+ */
+export class SubductionBackend implements SedimentreeBackend {
+  readonly persistence: "memory" | "persistent"
+  private readonly limits: Required<
+    Omit<SubductionBackendOptions, "signer" | "storage" | "persistence">
+  >
+  private readonly bridge: StorageBridge
+  private engine: N.Subduction
+  private generation!: EngineGeneration
+  private networkTail: Promise<unknown> = Promise.resolve()
+  private networkEnabled = false
+  private readonly scheduled = new Map<
+    SedimentreeId,
+    { generation: EngineGeneration; again: boolean }
+  >()
+  private readonly checkpoints = new Set<SedimentreeId>()
+  private tail: Promise<unknown> = Promise.resolve()
+  private closed = false
+  private closing?: Promise<void>
+  private sequence = 0
+  private round = 0
+  private readonly deleting = new Map<SedimentreeId, Promise<void>>()
+  private readonly watches = new Map<Watch<SedimentreeEvent>, SedimentreeId>()
+  private readonly collections = new Set<Watch<CollectionObservation>>()
+  private readonly attempts = new Set<{
+    id: SedimentreeId
+    work: Promise<void>
+  }>()
+
+  private readonly signer: NativeSigner
+
+  constructor(options: SubductionBackendOptions) {
+    this.signer = options.signer
+    if (
+      options.persistence !== "memory" &&
+      options.persistence !== "persistent"
+    )
+      throw new TypeError("Declare the byte store's persistence explicitly")
+    this.persistence = options.persistence
+    this.limits = {
+      syncTimeoutMilliseconds: options.syncTimeoutMilliseconds ?? 5000,
+      maxRecordBytes: options.maxRecordBytes ?? 16 * 1024 * 1024,
+      maxSnapshotBytes: options.maxSnapshotBytes ?? 64 * 1024 * 1024,
+      maxRecords: options.maxRecords ?? 10000,
+      batchRecords: options.batchRecords ?? 128,
+      batchBytes: options.batchBytes ?? 1024 * 1024,
+      replayEvents: options.replayEvents ?? 128,
+      replayBytes: options.replayBytes ?? 4 * 1024 * 1024,
+    }
+    for (const value of Object.values(this.limits))
+      if (!Number.isSafeInteger(value) || value <= 0)
+        throw new TypeError("Limits must be positive safe integers")
+    if (this.limits.syncTimeoutMilliseconds > 0xffffffff)
+      throw new TypeError("Sync timeout exceeds native u32 range")
+    this.bridge = new StorageBridge(
+      options.storage,
+      this.limits,
+      (id, record) => this.persisted(id, record),
+      id => this.storageFailed(id)
+    )
+    this.engine = this.createEngine()
+  }
+  private createEngine(): N.Subduction {
+    const generation: EngineGeneration = { active: true, work: new Set() }
+    this.generation = generation
+    // Native listener tasks can outlive disconnectAll/free. Each engine gets a
+    // revocable view; old tasks must never enter a new storage generation.
+    const storage = new Proxy(this.bridge, {
+      get(target, key) {
+        const value = Reflect.get(target, key)
+        if (typeof value !== "function") return value
+        return (...args: unknown[]) => {
+          if (!generation.active)
+            return Promise.reject(
+              new Error("Retired Subduction storage generation")
+            )
+          return Reflect.apply(value, target, args)
+        }
+      },
+    })
+    // opts.signer is a JS Signer reference, NOT a consumed WASM pointer.
+    return new N.Subduction({
+      signer: this.signer,
+      storage,
+      defaultTimeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
+      onRemoteHeads: (
+        id: N.SedimentreeId,
+        peer: N.PeerId,
+        heads: N.CommitId[]
+      ) => {
+        try {
+          if (!generation.active || this.closed) return
+          const tree = logicalId(id)
+          if (this.deleting.has(tree)) return
+          const event: SedimentreeEvent = {
+            type: "remote-heads",
+            sequence: ++this.sequence,
+            remote: this.peerIdentity(peer),
+            heads: heads.map(h => commitId(h.toHexString())),
+          }
+          for (const [watch, watched] of this.watches)
+            if (watched === tree) watch.push(event, 96 + heads.length * 32)
+        } finally {
+          heads.forEach(h => h.free())
+          peer.free()
+          id.free()
+        }
+      },
+    })
+  }
+  private peerIdentity(peer: N.PeerId): BackendIdentity {
+    return { kind: "subduction", id: peer.toString(), path: [] }
+  }
+  private checkNetwork(generation: EngineGeneration, id?: SedimentreeId): void {
+    this.check("synchronize", id)
+    if (!generation.active || generation.stopping)
+      throw new BackendError(
+        "synchronize",
+        "io",
+        "Connection generation ended; reconnect explicitly",
+        true
+      )
+  }
+  private stopNetwork(): Promise<void> {
+    return (this.generation.stopping ??= this.engine.disconnectAll())
+  }
+  private async retireEngine(): Promise<void> {
+    const generation = this.generation
+    generation.active = false
+    const stopped = await Promise.allSettled([
+      this.stopNetwork(),
+      ...generation.work,
+    ])
+    await this.bridge.drain()
+    this.engine.free()
+    // Failed syncs are reported to their callers/streams, not as close errors.
+    if (stopped[0].status === "rejected") throw stopped[0].reason
+  }
+  private async resetEngine(): Promise<void> {
+    try {
+      await this.retireEngine()
+    } finally {
+      this.engine = this.createEngine()
+    }
+  }
+  private storageFailed(id: SedimentreeId): void {
+    this.requireRescan(id)
+    const generation = this.generation
+    if (this.closed || generation.repairScheduled) return
+    generation.repairScheduled = true
+    // Never await the owner queue from a native storage callback: a local
+    // operation may itself be waiting for this exact callback to return.
+    void this.enqueue("store", async () => {
+      if (generation === this.generation) await this.resetEngine()
+    }).catch(() => this.requireRescan(id))
+  }
+
+  /** Borrow the authenticated wrapper until this promise settles. On success,
+   * the engine owns a connection clone and disconnects it on close/reset/delete.
+   * Keep the underlying JS transport alive until disconnection. Authentication
+   * is the caller's responsibility; no document handle is materialized here.
+   */
+  addConnection(transport: AuthenticatedTransport): Promise<boolean> {
+    try {
+      this.check("synchronize")
+      return this.enqueue("synchronize", async () => {
+        this.check("synchronize")
+        // Do fallible inventory I/O before installation: a rejected onboarding
+        // must not leave a live connection whose ownership was never accepted.
+        const ids = new Set(this.watches.values())
+        await this.bridge.inventory(stored => stored.forEach(id => ids.add(id)))
+        this.check("synchronize")
+        const added = await this.engine.addConnection(transport)
+        if (this.closed || this.generation.stopping) {
+          await this.engine.disconnectAll()
+          throw new BackendError(
+            "synchronize",
+            "closed",
+            "Connection was superseded"
+          )
+        }
+        this.networkEnabled = true
+        // Replay open interests AND stored, unopened documents on reconnect.
+        for (const id of ids) this.scheduleSync(id)
+        return added
+      })
+    } catch (cause) {
+      return Promise.reject(cause)
+    }
+  }
+  private network<T>(
+    run: (engine: N.Subduction, generation: EngineGeneration) => Promise<T>
+  ): Promise<T> {
+    const prior = this.tail
+    const generation = this.generation
+    const engine = this.engine
+    const work = this.networkTail.then(async () => {
+      // Waiting for the owner queue is NOT native work: retirement runs on
+      // that queue and must not wait on itself through a scheduled round.
+      await prior
+      this.checkNetwork(generation)
+      const running = run(engine, generation)
+      generation.work.add(running)
+      try {
+        return await running
+      } finally {
+        generation.work.delete(running)
+      }
+    })
+    this.networkTail = work.catch(() => {})
+    return work
+  }
+  private scheduleSync(id: SedimentreeId): void {
+    if (
+      !this.networkEnabled ||
+      this.closed ||
+      this.deleting.has(id) ||
+      this.generation.stopping
+    )
+      return
+    const old = this.scheduled.get(id)
+    if (old?.generation === this.generation) {
+      old.again = true
+      return
+    }
+    const job = { generation: this.generation, again: false }
+    this.scheduled.set(id, job)
+    void this.network((engine, generation) =>
+      this.syncRound(id, engine, generation)
+    )
+      .catch(cause => {
+        if (!this.closed && job.generation.active && !this.deleting.has(id))
+          for (const [watch, tree] of this.watches)
+            if (tree === id)
+              watch.push({
+                type: "failure",
+                sequence: ++this.sequence,
+                error: error("synchronize", cause),
+              })
+      })
+      .finally(() => {
+        if (this.scheduled.get(id) !== job) return
+        this.scheduled.delete(id)
+        if (job.again && job.generation === this.generation)
+          this.scheduleSync(id)
+      })
+  }
+  private async syncRound(
+    id: SedimentreeId,
+    engine: N.Subduction,
+    generation: EngineGeneration,
+    recipient?: Watch<SedimentreeEvent>
+  ): Promise<SyncRoundResult> {
+    this.check("synchronize", id)
+    const roundId = `subduction-${++this.round}`
+    const native = nativeId(id)
+    let peers: N.PeerId[] = []
+    try {
+      peers = await engine.getConnectedPeerIds()
+      const outcomes: SyncRoundResult["peers"][number][] = []
+      let remoteHasHeads = false
+      for (const peer of peers) {
+        const identity = this.peerIdentity(peer)
+        try {
+          const response = await engine.syncWithPeer(
+            peer,
+            native,
+            true,
+            this.limits.syncTimeoutMilliseconds
+          )
+          try {
+            const failures = response.transportErrors
+            if (response.success) {
+              const stats = response.stats
+              const heads = stats.remoteHeads
+              try {
+                remoteHasHeads ||= heads.length > 0
+              } finally {
+                heads.forEach(head => head.free())
+                stats.free()
+              }
+            }
+            outcomes.push({
+              peer: identity,
+              outcome: response.success ? "complete" : "failed",
+              ...(failures.length
+                ? {
+                    error: error(
+                      "synchronize",
+                      new AggregateError(
+                        failures,
+                        "Peer synchronization failed"
+                      )
+                    ),
+                  }
+                : !response.success
+                  ? {
+                      error: new BackendError(
+                        "synchronize",
+                        "unsupported",
+                        "Native sync does not distinguish absent, unauthorized, and disconnected peers"
+                      ),
+                    }
+                  : {}),
+            })
+          } finally {
+            response.free()
+          }
+        } catch (cause) {
+          outcomes.push({
+            peer: identity,
+            outcome: "failed",
+            error: error("synchronize", cause),
+          })
+        }
+      }
+      this.checkNetwork(generation, id)
+      let result!: SyncRoundResult
+      await this.bridge.records(native, records => {
+        result = {
+          roundId,
+          checkpoint: checkpoint(++this.sequence, records),
+          outcome: !peers.length
+            ? "no-peers"
+            : outcomes.every(p => p.outcome === "complete")
+              ? "complete"
+              : "failed",
+          peers: outcomes,
+        }
+        if (!this.closed && !this.deleting.has(id))
+          for (const [watch, tree] of this.watches)
+            if (tree === id && (!recipient || watch === recipient)) {
+              watch.push(
+                { type: "synchronized", result },
+                64 + result.checkpoint.heads.length * 32 + outcomes.length * 128
+              )
+              // Native success and empty heads are not an absence proof: its
+              // responder cache may lag durable writes and pushes can arrive later.
+              if (
+                !records.length &&
+                !remoteHasHeads &&
+                (result.outcome === "complete" ||
+                  outcomes.some(peer => peer.error?.code === "unsupported"))
+              )
+                watch.finish({
+                  type: "failure",
+                  sequence: ++this.sequence,
+                  error: new BackendError(
+                    "open",
+                    "unsupported",
+                    "Native sync cannot establish availability for an empty connected lookup; remote absence is not proven"
+                  ),
+                })
+            }
+      })
+      return result
+    } finally {
+      peers.forEach(peer => peer.free())
+      native.free()
+    }
+  }
+  private check(operation: BackendOperation, id?: SedimentreeId): void {
+    if (this.closed)
+      throw new BackendError(operation, "closed", "Backend is closed")
+    if (id && this.deleting.has(id))
+      throw new BackendError(operation, "deleted", "Deletion barrier is active")
+  }
+  /** Reserving the promise chain happens synchronously, before any await. */
+  private enqueue<T>(
+    operation: BackendOperation,
+    run: () => Promise<T>
+  ): Promise<T> {
+    const work = this.tail.then(run).catch(cause => {
+      throw error(operation, cause)
+    })
+    this.tail = work.catch(() => {})
+    return work
+  }
+  private persisted(id: SedimentreeId, record: SedimentreeRecord): void {
+    if (this.closed || this.deleting.has(id)) return
+    const sequence = ++this.sequence
+    for (const [watch, tree] of this.watches)
+      if (tree === id)
+        watch.push(
+          { type: "records", sequence, phase: "live", records: [record] },
+          recordBytes(record)
+        )
+    for (const watch of this.collections)
+      watch.push({ type: "document", sequence, phase: "live", id })
+    // This applies equally to local writes and unsolicited native ingestion.
+    // Queue the cut behind the current complete bridge transaction, coalescing
+    // batches. Never use onRemoteHeads (which precedes ingest) as completeness.
+    if (!this.checkpoints.has(id)) {
+      this.checkpoints.add(id)
+      const native = nativeId(id)
+      void this.bridge
+        .records(native, records => {
+          this.checkpoints.delete(id)
+          if (this.closed || this.deleting.has(id)) return
+          const target = checkpoint(++this.sequence, records)
+          for (const [watch, tree] of this.watches)
+            if (tree === id)
+              watch.push(
+                { type: "checkpoint", checkpoint: target },
+                32 + target.heads.length * 32
+              )
+        })
+        .catch(() => {
+          this.checkpoints.delete(id)
+          this.requireRescan(id)
+        })
+        .finally(() => native.free())
+    }
+  }
+  private requireRescan(id: SedimentreeId): void {
+    if (this.closed) return
+    const sequence = ++this.sequence
+    // save() can commit a value and still reject (e.g. an ambiguous I/O result).
+    // Its notification was then missed. Never let deduplicating a retry hide
+    // that record: active observations must reconcile authoritative storage.
+    // Not-yet-initialized watches have later queued cuts and recover it there.
+    for (const [watch, tree] of this.watches)
+      if (tree === id && watch.active)
+        watch.finish({ type: "rescan-required", sequence })
+    for (const watch of this.collections)
+      if (watch.active) watch.finish({ type: "rescan-required", sequence })
+  }
+  private async snapshot(
+    id: SedimentreeId,
+    consume?: (records: SedimentreeRecord[]) => void
+  ): Promise<SedimentreeRecord[]> {
+    const native = nativeId(id)
+    try {
+      // This forces actual native hydration/validation on a fresh backend. Its
+      // minimized metadata is deliberately NOT zipped with any blob enumeration.
+      const commits = await this.engine.getCommits(native)
+      commits?.forEach(c => c.free())
+      const fragments = await this.engine.getFragments(native)
+      fragments?.forEach(f => f.free())
+      // Install the cut inside the serialized read, before another save can
+      // notify. Hydration must precede this cut, not leave a gap after it.
+      return await this.bridge.records(native, consume)
+    } finally {
+      native.free()
+    }
+  }
+  private batches(
+    records: readonly SedimentreeRecord[],
+    sequence: number
+  ): SedimentreeEvent[] {
+    const events: SedimentreeEvent[] = []
+    let batch: SedimentreeRecord[] = [],
+      size = 0
+    const emit = () => {
+      if (batch.length)
+        events.push({
+          type: "records",
+          sequence,
+          phase: "initial",
+          records: batch,
+        })
+      batch = []
+      size = 0
+    }
+    for (const record of records) {
+      const bytes = recordBytes(record)
+      if (
+        batch.length &&
+        (batch.length >= this.limits.batchRecords ||
+          size + bytes > this.limits.batchBytes)
+      )
+        emit()
+      batch.push(record)
+      size += bytes
+    }
+    emit()
+    return events
+  }
+  open(input: SedimentreeId): SedimentreeSession {
+    const id = sedimentreeId(input)
+    this.check("open", id)
+    let released = false
+    const watch = new Watch<SedimentreeEvent>(
+      this.limits.replayEvents,
+      this.limits.replayBytes,
+      copyEvent,
+      () => ({ type: "rescan-required", sequence: ++this.sequence }),
+      () => {
+        released = true
+        this.watches.delete(watch)
+      }
+    )
+    this.watches.set(watch, id)
+    void this.enqueue("open", async () => {
+      await this.snapshot(id, records => {
+        const sequence = ++this.sequence
+        watch.initialize([
+          ...this.batches(records, sequence),
+          {
+            type: "local-load-complete",
+            checkpoint: checkpoint(sequence, records),
+            found: records.length > 0,
+          },
+        ])
+      })
+      if (!released) this.scheduleSync(id)
+    }).catch(cause =>
+      watch.finish({
+        type: "failure",
+        sequence: ++this.sequence,
+        error: error("open", cause, true),
+      })
+    )
+    const sessionCheck = (op: BackendOperation) => {
+      this.check(op, id)
+      if (released) throw new BackendError(op, "closed", "Session is closed")
+    }
+    return {
+      events: watch,
+      synchronize: (options = {}) => {
+        try {
+          sessionCheck("synchronize")
+          const work = this.network((engine, generation) =>
+            this.syncRound(id, engine, generation, watch)
+          )
+          void work.catch(cause =>
+            watch.push({
+              type: "failure",
+              sequence: ++this.sequence,
+              error: error("synchronize", cause),
+            })
+          )
+          return waitOnly(work, options.signal)
+        } catch (cause) {
+          return Promise.reject(cause)
+        }
+      },
+      publishEphemeral: async () => {
+        sessionCheck("ephemeral")
+        await this.enqueue("ephemeral", async () => {
+          const peers = await this.engine.getConnectedPeerIds()
+          try {
+            if (peers.length)
+              throw new BackendError(
+                "ephemeral",
+                "unsupported",
+                "Network ephemerals are not implemented"
+              )
+          } finally {
+            peers.forEach(peer => peer.free())
+          }
+        })
+      },
+      close: async () => {
+        await watch.return()
+      },
+    }
+  }
+  observeCollection(): AsyncIterable<CollectionObservation> {
+    this.check("observe")
+    const watch = new Watch<CollectionObservation>(
+      this.limits.replayEvents,
+      this.limits.replayBytes,
+      value => ({ ...value }),
+      () => ({ type: "rescan-required", sequence: ++this.sequence }),
+      () => {
+        this.collections.delete(watch)
+      }
+    )
+    this.collections.add(watch)
+    void this.enqueue("observe", async () => {
+      await this.bridge.inventory(ids => {
+        const sequence = ++this.sequence
+        watch.initialize([
+          ...ids.map(id => ({
+            type: "document" as const,
+            sequence,
+            phase: "initial" as const,
+            id,
+          })),
+          { type: "local-load-complete", sequence },
+        ])
+      })
+    }).catch(cause =>
+      watch.finish({
+        type: "failure",
+        sequence: ++this.sequence,
+        error: error("observe", cause, true),
+      })
+    )
+    return watch
+  }
+  async create(
+    initialRecords: RecordBatch,
+    options: { documentId?: SedimentreeId } = {}
+  ): Promise<SedimentreeId> {
+    this.check("create")
+    if (!initialRecords.length)
+      throw new BackendError(
+        "create",
+        "invalid-record",
+        "Initial history is empty"
+      )
+    const id = sedimentreeId(
+      options.documentId ?? crypto.getRandomValues(new Uint8Array(32))
+    )
+    await this.storeRecords(id, initialRecords, true)
+    return id
+  }
+  store(input: SedimentreeId, batch: RecordBatch): Promise<void> {
+    return this.storeRecords(input, batch)
+  }
+  private storeRecords(
+    input: SedimentreeId,
+    batch: RecordBatch,
+    creating = false
+  ): Promise<void> {
+    try {
+      const id = sedimentreeId(input)
+      this.check("store", id)
+      let records: SedimentreeRecord[]
+      try {
+        records = batch.map(copyRecord)
+        if (
+          records.some(
+            r =>
+              r.kind === "fragment" &&
+              (r.boundary.length > 255 || r.checkpoints.length > 65535)
+          )
+        )
+          throw new Error("Fragment metadata exceeds native wire count limits")
+        if (
+          records.length > this.limits.batchRecords ||
+          records.reduce((n, r) => n + recordBytes(r), 0) >
+            this.limits.maxSnapshotBytes ||
+          records.some(r => recordBytes(r) + 512 > this.limits.maxRecordBytes)
+        )
+          throw new Error("Store batch/record limit exceeded")
+      } catch (cause) {
+        throw new BackendError(
+          "store",
+          "invalid-record",
+          String(cause),
+          false,
+          { cause }
+        )
+      }
+      const work = this.enqueue(creating ? "create" : "store", async () => {
+        const native = nativeId(id)
+        const inputs: N.CommitInput[] = []
+        const fragments: N.FragmentInput[] = []
+        let submitted = false
+        try {
+          // Conservative exact policy prevents native minimization from silently
+          // acknowledging variants that this experiment cannot preserve.
+          const existing = new Map(
+            (await this.bridge.records(native)).map(r => [recordKey(r), r])
+          )
+          if (creating && existing.size)
+            throw new BackendError(
+              "create",
+              "conflict",
+              "Document already exists"
+            )
+          for (const record of records) {
+            const old = existing.get(recordKey(record))
+            if (old && !equalRecords(old, record))
+              throw new BackendError(
+                "store",
+                "conflict",
+                "Different same-key representation is unsupported"
+              )
+            existing.set(recordKey(record), record)
+          }
+          if (
+            existing.size > this.limits.maxRecords ||
+            [...existing.values()].reduce((n, r) => n + recordBytes(r), 0) >
+              this.limits.maxSnapshotBytes
+          )
+            throw new BackendError(
+              "store",
+              "invalid-record",
+              "Tree snapshot limit exceeded"
+            )
+          for (const record of records) {
+            // Input constructors consume their native payloads.
+            if (record.kind === "commit")
+              inputs.push(
+                new N.CommitInput(unsigned(native, record), record.blob)
+              )
+            else
+              fragments.push(
+                new N.FragmentInput(
+                  unsignedFragment(native, record),
+                  record.blob
+                )
+              )
+          }
+          if (inputs.length || fragments.length) {
+            // storeBuiltBatch consumes both kinds of input wrappers.
+            submitted = true
+            await this.engine.storeBuiltBatch(native, inputs, fragments)
+          }
+          // Success means EVERY record is recoverable, even if native minimized
+          // its in-memory tree. Do not acknowledge silently discarded history.
+          const stored = new Map(
+            (await this.bridge.records(native)).map(r => [recordKey(r), r])
+          )
+          for (const record of records)
+            if (
+              !stored.has(recordKey(record)) ||
+              !equalRecords(stored.get(recordKey(record))!, record)
+            )
+              throw new BackendError(
+                "store",
+                "io",
+                "Native store did not persist all submitted history",
+                true
+              )
+          // Durability never waits for a peer. A separate coalesced network
+          // queue propagates stores even without a document session.
+          if (records.length) this.scheduleSync(id)
+        } catch (cause) {
+          // A rejected create has not submitted anything and needs no recovery.
+          if (
+            !(
+              cause instanceof BackendError &&
+              cause.operation === "create" &&
+              cause.code === "conflict"
+            )
+          ) {
+            this.requireRescan(id)
+            await this.resetEngine()
+          }
+          throw cause
+        } finally {
+          if (!submitted) {
+            inputs.forEach(c => c.free())
+            fragments.forEach(f => f.free())
+          }
+          native.free()
+        }
+      })
+      const attempt = { id, work }
+      this.attempts.add(attempt)
+      // Successful settled work needs no ledger; failed attempts remain visible
+      // until a captured flush/close barrier has reported them.
+      void work.then(
+        () => this.attempts.delete(attempt),
+        cause => {
+          if (
+            cause instanceof BackendError &&
+            cause.operation === "create" &&
+            cause.code === "conflict"
+          )
+            this.attempts.delete(attempt)
+        }
+      )
+      return work
+    } catch (cause) {
+      return Promise.reject(cause)
+    }
+  }
+  private async drain(attempts: { work: Promise<void> }[]): Promise<void> {
+    const results = await Promise.allSettled(attempts.map(a => a.work))
+    const errors = results.flatMap(r =>
+      r.status === "rejected" ? [r.reason] : []
+    )
+    if (errors.length)
+      throw new AggregateError(errors, "Accepted persistence attempts failed")
+  }
+  flush(ids?: readonly SedimentreeId[]): Promise<void> {
+    try {
+      this.check("flush")
+      const filter = ids ? new Set(ids.map(sedimentreeId)) : undefined
+      const captured = [...this.attempts].filter(
+        a => !filter || filter.has(a.id)
+      )
+      // Snapshot the filter for the later failure sweep as well.
+      const targeted = filter ? [...filter] : undefined
+      // Capture native incoming writes now, not after the local-store drain.
+      const incoming = this.bridge.flush(targeted)
+      return Promise.allSettled([this.drain(captured), incoming])
+        .then(async results => {
+          // Captured local stores may enter native storage only AFTER flush
+          // was called. Report/retire their now-settled bridge failures too,
+          // without waiting for subsequently accepted writes.
+          results.push(
+            ...(await Promise.allSettled([this.bridge.flush(targeted, true)]))
+          )
+          const errors = results.flatMap(r =>
+            r.status === "rejected" ? [r.reason] : []
+          )
+          if (errors.length)
+            throw new AggregateError(
+              errors,
+              "Accepted persistence attempts failed"
+            )
+        })
+        .finally(() => captured.forEach(a => this.attempts.delete(a)))
+    } catch (cause) {
+      return Promise.reject(cause)
+    }
+  }
+  deleteLocal(input: SedimentreeId): Promise<void> {
+    try {
+      const id = sedimentreeId(input)
+      this.check("delete")
+      if (this.deleting.has(id)) return this.deleting.get(id)!
+      const sequence = ++this.sequence
+      for (const [watch, tree] of this.watches)
+        if (tree === id) watch.finish({ type: "deleted", sequence })
+      // No document-unsubscribe/drain API exists natively. This conservative
+      // experiment disconnects ALL peers on deletion, then revokes the entire
+      // old engine before removing history. Reconnect explicitly afterward.
+      void this.stopNetwork().catch(() => {})
+      const work = this.enqueue("delete", async () => {
+        const native = nativeId(id)
+        try {
+          await this.resetEngine()
+          // Validate the generation before deleting; corrupt storage must not
+          // silently appear absent (or be erased as if it had loaded cleanly).
+          await this.bridge.records(native)
+          await this.engine.removeSedimentree(native)
+          await this.bridge.cleanup(native)
+          if (!this.closed)
+            for (const watch of this.collections)
+              watch.push({ type: "deleted", sequence: ++this.sequence, id })
+        } catch (cause) {
+          // Removal can partly succeed (or commit then reject). Existing
+          // collection inventories must reconcile even without a success event.
+          this.requireRescan(id)
+          throw cause
+        } finally {
+          native.free()
+          await this.resetEngine()
+        }
+      }).finally(() => {
+        this.deleting.delete(id)
+      })
+      this.deleting.set(id, work)
+      return work
+    } catch (cause) {
+      return Promise.reject(cause)
+    }
+  }
+  close(): Promise<void> {
+    if (this.closing) return this.closing
+    this.closed = true
+    for (const watch of this.watches.keys()) watch.finish()
+    for (const watch of this.collections) watch.finish()
+    const captured = [...this.attempts]
+    const deletions = [...this.deleting.values()]
+    // Cancel stalled peer waits immediately, but leave storage enabled until
+    // already accepted local operations have finished. Then seal and drain.
+    void this.stopNetwork().catch(() => {})
+    this.closing = (async () => {
+      await this.tail
+      const retired = this.retireEngine()
+      const outcomes = await Promise.allSettled([
+        this.drain(captured),
+        ...deletions,
+        retired,
+      ])
+      await this.networkTail
+      const incoming = await Promise.allSettled([this.bridge.flush()])
+      outcomes.push(...incoming)
+      const errors = outcomes.flatMap(r =>
+        r.status === "rejected" ? [r.reason] : []
+      )
+      this.attempts.clear()
+      if (errors.length)
+        throw new AggregateError(errors, "Backend close failed")
+    })()
+    return this.closing
+  }
+}

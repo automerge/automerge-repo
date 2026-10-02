@@ -1,4 +1,4 @@
-import { type PeerId, Repo, type DocHandle } from "@automerge/automerge-repo"
+import { Repo, type DocHandle } from "@automerge/automerge-repo"
 
 import { renderHook, testEffect } from "@solidjs/testing-library"
 import { describe, expect, it, vi } from "vitest"
@@ -12,10 +12,8 @@ import makeDocumentProjection from "../src/makeDocumentProjection.js"
 import { RepoContext } from "../src/context.js"
 
 describe("makeDocumentProjection", () => {
-  function setup() {
-    const repo = new Repo({
-      peerId: "bob" as PeerId,
-    })
+  async function setup() {
+    const repo = new Repo()
 
     const create = () =>
       repo.create<ExampleDoc>({
@@ -28,7 +26,7 @@ describe("makeDocumentProjection", () => {
         ],
       })
 
-    const handle = create()
+    const handle = await create()
     const wrapper: ParentComponent = props => {
       return (
         <RepoContext.Provider value={repo}>
@@ -46,7 +44,7 @@ describe("makeDocumentProjection", () => {
   }
 
   it("should notify on a property change", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
     const { result: doc, owner } = renderHook(
       makeDocumentProjection as (handle: DocHandle<ExampleDoc>) => ExampleDoc,
       {
@@ -73,7 +71,7 @@ describe("makeDocumentProjection", () => {
   })
 
   it("should not apply patches multiple times just because there are multiple projections of the same handle", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
     const { result: one, owner: owner1 } = renderHook(
       makeDocumentProjection as (handle: DocHandle<ExampleDoc>) => ExampleDoc,
       {
@@ -121,7 +119,7 @@ describe("makeDocumentProjection", () => {
   })
 
   it("should notify on a deep property change", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
     return createRoot(() => {
       const doc = makeDocumentProjection<ExampleDoc>(handle)
       return testEffect(done => {
@@ -143,7 +141,7 @@ describe("makeDocumentProjection", () => {
   })
 
   it("should not clean up when it should not clean up", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
 
     return createRoot(() => {
       const [one, clean1] = createRoot(c => [makeDocumentProjection(handle), c])
@@ -198,7 +196,7 @@ describe("makeDocumentProjection", () => {
   })
 
   it("should not notify on properties nobody cares about", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
     let fn = vi.fn()
 
     const { result: doc, owner } = renderHook(
@@ -253,7 +251,7 @@ describe("makeDocumentProjection", () => {
   })
 
   it("should remain reactive on an mount, unmount, and then remount of the same doc handle", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
 
     for (let i = 0; i < 2; ++i) {
       const [doc, clean] = createRoot(c => [makeDocumentProjection(handle), c])

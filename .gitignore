@@ -12,10 +12,3 @@ yarn-error.log
 wallaby.conf.cjs
 *.tgz
 .svelte-kit
-
-# Playwright
-test-results/
-playwright-report/
-blob-report/
-playwright/.cache/
-playwright/.auth/

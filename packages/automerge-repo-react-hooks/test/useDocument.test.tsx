@@ -3,14 +3,14 @@ import {
   Doc,
   generateAutomergeUrl,
 } from "@automerge/automerge-repo"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, renderHook, screen, waitFor } from "@testing-library/react"
 import React, { Suspense } from "react"
 import { describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom"
 
 import { useDocument } from "../src/useDocument"
 import { ErrorBoundary } from "react-error-boundary"
-import { setup, setupPairedRepos, ExampleDoc } from "./testSetup"
+import { setup, setupDelayedRepo, ExampleDoc } from "./testSetup"
 
 describe("useDocument", () => {
   const Component = ({
@@ -26,7 +26,7 @@ describe("useDocument", () => {
   }
 
   it("should load a document", async () => {
-    const { handleA, wrapper } = setup()
+    const { handleA, wrapper } = await setup()
     const onDoc = vi.fn()
 
     render(
@@ -44,8 +44,28 @@ describe("useDocument", () => {
     expect(onDoc).toHaveBeenCalledWith({ foo: "A" })
   })
 
+  it("returns persistence completion and failures from the updater", async () => {
+    const { wrapper, handleA } = await setup()
+    const { result } = renderHook(() => useDocument<ExampleDoc>(handleA.url), {
+      wrapper,
+    })
+
+    await React.act(async () => {
+      const persistence = result.current[1](doc => (doc.foo = "changed"))
+      expect(handleA.doc()?.foo).toBe("changed")
+      expect(persistence).toBeInstanceOf(Promise)
+      await persistence
+    })
+
+    const error = new Error("Persistence failed")
+    vi.spyOn(handleA, "change").mockImplementationOnce(() =>
+      Promise.reject(error)
+    )
+    await expect(result.current[1](() => {})).rejects.toBe(error)
+  })
+
   it("should update if the doc changes", async () => {
-    const { wrapper, handleA } = setup()
+    const { wrapper, handleA } = await setup()
     const onDoc = vi.fn()
 
     render(
@@ -60,7 +80,7 @@ describe("useDocument", () => {
     expect(onDoc).toHaveBeenCalledWith({ foo: "A" })
 
     // Change the document
-    React.act(() => handleA.change(doc => (doc.foo = "new value")))
+    await React.act(() => handleA.change(doc => (doc.foo = "new value")))
 
     // Check the update
     await waitFor(() => {
@@ -73,7 +93,7 @@ describe("useDocument", () => {
     // suppress console.error from the error boundary
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-    const { wrapper, handleA } = setup()
+    const { wrapper, handleA } = await setup()
     const onDoc = vi.fn()
     const onError = vi.fn()
 
@@ -95,7 +115,7 @@ describe("useDocument", () => {
     })
 
     // Delete the document
-    React.act(() => handleA.delete())
+    await React.act(() => handleA.delete())
 
     // Should trigger error boundary
     expect(screen.getByTestId("error")).toHaveTextContent("Error")
@@ -104,7 +124,7 @@ describe("useDocument", () => {
   })
 
   it("should switch documents when url changes", async () => {
-    const { handleA, handleB, wrapper } = setup()
+    const { handleA, handleB, wrapper } = await setup()
     const onDoc = vi.fn()
 
     const { rerender } = render(
@@ -134,7 +154,7 @@ describe("useDocument", () => {
     // suppress console.error from the error boundary
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-    const { wrapper, repo } = setup()
+    const { wrapper, repo } = await setup()
 
     // Create handle for nonexistent document
     const url = generateAutomergeUrl()
@@ -148,7 +168,7 @@ describe("useDocument", () => {
       { wrapper }
     )
 
-    waitFor(() => {
+    await waitFor(() => {
       expect(screen.getByTestId("error")).toHaveTextContent("Error")
     })
 
@@ -157,10 +177,10 @@ describe("useDocument", () => {
 
   // Test slow-loading document
   it("should handle slow-loading documents", async () => {
-    const { repoCreator, wrapper } = setupPairedRepos()
+    const { repoCreator, wrapper } = setupDelayedRepo()
 
     // Create document in first repo
-    const handle = repoCreator.create({ foo: "slow" })
+    const handle = await repoCreator.create({ foo: "slow" })
     const onDoc = vi.fn()
 
     render(
@@ -173,7 +193,7 @@ describe("useDocument", () => {
     // Should show loading state initially
     expect(screen.getByTestId("loading")).toBeInTheDocument()
 
-    // Eventually shows content after network delay
+    // Eventually shows content after lookup delay
     await waitFor(() => {
       expect(screen.getByTestId("content")).toHaveTextContent("slow")
     })
@@ -182,7 +202,7 @@ describe("useDocument", () => {
 
   // Test concurrent document switches
   it("should handle rapid document switches correctly", async () => {
-    const { wrapper, handleA, handleB, handleC } = setup()
+    const { wrapper, handleA, handleB, handleC } = await setup()
     const onDoc = vi.fn()
 
     const { rerender } = render(
@@ -213,10 +233,10 @@ describe("useDocument", () => {
 
   // Test document changes during loading
   it("should handle document changes while loading", async () => {
-    const { wrapper, repoCreator } = setupPairedRepos()
+    const { wrapper, repoCreator } = setupDelayedRepo()
     const onDoc = vi.fn()
 
-    const handle = repoCreator.create({ foo: "initial" })
+    const handle = await repoCreator.create({ foo: "initial" })
 
     render(
       <Suspense fallback={<div data-testid="loading">Loading...</div>}>
@@ -237,7 +257,7 @@ describe("useDocument", () => {
 
   // Test cleanup on unmount
   it("should cleanup subscriptions on unmount", async () => {
-    const { wrapper, handleA } = setup()
+    const { wrapper, handleA } = await setup()
     const { unmount } = render(
       <Suspense fallback={<div data-testid="loading">Loading...</div>}>
         <Component url={handleA.url} onDoc={vi.fn()} />
@@ -281,8 +301,10 @@ describe("useDocument", () => {
     }
 
     it("should load a sub-document addressed by a ref URL", async () => {
-      const { wrapper, handleA } = setup()
-      React.act(() => handleA.change(d => (d.nested = { value: "nested-A" })))
+      const { wrapper, handleA } = await setup()
+      await React.act(() =>
+        handleA.change(d => (d.nested = { value: "nested-A" }))
+      )
 
       // A ref URL carries a `/path` suffix (e.g. automerge:<id>/nested).
       const subUrl = handleA.sub("nested").url
@@ -302,8 +324,10 @@ describe("useDocument", () => {
     })
 
     it("should update when the referenced sub-tree changes", async () => {
-      const { wrapper, handleA } = setup()
-      React.act(() => handleA.change(d => (d.nested = { value: "before" })))
+      const { wrapper, handleA } = await setup()
+      await React.act(() =>
+        handleA.change(d => (d.nested = { value: "before" }))
+      )
       const subUrl = handleA.sub("nested").url
 
       render(
@@ -317,7 +341,7 @@ describe("useDocument", () => {
 
       // Mutating the sub-tree via the root handle should re-render the
       // scoped sub-handle (path-filtered change dispatch).
-      React.act(() => handleA.change(d => (d.nested!.value = "after")))
+      await React.act(() => handleA.change(d => (d.nested!.value = "after")))
 
       await waitFor(() => {
         expect(screen.getByTestId("content")).toHaveTextContent("after")
@@ -325,8 +349,8 @@ describe("useDocument", () => {
     })
 
     it("updates to undefined when the referenced array element is deleted", async () => {
-      const { wrapper, handleA } = setup()
-      React.act(() =>
+      const { wrapper, handleA } = await setup()
+      await React.act(() =>
         handleA.change(d => {
           ;(d as any).items = [
             { id: "a", value: "AA" },
@@ -352,7 +376,7 @@ describe("useDocument", () => {
       // Delete the matched element via the root handle. The scoped sub-handle
       // must be notified (dispatch resolves patterns against before+after),
       // so the component re-renders to the now-undefined scope.
-      React.act(() =>
+      await React.act(() =>
         handleA.change(d => {
           ;(d as any).items.deleteAt(1)
         })
@@ -365,10 +389,10 @@ describe("useDocument", () => {
     })
 
     it("should resolve a ref URL pinned at heads (heads + path)", async () => {
-      const { wrapper, handleA } = setup()
-      React.act(() => handleA.change(d => (d.nested = { value: "v1" })))
+      const { wrapper, handleA } = await setup()
+      await React.act(() => handleA.change(d => (d.nested = { value: "v1" })))
       const headsAtV1 = handleA.heads()
-      React.act(() => handleA.change(d => (d.nested!.value = "v2")))
+      await React.act(() => handleA.change(d => (d.nested!.value = "v2")))
 
       // URL carries both a path suffix and fixed heads.
       const pinnedSubUrl = handleA.sub("nested").view(headsAtV1).url

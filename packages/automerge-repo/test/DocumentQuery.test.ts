@@ -1,6 +1,10 @@
 import { next as A } from "@automerge/automerge"
 import { describe, expect, it, vi } from "vitest"
-import { DocumentQuery, progressAtHeads } from "../src/DocumentQuery.js"
+import {
+  DocumentQuery,
+  progressAtHeads,
+  progressAtPath,
+} from "../src/DocumentQuery.js"
 import { encodeHeads } from "../src/AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
 import { createTestQuery } from "./helpers/testHandle.js"
@@ -29,6 +33,22 @@ describe("DocumentQuery", () => {
       const query = createTestQuery(docId)
       expect(query.handle).toBeTruthy()
       expect(query.handle.documentId).toBe(docId)
+    })
+
+    it("exposes only modern progress methods on queries and wrappers", async () => {
+      const query = createTestQuery(docId)
+      loadInto(query, [makeBlob({ count: 1 })])
+      const atHeads = progressAtHeads(query, query.handle.heads())
+      const atPath = progressAtPath(atHeads, [])
+      for (const progress of [query, atHeads, atPath]) {
+        for (const name of ["state", "progress", "error"])
+          expect(name in progress).toBe(false)
+        expect(progress.peek().state).toBe("ready")
+        expect(await progress.whenReady()).toBeDefined()
+        const unsubscribe = progress.subscribe(() => {})
+        expect(unsubscribe).toBeTypeOf("function")
+        unsubscribe()
+      }
     })
   })
 
@@ -131,6 +151,74 @@ describe("DocumentQuery", () => {
   })
 
   describe("subscribe", () => {
+    it("isolates throwing subscribers from later subscribers and readiness waits", async () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("test")
+      const error = new Error("subscriber failed")
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        query.subscribe(() => {
+          throw error
+        })
+        const later = vi.fn()
+        query.subscribe(later)
+        const ready = query.whenReady()
+        loadInto(query, [makeBlob({ count: 1 })])
+        expect(later).toHaveBeenCalledOnce()
+        expect(await ready).toBe(query.handle)
+        expect(logged).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.any(String),
+          error
+        )
+      } finally {
+        logged.mockRestore()
+      }
+    })
+
+    it("logs rejected async subscribers without an unhandled rejection", async () => {
+      const query = createTestQuery(docId)
+      const error = new Error("async subscriber failed")
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        query.subscribe(async () => {
+          throw error
+        })
+        const later = vi.fn()
+        query.subscribe(later)
+        query.sourcePending("test")
+        expect(later).toHaveBeenCalledOnce()
+        await Promise.resolve()
+        expect(logged).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.any(String),
+          error
+        )
+      } finally {
+        logged.mockRestore()
+      }
+    })
+
+    it("notifies failure waiters despite a throwing subscriber", async () => {
+      const query = createTestQuery(docId)
+      query.sourcePending("test")
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {})
+      try {
+        query.subscribe(() => {
+          throw new Error("subscriber failed")
+        })
+        const later = vi.fn()
+        query.subscribe(later)
+        const waiting = query.whenReady()
+        const error = new Error("shutdown")
+        expect(() => query.fail(error)).not.toThrow()
+        await expect(waiting).rejects.toBe(error)
+        expect(later).toHaveBeenCalledOnce()
+      } finally {
+        logged.mockRestore()
+      }
+    })
+
     it("notifies subscribers when public state changes", () => {
       const query = createTestQuery(docId)
       const states: string[] = []
@@ -314,6 +402,64 @@ describe("DocumentQuery", () => {
   })
 
   describe("progressAtHeads", () => {
+    it.each(["shutdown", "deleted", "evicted"])(
+      "rejects a missing-heads wait when the ready query fails: %s",
+      async reason => {
+        const query = createTestQuery<{ value: string }>(docId)
+        loadInto(query, [makeBlob({ value: "v1" })])
+        const future = A.change(A.clone(query.handle.fullDoc()), d => {
+          d.value = "v2"
+        })
+        const progress = progressAtPath(
+          progressAtHeads(query, encodeHeads(A.getHeads(future))),
+          []
+        )
+        const before = query.handle.listenerCount("heads-changed")
+        const controller = new AbortController()
+        const remove = vi.spyOn(controller.signal, "removeEventListener")
+        const subscribe = query.subscribe.bind(query)
+        const unsubscribed = vi.fn()
+        vi.spyOn(query, "subscribe").mockImplementation(callback => {
+          const unsubscribe = subscribe(callback)
+          return () => {
+            unsubscribed()
+            unsubscribe()
+          }
+        })
+        const waiting = progress.whenReady({ signal: controller.signal })
+        await Promise.resolve()
+        expect(query.handle.listenerCount("heads-changed")).toBe(before + 1)
+        const error = new Error(reason)
+        query.fail(error)
+        await expect(waiting).rejects.toBe(error)
+        expect(query.handle.listenerCount("heads-changed")).toBe(before)
+        expect(unsubscribed).toHaveBeenCalledOnce()
+        expect(remove).toHaveBeenCalledWith("abort", expect.any(Function))
+      },
+      1000
+    )
+
+    it.each([false, true])(
+      "rechecks failure during the root-readiness await, even when target heads already exist: %s",
+      async present => {
+        const query = createTestQuery<{ value: string }>(docId)
+        loadInto(query, [makeBlob({ value: "v1" })])
+        const future = A.change(A.clone(query.handle.fullDoc()), d => {
+          d.value = "v2"
+        })
+        const heads = present
+          ? query.handle.heads()
+          : encodeHeads(A.getHeads(future))
+        const before = query.handle.listenerCount("heads-changed")
+        const waiting = progressAtHeads(query, heads).whenReady()
+        const error = new Error("query failed during await")
+        query.fail(error)
+        await expect(waiting).rejects.toBe(error)
+        expect(query.handle.listenerCount("heads-changed")).toBe(before)
+      },
+      1000
+    )
+
     it("stays loading until the requested heads are present", async () => {
       const query = createTestQuery<{ value: string }>(docId)
 
@@ -399,6 +545,16 @@ describe("DocumentQuery", () => {
       const before = query.handle.listenerCount("heads-changed")
 
       const controller = new AbortController()
+      const remove = vi.spyOn(controller.signal, "removeEventListener")
+      const subscribe = query.subscribe.bind(query)
+      const unsubscribed = vi.fn()
+      vi.spyOn(query, "subscribe").mockImplementation(callback => {
+        const unsubscribe = subscribe(callback)
+        return () => {
+          unsubscribed()
+          unsubscribe()
+        }
+      })
       const p = progress.whenReady({ signal: controller.signal })
       // Let the first phase resolve and the heads wait attach its listener.
       await Promise.resolve()
@@ -407,6 +563,8 @@ describe("DocumentQuery", () => {
       controller.abort()
       await expect(p).rejects.toBe(controller.signal.reason)
       expect(query.handle.listenerCount("heads-changed")).toBe(before)
+      expect(unsubscribed).toHaveBeenCalledOnce()
+      expect(remove).toHaveBeenCalledWith("abort", expect.any(Function))
     })
   })
 })

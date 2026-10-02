@@ -555,21 +555,16 @@ describe("DocHandle", () => {
   describe("state observation", () => {
     it("reports ready by default", () => {
       const handle = setup()
-      assert.equal(handle.state, "ready")
       assert.equal(handle.isReady(), true)
       assert.equal(handle.isDeleted(), false)
       assert.equal(handle.isUnloaded(), false)
-      assert.equal(handle.isUnavailable(), false)
-      assert.equal(handle.inState(["ready"]), true)
     })
 
     it("flips to deleted when delete() is called", () => {
       const handle = setup()
       handle.delete()
-      assert.equal(handle.state, "deleted")
       assert.equal(handle.isReady(), false)
       assert.equal(handle.isDeleted(), true)
-      assert.equal(handle.inState(["deleted"]), true)
     })
 
     it("user delete listener observes deleted state", async () => {
@@ -581,20 +576,20 @@ describe("DocHandle", () => {
       assert.equal(await seenDeleted, true)
     })
 
-    it("whenReady resolves immediately on a ready handle", async () => {
+    it("does not expose deprecated state-machine methods", () => {
       const handle = setup()
-      await handle.whenReady()
+      for (const name of [
+        "state",
+        "isUnavailable",
+        "inState",
+        "whenReady",
+        "getRemoteHeads",
+      ]) {
+        assert.equal(name in handle, false)
+      }
     })
 
-    it("whenReady(['deleted']) resolves on delete", async () => {
-      const handle = setup()
-      const p = handle.whenReady(["deleted"])
-      handle.delete()
-      await p
-      assert.equal(handle.isDeleted(), true)
-    })
-
-    it("getRemoteHeads / getSyncInfo delegate to the lookup injected at construction", () => {
+    it("getSyncInfo delegates to the lookup injected at construction", () => {
       const sentinel = {
         lastHeads: encodeHeads(["abcd"]),
         lastSyncTimestamp: 12345,
@@ -603,12 +598,7 @@ describe("DocHandle", () => {
         sid === "storage-1" ? sentinel : undefined
       )
       const handle = new DocHandle<TestDoc>(document, {})
-      assert.deepEqual(
-        handle.getRemoteHeads("storage-1" as any),
-        sentinel.lastHeads
-      )
       assert.deepEqual(handle.getSyncInfo("storage-1" as any), sentinel)
-      assert.equal(handle.getRemoteHeads("storage-2" as any), undefined)
       assert.equal(handle.getSyncInfo("storage-2" as any), undefined)
     })
 

@@ -17,9 +17,9 @@ describe("RefContext", () => {
   let repo: Repo
   let handle: DocHandle<TestDoc>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     repo = new Repo()
-    handle = repo.create<TestDoc>()
+    handle = await repo.create<TestDoc>()
   })
 
   describe("splice", () => {

@@ -43,7 +43,7 @@ export interface AutomergeDocumentStore<T> extends Writable<Doc<T> | null> {
    * Make changes to the document
    * @param changeFn Function that modifies the document
    */
-  change(changeFn: ChangeFn<T>): void
+  change(changeFn: ChangeFn<T>): Promise<void>
 
   /**
    * The URL of the document
@@ -86,7 +86,7 @@ export function createAutomergeStore(repo: Repo) {
    * Create a new document and wrap it with reactive state
    */
   const create = async <T>(
-    initialContent: any = {}
+    initialContent?: T
   ): Promise<AutomergeDocumentStore<T>> => {
     const handle = await repo.create<T>(initialContent)
     return createDocumentStore<T>(handle)
@@ -96,7 +96,7 @@ export function createAutomergeStore(repo: Repo) {
    * Delete a document
    */
   const deleteDocument = async (automergeUrl: AutomergeUrl) => {
-    repo.delete(automergeUrl)
+    return repo.delete(automergeUrl)
   }
 
   /**

@@ -20,9 +20,9 @@ describe("Edge Cases", () => {
   let repo: Repo
   let handle: DocHandle<any>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     repo = new Repo()
-    handle = repo.create()
+    handle = await repo.create()
   })
 
   describe("cursor() edge cases", () => {

@@ -27,9 +27,9 @@ describe("utils", () => {
     let repo: Repo
     let handle: DocHandle<any>
 
-    beforeEach(() => {
+    beforeEach(async () => {
       repo = new Repo()
-      handle = repo.create()
+      handle = await repo.create()
     })
 
     it("should create a ref with variadic arguments", () => {
@@ -91,9 +91,9 @@ describe("utils", () => {
     let repo: Repo
     let handle: DocHandle<any>
 
-    beforeEach(() => {
+    beforeEach(async () => {
       repo = new Repo()
-      handle = repo.create()
+      handle = await repo.create()
     })
 
     it("should reconstruct a ref from its URL", async () => {

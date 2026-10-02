@@ -1,8 +1,13 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import {
+  AnyDocumentId,
+  DocHandle,
+  isValidAutomergeUrl,
+  interpretAsDocumentId,
+  stringifyAutomergeUrl,
+} from "@automerge/automerge-repo/slim"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
-import { anyDocumentIdToAutomergeUrl } from "../../automerge-repo/dist/AutomergeUrl.js"
 
 // Shared with useDocHandles
 export const wrapperCache = new Map<
@@ -42,12 +47,17 @@ export function useDocHandle<T>(
 
   let currentHandle: DocHandle<T> | undefined =
     // make sure the handle matches the id
-    id && handle && handle.url === anyDocumentIdToAutomergeUrl(id)
+    id &&
+    handle &&
+    handle.url ===
+      (isValidAutomergeUrl(id)
+        ? id
+        : stringifyAutomergeUrl({ documentId: interpretAsDocumentId(id) }))
       ? handle
       : undefined
 
   if (id && !currentHandle) {
-    // if we haven't saved a handle yet, check if one is immediately available
+    // Preserve synchronous initial values; find() resolves asynchronously.
     const progress = repo.findWithProgress<T>(id)
     const state = progress.peek()
     if (state.state === "ready") {

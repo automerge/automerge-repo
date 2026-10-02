@@ -8,7 +8,7 @@ export type ChangeDocFn<T> = (
   id: AutomergeUrl,
   changeFn: ChangeFn<T>,
   options?: ChangeOptions<T>
-) => void
+) => Promise<void>
 
 export interface UseDocumentsOptions {
   suspense?: boolean
@@ -77,10 +77,14 @@ export function useDocuments<T>(
   }, [handleMap])
 
   const changeDoc = useCallback(
-    (id: AutomergeUrl, changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => {
+    async (
+      id: AutomergeUrl,
+      changeFn: ChangeFn<T>,
+      options?: ChangeOptions<T>
+    ) => {
       const handle = handleMap.get(id)
       if (handle) {
-        handle.change(changeFn, options)
+        return handle.change(changeFn, options)
       }
     },
     [handleMap]

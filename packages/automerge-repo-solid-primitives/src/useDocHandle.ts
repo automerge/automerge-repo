@@ -33,17 +33,14 @@ export default function useDocHandle<T>(
     if (options?.["~skipInitialValue"]) return undefined
     const unwrappedURL = typeof url == "function" ? url() : url
     if (!unwrappedURL) return undefined
+    // Preserve synchronous initial values; find() resolves asynchronously.
     const state = repo.findWithProgress<T>(unwrappedURL).peek()
     return state.state === "ready" ? state.handle : undefined
   }
 
-  const [handle, { mutate }] = createResource(
-    url,
-    url => repo.findWithProgress<T>(url).whenReady(),
-    {
-      initialValue: getExistingHandle(),
-    }
-  )
+  const [handle, { mutate }] = createResource(url, url => repo.find<T>(url), {
+    initialValue: getExistingHandle(),
+  })
 
   createEffect(() => {
     const unwrappedURL = typeof url == "function" ? url() : url

@@ -12,8 +12,6 @@
     "lerna.json",
     "/.nx/workspace-data",
     ".svelte-kit",
-    "playwright-report",
-    "test-results",
     "coverage"
   ]
 }

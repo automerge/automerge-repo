@@ -1,535 +1,105 @@
-import { next as Automerge, Heads } from "@automerge/automerge/slim"
-import { makeLogger } from "./Logger.js"
+import { next as A } from "@automerge/automerge/slim"
 import { EventEmitter } from "eventemitter3"
 import {
   binaryToDocumentId,
-  generateAutomergeUrl,
+  documentIdToBinary,
   interpretAsDocumentId,
   isValidAutomergeUrl,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { DocHandle } from "./DocHandle.js"
-import type { DocumentSource } from "./DocumentSource.js"
+import { Document } from "./Document.js"
+import { DocumentDelegate } from "./DocumentDelegate.js"
 import {
   DocumentQuery,
   progressAtHeads,
   progressAtPath,
   type DocumentProgress,
 } from "./DocumentQuery.js"
-import { RemoteHeadsSubscriptions } from "./RemoteHeadsSubscriptions.js"
-import { StorageSource } from "./StorageSource.js"
-import { SyncStateTracker } from "./SyncStateTracker.js"
+import { makeLogger } from "./Logger.js"
+import { RepoScheduler } from "./RepoScheduler.js"
+import { extractRecords } from "./sedimentree/automerge/index.js"
 import {
-  NetworkAdapterInterface,
-  type PeerMetadata,
-} from "./network/NetworkAdapterInterface.js"
-import { NetworkSubsystem } from "./network/NetworkSubsystem.js"
-import { RepoMessage } from "./network/messages.js"
-import { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
-import { StorageSubsystem } from "./storage/StorageSubsystem.js"
-import { StorageId } from "./storage/types.js"
-import { CollectionSynchronizer } from "./synchronizer/CollectionSynchronizer.js"
-import type {
-  AnyDocumentId,
-  AutomergeUrl,
-  BinaryDocumentId,
-  DocumentId,
-  PeerId,
-} from "./types.js"
-import { AbortOptions } from "./helpers/abortable.js"
-export type { FindProgressWithMethods, ProgressSignal } from "./_compat.js"
-import { Document } from "./Document.js"
-import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
+  BackendError,
+  idBytes,
+  sedimentreeId,
+  type SedimentreeBackend,
+  type SedimentreeId,
+} from "./sedimentree/index.js"
+import type { AnyDocumentId, BinaryDocumentId, DocumentId } from "./types.js"
+import type { AbortOptions } from "./helpers/abortable.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
-import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
-import { noop } from "./helpers/noop.js"
-import { semaphore } from "./helpers/semaphore.js"
-
-/**
- * Default for {@link RepoConfig.flushConcurrency}: the number of documents
- * {@link Repo.flush} writes to storage concurrently. A sync server may hold
- * thousands of documents; flushing them all at once would spike the storage
- * adapter's connections / file descriptors / memory, so the fan-out is bounded.
- */
-const DEFAULT_FLUSH_CONCURRENCY = 20
 
 export type { DocumentProgress } from "./DocumentQuery.js"
-export { DocumentQuery } from "./DocumentQuery.js"
+export type { SyncInfo } from "./DocHandle.js"
 
-function randomPeerId() {
-  return ("peer-" + Math.random().toString(36).slice(4)) as PeerId
+type Entry<T = any> = {
+  document: Document<T>
+  handle: DocHandle<T>
+  query: DocumentQuery<T>
+  delegate?: DocumentDelegate<T>
 }
 
-/** A Repo is a collection of documents with networking, syncing, and storage capabilities. */
-/** The `Repo` is the main entry point of this library
- *
- * @remarks
- * To construct a `Repo` you will need an {@link StorageAdapter} and one or
- * more {@link NetworkAdapter}s. Once you have a `Repo` you can use it to
- * obtain {@link DocHandle}s.
- */
+/** Owns Automerge documents; an optional backend owns their storage and sync. */
 export class Repo extends EventEmitter<RepoEvents> {
   #log = makeLogger("automerge-repo:repo")
+  #entries = new Map<DocumentId, Entry>()
+  #scheduler?: RepoScheduler
+  #operations = new Set<Promise<unknown>>()
+  #deleting = new Map<DocumentId, Promise<void>>()
+  #closed = false
+  #shutdown?: Promise<void>
+  #origin = { kind: "repo", id: crypto.randomUUID(), path: [] as string[] }
 
-  /** @hidden */
-  networkSubsystem: NetworkSubsystem
-  /** @hidden */
-  storageSubsystem?: StorageSubsystem
-
-  #queries: Record<DocumentId, DocumentQuery<any>> = {}
-
-  /** @hidden */
-  synchronizer: CollectionSynchronizer
-
-  #sources = new Map<string, DocumentSource>()
-
-  #shareConfig: ShareConfig = {
-    announce: truePromiseFactory,
-    access: truePromiseFactory,
-  }
-
-  /** maps peer id to to persistence information (storageId, isEphemeral), access by collection synchronizer  */
-  /** @hidden */
-  peerMetadataByPeerId: Record<PeerId, PeerMetadata> = {}
-
-  #syncStateTracker: SyncStateTracker
-  #remoteHeadsSubscriptions = new RemoteHeadsSubscriptions()
-  #remoteHeadsGossipingEnabled = false
-  #idFactory: ((initialHeads: Heads) => Promise<Uint8Array>) | null
-  #flushConcurrency: number
-
-  constructor({
-    storage,
-    network = [],
-    peerId = randomPeerId(),
-    sharePolicy,
-    shareConfig,
-    isEphemeral = storage === undefined,
-    enableRemoteHeadsGossiping = false,
-    denylist = [],
-    saveDebounceRate = 100,
-    flushConcurrency = DEFAULT_FLUSH_CONCURRENCY,
-    syncStateLoadConcurrency,
-    sharePolicyConcurrency,
-    idFactory,
-  }: RepoConfig = {}) {
+  constructor({ backend, flushConcurrency = 20 }: RepoConfig = {}) {
     super()
-    this.#remoteHeadsGossipingEnabled = enableRemoteHeadsGossiping
-    this.#flushConcurrency = flushConcurrency
-
-    this.#idFactory = idFactory || null
-    // Handle legacy sharePolicy
-    if (sharePolicy != null && shareConfig != null) {
-      throw new Error("cannot provide both sharePolicy and shareConfig at once")
-    }
-    if (sharePolicy) {
-      this.#shareConfig = {
-        announce: sharePolicy,
-        access: truePromiseFactory,
-      }
-    }
-    if (shareConfig) {
-      this.#shareConfig = shareConfig
-    }
-
-    // STORAGE
-    const storageSubsystem = storage ? new StorageSubsystem(storage) : undefined
-    if (storageSubsystem) {
-      storageSubsystem.on("document-loaded", event =>
-        this.emit("doc-metrics", { type: "doc-loaded", ...event })
-      )
-      storageSubsystem.on("doc-compacted", event =>
-        this.emit("doc-metrics", { type: "doc-compacted", ...event })
-      )
-      storageSubsystem.on("doc-saved", event =>
-        this.emit("doc-metrics", { type: "doc-saved", ...event })
-      )
-    }
-
-    this.storageSubsystem = storageSubsystem
-    this.#syncStateTracker = new SyncStateTracker(
-      this.storageSubsystem,
-      saveDebounceRate
-    )
-
-    if (storageSubsystem) {
-      this.#sources.set(
-        "storage",
-        new StorageSource(storageSubsystem, saveDebounceRate)
-      )
-    }
-
-    // NETWORK
-    const myPeerMetadata: Promise<PeerMetadata> = (async () => ({
-      storageId: await storageSubsystem?.id(),
-      isEphemeral,
-    }))()
-
-    const networkSubsystem = new NetworkSubsystem(
-      network,
-      peerId,
-      myPeerMetadata
-    )
-    this.networkSubsystem = networkSubsystem
-
-    // COLLECTION SYNCHRONIZER
-    this.synchronizer = new CollectionSynchronizer(
-      {
-        peerId,
-        shareConfig: this.#shareConfig,
-        priority: 0,
-        ensureQuery: id => this.#ensureQuery(id),
-        loadSyncState: async (documentId, pid) => {
-          if (!this.storageSubsystem) return
-          const { storageId, isEphemeral: isEph } =
-            this.peerMetadataByPeerId[pid] || {}
-          if (!storageId || isEph) return
-          return this.storageSubsystem.loadSyncState(documentId, storageId)
-        },
-        // Resolve to void once the adapters are ready, or on adapter failure
-        // (logged): networkReady gates "peers have had their chance to connect",
-        // so a failed network should let documents settle rather than hang, and
-        // it must never reject (no consumer acts on the rejection, and an
-        // unhandled one would surface before any DocSynchronizer attaches).
-        networkReady: networkSubsystem
-          .whenReady()
-          .then(noop, err =>
-            this.#log.error("network adapters failed to become ready", err)
-          ),
-        syncStateLoadConcurrency,
-        sharePolicyConcurrency,
-        stampEphemeralMessage: () => networkSubsystem.stampEphemeralMessage(),
-      },
-      denylist
-    )
-    this.#sources.set("automerge-sync", this.synchronizer)
-
-    // When the synchronizer emits messages, send them to peers
-    this.synchronizer.on("message", message => {
-      this.#log.debug(`sending ${message.type} message to ${message.targetId}`)
-      networkSubsystem.send(message)
-    })
-
-    // Forward sync metrics events
-    this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
-
-    // Track which peers have which documents open (for remote heads gossiping)
-    this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
-      if (this.#remoteHeadsGossipingEnabled) {
-        this.#remoteHeadsSubscriptions.subscribePeerToDoc(peerId, documentId)
-      }
-    })
-
-    // When we get a new peer, register it with the synchronizer
-    networkSubsystem.on("peer", async ({ peerId, peerMetadata }) => {
-      this.#log.debug("peer connected", { peerId })
-
-      if (peerMetadata) {
-        this.peerMetadataByPeerId[peerId] = { ...peerMetadata }
-      }
-
-      this.#shareConfig
-        .announce(peerId)
-        .then(shouldShare => {
-          if (shouldShare && this.#remoteHeadsGossipingEnabled) {
-            this.#remoteHeadsSubscriptions.addGenerousPeer(peerId)
-          }
-        })
-        .catch(err => {
-          this.#log.error("error in share policy", { err })
-        })
-
-      this.synchronizer.addPeer(peerId)
-    })
-
-    // When a peer disconnects, remove it from the synchronizer
-    networkSubsystem.on("peer-disconnected", ({ peerId }) => {
-      this.synchronizer.removePeer(peerId)
-      this.#remoteHeadsSubscriptions.removePeer(peerId)
-      // Peer ids are minted per connection, so the entry must go now; a
-      // reconnecting peer re-announces its metadata on the "peer" event.
-      delete this.peerMetadataByPeerId[peerId]
-    })
-
-    // Inbound messages are untrusted peer input, so #receiveMessage can throw on
-    // a malformed or cross-version message. An EventEmitter does not trap a
-    // listener's exception, so an uncaught throw here aborts the emit() dispatch
-    // (other listeners skipped) and unwinds back through the transport's
-    // event-loop callback that delivered the message. In Node an uncaught error
-    // there terminates the process by default, so one bad message could take
-    // down a sync server; in a browser it is only logged. Catch it.
-    // See https://nodejs.org/api/process.html#event-uncaughtexception
-    networkSubsystem.on("message", msg => {
-      try {
-        this.#receiveMessage(msg)
-      } catch (err) {
-        this.#log.error("error handling inbound message", err)
-      }
-    })
-
-    this.synchronizer.on("sync-state", message => {
-      const handle = this.#queries[message.documentId]?.handle
-      if (!handle) return
-
-      const peerMeta = this.peerMetadataByPeerId[message.peerId]
-      const change = this.#syncStateTracker.handleSyncState(
-        message,
-        peerMeta,
-        handle
-      )
-
-      if (change && this.#remoteHeadsGossipingEnabled) {
-        this.#remoteHeadsSubscriptions.handleImmediateRemoteHeadsChanged(
-          message.documentId,
-          change.storageId,
-          change.heads
-        )
-      }
-    })
-
-    if (this.#remoteHeadsGossipingEnabled) {
-      this.#remoteHeadsSubscriptions.on("notify-remote-heads", message => {
-        this.networkSubsystem.send({
-          type: "remote-heads-changed",
-          targetId: message.targetId,
-          documentId: message.documentId,
-          newHeads: {
-            [message.storageId]: {
-              heads: message.heads,
-              timestamp: message.timestamp,
-            },
-          },
-        })
+    if (backend)
+      this.#scheduler = new RepoScheduler(backend, {
+        concurrency: flushConcurrency,
       })
-
-      this.#remoteHeadsSubscriptions.on("change-remote-subs", message => {
-        this.#log.debug("change-remote-subs", message)
-        for (const peer of message.peers) {
-          this.networkSubsystem.send({
-            type: "remote-subscription-change",
-            targetId: peer,
-            add: message.add,
-            remove: message.remove,
-          })
-        }
-      })
-
-      this.#remoteHeadsSubscriptions.on(
-        "remote-heads-changed",
-        ({ documentId, storageId, remoteHeads, timestamp }) => {
-          const handle = this.#queries[documentId]?.handle
-          if (!handle) return
-          this.#syncStateTracker.handleRemoteHeadsChanged(
-            documentId,
-            storageId,
-            remoteHeads,
-            timestamp,
-            handle
-          )
-        }
-      )
-    }
   }
 
-  /**
-   * Create a query, handle, set up all sources, and register with the sync
-   * layer. Safe to call multiple times — attach no-ops if the document
-   * is already registered. Used by findWithProgress (outbound), create/import,
-   * and the CollectionSynchronizer's ensureQuery callback (inbound).
-   *
-   * If `initialDoc` is provided (create/import path), storage loading is
-   * skipped and the doc is applied after registration so that the storage
-   * listener captures the initial data.
-   */
-  #ensureQuery(
-    documentId: DocumentId,
-    initialDoc?: Automerge.Doc<unknown>
-  ): DocumentQuery<unknown> {
-    const existing = this.#queries[documentId]
-    if (existing) {
-      return existing
-    }
-
-    const document = new Document(
-      documentId,
-      initialDoc ?? Automerge.init(),
-      storageId => this.#syncStateTracker.getSyncInfo(documentId, storageId)
-    )
-    const handle = new DocHandle(document, {})
-    const query = new DocumentQuery(handle, this.#sources)
-    this.#queries[documentId] = query
-
-    // Attach all sources. Each source calls sourcePending/sourceUnavailable
-    // as appropriate and sets up its own listeners. When initialDoc is
-    // provided the handle already has data, so sources see a ready handle
-    // from the start.
-    for (const source of this.#sources.values()) {
-      source.attach(query)
-    }
-
-    return query
-  }
-
-  #receiveMessage(message: RepoMessage) {
-    switch (message.type) {
-      case "remote-subscription-change":
-        if (this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleControlMessage(message)
-        }
-        break
-      case "remote-heads-changed":
-        if (this.#remoteHeadsGossipingEnabled) {
-          this.#remoteHeadsSubscriptions.handleRemoteHeads(message)
-        }
-        break
-      case "sync":
-      case "request":
-      case "ephemeral":
-      case "doc-unavailable":
-        this.synchronizer.receiveMessage(message)
-        break
-    }
-  }
-
-  /** Returns all the handles we have cached. */
   get handles(): Record<DocumentId, DocHandle<any>> {
-    const result: Record<DocumentId, DocHandle<any>> = {}
-    for (const [id, query] of Object.entries(this.#queries)) {
-      if (query.handle) {
-        result[id as DocumentId] = query.handle
-      }
-    }
-    return result
+    return Object.fromEntries(
+      [...this.#entries].map(([id, entry]) => [id, entry.handle])
+    ) as Record<DocumentId, DocHandle<any>>
   }
 
-  /** Returns a list of all connected peer ids */
-  get peers(): PeerId[] {
-    return this.synchronizer.peers
+  /** Resolve after initial history is locally recoverable, without waiting for peers. */
+  async create<T>(initialValue?: T): Promise<DocHandle<T>> {
+    this.#checkOpen()
+    const doc =
+      isPlainObject(initialValue) && Object.keys(initialValue).length
+        ? (A.from(initialValue) as A.Doc<T>)
+        : A.emptyChange(A.init<T>())
+    return this.#track(this.#createDocument(doc))
   }
 
-  /** Returns the local peer id */
-  get peerId(): PeerId {
-    return this.networkSubsystem.peerId
+  async clone<T>(handle: DocHandle<T>): Promise<DocHandle<T>> {
+    this.#checkOpen()
+    return this.#track(this.#createDocument(A.clone(handle.fullDoc())))
   }
 
-  /** @hidden */
-  get sharePolicy(): SharePolicy {
-    return this.#shareConfig.announce
-  }
-
-  /** @hidden */
-  set sharePolicy(policy: SharePolicy) {
-    this.#shareConfig.announce = policy
-  }
-
-  /** @hidden */
-  get shareConfig(): ShareConfig {
-    return this.#shareConfig
-  }
-
-  /** @hidden */
-  set shareConfig(config: ShareConfig) {
-    this.#shareConfig = config
-  }
-
-  getStorageIdOfPeer(peerId: PeerId): StorageId | undefined {
-    return this.peerMetadataByPeerId[peerId]?.storageId
-  }
-
-  /**
-   * Creates a new document and returns a handle to it. The initial value of the document is an
-   * empty object `{}` unless an initial value is provided. Its documentId is generated by the
-   * system. we emit a `document` event to advertise interest in the document.
-   */
-  create<T>(initialValue?: T): DocHandle<T> {
-    let initialDoc: Automerge.Doc<T>
-
-    // If the initial value is an empty object, use the empty change initialisation path instead of the from path
-    if (isPlainObject(initialValue) && hasAtLeastOneKey(initialValue)) {
-      initialDoc = Automerge.from(initialValue)
-    } else {
-      initialDoc = Automerge.emptyChange(Automerge.init())
-    }
-
-    const { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    const query = this.#ensureQuery(
-      documentId,
-      initialDoc as Automerge.Doc<unknown>
-    )
-    return query.handle as DocHandle<T>
-  }
-
-  /**
-   * Creates a new document and returns a handle to it. The initial value of the
-   * document is an empty object `{}` unless an initial value is provided. The
-   * main difference between this and Repo.create is that if an `idGenerator`
-   * was provided at repo construction, that idGenerator will be used to
-   * generate the document ID of the document returned by this method.
-   *
-   * This is a hidden, experimental API which is subject to change or removal without notice.
-   * @hidden
-   * @experimental
-   */
-  async create2<T>(initialValue?: T): Promise<DocHandle<T>> {
-    // Note that the reason this method is hidden and experimental is because it is async,
-    // and it is async because we want to be able to call the #idGenerator, which is async.
-    // This is all really in service of wiring up keyhive and we probably need to find a
-    // nicer way to achieve this.
-    let initialDoc: Automerge.Doc<T>
-    if (initialValue) {
-      initialDoc = Automerge.from(initialValue)
-    } else {
-      initialDoc = Automerge.emptyChange(Automerge.init())
-    }
-
-    let { documentId } = parseAutomergeUrl(generateAutomergeUrl())
-    if (this.#idFactory) {
-      const rawDocId = await this.#idFactory(Automerge.getHeads(initialDoc))
-      documentId = binaryToDocumentId(rawDocId as BinaryDocumentId)
-    }
-    const query = this.#ensureQuery(
-      documentId,
-      initialDoc as Automerge.Doc<unknown>
-    )
-    return query.handle as DocHandle<T>
-  }
-
-  /** Create a new DocHandle by cloning the history of an existing DocHandle.
-   *
-   * @param clonedHandle - The handle to clone
-   *
-   * @remarks This is a wrapper around the `clone` function in the Automerge library.
-   * The new `DocHandle` will have a new URL but will share history with the original,
-   * which means that changes made to the cloned handle can be sensibly merged back
-   * into the original.
-   *
-   * Any peers this `Repo` is connected to for whom `sharePolicy` returns `true` will
-   * be notified of the newly created DocHandle.
-   *
-   */
-  clone<T>(clonedHandle: DocHandle<T>) {
-    const sourceDoc = clonedHandle.fullDoc()
-    const handle = this.create<T>()
-    handle.update(() => Automerge.clone(sourceDoc))
-    return handle
-  }
-
-  /**
-   * Returns a `DocumentProgress` for the given document. This is a reactive,
-   * read-only view that tracks the ongoing state of the document.
-   *
-   * Use `subscribe` to observe state changes and `peek` to read the current
-   * state. The `handle` is only available when the state is `"ready"`.
-   */
+  /** @deprecated Use find(). A replacement query API is deferred. */
   findWithProgress<T>(
     id: AnyDocumentId,
-    // the original automerge-repo v2 accepted `AbortOptions` here which could
-    // be passed an abort signal. For now we accept the signal to remain backwards
-    // compatible but ignore it. The main feature we miss vs the original API is the
-    // ability to not create a doc handle if we abort while loading. Once the DocHandle
-    // was running the abort signal didn't have much effect
     _options?: AbortOptions
   ): DocumentProgress<T> {
+    this.#checkOpen()
+    return this.#progress<T>(id)
+  }
+
+  /** Cancellation stops this wait, not the shared document's loading. */
+  async find<T>(
+    id: AnyDocumentId,
+    options: RepoFindOptions = {}
+  ): Promise<DocHandle<T>> {
+    this.#checkOpen()
+    options.signal?.throwIfAborted()
+    return this.#progress<T>(id).whenReady(options)
+  }
+
+  #progress<T>(id: AnyDocumentId): DocumentProgress<T> {
     const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
       : {
@@ -538,403 +108,293 @@ export class Repo extends EventEmitter<RepoEvents> {
           segments: undefined,
         }
     const { documentId, heads, segments } = parsed
-
-    // ensureQuery creates the query, handle, sets up all sources, and
-    // registers with the sync layer (no-ops if already added).
-    if (!this.#queries[documentId]) {
-      this.#ensureQuery(documentId)
-    }
-    const query = this.#queries[documentId] as DocumentQuery<T>
-
-    // A URL can carry both fixed heads (`#h1|h2`) and a path suffix
-    // (`/a/@0/b`). Layer the heads projection first (it gates readiness on
-    // those heads being present), then scope to the path. The two compose
-    // to the same canonical handle regardless of order.
-    let progress: DocumentProgress<T> = query
-    if (heads) progress = progressAtHeads(query, heads)
-    if (segments && segments.length > 0) {
-      progress = progressAtPath(progress, segments)
-    }
+    if (this.#deleting.has(documentId))
+      throw new Error("Document deletion in progress")
+    const entry = this.#entries.get(documentId) ?? this.#register(documentId)
+    let progress: DocumentProgress<T> = entry.query
+    if (heads) progress = progressAtHeads(entry.query, heads)
+    if (segments?.length) progress = progressAtPath(progress, segments)
     return progress
   }
 
-  /**
-   * Look up a document by URL and wait for it to be ready.
-   *
-   * @remarks
-   * `options.signal` cancels the wait, not the load: the underlying
-   * {@link DocumentQuery} and its sources keep running (they may be serving
-   * other concurrent callers), so use {@link Repo.removeFromCache} to stop the
-   * load. An aborted wait rejects with `signal.reason`.
-   */
-  async find<T>(
-    id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
+  /** Import preserves history, including when the supplied ID is only stored on disk. */
+  async import<T>(
+    binary: Uint8Array,
+    args?: { docId?: DocumentId }
   ): Promise<DocHandle<T>> {
-    const { signal } = options
-
-    signal?.throwIfAborted()
-
-    // `findWithProgress` already applies any path suffix (`/a/@0/b`) and
-    // fixed heads (`#h1|h2`) from the URL, so the ready handle is correctly
-    // scoped and/or view-pinned.
-    return this.findWithProgress<T>(id).whenReady({ signal })
+    this.#checkOpen()
+    const doc = A.load<T>(binary)
+    const id = args?.docId && interpretAsDocumentId(args.docId)
+    return this.#track(this.#importDocument(doc, id))
   }
 
-  /**
-   * @deprecated Alias for {@link Repo.find}. Will be removed in the next major release
-   */
-  findClassic<T>(
-    id: AnyDocumentId,
-    options: RepoFindOptions & AbortOptions = {}
+  async #importDocument<T>(
+    doc: A.Doc<T>,
+    id?: DocumentId
   ): Promise<DocHandle<T>> {
-    return this.find<T>(id, options)
-  }
-
-  delete(id: AnyDocumentId) {
-    const documentId = interpretAsDocumentId(id)
-
-    const query = this.#queries[documentId]
-    if (query?.handle) {
-      // Fans out to all retained handles (root + subs) via the registry
-      // and flips the document's `deleted` flag.
-      query.handle.delete()
+    if (!id) return this.#createDocument(doc)
+    if (this.#deleting.has(id)) throw new Error("Document deletion in progress")
+    const existing = this.#entries.get(id)
+    if (existing?.query.peek().state === "ready") {
+      await existing.handle.update(current => A.merge(current, A.clone(doc)))
+      this.#checkOpen()
+      return existing.handle
     }
-    if (query) {
-      query.fail(new Error(`Document ${documentId} was deleted`))
-    }
-    delete this.#queries[documentId]
-
-    for (const source of this.#sources.values()) {
-      source.detach(documentId)
-    }
-    this.#syncStateTracker.delete(documentId)
-
-    if (this.storageSubsystem) {
-      this.storageSubsystem.removeDoc(documentId).catch(err => {
-        this.#log.error("error deleting document from storage", {
-          documentId,
-          err,
-        })
-      })
-    }
-
-    this.emit("delete-document", { documentId })
-  }
-
-  /**
-   * Exports a document to a binary format.
-   * @param id - The url or documentId of the handle to export
-   *
-   * @returns Promise<Uint8Array | undefined> - A Promise containing the binary document,
-   * or undefined if the document is unavailable.
-   */
-  async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
-    const handle = await this.find(id)
-    return Automerge.save(handle.fullDoc())
-  }
-
-  /**
-   * Imports document binary into the repo.
-   * @param binary - The binary to import
-   * @param args - Optional argument specifying what document ID to import into,
-   *              if at all possible avoid using this, see the remarks below
-   *
-   * @remarks
-   * If no document ID is provided, a new document will be created. When
-   * specifying the document ID it is important to ensure that two documents using
-   * the same ID share the same history - i.e. don't create a document with the
-   * same ID on unrelated processes that have never communicated with each
-   * other. If you need to ship around a bunch of documents with their IDs
-   * consider using the `automerge-repo-bundles` package which provides a
-   * serialization format for documents and IDs and handles the boilerplate of
-   * importing and exporting these bundles.
-   */
-  import<T>(binary: Uint8Array, args?: { docId?: DocumentId }): DocHandle<T> {
-    const docId = args?.docId
-    if (docId != null) {
-      // Check if we already have a handle for this document
-      const existing = this.#queries[docId]?.handle as DocHandle<T> | null
-      if (existing) {
-        existing.update(doc => Automerge.loadIncremental(doc, binary))
-        return existing
-      }
-      const initialDoc = Automerge.load<T>(binary)
-      const query = this.#ensureQuery(
-        docId,
-        initialDoc as Automerge.Doc<unknown>
-      )
-      return query.handle as DocHandle<T>
-    } else {
-      const doc = Automerge.load<T>(binary)
-      const handle = this.create<T>()
-      handle.update(() => {
-        return Automerge.clone(doc)
-      })
+    try {
+      return await this.#createDocument(doc, id)
+    } catch (error) {
+      // A creation conflict means stored history exists, not that import should replace it.
+      if (!(error instanceof BackendError && error.code === "conflict"))
+        throw error
+      const handle = await this.find<T>(id)
+      await handle.update(current => A.merge(current, A.clone(doc)))
+      this.#checkOpen()
       return handle
     }
   }
 
-  subscribeToRemotes = (remotes: StorageId[]) => {
-    if (this.#remoteHeadsGossipingEnabled) {
-      this.#log.debug("subscribeToRemotes", { remotes })
-      this.#remoteHeadsSubscriptions.subscribeToRemotes(remotes)
-    } else {
-      this.#log.warn(
-        "subscribeToRemotes called but remote heads gossiping is not enabled"
+  async #createDocument<T>(
+    doc: A.Doc<T>,
+    requested?: DocumentId
+  ): Promise<DocHandle<T>> {
+    if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
+    let id: DocumentId
+    if (this.#scheduler) {
+      const allocated = await this.#scheduler.create(
+        extractRecords(doc),
+        requested ? { documentId: this.#backendId(requested) } : undefined
       )
-    }
-  }
-
-  storageId = async (): Promise<StorageId | undefined> => {
-    if (!this.storageSubsystem) {
-      return undefined
+      id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)
     } else {
-      return this.storageSubsystem.id()
+      id = requested ?? this.#localId()
     }
-  }
-
-  /**
-   * Writes Documents to a disk.
-   * @hidden this API is experimental and may change.
-   * @param documents - if provided, only writes the specified documents.
-   * @returns Promise<void>
-   *
-   * @remarks
-   * Two coordination guarantees, both aimed at flushing a large collection
-   * safely (a sync server may hold thousands of documents):
-   *
-   * - **Bounded fan-out.** At most {@link RepoConfig.flushConcurrency} document
-   *   saves run at once, instead of launching every save simultaneously.
-   * - **Drain before settle.** Every save is awaited (`allSettled`) before
-   *   `flush()` settles, even if some fail; this is what makes `flush()` safe to
-   *   `await` before teardown in {@link Repo.shutdown} (nothing is still writing
-   *   when the caller proceeds). Failures are collected and rethrown as an
-   *   `AggregateError`.
-   */
-  async flush(documents?: DocumentId[]): Promise<void> {
-    if (!this.storageSubsystem) {
-      return
-    }
-
-    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
-    // Bound the fan-out so flushing a large collection doesn't open every
-    // storage write at once. State is re-read inside the limited task because a
-    // query may have changed between enqueue and execution.
-    const limit = semaphore(this.#flushConcurrency)
-    const results = await Promise.allSettled(
-      ids.map(id =>
-        limit(async () => {
-          const state = this.#queries[id]?.peek()
-          if (state?.state === "ready") {
-            await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
-          }
+    this.#checkOpen()
+    if (this.#deleting.has(id)) throw new Error("Document deletion in progress")
+    const existing = this.#entries.get(id)
+    if (existing) {
+      // Loading can begin while backend creation is pending. Adopt that shared entry.
+      if (existing.document.deleted || existing.document.closed)
+        throw new Error("Document is no longer open")
+      if (existing.query.peek().state === "failed") {
+        if (existing.delegate) await this.#scheduler!.detach(existing.delegate)
+        this.#checkOpen()
+        this.#entries.delete(id)
+        return this.#register(id, doc).handle
+      }
+      if (existing.delegate) {
+        existing.delegate.onEvent({
+          type: "records",
+          sequence: 0,
+          phase: "initial",
+          records: extractRecords(doc),
         })
-      )
+        existing.delegate.attach(existing.handle, true)
+      } else {
+        await existing.document.applyMutation(
+          current => A.merge(current, A.clone(doc)),
+          { incoming: true }
+        )
+      }
+      return existing.handle
+    }
+    return this.#register(id, doc).handle
+  }
+
+  #localId(): DocumentId {
+    let bytes: Uint8Array
+    let id: DocumentId
+    do {
+      bytes = crypto.getRandomValues(new Uint8Array(32))
+      id = binaryToDocumentId(bytes as BinaryDocumentId)
+    } while (
+      bytes.subarray(16).every(byte => byte === 0) ||
+      this.#entries.has(id)
     )
+    return id
+  }
 
-    // Surface failures, but only after every save has settled so teardown
-    // (shutdown) never runs while a save is still in flight.
-    const failures = results
-      .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-      .map(r => r.reason)
-    if (failures.length > 0) {
-      throw new AggregateError(
-        failures,
-        `flush: ${failures.length} of ${ids.length} document save(s) failed`
+  #backendId(id: DocumentId): SedimentreeId {
+    const bytes = documentIdToBinary(id)
+    if (!bytes) throw new TypeError("Invalid document ID")
+    return sedimentreeId(bytes)
+  }
+
+  #register<T>(id: DocumentId, initial?: A.Doc<T>): Entry<T> {
+    const document = new Document(id, initial ?? A.init<T>())
+    const handle = new DocHandle(document)
+    const query = new DocumentQuery(handle, new Map(), {
+      initialSnapshotPending: !!this.#scheduler && !initial,
+    })
+    const entry: Entry<T> = { document, handle, query }
+    if (this.#scheduler) {
+      const scheduler = this.#scheduler
+      let delegate!: DocumentDelegate<T>
+      delegate = new DocumentDelegate(
+        this.#backendId(id),
+        document,
+        query,
+        (tree, records) => scheduler.submit(tree, records),
+        () => scheduler.synchronize(delegate)
       )
+      entry.delegate = delegate
+      delegate.attach(handle, !!initial)
+      handle.on("ephemeral-message-outbound", ({ data }) => {
+        void scheduler
+          .publishEphemeral(delegate, {
+            messageId: crypto.randomUUID(),
+            origin: this.#origin,
+            payload: data,
+          })
+          .catch(error =>
+            this.#log.error("ephemeral publication failed", error)
+          )
+      })
     }
+    this.#entries.set(id, entry)
+    if (entry.delegate) {
+      try {
+        this.#scheduler!.open(entry.delegate)
+      } catch (error) {
+        entry.delegate.fail(error)
+      }
+    }
+    this.emit("document", { handle })
+    query.subscribe(state => {
+      if (
+        state.state === "failed" &&
+        document.deleted &&
+        !this.#deleting.has(id) &&
+        this.#entries.get(id) === entry
+      ) {
+        this.#entries.delete(id)
+        this.emit("delete-document", { documentId: id })
+      }
+      if (state.state === "unavailable")
+        this.emit("unavailable-document", { documentId: id })
+    })
+    return entry
   }
 
-  /**
-   * Removes a DocHandle from the handleCache.
-   * @hidden this API is experimental and may change.
-   * @param documentId - documentId of the DocHandle to remove from handleCache, if present in cache.
-   */
-  async removeFromCache(documentId: DocumentId): Promise<void> {
-    for (const source of this.#sources.values()) {
-      source.detach(documentId)
-    }
-    delete this.#queries[documentId]
-    this.#syncStateTracker.delete(documentId)
+  async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
+    const handle = await this.find(id)
+    return A.save(handle.fullDoc())
   }
 
-  async shutdown(): Promise<void> {
-    // Best-effort teardown. Drain saves first (flush awaits all of them), then
-    // disconnect the network and close storage. Each step is guarded and its
-    // failure logged rather than thrown, so one failing step neither skips a
-    // later one nor rejects shutdown(). Call flush() explicitly before
-    // shutdown() if you need to observe save failures.
+  delete(id: AnyDocumentId): Promise<void> {
+    this.#checkOpen()
+    const documentId = interpretAsDocumentId(id)
+    const pending = this.#deleting.get(documentId)
+    if (pending) return pending
+    const entry = this.#entries.get(documentId) ?? this.#register(documentId)
+    // Install the Repo barrier before handle delete listeners can reenter.
+    let resolve!: () => void
+    let reject!: (error: unknown) => void
+    const barrier = new Promise<void>((yes, no) => {
+      resolve = yes
+      reject = no
+    })
+    const deleting = barrier.then(() => {
+      if (this.#entries.get(documentId) === entry)
+        this.#entries.delete(documentId)
+      this.emit("delete-document", { documentId })
+    })
+    this.#deleting.set(documentId, deleting)
+    void deleting.then(
+      () => this.#deleting.delete(documentId),
+      () => this.#deleting.delete(documentId)
+    )
+    void this.#track(deleting)
     try {
-      await this.flush()
-    } catch (err) {
-      this.#log.error("error flushing documents during shutdown", err)
+      // Submit before returning so shutdown cannot overtake an accepted deletion.
+      if (entry.delegate)
+        void this.#scheduler!.delete(entry.delegate).then(resolve, reject)
+      else {
+        entry.document.closed = true
+        entry.handle.delete()
+        entry.query.fail(new Error("Document deleted"))
+        resolve()
+      }
+    } catch (error) {
+      reject(error)
     }
-    try {
-      this.networkSubsystem.disconnect()
-    } catch (err) {
-      this.#log.error("error disconnecting network during shutdown", err)
-    }
-    try {
-      await this.storageSubsystem?.close()
-    } catch (err) {
-      this.#log.error("error closing storage during shutdown", err)
+    return deleting
+  }
+
+  /** Retry and drain accepted local history; reject after all targeted work settles. */
+  flush(documents?: DocumentId[]): Promise<void> {
+    this.#checkOpen()
+    return (
+      this.#scheduler?.flush(documents?.map(id => this.#backendId(id))) ??
+      Promise.resolve()
+    )
+  }
+
+  /** Persist first, then release a cached document without deleting its history. */
+  async removeFromCache(id: DocumentId): Promise<void> {
+    this.#checkOpen()
+    const entry = this.#entries.get(id)
+    if (!entry) return
+    if (!entry.delegate)
+      throw new Error(
+        "Cannot evict a local-only document: its handle holds the only copy"
+      )
+    await this.#track(this.#scheduler!.detach(entry.delegate))
+    if (this.#entries.get(id) === entry) this.#entries.delete(id)
+    entry.query.fail(new Error("Document removed from cache"))
+  }
+
+  /** Best-effort teardown. Use flush() first when persistence failures must reject. */
+  shutdown(): Promise<void> {
+    if (this.#shutdown) return this.#shutdown
+    this.#closed = true
+    for (const entry of this.#entries.values()) entry.document.closed = true
+    const operations = [...this.#operations]
+    // Install the promise before notifying subscribers that may reenter shutdown.
+    this.#shutdown = Promise.resolve().then(async () => {
+      for (const entry of this.#entries.values())
+        entry.query.fail(new Error("Repo is shut down"))
+      const results = await Promise.allSettled([
+        ...operations,
+        this.#scheduler?.shutdown() ?? Promise.resolve(),
+      ])
+      for (const result of results)
+        if (result.status === "rejected")
+          this.#log.error("error during Repo shutdown", result.reason)
+    })
+    return this.#shutdown
+  }
+
+  metrics(): {
+    documents: Record<string, { numOps: number; numChanges: number }>
+  } {
+    return {
+      documents: Object.fromEntries(
+        [...this.#entries].map(([id, entry]) => [id, entry.handle.metrics()])
+      ),
     }
   }
 
-  metrics(): { documents: { [key: string]: any } } {
-    return { documents: this.synchronizer.metrics() }
+  #track<T>(operation: Promise<T>): Promise<T> {
+    this.#operations.add(operation)
+    void operation.then(
+      () => this.#operations.delete(operation),
+      () => this.#operations.delete(operation)
+    )
+    return operation
   }
 
-  shareConfigChanged() {
-    this.synchronizer.reevaluateDocumentShare()
+  #checkOpen(): void {
+    if (this.#closed) throw new Error("Repo is shut down")
   }
 }
 
 export interface RepoConfig {
-  /** Our unique identifier */
-  peerId?: PeerId
-
-  /** Indicates whether other peers should persist the sync state of this peer.
-   * Sync state is only persisted for non-ephemeral peers */
-  isEphemeral?: boolean
-
-  /** A storage adapter can be provided, or not */
-  storage?: StorageAdapterInterface
-
-  /** A list of network adapters (more can be added at runtime). */
-  network?: NetworkAdapterInterface[]
-
-  /**
-   * Normal peers typically share generously with everyone (meaning we sync all our documents with
-   * all peers). A server only syncs documents that a peer explicitly requests by ID.
-   */
-  sharePolicy?: SharePolicy
-
-  /**
-   * Whether to share documents with other peers. By default we announce new
-   * documents to everyone and allow everyone access to documents, see the
-   * documentation for {@link ShareConfig} to override this
-   *
-   * Note that this is currently an experimental API and will very likely change
-   * without a major release.
-   * @experimental
-   */
-  shareConfig?: ShareConfig
-
-  /**
-   * Whether to enable the experimental remote heads gossiping feature
-   */
-  enableRemoteHeadsGossiping?: boolean
-
-  /**
-   * A list of automerge URLs which should never be loaded regardless of what
-   * messages are received or what the share policy is. This is useful to avoid
-   * loading documents that are known to be too resource intensive.
-   */
-  denylist?: AutomergeUrl[]
-
-  /**
-   * The debounce rate in milliseconds for saving documents. Defaults to 100ms.
-   */
-  saveDebounceRate?: number
-
-  /**
-   * Maximum number of documents {@link Repo.flush} (and {@link Repo.shutdown})
-   * write to storage concurrently. Defaults to 20.
-   *
-   * @remarks
-   * Tie this to the constraining resource of your
-   * {@link StorageAdapterInterface}:
-   * - **filesystem** (e.g. the nodefs adapter): stay well under the process's
-   *   file-descriptor ceiling; the default 20 is comfortable.
-   * - **HTTP/1.1-backed**: a browser caps connections per origin at ~6, so a
-   *   limit near that avoids head-of-line queueing you can't see.
-   * - **HTTP/2-backed**: ~100 multiplexed streams per connection, so you can go
-   *   higher.
-   * - **database-backed**: at or below the connection-pool size, leaving
-   *   headroom for other callers.
-   */
+  backend?: SedimentreeBackend
+  /** Maximum concurrent local backend operations across documents. Defaults to 20. */
   flushConcurrency?: number
-
-  /**
-   * Maximum number of persisted sync-state reads the synchronizer issues
-   * concurrently while adding peers to documents (one read per peer-document
-   * pair). Defaults to 20.
-   *
-   * @remarks
-   * Like {@link RepoConfig.flushConcurrency}, tie this to your
-   * {@link StorageAdapterInterface}: stay under a filesystem adapter's
-   * file-descriptor ceiling, near a browser's per-origin connection cap for an
-   * HTTP/1.1-backed adapter, or at or below a database adapter's pool size.
-   */
-  syncStateLoadConcurrency?: number
-
-  /**
-   * Maximum number of share-policy resolutions the synchronizer runs
-   * concurrently when re-evaluating which peers each document is shared with.
-   * Defaults to the synchronizer's `SHARE_POLICY_CONCURRENCY` (10).
-   *
-   * @remarks
-   * Each resolution may invoke an async {@link SharePolicy}. On a sync server
-   * with many peers and many documents, an unbounded fan-out launches one policy
-   * call per peer-document pair at once; this caps how many run together.
-   */
-  sharePolicyConcurrency?: number
-
-  // This is hidden for now because it's an experimental API, mostly here in order
-  // for keyhive to be able to control the ID generation
-  /**
-   * @hidden
-   */
-  idFactory?: (initialHeads: Heads) => Promise<Uint8Array>
 }
 
-/** A function that determines whether we should share a document with a peer
- *
- * @remarks
- * This function is called by the {@link Repo} every time a new document is created
- * or discovered (such as when another peer starts syncing with us). If this
- * function returns `true` then the {@link Repo} will begin sharing the new
- * document with the peer given by `peerId`.
- * */
-export type SharePolicy = (
-  peerId: PeerId,
-  documentId?: DocumentId
-) => Promise<boolean>
-
-/**
- * A type which determines whether we should share a document with a peer
- * */
-export type ShareConfig = {
-  /**
-   * Whether we should actively announce a document to a peer
-
-   * @remarks
-   * This functions is called after checking the `access` policy to determine
-   * whether we should announce a document to a connected peer. For example, a
-   * tab connected to a sync server might want to announce every document to the
-   * sync server, but the sync server would not want to announce every document
-   * to every connected peer
-   */
-  announce: SharePolicy
-  /**
-   * Whether a peer should have access to the document
-   */
-  access: (peerId: PeerId, documentId?: DocumentId) => Promise<boolean>
-}
-
-export type RepoFindOptions = {
-  /**
-   * @deprecated This no longer has any effect, instead you should use
-   * {@link Repo.findWithProgress} to get progress information.
-   */
-  allowableStates?: string[]
-}
-
-// Re-exported from DocHandle
-export type { SyncInfo } from "./DocHandle.js"
-
+export type RepoFindOptions = AbortOptions
 export type DeleteDocumentPayload = { documentId: DocumentId }
 export type DocumentPayload = { handle: DocHandle<any> }
 export type DocMetrics = {
@@ -942,14 +402,9 @@ export type DocMetrics = {
   documentId: DocumentId
   [key: string]: unknown
 }
-
-// events & payloads
 export interface RepoEvents {
-  /** A new document was created or discovered */
   document: (payload: DocumentPayload) => void
-  /** A document was deleted */
   "delete-document": (payload: DeleteDocumentPayload) => void
-  /** A document was marked as unavailable (we don't have it and none of our peers have it) */
   "unavailable-document": (payload: DeleteDocumentPayload) => void
   "doc-metrics": (payload: DocMetrics) => void
 }

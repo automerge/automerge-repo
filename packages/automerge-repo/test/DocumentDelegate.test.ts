@@ -1,0 +1,382 @@
+import { next as A } from "@automerge/automerge"
+import { describe, expect, it, vi } from "vitest"
+import { Document } from "../src/Document.js"
+import { DocHandle } from "../src/DocHandle.js"
+import { DocumentQuery } from "../src/DocumentQuery.js"
+import { DocumentDelegate } from "../src/DocumentDelegate.js"
+import { encodeHeads } from "../src/AutomergeUrl.js"
+import { encode } from "../src/helpers/cbor.js"
+import { Presence } from "../src/presence/Presence.js"
+import { PRESENCE_MESSAGE_MARKER } from "../src/presence/constants.js"
+import type { DocumentId, PeerId } from "../src/types.js"
+import type { StorageId } from "../src/DocHandle.js"
+import {
+  commitId,
+  sedimentreeId,
+  type RecordBatch,
+  type SyncRoundResult,
+} from "../src/sedimentree/index.js"
+import {
+  applyRecords,
+  extractRecords,
+} from "../src/sedimentree/automerge/index.js"
+
+function setup(
+  doc = A.init<{ count: number; nested?: { value: number } }>(),
+  submit = vi.fn(async (_id: unknown, _records: RecordBatch) => {}),
+  created = false
+) {
+  const document = new Document("test" as DocumentId, doc)
+  const handle = new DocHandle(document)
+  const query = new DocumentQuery(handle)
+  const sync = vi.fn(
+    async (): Promise<SyncRoundResult> => ({
+      roundId: "1",
+      checkpoint: { sequence: 0, heads: [] },
+      outcome: "no-peers",
+      peers: [],
+    })
+  )
+  const delegate = new DocumentDelegate(
+    sedimentreeId("01".repeat(16)),
+    document,
+    query,
+    submit,
+    sync
+  )
+  delegate.attach(handle, created)
+  return { document, handle, query, delegate, submit, sync }
+}
+
+describe("DocumentDelegate", () => {
+  it("keeps original ephemeral source identity distinct from its relay", () => {
+    const { delegate, handle } = setup(A.from({ count: 0 }), undefined, true)
+    const listener = vi.fn()
+    const sub = handle.sub("count")
+    sub.on("ephemeral-message", listener)
+    delegate.onEvent({
+      type: "ephemeral",
+      sequence: 1,
+      sender: { kind: "test", id: "relay", path: [] },
+      message: {
+        messageId: "message-1",
+        origin: { kind: "test", id: "original-source", path: [] },
+        payload: new Uint8Array(encode({ hello: "world" })),
+      },
+    })
+    expect(listener).toHaveBeenCalledWith({
+      handle: sub,
+      senderId: "original-source",
+      message: { hello: "world" },
+    })
+  })
+
+  it("preserves Presence observation over backend session messages", () => {
+    const { delegate, handle } = setup(A.from({ count: 0 }), undefined, true)
+    const presence = new Presence<{ name: string }>({
+      handle,
+    })
+    presence.start({ initialState: { name: "local" } })
+    try {
+      delegate.onEvent({
+        type: "ephemeral",
+        sequence: 1,
+        sender: { kind: "test", id: "relay", path: [] },
+        message: {
+          messageId: "message-1",
+          origin: { kind: "test", id: "original-source", path: [] },
+          payload: new Uint8Array(
+            encode({
+              [PRESENCE_MESSAGE_MARKER]: {
+                type: "snapshot",
+                state: { name: "remote" },
+              },
+            })
+          ),
+        },
+      })
+      expect(
+        presence.getPeerStates().value["original-source" as PeerId]?.value
+      ).toEqual({ name: "remote" })
+    } finally {
+      presence.stop()
+    }
+  })
+
+  it("forwards remote heads as advertisements without resolving readiness", () => {
+    const { delegate, handle, query } = setup()
+    const heads = [commitId("01".repeat(32))]
+    const listener = vi.fn()
+    handle.on("remote-heads", listener)
+    delegate.onEvent({
+      type: "remote-heads",
+      sequence: 1,
+      remote: { kind: "test", id: "peer", path: [] },
+      heads,
+    })
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storageId: "peer",
+        heads: encodeHeads([...heads]),
+      })
+    )
+    expect(query.peek().state).toBe("loading")
+    expect(handle.getSyncInfo("peer" as StorageId)?.lastHeads).toEqual(
+      encodeHeads([...heads])
+    )
+  })
+
+  it("mutates and emits immediately, resolves change only after persistence", async () => {
+    let resolve!: () => void
+    const submit = vi.fn(
+      () =>
+        new Promise<void>(r => {
+          resolve = r
+        })
+    )
+    const { handle } = setup(A.from({ count: 0 }), submit, true)
+    const listener = vi.fn()
+    handle.on("change", listener)
+    let completed = false
+    const write = handle
+      .change(d => {
+        d.count = 1
+      })
+      .then(() => {
+        completed = true
+      })
+    expect(handle.doc()?.count).toBe(1)
+    expect(listener).toHaveBeenCalledOnce()
+    await Promise.resolve()
+    expect(completed).toBe(false)
+    resolve()
+    await write
+    expect(completed).toBe(true)
+  })
+
+  it("gates a nonempty prefix on a complete checkpoint", () => {
+    let remote = A.from({ count: 1 })
+    const first = extractRecords(remote)
+    remote = A.change(remote, d => {
+      d.count = 2
+    })
+    const { delegate, query } = setup()
+    delegate.onEvent({
+      type: "records",
+      records: first,
+      phase: "initial",
+      sequence: 1,
+    })
+    expect(query.peek().state).toBe("loading")
+    delegate.onEvent({
+      type: "local-load-complete",
+      found: true,
+      checkpoint: { sequence: 1, heads: A.getHeads(remote).map(commitId) },
+    })
+    expect(query.peek().state).toBe("loading")
+    delegate.onEvent({
+      type: "records",
+      records: extractRecords(remote),
+      phase: "initial",
+      sequence: 1,
+    })
+    expect(query.peek().state).toBe("ready")
+  })
+
+  it("marks inbound history before reentrant edits; does not echo records", async () => {
+    const remote = A.from({ count: 1 })
+    const { delegate, handle, submit } = setup()
+    let write: Promise<void> | undefined
+    handle.once("heads-changed", () => {
+      write = handle.change(d => {
+        d.count = 2
+      })
+    })
+    const changes: number[] = []
+    handle.on("change", event => {
+      changes.push(event.doc!.count)
+    })
+    delegate.onEvent({
+      type: "records",
+      records: extractRecords(remote),
+      phase: "initial",
+      sequence: 1,
+    })
+    await write
+    expect(handle.doc()?.count).toBe(2)
+    expect(changes).toEqual([1, 2])
+    expect(submit).toHaveBeenCalledOnce()
+    const records = submit.mock.calls[0][1]
+    expect(records).toHaveLength(1)
+    expect(applyRecords(A.clone(remote), records).count).toBe(2)
+    delegate.onEvent({
+      type: "records",
+      records: extractRecords(remote),
+      phase: "live",
+      sequence: 2,
+    })
+    expect(submit).toHaveBeenCalledOnce()
+    expect(handle.doc()?.count).toBe(2)
+  })
+
+  it("retains exact failed bytes even if a submitter modifies its copy", async () => {
+    const attempts: Uint8Array[][] = []
+    const submit = vi.fn(async (_id: unknown, records: RecordBatch) => {
+      attempts.push(records.map(r => r.blob.slice()))
+      if (attempts.length === 1) {
+        records[0].blob.fill(0)
+        throw new Error("disk full")
+      }
+    })
+    const { handle, delegate } = setup(A.from({ count: 0 }), submit, true)
+    await expect(
+      handle.change(d => {
+        d.count++
+      })
+    ).rejects.toThrow("disk full")
+    await delegate.flush()
+    expect(attempts[1]).toEqual(attempts[0])
+  })
+
+  it("flush captures accepted writes, not subsequent edits", async () => {
+    const releases: (() => void)[] = []
+    const submit = vi.fn(
+      () =>
+        new Promise<void>(resolve => {
+          releases.push(resolve)
+        })
+    )
+    const { handle, delegate } = setup(A.from({ count: 0 }), submit, true)
+    const first = handle.change(d => {
+      d.count = 1
+    })
+    const flush = delegate.flush()
+    const later = handle.change(d => {
+      d.count = 2
+    })
+    releases[0]()
+    await flush
+    await first
+    expect(handle.doc()?.count).toBe(2)
+    releases[1]()
+    await later
+  })
+
+  it("captures update, changeAt, merge, and scoped removal", async () => {
+    const { handle, delegate, submit } = setup(
+      A.from({ count: 0, nested: { value: 1 } }),
+      undefined,
+      true
+    )
+    const heads = handle.heads()
+    await handle.update(doc =>
+      A.change(doc, d => {
+        d.count = 1
+      })
+    )
+    const changedHeads = handle.changeAt(heads, d => {
+      d.count = 2
+    })
+    expect(changedHeads).toBeDefined()
+    await delegate.flush()
+    const other = new DocHandle(
+      new Document(
+        "other" as DocumentId,
+        A.change(A.clone(handle.fullDoc()), d => {
+          d.count = 3
+        })
+      )
+    )
+    await handle.merge(other)
+    await handle.sub("nested").remove()
+    expect(submit).toHaveBeenCalledTimes(4)
+    expect(handle.doc()?.nested).toBeUndefined()
+  })
+
+  it("does not interpret failed synchronization as absence", () => {
+    const { delegate, query } = setup()
+    delegate.onEvent({
+      type: "local-load-complete",
+      found: false,
+      checkpoint: { sequence: 0, heads: [] },
+    })
+    delegate.onEvent({
+      type: "synchronized",
+      result: {
+        roundId: "1",
+        checkpoint: { sequence: 0, heads: [] },
+        outcome: "failed",
+        peers: [],
+      },
+    })
+    expect(query.peek().state).toBe("loading")
+    delegate.onEvent({
+      type: "synchronized",
+      result: {
+        roundId: "2",
+        checkpoint: { sequence: 0, heads: [] },
+        outcome: "no-peers",
+        peers: [],
+      },
+    })
+    expect(query.peek().state).toBe("unavailable")
+  })
+
+  it("preserves historical views and rejects mutation after close", async () => {
+    const { handle, delegate } = setup(A.from({ count: 1 }), undefined, true)
+    const view = handle.view(encodeHeads(A.getHeads(handle.fullDoc())))
+    await handle.change(d => {
+      d.count = 2
+    })
+    expect(view.doc()?.count).toBe(1)
+    delegate.close()
+    expect(() =>
+      handle.change(d => {
+        d.count = 3
+      })
+    ).toThrow("closed")
+    expect(handle.doc()?.count).toBe(2)
+  })
+
+  it("rescan replaces stale initial targets without discarding unsaved writes", async () => {
+    const submit = vi.fn(async (_id: unknown, _records: RecordBatch) => {})
+    submit.mockRejectedValueOnce(new Error("disk full"))
+    const { delegate, query, handle } = setup(undefined, submit)
+    delegate.onEvent({
+      type: "local-load-complete",
+      found: true,
+      checkpoint: { sequence: 1, heads: [commitId("ff".repeat(32))] },
+    })
+    await expect(
+      handle.change(d => {
+        d.count = 1
+      })
+    ).rejects.toThrow("disk full")
+    const failedBytes = submit.mock.calls[0][1].map(record =>
+      record.blob.slice()
+    )
+    delegate.onEvent({ type: "rescan-required", sequence: 2 })
+    delegate.onEvent({
+      type: "local-load-complete",
+      found: true,
+      checkpoint: {
+        sequence: 1,
+        heads: A.getHeads(handle.fullDoc()).map(commitId),
+      },
+    })
+    expect(query.peek().state).toBe("ready")
+    await delegate.flush()
+    expect(submit.mock.calls[1][1].map(record => record.blob)).toEqual(
+      failedBytes
+    )
+  })
+
+  it("remembers only the current snapshot's covering representation", async () => {
+    const { delegate, submit } = setup()
+    const first = A.from({ count: 1 })
+    await delegate.commit(first)
+    await delegate.commit(A.from({ count: 2 }))
+    await delegate.commit(A.clone(first))
+    expect(submit).toHaveBeenCalledTimes(3)
+  })
+})

@@ -7,15 +7,10 @@
   "ignorePatterns": [
     "**/dist/**",
     "**/.svelte-kit/**",
-    "examples/**",
     "**/test/**",
     "**/*.d.ts",
     "**/*.config.ts",
-    "**/fuzz/**",
-    "**/testSetup.ts",
-    "playwright.base.ts",
-    "packages/create-vite-app/**",
-    "packages/create-repo-node-app/**"
+    "**/testSetup.ts"
   ],
   "rules": {
     "no-restricted-imports": [
@@ -36,7 +31,9 @@
               "@automerge/automerge-repo",
               "@automerge/automerge-repo/*",
               "!@automerge/automerge-repo/slim",
-              "!@automerge/automerge-repo/slim/*"
+              "!@automerge/automerge-repo/slim/*",
+              "!@automerge/automerge-repo/sedimentree",
+              "!@automerge/automerge-repo/sedimentree/*"
             ],
             "message": "Import from @automerge/automerge-repo/slim instead of @automerge/automerge-repo"
           }
@@ -68,16 +65,5 @@
   },
   "options": {
     "typeAware": true
-  },
-  "overrides": [
-    {
-      "files": [
-        "packages/automerge-react/**",
-        "packages/automerge-vanillajs/**"
-      ],
-      "rules": {
-        "no-restricted-imports": "off"
-      }
-    }
-  ]
+  }
 }

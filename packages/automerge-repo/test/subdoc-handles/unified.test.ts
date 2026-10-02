@@ -24,9 +24,9 @@ describe("unified DocHandle / Ref", () => {
   let repo: Repo
   let handle: DocHandle<any>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     repo = new Repo()
-    handle = repo.create<any>()
+    handle = await repo.create<any>()
   })
 
   describe("DocHandle.url round-trip", () => {
@@ -135,7 +135,7 @@ describe("unified DocHandle / Ref", () => {
 
   describe("repo.find(refUrl)", () => {
     it("resolves a root handle via its automerge URL", async () => {
-      const created = repo.create<any>()
+      const created = await repo.create<any>()
       created.change(d => {
         d.hello = "world"
       })
@@ -146,7 +146,7 @@ describe("unified DocHandle / Ref", () => {
     })
 
     it("resolves a sub-handle via a ref URL", async () => {
-      const created = repo.create<any>()
+      const created = await repo.create<any>()
       created.change(d => {
         d.items = [{ title: "Hello" }, { title: "World" }]
       })
@@ -164,7 +164,7 @@ describe("unified DocHandle / Ref", () => {
     })
 
     it("resolves a sub-handle at heads via a ref URL", async () => {
-      const created = repo.create<any>()
+      const created = await repo.create<any>()
       created.change(d => {
         d.value = 1
       })

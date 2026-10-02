@@ -10,8 +10,7 @@ import "@testing-library/jest-dom"
 import { describe, expect, it, vi } from "vitest"
 import { useDocHandle, wrapperCache } from "../src/useDocHandle"
 import { ErrorBoundary } from "react-error-boundary"
-import { setup, setupPairedRepos } from "./testSetup"
-import { pause } from "../src/helpers/DummyNetworkAdapter"
+import { setup, setupDelayedRepo, pause } from "./testSetup"
 
 describe("useDocHandle", () => {
   const Component = ({
@@ -27,7 +26,7 @@ describe("useDocHandle", () => {
   }
 
   it("loads a handle", async () => {
-    const { handleA, wrapper } = setup()
+    const { handleA, wrapper } = await setup()
     const onHandle = vi.fn()
 
     render(
@@ -40,7 +39,7 @@ describe("useDocHandle", () => {
   })
 
   it("updates the handle when the url changes", async () => {
-    const { wrapper, handleA, handleB } = setup()
+    const { wrapper, handleA, handleB } = await setup()
     const onHandle = vi.fn()
 
     const { rerender } = render(
@@ -55,7 +54,7 @@ describe("useDocHandle", () => {
   })
 
   it("does not return undefined after the url is updated", async () => {
-    const { wrapper, handleA, handleB } = setup()
+    const { wrapper, handleA, handleB } = await setup()
     const onHandle = vi.fn()
 
     const { rerender } = render(
@@ -102,9 +101,9 @@ describe("useDocHandle", () => {
     consoleSpy.mockRestore()
   })
 
-  it("handles slow network correctly", async () => {
-    const { repoCreator, wrapper } = setupPairedRepos()
-    const handleA = repoCreator.create({ foo: "A" })
+  it("handles delayed lookup correctly", async () => {
+    const { repoCreator, wrapper } = setupDelayedRepo()
+    const handleA = await repoCreator.create({ foo: "A" })
     const onHandle = vi.fn()
 
     render(
@@ -136,8 +135,8 @@ describe("useDocHandle", () => {
   })
 
   it("suspends while loading a handle", async () => {
-    const { repoCreator, wrapper } = setupPairedRepos()
-    const handleA = repoCreator.create({ foo: "A" })
+    const { repoCreator, wrapper } = setupDelayedRepo()
+    const handleA = await repoCreator.create({ foo: "A" })
     const onHandle = vi.fn()
 
     render(
@@ -160,9 +159,9 @@ describe("useDocHandle", () => {
   })
 
   it("handles rapid url changes during loading", async () => {
-    const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
-    const handleA = repoCreator.create({ foo: "A" })
-    const handleB = repoFinder.create({ foo: "B" })
+    const { repoCreator, repoFinder, wrapper } = setupDelayedRepo()
+    const handleA = await repoCreator.create({ foo: "A" })
+    const handleB = await repoFinder.create({ foo: "B" })
     const onHandle = vi.fn()
 
     const { rerender } = render(
@@ -190,8 +189,8 @@ describe("useDocHandle", () => {
 
   describe("with suspense: false", () => {
     it("returns undefined while loading then resolves to handle", async () => {
-      const { repoCreator, wrapper } = setupPairedRepos()
-      const handleA = repoCreator.create({ foo: "A" })
+      const { repoCreator, wrapper } = setupDelayedRepo()
+      const handleA = await repoCreator.create({ foo: "A" })
 
       const onHandle = vi.fn()
 
@@ -282,7 +281,7 @@ describe("useDocHandle", () => {
     })
 
     it("updates the handle when url changes (docs are loaded)", async () => {
-      const { wrapper, handleA, handleB } = setup()
+      const { wrapper, handleA, handleB } = await setup()
       const onHandle = vi.fn()
 
       const NonSuspenseComponent = ({
@@ -314,7 +313,7 @@ describe("useDocHandle", () => {
     })
 
     it("updates the handle when url changes (docs are not loaded)", async () => {
-      const { wrapper, nonLocalDocUrlD, nonLocalDocUrlE, repo } = setup()
+      const { wrapper, delayedDocUrlD, delayedDocUrlE, repo } = await setup()
       const onHandle = vi.fn()
 
       const NonSuspenseComponent = ({
@@ -331,26 +330,26 @@ describe("useDocHandle", () => {
       }
 
       const { rerender } = render(
-        <NonSuspenseComponent url={nonLocalDocUrlD} onHandle={onHandle} />,
+        <NonSuspenseComponent url={delayedDocUrlD} onHandle={onHandle} />,
         { wrapper }
       )
 
       // Wait for first handle to load
-      const handleD = await repo.find(nonLocalDocUrlD)
+      const handleD = await repo.find(delayedDocUrlD)
       await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleD))
 
       // Change URL
       rerender(
-        <NonSuspenseComponent url={nonLocalDocUrlE} onHandle={onHandle} />
+        <NonSuspenseComponent url={delayedDocUrlE} onHandle={onHandle} />
       )
 
       // Then resolve to new handle
-      const handleE = await repo.find(nonLocalDocUrlE)
+      const handleE = await repo.find(delayedDocUrlE)
       await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleE))
     })
 
     it("does not re-render unnecessarily when the handle does not change", async () => {
-      const { wrapper, handleA } = setup()
+      const { wrapper, handleA } = await setup()
       const onHandle = vi.fn()
 
       const NonSuspenseComponent = ({
