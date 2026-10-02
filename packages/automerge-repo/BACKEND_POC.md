@@ -46,8 +46,10 @@ and changes awaitable; remove legacy adapters; defer the new query interface.
   the only copy. Existing external handles remain readable but cannot edit after
   detachment or shutdown.
 - `flush(ids?)` captures targeted writes, retries retained failed batches and
-  drains before reporting failures. It does not promise network delivery. Backend
-  error ledgers may report earlier failed attempts even after a successful retry.
+  drains before reporting failures. It does not promise network delivery. The
+  scheduler does not report failed raw stores that no delegate owns; callers
+  observe those promises directly, though a backend flush may still report them.
+  Backend error ledgers may report earlier failed attempts after a successful retry.
 - `shutdown()` is idempotent and best-effort: stop mutations, fail pending lookup
   waits, drain accepted work, close sessions and backend, log errors. Use explicit
   `flush()` before shutdown to observe persistence failure. There is no `dispose()`.
@@ -70,6 +72,11 @@ or failure flags. Document owns closed/deleted lifecycle state.
 
 `RepoScheduler` owns sessions, per-ID write ordering, bounded cross-document local
 operation concurrency, rescan, detach, deletion generation fences and teardown.
+Per-ID tails capture accepted submissions; delegates own retries and unsaved
+history. Creations remain tracked until settled, including those without an ID. Flush
+waits for captured submissions and retries before calling backend flush once;
+when nothing is pending it captures the backend barrier immediately. Later edits
+may run ahead of a delayed retry, so flush is not a strict execution-time cutoff.
 `flushConcurrency` currently bounds local operations (default 20), not just flush.
 Event replay is bounded by backend observation windows; the scheduler does not
 claim a bound on session count, queued operations, retained history or total heap.

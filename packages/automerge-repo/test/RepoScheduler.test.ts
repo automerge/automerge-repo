@@ -170,7 +170,7 @@ describe("RepoScheduler", () => {
     await scheduler.close()
   })
 
-  it("flush still surfaces captured creation and unowned store failures", async () => {
+  it("flush surfaces creation failures, not unowned store failures", async () => {
     const backend = new MemoryBackend()
     vi.spyOn(backend, "create").mockRejectedValueOnce(
       new Error("create failed")
@@ -189,7 +189,93 @@ describe("RepoScheduler", () => {
     const rawRejected = expect(raw).rejects.toThrow("raw store failed")
     const rawFlush = scheduler.flush()
     await rawRejected
-    await expect(rawFlush).rejects.toThrow("Repo flush failed")
+    await expect(rawFlush).resolves.toBeUndefined()
+    await scheduler.close()
+  })
+
+  it("targeted flush captures only creation failures for selected IDs", async () => {
+    const backend = new MemoryBackend()
+    vi.spyOn(backend, "create").mockRejectedValue(new Error("create failed"))
+    const scheduler = new RepoScheduler(backend)
+    const creation = scheduler.create(records(), { documentId: id(1) })
+    const rejected = expect(creation).rejects.toThrow("create failed")
+    await scheduler.flush([id(2)])
+    const targeted = scheduler.flush([id(1)])
+    await rejected
+    await expect(targeted).rejects.toThrow("Repo flush failed")
+    await scheduler.close()
+  })
+
+  it("targeted flush does not wait for unallocated creations", async () => {
+    const backend = new MemoryBackend()
+    const blocked = gate()
+    const create = backend.create.bind(backend)
+    vi.spyOn(backend, "create").mockImplementation(async (batch, options) => {
+      await blocked.promise
+      return create(batch, options)
+    })
+    const scheduler = new RepoScheduler(backend)
+    const creation = scheduler.create(records())
+    await scheduler.flush([id(1)])
+    blocked.resolve()
+    await creation
+    await scheduler.close()
+  })
+
+  it("waits for captured submissions before calling backend flush, without later writes", async () => {
+    const backend = new MemoryBackend()
+    const blocked = gate()
+    const later = gate()
+    const started = gate()
+    const store = backend.store.bind(backend)
+    let count = 0
+    vi.spyOn(backend, "store").mockImplementation(async (documentId, batch) => {
+      if (++count === 1) {
+        started.resolve()
+        await blocked.promise
+      } else await later.promise
+      await store(documentId, batch)
+    })
+    const barrier = vi.spyOn(backend, "flush")
+    const scheduler = new RepoScheduler(backend)
+    const first = scheduler.submit(id(1), records())
+    await started.promise
+    const flushing = scheduler.flush([id(1)])
+    const second = scheduler.submit(id(1), records())
+    expect(barrier).not.toHaveBeenCalled()
+    blocked.resolve()
+    await first
+    await flushing
+    expect(barrier).toHaveBeenCalledExactlyOnceWith([id(1)])
+    later.resolve()
+    await second
+    await scheduler.close()
+  })
+
+  it("repeated flushes capture their own submission barriers", async () => {
+    const backend = new MemoryBackend()
+    const firstGate = gate()
+    const secondGate = gate()
+    const store = backend.store.bind(backend)
+    let count = 0
+    vi.spyOn(backend, "store").mockImplementation(async (documentId, batch) => {
+      await (++count === 1 ? firstGate.promise : secondGate.promise)
+      await store(documentId, batch)
+    })
+    const flush = vi.spyOn(backend, "flush")
+    const scheduler = new RepoScheduler(backend)
+    const first = scheduler.submit(id(1), records())
+    const before = scheduler.flush([id(1)])
+    const second = scheduler.submit(id(1), records())
+    const after = scheduler.flush([id(1)])
+    firstGate.resolve()
+    await first
+    await before
+    expect(flush).toHaveBeenCalledTimes(1)
+    secondGate.resolve()
+    await second
+    await after
+    expect(flush).toHaveBeenCalledTimes(2)
     await scheduler.close()
   })
 
@@ -375,6 +461,55 @@ describe("RepoScheduler", () => {
     await write
     await deletion
     expect(deleted).toHaveBeenCalledOnce()
+    await scheduler.close()
+  })
+
+  it("delete waits its own tail but not unrelated writes", async () => {
+    const backend = new MemoryBackend()
+    const own = gate()
+    const unrelated = gate()
+    const store = backend.store.bind(backend)
+    vi.spyOn(backend, "store").mockImplementation(async (documentId, batch) => {
+      await (documentId === id(1) ? own.promise : unrelated.promise)
+      await store(documentId, batch)
+    })
+    const scheduler = new RepoScheduler(backend)
+    const { delegate } = attach(scheduler)
+    const first = scheduler.submit(id(1), records())
+    const other = scheduler.submit(id(2), records())
+    const deletion = scheduler.delete(delegate)
+    own.resolve()
+    await first
+    await deletion
+    unrelated.resolve()
+    await other
+    await scheduler.close()
+  })
+
+  it("delete waits for an accepted detach on the same ID", async () => {
+    const backend = new MemoryBackend()
+    const blocked = gate()
+    const opened = backend.open.bind(backend)
+    vi.spyOn(backend, "open").mockImplementation(documentId => {
+      const session = opened(documentId)
+      return {
+        ...session,
+        close: async () => {
+          await blocked.promise
+          await session.close()
+        },
+      }
+    })
+    const remove = vi.spyOn(backend, "deleteLocal")
+    const scheduler = new RepoScheduler(backend)
+    const { delegate } = attach(scheduler)
+    const detach = scheduler.detach(delegate)
+    const deletion = scheduler.delete(delegate)
+    await Promise.resolve()
+    expect(remove).not.toHaveBeenCalled()
+    blocked.resolve()
+    await Promise.all([detach, deletion])
+    expect(remove).toHaveBeenCalledOnce()
     await scheduler.close()
   })
 

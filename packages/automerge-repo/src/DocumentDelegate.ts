@@ -127,9 +127,8 @@ export class DocumentDelegate<T> {
     return this.flush(submit)
   }
 
-  /** Identify exact attempts covered by this delegate's retry barrier. */
-  hasPendingWrite(attempt: Promise<unknown>): boolean {
-    return [...this.#unsaved].some(job => job.pending === attempt)
+  get hasUnsavedHistory(): boolean {
+    return this.#unsaved.size > 0
   }
 
   onEvent(event: SedimentreeEvent): void {

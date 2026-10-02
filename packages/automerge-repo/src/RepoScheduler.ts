@@ -10,15 +10,11 @@ import {
 import type { DocumentDelegate } from "./DocumentDelegate.js"
 
 type Delegate = DocumentDelegate<any>
-type Job = {
-  id?: SedimentreeId
-  kind: "store" | "create" | "delete" | "detach"
-}
 
 /** Owns backend sessions and ordered per-ID persistence, bounded across IDs. */
 export class RepoScheduler {
-  #jobs = new Map<Promise<unknown>, Job>()
   #tails = new Map<SedimentreeId, Promise<void>>()
+  #creating = new Map<Promise<unknown>, SedimentreeId | undefined>()
   #sessions = new Map<Delegate, SedimentreeSession>()
   #delegates = new Set<Delegate>()
   #consumers = new Set<Promise<void>>()
@@ -63,17 +59,13 @@ export class RepoScheduler {
         )
       })
     )
-    if (requested) {
-      const tail = job.then(
-        () => {},
-        () => {}
-      )
-      this.#tails.set(requested, tail)
-      void tail.then(() => {
-        if (this.#tails.get(requested) === tail) this.#tails.delete(requested)
-      })
-    }
-    return this.#track(job, { id: requested, kind: "create" })
+    if (requested) this.#setTail(requested, job)
+    this.#creating.set(job, requested)
+    void job.then(
+      () => this.#creating.delete(job),
+      () => this.#creating.delete(job)
+    )
+    return job
   }
 
   submit(id: SedimentreeId, records: RecordBatch): Promise<void> {
@@ -99,37 +91,19 @@ export class RepoScheduler {
         return this.backend.store(id, owned)
       })
     )
-    const tail = job.catch(() => {})
+    this.#setTail(id, job)
+    return job
+  }
+
+  #setTail(id: SedimentreeId, job: Promise<unknown>): void {
+    const tail = job.then(
+      () => {},
+      () => {}
+    )
     this.#tails.set(id, tail)
     void tail.then(() => {
       if (this.#tails.get(id) === tail) this.#tails.delete(id)
     })
-    return this.#track(job, { id, kind: "store" })
-  }
-
-  #track<T>(job: Promise<T>, info: Job): Promise<T> {
-    this.#jobs.set(job, info)
-    void job.then(
-      () => this.#jobs.delete(job),
-      () => this.#jobs.delete(job)
-    )
-    return job
-  }
-
-  #captureJobs(
-    delegates: readonly Delegate[],
-    ids?: ReadonlySet<SedimentreeId>
-  ): Promise<unknown>[] {
-    return [...this.#jobs]
-      .filter(
-        ([attempt, job]) =>
-          (!ids || job.id === undefined || ids.has(job.id)) &&
-          !(
-            job.kind === "store" &&
-            delegates.some(delegate => delegate.hasPendingWrite(attempt))
-          )
-      )
-      .map(([attempt]) => attempt)
   }
 
   async #run<T>(operation: () => Promise<T>): Promise<T> {
@@ -145,34 +119,54 @@ export class RepoScheduler {
     }
   }
 
-  /**
-   * Capture backend work at the call, plus queued writes and delegate retries.
-   * Successful store promises already guarantee local recoverability. Retries
-   * can queue behind later writes; this is not a strict execution-time cutoff.
-   */
-  async flush(ids?: readonly SedimentreeId[]): Promise<void> {
+  /** Capture submitted work and delegate retries at the call. */
+  flush(ids?: readonly SedimentreeId[]): Promise<void> {
     const selected = ids && [...ids]
     const targets = selected && new Set(selected)
     const delegates = [...this.#delegates].filter(
       delegate => !targets || targets.has(delegate.id)
     )
-    const captured = this.#captureJobs(delegates, targets)
-    const drains = delegates.map(delegate => delegate.flush())
-    let backendBarrier: Promise<void>
-    try {
-      backendBarrier = this.backend.flush(selected)
-    } catch (error) {
-      backendBarrier = Promise.reject(error)
-    }
-    const results = await Promise.allSettled([
-      ...captured,
+    const tails = [...this.#tails].filter(([id]) => !targets || targets.has(id))
+    const creations = [...this.#creating]
+      .filter(([, id]) => !targets || (id !== undefined && targets.has(id)))
+      .map(([job]) => job)
+    const deletions = [...this.#deleting].filter(
+      ([id]) => !targets || targets.has(id)
+    )
+    const detachments = [...this.#detaching].filter(
+      ([delegate]) => !targets || targets.has(delegate.id)
+    )
+    const drains = delegates
+      .filter(delegate => delegate.hasUnsavedHistory)
+      .map(delegate => delegate.flush())
+    const pending = [
+      ...tails.map(([, tail]) => tail),
+      ...creations,
+      ...deletions.map(([, job]) => job),
+      ...detachments.map(([, job]) => job),
       ...drains,
-      backendBarrier,
-    ])
-    const errors = results
-      .filter(result => result.status === "rejected")
-      .map(result => result.reason)
-    if (errors.length) throw new AggregateError(errors, "Repo flush failed")
+    ]
+    // With no pending submissions, capture the backend barrier before later edits.
+    let barrier: Promise<void> | undefined
+    if (!pending.length) {
+      try {
+        barrier = this.backend.flush(selected)
+      } catch (error) {
+        barrier = Promise.reject(error)
+      }
+    }
+    return (async () => {
+      const results = await Promise.allSettled(pending)
+      const errors = results
+        .filter(result => result.status === "rejected")
+        .map(result => result.reason)
+      try {
+        await (barrier ?? this.backend.flush(selected))
+      } catch (error) {
+        errors.push(error)
+      }
+      if (errors.length) throw new AggregateError(errors, "Repo flush failed")
+    })()
   }
 
   open<T>(delegate: DocumentDelegate<T>): void {
@@ -278,7 +272,7 @@ export class RepoScheduler {
       () => this.#detaching.delete(delegate),
       () => this.#detaching.delete(delegate)
     )
-    return this.#track(job, { id: delegate.id, kind: "detach" })
+    return job
   }
 
   delete<T>(delegate: DocumentDelegate<T>): Promise<void> {
@@ -290,15 +284,16 @@ export class RepoScheduler {
     )
     if (!affected.includes(delegate)) affected.push(delegate)
     const sessions: SedimentreeSession[] = []
-    const captured = [...this.#jobs]
-      .filter(([, job]) => job.id === undefined || job.id === delegate.id)
-      .map(([job]) => job)
+    const tail = this.#tails.get(delegate.id)
+    const detachments = [...this.#detaching]
+      .filter(([item]) => item.id === delegate.id)
+      .map(([, job]) => job)
     // Install the barrier before delete listeners can synchronously submit work.
     const job = Promise.resolve().then(async () => {
       const results = await Promise.allSettled(
         sessions.map(session => Promise.resolve().then(() => session.close()))
       )
-      await Promise.allSettled(captured)
+      await Promise.allSettled([...(tail ? [tail] : []), ...detachments])
       this.#generations.set(
         delegate.id,
         (this.#generations.get(delegate.id) ?? 0) + 1
@@ -315,7 +310,6 @@ export class RepoScheduler {
         throw new AggregateError(errors, "Document deletion failed")
     })
     this.#deleting.set(delegate.id, job)
-    void this.#track(job, { id: delegate.id, kind: "delete" })
     for (const item of affected) {
       try {
         item.markDeleted()
@@ -340,10 +334,16 @@ export class RepoScheduler {
     for (const delegate of this.#delegates) delegate.close()
     const sessions = [...this.#sessions.values()]
     this.#sessions.clear()
-    const captured = this.#captureJobs([...this.#delegates])
+    const tails = [...this.#tails.values()]
+    const creations = [...this.#creating.keys()]
+    const deletions = [...this.#deleting.values()]
+    const detachments = [...this.#detaching.values()]
     this.#closing = (async () => {
       const results = await Promise.allSettled([
-        ...captured,
+        ...tails,
+        ...creations,
+        ...deletions,
+        ...detachments,
         ...sessions.map(session =>
           Promise.resolve().then(() => session.close())
         ),
