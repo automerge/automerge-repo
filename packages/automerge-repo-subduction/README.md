@@ -7,6 +7,84 @@ engine and storage bridge, not a MemoryBackend facade or a simulated protocol.
 The adapter targets `@automerge/subduction` **0.23.0**, including its native
 fragment metadata APIs.
 
+## Quick start
+
+```ts
+// Node: initialize fullfat WASM before constructing the slim-backed peer.
+import "@automerge/subduction"
+import { Repo } from "@automerge/automerge-repo"
+import { createSubductionPeer } from "@automerge/automerge-repo-subduction"
+
+const peer = createSubductionPeer({ servers: ["ws://127.0.0.1:8080"] })
+const repo = new Repo({ backend: peer.backend })
+try {
+  const handle = await repo.create({ message: "Hello" })
+  console.log(peer.peerId, handle.documentId)
+  // Keep Repo and peer alive while using this handle.
+} finally {
+  try {
+    await repo.shutdown()
+  } finally {
+    await peer.close()
+  }
+}
+```
+
+The package imports `@automerge/subduction/slim` and does not initialize WASM.
+Browser/bundler applications must await their native initializer first, using
+the same generated wrapper classes as `/slim`. `createSubductionPeer()` is
+synchronous: it owns a generated memory signer and uses `MemoryByteStore` by
+default, so identity and history do not survive restart. An injected `signer`
+is borrowed: keep it alive through `peer.close()`, then free it yourself.
+Injected storage is borrowed and subject to exclusive ownership below. Signers
+must provide a valid Ed25519 verifying key and matching signatures; native can
+panic on invalid keys. Backend limits and `syncTimeoutMilliseconds` can also be
+passed to the peer factory.
+
+`servers` accepts WebSocket URL strings, `URL` objects, or `{ url, serviceName? }`.
+The discovery service name defaults to the host including port. Configured
+servers connect immediately; `peer.connect(server)` adds another connection to
+the live readonly `peer.connections` array. Duplicate URLs are allowed. The
+`peer.peerId` is a string, not a caller-owned native wrapper.
+
+Connections expose `url`, `status` (`connecting`, `connected`, `disconnected`,
+`closed`) and `error`. `subscribe(callback)` calls back immediately and on state
+changes; read `connection.error` inside the callback. `connected()` waits across
+automatic retries, rejecting on close or a failed attempt with retry disabled.
+Retry uses jittered exponential backoff (500 ms initially, capped at 30 s);
+configure `retry: { initialMs, maxMs }` or `retry: false`. `reconnect()` cancels
+the current attempt and retries immediately even when retry is disabled. The
+default `connectTimeoutMilliseconds: 10_000` covers opening, authentication and
+backend onboarding, separately from native sync timeouts. Cancellation closes
+the socket; accepted storage operations must still finish before cleanup.
+External signing I/O cannot be cancelled, but does not block cleanup.
+
+`connection.close()` closes only its socket. `peer.close()` stops all connections,
+closes the backend and frees its owned signer; it is idempotent and supports
+`Symbol.asyncDispose`. Call `repo.shutdown()` first, then `peer.close()` in a
+`finally` block as shown. Repo shutdown is best-effort; call `repo.flush()`
+beforehand to observe persistence failures.
+
+For an existing backend and signer, use `connectSubductionServer` directly:
+
+```ts
+import { connectSubductionServer } from "@automerge/automerge-repo-subduction"
+
+const connection = connectSubductionServer(backend, signer, serverUrl, {
+  retry: false,
+  connectTimeoutMilliseconds: 10_000,
+})
+try {
+  await connection.connected()
+  // Use the existing backend.
+} finally {
+  await connection.close()
+}
+```
+
+This borrows both backend and signer; it closes neither. The helper owns its
+WebSocket and authenticates with native `AuthenticatedTransport.setupDiscover`.
+
 Fragment extraction, encoding and application belong to Repo's lightweight
 `@automerge/automerge-repo/sedimentree/automerge` subpath, which uses the fragment
 APIs in raw `@automerge/automerge` **3.5.0**. This backend imports
@@ -70,7 +148,7 @@ owned by this backend: no other engine, tab, process, or caller may mutate it
 while the backend is alive. Storage is borrowed and is not closed or erased by
 backend close. Concurrent multi-owner access and hostile storage are unsupported.
 
-## Authenticated peer connections
+## Low-level authenticated peer connections
 
 Pass an already authenticated native transport to `backend.addConnection()`.
 For example, on the dialing side (the remote side must concurrently call native
@@ -110,8 +188,9 @@ can also supply `toTransport()`; those conversions consume their wrappers.
 Opening a session automatically schedules a document sync. Successful local
 stores schedule propagation even without a session. Adding a connection replays
 open interests and the local stored-ID inventory, so reconnecting with fresh
-transports retrieves missed edits. There is no remote inventory discovery,
-automatic dialer, timer-based retry, or production connection manager here.
+transports retrieves missed edits. There is no remote inventory discovery or
+production connection manager here. The backend does not dial or retry; the
+helpers above provide automatic WebSocket retries.
 This experiment uses native's default **allow-all authorization**; authenticated
 identity is not an application sharing policy. Use only explicitly trusted peers.
 
@@ -167,7 +246,8 @@ Read-only Rust evidence: `subduction_core/src/handler/sync.rs`,
 Native has no document-unsubscribe API: closing a session releases that observer,
 not the connection's protocol subscriptions. Other sessions continue normally.
 **Deletion and storage-error recovery conservatively disconnect all peers**,
-including those used by unrelated documents; reconnect explicitly afterward.
+including those used by unrelated documents; helper-managed connections retry
+automatically, while low-level callers must reconnect explicitly afterward.
 Network ephemerals are not implemented: publication with connected peers rejects
 with `unsupported`, rather than silently pretending to send. With no peers it
 remains a no-op. Composition, permissions, socket/browser integration tests, and

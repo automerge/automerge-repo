@@ -99,9 +99,10 @@ primitives and Svelte stores remain and expose awaitable update callbacks.
 Removed already-deprecated handle state helpers, `getRemoteHeads`, progress
 compatibility getters and legacy compatibility types. Legacy-only Repo options,
 hidden subsystems, `create2`/ID factory, peer/storage identity and sharing-policy
-operations are not part of this PoC. Connection management and permission policy
-belong to the backend. Repo metrics now describe materialized document statistics,
-not protocol metrics; legacy `doc-metrics` instrumentation is not implemented.
+operations are not part of this PoC. Connection management belongs to the
+Subduction helper; permission policy remains outside Repo. Repo metrics now
+describe materialized document statistics, not protocol metrics; legacy
+`doc-metrics` instrumentation is not implemented.
 
 DocHandle broadcast/presence and remote-head events retain their shapes through
 the backend session. Ephemeral `senderId` remains the claimed original source,
@@ -186,6 +187,14 @@ settle as unavailable without closing the session.
 Reliable remote absence still needs native protocol/API support. Nonempty
 advertisements still require verified ingestion.
 
-Production dialing, network ephemerals, scheduling/coalescing beyond bounded local
-concurrency, variant-equivalence reclamation, legacy/composite backends, Keyhive
-and the next query API remain deferred. This PoC is not a production release.
+Stage 4 adds `createSubductionPeer` and `connectSubductionServer` to the Subduction
+package: WebSocket discovery, connection status, timeout, cancellation and retry.
+The peer owns its generated signer; injected signers and stores remain borrowed.
+Close Repo with `shutdown()` before closing the peer. The package README includes
+a usage example; this worktree has no `examples/subduction-poc` directory to adapt
+from the guide PoC. No IndexedDB or network ephemerals are included.
+
+Production dialing beyond this experimental helper, network ephemerals,
+scheduling/coalescing beyond bounded local concurrency, variant-equivalence
+reclamation, legacy/composite backends, Keyhive and the next query API remain
+deferred. This PoC is not a production release.

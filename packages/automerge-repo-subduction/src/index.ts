@@ -29,10 +29,22 @@ import {
   type LocalByteStore,
 } from "./storage.js"
 import { Watch } from "./watch.js"
+import { notifyBackendClosed } from "./backendLifecycle.js"
 
 export type { LocalByteStore } from "./storage.js"
 export { MemoryByteStore } from "./MemoryByteStore.js"
-/** Borrowed interface: the caller keeps the signer alive through backend.close(). */
+export { connectSubductionServer } from "./connect.js"
+export type {
+  SubductionServer,
+  SubductionConnection,
+  SubductionConnectionStatus,
+  SubductionConnectionOptions,
+} from "./connect.js"
+export { createSubductionPeer } from "./peer.js"
+export type { SubductionPeer, SubductionPeerOptions } from "./peer.js"
+/** Borrowed: keep alive through backend.close(). Requires a valid Ed25519
+ * verifying key and matching signatures; native does not validate providers safely.
+ */
 export type NativeSigner = N.Signer
 /** Authenticate outside the backend; addConnection borrows this wrapper. */
 export type AuthenticatedTransport = N.AuthenticatedTransport
@@ -303,8 +315,9 @@ export class SubductionBackend implements SedimentreeBackend {
           await this.engine.disconnectAll()
           throw new BackendError(
             "synchronize",
-            "closed",
-            "Connection was superseded"
+            this.closed ? "closed" : "io",
+            "Connection was superseded",
+            !this.closed
           )
         }
         this.networkEnabled = true
@@ -957,14 +970,9 @@ export class SubductionBackend implements SedimentreeBackend {
   close(): Promise<void> {
     if (this.closing) return this.closing
     this.closed = true
-    for (const watch of this.watches.keys()) watch.finish()
-    for (const watch of this.collections) watch.finish()
     const captured = [...this.attempts]
     const deletions = [...this.deleting.values()]
-    // Cancel stalled peer waits immediately, but leave storage enabled until
-    // already accepted local operations have finished. Then seal and drain.
-    void this.stopNetwork().catch(() => {})
-    this.closing = (async () => {
+    this.closing = Promise.resolve().then(async () => {
       await this.tail
       const retired = this.retireEngine()
       const outcomes = await Promise.allSettled([
@@ -981,7 +989,14 @@ export class SubductionBackend implements SedimentreeBackend {
       this.attempts.clear()
       if (errors.length)
         throw new AggregateError(errors, "Backend close failed")
-    })()
+    })
+    // Install the close guard before observers or transports can re-enter.
+    notifyBackendClosed(this)
+    for (const watch of this.watches.keys()) watch.finish()
+    for (const watch of this.collections) watch.finish()
+    // Cancel stalled peer waits immediately, but leave storage enabled until
+    // already accepted local operations have finished. Then seal and drain.
+    void this.stopNetwork().catch(() => {})
     return this.closing
   }
 }
