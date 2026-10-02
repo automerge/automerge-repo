@@ -41,6 +41,59 @@ must provide a valid Ed25519 verifying key and matching signatures; native can
 panic on invalid keys. Backend limits and `syncTimeoutMilliseconds` can also be
 passed to the peer factory.
 
+### IndexedDB byte store
+
+For persistent local history in a browser, pass `new IndexedDBByteStore()` as
+`storage`. It uses the `automerge-repo-subduction` database and `bytes` object
+store by default; pass `{ database, store }` to override them. It opens lazily,
+so importing or constructing it does not require IndexedDB until the first read
+or write. Existing object stores must use out-of-line keys without autoIncrement;
+missing stores are added by a version upgrade. Saves snapshot bytes synchronously
+and resolve only after the transaction completes, not just the request. This is
+IndexedDB's commit guarantee, not a promise of fsync or protection from browser
+eviction. Invalid stored values reject rather than look missing.
+
+The backend borrows the store: after shutting down Repo and closing the peer,
+call `await storage.close()` to release its database connection. Later operations
+reopen it; version changes and unexpected database closure invalidate the cached
+connection. A blocked open rejects; close other database clients before retrying.
+
+```ts
+// Node initializer shown; browsers must await their native WASM initializer.
+import "@automerge/subduction"
+import { Repo } from "@automerge/automerge-repo"
+import {
+  createSubductionPeer,
+  IndexedDBByteStore,
+} from "@automerge/automerge-repo-subduction"
+
+const storage = new IndexedDBByteStore()
+const peer = createSubductionPeer({ storage, servers: ["ws://127.0.0.1:8080"] })
+const repo = new Repo({ backend: peer.backend })
+try {
+  // ... use repo ...
+} finally {
+  try {
+    await repo.shutdown()
+  } finally {
+    try {
+      await peer.close()
+    } finally {
+      await storage.close()
+    }
+  }
+}
+```
+
+The default `MemorySigner` still creates a new peer identity on each start;
+inject a persistent signer separately if identity must survive reloads. The
+`subduction-v1/` key prefix separates this backend's records from other stores,
+but does not make concurrent backends safe: use one live backend per database,
+including across browser tabs and custom object stores. Concurrent local deletes
+and writes are not coordinated across tabs.
+
+### Server connections
+
 `servers` accepts WebSocket URL strings, `URL` objects, or `{ url, serviceName? }`.
 The discovery service name defaults to the host including port. Configured
 servers connect immediately; `peer.connect(server)` adds another connection to

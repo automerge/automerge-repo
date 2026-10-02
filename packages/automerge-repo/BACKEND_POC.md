@@ -193,7 +193,7 @@ package: WebSocket discovery, connection status, timeout, cancellation and retry
 The peer owns its generated signer; injected signers and stores remain borrowed.
 Close Repo with `shutdown()` before closing the peer. The package README includes
 a usage example; this worktree has no `examples/subduction-poc` directory to adapt
-from the guide PoC. No IndexedDB is included.
+from the guide PoC. IndexedDB is added separately in Stage 6 below.
 
 Stage 5 ports only `acc/repo-poc` commit `5fa3b25f`: native ephemeral topic
 subscription, best-effort publication, CBOR envelope validation, signed sender
@@ -204,6 +204,26 @@ events and Presence use the session path without adding a PoC RepoHandle or
 delegate lifecycle state. Native tests cover subscription/reconnect/retirement,
 wrapper lifetimes, isolation and no persistence/echo/replay. No later storage
 changes from `4030acbb` are included.
+
+Stage 6 ports only the IndexedDB byte store and its tests from `be196e22`, plus
+the source README section adapted to `shutdown()`. It exports `IndexedDBByteStore`
+from the Subduction package and adds test-only `fake-indexeddb` 6.2.5. Native
+0.23.0, existing backend features, and Document/Repo/DocHandle APIs are unchanged;
+the later `4030acbb` storage fix and source worktree README/demo edits are excluded.
+The store opens lazily, snapshots save bytes synchronously, waits for transaction
+completion, validates object-store schema and byte values, and supports close,
+version-change and unexpected-close reopening. Rejected blocked opens close any
+eventual abandoned connection. Tests cover the shared memory/IndexedDB contract,
+schema errors, lifecycle/retry, aborted/request-failed writes, Buffer snapshots
+and native record reload. Use one live backend per database, even across tabs
+or custom object stores. Injected
+storage remains borrowed: shut down Repo, close the peer, then close the store.
+
+Stage 6 validation: 24 store tests and all 160 native package tests pass. Full
+workspace run: 977 passed, 3 skipped (54 files passed, 1 skipped). Core/native
+builds, all package typechecks, focused backend/native test typechecks, oxlint,
+repository formatting and `git diff --check` pass. IndexedDB lifecycle tests use
+fake-indexeddb, including its forced-close helper; no browser integration run.
 
 Production dialing beyond this experimental helper,
 scheduling/coalescing beyond bounded local concurrency, variant-equivalence

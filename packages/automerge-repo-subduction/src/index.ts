@@ -40,6 +40,7 @@ import {
 
 export type { LocalByteStore } from "./storage.js"
 export { MemoryByteStore } from "./MemoryByteStore.js"
+export { IndexedDBByteStore } from "./IndexedDBByteStore.js"
 export { connectSubductionServer } from "./connect.js"
 export type {
   SubductionServer,

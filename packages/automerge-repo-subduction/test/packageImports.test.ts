@@ -66,6 +66,11 @@ describe("lightweight package entrypoints", () => {
       })
       const api = await import(${JSON.stringify(specifier)})
       assert.equal(typeof api[${JSON.stringify(exported)}], 'function')
+      if (${JSON.stringify(specifier)} === '@automerge/automerge-repo-subduction') {
+        assert.equal(typeof api.IndexedDBByteStore, 'function')
+        const storage = new api.IndexedDBByteStore()
+        await storage.close()
+      }
     `
       await run(process.execPath, ["--input-type=module", "--eval", script], {
         cwd,

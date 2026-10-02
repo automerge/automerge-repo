@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@automerge/automerge": "catalog:",
+    "fake-indexeddb": "6.2.5",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
