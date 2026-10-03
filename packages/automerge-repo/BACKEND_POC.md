@@ -94,9 +94,8 @@ constructs storage adapters and synchronizers.
 Removed core legacy storage/network/synchronizer machinery, adapter interfaces and
 exports, sync-state persistence and gossip management, and all five adapter
 packages. Removed incompatible generators, templates, examples and sync server
-rather than leaving a broken workspace. The `@automerge/react` umbrella is
-restored separately to re-export Repo, hooks and the private Subduction package,
-without legacy adapters; it remains private until Subduction is publishable.
+rather than leaving a broken workspace. The `@automerge/react` umbrella
+re-exports Repo, hooks and the Subduction package without legacy adapters.
 React hooks, Solid primitives and Svelte stores expose awaitable update callbacks.
 
 Removed already-deprecated handle state helpers, `getRemoteHeads`, progress
@@ -148,7 +147,7 @@ The standalone guide demo remains in its source worktree; usage examples here li
 in the package README. IndexedDB lifecycle/schema handling and recovery tests are
 more extensive here; no real-browser or multi-owner guarantee is added.
 
-The React todo demo is restored separately using the private `@automerge/react`
+The React todo demo is restored separately using the `@automerge/react`
 umbrella, a Subduction peer and `IndexedDBByteStore`. It intentionally shares
 its demo database across tabs despite the single-owner storage restriction;
 `examples/react-todo/README.md` explains the risk and local server setup.

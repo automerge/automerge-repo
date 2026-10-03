@@ -2,7 +2,7 @@
 
 Repo, React hooks, and the experimental Subduction backend in one package.
 
-## Local-only React usage
+## React usage
 
 The default entrypoint initializes both Automerge and Subduction WASM. A Repo
 still has no backend unless one is explicitly supplied.
@@ -45,8 +45,8 @@ export function App() {
 }
 ```
 
-Changes apply locally immediately; await `handle.change()` or a hook updater to
-observe persistence failures. A Repo has no backend unless one is supplied.
+Changes apply locally immediately; await a hook updater to observe persistence
+failures.
 
 ## Subduction and browser storage
 
@@ -81,8 +81,8 @@ try {
 Use one live backend per IndexedDB database, including across tabs. The default
 signer is temporary; IndexedDB does not persist peer identity. See the
 [Subduction README](../automerge-repo-subduction/README.md) for connection,
-storage, initialization and authorization limitations. Browser applications using
-the linked native build need its matching web initializer. For Vite, use
+storage, initialization and authorization limitations. Browser applications need
+the matching native web initializer. For Vite, use
 `vite-plugin-wasm`, exclude the Automerge/Repo/Subduction packages from dependency
 optimization, and add this alias to the Vite configuration:
 
