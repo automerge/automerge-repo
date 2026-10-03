@@ -11,7 +11,7 @@ for the released adapter-based implementation.
 
 Run `pnpm install`, then `pnpm build`. Use `pnpm dev` to watch packages and
 `pnpm test` to run tests. The [React todo demo](./examples/react-todo/README.md)
-runs with `pnpm dev:demo` after starting a local Subduction server.
+runs with `pnpm dev:demo` against the hosted Subduction server by default.
 
 ## Packages
 

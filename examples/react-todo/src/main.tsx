@@ -15,7 +15,8 @@ import { State } from "./types.js"
 import "./index.css"
 
 const server = new URL(
-  new URLSearchParams(location.search).get("server") ?? "ws://127.0.0.1:8080"
+  new URLSearchParams(location.search).get("server") ??
+    "wss://subduction.sync.inkandswitch.com"
 )
 const storage = new IndexedDBByteStore({ database: "automerge-repo-demo-todo" })
 const peer = createSubductionPeer({

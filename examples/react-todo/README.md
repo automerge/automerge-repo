@@ -1,11 +1,12 @@
 # Todo Demo
 
 React todo list backed by the experimental Subduction backend and IndexedDB.
-Tabs sync through the server, not BroadcastChannel. This demo uses open
-authorization for trusted local development only.
+Tabs sync through `wss://subduction.sync.inkandswitch.com` by default, not
+BroadcastChannel.
 
-Build the sibling Subduction checkout's `subduction_cli` and WASM runtime, then
-start the server from that checkout:
+To use a local server instead, build the sibling Subduction checkout's
+`subduction_cli` and WASM runtime, then start the server from that checkout.
+Open authorization is for trusted local development only:
 
 ```sh
 ./target/release/subduction_cli server \
@@ -15,7 +16,7 @@ start the server from that checkout:
   --ephemeral-key --auth open --longpoll=false
 ```
 
-From this workspace root:
+From this workspace root (no local server required for the default URL):
 
 ```sh
 pnpm install
@@ -27,8 +28,8 @@ pnpm dev:demo
 ```
 
 Add a todo, then open the same URL (including its hash) in another tab. Changes
-arrive through Subduction over the server. You can override the endpoint with
-`?server=ws://127.0.0.1:9090` before the hash. Existing documents also load
+arrive through Subduction over the server. To use the local server above, add
+`?server=ws://127.0.0.1:8080` before the hash. Existing documents also load
 from the browser's `automerge-repo-demo-todo` IndexedDB database on reload,
 including when the server is offline. New sessions use a fresh signer; durable
 peer identity is not supplied by this demo.
