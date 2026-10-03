@@ -9,7 +9,6 @@
   },
   "author": "Peter van Hardenberg <pvh@pvh.ca>",
   "license": "MIT",
-  "private": true,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -49,6 +48,9 @@
   },
   "engines": {
     "node": ">=22.13"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist",

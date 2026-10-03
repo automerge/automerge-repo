@@ -72,7 +72,6 @@ catalogs:
 
 overrides:
   semver: ^7.5.2
-  '@automerge/subduction': link:/Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
 
 importers:
 
@@ -142,8 +141,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-react
       '@automerge/subduction':
-        specifier: link:/Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 0.23.0
+        version: 0.23.0
       autoprefixer:
         specifier: ^10.5.2
         version: 10.6.1(postcss@8.5.28)
@@ -197,8 +196,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo-subduction
       '@automerge/subduction':
-        specifier: link:/Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 0.23.0
+        version: 0.23.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -232,7 +231,7 @@ importers:
         version: 1.6.4
       debug:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.4.3(supports-color@7.2.0)
       eventemitter3:
         specifier: 'catalog:'
         version: 5.0.4
@@ -248,7 +247,7 @@ importers:
         version: 22.20.0
       http-server:
         specifier: ^14.1.1
-        version: 14.1.1(debug@4.4.3)
+        version: 14.1.1(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)
       tsx:
         specifier: ^4.23.0
         version: 4.23.0
@@ -303,7 +302,7 @@ importers:
         version: 8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
       vite-plugin-dts:
         specifier: 'catalog:'
-        version: 5.0.3(esbuild@0.28.0)(rolldown@1.1.4)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.3(esbuild@0.28.0)(rolldown@1.1.4)(supports-color@7.2.0)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
@@ -339,10 +338,10 @@ importers:
         version: 8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
       vite-plugin-dts:
         specifier: 'catalog:'
-        version: 5.0.3(esbuild@0.28.0)(rolldown@1.1.4)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.3(esbuild@0.28.0)(rolldown@1.1.4)(supports-color@7.2.0)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
       vite-plugin-solid:
         specifier: ^2.11.12
-        version: 2.11.12(@testing-library/jest-dom@6.9.1)(solid-js@1.9.14)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+        version: 2.11.12(@testing-library/jest-dom@6.9.1)(solid-js@1.9.14)(supports-color@7.2.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
@@ -353,8 +352,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
       '@automerge/subduction':
-        specifier: link:/Users/acurrieclark/Development/packages/npm-3rd-party/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 0.23.0
+        version: 0.23.0
       cbor-x:
         specifier: 'catalog:'
         version: 1.6.4
@@ -370,7 +369,7 @@ importers:
         version: 6.0.3
       vitest:
         specifier: 'catalog:'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/automerge-repo-svelte-store:
     dependencies:
@@ -399,6 +398,9 @@ packages:
 
   '@automerge/automerge@3.5.0':
     resolution: {integrity: sha512-ejbqJWfXWM2QbTcUK/5ugYiQiyOP7LYVAp/RuSvthCc07oek0FClMxEuouuhjrLjVPDSI34RP1ftGc45PF7WRA==}
+
+  '@automerge/subduction@0.23.0':
+    resolution: {integrity: sha512-daTtDStLmrUbt1R9yqzBr4B+Hn5PcKUzqQ3eScR0cwMQ2dZS9OxLZ5TyRYHU+685nEKlXEzRgxOZxQPUg+GsTA==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -1350,6 +1352,11 @@ packages:
 
   '@volar/typescript@2.4.28':
     resolution: {integrity: sha512-Ja6yvWrbis2QtN4ClAKreeUZPVYMARDYZl9LMEv1iQ1QdepB6wn0jTRxA9MftYmYa4DQ4k/DaSZpFPUfxl8giw==}
+    peerDependencies:
+      typescript: '*'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   acorn@8.17.0:
     resolution: {integrity: sha512-xRQbDb9BnwDafYNn6Vwl839DYVjqXYb1XVGtWAZ1kcDc6iwAL4hg3B1dZlRiuENFeO2H53gFG3in621AdERVAg==}
@@ -2897,6 +2904,8 @@ snapshots:
 
   '@automerge/automerge@3.5.0': {}
 
+  '@automerge/subduction@0.23.0': {}
+
   '@babel/code-frame@7.29.0':
     dependencies:
       '@babel/helper-validator-identifier': 7.29.7
@@ -2905,20 +2914,20 @@ snapshots:
 
   '@babel/compat-data@7.29.0': {}
 
-  '@babel/core@7.29.0':
+  '@babel/core@7.29.0(supports-color@7.2.0)':
     dependencies:
       '@babel/code-frame': 7.29.0
       '@babel/generator': 7.29.1
       '@babel/helper-compilation-targets': 7.28.6
-      '@babel/helper-module-transforms': 7.28.6(@babel/core@7.29.0)
+      '@babel/helper-module-transforms': 7.28.6(@babel/core@7.29.0(supports-color@7.2.0))(supports-color@7.2.0)
       '@babel/helpers': 7.28.6
       '@babel/parser': 7.29.7
       '@babel/template': 7.28.6
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@7.2.0)
       '@babel/types': 7.29.7
       '@jridgewell/remapping': 2.3.5
       convert-source-map: 2.0.0
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       gensync: 1.0.0-beta.2
       json5: 2.2.3
       semver: 7.7.4
@@ -2947,19 +2956,19 @@ snapshots:
     dependencies:
       '@babel/types': 7.29.7
 
-  '@babel/helper-module-imports@7.28.6':
+  '@babel/helper-module-imports@7.28.6(supports-color@7.2.0)':
     dependencies:
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@7.2.0)
       '@babel/types': 7.29.7
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/helper-module-transforms@7.28.6(@babel/core@7.29.0)':
+  '@babel/helper-module-transforms@7.28.6(@babel/core@7.29.0(supports-color@7.2.0))(supports-color@7.2.0)':
     dependencies:
-      '@babel/core': 7.29.0
-      '@babel/helper-module-imports': 7.28.6
+      '@babel/core': 7.29.0(supports-color@7.2.0)
+      '@babel/helper-module-imports': 7.28.6(supports-color@7.2.0)
       '@babel/helper-validator-identifier': 7.29.7
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@7.2.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -2980,9 +2989,9 @@ snapshots:
     dependencies:
       '@babel/types': 7.29.7
 
-  '@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0)':
+  '@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0(supports-color@7.2.0))':
     dependencies:
-      '@babel/core': 7.29.0
+      '@babel/core': 7.29.0(supports-color@7.2.0)
       '@babel/helper-plugin-utils': 7.28.6
 
   '@babel/runtime@7.28.6': {}
@@ -2993,7 +3002,7 @@ snapshots:
       '@babel/parser': 7.29.7
       '@babel/types': 7.29.7
 
-  '@babel/traverse@7.29.0':
+  '@babel/traverse@7.29.0(supports-color@7.2.0)':
     dependencies:
       '@babel/code-frame': 7.29.0
       '@babel/generator': 7.29.1
@@ -3001,7 +3010,7 @@ snapshots:
       '@babel/parser': 7.29.7
       '@babel/template': 7.28.6
       '@babel/types': 7.29.7
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -3649,11 +3658,13 @@ snapshots:
 
   '@volar/source-map@2.4.28': {}
 
-  '@volar/typescript@2.4.28':
+  '@volar/typescript@2.4.28(typescript@6.0.3)':
     dependencies:
       '@volar/language-core': 2.4.28
       path-browserify: 1.0.1
       vscode-uri: 3.1.0
+    optionalDependencies:
+      typescript: 6.0.3
 
   acorn@8.17.0: {}
 
@@ -3709,19 +3720,19 @@ snapshots:
 
   axobject-query@4.1.0: {}
 
-  babel-plugin-jsx-dom-expressions@0.40.3(@babel/core@7.29.0):
+  babel-plugin-jsx-dom-expressions@0.40.3(@babel/core@7.29.0(supports-color@7.2.0)):
     dependencies:
-      '@babel/core': 7.29.0
+      '@babel/core': 7.29.0(supports-color@7.2.0)
       '@babel/helper-module-imports': 7.18.6
-      '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.0)
+      '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.29.0(supports-color@7.2.0))
       '@babel/types': 7.29.7
       html-entities: 2.3.3
       parse5: 7.3.0
 
-  babel-preset-solid@1.9.10(@babel/core@7.29.0)(solid-js@1.9.14):
+  babel-preset-solid@1.9.10(@babel/core@7.29.0(supports-color@7.2.0))(solid-js@1.9.14):
     dependencies:
-      '@babel/core': 7.29.0
-      babel-plugin-jsx-dom-expressions: 0.40.3(@babel/core@7.29.0)
+      '@babel/core': 7.29.0(supports-color@7.2.0)
+      babel-plugin-jsx-dom-expressions: 0.40.3(@babel/core@7.29.0(supports-color@7.2.0))
     optionalDependencies:
       solid-js: 1.9.14
 
@@ -3885,9 +3896,11 @@ snapshots:
 
   csstype@3.2.3: {}
 
-  debug@4.4.3:
+  debug@4.4.3(supports-color@7.2.0):
     dependencies:
       ms: 2.1.3
+    optionalDependencies:
+      supports-color: 7.2.0
 
   dedent-js@1.0.1: {}
 
@@ -4025,9 +4038,9 @@ snapshots:
 
   flatted@3.4.2: {}
 
-  follow-redirects@1.15.11(debug@4.4.3):
+  follow-redirects@1.15.11(debug@4.4.3(supports-color@7.2.0)):
     optionalDependencies:
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
 
   fraction.js@5.3.4: {}
 
@@ -4107,26 +4120,26 @@ snapshots:
 
   html-escaper@2.0.2: {}
 
-  http-proxy@1.18.1(debug@4.4.3):
+  http-proxy@1.18.1(debug@4.4.3(supports-color@7.2.0)):
     dependencies:
       eventemitter3: 4.0.7
-      follow-redirects: 1.15.11(debug@4.4.3)
+      follow-redirects: 1.15.11(debug@4.4.3(supports-color@7.2.0))
       requires-port: 1.0.0
     transitivePeerDependencies:
       - debug
 
-  http-server@14.1.1(debug@4.4.3):
+  http-server@14.1.1(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0):
     dependencies:
       basic-auth: 2.0.1
       chalk: 4.1.2
       corser: 2.0.1
       he: 1.2.0
       html-encoding-sniffer: 3.0.0
-      http-proxy: 1.18.1(debug@4.4.3)
+      http-proxy: 1.18.1(debug@4.4.3(supports-color@7.2.0))
       mime: 1.6.0
       minimist: 1.2.8
       opener: 1.5.2
-      portfinder: 1.0.38
+      portfinder: 1.0.38(supports-color@7.2.0)
       secure-compare: 3.0.1
       union: 0.5.0
       url-join: 4.0.1
@@ -4493,10 +4506,10 @@ snapshots:
       exsolve: 1.1.0
       pathe: 2.0.3
 
-  portfinder@1.0.38:
+  portfinder@1.0.38(supports-color@7.2.0):
     dependencies:
       async: 3.2.6
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -4727,10 +4740,10 @@ snapshots:
       seroval: 1.5.4
       seroval-plugins: 1.5.4(seroval@1.5.4)
 
-  solid-refresh@0.6.3(solid-js@1.9.14):
+  solid-refresh@0.6.3(solid-js@1.9.14)(supports-color@7.2.0):
     dependencies:
       '@babel/generator': 7.29.1
-      '@babel/helper-module-imports': 7.28.6
+      '@babel/helper-module-imports': 7.28.6(supports-color@7.2.0)
       '@babel/types': 7.29.7
       solid-js: 1.9.14
     transitivePeerDependencies:
@@ -4898,12 +4911,12 @@ snapshots:
     dependencies:
       qs: 6.14.2
 
-  unplugin-dts@1.0.3(esbuild@0.28.0)(rolldown@1.1.4)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
+  unplugin-dts@1.0.3(esbuild@0.28.0)(rolldown@1.1.4)(supports-color@7.2.0)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
       '@rollup/pluginutils': 5.4.0
-      '@volar/typescript': 2.4.28
+      '@volar/typescript': 2.4.28(typescript@6.0.3)
       compare-versions: 6.1.1
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       kolorist: 1.8.0
       local-pkg: 1.2.1
       magic-string: 0.30.21
@@ -4943,9 +4956,9 @@ snapshots:
 
   validate-npm-package-name@6.0.2: {}
 
-  vite-plugin-dts@5.0.3(esbuild@0.28.0)(rolldown@1.1.4)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
+  vite-plugin-dts@5.0.3(esbuild@0.28.0)(rolldown@1.1.4)(supports-color@7.2.0)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
-      unplugin-dts: 1.0.3(esbuild@0.28.0)(rolldown@1.1.4)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+      unplugin-dts: 1.0.3(esbuild@0.28.0)(rolldown@1.1.4)(supports-color@7.2.0)(typescript@6.0.3)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
     optionalDependencies:
       vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
     transitivePeerDependencies:
@@ -4957,14 +4970,14 @@ snapshots:
       - typescript
       - webpack
 
-  vite-plugin-solid@2.11.12(@testing-library/jest-dom@6.9.1)(solid-js@1.9.14)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
+  vite-plugin-solid@2.11.12(@testing-library/jest-dom@6.9.1)(solid-js@1.9.14)(supports-color@7.2.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
-      '@babel/core': 7.29.0
+      '@babel/core': 7.29.0(supports-color@7.2.0)
       '@types/babel__core': 7.20.5
-      babel-preset-solid: 1.9.10(@babel/core@7.29.0)(solid-js@1.9.14)
+      babel-preset-solid: 1.9.10(@babel/core@7.29.0(supports-color@7.2.0))(solid-js@1.9.14)
       merge-anything: 5.1.7
       solid-js: 1.9.14
-      solid-refresh: 0.6.3(solid-js@1.9.14)
+      solid-refresh: 0.6.3(solid-js@1.9.14)(supports-color@7.2.0)
       vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
       vitefu: 1.1.3(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
     optionalDependencies:
@@ -5035,6 +5048,37 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@types/node': 22.20.0
+      '@vitest/coverage-v8': 4.1.10(vitest@4.1.10)
+      '@vitest/ui': 4.1.10(vitest@4.1.10)
+      happy-dom: 20.10.6
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
+    dependencies:
+      '@vitest/expect': 4.1.10
+      '@vitest/mocker': 4.1.10(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+      '@vitest/pretty-format': 4.1.10
+      '@vitest/runner': 4.1.10
+      '@vitest/snapshot': 4.1.10
+      '@vitest/spy': 4.1.10
+      '@vitest/utils': 4.1.10
+      es-module-lexer: 2.1.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.4
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.0.2
+      tinyglobby: 0.2.16
+      tinyrainbow: 3.1.0
+      vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.0
+      '@types/node': 26.1.0
       '@vitest/coverage-v8': 4.1.10(vitest@4.1.10)
       '@vitest/ui': 4.1.10(vitest@4.1.10)
       happy-dom: 20.10.6

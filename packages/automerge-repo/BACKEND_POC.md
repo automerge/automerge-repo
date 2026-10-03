@@ -195,10 +195,9 @@ arrive later. Neither result is evidence of global absence.
 
 ## Remaining limits
 
-The native Subduction dependency still requires an unreleased local WASM build;
-the workspace override is an absolute checkout link so this temporary worktree
-can resolve it. Replace it with a published version before distribution. See
-the Subduction README for trusted-peer allow-all authorization, exclusively owned
+The native Subduction dependency resolves from the published
+`@automerge/subduction@0.23.0` package. See the Subduction README for
+trusted-peer allow-all authorization, exclusively owned
 storage, non-streaming/quadratic history scans, replay budgets and conservative
 all-peer disconnection during deletion/storage-error recovery.
 

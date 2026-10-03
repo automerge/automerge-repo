@@ -1,11 +1,7 @@
 # Automerge Repo Subduction backend (experimental)
 
-**Private experiment, not production-ready. Exclusively owned storage, with
-explicit authenticated peer connections. Supports loose commits and fragments;
-no compaction or CRDT dependencies.** This is a real `@automerge/subduction`
-engine and storage bridge, not a MemoryBackend facade or a simulated protocol.
-The adapter targets `@automerge/subduction` **0.23.0**, including its native
-fragment metadata and ephemeral pubsub APIs.
+**Experimental, not production-ready.** Requires exclusively owned storage and
+explicitly trusted peers. Uses `@automerge/subduction` 0.23.0.
 
 ## Quick start
 
@@ -31,32 +27,23 @@ try {
 ```
 
 The package imports `@automerge/subduction/slim` and does not initialize WASM.
-Browser/bundler applications must await their native initializer first, using
-the same generated wrapper classes as `/slim`. `createSubductionPeer()` is
-synchronous: it owns a generated memory signer and uses `MemoryByteStore` by
-default, so identity and history do not survive restart. An injected `signer`
-is borrowed: keep it alive through `peer.close()`, then free it yourself.
-Injected storage is borrowed and subject to exclusive ownership below. Signers
-must provide a valid Ed25519 verifying key and matching signatures; native can
-panic on invalid keys. Backend limits and `syncTimeoutMilliseconds` can also be
-passed to the peer factory.
+Browser apps must await the matching native initializer before creating a peer.
+By default `createSubductionPeer()` uses an in-memory signer and byte store:
+identity and history do not survive restart. Injected signers and stores are
+borrowed; keep them alive until after `peer.close()`. Use valid Ed25519 signer
+keys, as native code can panic on invalid keys.
 
 ### IndexedDB byte store
 
 For persistent local history in a browser, pass `new IndexedDBByteStore()` as
 `storage`. It uses the `automerge-repo-subduction` database and `bytes` object
-store by default; pass `{ database, store }` to override them. It opens lazily,
-so importing or constructing it does not require IndexedDB until the first read
-or write. Existing object stores must use out-of-line keys without autoIncrement;
-missing stores are added by a version upgrade. Saves snapshot bytes synchronously
-and resolve only after the transaction completes, not just the request. This is
-IndexedDB's commit guarantee, not a promise of fsync or protection from browser
-eviction. Invalid stored values reject rather than look missing.
+store by default; pass `{ database, store }` to override them. Existing object
+stores must use out-of-line keys without autoIncrement. A completed save does
+not guarantee fsync or protection from browser eviction.
 
-The backend borrows the store: after shutting down Repo and closing the peer,
-call `await storage.close()` to release its database connection. Later operations
-reopen it; version changes and unexpected database closure invalidate the cached
-connection. A blocked open rejects; close other database clients before retrying.
+After shutting down Repo and closing the peer, call `await storage.close()` to
+release its database connection. If an open is blocked, close other database
+clients before retrying.
 
 ```ts
 // Node initializer shown; browsers must await their native WASM initializer.
@@ -85,38 +72,23 @@ try {
 }
 ```
 
-The default `MemorySigner` still creates a new peer identity on each start;
-inject a persistent signer separately if identity must survive reloads. The
-`subduction-v1/` key prefix separates this backend's records from other stores,
-but does not make concurrent backends safe: use one live backend per database,
-including across browser tabs and custom object stores. Concurrent local deletes
-and writes are not coordinated across tabs.
+Inject a persistent signer if peer identity must survive reloads. Use one live
+backend per database, including across browser tabs and custom object stores;
+concurrent local deletes and writes are not coordinated across tabs.
 
 ### Server connections
 
 `servers` accepts WebSocket URL strings, `URL` objects, or `{ url, serviceName? }`.
-The discovery service name defaults to the host including port. Configured
-servers connect immediately; `peer.connect(server)` adds another connection to
-the live readonly `peer.connections` array. Duplicate URLs are allowed. The
-`peer.peerId` is a string, not a caller-owned native wrapper.
+Configured servers connect immediately; `peer.connect(server)` adds another
+connection to `peer.connections`.
 
-Connections expose `url`, `status` (`connecting`, `connected`, `disconnected`,
-`closed`) and `error`. `subscribe(callback)` calls back immediately and on state
-changes; read `connection.error` inside the callback. `connected()` waits across
-automatic retries, rejecting on close or a failed attempt with retry disabled.
-Retry uses jittered exponential backoff (500 ms initially, capped at 30 s);
-configure `retry: { initialMs, maxMs }` or `retry: false`. `reconnect()` cancels
-the current attempt and retries immediately even when retry is disabled. The
-default `connectTimeoutMilliseconds: 10_000` covers opening, authentication and
-backend onboarding, separately from native sync timeouts. Cancellation closes
-the socket; accepted storage operations must still finish before cleanup.
-External signing I/O cannot be cancelled, but does not block cleanup.
+Use `connection.connected()` to wait for a connection; it retries by default.
+Configure `retry: { initialMs, maxMs }` or `retry: false`, and use
+`connection.reconnect()` to retry immediately. `connectTimeoutMilliseconds`
+defaults to 10 seconds for opening, authentication and backend onboarding.
 
-`connection.close()` closes only its socket. `peer.close()` stops all connections,
-closes the backend and frees its owned signer; it is idempotent and supports
-`Symbol.asyncDispose`. Call `repo.shutdown()` first, then `peer.close()` in a
-`finally` block as shown. Repo shutdown is best-effort; call `repo.flush()`
-beforehand to observe persistence failures.
+`connection.close()` closes only its socket. Call `repo.shutdown()` before
+`peer.close()`; call `repo.flush()` first to observe persistence failures.
 
 For an existing backend and signer, use `connectSubductionServer` directly:
 
@@ -135,27 +107,7 @@ try {
 }
 ```
 
-This borrows both backend and signer; it closes neither. The helper owns its
-WebSocket and authenticates with native `AuthenticatedTransport.setupDiscover`.
-
-Fragment extraction, encoding and application belong to Repo's lightweight
-`@automerge/automerge-repo/sedimentree/automerge` subpath, which uses the fragment
-APIs in raw `@automerge/automerge` **3.5.0**. This backend imports
-`@automerge/automerge-repo/sedimentree` at runtime, never Repo's constructor,
-document orchestration, or Automerge translation. This backend uses
-`@automerge/subduction` only for the Subduction runtime, signing and storage;
-Automerge remains a test-only dependency here.
-
-## Fragment support and required native API
-
-Native 0.23.0 supplies `Checkpoint`, `Fragment.fromCheckpointPrefixes`, and
-checkpoint/tree-ID getters. They are required for this adapter's fragment support.
-
-Fragments preserve full head/boundary IDs and the native 12-byte checkpoint
-prefixes, including empty checkpoint sets. Native signed payloads are the source
-of metadata on reload; there is no metadata sidecar, CRDT decoding, or handwritten
-native wire parser. The adapter checks native count limits before submission:
-255 unique boundary IDs and 65,535 unique checkpoints per fragment.
+This borrows both backend and signer; it closes neither.
 
 ## Construction and ownership
 
@@ -174,15 +126,8 @@ await backend.close()
 signer.free()
 ```
 
-Browser/bundler applications must initialize the native WASM runtime themselves.
-Implementation imports use `/slim`; construction is synchronous. The signer is
-**borrowed**: keep it alive until close completes, then release it yourself.
-The runtime's options retain a JS `Signer` interface, not a consumed signer
-pointer; the real-WASM test verifies signing still works after backend close. In contrast,
-`CommitInput`/`FragmentInput` consume their unsigned payloads, `storeBuiltBatch`
-consumes both input wrapper arrays, and `CommitWithBlob`/`FragmentWithBlob` consume
-their signed payloads. Metadata getters return independently owned native values;
-the adapter copies their plain bytes and frees those wrappers.
+Browser apps must initialize native WASM first. The signer is **borrowed**: keep
+it alive until close completes, then free it yourself.
 
 The injected `LocalByteStore` has exactly:
 
@@ -195,11 +140,10 @@ list(prefix: string): Promise<string[]> // full keys with this prefix
 
 `save` **must atomically replace one entire value**. Successful resolution must
 mean recoverable under the store's documented guarantees (not necessarily fsync).
-Missing values are `undefined`, not empty buffers; `remove` is idempotent.
-Do not mutate supplied bytes. The namespace `subduction-v1/` must be exclusively
-owned by this backend: no other engine, tab, process, or caller may mutate it
-while the backend is alive. Storage is borrowed and is not closed or erased by
-backend close. Concurrent multi-owner access and hostile storage are unsupported.
+Missing values are `undefined`; `remove` is idempotent. Do not mutate supplied
+bytes. The `subduction-v1/` namespace must be exclusively owned by this backend.
+Storage is borrowed and is not closed or erased by backend close. Concurrent
+multi-owner access and hostile storage are unsupported.
 
 ## Low-level authenticated peer connections
 
@@ -445,16 +389,11 @@ and `load` allocate their whole result before limits can be checked. These are
 encoded budgets, **not total heap bounds**, and this is not a large-store/streaming
 implementation. Submission backpressure/coalescing must precede production use.
 
-## Local dependency and tests
+## Dependency and tests
 
-The local `subduction` checkout must have a built `subduction_wasm/dist`.
-The workspace override links its absolute path so temporary worktrees resolve it.
-From this workspace root, run `pnpm install` to install dependencies and link that
-package. Imports of both `@automerge/subduction` and `@automerge/subduction/slim`
-resolve to the local build. Rebuilding it updates the linked runtime directly;
-no registry publication is needed. This is a local-development dependency, not a
-portable release pin; replace the link with a published version before sharing
-an installation that does not include the local checkout.
+Run `pnpm install --frozen-lockfile` from the workspace root. Both
+`@automerge/subduction` and `@automerge/subduction/slim` resolve from the
+published `@automerge/subduction@0.23.0` package; no local checkout is needed.
 
 After the main workspace dependency installation:
 

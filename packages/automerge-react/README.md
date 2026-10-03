@@ -1,9 +1,6 @@
 # @automerge/react
 
-Convenience exports for Automerge Repo, React hooks, and the Subduction backend.
-This branch is experimental: Subduction is still a private workspace package with
-a local native dependency. The umbrella is private until that dependency can be
-published; do not use it as a registry installation yet.
+Repo, React hooks, and the experimental Subduction backend in one package.
 
 ## Local-only React usage
 
@@ -48,10 +45,8 @@ export function App() {
 }
 ```
 
-`create()`, `import()` and `clone()` return handle promises. Changes apply locally
-immediately, but `handle.change()` and hook updaters return local-persistence
-promises. There is no automatic server, adapter configuration or `createRepo()`
-factory.
+Changes apply locally immediately; await `handle.change()` or a hook updater to
+observe persistence failures. A Repo has no backend unless one is supplied.
 
 ## Subduction and browser storage
 
@@ -104,18 +99,6 @@ const alias = {
 
 ## Slim entrypoint
 
-`@automerge/react/slim` exports the same Repo, hook and backend APIs plus
-Automerge's explicit initialization helpers, without initializing either WASM
-runtime. Initialize Automerge and Subduction yourself before creating a backend,
-using their matching slim runtime wrappers. See each runtime's initialization
-instructions. Importing or constructing `IndexedDBByteStore` does not open a
-database until its first operation.
-
-## Exports
-
-- Repo and document APIs from `@automerge/automerge-repo`.
-- All hooks and `RepoContext` from `@automerge/automerge-repo-react-hooks`.
-- Subduction backend, connection/peer helpers, byte stores, and their types from
-  `@automerge/automerge-repo-subduction`.
-
-Legacy network/storage adapters are not re-exported or reinstated.
+`@automerge/react/slim` does not initialize either WASM runtime. Initialize
+Automerge and Subduction yourself before creating a backend, using their matching
+slim runtime wrappers.
