@@ -44,6 +44,24 @@ If we were just to have this action then releasing a new package would involve m
 
 The final step is a slight lie. Tags created by GitHub Actions don't trigger further actions. This means that the publish action doesn't run when tags are created by the merge PR action. Thus in the merge PR action we programmatically trigger the publish action as well as creating the new tag.
 
+### npm release channels
+
+The release workflow selects an npm dist-tag from the version:
+
+- Stable versions (for example, `3.0.0`) use `latest`.
+- `-alpha.n`, `-beta.n`, and `-rc.n` versions use `next`.
+- Other `-<channel>.n` versions use the named channel; for example,
+  `3.0.0-experimental.1` uses `experimental`.
+
+Prereleases must use a lowercase channel starting with a letter, followed by
+letters, digits, or hyphens, and a nonnegative integer suffix without leading
+zeros. `latest` is reserved for stable releases. Channels starting with `v` and a
+digit are rejected to avoid npm's version-range naming restrictions.
+
+Publishing moves the selected dist-tag even if it currently points to a higher
+version. Releases from different branches that share a channel overwrite the
+same dist-tag.
+
 ### How to release
 
 To release a new version:

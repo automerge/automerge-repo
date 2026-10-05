@@ -18,7 +18,7 @@ permissions:
   contents: write
   id-token: write
 
-# Serialize releases because all versions share the npm latest/next dist-tags.
+# Serialize releases because versions can share npm dist-tags.
 concurrency:
   group: publish-release
   cancel-in-progress: false
@@ -53,6 +53,16 @@ jobs:
 
           node scripts/version.mjs check --tag "$RELEASE_TAG"
 
+      - name: Select npm dist-tag
+        id: channel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          channel="$(node scripts/version.mjs dist-tag "$RELEASE_TAG")"
+
+          echo "dist-tag=$channel" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -63,16 +73,9 @@ jobs:
         run: pnpm test
 
       - name: Publish packages
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          publish_args=()
-          if [[ "$RELEASE_TAG" == *-* ]]; then
-            publish_args+=(--tag next)
-          fi
-
-          pnpm -r publish --no-git-checks "${publish_args[@]}"
+        env:
+          NPM_DIST_TAG: ${{ steps.channel.outputs.dist-tag }}
+        run: pnpm -r publish --no-git-checks --tag "$NPM_DIST_TAG"
 
       - name: Create GitHub release
         env:

@@ -44,6 +44,8 @@ jobs:
           node-version: ${{ matrix.node-version }}
           registry-url: "https://registry.npmjs.org"
           cache: pnpm
+      - name: Test release scripts
+        run: node --test scripts/version.test.mjs
       - name: Install
         run: pnpm install
       - name: Build

@@ -8,6 +8,7 @@ const ROOT_PACKAGE_PATH = path.join(REPO_ROOT, "package.json")
 const usage = `Usage:
   version.mjs bump
   version.mjs check [--tag <tag>]
+  version.mjs dist-tag <tag>
   version.mjs has-changed [<before commitish>] [<after commitish>]
   version.mjs tag [<commitish>]
   version.mjs help
@@ -24,6 +25,12 @@ Commands:
   check [--tag <tag>]
     Check without modifying files that every package version matches the root
     package.json. With --tag, also require the tag to equal "v<version>".
+
+  dist-tag <tag>
+    Print the npm dist-tag for a v-prefixed release tag. Stable versions use
+    latest; alpha, beta, and rc prereleases use next; other <channel>.n
+    prereleases use their named channel. Reject malformed release tags and
+    reserved or version-like prerelease channels.
 
   has-changed [<before commitish>] [<after commitish>]
     Compare the root package version stored in two Git commits. Print the new
@@ -51,6 +58,8 @@ function main([command, ...args]) {
       return bumpVersions(args)
     case "check":
       return checkVersions(args)
+    case "dist-tag":
+      return printDistTag(args)
     case "has-changed":
       return hasVersionChanged(args)
     case "tag":
@@ -118,6 +127,31 @@ function checkVersions(args) {
   }
 
   console.log(`all package versions match ${version}`)
+}
+
+function printDistTag(args) {
+  if (args.length !== 1) throw new Error(usage)
+
+  const [tag] = args
+  const number = "(?:0|[1-9][0-9]*)"
+  const version = `v${number}\\.${number}\\.${number}`
+  const pattern = new RegExp(`^${version}(?:-([a-z][a-z0-9-]*)\\.${number})?$`)
+  const match = pattern.exec(tag)
+  if (!match || match[0] !== tag) {
+    throw new Error(`Expected vX.Y.Z or vX.Y.Z-<channel>.n, got: ${tag}`)
+  }
+
+  const channel = match[1]
+  if (channel === "latest" || /^v[0-9]/.test(channel ?? "")) {
+    throw new Error(`Invalid prerelease channel: ${channel}`)
+  }
+
+  const distTag = !channel
+    ? "latest"
+    : ["alpha", "beta", "rc"].includes(channel)
+      ? "next"
+      : channel
+  console.log(distTag)
 }
 
 function hasVersionChanged(args) {
