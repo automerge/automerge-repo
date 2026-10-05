@@ -6,6 +6,7 @@ import type { DocumentQuery, SourcePriority } from "./DocumentQuery.js"
 import type { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import type { DocumentId } from "./types.js"
 import { asyncThrottle } from "./helpers/throttle.js"
+import { kOnInternal } from "./internals.js"
 
 /**
  * A {@link DocumentSource} backed by a {@link StorageSubsystem}. Loads
@@ -36,8 +37,8 @@ export class StorageSource implements DocumentSource {
     const handle = query.handle
     const saveFn = this.#makeSaveFn(handle.documentId)
 
-    // Attach throttled save listener
-    handle.on("heads-changed", saveFn)
+    // Attach throttled save listener (internal: survives consumer cleanup)
+    handle[kOnInternal]("heads-changed", saveFn)
 
     // If the handle already has data (e.g. from create/import), persist it
     // immediately rather than waiting for a future heads-changed event.

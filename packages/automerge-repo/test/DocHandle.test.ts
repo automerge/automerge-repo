@@ -11,6 +11,7 @@ import { eventPromise } from "../src/helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { Document } from "../src/Document.js"
 import { TestDoc } from "./types.js"
+import { kOnInternal } from "../src/internals.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
@@ -288,6 +289,44 @@ describe("DocHandle", () => {
         return d
       })
     }))
+
+  it("public listener removal leaves repo-internal listeners attached", () => {
+    const handle = setup()
+    const seen: string[] = []
+    const internal = () => seen.push(handle.doc()!.foo ?? "")
+    handle[kOnInternal]("change", internal)
+    handle.on("change", () => {})
+
+    handle.removeAllListeners()
+    expect(handle.listeners("change")).toEqual([internal])
+
+    handle.on("change", () => {})
+    handle.off("change")
+    expect(handle.listeners("change")).toEqual([internal])
+
+    // off(event, fn) with an internal listener's function leaves it attached.
+    handle.off("change", internal as never)
+    handle.change(d => {
+      d.foo = "bar"
+    })
+    expect(seen).toEqual(["bar"])
+  })
+
+  it("off(event, fn) removes a once() listener by the original function", () => {
+    const handle = setup()
+    const listener = vi.fn()
+
+    handle.once("change", listener)
+    expect(handle.listenerCount("change")).toBe(1)
+
+    handle.off("change", listener)
+    expect(handle.listenerCount("change")).toBe(0)
+
+    handle.change(doc => {
+      doc.foo = "bar"
+    })
+    expect(listener).not.toHaveBeenCalled()
+  })
 
   it("should update the internal doc prior to emitting the change message", async () => {
     const handle = setup()
