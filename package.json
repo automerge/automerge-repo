@@ -36,6 +36,7 @@
       "INCORRECT_REPOSITORY_FIELD"
     ]
   },
+  "packageManager": "pnpm@11.10.0",
   "devDependencies": {
     "@automerge/automerge": "catalog:",
     "@manypkg/cli": "^0.25.1",
