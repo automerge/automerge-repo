@@ -99,7 +99,8 @@ export class StorageSource implements DocumentSource {
             // This save runs fire-and-forget from a "heads-changed" listener,
             // so a rejection would surface as an unhandled rejection and, in
             // Node, exit the process by default. Catch and log it; the change
-            // stays in memory and a later save or reload can re-persist it.
+            // stays in memory, and the next save of this document (a later
+            // change or a flush()) includes it.
             // See https://nodejs.org/api/process.html#event-unhandledrejection
             this.#log.error(
               `Error saving document ${handle.documentId} to storage`,
