@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-subduction",
-  "version": "2.6.0-alpha.5",
+  "version": "3.0.0-experimental.1",
   "description": "Experimental Subduction sedimentree backend with authenticated peer sync",
   "repository": {
     "type": "git",
