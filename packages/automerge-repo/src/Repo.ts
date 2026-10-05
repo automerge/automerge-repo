@@ -160,10 +160,16 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     // NETWORK
-    const myPeerMetadata: Promise<PeerMetadata> = (async () => ({
-      storageId: await storageSubsystem?.id(),
-      isEphemeral,
-    }))()
+    const myPeerMetadata: Promise<PeerMetadata> = (async () => {
+      let storageId: StorageId | undefined
+      try {
+        storageId = await storageSubsystem?.id()
+      } catch (err) {
+        // Without a storage id, peers don't persist sync state for us.
+        this.#log.error("error loading storage id", err)
+      }
+      return { storageId, isEphemeral }
+    })()
 
     const networkSubsystem = new NetworkSubsystem(
       network,
