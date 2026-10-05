@@ -45,6 +45,12 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   /** Metadata on the chunks we've already loaded for each document */
   #chunkInfos: Map<DocumentId, ChunkInfo[]> = new Map()
 
+  /**
+   * Bumped when {@link StorageSubsystem.saveDoc} stops tracking a document's
+   * chunks. Saves begun under an earlier generation leave the chunk list alone.
+   */
+  #chunkGenerations: Map<DocumentId, number> = new Map()
+
   /** Flag to avoid compacting when a compaction is already underway */
   #compacting = false
 
@@ -215,6 +221,20 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     // Don't bother saving if the document hasn't changed
     if (!this.#shouldSave(documentId, doc)) return
 
+    // The tracked chunks hold changes this doc lacks (e.g. an older binary
+    // imported after the handle was dropped). Leave them on disk, where the
+    // next load merges them in, and track from a fresh snapshot.
+    const savedHeads = this.#storedHeads.lastSavedHeads(documentId).value
+    if (savedHeads && !A.hasHeads(doc, savedHeads)) {
+      this.#chunkGenerations.set(
+        documentId,
+        (this.#chunkGenerations.get(documentId) ?? 0) + 1
+      )
+      this.#chunkInfos.delete(documentId)
+      await this.#saveTotal(documentId, doc, [])
+      return
+    }
+
     const sourceChunks = this.#chunkInfos.get(documentId) ?? []
 
     if (this.#shouldCompact(sourceChunks)) {
@@ -241,6 +261,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     doc: A.Doc<unknown>
   ): Promise<void> {
     const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
+    const generation = this.#chunkGenerations.get(documentId)
     const sinceHeads = headsHandle.value
     if (!sinceHeads || sinceHeads.length === 0) {
       // No prior save recorded — save a full snapshot instead of calling
@@ -266,14 +287,16 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       const key = [documentId, "incremental", keyHash(binary)]
       this.#log.debug(`Saving incremental ${key} for document ${documentId}`)
       await this.#storageAdapter.save(key, binary)
-      if (!this.#chunkInfos.has(documentId)) {
-        this.#chunkInfos.set(documentId, [])
+      if (this.#chunkGenerations.get(documentId) === generation) {
+        if (!this.#chunkInfos.has(documentId)) {
+          this.#chunkInfos.set(documentId, [])
+        }
+        this.#chunkInfos.get(documentId)!.push({
+          key,
+          type: "incremental",
+          size: binary.length,
+        })
       }
-      this.#chunkInfos.get(documentId)!.push({
-        key,
-        type: "incremental",
-        size: binary.length,
-      })
       headsHandle.update(A.getHeads(doc))
     } else {
       return Promise.resolve()
@@ -291,6 +314,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     this.#compacting = true
     try {
       const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
+      const generation = this.#chunkGenerations.get(documentId)
 
       const start = performance.now()
       const binary = A.save(doc)
@@ -316,11 +340,14 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
         await this.#storageAdapter.remove(key)
       }
 
-      const newChunkInfos =
-        this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ?? []
-      newChunkInfos.push({ key, type: "snapshot", size: binary.length })
+      if (this.#chunkGenerations.get(documentId) === generation) {
+        const newChunkInfos =
+          this.#chunkInfos.get(documentId)?.filter(c => !oldKeys.has(c.key)) ??
+          []
+        newChunkInfos.push({ key, type: "snapshot", size: binary.length })
 
-      this.#chunkInfos.set(documentId, newChunkInfos)
+        this.#chunkInfos.set(documentId, newChunkInfos)
+      }
       headsHandle.update(A.getHeads(doc))
     } finally {
       this.#compacting = false
