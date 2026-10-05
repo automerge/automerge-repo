@@ -3100,3 +3100,59 @@ describe("Repo inbound message handling", () => {
     }
   })
 })
+
+describe("Repo storage id lookup", () => {
+  // An adapter whose load of the storage id rejects (disk/IO error, permissions).
+  const failingStorage = () => {
+    const storage = new DummyStorageAdapter()
+    const load = storage.load.bind(storage)
+    storage.load = async key => {
+      if (key[0] === "storage-adapter-id") {
+        throw new Error("simulated storage id load failure")
+      }
+      return load(key)
+    }
+    return storage
+  }
+
+  it("logs a failed lookup instead of leaking an unhandled rejection", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const repo = new Repo({ storage: failingStorage() })
+
+      await vi.waitFor(() =>
+        assert.ok(
+          errSpy.mock.calls.some(call =>
+            call.some(arg => String(arg).includes("storage id"))
+          ),
+          "the failed lookup should be caught and logged"
+        )
+      )
+      await repo.shutdown()
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
+  it("still connects network adapters when the lookup fails", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const networkAdapter = new DummyNetworkAdapter({ startReady: true })
+      const connect = vi.spyOn(networkAdapter, "connect")
+      const repo = new Repo({
+        storage: failingStorage(),
+        network: [networkAdapter],
+      })
+
+      await vi.waitFor(() =>
+        expect(connect).toHaveBeenCalledWith(
+          repo.peerId,
+          expect.objectContaining({ storageId: undefined })
+        )
+      )
+      await repo.shutdown()
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+})
