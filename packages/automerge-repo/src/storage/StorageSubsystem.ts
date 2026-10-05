@@ -48,6 +48,9 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   /** Flag to avoid compacting when a compaction is already underway */
   #compacting = false
 
+  /** The in-flight or settled load-or-create of this storage's id */
+  #id?: Promise<StorageId>
+
   #log = makeLogger("automerge-repo:storage-subsystem")
 
   constructor(storageAdapter: StorageAdapterInterface) {
@@ -60,21 +63,33 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     await this.#storageAdapter.close?.()
   }
 
-  async id(): Promise<StorageId> {
-    const storedId = await this.#storageAdapter.load(["storage-adapter-id"])
+  id(): Promise<StorageId> {
+    if (!this.#id) {
+      const id = this.#loadOrCreateId()
+      this.#id = id
+      // Forget a failed attempt so the next call retries.
+      id.catch(() => {
+        if (this.#id === id) this.#id = undefined
+      })
+    }
+    return this.#id
+  }
 
-    let id: StorageId
+  async #loadOrCreateId(): Promise<StorageId> {
+    const key = ["storage-adapter-id"]
+    const storedId = await this.#storageAdapter.load(key)
     if (storedId) {
-      id = new TextDecoder().decode(storedId) as StorageId
-    } else {
-      id = Uuid.v4() as StorageId
-      await this.#storageAdapter.save(
-        ["storage-adapter-id"],
-        new TextEncoder().encode(id)
-      )
+      return new TextDecoder().decode(storedId) as StorageId
     }
 
-    return id
+    const newId = Uuid.v4() as StorageId
+    await this.#storageAdapter.save(key, new TextEncoder().encode(newId))
+
+    // Another repo sharing this storage may have saved its own id meanwhile,
+    // so adopt whatever is stored. This narrows that race but cannot close
+    // it: that would need an atomic create-if-absent in the adapter interface.
+    const savedId = await this.#storageAdapter.load(key)
+    return savedId ? (new TextDecoder().decode(savedId) as StorageId) : newId
   }
 
   // ARBITRARY KEY/VALUE STORAGE
