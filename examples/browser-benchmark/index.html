@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Repo browser benchmark</title>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">AUTOMERGE / LAB</p>
+      <h1>Repo responsiveness</h1>
+      <p class="intro">
+        Subduction + IndexedDB, on the browser main thread. Preparation is not
+        timed.
+      </p>
+      <p id="target"></p>
+      <div class="actions">
+        <button id="run">Run benchmark</button
+        ><button id="download" disabled>Download JSON</button>
+      </div>
+      <p id="status" role="status">
+        Ready. Generate fixtures first. Add ?smoke for a 10-document / 30-edit
+        check; ?reseed replaces the saved fixture store.
+      </p>
+      <div class="meter"><div id="bar"></div></div>
+      <section>
+        <h2>Document loads</h2>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Documents</th>
+                <th>Total</th>
+                <th>p50</th>
+                <th>p95</th>
+                <th>p99</th>
+                <th>Max</th>
+              </tr>
+            </thead>
+            <tbody id="loads"></tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h2>Live edits</h2>
+        <div class="stats">
+          <div>
+            <span>Latest edit</span><strong id="edit">0 / 5,000</strong>
+          </div>
+          <div><span>Last call</span><strong id="latency">–</strong></div>
+          <div><span>Writes pending</span><strong id="pending">0</strong></div>
+          <div><span>Frame gap max</span><strong id="frame">–</strong></div>
+        </div>
+        <div id="document-view" aria-label="Edited document sequence">0</div>
+      </section>
+      <section>
+        <h2>Report</h2>
+        <pre id="report">No run yet.</pre>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

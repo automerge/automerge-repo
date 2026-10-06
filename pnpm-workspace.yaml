@@ -1,6 +1,7 @@
 packages:
   - packages/**
   - examples/react-todo
+  - examples/browser-benchmark
 allowBuilds:
   "@swc/core": true
   cbor-extract: true

@@ -1,0 +1,26 @@
+{
+  "name": "@automerge/automerge-repo-browser-benchmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit",
+    "preview": "vite preview",
+    "automate": "pnpm build && node automate.mjs",
+    "diagnose": "node diagnose.mjs"
+  },
+  "dependencies": {
+    "@automerge/automerge": "catalog:",
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-subduction": "workspace:*",
+    "@automerge/subduction": "0.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "playwright": "^1.63.0",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-wasm": "catalog:"
+  }
+}

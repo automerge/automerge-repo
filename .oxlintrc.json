@@ -6,6 +6,8 @@
   },
   "ignorePatterns": [
     "**/dist/**",
+    "**/browser-benchmark/results/**",
+    "**/browser-benchmark/public/fixtures/**",
     "**/.svelte-kit/**",
     "**/test/**",
     "**/*.d.ts",
