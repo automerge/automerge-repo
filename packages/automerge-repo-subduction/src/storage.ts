@@ -442,6 +442,28 @@ export class StorageBridge implements N.SedimentreeStorage {
     })
   }
 
+  /** Stored representations for just these keys (undefined where absent).
+   * One key read each; never a tree scan. Serialized like other reads. */
+  lookup(
+    id: N.SedimentreeId,
+    records: readonly SedimentreeRecord[]
+  ): Promise<(SedimentreeRecord | undefined)[]> {
+    const tree = treeHex(id)
+    const wanted = records.map(record => ({
+      kind: record.kind,
+      key: record.kind === "commit" ? record.id : record.head,
+    }))
+    return this.enqueue(async () => {
+      const found: (SedimentreeRecord | undefined)[] = []
+      for (const { kind, key } of wanted) {
+        const value = await this.read(tree, kind, key)
+        value?.signed.free()
+        found.push(value?.record)
+      }
+      return found
+    })
+  }
+
   inventory(consume: (ids: SedimentreeId[]) => void): Promise<void> {
     return this.enqueue(async () => {
       const ids = await this.loadIds()

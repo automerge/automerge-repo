@@ -57,6 +57,22 @@ describe("real local Subduction", () => {
     backends.push(backend)
     return backend
   }
+  /** Bridge-encoded frame for `record`, produced by a scratch backend on its
+   * own store, so a test can plant a stored representation directly. */
+  async function encodedFrame(record: LooseCommitRecord): Promise<Uint8Array> {
+    const scratch = new DiskStore(await mkdtemp(join(tmpdir(), "frame-")))
+    const backend = new SubductionBackend({ storage: scratch, signer })
+    try {
+      await backend.store(tree, [record])
+      const key = (await scratch.list("subduction-v1/")).find(k =>
+        k.endsWith(`/commits/${record.id}`)
+      )!
+      return (await scratch.load(key))!
+    } finally {
+      await backend.close()
+      await rm(scratch.root, { recursive: true, force: true })
+    }
+  }
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "repo-subduction-"))
     storage = new DiskStore(root)
@@ -298,6 +314,49 @@ describe("real local Subduction", () => {
     })
   })
 
+  it("reports a stored-key conflict with its typed code before any write, without rescanning", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const list = vi.spyOn(storage, "list")
+    const save = vi.spyOn(storage, "save")
+    const variant = { ...record(1), blob: new Uint8Array([9, 42]) }
+    await expect(backend.store(tree, [variant])).rejects.toMatchObject({
+      operation: "store",
+      code: "conflict",
+    })
+    expect(save).not.toHaveBeenCalled()
+    expect(list).not.toHaveBeenCalled()
+    // Flush reports the refused attempt once; the original record is intact.
+    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
+    expect((await initial(backend.open(tree))).records).toEqual([record(1)])
+  })
+
+  it("a conflict that races past the preflight is still refused by the bridge, as a retryable store failure", async () => {
+    // Variant of record(1) lands between this backend's preflight and its
+    // native write (a shared-store race). Native wraps the bridge's rejection,
+    // so the typed conflict code is lost at this layer; what matters is that
+    // the write is refused, nothing is overwritten, and the error belongs to
+    // this store rather than being borrowed from another operation.
+    const backend = create()
+    const variant = { ...record(1), blob: new Uint8Array([9, 42]) }
+    const original = storage.load.bind(storage)
+    let seeded = false
+    vi.spyOn(storage, "load").mockImplementation(async key => {
+      if (!seeded && key.endsWith(`/commits/${cid(1)}`)) {
+        seeded = true
+        // Preflight sees "absent"; then the variant appears before the write.
+        await storage.save(key, await encodedFrame(variant))
+        return undefined
+      }
+      return original(key)
+    })
+    const failure = await backend.store(tree, [record(1)]).catch(e => e)
+    expect(failure).toMatchObject({ operation: "store", code: "io" })
+    expect(failure.retryable).toBe(true)
+    vi.mocked(storage.load).mockRestore()
+    expect((await initial(backend.open(tree))).records).toEqual([variant])
+  })
+
   it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
     // Small budget in a fresh backend. Writes are never refused for tree size.
     const backend = create({ maxBatchBytes: 4096, batchRecords: 8 })
@@ -338,9 +397,10 @@ describe("real local Subduction", () => {
       result: { outcome: "no-peers", checkpoint: { heads: [cid(2)] } },
     })
     expect(list).not.toHaveBeenCalled()
-    expect(load.mock.calls.map(([key]) => key)).toEqual([
-      `subduction-v1/${tree.padEnd(64, "0")}/commits/${cid(2)}`,
-    ])
+    // One preflight lookup plus the bridge's own same-key check: per record,
+    // independent of how much history the tree holds.
+    const path = `subduction-v1/${tree.padEnd(64, "0")}/commits/${cid(2)}`
+    expect(load.mock.calls.map(([key]) => key)).toEqual([path, path])
     // Readers still validate the authoritative stored history.
     expect((await initial(backend.open(tree))).records).toEqual([
       record(1),

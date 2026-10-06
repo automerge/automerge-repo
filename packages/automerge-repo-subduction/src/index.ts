@@ -212,8 +212,6 @@ export class SubductionBackend implements SedimentreeBackend {
     id: SedimentreeId
     work: Promise<void>
   }>()
-  private readonly bridgeFailures = new Map<SedimentreeId, BackendError>()
-
   private readonly signer: NativeSigner
   private readonly seenEphemerals = new Set<string>()
   private readonly self: string
@@ -244,7 +242,7 @@ export class SubductionBackend implements SedimentreeBackend {
       options.storage,
       this.limits,
       (id, record) => this.persisted(id, record),
-      (id, cause) => this.storageFailed(id, cause)
+      id => this.storageFailed(id)
     )
     this.engine = this.createEngine()
   }
@@ -382,10 +380,7 @@ export class SubductionBackend implements SedimentreeBackend {
         this.reconcileInterest(id)
     }
   }
-  private storageFailed(id: SedimentreeId, cause: unknown): void {
-    // Native wraps bridge rejections as opaque WriteErrors; keep the typed
-    // cause so the owning local store can report it (e.g. a conflict).
-    if (cause instanceof BackendError) this.bridgeFailures.set(id, cause)
+  private storageFailed(id: SedimentreeId): void {
     this.requireRescan(id)
     const generation = this.generation
     if (this.closed || generation.repairScheduled) return
@@ -1006,17 +1001,26 @@ export class SubductionBackend implements SedimentreeBackend {
               "conflict",
               "Document already exists"
             )
-          // Same-key conflicts within one batch cannot both be persisted.
+          // Conflict preflight against the batch itself and the stored keys it
+          // touches. Native wraps the bridge's own rejection in an opaque error,
+          // so detect the typed conflict here first; the bridge check remains
+          // authoritative for incoming writes and anything that races past this.
+          const conflict = () =>
+            new BackendError(
+              "store",
+              "conflict",
+              "Different same-key representation is unsupported"
+            )
           const keys = new Map<string, SedimentreeRecord>()
           for (const record of records) {
             const old = keys.get(recordKey(record))
-            if (old && !equalRecords(old, record))
-              throw new BackendError(
-                "store",
-                "conflict",
-                "Different same-key representation is unsupported"
-              )
+            if (old && !equalRecords(old, record)) throw conflict()
             keys.set(recordKey(record), record)
+          }
+          const stored = await this.bridge.lookup(native, records)
+          for (const [index, record] of records.entries()) {
+            const old = stored[index]
+            if (old && !equalRecords(old, record)) throw conflict()
           }
           for (const record of records) {
             // Input constructors consume their native payloads.
@@ -1035,15 +1039,7 @@ export class SubductionBackend implements SedimentreeBackend {
           if (inputs.length || fragments.length) {
             // storeBuiltBatch consumes both kinds of input wrappers.
             submitted = true
-            this.bridgeFailures.delete(id)
-            try {
-              await this.engine.storeBuiltBatch(native, inputs, fragments)
-            } catch (cause) {
-              // Surface the bridge's own typed rejection over native's wrapper.
-              throw this.bridgeFailures.get(id) ?? cause
-            } finally {
-              this.bridgeFailures.delete(id)
-            }
+            await this.engine.storeBuiltBatch(native, inputs, fragments)
           }
           // Native awaits the storage bridge for every record before touching
           // its in-memory tree, and minimization never deletes from storage, so
