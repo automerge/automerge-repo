@@ -357,6 +357,66 @@ describe("real local Subduction", () => {
     expect((await initial(backend.open(tree))).records).toEqual([variant])
   })
 
+  it("writes a submission larger than batchRecords in bounded chunks, in order", async () => {
+    const backend = create({ batchRecords: 8 })
+    const records = Array.from({ length: 20 }, (_, i) =>
+      record(i + 1, i ? [i] : [])
+    )
+    const native = vi.spyOn(N.Subduction.prototype, "storeBuiltBatch")
+    await backend.store(tree, records)
+    expect(native.mock.calls.map(([, commits]) => commits.length)).toEqual([
+      8, 8, 4,
+    ])
+    const loaded = await initial(backend.open(tree))
+    expect(loaded.records).toEqual(records)
+    expect(loaded.complete.checkpoint.heads).toEqual([cid(20)])
+  })
+
+  it("a single record above the chunk byte target is written alone, not refused", async () => {
+    const small = record(1)
+    const big = { ...record(2, [1]), blob: new Uint8Array(600).fill(7) }
+    const backend = create({ maxBatchBytes: 256 })
+    const native = vi.spyOn(N.Subduction.prototype, "storeBuiltBatch")
+    await backend.store(tree, [small, big, record(3, [2])])
+    expect(native.mock.calls.map(([, commits]) => commits.length)).toEqual([
+      1, 1, 1,
+    ])
+    expect((await initial(backend.open(tree))).records).toEqual([
+      small,
+      big,
+      record(3, [2]),
+    ])
+  })
+
+  it("keeps chunks that landed before a later chunk failed; a full retry completes and dedupes", async () => {
+    const backend = create({ batchRecords: 4 })
+    const { iterator } = await initial(backend.open(tree))
+    const records = Array.from({ length: 10 }, (_, i) =>
+      record(i + 1, i ? [i] : [])
+    )
+    let writes = 0
+    storage.beforeSave = async key => {
+      // Fail the first write of the second chunk (the 5th record).
+      if (key.includes("/commits/") && ++writes === 5)
+        throw new Error("disk failed")
+    }
+    await expect(backend.store(tree, records)).rejects.toThrow()
+    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
+    expect((await initial(backend.open(tree))).records).toEqual(
+      records.slice(0, 4)
+    )
+    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
+    storage.beforeSave = undefined
+    const native = vi.spyOn(N.Subduction.prototype, "storeBuiltBatch")
+    await backend.store(tree, records)
+    // The retry resubmits everything; the first chunk dedupes without rewriting.
+    expect(native).toHaveBeenCalledTimes(3)
+    const reloaded = await initial(backend.open(tree))
+    expect(reloaded.records).toEqual(records)
+    expect(reloaded.complete.checkpoint.heads).toEqual([cid(10)])
+    await backend.flush()
+  })
+
   it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
     // Small budget in a fresh backend. Writes are never refused for tree size.
     const backend = create({ maxBatchBytes: 4096, batchRecords: 8 })

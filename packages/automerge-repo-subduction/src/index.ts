@@ -127,6 +127,32 @@ function checkpoint(
   for (const record of records) heads.add(record)
   return heads.checkpoint(sequence)
 }
+/** Greedy split by record count and encoded bytes; never returns an empty
+ * group, and a record larger than `maxBytes` occupies a group by itself. */
+function split(
+  records: readonly SedimentreeRecord[],
+  maxRecords: number,
+  maxBytes: number
+): SedimentreeRecord[][] {
+  const groups: SedimentreeRecord[][] = []
+  let group: SedimentreeRecord[] = []
+  let size = 0
+  for (const record of records) {
+    const bytes = recordBytes(record)
+    if (
+      group.length &&
+      (group.length >= maxRecords || size + bytes > maxBytes)
+    ) {
+      groups.push(group)
+      group = []
+      size = 0
+    }
+    group.push(record)
+    size += bytes
+  }
+  if (group.length) groups.push(group)
+  return groups
+}
 function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
   if (value.type === "ephemeral")
     return {
@@ -745,37 +771,19 @@ export class SubductionBackend implements SedimentreeBackend {
       native.free()
     }
   }
+  /** Write chunks for store(): bounded count and encoded bytes per native call.
+   * A single record larger than the byte target still goes alone. */
+  private chunks(records: readonly SedimentreeRecord[]): SedimentreeRecord[][] {
+    return split(records, this.limits.batchRecords, this.limits.maxBatchBytes)
+  }
+  /** Initial-delivery `records` events; one larger record is allowed alone. */
   private batches(
     records: readonly SedimentreeRecord[],
     sequence: number
   ): SedimentreeEvent[] {
-    const events: SedimentreeEvent[] = []
-    let batch: SedimentreeRecord[] = [],
-      size = 0
-    const emit = () => {
-      if (batch.length)
-        events.push({
-          type: "records",
-          sequence,
-          phase: "initial",
-          records: batch,
-        })
-      batch = []
-      size = 0
-    }
-    for (const record of records) {
-      const bytes = recordBytes(record)
-      if (
-        batch.length &&
-        (batch.length >= this.limits.batchRecords ||
-          size + bytes > this.limits.batchBytes)
-      )
-        emit()
-      batch.push(record)
-      size += bytes
-    }
-    emit()
-    return events
+    return split(records, this.limits.batchRecords, this.limits.batchBytes).map(
+      batch => ({ type: "records", sequence, phase: "initial", records: batch })
+    )
   }
   open(input: SedimentreeId): SedimentreeSession {
     const id = sedimentreeId(input)
@@ -973,13 +981,12 @@ export class SubductionBackend implements SedimentreeBackend {
           )
         )
           throw new Error("Fragment metadata exceeds native wire count limits")
+        // Only single records are bounded here. A submission of any size is
+        // written in chunks below, so an import never has to be pre-split.
         if (
-          records.length > this.limits.batchRecords ||
-          records.reduce((n, r) => n + recordBytes(r), 0) >
-            this.limits.maxBatchBytes ||
           records.some(r => recordBytes(r) + 512 > this.limits.maxRecordBytes)
         )
-          throw new Error("Store batch/record limit exceeded")
+          throw new Error("Record exceeds maxRecordBytes")
       } catch (cause) {
         throw new BackendError(
           "store",
@@ -991,9 +998,7 @@ export class SubductionBackend implements SedimentreeBackend {
       }
       const work = this.enqueue(creating ? "create" : "store", async () => {
         const native = nativeId(id)
-        const inputs: N.CommitInput[] = []
-        const fragments: N.FragmentInput[] = []
-        let submitted = false
+        let persisted = 0
         try {
           if (creating && (await this.bridge.containsSedimentreeId(native)))
             throw new BackendError(
@@ -1022,31 +1027,40 @@ export class SubductionBackend implements SedimentreeBackend {
             const old = stored[index]
             if (old && !equalRecords(old, record)) throw conflict()
           }
-          for (const record of records) {
-            // Input constructors consume their native payloads.
-            if (record.kind === "commit")
-              inputs.push(
-                new N.CommitInput(unsigned(native, record), record.blob)
-              )
-            else
-              fragments.push(
-                new N.FragmentInput(
-                  unsignedFragment(native, record),
-                  record.blob
-                )
-              )
+          // Write in bounded chunks so WASM only ever holds one chunk's signed
+          // inputs. Native awaits the storage bridge for every record before
+          // touching its in-memory tree, and minimization never deletes from
+          // storage, so each resolved storeBuiltBatch means that chunk is saved.
+          for (const chunk of this.chunks(records)) {
+            const inputs: N.CommitInput[] = []
+            const fragments: N.FragmentInput[] = []
+            let submitted = false
+            try {
+              for (const record of chunk) {
+                // Input constructors consume their native payloads.
+                if (record.kind === "commit")
+                  inputs.push(
+                    new N.CommitInput(unsigned(native, record), record.blob)
+                  )
+                else
+                  fragments.push(
+                    new N.FragmentInput(
+                      unsignedFragment(native, record),
+                      record.blob
+                    )
+                  )
+              }
+              // storeBuiltBatch consumes both kinds of input wrappers.
+              submitted = true
+              await this.engine.storeBuiltBatch(native, inputs, fragments)
+              persisted += chunk.length
+            } finally {
+              if (!submitted) {
+                inputs.forEach(c => c.free())
+                fragments.forEach(f => f.free())
+              }
+            }
           }
-          if (inputs.length || fragments.length) {
-            // storeBuiltBatch consumes both kinds of input wrappers.
-            submitted = true
-            await this.engine.storeBuiltBatch(native, inputs, fragments)
-          }
-          // Native awaits the storage bridge for every record before touching
-          // its in-memory tree, and minimization never deletes from storage, so
-          // a resolved storeBuiltBatch means every submitted record is saved.
-          // Durability never waits for a peer. A separate coalesced network
-          // queue propagates stores even without a document session.
-          if (records.length) this.scheduleSync(id)
         } catch (cause) {
           // A rejected create has not submitted anything and needs no recovery.
           if (
@@ -1061,10 +1075,11 @@ export class SubductionBackend implements SedimentreeBackend {
           }
           throw cause
         } finally {
-          if (!submitted) {
-            inputs.forEach(c => c.free())
-            fragments.forEach(f => f.free())
-          }
+          // Durability never waits for a peer. A separate coalesced network
+          // queue propagates stores even without a document session. Chunks
+          // that landed before a later failure are durable and must propagate
+          // too; the caller retries the whole batch, and they dedupe.
+          if (persisted) this.scheduleSync(id)
           native.free()
         }
       })
