@@ -35,11 +35,47 @@ type LoadResult = {
   }
   storeMutated: boolean
 }
+type ImportFixture = Fixture & {
+  changes: number
+  records: number
+  loose: number
+  fragments: number
+  count: number
+}
+type ImportManifest = { version: number; files: ImportFixture[] }
+/** One import into a fresh store. `importMs` is until import() resolves,
+ * `flushMs` until flush() resolves afterwards (older targets return from
+ * import before persisting). `verified` means a reopen read back the final
+ * count. A rejected import is recorded with `error`, not thrown. */
+type ImportSample = {
+  fixture: string
+  records: number
+  bytes: number
+  importMs: number | null
+  flushMs: number | null
+  verified: boolean
+  error: string | null
+  storage: StorageStats
+  jsHeapBeforeBytes: number | null
+  jsHeapAfterBytes: number | null
+  storeKeys: number | null
+  storeBytes: number | null
+}
+type ImportResult = {
+  fixture: string
+  records: number
+  samples: ImportSample[]
+  importP50Ms: number | null
+  importP95Ms: number | null
+  flushP50Ms: number | null
+  failures: number
+}
 type Result = {
-  schema: 2
+  schema: 3
   target: { id: string; adapter: string }
   mode: "full" | "smoke" | "custom"
   fixtureSha256: string
+  importFixtureSha256: string | null
   fixture: Omit<Manifest, "files">
   userAgent: string
   timestamp: string
@@ -52,6 +88,7 @@ type Result = {
   }
   editDatabase?: string
   loads: LoadResult[]
+  imports: ImportResult[]
   edits?: {
     count: number
     callMs: number[]
@@ -77,6 +114,7 @@ const downloadButton = element("download") as HTMLButtonElement
 const status = element("status")
 const bar = element("bar")
 const loadRows = element("loads")
+const importRows = element("imports")
 const report = element("report")
 const fmt = (n: number) => `${n.toFixed(1)} ms`
 const percentile = (values: number[], p: number) => {
@@ -133,6 +171,35 @@ async function fixtures(): Promise<{ manifest: Manifest; hash: string }> {
   return { manifest, hash: await sha256(bytes) }
 }
 
+/** Import fixtures are optional: older fixture directories predate them. */
+async function importFixtures(): Promise<{
+  manifest: ImportManifest
+  hash: string
+} | null> {
+  const response = await fetch("/fixtures/v1/imports.json", {
+    cache: "no-store",
+  })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error("Failed to read import fixtures")
+  const bytes = await response.arrayBuffer()
+  const manifest = JSON.parse(new TextDecoder().decode(bytes)) as ImportManifest
+  if (manifest.version !== 1 || !manifest.files.length)
+    throw new Error("Expected v1 import fixtures; rerun pnpm bench:fixtures")
+  return { manifest, hash: await sha256(bytes) }
+}
+
+async function fetchFixture(fixture: Fixture): Promise<Uint8Array> {
+  const response = await fetch(`/fixtures/v1/${fixture.name}`)
+  if (!response.ok) throw new Error(`Failed to fetch ${fixture.name}`)
+  const bytes = await response.arrayBuffer()
+  if (
+    bytes.byteLength !== fixture.bytes ||
+    (await sha256(bytes)) !== fixture.sha256
+  )
+    throw new Error(`Fixture mismatch: ${fixture.name}`)
+  return new Uint8Array(bytes)
+}
+
 async function seed(database: string, files: Fixture[], hash: string) {
   const cached = await seedInfo(database)
   if (!reseed && cached) {
@@ -159,17 +226,12 @@ async function seed(database: string, files: Fixture[], hash: string) {
   try {
     for (let start = 0; start < files.length; start += 20) {
       const batch = await Promise.allSettled(
-        files.slice(start, start + 20).map(async fixture => {
-          const response = await fetch(`/fixtures/v1/${fixture.name}`)
-          if (!response.ok) throw new Error(`Failed to fetch ${fixture.name}`)
-          const bytes = await response.arrayBuffer()
-          if (
-            bytes.byteLength !== fixture.bytes ||
-            (await sha256(bytes)) !== fixture.sha256
+        files
+          .slice(start, start + 20)
+          .map(
+            async fixture =>
+              (await session.import(await fetchFixture(fixture))).url
           )
-            throw new Error(`Fixture mismatch: ${fixture.name}`)
-          return (await session.import(new Uint8Array(bytes))).url
-        })
       )
       const failed = batch.find(item => item.status === "rejected")
       if (failed?.status === "rejected") throw failed.reason
@@ -289,6 +351,95 @@ async function load(database: string, urls: string[]): Promise<LoadResult> {
   sample.storeMutated =
     sizeBefore.keys !== sizeAfter.keys || sizeBefore.bytes !== sizeAfter.bytes
   return sample
+}
+
+/** Import each listed fixture once, every one into a fresh store that is
+ * deleted afterwards, so this never reuses the prepared load seed and is always
+ * timed. Pass the same fixture several times to repeat it. */
+async function imports(
+  label: string,
+  records: number,
+  runs: { fixture: Fixture; verifyCount: number }[]
+): Promise<ImportResult> {
+  const samples: ImportSample[] = []
+  for (const [index, { fixture, verifyCount }] of runs.entries()) {
+    progress(
+      `Importing ${label}: ${index + 1}/${runs.length}`,
+      index / runs.length
+    )
+    const bytes = await fetchFixture(fixture)
+    const database = `automerge-repo-benchmark-${targetName}-v1-import-${crypto.randomUUID()}`
+    const stats = storageStats()
+    const sample: ImportSample = {
+      fixture: fixture.name,
+      records,
+      bytes: fixture.bytes,
+      importMs: null,
+      flushMs: null,
+      verified: false,
+      error: null,
+      storage: stats,
+      jsHeapBeforeBytes: memory(),
+      jsHeapAfterBytes: null,
+      storeKeys: null,
+      storeBytes: null,
+    }
+    const session = target.open(database, stats)
+    let url: string | undefined
+    try {
+      const started = performance.now()
+      try {
+        url = (await session.import(bytes.slice())).url
+        sample.importMs = performance.now() - started
+        const flushStarted = performance.now()
+        await session.flush()
+        sample.flushMs = performance.now() - flushStarted
+      } catch (error) {
+        sample.error = String(error)
+      }
+      sample.jsHeapAfterBytes = memory()
+    } finally {
+      await session.close().catch(error => {
+        sample.error ??= `close: ${String(error)}`
+      })
+    }
+    if (!sample.error && url) {
+      try {
+        const size = await storeSize(database)
+        sample.storeKeys = size.keys
+        sample.storeBytes = size.bytes
+        const reopened = target.open(database)
+        try {
+          const restored = await reopened.find<{ count: number }>(url)
+          sample.verified = restored.doc()?.count === verifyCount
+          if (!sample.verified) sample.error = "Reopened count did not match"
+        } finally {
+          await reopened.close()
+        }
+      } catch (error) {
+        sample.error = `verify: ${String(error)}`
+      }
+    }
+    samples.push(sample)
+    await deleteDatabase(database).catch(() => {})
+  }
+  const ok = samples.filter(sample => sample.verified)
+  const pick = (key: "importMs" | "flushMs", p: number) =>
+    ok.length
+      ? percentile(
+          ok.map(sample => sample[key] as number),
+          p
+        )
+      : null
+  return {
+    fixture: label,
+    records,
+    samples,
+    importP50Ms: pick("importMs", 0.5),
+    importP95Ms: pick("importMs", 0.95),
+    flushP50Ms: pick("flushMs", 0.5),
+    failures: samples.length - ok.length,
+  }
 }
 
 async function edits(
@@ -423,12 +574,14 @@ async function run() {
   runButton.disabled = true
   downloadButton.disabled = true
   loadRows.replaceChildren()
+  importRows.replaceChildren()
   report.textContent = "Running…"
   try {
     progress("Reading fixture manifest", 0, true)
     const { manifest, hash } = await fixtures()
+    const importSet = await importFixtures()
     result = {
-      schema: 2,
+      schema: 3,
       target: { id: targetName, adapter: target.adapter },
       mode:
         requestedEdits === (smoke ? 30 : 5000)
@@ -437,6 +590,7 @@ async function run() {
             : "full"
           : "custom",
       fixtureSha256: hash,
+      importFixtureSha256: importSet?.hash ?? null,
       fixture: {
         version: manifest.version,
         count: manifest.count,
@@ -447,6 +601,7 @@ async function run() {
       timestamp: new Date().toISOString(),
       seed: { reused: false, durationMs: 0, database: "" },
       loads: [],
+      imports: [],
     }
     const database = `automerge-repo-benchmark-${targetName}-v1-${smoke ? "smoke" : "full"}`
     const prepared = await seed(
@@ -503,6 +658,45 @@ async function run() {
       }
       loadRows.append(row)
     }
+    // Small imports reuse the 51-change load fixtures; medium/large come from
+    // imports.json. Each large fixture is one multi-hundred-record batch, which
+    // the adapter may reject outright: that is recorded per sample, not fatal.
+    const importClasses: Parameters<typeof imports>[] = [
+      [
+        "small",
+        manifest.changes + 1,
+        manifest.files
+          .slice(0, smoke ? 3 : 20)
+          .map(fixture => ({ fixture, verifyCount: 50 })),
+      ],
+      ...(importSet?.manifest.files ?? []).map(
+        (fixture): Parameters<typeof imports> => [
+          fixture.name.replace(/^import-|\.automerge$/g, ""),
+          fixture.records,
+          Array.from({ length: smoke ? 1 : 3 }, () => ({
+            fixture,
+            verifyCount: fixture.count,
+          })),
+        ]
+      ),
+    ]
+    for (const args of importClasses) {
+      const sample = await imports(...args)
+      result.imports.push(sample)
+      const row = document.createElement("tr")
+      for (const value of [
+        sample.fixture,
+        String(sample.records),
+        sample.importP50Ms === null ? "failed" : fmt(sample.importP50Ms),
+        sample.flushP50Ms === null ? "–" : fmt(sample.flushP50Ms),
+        `${sample.failures}/${sample.samples.length}`,
+      ]) {
+        const cell = document.createElement("td")
+        cell.textContent = value
+        row.append(cell)
+      }
+      importRows.append(row)
+    }
     progress("Editing new document", 0, true)
     const editDatabase = `automerge-repo-benchmark-${targetName}-v1-edits-${crypto.randomUUID()}`
     result.editDatabase = editDatabase
@@ -522,6 +716,14 @@ async function run() {
         fixtureSha256: hash,
         seed: result.seed,
         loads: result.loads.map(({ readyMs: _readyMs, ...summary }) => summary),
+        imports: result.imports.map(({ samples, ...summary }) => ({
+          ...summary,
+          errors: [
+            ...new Set(
+              samples.flatMap(s => (s.error === null ? [] : [s.error]))
+            ),
+          ],
+        })),
         edits: {
           count: result.edits.count,
           callP95Ms: percentile(result.edits.callMs, 0.95),

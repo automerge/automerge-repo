@@ -77,6 +77,21 @@ for (const count of smoke ? [10] : [10, 100, 500, 1000]) {
   metrics[`load${count}WorstFrameMs`] = r =>
     Math.max(...r.loads.find(load => load.count === count).frameGapMs)
 }
+// Import classes come from the result itself so older reports (no imports)
+// compare as null rather than throwing. A class with any failed sample is null.
+const importClasses = new Set(
+  Object.values(results)
+    .flat()
+    .flatMap(r => (r.imports ?? []).map(entry => entry.fixture))
+)
+for (const fixture of importClasses) {
+  const entry = r => (r.imports ?? []).find(item => item.fixture === fixture)
+  metrics[`import_${fixture}P50Ms`] = r =>
+    entry(r)?.failures === 0 ? entry(r).importP50Ms : null
+  metrics[`import_${fixture}FlushP50Ms`] = r =>
+    entry(r)?.failures === 0 ? entry(r).flushP50Ms : null
+  metrics[`import_${fixture}Failures`] = r => entry(r)?.failures ?? null
+}
 metrics.editCallP95Ms = r =>
   [...r.edits.callMs].sort((a, b) => a - b)[
     Math.ceil(r.edits.callMs.length * 0.95) - 1
@@ -92,6 +107,13 @@ const fixtureHashes = new Set(
 )
 if (fixtureHashes.size !== 1)
   throw new Error("Fixture manifests differ across targets")
+const importHashes = new Set(
+  Object.values(results)
+    .flat()
+    .map(result => result.importFixtureSha256 ?? null)
+)
+if (importHashes.size !== 1)
+  throw new Error("Import fixture manifests differ across targets")
 for (const [key, pick] of Object.entries(metrics)) {
   const baselineValues = series("main", pick)
   const baseline = baselineValues.every(value => value !== null)
@@ -110,7 +132,9 @@ for (const [key, pick] of Object.entries(metrics)) {
           min: complete ? Math.min(...values) : null,
           max: complete ? Math.max(...values) : null,
           vsMainPercent:
-            baseline && value !== null ? (value / baseline - 1) * 100 : null,
+            baseline && value !== null && !key.endsWith("Failures")
+              ? (value / baseline - 1) * 100
+              : null,
         },
       ]
     })
