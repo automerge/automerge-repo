@@ -251,17 +251,15 @@ describe("local Subduction fragments", () => {
     await backend.flush()
   })
 
-  it("applies record/byte budgets across both kinds on reload", async () => {
+  it("reloads both kinds regardless of total history size; only single records are bounded", async () => {
     const larger = create()
     await larger.store(tree, [loose(1), fragment(4)])
     await larger.close()
-    for (const limits of [
-      { maxRecords: 1 },
-      { maxSnapshotBytes: recordBytes(fragment(4)) },
-    ]) {
-      const stream = create(limits).open(tree).events[Symbol.asyncIterator]()
-      expect(await next(stream)).toMatchObject({ type: "failure" })
-    }
+    expect((await initial(create())).records).toEqual([loose(1), fragment(4)])
+    const stream = create({ maxRecordBytes: recordBytes(loose(1)) })
+      .open(tree)
+      .events[Symbol.asyncIterator]()
+    expect(await next(stream)).toMatchObject({ type: "failure" })
   })
 
   it("rejects wire-unencodable fragment metadata before writing", async () => {

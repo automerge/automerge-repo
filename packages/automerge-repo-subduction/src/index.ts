@@ -72,10 +72,12 @@ export interface SubductionBackendOptions {
   storage: LocalByteStore
   /** Native request deadline, not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number
+  /** Largest single record (signed metadata plus blob). */
   maxRecordBytes?: number
-  maxSnapshotBytes?: number
-  maxRecords?: number
+  /** Largest single store()/create() submission; records and bytes. */
+  maxBatchBytes?: number
   batchRecords?: number
+  /** Initial-delivery batch target per `records` event. */
   batchBytes?: number
   replayEvents?: number
   replayBytes?: number
@@ -227,8 +229,7 @@ export class SubductionBackend implements SedimentreeBackend {
     this.limits = {
       syncTimeoutMilliseconds: options.syncTimeoutMilliseconds ?? 5000,
       maxRecordBytes: options.maxRecordBytes ?? 16 * 1024 * 1024,
-      maxSnapshotBytes: options.maxSnapshotBytes ?? 64 * 1024 * 1024,
-      maxRecords: options.maxRecords ?? 10000,
+      maxBatchBytes: options.maxBatchBytes ?? 64 * 1024 * 1024,
       batchRecords: options.batchRecords ?? 128,
       batchBytes: options.batchBytes ?? 1024 * 1024,
       replayEvents: options.replayEvents ?? 128,
@@ -980,7 +981,7 @@ export class SubductionBackend implements SedimentreeBackend {
         if (
           records.length > this.limits.batchRecords ||
           records.reduce((n, r) => n + recordBytes(r), 0) >
-            this.limits.maxSnapshotBytes ||
+            this.limits.maxBatchBytes ||
           records.some(r => recordBytes(r) + 512 > this.limits.maxRecordBytes)
         )
           throw new Error("Store batch/record limit exceeded")

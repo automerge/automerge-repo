@@ -215,25 +215,27 @@ successful retry does not erase previously unreported failures.
 
 Default limits:
 
-| Option                    |                                                                 Default |
-| ------------------------- | ----------------------------------------------------------------------: |
-| `syncTimeoutMilliseconds` |                                        5,000 ms per native peer request |
-| `maxRecordBytes`          |                               16 MiB (native signed metadata plus blob) |
-| `maxSnapshotBytes`        |          64 MiB (plain encoded history budget per tree and input batch) |
-| `maxRecords`              | 10,000 per tree; namespace enumeration also capped at 3× this many keys |
-| `batchRecords`            |                        128 (input maximum and initial delivery maximum) |
-| `batchBytes`              |                1 MiB initial delivery target; one larger record allowed |
-| `replayEvents`            |                                                           128 per watch |
-| `replayBytes`             |                                                         4 MiB per watch |
+| Option                    |                                                  Default |
+| ------------------------- | -------------------------------------------------------: |
+| `syncTimeoutMilliseconds` |                         5,000 ms per native peer request |
+| `maxRecordBytes`          |                16 MiB (native signed metadata plus blob) |
+| `maxBatchBytes`           |     64 MiB per `store()`/`create()` submission (encoded) |
+| `batchRecords`            |         128 (input maximum and initial delivery maximum) |
+| `batchBytes`              | 1 MiB initial delivery target; one larger record allowed |
+| `replayEvents`            |                                            128 per watch |
+| `replayBytes`             |                                          4 MiB per watch |
 
 A save reads only its own key (to detect a conflicting representation and
-duplicate notifications) and then writes; it does not rescan the tree. The
-per-tree `maxRecords`/`maxSnapshotBytes` budgets are therefore enforced when
-history is read (open, hydration, reload), not on each write. Once every
-session on a tree has called `markComplete()`, live and sync-round checkpoints
-are reported from the heads delivered so far instead of rereading storage.
-These limits bound encoded records, not total heap use, session count, or queued
-operations. This is not a streaming or production large-history write path.
+duplicate notifications) and then writes; it does not rescan the tree. There is
+**no cap on a tree's total history**: a record or batch is bounded when it is
+submitted, and whatever was accepted can always be reopened, enumerated, synced
+and deleted. Opening a tree still reads its whole history into memory, so very
+large trees cost time and heap proportional to their size rather than being
+refused. Once every session on a tree has called `markComplete()`, live and
+sync-round checkpoints are reported from the heads delivered so far instead of
+rereading storage. These limits bound encoded records, not total heap use,
+session count, or queued operations. This is not a streaming or production
+large-history write path.
 
 ## Dependency and tests
 

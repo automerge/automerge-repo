@@ -298,6 +298,26 @@ describe("real local Subduction", () => {
     })
   })
 
+  it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
+    // Small budget in a fresh backend. Writes are never refused for tree size.
+    const backend = create({ maxBatchBytes: 4096, batchRecords: 8 })
+    for (let n = 1; n <= 40; n++)
+      await backend.store(tree, [record(n, n > 1 ? [n - 1] : [])])
+    await backend.close()
+    const reopened = create()
+    const loaded = await initial(reopened.open(tree))
+    expect(loaded.records).toHaveLength(40)
+    expect(loaded.complete.checkpoint.heads).toEqual([cid(40)])
+    const collection = reopened.observeCollection()[Symbol.asyncIterator]()
+    expect((await collection.next()).value).toMatchObject({
+      type: "document",
+      id: tree,
+    })
+    await collection.return!()
+    await reopened.deleteLocal(tree)
+    expect(await storage.list("subduction-v1/")).toEqual([])
+  })
+
   it("stores with constant storage work and no checkpoint rescans once complete", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])

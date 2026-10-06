@@ -25,10 +25,10 @@ export interface LocalByteStore {
   list(prefix: string): Promise<string[]>
 }
 
+/** Per-record bound only. Total history per tree is not capped: a store that
+ * accepted writes must always be able to read, sync and delete them again. */
 export interface ReadLimits {
   maxRecordBytes: number
-  maxSnapshotBytes: number
-  maxRecords: number
 }
 
 const ROOT = "subduction-v1/"
@@ -310,8 +310,6 @@ export class StorageBridge implements N.SedimentreeStorage {
 
   private async keys(p: string): Promise<string[]> {
     const keys = await this.storage.list(p)
-    if (keys.length > this.limits.maxRecords * 3)
-      throw new Error("Storage enumeration limit exceeded")
     if (keys.some(k => !k.startsWith(p)))
       throw new Error("Storage returned an out-of-prefix key")
     return [...new Set(keys)].sort()
@@ -407,8 +405,6 @@ export class StorageBridge implements N.SedimentreeStorage {
         key: match[2],
       })
     }
-    if (records.length > this.limits.maxRecords)
-      throw new Error("Record count limit exceeded")
     return records
   }
 
@@ -419,16 +415,12 @@ export class StorageBridge implements N.SedimentreeStorage {
     if (marker !== undefined && (marker.length !== 1 || marker[0] !== 1))
       throw new Error("Malformed tree marker")
     const keys = await this.recordKeys(tree)
-    let size = 0
     const values: Stored[] = []
     try {
       for (const { kind, key } of keys) {
         const value = await this.read(tree, kind, key)
         if (!value) throw new Error(`Listed ${kind} is missing`)
         values.push(value)
-        size += recordBytes(value.record)
-        if (size > this.limits.maxSnapshotBytes)
-          throw new Error("Snapshot byte limit exceeded")
       }
       return values
     } catch (error) {

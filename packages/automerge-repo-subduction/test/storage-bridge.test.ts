@@ -35,11 +35,7 @@ const fragment: FragmentRecord = {
   blob: new Uint8Array([8, 42]),
 }
 const conflict = { ...commit(1), blob: new Uint8Array([9, 42]) }
-const limits = {
-  maxRecordBytes: 4096,
-  maxSnapshotBytes: 16384,
-  maxRecords: 100,
-}
+const limits = { maxRecordBytes: 4096 }
 
 class MemoryStore implements LocalByteStore {
   readonly values = new Map<string, Uint8Array>()
@@ -249,30 +245,23 @@ describe("StorageBridge native transaction serialization", () => {
     expect(storage.maxActive).toBe(1)
   })
 
-  it.each(["count", "bytes"])(
-    "enforces aggregate %s limits on reads, not on individual saves",
-    async kind => {
-      const storage = new MemoryStore()
-      const bridge = new StorageBridge(
-        storage,
-        {
-          ...limits,
-          ...(kind === "count"
-            ? { maxRecords: 1 }
-            : { maxSnapshotBytes: recordBytes(first) }),
-        },
-        () => {}
-      )
-      const results = await Promise.allSettled([
-        save(bridge, first),
-        save(bridge, second),
-      ])
-      expect(results.map(r => r.status)).toEqual(["fulfilled", "fulfilled"])
-      await expect(withId(id => bridge.records(id))).rejects.toThrow(
-        /limit exceeded/
-      )
-    }
-  )
+  it("bounds single records but never the total history of a tree", async () => {
+    const storage = new MemoryStore()
+    // The budget admits exactly one signed record. Two together exceed it,
+    // yet both must be writable and readable: accepted history is never
+    // refused on reload for its total size.
+    const perRecord = Math.max(
+      ...[first, second].map(r => signed.get(r)!.length + r.blob.length)
+    )
+    const bridge = new StorageBridge(
+      storage,
+      { maxRecordBytes: perRecord },
+      () => {}
+    )
+    await save(bridge, first)
+    await save(bridge, second)
+    expect(await withId(id => bridge.records(id))).toEqual([first, second])
+  })
 
   it("saves without reading the rest of the tree's history", async () => {
     const storage = new MemoryStore()
