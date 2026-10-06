@@ -250,7 +250,7 @@ describe("StorageBridge native transaction serialization", () => {
   })
 
   it.each(["count", "bytes"])(
-    "enforces aggregate %s limits under concurrent saves",
+    "enforces aggregate %s limits on reads, not on individual saves",
     async kind => {
       const storage = new MemoryStore()
       const bridge = new StorageBridge(
@@ -267,10 +267,24 @@ describe("StorageBridge native transaction serialization", () => {
         save(bridge, first),
         save(bridge, second),
       ])
-      expect(results.map(r => r.status)).toEqual(["fulfilled", "rejected"])
-      expect(await withId(id => bridge.records(id))).toEqual([first])
+      expect(results.map(r => r.status)).toEqual(["fulfilled", "fulfilled"])
+      await expect(withId(id => bridge.records(id))).rejects.toThrow(
+        /limit exceeded/
+      )
     }
   )
+
+  it("saves without reading the rest of the tree's history", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, limits, () => {})
+    await save(bridge, first)
+    await save(bridge, fragment)
+    storage.calls.length = 0
+    await save(bridge, second)
+    // One same-key lookup and one write; no list or whole-history loads.
+    const path = `subduction-v1/${tree.padEnd(64, "0")}/commits/${cid(2)}`
+    expect(storage.calls).toEqual([`load:${path}`, `save:${path}`])
+  })
 
   it("keeps batches, reads, and cleanup in acceptance order with freed inputs", async () => {
     const storage = new MemoryStore(),

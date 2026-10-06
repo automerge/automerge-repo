@@ -298,6 +298,85 @@ describe("real local Subduction", () => {
     })
   })
 
+  it("stores with constant storage work and no checkpoint rescans once complete", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const session = backend.open(tree)
+    const { iterator } = await initial(session)
+    session.markComplete!()
+    const list = vi.spyOn(storage, "list")
+    const load = vi.spyOn(storage, "load")
+    await backend.store(tree, [record(2, [1])])
+    expect(await next(iterator)).toMatchObject({
+      type: "records",
+      records: [record(2, [1])],
+    })
+    // Sync-round checkpoints come from delivered heads, not a storage reread.
+    await session.synchronize()
+    expect(await next(iterator)).toMatchObject({
+      type: "synchronized",
+      result: { outcome: "no-peers", checkpoint: { heads: [cid(2)] } },
+    })
+    expect(list).not.toHaveBeenCalled()
+    expect(load.mock.calls.map(([key]) => key)).toEqual([
+      `subduction-v1/${tree.padEnd(64, "0")}/commits/${cid(2)}`,
+    ])
+    // Readers still validate the authoritative stored history.
+    expect((await initial(backend.open(tree))).records).toEqual([
+      record(1),
+      record(2, [1]),
+    ])
+  })
+
+  it("keeps emitting storage checkpoints while any session on the tree is incomplete", async () => {
+    const backend = create()
+    const done = backend.open(tree)
+    const loading = backend.open(tree)
+    const a = await initial(done)
+    const b = await initial(loading)
+    done.markComplete!()
+    await backend.store(tree, [record(1)])
+    for (const { iterator } of [a, b]) {
+      expect((await next(iterator)).type).toBe("records")
+      expect(await next(iterator)).toMatchObject({
+        type: "checkpoint",
+        checkpoint: { heads: [cid(1)] },
+      })
+    }
+    // The incomplete session can still become ready from live data; once it is
+    // also complete, checkpoints stop for the whole tree.
+    loading.markComplete!()
+    const list = vi.spyOn(storage, "list")
+    await backend.store(tree, [record(2, [1])])
+    expect((await next(a.iterator)).type).toBe("records")
+    await done.synchronize()
+    expect(await next(a.iterator)).toMatchObject({
+      type: "synchronized",
+      result: { checkpoint: { heads: [cid(2)] } },
+    })
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it("reopening after a session closes seeds delivered heads from storage", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1), record(2, [1])])
+    const first = backend.open(tree)
+    await initial(first)
+    first.markComplete!()
+    await first.close()
+    const second = backend.open(tree)
+    const { iterator, complete } = await initial(second)
+    expect(complete.checkpoint.heads).toEqual([cid(2)])
+    second.markComplete!()
+    await backend.store(tree, [record(3, [2])])
+    expect((await next(iterator)).type).toBe("records")
+    await second.synchronize()
+    expect(await next(iterator)).toMatchObject({
+      type: "synchronized",
+      result: { checkpoint: { heads: [cid(3)] } },
+    })
+  })
+
   it("bounded live overflow explicitly ends with rescan-required", async () => {
     const backend = create({ replayEvents: 1 })
     const session = backend.open(tree)

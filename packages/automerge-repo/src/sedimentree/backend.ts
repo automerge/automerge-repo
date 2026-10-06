@@ -180,6 +180,14 @@ export interface SedimentreeSession {
    */
   publishEphemeral(message: EphemeralEnvelope): Promise<void>
 
+  /**
+   * Optional hint that the consumer has verified a complete initial snapshot.
+   * Afterwards a backend may stop computing `checkpoint` heads from storage
+   * for this session and may report sync-round checkpoints from the heads it
+   * last delivered. Records, sync results and failures continue unchanged.
+   */
+  markComplete?(): void
+
   /** Release this watch/interest and wake pending pulls, idempotently; do not delete data. */
   close(): Promise<void>
 }

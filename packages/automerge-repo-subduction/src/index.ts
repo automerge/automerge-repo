@@ -11,6 +11,7 @@ import {
   type BackendIdentity,
   type BackendOperation,
   type CollectionObservation,
+  type CommitId,
   type HistoryCheckpoint,
   type SedimentreeRecord,
   type RecordBatch,
@@ -95,19 +96,34 @@ function error(
     )
   return new BackendError(operation, "io", String(cause), !terminal, { cause })
 }
+/** Conservative heads of delivered history, maintained incrementally. */
+class Heads {
+  private readonly heads = new Set<CommitId>()
+  private readonly parents = new Set<CommitId>()
+  add(record: SedimentreeRecord): void {
+    // Loose-commit dependencies are validated by the translator. Fragment
+    // boundaries/checkpoint prefixes are not authenticated by a standalone blob:
+    // they cannot justify dropping another delivered head's readiness target.
+    // Extra historical heads are safe because readiness checks history inclusion.
+    if (record.kind === "commit")
+      for (const parent of record.parents) {
+        this.parents.add(parent)
+        this.heads.delete(parent)
+      }
+    const head = recordHead(record)
+    if (!this.parents.has(head)) this.heads.add(head)
+  }
+  checkpoint(sequence: number): HistoryCheckpoint {
+    return { sequence, heads: [...this.heads].sort() }
+  }
+}
 function checkpoint(
   sequence: number,
   records: readonly SedimentreeRecord[]
 ): HistoryCheckpoint {
-  const heads = new Set(records.map(recordHead))
-  for (const record of records)
-    if (record.kind === "commit")
-      for (const parent of record.parents) heads.delete(parent)
-  // Loose-commit dependencies are validated by the translator. Fragment
-  // boundaries/checkpoint prefixes are not authenticated by a standalone blob:
-  // they cannot justify dropping another delivered head's readiness target.
-  // Extra historical heads are safe because readiness checks history inclusion.
-  return { sequence, heads: [...heads].sort() }
+  const heads = new Heads()
+  for (const record of records) heads.add(record)
+  return heads.checkpoint(sequence)
 }
 function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
   if (value.type === "ephemeral")
@@ -184,11 +200,17 @@ export class SubductionBackend implements SedimentreeBackend {
   private round = 0
   private readonly deleting = new Map<SedimentreeId, Promise<void>>()
   private readonly watches = new Map<Watch<SedimentreeEvent>, SedimentreeId>()
+  /** Sessions whose consumer verified a complete snapshot (markComplete). */
+  private readonly completed = new Set<Watch<SedimentreeEvent>>()
+  /** Heads of history delivered per open tree; replaces storage rescans for
+   * checkpoints once every session on the tree is complete. */
+  private readonly delivered = new Map<SedimentreeId, Heads>()
   private readonly collections = new Set<Watch<CollectionObservation>>()
   private readonly attempts = new Set<{
     id: SedimentreeId
     work: Promise<void>
   }>()
+  private readonly bridgeFailures = new Map<SedimentreeId, BackendError>()
 
   private readonly signer: NativeSigner
   private readonly seenEphemerals = new Set<string>()
@@ -221,7 +243,7 @@ export class SubductionBackend implements SedimentreeBackend {
       options.storage,
       this.limits,
       (id, record) => this.persisted(id, record),
-      id => this.storageFailed(id)
+      (id, cause) => this.storageFailed(id, cause)
     )
     this.engine = this.createEngine()
   }
@@ -359,7 +381,10 @@ export class SubductionBackend implements SedimentreeBackend {
         this.reconcileInterest(id)
     }
   }
-  private storageFailed(id: SedimentreeId): void {
+  private storageFailed(id: SedimentreeId, cause: unknown): void {
+    // Native wraps bridge rejections as opaque WriteErrors; keep the typed
+    // cause so the owning local store can report it (e.g. a conflict).
+    if (cause instanceof BackendError) this.bridgeFailures.set(id, cause)
     this.requireRescan(id)
     const generation = this.generation
     if (this.closed || generation.repairScheduled) return
@@ -593,10 +618,10 @@ export class SubductionBackend implements SedimentreeBackend {
       }
       this.checkNetwork(generation, id)
       let result!: SyncRoundResult
-      await this.bridge.records(native, records => {
+      const publish = (checkpoint: HistoryCheckpoint) => {
         result = {
           roundId,
-          checkpoint: checkpoint(++this.sequence, records),
+          checkpoint,
           outcome: !peers.length
             ? "no-peers"
             : outcomes.every(p => p.outcome === "complete")
@@ -611,7 +636,18 @@ export class SubductionBackend implements SedimentreeBackend {
                 { type: "synchronized", result },
                 64 + result.checkpoint.heads.length * 32 + outcomes.length * 128
               )
-      })
+      }
+      const delivered = this.delivered.get(id)
+      if (delivered && this.settled(id)) {
+        // Every session already verified readiness: order behind the records
+        // this round ingested without rereading the whole tree from storage.
+        await this.bridge.drain()
+        publish(delivered.checkpoint(++this.sequence))
+      } else {
+        await this.bridge.records(native, records =>
+          publish(checkpoint(++this.sequence, records))
+        )
+      }
       return result
     } finally {
       peers.forEach(peer => peer.free())
@@ -635,9 +671,16 @@ export class SubductionBackend implements SedimentreeBackend {
     this.tail = work.catch(() => {})
     return work
   }
+  /** True when no open session on this tree still needs storage checkpoints. */
+  private settled(id: SedimentreeId): boolean {
+    for (const [watch, tree] of this.watches)
+      if (tree === id && !this.completed.has(watch)) return false
+    return true
+  }
   private persisted(id: SedimentreeId, record: SedimentreeRecord): void {
     if (this.closed || this.deleting.has(id)) return
     const sequence = ++this.sequence
+    this.delivered.get(id)?.add(record)
     for (const [watch, tree] of this.watches)
       if (tree === id)
         watch.push(
@@ -646,6 +689,9 @@ export class SubductionBackend implements SedimentreeBackend {
         )
     for (const watch of this.collections)
       watch.push({ type: "document", sequence, phase: "live", id })
+    // Checkpoints only establish readiness. Once every session on this tree
+    // has verified its snapshot, the authoritative storage cut is not needed.
+    if (this.settled(id)) return
     // This applies equally to local writes and unsolicited native ingestion.
     // Queue the cut behind the current complete bridge transaction, coalescing
     // batches. Never use onRemoteHeads (which precedes ingest) as completeness.
@@ -747,6 +793,8 @@ export class SubductionBackend implements SedimentreeBackend {
       () => {
         released = true
         this.watches.delete(watch)
+        this.completed.delete(watch)
+        if (![...this.watches.values()].includes(id)) this.delivered.delete(id)
         this.reconcileInterest(id)
       }
     )
@@ -754,11 +802,16 @@ export class SubductionBackend implements SedimentreeBackend {
     void this.enqueue("open", async () => {
       await this.snapshot(id, records => {
         const sequence = ++this.sequence
+        // The cut is installed inside the serialized read, so delivered heads
+        // seeded here stay ahead of any later persisted() notification.
+        const heads = new Heads()
+        for (const record of records) heads.add(record)
+        if (!released) this.delivered.set(id, heads)
         watch.initialize([
           ...this.batches(records, sequence),
           {
             type: "local-load-complete",
-            checkpoint: checkpoint(sequence, records),
+            checkpoint: heads.checkpoint(sequence),
             found: records.length > 0,
           },
         ])
@@ -842,6 +895,9 @@ export class SubductionBackend implements SedimentreeBackend {
         }).catch(cause => {
           throw error("ephemeral", cause)
         })
+      },
+      markComplete: () => {
+        if (!released) this.completed.add(watch)
       },
       close: async () => {
         await watch.return()
@@ -943,37 +999,24 @@ export class SubductionBackend implements SedimentreeBackend {
         const fragments: N.FragmentInput[] = []
         let submitted = false
         try {
-          // Conservative exact policy prevents native minimization from silently
-          // acknowledging variants that this experiment cannot preserve.
-          const existing = new Map(
-            (await this.bridge.records(native)).map(r => [recordKey(r), r])
-          )
-          if (creating && existing.size)
+          if (creating && (await this.bridge.containsSedimentreeId(native)))
             throw new BackendError(
               "create",
               "conflict",
               "Document already exists"
             )
+          // Same-key conflicts within one batch cannot both be persisted.
+          const keys = new Map<string, SedimentreeRecord>()
           for (const record of records) {
-            const old = existing.get(recordKey(record))
+            const old = keys.get(recordKey(record))
             if (old && !equalRecords(old, record))
               throw new BackendError(
                 "store",
                 "conflict",
                 "Different same-key representation is unsupported"
               )
-            existing.set(recordKey(record), record)
+            keys.set(recordKey(record), record)
           }
-          if (
-            existing.size > this.limits.maxRecords ||
-            [...existing.values()].reduce((n, r) => n + recordBytes(r), 0) >
-              this.limits.maxSnapshotBytes
-          )
-            throw new BackendError(
-              "store",
-              "invalid-record",
-              "Tree snapshot limit exceeded"
-            )
           for (const record of records) {
             // Input constructors consume their native payloads.
             if (record.kind === "commit")
@@ -991,24 +1034,19 @@ export class SubductionBackend implements SedimentreeBackend {
           if (inputs.length || fragments.length) {
             // storeBuiltBatch consumes both kinds of input wrappers.
             submitted = true
-            await this.engine.storeBuiltBatch(native, inputs, fragments)
+            this.bridgeFailures.delete(id)
+            try {
+              await this.engine.storeBuiltBatch(native, inputs, fragments)
+            } catch (cause) {
+              // Surface the bridge's own typed rejection over native's wrapper.
+              throw this.bridgeFailures.get(id) ?? cause
+            } finally {
+              this.bridgeFailures.delete(id)
+            }
           }
-          // Success means EVERY record is recoverable, even if native minimized
-          // its in-memory tree. Do not acknowledge silently discarded history.
-          const stored = new Map(
-            (await this.bridge.records(native)).map(r => [recordKey(r), r])
-          )
-          for (const record of records)
-            if (
-              !stored.has(recordKey(record)) ||
-              !equalRecords(stored.get(recordKey(record))!, record)
-            )
-              throw new BackendError(
-                "store",
-                "io",
-                "Native store did not persist all submitted history",
-                true
-              )
+          // Native awaits the storage bridge for every record before touching
+          // its in-memory tree, and minimization never deletes from storage, so
+          // a resolved storeBuiltBatch means every submitted record is saved.
           // Durability never waits for a peer. A separate coalesced network
           // queue propagates stores even without a document session.
           if (records.length) this.scheduleSync(id)

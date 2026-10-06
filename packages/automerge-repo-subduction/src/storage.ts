@@ -510,7 +510,8 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
   async containsSedimentreeId(id: N.SedimentreeId): Promise<boolean> {
     const tree = treeHex(id)
-    return this.enqueue(async () => (await this.recordsFor(tree)).length > 0)
+    // A marker alone (left by a failed first save) is not stored history.
+    return this.enqueue(async () => (await this.recordKeys(tree)).length > 0)
   }
 
   /** No native wrapper or caller-owned buffer survives into asynchronous I/O. */
@@ -558,20 +559,11 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
   private async savePrepared(value: Prepared): Promise<void> {
     const { tree, sid, key, record, frame } = value
-    const values = await this.snapshot(tree)
-    let old: SedimentreeRecord | undefined
-    let size = recordBytes(record)
-    for (const v of values) {
-      v.signed.free()
-      size += recordBytes(v.record)
-      if (
-        v.kind === record.kind &&
-        (v.record.kind === "commit" ? v.record.id : v.record.head) === key
-      )
-        old = v.record
-    }
-    if (old) {
-      if (!equalRecords(old, record))
+    // Same-key lookup only: whole-history budgets are enforced on reads.
+    const existing = await this.read(tree, record.kind, key)
+    if (existing) {
+      existing.signed.free()
+      if (!equalRecords(existing.record, record))
         throw new BackendError(
           "store",
           "conflict",
@@ -581,10 +573,6 @@ export class StorageBridge implements N.SedimentreeStorage {
       this.saved(sid, record)
       return
     }
-    if (values.length + 1 > this.limits.maxRecords)
-      throw new Error("Record count limit exceeded")
-    if (size > this.limits.maxSnapshotBytes)
-      throw new Error("Snapshot byte limit exceeded")
     await this.storage.save(recordPath(tree, record.kind, key), frame)
     // Only resolved saves notify. Ambiguous failures are handled by the owner's
     // rescan/retry path; an already saved record notifies on retry.

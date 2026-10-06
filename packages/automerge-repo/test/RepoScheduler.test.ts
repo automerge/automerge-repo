@@ -153,6 +153,53 @@ describe("RepoScheduler", () => {
     await scheduler.close()
   })
 
+  it("tells the session once Repo has a verified snapshot, and immediately for created documents", async () => {
+    const backend = new MemoryBackend()
+    const marks: SedimentreeId[] = []
+    const originalOpen = backend.open.bind(backend)
+    vi.spyOn(backend, "open").mockImplementation(documentId => {
+      const session = originalOpen(documentId)
+      return {
+        ...session,
+        events: session.events,
+        close: () => session.close(),
+        synchronize: options => session.synchronize(options),
+        publishEphemeral: message => session.publishEphemeral(message),
+        markComplete: () => {
+          marks.push(documentId)
+        },
+      } satisfies SedimentreeSession
+    })
+    const scheduler = new RepoScheduler(backend)
+    // Created locally: complete before the session even yields its first event.
+    attach(scheduler, id(1))
+    expect(marks).toEqual([id(1)])
+
+    // Opened empty: not complete until live data satisfies a checkpoint.
+    const document = new Document<{ count: number }>(
+      id(2) as unknown as DocumentId,
+      A.init()
+    )
+    const handle = new DocHandle(document)
+    const query = new DocumentQuery(handle, new Map(), {
+      initialSnapshotPending: true,
+    })
+    const delegate: DocumentDelegate<{ count: number }> = new DocumentDelegate(
+      id(2),
+      document,
+      query,
+      (tree, batch) => scheduler.submit(tree, batch),
+      () => scheduler.synchronize(delegate)
+    )
+    scheduler.open(delegate)
+    await vi.waitFor(() => expect(query.peek().state).toBe("unavailable"))
+    expect(marks).toEqual([id(1)])
+    await backend.store(id(2), records())
+    await vi.waitFor(() => expect(query.peek().state).toBe("ready"))
+    expect(marks).toEqual([id(1), id(2)])
+    await scheduler.close()
+  })
+
   it("flush succeeds when a captured delegate store fails but its retry persists", async () => {
     const backend = new MemoryBackend()
     vi.spyOn(backend, "store").mockRejectedValueOnce(

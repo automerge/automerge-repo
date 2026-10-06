@@ -226,7 +226,12 @@ Default limits:
 | `replayEvents`            |                                                           128 per watch |
 | `replayBytes`             |                                                         4 MiB per watch |
 
-Each save revalidates the full stored history, so batch work can be quadratic.
+A save reads only its own key (to detect a conflicting representation and
+duplicate notifications) and then writes; it does not rescan the tree. The
+per-tree `maxRecords`/`maxSnapshotBytes` budgets are therefore enforced when
+history is read (open, hydration, reload), not on each write. Once every
+session on a tree has called `markComplete()`, live and sync-round checkpoints
+are reported from the heads delivered so far instead of rereading storage.
 These limits bound encoded records, not total heap use, session count, or queued
 operations. This is not a streaming or production large-history write path.
 

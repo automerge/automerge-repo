@@ -31,6 +31,8 @@ export class DocumentDelegate<T> {
   #represented = new Set<string>()
   #unsaved = new Set<WriteJob>()
   #targets = new Map<"local" | "live" | "sync", HistoryCheckpoint>()
+  /** Set by the scheduler; notifies the live session once a snapshot is verified. */
+  onComplete?: () => void
 
   constructor(
     readonly id: SedimentreeId,
@@ -257,6 +259,7 @@ export class DocumentDelegate<T> {
         this.#targets.clear()
         this.query.markInitialSnapshotComplete()
         this.query.sourceReady("backend")
+        this.onComplete?.()
         return
       }
     }

@@ -251,16 +251,9 @@ describe("local Subduction fragments", () => {
     await backend.flush()
   })
 
-  it("applies record/byte budgets across both kinds, including on reload", async () => {
-    const backend = create({ maxRecords: 1 })
-    await backend.store(tree, [loose(1)])
-    await expect(backend.store(tree, [fragment(4)])).rejects.toMatchObject({
-      code: "invalid-record",
-    })
-    await backend.flush().catch(() => {})
-    await backend.close()
+  it("applies record/byte budgets across both kinds on reload", async () => {
     const larger = create()
-    await larger.store(tree, [fragment(4)])
+    await larger.store(tree, [loose(1), fragment(4)])
     await larger.close()
     for (const limits of [
       { maxRecords: 1 },
