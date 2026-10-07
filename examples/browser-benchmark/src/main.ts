@@ -719,14 +719,16 @@ async function run() {
       ],
       ...(importSet?.manifest.files ?? [])
         .filter(fixture => !smoke || "count" in fixture)
-        .map((fixture): Parameters<typeof imports> => [
-          fixture.name.replace(/^import-|\.automerge$/g, ""),
-          fixture.records,
-          Array.from({ length: smoke ? 1 : 3 }, () => ({
-            fixture,
-            verify: verifyFixture(fixture),
-          })),
-        ]),
+        .map(
+          (fixture): Parameters<typeof imports> => [
+            fixture.name.replace(/^import-|\.automerge$/g, ""),
+            fixture.records,
+            Array.from({ length: smoke ? 1 : 3 }, () => ({
+              fixture,
+              verify: verifyFixture(fixture),
+            })),
+          ]
+        ),
     ]
     for (const args of importClasses) {
       const sample = await imports(...args)

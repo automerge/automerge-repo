@@ -6,7 +6,6 @@ import {
   copyRecord,
   equalRecords,
   idBytes,
-  recordBytes,
   sedimentreeId,
   type FragmentRecord,
   type LooseCommitRecord,
