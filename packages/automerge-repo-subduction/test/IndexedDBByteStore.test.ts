@@ -104,6 +104,28 @@ for (const [name, create] of [
       )
     })
 
+    it("keeps prefix reads exact across overwrites, removes and re-saves", async () => {
+      const expected = new Map<string, number>()
+      const keys = ["t/a", "t/b", "t/c", "t", "u/a", "t/a/x"]
+      for (let step = 0; step < 60; step++) {
+        const key = keys[(step * 7) % keys.length]
+        if (step % 3 === 2) {
+          await store.remove(key)
+          expected.delete(key)
+        } else {
+          await store.save(key, new Uint8Array([step]))
+          expected.set(key, step)
+        }
+        const want = [...expected]
+          .filter(([k]) => k.startsWith("t/"))
+          .sort(([a], [b]) => (a < b ? -1 : 1))
+        expect(await store.list("t/")).toEqual(want.map(([k]) => k))
+        expect(await store.loadPrefix("t/")).toEqual(
+          want.map(([k, v]) => [k, new Uint8Array([v])])
+        )
+      }
+    })
+
     it("returns loadPrefix bytes the caller owns", async () => {
       await store.save("p/key", new Uint8Array([1]))
       const [[, loaded]] = await store.loadPrefix("p/")
