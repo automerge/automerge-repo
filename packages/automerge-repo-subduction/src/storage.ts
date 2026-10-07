@@ -69,8 +69,7 @@ type Kind = SedimentreeRecord["kind"]
 const recordPath = (tree: string, kind: Kind, key: string) =>
   `${prefix(tree)}${kind === "commit" ? "commits" : "fragments"}/${key}`
 
-/** Reconstructing the native commit digest checks the otherwise opaque tree ID,
- * the logical key, parents AND blob digest/size. No wire-format parser is used. */
+/** Native unsigned commit for a local write, from a Repo record. */
 export function unsigned(
   id: N.SedimentreeId,
   record: LooseCommitRecord
@@ -116,36 +115,25 @@ export function unsignedFragment(
   }
 }
 
+/** Record fields from a signed commit's payload. Performs no checks: on write,
+ * native has already verified the blob and derived the key from this payload;
+ * on read, the envelope checksum and Repo's record validation cover it. */
 function plain(
-  id: N.SedimentreeId,
-  key: string,
   signed: N.SignedLooseCommit,
-  blob: Uint8Array
+  blob: Uint8Array,
+  tree?: N.SedimentreeId
 ): LooseCommitRecord {
   const payload = signed.payload
   const head = payload.commitId
   const parents = payload.parents
   try {
-    const record = copyRecord({
+    if (tree) assertCommitTree(tree, head, parents, payload)
+    return copyRecord({
       kind: "commit",
       id: commitId(head.toHexString()),
       parents: parents.map(p => commitId(p.toHexString())),
       blob,
     }) as LooseCommitRecord
-    if (record.id !== key)
-      throw new Error("Commit key does not match signed metadata")
-    const reconstructed = unsigned(id, record)
-    const expected = reconstructed.digest
-    const actual = payload.digest
-    try {
-      if (expected.toHexString() !== actual.toHexString())
-        throw new Error("Signed tree/metadata/blob mismatch")
-    } finally {
-      expected.free()
-      actual.free()
-      reconstructed.free()
-    }
-    return record
   } finally {
     head.free()
     parents.forEach(p => p.free())
@@ -153,30 +141,50 @@ function plain(
   }
 }
 
-/** Only public payload accessors are used. Metadata comes from the signed
- * payload, not a sidecar; the tree/head and actual blob must agree with it.
- * This checks integrity, not signature authenticity or causal coverage. */
+/** Incoming records are signed by remote peers, and native saves them under
+ * the requested tree without checking that the signed payload names that tree.
+ * The JS commit payload has no tree accessor, so rebuild it with ours (every
+ * other field taken from the payload) and compare digests.
+ * This would be better handled natively, as a payload `sedimentree_id` check
+ * after `try_verify` in subduction_core's `recv_commit`/`recv_fragment`
+ * (handler/sync.rs) and `recv_batch_sync_response` (subduction/ingest.rs),
+ * dropping the record there. It could then be removed here. */
+function assertCommitTree(
+  tree: N.SedimentreeId,
+  head: N.CommitId,
+  parents: N.CommitId[],
+  payload: N.LooseCommit
+): void {
+  const meta = payload.blobMeta
+  const rebuilt = new N.LooseCommit(tree, head, parents, meta)
+  const expected = rebuilt.digest
+  const actual = payload.digest
+  try {
+    if (expected.toHexString() !== actual.toHexString())
+      throw new Error("Signed commit is for a different tree")
+  } finally {
+    expected.free()
+    actual.free()
+    rebuilt.free()
+    meta.free()
+  }
+}
+
+/** Record fields from a signed fragment's payload; checks only the tree when
+ * given (see assertCommitTree for why, and where it belongs natively). */
 function plainFragment(
-  tree: string,
-  key: string,
   signed: N.SignedFragment,
-  blob: Uint8Array
+  blob: Uint8Array,
+  tree?: string
 ): FragmentRecord {
   const payload = signed.payload
   const id = payload.sedimentreeId
   const head = payload.head
   const boundary = payload.boundary
   const checkpoints = payload.checkpoints
-  const meta = payload.blobMeta
-  const hash = meta.digest()
   try {
-    if (treeHex(id) !== tree || head.toHexString() !== key)
-      throw new Error("Fragment tree/key does not match signed metadata")
-    if (
-      meta.sizeBytes !== BigInt(blob.length) ||
-      hash.toHexString() !== digest(blob)
-    )
-      throw new Error("Signed fragment blob digest/size mismatch")
+    if (tree !== undefined && treeHex(id) !== tree)
+      throw new Error("Signed fragment is for a different tree")
     return copyRecord({
       kind: "fragment",
       head: commitId(head.toHexString()),
@@ -185,8 +193,6 @@ function plainFragment(
       blob,
     }) as FragmentRecord
   } finally {
-    hash.free()
-    meta.free()
     checkpoints.forEach(c => c.free())
     boundary.forEach(b => b.free())
     head.free()
@@ -382,24 +388,23 @@ export class StorageBridge implements N.SedimentreeStorage {
       throw new Error("Signed envelope checksum mismatch")
     if (blob.length + encoded.length > this.limits.maxRecordBytes)
       throw new Error("Record limit exceeded")
+    // Tree, key and blob were checked when this record was written; the
+    // checksum above and Repo's record validation cover damage since.
     if (kind === "fragment") {
       const signed = N.SignedFragment.tryDecode(encoded)
       try {
-        return { kind, signed, record: plainFragment(tree, key, signed, blob) }
+        return { kind, signed, record: plainFragment(signed, blob) }
       } catch (error) {
         signed.free()
         throw error
       }
     }
     const signed = N.SignedLooseCommit.tryDecode(encoded)
-    const id = N.SedimentreeId.fromBytes(bytes(tree))
     try {
-      return { kind, signed, record: plain(id, key, signed, blob) }
+      return { kind, signed, record: plain(signed, blob) }
     } catch (error) {
       signed.free()
       throw error
-    } finally {
-      id.free()
     }
   }
 
@@ -567,7 +572,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     blob: Uint8Array
   ): Prepared {
     const cid = key.toHexString()
-    const record = plain(id, cid, signed, new Uint8Array(blob))
+    const record = plain(signed, new Uint8Array(blob), id)
     return this.prepare(id, cid, record, new Uint8Array(signed.encode()))
   }
   private prepareFragment(
@@ -577,12 +582,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     blob: Uint8Array
   ): Prepared {
     const head = key.toHexString()
-    const record = plainFragment(
-      treeHex(id),
-      head,
-      signed,
-      new Uint8Array(blob)
-    )
+    const record = plainFragment(signed, new Uint8Array(blob), treeHex(id))
     return this.prepare(id, head, record, new Uint8Array(signed.encode()))
   }
   private prepare(

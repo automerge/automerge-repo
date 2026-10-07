@@ -340,6 +340,30 @@ describe("public Repo with native Subduction", () => {
     expect(saving).not.toHaveBeenCalled()
   }, 20000)
 
+  it("rejects a persisted commit blob corrupted on disk, via Repo's record validation", async () => {
+    const p = peer()
+    const handle = await p.repo.create<State>({ count: 0 })
+    handle.change(doc => {
+      doc.count = 1
+    })
+    await p.repo.flush()
+    await p.repo.shutdown()
+    // The backend no longer re-checks blobs on read: Repo's validation must.
+    const key = (await p.storage.list("subduction-v1/")).find(k =>
+      k.includes("/commits/")
+    )!
+    const frame = JSON.parse(
+      new TextDecoder().decode(await p.storage.load(key))
+    )
+    const last = frame.blob.length - 2
+    frame.blob =
+      frame.blob.slice(0, last) + (frame.blob.endsWith("00") ? "ff" : "00")
+    await p.storage.save(key, new TextEncoder().encode(JSON.stringify(frame)))
+    const restarted = peer(p.storage)
+    // applyRecords rejects the record, so the only local source is unusable.
+    await expect(restarted.repo.find(handle.url)).rejects.toThrow(/unavailable/)
+  })
+
   it("retains sub, view, merge, and changeAt on public handles", async () => {
     const p = peer()
     const handle = await p.repo.create<State>({ count: 0 })

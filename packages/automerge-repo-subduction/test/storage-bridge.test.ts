@@ -130,7 +130,11 @@ function withId<T>(run: (id: N.SedimentreeId) => T, sid = tree): T {
     id.free()
   }
 }
-function save(bridge: StorageBridge, record: SedimentreeRecord): Promise<void> {
+function save(
+  bridge: StorageBridge,
+  record: SedimentreeRecord,
+  sid = tree
+): Promise<void> {
   const key = N.CommitId.fromHexString(
     record.kind === "commit" ? record.id : record.head
   )
@@ -140,10 +144,12 @@ function save(bridge: StorageBridge, record: SedimentreeRecord): Promise<void> {
       ? N.SignedLooseCommit.tryDecode(signed.get(record)!)
       : N.SignedFragment.tryDecode(signed.get(record)!)
   try {
-    return withId(id =>
-      record.kind === "commit"
-        ? bridge.saveCommit(id, key, value as N.SignedLooseCommit, blob)
-        : bridge.saveFragment(id, key, value as N.SignedFragment, blob)
+    return withId(
+      id =>
+        record.kind === "commit"
+          ? bridge.saveCommit(id, key, value as N.SignedLooseCommit, blob)
+          : bridge.saveFragment(id, key, value as N.SignedFragment, blob),
+      sid
     )
   } finally {
     // Intentionally release/reuse every input BEFORE the queued work starts.
@@ -152,7 +158,11 @@ function save(bridge: StorageBridge, record: SedimentreeRecord): Promise<void> {
     blob.fill(0)
   }
 }
-function batch(bridge: StorageBridge, records: SedimentreeRecord[]) {
+function batch(
+  bridge: StorageBridge,
+  records: SedimentreeRecord[],
+  sid = tree
+) {
   const inputs = records
     .filter((r): r is LooseCommitRecord => r.kind === "commit")
     .map(record => ({
@@ -168,7 +178,7 @@ function batch(bridge: StorageBridge, records: SedimentreeRecord[]) {
       blob: record.blob.slice(),
     }))
   try {
-    return withId(id => bridge.saveBatchAll(id, inputs, fragments))
+    return withId(id => bridge.saveBatchAll(id, inputs, fragments), sid)
   } finally {
     inputs.forEach(input => {
       input.commitId.free()
@@ -206,6 +216,29 @@ function dispose(value: unknown): void {
 }
 
 describe("StorageBridge native transaction serialization", () => {
+  it.each([
+    ["commit", "single save"],
+    ["commit", "batch"],
+    ["fragment", "single save"],
+    ["fragment", "batch"],
+  ] as const)(
+    "rejects a %s signed for another tree (%s) without writing it",
+    async (kind, path) => {
+      const storage = new MemoryStore()
+      const saved = vi.fn()
+      const bridge = new StorageBridge(storage, limits, saved)
+      const record = kind === "commit" ? first : fragment
+      // Signed for `tree`, offered under `other`, as a remote peer could.
+      const write =
+        path === "batch"
+          ? batch(bridge, [record], other)
+          : save(bridge, record, other)
+      await expect(write).rejects.toThrow(/different tree/)
+      expect(storage.values.size).toBe(0)
+      expect(saved).not.toHaveBeenCalled()
+    }
+  )
+
   it("notifies when another bridge already saved an identical record without rewriting bytes", async () => {
     const storage = new MemoryStore()
     const firstSaved = vi.fn(),

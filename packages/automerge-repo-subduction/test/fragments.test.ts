@@ -175,39 +175,28 @@ describe("local Subduction fragments", () => {
     }
   )
 
-  it.each(["blob", "key", "tree", "signed", "kind"])(
+  // Tree/key relocation and blob damage are not re-checked on read (see the
+  // native hydration test below for blobs).
+  it.each(["signed", "kind"])(
     "detects persisted fragment %s corruption",
     async field => {
       const backend = create()
       await backend.store(tree, [fragment(4)])
       await backend.close()
-      let key = (await storage.list("subduction-v1/")).find(k =>
+      const key = (await storage.list("subduction-v1/")).find(k =>
         k.includes("/fragments/")
       )!
       const frame = JSON.parse(
         new TextDecoder().decode(await storage.load(key))
       )
-      let target = tree
-      if (field === "blob") frame.blob = "ff00802a" // Same size, different digest.
       if (field === "signed")
         frame.signed =
           frame.signed.slice(0, -2) +
           (frame.signed.endsWith("00") ? "ff" : "00")
       if (field === "kind") frame.kind = "commit"
-      if (field === "key" || field === "tree") {
-        await storage.remove(key)
-        if (field === "key") {
-          frame.head = cid(5)
-          key = key.replace(cid(4), cid(5))
-        } else {
-          target = sedimentreeId("cc".repeat(32))
-          frame.tree = target
-          key = key.replace(tree.padEnd(64, "0"), target)
-        }
-      }
       await storage.save(key, new TextEncoder().encode(JSON.stringify(frame)))
       const reloaded = create()
-      const stream = reloaded.open(target).events[Symbol.asyncIterator]()
+      const stream = reloaded.open(tree).events[Symbol.asyncIterator]()
       expect(await next(stream)).toMatchObject({ type: "failure" })
       expect((await stream.next()).done).toBe(true)
       const collection = reloaded.observeCollection()[Symbol.asyncIterator]()
@@ -271,6 +260,27 @@ describe("local Subduction fragments", () => {
       .events[Symbol.asyncIterator]()
     expect(await next(stream)).toMatchObject({ type: "failure" })
   })
+
+  it.each(["commits", "fragments"])(
+    "a persisted %s blob corrupted on disk is rejected by native hydration",
+    async kind => {
+      await create().store(tree, [loose(1), fragment(4)])
+      const key = (await storage.list("subduction-v1/")).find(k =>
+        k.includes(`/${kind}/`)
+      )!
+      const frame = JSON.parse(
+        new TextDecoder().decode(await storage.load(key))
+      )
+      // Same size, different digest: only the blob content check can catch it.
+      frame.blob =
+        frame.blob.slice(0, -2) + (frame.blob.endsWith("00") ? "ff" : "00")
+      await storage.save(key, new TextEncoder().encode(JSON.stringify(frame)))
+      const reopened = create()
+      expect((await initial(reopened)).records).toHaveLength(2)
+      // The first local write hydrates native, which verifies every blob.
+      await expect(reopened.store(tree, [loose(5, [4])])).rejects.toThrow()
+    }
+  )
 
   it("opens with exactly one storage read, whatever the history size", async () => {
     await create().store(tree, [loose(1), loose(4, [1]), fragment(4)])
