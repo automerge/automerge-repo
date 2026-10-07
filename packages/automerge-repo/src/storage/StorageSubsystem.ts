@@ -29,6 +29,14 @@ type StorageSubsystemEvents = {
     sinceHeads: A.Heads
     savedHeads: A.Heads
   }) => void
+  /** A save reached the storage adapter: `savedHeads` are now durable. */
+  "doc-stored": (arg: { documentId: DocumentId; savedHeads: A.Heads }) => void
+  /** A save of `savedHeads` failed; the error is rethrown to the caller. */
+  "doc-save-failed": (arg: {
+    documentId: DocumentId
+    savedHeads: A.Heads
+    error: unknown
+  }) => void
 }
 
 /**
@@ -129,6 +137,29 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   // AUTOMERGE DOCUMENT STORAGE
 
   /**
+   * Total size in bytes of the document's chunks in storage, as last loaded
+   * or saved by this subsystem; 0 when unknown.
+   */
+  storedSize(documentId: DocumentId): number {
+    let size = 0
+    for (const chunk of this.#chunkInfos.get(documentId) ?? []) {
+      size += chunk.size
+    }
+    return size
+  }
+
+  /**
+   * Whether storage holds the document at exactly `heads`, as last loaded or
+   * saved by this subsystem. A save at these heads would be skipped.
+   */
+  hasStoredHeads(documentId: DocumentId, heads: A.Heads): boolean {
+    const stored = this.#storedHeads.lastSavedHeads(documentId).value
+    return (
+      stored !== null && headsAreSame(encodeHeads(heads), encodeHeads(stored))
+    )
+  }
+
+  /**
    * Loads and combines document chunks from storage, with snapshots first.
    */
   async loadDocData(documentId: DocumentId): Promise<Uint8Array | null> {
@@ -217,10 +248,19 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
     const sourceChunks = this.#chunkInfos.get(documentId) ?? []
 
-    if (this.#shouldCompact(sourceChunks)) {
-      await this.#saveTotal(documentId, doc, sourceChunks)
-    } else {
-      await this.#saveIncremental(documentId, doc)
+    try {
+      if (this.#shouldCompact(sourceChunks)) {
+        await this.#saveTotal(documentId, doc, sourceChunks)
+      } else {
+        await this.#saveIncremental(documentId, doc)
+      }
+    } catch (error) {
+      this.emit("doc-save-failed", {
+        documentId,
+        savedHeads: A.getHeads(doc),
+        error,
+      })
+      throw error
     }
   }
 
@@ -275,6 +315,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
         size: binary.length,
       })
       headsHandle.update(A.getHeads(doc))
+      this.emit("doc-stored", { documentId, savedHeads: A.getHeads(doc) })
     } else {
       return Promise.resolve()
     }
@@ -322,6 +363,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
 
       this.#chunkInfos.set(documentId, newChunkInfos)
       headsHandle.update(A.getHeads(doc))
+      this.emit("doc-stored", { documentId, savedHeads: A.getHeads(doc) })
     } finally {
       this.#compacting = false
     }

@@ -23,6 +23,7 @@ import { semaphore, type Limit } from "../helpers/semaphore.js"
 import { HashRing } from "../helpers/HashRing.js"
 import type { DocumentQuery } from "../DocumentQuery.js"
 import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
+import { kOnInternal, kSubscribeInternal } from "../internals.js"
 
 /**
  * Default cap on concurrent share-policy resolutions. Resolving a peer's share
@@ -78,6 +79,7 @@ interface PeerState {
   dirty: boolean // needs outbound sync message
   hasRequested: boolean // true if peer ever sent request/sync for this doc
   isPresent: boolean // true if peer ever sent an ephemeral message for this doc
+  awaitingAnswer: boolean // requested; not yet sent the doc or doc-unavailable
 }
 
 interface DocSynchronizerEvents {
@@ -86,6 +88,10 @@ interface DocSynchronizerEvents {
   "open-doc": (arg: OpenDocMessage) => void
   "peer-status": (arg: PeerStatusPayload) => void
   metrics: (arg: DocSyncMetrics) => void
+  /** Whether `peerId` is awaiting an answer to its request for this document. */
+  "awaiting-answer": (peerId: PeerId, awaiting: boolean) => void
+  /** A peer's sync or request message passed the share policy and was applied. */
+  activity: () => void
 }
 
 /**
@@ -122,6 +128,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
   #seenEphemeralMessages = new HashRing(1000)
   #networkReady: boolean = false
   #stampEphemeralMessage: () => EphemeralStamp
+  /** Peers last reported as awaiting an answer via `awaiting-answer`. */
+  #reportedAwaiting = new Set<PeerId>()
 
   constructor({
     handle,
@@ -146,7 +154,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     this.#stampEphemeralMessage = stampEphemeralMessage
     query.sourcePending("automerge-sync")
 
-    query.subscribe(() => {
+    query[kSubscribeInternal](() => {
       // Anything internal to the query changed — either the public state
       // transitioned (e.g. data arrived from storage) or the source mix
       // changed (e.g. a higher-priority source gave up). Mark peers dirty
@@ -159,13 +167,16 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       // Use queueMicrotask to avoid re-entrancy: #evaluate calls
       // #updateAvailability which can trigger query transitions,
       // which would synchronously re-enter here.
-      queueMicrotask(() => this.#evaluate())
+      queueMicrotask(() => {
+        this.#applyHeldMessages()
+        this.#evaluate()
+      })
     })
 
     const docId = handle.documentId.slice(0, 5)
     this.#log = makeLogger(`automerge-repo:docsync:${docId}`)
 
-    handle.on(
+    handle[kOnInternal](
       "change",
       asyncThrottle(async () => {
         // Mark all active peers dirty — we have new data to send.
@@ -176,7 +187,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       }, this.syncDebounceRate)
     )
 
-    handle.on("ephemeral-message-outbound", payload =>
+    handle[kOnInternal]("ephemeral-message-outbound", payload =>
       this.#broadcastToPeers(payload)
     )
 
@@ -219,6 +230,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
    *
    * @param peerId The remote ID of the peer we are adding
    * @param syncState
+   * @param options.hasRequested The peer asked for this document earlier in
+   * its connection, so it is re-engaged like a peer with persisted sync state.
    */
   addPeer(
     peerId: PeerId,
@@ -226,9 +239,11 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     {
       messages = [],
       limit = runUnbounded,
+      hasRequested = false,
     }: {
       messages?: (SyncMessage | RequestMessage)[]
       limit?: Limit
+      hasRequested?: boolean
     } = {}
   ): void {
     const previous = this.#peers.get(peerId)
@@ -243,6 +258,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       dirty: true,
       hasRequested: false,
       isPresent: false,
+      awaitingAnswer: false,
     }
     // Note that we completely replace any existing state here. This is necessary
     // because once the sync state and share policy are resolved we call
@@ -251,6 +267,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // Replacing the state means that `#activatePeer` will ignore all racing `addPeer`
     // except the most recent call
     this.#peers.set(peerId, peer)
+    this.#updateAwaitingAnswer()
 
     // If we don't have data yet, a new peer might provide it — re-mark
     // the sync source as pending to prevent premature unavailability.
@@ -262,7 +279,14 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // so adding one peer to many documents does not fan out unbounded callbacks.
     Promise.all([syncState, limit(() => this.#resolveSharePolicy(peerId))])
       .then(([syncState, sharePolicyState]) =>
-        this.#activatePeer(peerId, peer, isNewPeer, syncState, sharePolicyState)
+        this.#activatePeer(
+          peerId,
+          peer,
+          isNewPeer,
+          syncState,
+          sharePolicyState,
+          hasRequested
+        )
       )
       .catch(err => {
         this.#log.error(
@@ -296,9 +320,14 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       case "ephemeral":
         this.#receiveEphemeralMessage(message)
         break
-      case "doc-unavailable":
+      case "doc-unavailable": {
         this.#setPeerStatus(message.senderId, { type: "unavailable" })
+        // A peer that reports the document unavailable no longer awaits it.
+        // Like a sync message's, the senderId is trusted as given.
+        const peer = this.#peers.get(message.senderId)
+        if (peer) peer.awaitingAnswer = false
         break
+      }
       default:
         throw new Error(`unknown message type: ${(message as any).type}`)
     }
@@ -327,6 +356,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
           if (newPolicy === "denied" && peer.hasRequested) {
             // Peer lost access — notify them
+            peer.awaitingAnswer = false
             this.emit("message", {
               type: "doc-unavailable",
               documentId: this.documentId,
@@ -375,6 +405,32 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     return "denied"
   }
 
+  // HOLDING FOR STORAGE
+
+  /**
+   * Whether inbound sync messages must wait: the document is empty and
+   * storage has not been checked yet. A change applied to the empty document
+   * would be dropped when storage replaces it, and the peer would then
+   * re-send the whole document.
+   */
+  #holdingForStorage(): boolean {
+    return (
+      A.getHeads(this.#handle.fullDoc()).length === 0 &&
+      this.#query.shouldDeferAvailability("automerge-sync")
+    )
+  }
+
+  /** Apply the messages held by {@link #holdingForStorage}, in order. */
+  #applyHeldMessages(): void {
+    if (this.#holdingForStorage()) return
+    for (const peer of this.#peers.values()) {
+      if (!peer.syncState || peer.pendingMessages.length === 0) continue
+      const queued = peer.pendingMessages
+      peer.pendingMessages = []
+      for (const msg of queued) this.#receiveSyncMessage(msg)
+    }
+  }
+
   // THE EVALUATE LOOP
 
   /**
@@ -392,6 +448,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // Until we have, we shouldn't respond to requestors.
     const awaitingSupplierData =
       supplierExists && this.#hasPendingSupplierHeads(doc)
+    const holdingForStorage = this.#holdingForStorage()
 
     // Phase 1: Send outbound sync messages to dirty peers.
     for (const [peerId, peer] of this.#peers) {
@@ -403,14 +460,10 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       // document, don't publish an outbound request or an empty reply to a
       // requestor that other peers may interpret as evidence that we do not
       // have it. This is how we wait for the storage source to complete before
-      // announcing that a document is unavailable (for example)
-      if (
-        !weHaveData &&
-        (peer.status.type === "unknown" || peer.status.type === "wants") &&
-        this.#query.shouldDeferAvailability("automerge-sync")
-      ) {
-        continue
-      }
+      // announcing that a document is unavailable (for example). A peer that
+      // has the document waits too: its messages are held until storage has
+      // been checked, so a reply now would come from the empty document.
+      if (holdingForStorage) continue
 
       // Invariant 4: If we don't have data but a supplier exists,
       // only talk to the supplier. Don't fan out requests to other peers.
@@ -446,6 +499,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       for (const [peerId, peer] of this.#peers) {
         if (peer.status.type === "wants") {
           this.#setPeerStatus(peerId, { type: "unavailable-notified" })
+          peer.awaitingAnswer = false
           this.emit("message", {
             type: "doc-unavailable",
             documentId: this.#handle.documentId,
@@ -453,6 +507,26 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
           } as MessageContents<DocumentUnavailableMessage>)
         }
       }
+    }
+
+    this.#updateAwaitingAnswer()
+  }
+
+  /**
+   * An unanswered peer request is in-flight work, like a pending storage
+   * load: report each peer's transitions so the collection keeps the
+   * document loaded until the peer is answered or leaves.
+   */
+  #updateAwaitingAnswer(): void {
+    for (const peerId of this.#reportedAwaiting) {
+      if (this.#peers.get(peerId)?.awaitingAnswer) continue
+      this.#reportedAwaiting.delete(peerId)
+      this.emit("awaiting-answer", peerId, false)
+    }
+    for (const [peerId, peer] of this.#peers) {
+      if (!peer.awaitingAnswer || this.#reportedAwaiting.has(peerId)) continue
+      this.#reportedAwaiting.add(peerId)
+      this.emit("awaiting-answer", peerId, true)
     }
   }
 
@@ -549,7 +623,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     peer: PeerState,
     isNewPeer: boolean,
     syncState: A.SyncState | undefined,
-    sharePolicyState: SharePolicyState
+    sharePolicyState: SharePolicyState,
+    requestedEarlier = false
   ): void {
     // Peer may have been removed while we were loading, or addPeer may have
     // been called again. In either case, this activation is stale. (note this
@@ -578,7 +653,9 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // synced this document before: restore its engagement so a re-created
     // synchronizer (after cache eviction) resumes pushing updates to a
     // passively-subscribed peer instead of waiting for it to speak first.
-    if (syncState && state.sharedHeads.length > 0 && !peer.hasRequested) {
+    // A request earlier in this connection is the same evidence.
+    const syncedBefore = syncState && state.sharedHeads.length > 0
+    if ((syncedBefore || requestedEarlier) && !peer.hasRequested) {
       peer.hasRequested = true
       if (sharePolicyState === "share") sharePolicyState = "announce"
     }
@@ -595,6 +672,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       peer.pendingMessages = []
       for (const _msg of queued) {
         peer.hasRequested = true
+        peer.awaitingAnswer = false
         this.emit("message", {
           type: "doc-unavailable",
           documentId: this.documentId,
@@ -614,6 +692,13 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
       (sharePolicyState === "announce" || peer.pendingMessages.length > 0)
     ) {
       this.emit("open-doc", { documentId: this.documentId, peerId })
+    }
+
+    // Held messages are applied once storage has been checked.
+    if (this.#holdingForStorage()) {
+      peer.dirty = true
+      this.#evaluate()
+      return
     }
 
     // Drain queued messages in order.
@@ -710,6 +795,8 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
     const syncState = peer.syncState!
     const isNew = A.getHeads(doc).length === 0
+    // With data, this sync (or one already in flight) answers a request.
+    if (!isNew) peer.awaitingAnswer = false
 
     const start = performance.now()
     const [newSyncState, message] = A.generateSyncMessage(doc, syncState)
@@ -779,6 +866,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
     // Update peer status based on message type.
     if (isRequestMessage(message)) {
       this.#setPeerStatus(message.senderId, { type: "wants" })
+      peer.awaitingAnswer = true
     }
     const decoded = A.decodeSyncMessage(message.data)
     if (decoded.heads.length > 0) {
@@ -786,16 +874,19 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
         type: "has",
         theirInitialHeads: decoded.heads,
       })
+      peer.awaitingAnswer = false
     }
 
-    // If sync state is still loading, queue for later.
-    if (!peer.syncState) {
+    // If sync state is still loading, or storage has not been checked yet,
+    // queue for later.
+    if (!peer.syncState || this.#holdingForStorage()) {
       peer.pendingMessages.push(message)
       return
     }
 
     // Denied peers: track status above but don't apply sync data.
     if (peer.sharePolicyState === "denied") {
+      peer.awaitingAnswer = false
       this.emit("message", {
         type: "doc-unavailable",
         documentId: this.#handle.documentId,
@@ -832,6 +923,7 @@ export class DocSynchronizer extends EventEmitter<DocSynchronizerEvents> {
 
       return newDoc
     })
+    this.emit("activity")
   }
 
   // EPHEMERAL MESSAGES

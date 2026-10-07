@@ -13,6 +13,7 @@ import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer, SHARE_POLICY_CONCURRENCY } from "./DocSynchronizer.js"
 import type { ShareConfig } from "./DocSynchronizer.js"
 import { semaphore, type Limit } from "../helpers/semaphore.js"
+import { WeakValueMap } from "../helpers/WeakValueMap.js"
 import type { DocumentSource } from "../DocumentSource.js"
 import type { DocumentQuery, SourcePriority } from "../DocumentQuery.js"
 import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
@@ -24,6 +25,13 @@ import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
  * sync server an unbounded fan-out would issue that many storage reads at once.
  */
 export const DEFAULT_SYNC_STATE_LOAD_CONCURRENCY = 20
+
+/**
+ * Default for {@link AutomergeSyncConfig.maxPinnedRequestsPerPeer}. A pinned
+ * document this repo does not yet have costs an estimated 16 KB, so the worst
+ * case is about 16 MB per peer.
+ */
+export const DEFAULT_MAX_PINNED_REQUESTS_PER_PEER = 1000
 
 export interface AutomergeSyncConfig {
   peerId: PeerId
@@ -76,6 +84,14 @@ export interface AutomergeSyncConfig {
    * Allocates one {@link EphemeralStamp} per outbound broadcast.
    */
   stampEphemeralMessage: () => EphemeralStamp
+
+  /**
+   * Maximum number of documents one peer's unanswered requests keep loaded.
+   * Requests over the cap are still served, but their documents are not
+   * pinned. Defaults to {@link DEFAULT_MAX_PINNED_REQUESTS_PER_PEER};
+   * `Infinity` disables the cap.
+   */
+  maxPinnedRequestsPerPeer?: number
 }
 
 interface CollectionSynchronizerEvents {
@@ -83,6 +99,8 @@ interface CollectionSynchronizerEvents {
   "sync-state": (payload: SyncStatePayload) => void
   "open-doc": (arg: OpenDocMessage) => void
   metrics: (arg: DocSyncMetrics) => void
+  /** A peer's sync or request message for the document was applied. */
+  activity: (documentId: DocumentId) => void
 }
 
 /**
@@ -98,7 +116,32 @@ export class CollectionSynchronizer
   readonly priority: SourcePriority
 
   #peers: Set<PeerId> = new Set()
-  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
+
+  /**
+   * Per-document synchronizers, held weakly. A DocSynchronizer is retained
+   * by its own document cluster (its handle listeners and query
+   * subscription close over it) and by in-flight work (peer activation,
+   * networkReady, sync-throttle timers), so an entry lives exactly as long
+   * as its document. A later inbound message re-creates it via
+   * ensureQuery/attach, re-loading persisted sync state.
+   */
+  #docSynchronizers = new WeakValueMap<DocumentId, DocSynchronizer>()
+
+  /**
+   * Synchronizers owing a peer an answer to its request, held strongly per
+   * peer: nothing local references the document while we wait upstream on
+   * the peer's behalf. Capped per peer by `maxPinnedRequestsPerPeer`.
+   */
+  #pinnedRequests = new Map<PeerId, Set<DocSynchronizer>>()
+  #maxPinnedRequestsPerPeer: number
+
+  /**
+   * Documents each connected peer has sent a sync or request message for,
+   * kept for the life of the connection. A synchronizer re-created after its
+   * document was released reads it to resume sending to peers that asked
+   * earlier, which a storage-less peer has no persisted sync state for.
+   */
+  #requestedBy = new Map<PeerId, Set<DocumentId>>()
   #denylist: DocumentId[]
   #config: AutomergeSyncConfig
   #networkReady: Promise<void>
@@ -127,11 +170,19 @@ export class CollectionSynchronizer
     this.#sharePolicyLimit = semaphore(
       config.sharePolicyConcurrency ?? SHARE_POLICY_CONCURRENCY
     )
+    this.#maxPinnedRequestsPerPeer =
+      config.maxPinnedRequestsPerPeer ?? DEFAULT_MAX_PINNED_REQUESTS_PER_PEER
+    if (!(this.#maxPinnedRequestsPerPeer >= 0)) {
+      throw new RangeError(
+        `maxPinnedRequestsPerPeer must be a number >= 0, got ${config.maxPinnedRequestsPerPeer}`
+      )
+    }
   }
 
-  /** Expose doc synchronizers for Repo access (e.g. metrics) */
+  /** Expose doc synchronizers for Repo access (e.g. metrics). A snapshot
+   *  of the currently-live entries. */
   get docSynchronizers(): Record<DocumentId, DocSynchronizer> {
-    return this.#docSynchronizers
+    return Object.fromEntries(this.#docSynchronizers.entries())
   }
 
   // DOCUMENT SOURCE INTERFACE
@@ -143,10 +194,10 @@ export class CollectionSynchronizer
    * share policy internally.
    */
   attach(query: DocumentQuery<unknown>): void {
-    if (this.#docSynchronizers[query.documentId]) return
+    if (this.#docSynchronizers.has(query.documentId)) return
 
     const docSync = this.#initDocSynchronizer(query.handle, query)
-    this.#docSynchronizers[query.documentId] = docSync
+    this.#docSynchronizers.set(query.documentId, docSync)
 
     for (const peerId of this.#peers) {
       this.#addPeerToDoc(peerId, docSync, [])
@@ -156,13 +207,14 @@ export class CollectionSynchronizer
   /** {@link DocumentSource.detach} — removes a document and stops syncing. */
   detach(documentId: DocumentId): void {
     this.#log.debug(`removing document ${documentId}`)
-    const docSync = this.#docSynchronizers[documentId]
+    const docSync = this.#docSynchronizers.get(documentId)
     if (docSync) {
+      // Removing each peer also releases the requests it pinned.
       for (const peerId of this.peers) {
         docSync.removePeer(peerId)
       }
     }
-    delete this.#docSynchronizers[documentId]
+    this.#docSynchronizers.delete(documentId)
   }
 
   // PEER MANAGEMENT
@@ -170,7 +222,9 @@ export class CollectionSynchronizer
   addPeer(peerId: PeerId): void {
     this.#log.debug(`adding ${peerId} & synchronizing with them`)
     this.#peers.add(peerId)
-    for (const docSync of Object.values(this.#docSynchronizers)) {
+    // A new connection starts a new record, even without a disconnect.
+    this.#requestedBy.delete(peerId)
+    for (const docSync of this.#docSynchronizers.values()) {
       this.#addPeerToDoc(peerId, docSync, [])
     }
   }
@@ -178,9 +232,11 @@ export class CollectionSynchronizer
   removePeer(peerId: PeerId): void {
     this.#log.debug(`removing peer ${peerId}`)
     this.#peers.delete(peerId)
-    for (const docSync of Object.values(this.#docSynchronizers)) {
+    for (const docSync of this.#docSynchronizers.values()) {
       docSync.removePeer(peerId)
     }
+    this.#pinnedRequests.delete(peerId)
+    this.#requestedBy.delete(peerId)
   }
 
   get peers(): PeerId[] {
@@ -211,12 +267,31 @@ export class CollectionSynchronizer
       return
     }
 
+    // Sync and request messages open per-peer state that only removePeer
+    // releases, so they are accepted only from connected peers.
+    if (
+      (message.type === "sync" || message.type === "request") &&
+      !this.#peers.has(message.senderId)
+    ) {
+      this.#log.debug(`ignoring ${message.type} from unknown peer`)
+      return
+    }
+
+    if (message.type === "sync" || message.type === "request") {
+      let requested = this.#requestedBy.get(message.senderId)
+      if (!requested) {
+        requested = new Set()
+        this.#requestedBy.set(message.senderId, requested)
+      }
+      requested.add(documentId)
+    }
+
     // Ensure we have a DocSynchronizer for this document.
     // ensureQuery calls attach which no-ops if already registered.
-    let docSync = this.#docSynchronizers[documentId]
+    let docSync = this.#docSynchronizers.get(documentId)
     if (!docSync) {
       this.#config.ensureQuery(documentId)
-      docSync = this.#docSynchronizers[documentId]!
+      docSync = this.#docSynchronizers.get(documentId)!
     }
 
     // Ephemeral and doc-unavailable messages may have a senderId that is
@@ -242,7 +317,7 @@ export class CollectionSynchronizer
   // SHARE POLICY
 
   reevaluateDocumentShare(): void {
-    for (const docSync of Object.values(this.#docSynchronizers)) {
+    for (const docSync of this.#docSynchronizers.values()) {
       docSync.reevaluateSharePolicy(this.#sharePolicyLimit)
     }
   }
@@ -254,7 +329,8 @@ export class CollectionSynchronizer
     }
   } {
     return Object.fromEntries(
-      Object.entries(this.#docSynchronizers).map(
+      Array.from(
+        this.#docSynchronizers.entries(),
         ([documentId, synchronizer]) => {
           return [documentId, synchronizer.metrics()]
         }
@@ -280,8 +356,36 @@ export class CollectionSynchronizer
     docSync.on("open-doc", event => this.emit("open-doc", event))
     docSync.on("sync-state", event => this.emit("sync-state", event))
     docSync.on("metrics", event => this.emit("metrics", event))
+    docSync.on("activity", () => this.emit("activity", docSync.documentId))
+    docSync.on("awaiting-answer", (peerId, awaiting) =>
+      this.#setPinnedRequest(docSync, peerId, awaiting)
+    )
 
     return docSync
+  }
+
+  #setPinnedRequest(
+    docSync: DocSynchronizer,
+    peerId: PeerId,
+    awaiting: boolean
+  ): void {
+    let pinned = this.#pinnedRequests.get(peerId)
+    if (!awaiting) {
+      pinned?.delete(docSync)
+      if (pinned?.size === 0) this.#pinnedRequests.delete(peerId)
+      return
+    }
+    // A detached synchronizer is being torn down and a departed peer's pins
+    // are already released: neither may pin.
+    if (this.#docSynchronizers.get(docSync.documentId) !== docSync) return
+    if (!this.#peers.has(peerId)) return
+    // Over the cap the request is still served, but not pinned.
+    if ((pinned?.size ?? 0) >= this.#maxPinnedRequestsPerPeer) return
+    if (!pinned) {
+      pinned = new Set()
+      this.#pinnedRequests.set(peerId, pinned)
+    }
+    pinned.add(docSync)
   }
 
   #addPeerToDoc(
@@ -294,6 +398,7 @@ export class CollectionSynchronizer
     docSync.addPeer(peerId, this.#loadSyncStateFor(documentId, peerId), {
       messages,
       limit: this.#sharePolicyLimit,
+      hasRequested: this.#requestedBy.get(peerId)?.has(documentId) ?? false,
     })
   }
 

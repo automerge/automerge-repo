@@ -4,6 +4,12 @@ import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { type FindProgress, queryStateToFindProgress } from "./_compat.js"
+import {
+  kOnInternal,
+  kReleaseDocument,
+  kRetainDocument,
+  kSubscribeInternal,
+} from "./internals.js"
 
 /**
  * The state a {@link DocumentSource} reports for a particular document.
@@ -118,7 +124,9 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
 
   #handle: DocHandle<T>
   #sources = new Map<string, SourceInfo>()
-  #subscribers = new Set<(state: QueryState<T>) => void>()
+  /** Subscribers with their externality flag: external subscribers retain
+   * the document; repo-internal ones (`kSubscribeInternal`) do not. */
+  #subscribers = new Map<(state: QueryState<T>) => void, boolean>()
   #state: QueryState<T>
   #failed = false
 
@@ -138,7 +146,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
       ])
     )
     this.#state = this.#computeState()
-    this.#handle.on("heads-changed", () => this.#recompute())
+    this.#handle[kOnInternal]("heads-changed", () => this.#recompute())
   }
 
   peek(): QueryState<T> {
@@ -162,8 +170,37 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   }
 
   subscribe(callback: (state: QueryState<T>) => void): () => void {
-    this.#subscribers.add(callback)
-    return () => this.#subscribers.delete(callback)
+    // An external subscriber roots the document (see kRetainDocument), so
+    // updates keep flowing even if the consumer drops every handle.
+    return this.#subscribe(callback, true)
+  }
+
+  /**
+   * Subscribe without externally retaining the document (repo-internal
+   * observers only).
+   * @hidden
+   */
+  [kSubscribeInternal](callback: (state: QueryState<T>) => void): () => void {
+    return this.#subscribe(callback, false)
+  }
+
+  #subscribe(
+    callback: (state: QueryState<T>) => void,
+    external: boolean
+  ): () => void {
+    const added = !this.#subscribers.has(callback)
+    if (added) {
+      this.#subscribers.set(callback, external)
+      if (external) this.#handle[kRetainDocument]()
+    }
+    // The unsubscribe releases exactly what this call retained: a duplicate
+    // subscription of an already-registered callback owns nothing.
+    return () => {
+      if (!added) return
+      if (this.#subscribers.delete(callback) && external) {
+        this.#handle[kReleaseDocument]()
+      }
+    }
   }
 
   async whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T>> {
@@ -333,7 +370,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   #transition(next: QueryState<T>): void {
     if (statesEqual(this.#state, next)) return
     this.#state = next
-    for (const callback of this.#subscribers) {
+    for (const callback of this.#subscribers.keys()) {
       callback(next)
     }
   }

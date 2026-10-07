@@ -72,6 +72,8 @@ A `DocHandle` also emits these events:
 - `delete`  
   Called when the document is deleted locally.
 
+`handle.off(event)` and `handle.removeAllListeners()` do not remove the listeners the repo itself attaches for storage autosave, query updates and sync, so the document keeps saving and syncing. Listeners attached on your behalf, by `Presence` or by `subscribe`/`whenReady` on a `findWithProgress` result for a URL with heads, are removed along with your own.
+
 ## Creating a repo
 
 The repo needs to be configured with storage and network adapters. If you give it neither, it will
@@ -280,6 +282,58 @@ const repo = new Repo({
 And you're finished! You can test that your sync server is opening the same document in two
 different browsers (e.g. Chrome and Firefox). (Note that with our current trivial implementation
 you'll need to manually copy the `rootDocId` value between the browsers.)
+
+## Memory lifetime
+
+`Repo` keeps a document loaded while you observe it: while you hold a strong reference to a `DocHandle` (or a `DocumentProgress`), or keep a listener attached. Once nothing observes it, the `releaseUnobservedAfterMs` setting decides when the repo lets it go, and the repo then releases the associated coordination state (query, synchronizer entry, sync info, save listener).
+
+### The contract
+
+- **Holding a strong reference keeps the document loaded.** Storage backing, sync state, and the synchronizer entry stay alive as long as your reference does.
+- **An attached listener also keeps it loaded.** `handle.on(...)` (and an active `DocumentProgress.subscribe(...)` or a pending `whenReady`) roots the document in the repo, so events keep flowing even if you drop the handle itself. Remove the listener (`off`, `removeAllListeners`, the unsubscribe function) to release that root. A listener you never remove pins its document for the life of the `Repo`.
+- **Public listener removal is safe cleanup.** `off(event)` and `removeAllListeners()` release the retention held by the listeners you added. The repo's own listeners (storage autosave, query updates, sync) stay attached, so sweeping a handle's listeners does not stop the document saving or syncing for other consumers.
+- **An unobserved document is released after a period without activity.** `releaseUnobservedAfterMs` (see Settings) sets the period. The document reloads on next use; no `repo.removeFromCache(id)` call is needed.
+- **In-memory peer sync info lives with the document.** `handle.getSyncInfo(storageId)` reports what this process has learned since the document was last loaded; after the document is released and re-loaded it returns `undefined` until fresh sync messages arrive, just as it does after a process restart. After a reload the repo resumes syncing with peers it synced with before (from persisted sync state) and with connected peers that asked for the document.
+- **A consumer-side `WeakMap<DocHandle, ...>` for derived state works as expected.** Its entries go when the repo releases the document, so after the release period once you drop your references.
+
+**Opt-in modules with their own teardown.** Some optional modules layer their own long-lived state on top of a handle, most notably [`Presence`](src/presence/Presence.ts), which schedules heartbeat and peer-pruning intervals in the host timer queue. The timer queue is an external GC root that keeps the `Presence` (and its handle) alive until cleared, so dropping references is **not** enough for those: call `presence.stop()` deterministically (typically in a `pagehide` / unmount path) before releasing. See the relevant module's docs for the specifics.
+
+### Settings
+
+| Option                     | Default                                   | Meaning                                                                                                                                                                                     |
+| -------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `releaseUnobservedAfterMs` | `30_000` with storage, `Infinity` without | How long an unobserved document stays loaded after its last activity. `0` releases it once it is unobserved; `Infinity` never releases it.                                                  |
+| `maxUnobservedBytes`       | `Infinity`                                | Cap on the stored size of the documents the release setting keeps (documents with a listener attached are not counted). The least recently active go first. Takes effect only with storage. |
+| `retainUntilSaved`         | `false`                                   | Keep a document whose save failed until a save at its current heads succeeds.                                                                                                               |
+| `maxPinnedRequestsPerPeer` | `1000`                                    | How many documents one peer's unanswered requests can keep loaded while this repo asks other peers for them (about 16 MB per peer at the default). `Infinity` disables the cap.             |
+
+Recommended:
+
+- **Apps:** hold handles where you use them (framework hooks do this for you) and keep the defaults.
+- **Sync servers:** keep the default release period, which keeps documents loaded between editing bursts instead of reloading them each time, and set `maxUnobservedBytes` to bound memory. It counts stored (compressed) bytes, and a loaded document takes more memory than its stored size, so size it from your own measurements.
+- **Repos without storage:** the default never releases, since the repo may hold the only copy. Release documents yourself with `removeFromCache`, or set a finite period only if another peer holds your data.
+- **`retainUntilSaved`:** enable it only if your storage recovers from failures; until it does, those documents stay in memory. Without it, unsaved changes survive a storage failure only on peers that synced them.
+
+For a policy of your own (by count, time or memory), hold the handles yourself in a map under your eviction rule and set `releaseUnobservedAfterMs: 0`.
+
+### Flush unsaved changes before dropping
+
+A pending throttled save keeps the document loaded until the write finishes. A failed save is logged, and the change then lives only in memory (see `retainUntilSaved`) or on peers that synced it. If you need a deterministic point at which all writes are persisted, `await repo.flush([documentId])` first:
+
+```ts
+await repo.flush([handle.documentId]) // ensure pending changes hit storage
+handle = null // drop the reference; the repo releases the document after the release period
+```
+
+### `removeFromCache` is for explicit teardown
+
+`repo.removeFromCache(documentId)` releases a document at once, whatever the settings above; `repo.delete(documentId)` does too, and also deletes it. Both sever listener-based rooting, so a document you tear down explicitly is released even if some listener was never removed. Use them when you need synchronous teardown (e.g. shutting down a subsystem with a known doc list); for typical reference-dropping patterns they are not needed.
+
+### Behavior change vs. previous versions
+
+In earlier versions, `Repo` strongly retained every handle it created for the lifetime of the `Repo`. A repo without storage still does by default. A repo with storage now releases an unobserved document after the release period and reloads it on next use; set `releaseUnobservedAfterMs: Infinity` to keep the old behavior.
+
+For most application code the change is transparent: you were already holding handles or listening where you needed them. The change affects code that _implicitly_ relied on the repo as a permanent cache.
 
 ## Acknowledgements
 

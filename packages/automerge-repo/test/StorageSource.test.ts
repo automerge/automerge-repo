@@ -112,6 +112,49 @@ describe("StorageSource", () => {
     }
   })
 
+  it("shares one throttled save per document across attaches, keeping writes serialized", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+      const subsystem = new StorageSubsystem(new DummyStorageAdapter())
+      const pendingSaves: Array<() => void> = []
+      const saveDoc = vi
+        .spyOn(subsystem, "saveDoc")
+        .mockImplementation(
+          () => new Promise<void>(resolve => pendingSaves.push(resolve))
+        )
+      const source = new StorageSource(subsystem, 10)
+
+      const query1 = createTestQuery<TestDoc>(documentId)
+      source.attach(query1 as DocumentQuery<unknown>)
+      query1.handle.update(() => A.from({ foo: "a" }) as A.Doc<unknown>)
+      await vi.advanceTimersByTimeAsync(20)
+      assert.equal(saveDoc.mock.calls.length, 1)
+
+      // Re-attach for the same document (a fresh cluster, as after eviction
+      // and re-materialization) while the first write is still in flight.
+      const query2 = createTestQuery<TestDoc>(documentId)
+      source.attach(query2 as DocumentQuery<unknown>)
+      query2.handle.update(() => A.from({ foo: "b" }) as A.Doc<unknown>)
+
+      // The shared throttle must hold the second write until the first lands.
+      await vi.advanceTimersByTimeAsync(20)
+      assert.equal(
+        saveDoc.mock.calls.length,
+        1,
+        "saves for the same document must never run concurrently"
+      )
+
+      pendingSaves.shift()!()
+      await vi.advanceTimersByTimeAsync(20)
+      assert.equal(saveDoc.mock.calls.length, 2)
+      pendingSaves.shift()!()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("logs a failed save instead of leaking an unhandled rejection", async () => {
     // A save runs fire-and-forget from the "heads-changed" listener. If the
     // storage write rejects, the rejection must be caught and logged, not left
