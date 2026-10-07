@@ -73,15 +73,73 @@ const importShapes = [
   // 6 chunks at 128 records, 48 at 16.
   { name: "large", changes: 2200, records: 762 },
 ]
+// Large histories simulate typing into one text field: text is the realistic
+// stress case, since content and record sizes grow with history. A seeded PRNG
+// keeps every regeneration byte-identical.
+function random(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+const words =
+  "the quick brown fox jumps over a lazy dog while automerge keeps every edit in sync".split(
+    " "
+  )
+function typing({ changes, seed }) {
+  const next = random(seed)
+  const pick = n => Math.floor(next() * n)
+  let doc = A.change(
+    A.init({ actor: "2".padStart(32, "0") }),
+    { time: 0 },
+    value => {
+      value.text = ""
+    }
+  )
+  let length = 0
+  let cursor = 0
+  for (let j = 1; j < changes; j++) {
+    // Occasionally move the cursor elsewhere, as when editing earlier text.
+    if (next() < 0.05) cursor = pick(length + 1)
+    const remove = length > 0 && next() < 0.1
+    let insert = ""
+    let deleted = 0
+    if (remove) {
+      if (cursor === 0) cursor = length
+      deleted = Math.min(cursor, 1 + pick(10))
+    } else {
+      const size = 1 + pick(20)
+      while (insert.length < size)
+        insert += next() < 0.05 ? "\n" : `${words[pick(words.length)]} `
+      insert = insert.slice(0, size)
+    }
+    const at = cursor - deleted
+    doc = A.change(doc, { time: 0 }, value => {
+      A.splice(value, ["text"], at, deleted, insert)
+    })
+    length += insert.length - deleted
+    cursor = at + insert.length
+    if (j % 10000 === 0) console.log(`  text history: ${j}/${changes}`)
+  }
+  return doc
+}
+const textShapes = [
+  { name: "text-10k", changes: 10000, seed: 10, records: 292 },
+  { name: "text-30k", changes: 30000, seed: 30, records: 189 },
+  { name: "text-100k", changes: 100000, seed: 100, records: 452 },
+]
+
 const imports = []
-for (const shape of importShapes) {
-  const { doc, count: finalCount } = history(shape)
+async function write(shape, doc, extra) {
   const bytes = A.save(doc)
-  const metadata = A.getFragmentMetadata(A.load(bytes))
+  const loaded = A.load(bytes)
+  const metadata = A.getFragmentMetadata(loaded)
   const loose = metadata.filter(meta => meta.level === 0).length
   if (metadata.length !== shape.records)
     throw new Error(
-      `${shape.name}: expected ${shape.records} records after reload, got ${metadata.length}; update importShapes`
+      `${shape.name}: expected ${shape.records} records after reload, got ${metadata.length}; update the shape`
     )
   const name = `import-${shape.name}.automerge`
   await writeFile(join(output, name), bytes)
@@ -93,11 +151,25 @@ for (const shape of importShapes) {
     records: metadata.length,
     loose,
     fragments: metadata.length - loose,
-    count: finalCount,
+    ...extra,
   })
   console.log(
     `Import fixture ${shape.name}: ${metadata.length} records (${loose} loose, ${metadata.length - loose} fragments), ${bytes.length} bytes`
   )
+}
+for (const shape of importShapes) {
+  const { doc, count } = history(shape)
+  await write(shape, doc, { count })
+}
+for (const shape of textShapes) {
+  const doc = typing(shape)
+  if (A.getAllChanges(doc).length !== shape.changes)
+    throw new Error(`${shape.name}: expected ${shape.changes} changes`)
+  const text = doc.text
+  await write(shape, doc, {
+    textLength: text.length,
+    textSha256: sha256(new TextEncoder().encode(text)),
+  })
 }
 await writeFile(
   join(output, "imports.json"),

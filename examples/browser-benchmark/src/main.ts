@@ -40,13 +40,15 @@ type ImportFixture = Fixture & {
   records: number
   loose: number
   fragments: number
-  count: number
-}
+} & ({ count: number } | { textLength: number; textSha256: string })
 type ImportManifest = { version: number; files: ImportFixture[] }
+/** Checks a reopened document against what its fixture should contain. */
+type Verify = (doc: unknown) => Promise<boolean>
 /** One import into a fresh store. `importMs` is until import() resolves,
  * `flushMs` until flush() resolves afterwards (older targets return from
- * import before persisting). `verified` means a reopen read back the final
- * count. A rejected import is recorded with `error`, not thrown. */
+ * import before persisting). `verified` means a reopen read back the expected
+ * content. A rejected or timed-out import is recorded with `error`, not
+ * thrown. */
 type ImportSample = {
   fixture: string
   records: number
@@ -356,13 +358,48 @@ async function load(database: string, urls: string[]): Promise<LoadResult> {
 /** Import each listed fixture once, every one into a fresh store that is
  * deleted afterwards, so this never reuses the prepared load seed and is always
  * timed. Pass the same fixture several times to repeat it. */
+const importTimeoutMs = 10 * 60_000
+class Timeout extends Error {
+  constructor() {
+    super("timeout")
+  }
+}
+/** Rejects with Timeout once `deadline` passes; the work itself keeps running. */
+function within<T>(work: Promise<T>, deadline: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Timeout()),
+        Math.max(0, deadline - performance.now())
+      )
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+const verifyCount =
+  (count: number): Verify =>
+  async doc =>
+    (doc as { count?: number } | undefined)?.count === count
+function verifyFixture(fixture: ImportFixture): Verify {
+  if ("count" in fixture) return verifyCount(fixture.count)
+  return async doc => {
+    const text = (doc as { text?: unknown } | undefined)?.text
+    if (typeof text !== "string" || text.length !== fixture.textLength)
+      return false
+    const bytes = new TextEncoder().encode(text)
+    return (await sha256(bytes.buffer as ArrayBuffer)) === fixture.textSha256
+  }
+}
+
 async function imports(
   label: string,
   records: number,
-  runs: { fixture: Fixture; verifyCount: number }[]
+  runs: { fixture: Fixture; verify: Verify }[]
 ): Promise<ImportResult> {
   const samples: ImportSample[] = []
-  for (const [index, { fixture, verifyCount }] of runs.entries()) {
+  for (const [index, { fixture, verify }] of runs.entries()) {
     progress(
       `Importing ${label}: ${index + 1}/${runs.length}`,
       index / runs.length
@@ -384,22 +421,29 @@ async function imports(
       storeKeys: null,
       storeBytes: null,
     }
+    // One deadline covers import, flush and the reopen check. A timed-out
+    // session may still be working, so closing it is bounded too.
+    const deadline = performance.now() + importTimeoutMs
+    const closeWithin = (session: { close(): Promise<void> }) =>
+      within(session.close(), Math.max(deadline, performance.now() + 30_000))
+    let timedOut = false
     const session = target.open(database, stats)
     let url: string | undefined
     try {
       const started = performance.now()
       try {
-        url = (await session.import(bytes.slice())).url
+        url = (await within(session.import(bytes.slice()), deadline)).url
         sample.importMs = performance.now() - started
         const flushStarted = performance.now()
-        await session.flush()
+        await within(session.flush(), deadline)
         sample.flushMs = performance.now() - flushStarted
       } catch (error) {
+        timedOut = error instanceof Timeout
         sample.error = String(error)
       }
       sample.jsHeapAfterBytes = memory()
     } finally {
-      await session.close().catch(error => {
+      await closeWithin(session).catch(error => {
         sample.error ??= `close: ${String(error)}`
       })
     }
@@ -410,18 +454,21 @@ async function imports(
         sample.storeBytes = size.bytes
         const reopened = target.open(database)
         try {
-          const restored = await reopened.find<{ count: number }>(url)
-          sample.verified = restored.doc()?.count === verifyCount
-          if (!sample.verified) sample.error = "Reopened count did not match"
+          const restored = await within(reopened.find(url), deadline)
+          sample.verified = await verify(restored.doc())
+          if (!sample.verified) sample.error = "Reopened content did not match"
         } finally {
-          await reopened.close()
+          await closeWithin(reopened).catch(() => {})
         }
       } catch (error) {
+        timedOut = error instanceof Timeout
         sample.error = `verify: ${String(error)}`
       }
     }
     samples.push(sample)
     await deleteDatabase(database).catch(() => {})
+    // Later samples would only contend with the still-running one.
+    if (timedOut) break
   }
   const ok = samples.filter(sample => sample.verified)
   const pick = (key: "importMs" | "flushMs", p: number) =>
@@ -658,27 +705,28 @@ async function run() {
       }
       loadRows.append(row)
     }
-    // Small imports reuse the 51-change load fixtures; medium/large come from
+    // Small imports reuse the 51-change load fixtures; the rest come from
     // imports.json. Each large fixture is one multi-hundred-record batch, which
     // the adapter may reject outright: that is recorded per sample, not fatal.
+    // Text-history fixtures are too slow for smoke runs.
     const importClasses: Parameters<typeof imports>[] = [
       [
         "small",
         manifest.changes + 1,
         manifest.files
           .slice(0, smoke ? 3 : 20)
-          .map(fixture => ({ fixture, verifyCount: 50 })),
+          .map(fixture => ({ fixture, verify: verifyCount(50) })),
       ],
-      ...(importSet?.manifest.files ?? []).map(
-        (fixture): Parameters<typeof imports> => [
+      ...(importSet?.manifest.files ?? [])
+        .filter(fixture => !smoke || "count" in fixture)
+        .map((fixture): Parameters<typeof imports> => [
           fixture.name.replace(/^import-|\.automerge$/g, ""),
           fixture.records,
           Array.from({ length: smoke ? 1 : 3 }, () => ({
             fixture,
-            verifyCount: fixture.count,
+            verify: verifyFixture(fixture),
           })),
-        ]
-      ),
+        ]),
     ]
     for (const args of importClasses) {
       const sample = await imports(...args)
