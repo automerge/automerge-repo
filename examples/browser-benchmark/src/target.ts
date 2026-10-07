@@ -1,5 +1,5 @@
 export type StorageStats = Record<
-  "load" | "save" | "list" | "remove",
+  "load" | "save" | "list" | "remove" | "loadPrefix",
   { calls: number; elapsedMs: number; values: number }
 >
 

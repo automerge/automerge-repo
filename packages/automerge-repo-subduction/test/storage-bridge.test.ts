@@ -68,6 +68,14 @@ class MemoryStore implements LocalByteStore {
       this.values.delete(key)
     })
   }
+  loadPrefix(prefix: string) {
+    return this.run("loadPrefix", prefix, () =>
+      [...this.values.keys()]
+        .filter(k => k.startsWith(prefix))
+        .sort()
+        .map((k): [string, Uint8Array] => [k, this.values.get(k)!.slice()])
+    )
+  }
   list(prefix: string) {
     return this.run("list", prefix, () =>
       [...this.values.keys()].filter(k => k.startsWith(prefix))
@@ -447,11 +455,11 @@ describe("StorageBridge native transaction serialization", () => {
   it("drain captures reads, settles after failures, and does not wait for later calls", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage, limits, () => {})
-    const readGate = pause(storage, op => op === "load")
+    const readGate = pause(storage, op => op === "loadPrefix")
     const error = new Error("read failed")
-    const originalLoad = storage.load.bind(storage)
-    storage.load = async key => {
-      await originalLoad(key)
+    const originalLoadPrefix = storage.loadPrefix.bind(storage)
+    storage.loadPrefix = async prefix => {
+      await originalLoadPrefix(prefix)
       throw error
     }
     const reading = withId(id => bridge.records(id)).catch(e => e)

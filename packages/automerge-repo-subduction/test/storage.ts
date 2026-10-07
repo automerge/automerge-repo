@@ -52,6 +52,14 @@ export class DiskStore implements LocalByteStore {
     await walk("")
     return result.sort()
   }
+  async loadPrefix(prefix: string): Promise<[string, Uint8Array][]> {
+    const entries: [string, Uint8Array][] = []
+    for (const key of await this.list(prefix)) {
+      const value = await this.load(key)
+      if (value !== undefined) entries.push([key, value])
+    }
+    return entries
+  }
 }
 export function deferred() {
   let resolve!: () => void

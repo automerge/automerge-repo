@@ -17,8 +17,10 @@ import {
 } from "@automerge/automerge-repo/sedimentree"
 import {
   SubductionBackend,
+  type LocalByteStore,
   type SubductionBackendOptions,
 } from "../src/index.js"
+import { nativeId } from "../src/storage.js"
 import { DiskStore, deferred } from "./storage.js"
 
 const tree = sedimentreeId("ab".repeat(16))
@@ -91,12 +93,20 @@ describe("local Subduction fragments", () => {
     expect(saves.mock.calls.filter(([key]) => !key.endsWith("/id"))).toEqual([])
     expect((await initial(backend)).records).toEqual(records)
     await backend.close()
-    const hydration = vi.spyOn(N.Subduction.prototype, "getFragments")
     const reloaded = create()
     const loaded = await initial(reloaded)
     expect(loaded.records).toEqual(records)
     expect(loaded.event.checkpoint.heads).toEqual([cid(4)])
-    expect(hydration).toHaveBeenCalled()
+    // Native hydrates on demand (not at open) and reads the stored fragment.
+    const engine = (reloaded as unknown as { engine: N.Subduction }).engine
+    const native = nativeId(tree)
+    try {
+      const fragments = (await engine.getFragments(native)) ?? []
+      expect(fragments).toHaveLength(1)
+      fragments.forEach(f => f.free())
+    } finally {
+      native.free()
+    }
     const collection = reloaded.observeCollection()[Symbol.asyncIterator]()
     expect((await collection.next()).value).toMatchObject({
       type: "document",
@@ -261,6 +271,49 @@ describe("local Subduction fragments", () => {
       .events[Symbol.asyncIterator]()
     expect(await next(stream)).toMatchObject({ type: "failure" })
   })
+
+  it("opens with exactly one storage read, whatever the history size", async () => {
+    await create().store(tree, [loose(1), loose(4, [1]), fragment(4)])
+    // Count top-level calls on a wrapper, not the DiskStore's own internals.
+    const calls: string[] = []
+    const counted: LocalByteStore = {
+      load: key => (calls.push("load"), storage.load(key)),
+      save: (key, data) => (calls.push("save"), storage.save(key, data)),
+      remove: key => (calls.push("remove"), storage.remove(key)),
+      list: prefix => (calls.push("list"), storage.list(prefix)),
+      loadPrefix: prefix => (
+        calls.push("loadPrefix"),
+        storage.loadPrefix(prefix)
+      ),
+    }
+    const loaded = await initial(create({ storage: counted }))
+    expect(loaded.records).toHaveLength(3)
+    expect(calls).toEqual(["loadPrefix"])
+  })
+
+  it.each(["commits", "fragments"])(
+    "a corrupt stored %s found during on-demand native hydration fails the write, never reads as absent",
+    async kind => {
+      await create().store(tree, [loose(1), fragment(4)])
+      const reopened = create()
+      // Open reads and validates storage before the corruption, so it succeeds.
+      expect((await initial(reopened)).records).toHaveLength(2)
+      const key = (await storage.list("subduction-v1/")).find(k =>
+        k.includes(`/${kind}/`)
+      )!
+      const frame = JSON.parse(
+        new TextDecoder().decode(await storage.load(key))
+      )
+      frame.signedDigest = "00".repeat(32)
+      await storage.save(key, new TextEncoder().encode(JSON.stringify(frame)))
+      // The first local write hydrates native, which reads both kinds.
+      await expect(reopened.store(tree, [loose(5, [4])])).rejects.toThrow()
+      await expect(reopened.flush()).rejects.toBeInstanceOf(AggregateError)
+      // A fresh open reports the corruption as a failure, not an empty tree.
+      const stream = create().open(tree).events[Symbol.asyncIterator]()
+      expect(await next(stream)).toMatchObject({ type: "failure" })
+    }
+  )
 
   it("rejects wire-unencodable fragment metadata before writing", async () => {
     const backend = create()

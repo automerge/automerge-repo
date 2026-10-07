@@ -758,14 +758,11 @@ export class SubductionBackend implements SedimentreeBackend {
   ): Promise<SedimentreeRecord[]> {
     const native = nativeId(id)
     try {
-      // This forces actual native hydration/validation on a fresh backend. Its
-      // minimized metadata is deliberately NOT zipped with any blob enumeration.
-      const commits = await this.engine.getCommits(native)
-      commits?.forEach(c => c.free())
-      const fragments = await this.engine.getFragments(native)
-      fragments?.forEach(f => f.free())
+      // One read of authoritative storage. Native is not hydrated here: it
+      // hydrates on demand (first sync, local write or incoming record) and
+      // reads storage at that moment, so nothing persisted can be missed.
       // Install the cut inside the serialized read, before another save can
-      // notify. Hydration must precede this cut, not leave a gap after it.
+      // notify, so no persisted record falls between the cut and the watch.
       return await this.bridge.records(native, consume)
     } finally {
       native.free()

@@ -150,6 +150,35 @@ export class IndexedDBByteStore implements LocalByteStore {
     })
   }
 
+  loadPrefix(prefix: string): Promise<[string, Uint8Array][]> {
+    // One readonly transaction gives a consistent cut. Walk from the prefix
+    // and stop at the first non-matching key: keys may contain \uffff, so an
+    // upper-bound range would be wrong.
+    return this.run("readonly", (store, done, fail) => {
+      const entries: [string, Uint8Array][] = []
+      const request = store.openCursor(IDBKeyRange.lowerBound(prefix))
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (
+          !cursor ||
+          typeof cursor.key !== "string" ||
+          !cursor.key.startsWith(prefix)
+        ) {
+          done(entries)
+          return
+        }
+        const value: unknown = cursor.value
+        if (!(value instanceof Uint8Array)) {
+          fail(new TypeError(`Invalid IndexedDB byte value for ${cursor.key}`))
+          return
+        }
+        entries.push([cursor.key, value])
+        cursor.continue()
+      }
+      return request
+    })
+  }
+
   /** Close the connection after any pending database open; later calls reopen it. */
   async close(): Promise<void> {
     const opening = this.db

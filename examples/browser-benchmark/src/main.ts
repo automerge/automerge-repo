@@ -101,7 +101,7 @@ type Result = {
 }
 function storageStats(): StorageStats {
   return Object.fromEntries(
-    ["load", "save", "list", "remove"].map(name => [
+    ["load", "save", "list", "remove", "loadPrefix"].map(name => [
       name,
       { calls: 0, elapsedMs: 0, values: 0 },
     ])

@@ -61,6 +61,56 @@ for (const [name, create] of [
       ])
     })
 
+    it("loads every entry under an exact prefix, sorted, in one read", async () => {
+      for (const [key, value] of [
+        ["a/z", 1],
+        ["a", 2],
+        ["a0", 3],
+        ["b/x", 4],
+        ["a/b", 5],
+        ["a/\uffff/tail", 6],
+      ] as const)
+        await store.save(key, new Uint8Array([value]))
+      // `a/` must not match `a` or `a0`, and keys containing \uffff are kept.
+      expect(await store.loadPrefix("a/")).toEqual([
+        ["a/b", new Uint8Array([5])],
+        ["a/z", new Uint8Array([1])],
+        ["a/\uffff/tail", new Uint8Array([6])],
+      ])
+      expect(await store.loadPrefix("absent")).toEqual([])
+      expect((await store.loadPrefix("")).map(([key]) => key)).toEqual(
+        await store.list("")
+      )
+    })
+
+    it("loadPrefix returns one consistent cut despite concurrent writes", async () => {
+      await store.save("p/a", new Uint8Array([1]))
+      await store.save("p/b", new Uint8Array([2]))
+      const reading = store.loadPrefix("p/")
+      const removing = store.remove("p/a")
+      const replacing = store.save("p/b", new Uint8Array([3]))
+      const entries = await reading
+      await Promise.all([removing, replacing])
+      // Either the whole cut predates the writes or follows them; never a mix
+      // and never a missing value for a listed key.
+      expect([
+        JSON.stringify([
+          ["p/a", [1]],
+          ["p/b", [2]],
+        ]),
+        JSON.stringify([["p/b", [3]]]),
+      ]).toContain(
+        JSON.stringify(entries.map(([key, value]) => [key, [...value]]))
+      )
+    })
+
+    it("returns loadPrefix bytes the caller owns", async () => {
+      await store.save("p/key", new Uint8Array([1]))
+      const [[, loaded]] = await store.loadPrefix("p/")
+      loaded[0] = 9
+      expect(await store.load("p/key")).toEqual(new Uint8Array([1]))
+    })
+
     it("does not alias bytes supplied to or returned from the store", async () => {
       const value = new Uint8Array([1])
       await store.save("key", value)

@@ -23,6 +23,10 @@ export interface LocalByteStore {
   save(key: string, data: Uint8Array): Promise<void>
   remove(key: string): Promise<void>
   list(prefix: string): Promise<string[]>
+  /** Every entry whose key begins with `prefix`, sorted by key, from one
+   * consistent read (like main's StorageAdapter.loadRange). Returned bytes are
+   * owned by the caller. */
+  loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
 }
 
 /** Per-record bound only. Total history per tree is not capped: a store that
@@ -342,7 +346,17 @@ export class StorageBridge implements N.SedimentreeStorage {
     key: string
   ): Promise<Stored | undefined> {
     const value = await this.storage.load(recordPath(tree, kind, key))
-    if (value === undefined) return undefined
+    return value === undefined ? undefined : this.decode(tree, kind, key, value)
+  }
+
+  /** Validate and decode one stored compound record. Every read path, single
+   * key or bulk, goes through here so the checks are identical. */
+  private decode(
+    tree: string,
+    kind: Kind,
+    key: string,
+    value: Uint8Array
+  ): Stored {
     if (value.byteLength > this.limits.maxRecordBytes * 4 + 4096)
       throw new Error("Compound record too large")
     const frame = JSON.parse(
@@ -408,19 +422,37 @@ export class StorageBridge implements N.SedimentreeStorage {
     return records
   }
 
-  /** One bounded, validated read of BOTH kinds. Hydration must not hide corrupt
-   * fragments just because native asks for commits first (or vice versa). */
+  /** One validated read of BOTH kinds and the marker, from a single
+   * `loadPrefix` (one storage transaction) rather than a list plus a load per
+   * record. Every record is validated exactly as a single-key read would be. */
   private async snapshot(tree: string): Promise<Stored[]> {
-    const marker = await this.storage.load(`${prefix(tree)}id`)
-    if (marker !== undefined && (marker.length !== 1 || marker[0] !== 1))
-      throw new Error("Malformed tree marker")
-    const keys = await this.recordKeys(tree)
+    return this.decodeAll(tree, await this.storage.loadPrefix(prefix(tree)))
+  }
+
+  /** One kind only, for native hydration's per-kind calls. Native always asks
+   * for both kinds, so corruption in either still fails hydration. */
+  private async kindSnapshot(tree: string, kind: Kind): Promise<Stored[]> {
+    const p = `${prefix(tree)}${kind === "commit" ? "commits" : "fragments"}/`
+    return this.decodeAll(tree, await this.storage.loadPrefix(p))
+  }
+
+  private decodeAll(tree: string, entries: [string, Uint8Array][]): Stored[] {
+    const p = prefix(tree)
     const values: Stored[] = []
     try {
-      for (const { kind, key } of keys) {
-        const value = await this.read(tree, kind, key)
-        if (!value) throw new Error(`Listed ${kind} is missing`)
-        values.push(value)
+      for (const [fullKey, value] of entries) {
+        if (!fullKey.startsWith(p))
+          throw new Error("Storage returned an out-of-prefix key")
+        const relative = fullKey.slice(p.length)
+        if (relative === "id") {
+          if (value.length !== 1 || value[0] !== 1)
+            throw new Error("Malformed tree marker")
+          continue
+        }
+        const match = /^(commits|fragments)\/([0-9a-f]{64})$/.exec(relative)
+        if (!match) throw new Error("Malformed storage key")
+        const kind = match[1] === "commits" ? "commit" : "fragment"
+        values.push(this.decode(tree, kind, match[2], value))
       }
       return values
     } catch (error) {
@@ -631,7 +663,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     return this.enqueue(() => this.loadCommits(tree))
   }
   private async loadCommits(tree: string): Promise<N.CommitWithBlob[]> {
-    const values = await this.snapshot(tree)
+    const values = await this.kindSnapshot(tree, "commit")
     const result: N.CommitWithBlob[] = []
     let consumed = 0
     try {
@@ -699,7 +731,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     return this.enqueue(() => this.loadFragments(tree))
   }
   private async loadFragments(tree: string): Promise<N.FragmentWithBlob[]> {
-    const values = await this.snapshot(tree)
+    const values = await this.kindSnapshot(tree, "fragment")
     const result: N.FragmentWithBlob[] = []
     let consumed = 0
     try {

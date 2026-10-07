@@ -39,6 +39,19 @@ async function initial(session: SedimentreeSession) {
       return { records, complete: result.value, iterator }
   }
 }
+/** Loose commits native holds for `tree`, hydrating on demand. Reaches the
+ * private engine: the backend deliberately exposes no native accessor. */
+async function nativeCommits(backend: SubductionBackend): Promise<number> {
+  const engine = (backend as unknown as { engine: N.Subduction }).engine
+  const id = nativeId(tree)
+  try {
+    const commits = (await engine.getCommits(id)) ?? []
+    commits.forEach(c => c.free())
+    return commits.length
+  } finally {
+    id.free()
+  }
+}
 async function next(iterator: AsyncIterator<SedimentreeEvent>) {
   const value = await iterator.next()
   if (value.done) throw new Error("Unexpected end")
@@ -157,13 +170,16 @@ describe("real local Subduction", () => {
     // Signer is borrowed and remains usable after native disconnect/free.
     expect((await signer.sign(new Uint8Array([1]))).length).toBe(64)
     const hydration = vi.spyOn(N.Subduction.prototype, "getCommits")
+    const loadPrefix = vi.spyOn(storage, "loadPrefix")
     const reload = create()
     const loaded = await initial(reload.open(tree))
-    expect(hydration).toHaveBeenCalledOnce()
-    // The actual native reload (not just the bridge snapshot) found both commits.
-    await expect(hydration.mock.results[0].value).resolves.toHaveLength(2)
+    // Open is one storage read and does not hydrate native.
+    expect(hydration).not.toHaveBeenCalled()
+    expect(loadPrefix).toHaveBeenCalledOnce()
     expect(loaded.records).toEqual([record(1), record(2, [1])])
     expect(loaded.complete.checkpoint.heads).toEqual([cid(2)])
+    // Native hydrates on demand from storage and finds both commits.
+    await expect(nativeCommits(reload)).resolves.toBe(2)
     const collection = reload.observeCollection()[Symbol.asyncIterator]()
     expect((await collection.next()).value).toMatchObject({
       type: "document",
@@ -192,7 +208,6 @@ describe("real local Subduction", () => {
       if (timing === "after") await a.store(tree, [record(1)])
       // Sequential external writes test notification recovery, not shared ownership.
       const save = vi.spyOn(storage, "save")
-      const hydration = vi.spyOn(N.Subduction.prototype, "getCommits")
       await b.store(tree, [record(1)])
       expect(await next(loaded.iterator)).toMatchObject({
         type: "records",
@@ -212,8 +227,8 @@ describe("real local Subduction", () => {
         save.mock.calls.filter(([key]) => key.includes("/commits/"))
       ).toEqual([])
       expect((await initial(b.open(tree))).records).toEqual([record(1)])
-      expect(hydration).toHaveBeenCalledOnce()
-      await expect(hydration.mock.results[0].value).resolves.toHaveLength(1)
+      // The local write hydrated native, which holds the one record.
+      await expect(nativeCommits(b)).resolves.toBe(1)
       await loaded.iterator.return!()
       await collection.return!()
     }

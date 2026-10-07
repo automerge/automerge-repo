@@ -136,7 +136,16 @@ load(key: string): Promise<Uint8Array | undefined>
 save(key: string, data: Uint8Array): Promise<void>
 remove(key: string): Promise<void>
 list(prefix: string): Promise<string[]> // full keys with this prefix
+loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
 ```
+
+`loadPrefix` is required (custom stores written against the earlier four-method
+interface must add it). It returns every entry whose key starts with `prefix`,
+as full keys sorted by key, from **one consistent read**: a concurrent `save` or
+`remove` must appear entirely before or entirely after it, so `list` followed by
+separate `load`s is not equivalent unless nothing else can write meanwhile.
+Returned bytes are owned by the caller. Opening a document is a single
+`loadPrefix` call.
 
 `save` **must atomically replace one entire value**. Successful resolution must
 mean recoverable under the store's documented guarantees (not necessarily fsync).

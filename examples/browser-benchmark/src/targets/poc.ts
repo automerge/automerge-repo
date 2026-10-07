@@ -54,6 +54,17 @@ function profile(
         stats.remove.elapsedMs += performance.now() - start
       }
     },
+    async loadPrefix(prefix) {
+      const start = performance.now()
+      try {
+        const entries = await store.loadPrefix(prefix)
+        stats.loadPrefix.values += entries.length
+        return entries
+      } finally {
+        stats.loadPrefix.calls++
+        stats.loadPrefix.elapsedMs += performance.now() - start
+      }
+    },
   }
 }
 
