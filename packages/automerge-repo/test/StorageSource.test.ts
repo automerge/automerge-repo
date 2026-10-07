@@ -147,4 +147,26 @@ describe("StorageSource", () => {
       errSpy.mockRestore()
     }
   })
+
+  it("detach cancels an armed save so it does not run after the document is released", async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = new DummyStorageAdapter()
+      const save = vi.spyOn(adapter, "save")
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const source = new StorageSource(new StorageSubsystem(adapter), 10_000)
+      const query = createTestQuery<TestDoc>(documentId)
+      source.attach(query as DocumentQuery<unknown>)
+
+      // A change arms the throttled save; detach must drop that timer
+      // (and the listener) so a later heads-changed cannot persist.
+      query.handle.update(() => A.from({ foo: "bar" }) as A.Doc<unknown>)
+      source.detach(documentId)
+      query.handle.update(() => A.from({ foo: "baz" }) as A.Doc<unknown>)
+      await vi.advanceTimersByTimeAsync(20_000)
+      assert.equal(save.mock.calls.length, 0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

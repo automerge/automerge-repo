@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 import { asyncThrottle, throttle } from "../src/helpers/throttle.js"
 import { pause } from "../src/helpers/pause.js"
+import { isAbortErrorLike } from "../src/helpers/abortable.js"
 
 // These tests use two complementary styles deliberately:
 //
@@ -174,6 +175,59 @@ describe("asyncThrottle", () => {
     const a2 = expect(throttled(2)).rejects.toThrow("boom")
     await vi.advanceTimersByTimeAsync(30)
     await Promise.all([a1, a2])
+  })
+
+  it("cancel prevents a pending invocation from running", async () => {
+    const fn = vi.fn(async () => 1)
+    const throttled = asyncThrottle(fn, 50)
+    const pending = throttled()
+    const assertion = expect(pending).rejects.toSatisfy(isAbortErrorLike)
+    throttled.cancel()
+    await assertion
+    await vi.advanceTimersByTimeAsync(100)
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  it("cancel settles every coalesced caller", async () => {
+    const fn = vi.fn(async (x: number) => x)
+    const throttled = asyncThrottle(fn, 30)
+    const a1 = expect(throttled(1)).rejects.toSatisfy(isAbortErrorLike)
+    const a2 = expect(throttled(2)).rejects.toSatisfy(isAbortErrorLike)
+    throttled.cancel()
+    await Promise.all([a1, a2])
+    await vi.advanceTimersByTimeAsync(50)
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  it("cancel prevents a trailing invocation after an in-flight run", async () => {
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>()
+    const fn = vi.fn(async () => {
+      await gate
+    })
+    const throttled = asyncThrottle(fn, 20)
+    const first = throttled()
+    await vi.advanceTimersByTimeAsync(20) // fn started, blocked on gate
+    const trailing = throttled() // waits for the in-flight run, then would reschedule
+    const trailingAssertion = expect(trailing).rejects.toSatisfy(
+      isAbortErrorLike
+    )
+    throttled.cancel()
+    release()
+    await first
+    await vi.advanceTimersByTimeAsync(100)
+    await trailingAssertion
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it("cancel is idempotent and further calls reject", async () => {
+    const fn = vi.fn(async () => 1)
+    const throttled = asyncThrottle(fn, 20)
+    throttled.cancel()
+    throttled.cancel()
+    const assertion = expect(throttled()).rejects.toSatisfy(isAbortErrorLike)
+    await vi.advanceTimersByTimeAsync(50)
+    await assertion
+    expect(fn).not.toHaveBeenCalled()
   })
 })
 

@@ -1,11 +1,11 @@
 import { next as Automerge } from "@automerge/automerge/slim"
 import { makeLogger } from "./Logger.js"
 import type { DocumentSource } from "./DocumentSource.js"
-import type { DocHandleEncodedChangePayload } from "./DocHandle.js"
+import type { DocHandle, DocHandleEncodedChangePayload } from "./DocHandle.js"
 import type { DocumentQuery, SourcePriority } from "./DocumentQuery.js"
 import type { StorageSubsystem } from "./storage/StorageSubsystem.js"
 import type { DocumentId } from "./types.js"
-import { asyncThrottle } from "./helpers/throttle.js"
+import { asyncThrottle, type AsyncThrottled } from "./helpers/throttle.js"
 
 /**
  * A {@link DocumentSource} backed by a {@link StorageSubsystem}. Loads
@@ -18,8 +18,9 @@ export class StorageSource implements DocumentSource {
   #saveDebounceRate: number
   #saveFns: Record<
     DocumentId,
-    (payload: DocHandleEncodedChangePayload<any>) => void
+    AsyncThrottled<[DocHandleEncodedChangePayload<any>], void>
   > = {}
+  #attachedHandles: Record<DocumentId, DocHandle<unknown>> = {}
   #log = makeLogger("automerge-repo:storage-source")
 
   constructor(
@@ -37,6 +38,7 @@ export class StorageSource implements DocumentSource {
     const saveFn = this.#makeSaveFn(handle.documentId)
 
     // Attach throttled save listener
+    this.#attachedHandles[handle.documentId] = handle
     handle.on("heads-changed", saveFn)
 
     // If the handle already has data (e.g. from create/import), persist it
@@ -80,12 +82,19 @@ export class StorageSource implements DocumentSource {
   }
 
   detach(documentId: DocumentId): void {
+    const saveFn = this.#saveFns[documentId]
+    const handle = this.#attachedHandles[documentId]
+    if (saveFn) {
+      saveFn.cancel()
+      handle?.off("heads-changed", saveFn)
+    }
     delete this.#saveFns[documentId]
+    delete this.#attachedHandles[documentId]
   }
 
   #makeSaveFn(
     documentId: DocumentId
-  ): (payload: DocHandleEncodedChangePayload<any>) => void {
+  ): AsyncThrottled<[DocHandleEncodedChangePayload<any>], void> {
     let fn = this.#saveFns[documentId]
     if (!fn) {
       fn = this.#saveFns[documentId] = asyncThrottle(

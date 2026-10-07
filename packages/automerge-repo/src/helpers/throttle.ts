@@ -1,3 +1,5 @@
+import { AbortError } from "./abortable.js"
+
 /** Throttle
  * Returns a function with a built in throttle timer that runs after `delay` ms.
  *
@@ -57,13 +59,15 @@ export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
  * This creates a batching behavior that prevents flooding while ensuring
  * the final state is always committed.
  *
- * **Note on AbortSignal**: If you need abort functionality, implement it as an
- * argument to `fn`. The wrapped function is responsible for responding to the
- * abort signal, not the throttle mechanism itself.
+ * **Abort vs cancel**: aborting an in-flight `fn` is `fn`'s job — pass it an
+ * `AbortSignal` argument. {@link AsyncThrottled.cancel} is the other half:
+ * it clears a *pending* timeout so `fn` never starts. Use that from teardown
+ * (document detach) so an armed timer cannot run against a document that has
+ * already been released.
  *
  * @param fn - The async function to throttle
  * @param delay - Minimum delay in milliseconds between executions
- * @returns A throttled version of the function
+ * @returns A throttled version of the function, with a {@link AsyncThrottled.cancel} method
  *
  * @example
  * ```typescript
@@ -83,12 +87,26 @@ export const throttle = <F extends (...args: Parameters<F>) => ReturnType<F>>(
  * const controller = new AbortController()
  * throttledFetch('/api/data', controller.signal)
  * controller.abort() // Aborts the fetch inside fn
+ *
+ * // Tear down: drop a pending (not yet started) invocation
+ * throttledSave.cancel()
  * ```
  */
+export type AsyncThrottled<TArgs extends unknown[], TReturn> = ((
+  ...args: TArgs
+) => Promise<TReturn>) & {
+  /**
+   * Clear a pending invocation so `fn` never runs. In-flight runs are not
+   * aborted. Pending callers reject with {@link AbortError}. After cancel,
+   * further calls also reject; construct a new throttle to run again.
+   */
+  cancel(): void
+}
+
 export const asyncThrottle = <TArgs extends unknown[], TReturn>(
   fn: (...args: TArgs) => Promise<TReturn>,
   delay: number
-): ((...args: TArgs) => Promise<TReturn>) => {
+): AsyncThrottled<TArgs, TReturn> => {
   let lastCall = Date.now()
   let timeout: ReturnType<typeof setTimeout> | undefined
   let currentPromise: Promise<TReturn> | undefined
@@ -97,34 +115,27 @@ export const asyncThrottle = <TArgs extends unknown[], TReturn>(
   // the pending timeout below, the earlier call still settles with the run's
   // result (or error) instead of hanging forever.
   let pending: PromiseWithResolvers<TReturn> | undefined
+  let cancelled = false
 
-  return async function (...args: TArgs): Promise<TReturn> {
-    // Wait for any previous call to settle, so that there is not a race with
-    // throttled calls still running
-    if (currentPromise) {
-      try {
-        await currentPromise
-      } catch {
-        // noop if error thrown here (just waiting for it to settle)
-      }
-    }
+  const abort = (): Promise<TReturn> => {
+    const p = Promise.reject(new AbortError()) as Promise<TReturn>
+    // Fire-and-forget callers discard this promise; the handler keeps cancel
+    // from surfacing as an unhandled rejection. Awaiters still observe it.
+    p.catch(() => {})
+    return p
+  }
 
-    // Join (or open) the batch waiting on the next run. Every caller shares this
-    // deferred; the run itself uses the latest call's args, captured below.
-    pending ??= Promise.withResolvers<TReturn>()
-    const deferred = pending
-
-    // Clear any pending timeout
+  const arm = (args: TArgs, deferred: PromiseWithResolvers<TReturn>) => {
+    if (cancelled) return
     if (timeout) {
       clearTimeout(timeout)
     }
-
     // Clamp to 0: passing a negative delay to setTimeout warns on some runtimes.
     const wait = Math.max(0, lastCall + delay - Date.now()) //if negative, executes immediately
-
     timeout = setTimeout(async () => {
       pending = undefined
       timeout = undefined
+      if (cancelled) return
       try {
         currentPromise = fn(...args)
         deferred.resolve(await currentPromise)
@@ -135,7 +146,45 @@ export const asyncThrottle = <TArgs extends unknown[], TReturn>(
         currentPromise = undefined
       }
     }, wait)
+  }
+
+  const throttled = ((...args: TArgs): Promise<TReturn> => {
+    if (cancelled) return abort()
+
+    pending ??= Promise.withResolvers<TReturn>()
+    const deferred = pending
+
+    // Not an `async` function: callers must hold `deferred.promise` itself so
+    // cancel() can reject that same object (an async wrapper would be a second
+    // promise, and rejecting deferred would surface as an unhandled
+    // rejection for fire-and-forget listeners).
+
+    if (currentPromise) {
+      currentPromise.then(
+        () => arm(args, deferred),
+        () => arm(args, deferred)
+      )
+    } else {
+      arm(args, deferred)
+    }
 
     return deferred.promise
+  }) as AsyncThrottled<TArgs, TReturn>
+
+  throttled.cancel = () => {
+    if (cancelled) return
+    cancelled = true
+    if (timeout) {
+      clearTimeout(timeout)
+      timeout = undefined
+    }
+    if (pending) {
+      const deferred = pending
+      pending = undefined
+      deferred.promise.catch(() => {})
+      deferred.reject(new AbortError())
+    }
   }
+
+  return throttled
 }
