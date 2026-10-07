@@ -1,14 +1,65 @@
-import { AnyDocumentId, DocHandle } from "@automerge/automerge-repo/slim"
+import {
+  AnyDocumentId,
+  DocHandle,
+  interpretAsDocumentId,
+} from "@automerge/automerge-repo/slim"
+import { noop } from "@automerge/automerge-repo/helpers/noop.js"
+import { WeakValueMap } from "@automerge/automerge-repo/helpers/WeakValueMap.js"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
 import { anyDocumentIdToAutomergeUrl } from "../../automerge-repo/dist/AutomergeUrl.js"
 
+/**
+ * Promise wrappers per document id: strong while the find() is in flight
+ * (concurrent renders share one request), weak once settled. A settled
+ * wrapper stays available for cache hits while something still references
+ * it (React's pending suspense promise, a mounted component's state), and
+ * releases its DocHandle for repo eviction once nothing does - a permanent
+ * strong cache here would pin every document a hook ever resolved.
+ */
+class WrapperCache {
+  #inFlight = new Map<string, PromiseWrapper<DocHandle<unknown>>>()
+  #settled = new WeakValueMap<string, PromiseWrapper<DocHandle<unknown>>>()
+
+  // WeakValueMap keys must be primitives. Every AnyDocumentId form is a
+  // branded string except BinaryDocumentId, which is encoded to its
+  // canonical DocumentId string. String forms key as themselves: a
+  // heads-pinned url must not share an entry with its live document id.
+  #key(id: AnyDocumentId): string {
+    return typeof id === "string" ? id : interpretAsDocumentId(id)
+  }
+
+  get(id: AnyDocumentId): PromiseWrapper<DocHandle<unknown>> | undefined {
+    const key = this.#key(id)
+    return this.#inFlight.get(key) ?? this.#settled.get(key)
+  }
+
+  has(id: AnyDocumentId): boolean {
+    return this.get(id) !== undefined
+  }
+
+  set(id: AnyDocumentId, wrapper: PromiseWrapper<DocHandle<unknown>>): void {
+    const key = this.#key(id)
+    this.#settled.delete(key)
+    this.#inFlight.set(key, wrapper)
+    void wrapper.promise.catch(noop).then(() => {
+      if (this.#inFlight.get(key) === wrapper) {
+        this.#inFlight.delete(key)
+        this.#settled.set(key, wrapper)
+      }
+    })
+  }
+
+  delete(id: AnyDocumentId): void {
+    const key = this.#key(id)
+    this.#inFlight.delete(key)
+    this.#settled.delete(key)
+  }
+}
+
 // Shared with useDocHandles
-export const wrapperCache = new Map<
-  AnyDocumentId,
-  PromiseWrapper<DocHandle<unknown>>
->()
+export const wrapperCache = new WrapperCache()
 // NB: this is a global cache that isn't keyed on the Repo
 //     so if your app uses the same documents in two Repos
 //     this could cause problems. please let me know if you do.
@@ -55,14 +106,16 @@ export function useDocHandle<T>(
     }
   }
 
-  let wrapper = id ? wrapperCache.get(id) : undefined
+  let wrapper = id
+    ? (wrapperCache.get(id) as PromiseWrapper<DocHandle<T>> | undefined)
+    : undefined
   if (!wrapper && id) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
     const promise = repo.find<T>(id, { signal: controllerRef.current.signal })
     wrapper = wrapPromise(promise)
-    wrapperCache.set(id, wrapper)
+    wrapperCache.set(id, wrapper as PromiseWrapper<DocHandle<unknown>>)
   }
 
   /* From here we split into two paths: suspense and not.
