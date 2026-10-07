@@ -89,8 +89,9 @@ export class Presence<
       }
 
       const message = envelope[PRESENCE_MESSAGE_MARKER]
+      const known = this.#peers.has(peerId)
 
-      if (!this.#peers.has(peerId)) {
+      if (!known) {
         this.announce()
       }
 
@@ -119,18 +120,25 @@ export class Presence<
           this.#peers.update({
             peerId,
             value: message.state as State,
+            hasSnapshot: true,
           })
           this.emit("snapshot", {
             type: "snapshot",
             peerId,
             state: message.state,
           })
+          // The snapshot is an announcement: the sender re-broadcast its
+          // state because it lost track of a peer. If we already know the
+          // sender it may have forgotten us, so reply with our own state.
+          if (message.request && known) {
+            this.broadcastLocalState()
+          }
           break
       }
     }
     this.#handle.on("ephemeral-message", this.#handleEphemeralMessage)
 
-    this.broadcastLocalState() // also starts heartbeats
+    this.broadcastLocalState(true) // also starts heartbeats
     this.startPruningPeers()
   }
 
@@ -204,14 +212,17 @@ export class Presence<
     // TODO: We currently need to wait for the peer to be ready, but waiting
     // some arbitrary amount of time is brittle
     const helloId = setTimeout(() => {
-      this.broadcastLocalState()
+      this.broadcastLocalState(true)
       this.#hellos = this.#hellos.filter(id => id !== helloId)
     }, 500)
     this.#hellos.push(helloId)
   }
 
-  private broadcastLocalState() {
-    this.doBroadcast("snapshot", { state: this.#localState })
+  private broadcastLocalState(requestSnapshot = false) {
+    this.doBroadcast("snapshot", {
+      state: this.#localState,
+      ...(requestSnapshot ? { request: true } : {}),
+    })
     this.resetHeartbeats()
   }
 

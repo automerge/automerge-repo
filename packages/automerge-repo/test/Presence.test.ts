@@ -265,4 +265,102 @@ describe("Presence", () => {
       })
     })
   })
+
+  describe("resync", () => {
+    it("recovers a peer's full state after relearning it from a partial update", async () => {
+      // Regression test for https://github.com/automerge/automerge-repo/issues/652
+      // When bob's peer table drops alice but alice's still contains bob, a
+      // partial update from alice makes bob re-announce - but since alice
+      // already knows bob she never replied with a snapshot, leaving bob's
+      // entry for alice permanently missing channels.
+      type State = { position: number; name: string }
+
+      // A custom adapter pair lets us drop alice -> bob delivery so that bob
+      // prunes alice while bob's heartbeats keep alice's entry for bob alive.
+      const alice = new Repo({ peerId: "alice" as PeerId })
+      const bob = new Repo({ peerId: "bob" as PeerId })
+      let dropAliceToBob = false
+      const aliceToBob = new DummyNetworkAdapter({
+        startReady: true,
+        sendMessage: message => {
+          if (!dropAliceToBob) {
+            void Promise.resolve().then(() => bobToAlice.receive(message))
+          }
+        },
+      })
+      const bobToAlice = new DummyNetworkAdapter({
+        startReady: true,
+        sendMessage: message => {
+          void Promise.resolve().then(() => aliceToBob.receive(message))
+        },
+      })
+      alice.networkSubsystem.addNetworkAdapter(aliceToBob)
+      bob.networkSubsystem.addNetworkAdapter(bobToAlice)
+      aliceToBob.peerCandidate("bob" as PeerId)
+      bobToAlice.peerCandidate("alice" as PeerId)
+      await Promise.all([
+        alice.networkSubsystem.whenReady(),
+        bob.networkSubsystem.whenReady(),
+      ])
+
+      const aliceHandle = alice.create({ test: "doc" })
+      const bobHandle = await bob.find(aliceHandle.url)
+
+      const alicePresence = new Presence<State>({ handle: aliceHandle })
+      const bobPresence = new Presence<State>({ handle: bobHandle })
+
+      vi.useFakeTimers()
+      try {
+        alicePresence.start({
+          initialState: { position: 123, name: "alice" },
+          heartbeatMs: 10,
+          peerTtlMs: 40,
+        })
+        bobPresence.start({
+          initialState: { position: 456, name: "bob" },
+          heartbeatMs: 10,
+          peerTtlMs: 40,
+        })
+
+        // Allow snapshots and announce round-trips to complete (the announce
+        // delay is 500ms).
+        await vi.advanceTimersByTimeAsync(600)
+        expect(
+          bobPresence.getPeerStates().value["alice" as PeerId].value
+        ).toEqual({ position: 123, name: "alice" })
+
+        // Starve bob's inbound until alice's entry expires there. Bob's
+        // heartbeats still reach alice, so alice keeps bob.
+        dropAliceToBob = true
+        await vi.advanceTimersByTimeAsync(200)
+        expect(
+          bobPresence.getPeerStates().value["alice" as PeerId]
+        ).toBeUndefined()
+        expect(
+          alicePresence.getPeerStates().value["bob" as PeerId]
+        ).toBeDefined()
+
+        // Delivery resumes; alice's next partial update hits bob.
+        dropAliceToBob = false
+        alicePresence.broadcast("position", 999)
+        await vi.advanceTimersByTimeAsync(10)
+
+        // Bob now tracks alice through the partial update only.
+        const partial = bobPresence.getPeerStates().value["alice" as PeerId]
+        expect(partial.value.position).toBe(999)
+        expect(partial.value.name).toBeUndefined()
+        expect(partial.hasSnapshot).toBe(false)
+
+        // Bob's announce asks known peers for their snapshot, so alice
+        // replies and bob's entry for alice becomes complete.
+        await vi.advanceTimersByTimeAsync(600)
+        const recovered = bobPresence.getPeerStates().value["alice" as PeerId]
+        expect(recovered.value.position).toBe(999)
+        expect(recovered.value.name).toBe("alice")
+        expect(recovered.hasSnapshot).toBe(true)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })
