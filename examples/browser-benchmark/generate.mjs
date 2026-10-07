@@ -68,9 +68,7 @@ function history({ changes }) {
 // Single-actor linear histories only: multi-actor merges did not regenerate to
 // a stable record count across runs, which would break the manifest hash guard.
 const importShapes = [
-  // 3 chunks at 128 records.
   { name: "medium", changes: 1000, records: 388 },
-  // 6 chunks at 128 records, 48 at 16.
   { name: "large", changes: 2200, records: 762 },
 ]
 // Large histories simulate typing into one text field: text is the realistic

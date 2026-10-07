@@ -224,23 +224,23 @@ successful retry does not erase previously unreported failures.
 
 Default limits:
 
-| Option                    |                                                         Default |
-| ------------------------- | --------------------------------------------------------------: |
-| `syncTimeoutMilliseconds` |                                5,000 ms per native peer request |
-| `maxRecordBytes`          |                       16 MiB (native signed metadata plus blob) |
-| `maxBatchBytes`           | 64 MiB encoded per native write chunk (one larger record alone) |
-| `batchRecords`            |       128 records per native write chunk and per delivery event |
-| `batchBytes`              |        1 MiB initial delivery target; one larger record allowed |
-| `replayEvents`            |                                                   128 per watch |
-| `replayBytes`             |                                                 4 MiB per watch |
+| Option                    |                                                  Default |
+| ------------------------- | -------------------------------------------------------: |
+| `syncTimeoutMilliseconds` |                         5,000 ms per native peer request |
+| `maxRecordBytes`          |                16 MiB (native signed metadata plus blob) |
+| `batchRecords`            |                           128 records per delivery event |
+| `batchBytes`              | 1 MiB initial delivery target; one larger record allowed |
+| `replayEvents`            |                                            128 per watch |
+| `replayBytes`             |                                          4 MiB per watch |
 
 A save reads only its own key (to detect a conflicting representation and
 duplicate notifications) and then writes; it does not rescan the tree. A
 `store()`/`create()` submission of any size is accepted: it is validated up
 front (per-record size, wire counts, same-key conflicts within the batch and
-against storage), then written in chunks of at most `batchRecords` records and
-`maxBatchBytes`, so WASM only holds one chunk's signed inputs at a time. A
-chunk that fails leaves earlier chunks durable; the whole batch is safe to
+against storage), then written in one native call. It is not split: a
+document must already fit in Automerge's WASM memory, which is exhausted long
+before a submission would strain Subduction's. Records are saved one at a time,
+so a failed write can leave some of them durable; the whole batch is safe to
 retry and already-written records dedupe. There is **no cap on a tree's total
 history**: whatever was accepted can always be reopened, enumerated, synced and
 deleted. Opening a tree still reads its whole history into memory, so very

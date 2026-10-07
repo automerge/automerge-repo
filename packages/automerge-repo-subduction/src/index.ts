@@ -74,8 +74,7 @@ export interface SubductionBackendOptions {
   syncTimeoutMilliseconds?: number
   /** Largest single record (signed metadata plus blob). */
   maxRecordBytes?: number
-  /** Largest single store()/create() submission; records and bytes. */
-  maxBatchBytes?: number
+  /** Initial-delivery record count per `records` event. */
   batchRecords?: number
   /** Initial-delivery batch target per `records` event. */
   batchBytes?: number
@@ -253,7 +252,6 @@ export class SubductionBackend implements SedimentreeBackend {
     this.limits = {
       syncTimeoutMilliseconds: options.syncTimeoutMilliseconds ?? 5000,
       maxRecordBytes: options.maxRecordBytes ?? 16 * 1024 * 1024,
-      maxBatchBytes: options.maxBatchBytes ?? 64 * 1024 * 1024,
       batchRecords: options.batchRecords ?? 128,
       batchBytes: options.batchBytes ?? 1024 * 1024,
       replayEvents: options.replayEvents ?? 128,
@@ -768,11 +766,6 @@ export class SubductionBackend implements SedimentreeBackend {
       native.free()
     }
   }
-  /** Write chunks for store(): bounded count and encoded bytes per native call.
-   * A single record larger than the byte target still goes alone. */
-  private chunks(records: readonly SedimentreeRecord[]): SedimentreeRecord[][] {
-    return split(records, this.limits.batchRecords, this.limits.maxBatchBytes)
-  }
   /** Initial-delivery `records` events; one larger record is allowed alone. */
   private batches(
     records: readonly SedimentreeRecord[],
@@ -978,8 +971,8 @@ export class SubductionBackend implements SedimentreeBackend {
           )
         )
           throw new Error("Fragment metadata exceeds native wire count limits")
-        // Only single records are bounded here. A submission of any size is
-        // written in chunks below, so an import never has to be pre-split.
+        // Only single records are bounded here; a submission of any size is
+        // accepted, so an import never has to be pre-split.
         if (
           records.some(r => recordBytes(r) + 512 > this.limits.maxRecordBytes)
         )
@@ -995,7 +988,7 @@ export class SubductionBackend implements SedimentreeBackend {
       }
       const work = this.enqueue(creating ? "create" : "store", async () => {
         const native = nativeId(id)
-        let persisted = 0
+        let submitted = false
         try {
           if (creating && (await this.bridge.containsSedimentreeId(native)))
             throw new BackendError(
@@ -1024,38 +1017,33 @@ export class SubductionBackend implements SedimentreeBackend {
             const old = stored[index]
             if (old && !equalRecords(old, record)) throw conflict()
           }
-          // Write in bounded chunks so WASM only ever holds one chunk's signed
-          // inputs. Native awaits the storage bridge for every record before
-          // touching its in-memory tree, and minimization never deletes from
-          // storage, so each resolved storeBuiltBatch means that chunk is saved.
-          for (const chunk of this.chunks(records)) {
-            const inputs: N.CommitInput[] = []
-            const fragments: N.FragmentInput[] = []
-            let submitted = false
-            try {
-              for (const record of chunk) {
-                // Input constructors consume their native payloads.
-                if (record.kind === "commit")
-                  inputs.push(
-                    new N.CommitInput(unsigned(native, record), record.blob)
+          // One native call: it signs everything, saves through the bridge
+          // once and minimizes once. Automerge's own memory limit is reached
+          // long before a batch is large enough to need splitting here.
+          const inputs: N.CommitInput[] = []
+          const fragments: N.FragmentInput[] = []
+          try {
+            for (const record of records) {
+              // Input constructors consume their native payloads.
+              if (record.kind === "commit")
+                inputs.push(
+                  new N.CommitInput(unsigned(native, record), record.blob)
+                )
+              else
+                fragments.push(
+                  new N.FragmentInput(
+                    unsignedFragment(native, record),
+                    record.blob
                   )
-                else
-                  fragments.push(
-                    new N.FragmentInput(
-                      unsignedFragment(native, record),
-                      record.blob
-                    )
-                  )
-              }
-              // storeBuiltBatch consumes both kinds of input wrappers.
-              submitted = true
-              await this.engine.storeBuiltBatch(native, inputs, fragments)
-              persisted += chunk.length
-            } finally {
-              if (!submitted) {
-                inputs.forEach(c => c.free())
-                fragments.forEach(f => f.free())
-              }
+                )
+            }
+            // storeBuiltBatch consumes both kinds of input wrappers.
+            submitted = true
+            await this.engine.storeBuiltBatch(native, inputs, fragments)
+          } finally {
+            if (!submitted) {
+              inputs.forEach(c => c.free())
+              fragments.forEach(f => f.free())
             }
           }
         } catch (cause) {
@@ -1073,10 +1061,11 @@ export class SubductionBackend implements SedimentreeBackend {
           throw cause
         } finally {
           // Durability never waits for a peer. A separate coalesced network
-          // queue propagates stores even without a document session. Chunks
-          // that landed before a later failure are durable and must propagate
-          // too; the caller retries the whole batch, and they dedupe.
-          if (persisted) this.scheduleSync(id)
+          // queue propagates stores even without a document session. The
+          // bridge saves record by record, so a failed write may still have
+          // made some records durable; they must propagate too, and a retry of
+          // the whole batch dedupes them.
+          if (submitted) this.scheduleSync(id)
           native.free()
         }
       })
