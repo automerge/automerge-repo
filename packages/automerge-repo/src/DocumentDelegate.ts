@@ -15,9 +15,7 @@ import {
 } from "./sedimentree/index.js"
 import {
   applyRecords,
-  extractRecords,
-  getRecordMetadata,
-  recordMetadataKey,
+  extractNewRecords,
   satisfiesCheckpoint,
 } from "./sedimentree/automerge/index.js"
 
@@ -29,7 +27,6 @@ type WriteJob = {
 
 /** Per-document CRDT consumer and owner of exact, retryable local write batches. */
 export class DocumentDelegate<T> {
-  #represented = new Set<string>()
   #unsaved = new Set<WriteJob>()
   #targets = new Map<"local" | "live" | "sync", HistoryCheckpoint>()
   /** Set by the scheduler; notifies the live session once a snapshot is verified. */
@@ -44,8 +41,7 @@ export class DocumentDelegate<T> {
     created = false,
     private origin?: string
   ) {
-    document.commit = doc => this.commit(doc)
-    this.#remember(this.document.doc)
+    document.commit = (before, after) => this.commit(before, after)
     if (created) {
       this.query.markInitialSnapshotComplete()
       this.query.sourceReady("backend")
@@ -62,17 +58,13 @@ export class DocumentDelegate<T> {
     this.query.sourceReady("backend")
   }
 
-  commit(doc: A.Doc<T>): Promise<void> {
+  commit(before: A.Doc<T>, doc: A.Doc<T>): Promise<void> {
     if (this.document.closed)
       return Promise.reject(new Error("Delegate is closed"))
     const attempts = [...this.#unsaved].map(
       job => job.pending ?? this.#schedule(job)
     )
-    const records = extractRecords(
-      doc,
-      meta => !this.#represented.has(recordMetadataKey(meta))
-    )
-    this.#remember(doc)
+    const records = extractNewRecords(before, doc)
     if (records.length) {
       const job: WriteJob = { records }
       this.#unsaved.add(job)
@@ -147,8 +139,6 @@ export class DocumentDelegate<T> {
         )
         if (unknown.length) {
           const next = applyRecords(this.document.doc, unknown)
-          // Inbound representation must be known before listeners can make edits.
-          this.#remember(next)
           void this.document.applyMutation(() => next, { incoming: true })
         }
         this.#checkTargets()
@@ -241,10 +231,6 @@ export class DocumentDelegate<T> {
     // Invalidate acquisition before delete listeners can synchronously find the ID.
     this.query.fail(new Error("Document deleted"))
     if (notify) this.document.registry.dispatchDelete()
-  }
-
-  #remember(doc: A.Doc<T>): void {
-    this.#represented = new Set(getRecordMetadata(doc).map(recordMetadataKey))
   }
 
   #checkpoint(

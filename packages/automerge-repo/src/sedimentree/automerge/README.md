@@ -14,6 +14,7 @@ point to compiled `dist`; tests exercise `src`.
 getRecordMetadata(doc: Doc<unknown>): RecordMetadata[]
 recordMetadataKey(metadata: RecordMetadata): string
 extractRecords(doc: Doc<unknown>, select?: RecordPredicate): SedimentreeRecord[]
+extractNewRecords(before: Doc<unknown>, after: Doc<unknown>): SedimentreeRecord[]
 validateRecord(record: SedimentreeRecord): SedimentreeRecord
 applyRecords<T>(doc: Doc<T>, records: RecordBatch, options?: ApplyRecordsOptions): Doc<T>
 satisfiesCheckpoint(doc: Doc<unknown>, heads: readonly CommitId[]): boolean
@@ -33,6 +34,12 @@ checkpoints exclude the fragment's head and boundary hashes, while the head
 remains in its members. Regression tests cover metadata and bundled APIs.
 No fragments are decoded or serialized to make the selection. Metadata passed to
 the predicate is frozen; output bytes belong to the caller.
+
+`extractNewRecords` calls `getChangesSince(after, getHeads(before))` for ordinary
+edits, without enumerating historical fragment metadata. At a boundary, it
+bundles covering records headed by newly added changes. It does not compare
+historical fragment metadata: Automerge may update a previous snapshot's shared
+fragment cache during merge. Deletion/compaction is not performed.
 
 `recordMetadataKey` includes the complete canonical metadata, not just a head.
 It is **not** a blob fingerprint, representation equality, or coverage proof.

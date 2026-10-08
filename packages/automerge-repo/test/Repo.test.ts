@@ -247,6 +247,39 @@ describe("backend-driven Repo", () => {
     await r.flush()
   })
 
+  it("reloads a fragmented import merged into an existing ID", async () => {
+    const backend = new MemoryBackend()
+    const r = repo(backend)
+    const handle = await r.create({ count: 0, local: false })
+    let fork = A.clone(handle.fullDoc())
+    for (let count = 1; count <= 1200; count++)
+      fork = A.change(fork, { time: 0 }, doc => {
+        doc.count = count
+      })
+    expect(A.getFragmentMetadata(fork).some(meta => meta.level > 0)).toBe(true)
+    await handle.change(doc => {
+      doc.local = true
+    })
+    const store = vi.spyOn(backend, "store")
+    expect(await r.import(A.save(fork), { docId: handle.documentId })).toBe(
+      handle
+    )
+    expect(
+      store.mock.calls.some(([, batch]) =>
+        batch.some(record => record.kind === "fragment")
+      )
+    ).toBe(true)
+    const heads = A.getHeads(handle.fullDoc())
+    const historyLength = A.getAllChanges(handle.fullDoc()).length
+    await r.removeFromCache(handle.documentId)
+    const reloaded = await r.find<{ count: number; local: boolean }>(
+      handle.documentId
+    )
+    expect(reloaded.doc()).toEqual({ count: 1200, local: true })
+    expect(A.getHeads(reloaded.fullDoc())).toEqual(heads)
+    expect(A.getAllChanges(reloaded.fullDoc())).toHaveLength(historyLength)
+  })
+
   it("imports into an uncached stored document without replacing its history", async () => {
     const r = repo(new MemoryBackend())
     const handle = await r.create<{

@@ -29,7 +29,7 @@ export class Document<T = unknown> {
   #syncInfo = new Map<StorageId, SyncInfo>()
 
   /** Capture local history synchronously, before reentrant listeners run. */
-  commit?: (doc: A.Doc<any>) => Promise<void>
+  commit?: (before: A.Doc<any>, after: A.Doc<any>) => Promise<void>
   #events: (() => void)[] = []
   #dispatching = false
 
@@ -100,7 +100,7 @@ export class Document<T = unknown> {
     const afterHeads = A.getHeads(after)
     const stored = options.incoming
       ? Promise.resolve()
-      : (this.commit?.(after) ?? Promise.resolve())
+      : (this.commit?.(before, after) ?? Promise.resolve())
     void stored.catch(() => {})
     if (arrayEqual(beforeHeads, afterHeads)) return stored
     const patches = A.diff(after, beforeHeads, afterHeads)

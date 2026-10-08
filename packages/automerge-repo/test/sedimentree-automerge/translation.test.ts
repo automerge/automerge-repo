@@ -18,6 +18,7 @@ import {
 import {
   applyRecords,
   extractRecords,
+  extractNewRecords,
   getRecordMetadata,
   recordMetadataKey,
   satisfiesCheckpoint,
@@ -65,6 +66,64 @@ beforeAll(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe("metadata-first extraction", () => {
+  it("extracts ordinary changes directly without re-bundling history", () => {
+    expect(commits[1].id.startsWith("00")).toBe(false)
+    const [before] = A.applyChanges(empty("abcdef"), [changes[0]])
+    const [after] = A.applyChanges(A.clone(before), [changes[1]])
+    const changesSince = vi.spyOn(A, "getChangesSince")
+    const metadata = vi.spyOn(A, "getFragmentMetadata")
+    const bundle = vi.spyOn(A, "bundleFragmentMetadata")
+    const delta = extractNewRecords(before, after)
+    expect(changesSince).toHaveBeenCalledWith(after, A.getHeads(before))
+    expect(metadata).not.toHaveBeenCalled()
+    expect(bundle).not.toHaveBeenCalled()
+    expect(delta.every(record => record.kind === "commit")).toBe(true)
+    expect(delta.map(record => record.blob)).toEqual(
+      A.getChanges(before, after)
+    )
+    expect(applyRecords(A.clone(before), delta)).toEqual(after)
+    expect(extractNewRecords(after, after)).toEqual([])
+  })
+
+  it("writes new fragment representations at boundaries", () => {
+    const boundary = commits.findIndex(commit => commit.id.startsWith("00"))
+    expect(boundary).toBeGreaterThan(0)
+    const [prior] = A.applyChanges(empty("abcdef"), changes.slice(0, boundary))
+    const [after] = A.applyChanges(A.clone(prior), [changes[boundary]])
+    const delta = extractNewRecords(prior, after)
+    expect(delta.some(record => record.kind === "fragment")).toBe(true)
+    expect(delta.some(record => record.kind === "commit")).toBe(false)
+    expect(applyRecords(A.clone(prior), delta)).toEqual(after)
+    // Previously persisted history and the boundary delta suffice after restart.
+    expect(applyRecords(empty(), [...extractRecords(prior), ...delta])).toEqual(
+      after
+    )
+  })
+
+  it("writes a boundary and subsequent loose changes from one update", () => {
+    const boundary = commits.findIndex(commit => commit.id.startsWith("00"))
+    expect(boundary).toBeGreaterThan(0)
+    expect(
+      commits
+        .slice(boundary + 1, boundary + 3)
+        .every(commit => !commit.id.startsWith("00"))
+    ).toBe(true)
+    const [prior] = A.applyChanges(empty("abcdef"), changes.slice(0, boundary))
+    const [after] = A.applyChanges(
+      A.clone(prior),
+      changes.slice(boundary, boundary + 3)
+    )
+    const delta = extractNewRecords(prior, after)
+    expect(delta.map(record => record.kind)).toEqual([
+      "fragment",
+      "commit",
+      "commit",
+    ])
+    expect(applyRecords(empty(), [...extractRecords(prior), ...delta])).toEqual(
+      after
+    )
+  })
+
   it("covers 2000 deterministic changes with fragments and loose commits", () => {
     expect(changes).toHaveLength(2000)
     expect(changes.every(change => A.decodeChange(change).time === 0)).toBe(

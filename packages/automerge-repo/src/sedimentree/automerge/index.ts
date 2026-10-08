@@ -93,6 +93,33 @@ export function extractRecords(
   }))
 }
 
+/** Extract a local delta without scanning historical fragments on ordinary edits.
+ * At a fragment boundary, bundle covering records headed by newly added changes.
+ * Automerge may update a previous snapshot's shared fragment cache during merge,
+ * so comparing the previous snapshot's metadata after mutation is unreliable.
+ * The caller must keep exact returned bytes until persistence succeeds.
+ */
+export function extractNewRecords(
+  before: A.Doc<unknown>,
+  after: A.Doc<unknown>
+): SedimentreeRecord[] {
+  const changes = A.getChangesSince(after, A.getHeads(before))
+  if (!changes.length) return []
+  const decoded = changes.map(blob => ({ blob, change: A.decodeChange(blob) }))
+  if (decoded.some(({ change }) => change.hash.startsWith("00"))) {
+    const added = new Set(decoded.map(({ change }) => change.hash))
+    return extractRecords(after, meta =>
+      added.has(meta.kind === "commit" ? meta.id : meta.head)
+    )
+  }
+  return decoded.map(({ blob, change }) => ({
+    kind: "commit" as const,
+    id: commitId(change.hash),
+    parents: canonicalIds(change.deps),
+    blob: new Uint8Array(blob),
+  }))
+}
+
 /**
  * Copy and check a record using public Automerge APIs. Fragment validation is
  * structural, not proof of complete sedimentree coverage (see README).

@@ -387,6 +387,39 @@ describe("DocumentDelegate", () => {
     expect(attempts[1]).toEqual(attempts[0])
   })
 
+  it("retries a boundary batch with its original fragment bytes", async () => {
+    const initial = A.from({ count: 0 }, { actor: "abcdef" })
+    let fork = A.clone(initial)
+    for (let count = 1; count <= 500; count++)
+      fork = A.change(fork, { time: 0 }, doc => {
+        doc.count = count
+      })
+    expect(A.getFragmentMetadata(fork).some(meta => meta.level > 0)).toBe(true)
+    const attempts: RecordBatch[] = []
+    const submit = vi.fn(async (_id: unknown, records: RecordBatch) => {
+      attempts.push(
+        records.map(record => ({
+          ...record,
+          blob: record.blob.slice(),
+        }))
+      )
+      if (attempts.length === 1) {
+        records[0].blob.fill(0)
+        throw new Error("disk full")
+      }
+    })
+    const { handle, delegate } = setup(initial, submit, true)
+    await expect(
+      handle.update(doc => A.merge(doc, A.clone(fork)))
+    ).rejects.toThrow("disk full")
+    expect(attempts[0].some(record => record.kind === "fragment")).toBe(true)
+    await delegate.flush()
+    expect(attempts[1]).toEqual(attempts[0])
+    expect(A.getHeads(applyRecords(A.clone(initial), attempts[1]))).toEqual(
+      A.getHeads(fork)
+    )
+  })
+
   it("flush captures accepted writes, not subsequent edits", async () => {
     const releases: (() => void)[] = []
     const submit = vi.fn(
@@ -592,12 +625,16 @@ describe("DocumentDelegate", () => {
     )
   })
 
-  it("remembers only the current snapshot's covering representation", async () => {
-    const { delegate, submit } = setup()
-    const first = A.from({ count: 1 })
-    await delegate.commit(first)
-    await delegate.commit(A.from({ count: 2 }))
-    await delegate.commit(A.clone(first))
-    expect(submit).toHaveBeenCalledTimes(3)
+  it("writes only the new change and does not resubmit an unchanged document", async () => {
+    const { handle, submit } = setup(A.from({ count: 0 }), undefined, true)
+    await handle.change(doc => {
+      doc.count = 1
+    })
+    const written = submit.mock.calls[0][1]
+    expect(written).toHaveLength(1)
+    await handle.change(doc => {
+      doc.count = 1
+    })
+    expect(submit).toHaveBeenCalledTimes(1)
   })
 })
