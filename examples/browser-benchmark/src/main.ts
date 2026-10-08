@@ -14,6 +14,7 @@ type Manifest = {
 type LoadResult = {
   count: number
   totalMs: number
+  storage: StorageStats
   readyMs: number[]
   frameGapMs: number[]
   longTasksMs: number[]
@@ -292,7 +293,8 @@ async function prepare() {
 async function load(database: string, urls: string[]): Promise<LoadResult> {
   const sizeBefore = await storeSize(database)
   const before = { ...sizeBefore, jsHeapBytes: memory(), wasmBytes: null }
-  const session = target.open(database)
+  const stats = storageStats()
+  const session = target.open(database, stats)
   let sample: LoadResult
   const frameGapMs: number[] = []
   const longTasksMs: number[] = []
@@ -332,6 +334,8 @@ async function load(database: string, urls: string[]): Promise<LoadResult> {
     sample = {
       count: urls.length,
       totalMs,
+      // Exclude any storage calls made by session.close() below.
+      storage: structuredClone(stats),
       readyMs,
       p50Ms: percentile(readyMs, 0.5),
       p95Ms: percentile(readyMs, 0.95),
