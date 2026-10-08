@@ -50,6 +50,11 @@ in the **latest** document and retain the return value; between calls, edit that
 returned document normally. Replays and arbitrary delivery order are supported.
 No history is deduplicated by head, and no document is reconstructed via
 `saveSince`, which would lose pending changes.
+The Repo delegate may skip an incoming record whose claimed head is already
+applied: valid commits and single-tip fragments add no history in that case.
+This deliberately skips validation of ignored records. Storage and callers
+requiring validation of every representation must not use this shortcut;
+`applyRecords` continues to validate every supplied record.
 
 The byte limit bounds concatenation, not total memory: a larger single record is
 loaded alone without a concatenation allocation. The caller must bound input

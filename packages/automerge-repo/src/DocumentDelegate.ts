@@ -6,6 +6,7 @@ import { decode } from "./helpers/cbor.js"
 import type { PeerId } from "./types.js"
 import {
   copyRecord,
+  recordHead,
   type HistoryCheckpoint,
   type RecordBatch,
   type SedimentreeEvent,
@@ -138,10 +139,18 @@ export class DocumentDelegate<T> {
     if (this.document.closed || this.query.peek().state === "failed") return
     switch (event.type) {
       case "records": {
-        const next = applyRecords(this.document.doc, event.records)
-        // Inbound representation must be known before listeners can make edits.
-        this.#remember(next)
-        void this.document.applyMutation(() => next, { incoming: true })
+        // An applied head includes all its dependencies, even when delivered
+        // through a fragment. Pending heads are not reported by hasHeads.
+        // This is a materialization shortcut, not a persistence receipt.
+        const unknown = event.records.filter(
+          record => !A.hasHeads(this.document.doc, [recordHead(record)])
+        )
+        if (unknown.length) {
+          const next = applyRecords(this.document.doc, unknown)
+          // Inbound representation must be known before listeners can make edits.
+          this.#remember(next)
+          void this.document.applyMutation(() => next, { incoming: true })
+        }
         this.#checkTargets()
         break
       }

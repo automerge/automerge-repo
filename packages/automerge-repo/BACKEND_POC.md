@@ -69,6 +69,9 @@ heads and sync-info timestamps live on the shared Document, not on its delegate.
 `DocumentDelegate` translates records, verifies checkpoints, tracks representation
 separately from save confirmation and owns exact unsaved batches. Ambiguous writes
 retry original bytes; self-echoes neither generate writes nor acknowledge failures.
+Known applied heads are skipped during delegate materialization (including
+self-echoes); this is not a record-validation or persistence guarantee. Unknown
+heads still pass through full record validation and loading.
 Rescan keeps document state and unsaved history, resetting source readiness targets.
 Delegate construction installs its commit hook and initial query source immediately;
 checkpoint verification uses query snapshot state rather than separate completion

@@ -13,6 +13,7 @@ import type { StorageId } from "../src/DocHandle.js"
 import {
   BackendError,
   commitId,
+  recordKey,
   sedimentreeId,
   type RecordBatch,
   type SyncRoundResult,
@@ -30,14 +31,12 @@ function setup(
   const document = new Document("test" as DocumentId, doc)
   const handle = new DocHandle(document)
   const query = new DocumentQuery(handle)
-  const sync = vi.fn(
-    async (): Promise<SyncRoundResult> => ({
-      roundId: "1",
-      checkpoint: { sequence: 0, heads: [] },
-      outcome: "no-peers",
-      peers: [],
-    })
-  )
+  const sync = vi.fn(async (): Promise<SyncRoundResult> => ({
+    roundId: "1",
+    checkpoint: { sequence: 0, heads: [] },
+    outcome: "no-peers",
+    peers: [],
+  }))
   const delegate = new DocumentDelegate(
     sedimentreeId("01".repeat(16)),
     document,
@@ -249,6 +248,124 @@ describe("DocumentDelegate", () => {
     })
     expect(submit).toHaveBeenCalledOnce()
     expect(handle.doc()?.count).toBe(2)
+  })
+
+  it("skips known-head echoes without applying or acknowledging them", async () => {
+    const initial = A.from({ count: 0 })
+    let reject!: (error: Error) => void
+    const submit = vi.fn(
+      () =>
+        new Promise<void>((_resolve, fail) => {
+          reject = fail
+        })
+    )
+    const { delegate, handle, document } = setup(initial, submit, true)
+    const changed = vi.fn()
+    handle.on("change", changed)
+    const pending = handle.change(d => {
+      d.count = 1
+    })
+    const echoed = submit.mock.calls[0][1]
+    const before = document.doc
+    delegate.onEvent({
+      type: "records",
+      records: echoed,
+      phase: "live",
+      sequence: 1,
+    })
+    expect(document.doc).toBe(before)
+    expect(changed).toHaveBeenCalledOnce()
+    expect(submit).toHaveBeenCalledOnce()
+    reject(new Error("storage failed"))
+    await expect(pending).rejects.toThrow("storage failed")
+    expect(delegate.hasUnsavedHistory).toBe(true)
+  })
+
+  it("does not validate a record whose claimed head is already applied", () => {
+    const doc = A.from({ count: 1 })
+    const { delegate, document } = setup(doc, undefined, true)
+    const record = extractRecords(doc)[0]
+    const blob = record.blob.slice()
+    blob[4] ^= 0xff
+    delegate.onEvent({
+      type: "records",
+      records: [{ ...record, blob }],
+      phase: "live",
+      sequence: 1,
+    })
+    expect(document.doc).toBe(doc)
+  })
+
+  it("applies unknown records in a batch that also contains known heads", () => {
+    let remote = A.from({ count: 1 })
+    const first = extractRecords(remote)
+    remote = A.change(remote, d => {
+      d.count = 2
+    })
+    const { delegate, document, handle } = setup()
+    delegate.onEvent({
+      type: "records",
+      records: first,
+      phase: "initial",
+      sequence: 1,
+    })
+    const before = document.doc
+    delegate.onEvent({
+      type: "records",
+      records: [...first, ...extractRecords(remote)],
+      phase: "live",
+      sequence: 2,
+    })
+    expect(document.doc).not.toBe(before)
+    expect(handle.doc()?.count).toBe(2)
+  })
+
+  it("applies new fragments and skips their later echoes", () => {
+    let remote = A.from({ count: 0 })
+    for (let i = 1; i <= 2000; i++)
+      remote = A.change(remote, d => {
+        d.count = i
+      })
+    const records = extractRecords(remote)
+    expect(records.some(r => r.kind === "fragment")).toBe(true)
+    const { delegate, document, handle } = setup()
+    const before = document.doc
+    delegate.onEvent({
+      type: "records",
+      records,
+      phase: "initial",
+      sequence: 1,
+    })
+    expect(handle.doc()?.count).toBe(2000)
+    const loaded = document.doc
+    expect(loaded).not.toBe(before)
+    delegate.onEvent({ type: "records", records, phase: "live", sequence: 2 })
+    expect(document.doc).toBe(loaded)
+  })
+
+  it("does not treat a queued, unapplied head as known", () => {
+    let remote = A.from({ count: 0 })
+    const first = extractRecords(remote)
+    remote = A.change(remote, d => {
+      d.count = 1
+    })
+    const keys = new Set(first.map(recordKey))
+    const second = extractRecords(remote).filter(r => !keys.has(recordKey(r)))
+    const { delegate, handle } = setup()
+    delegate.onEvent({
+      type: "records",
+      records: second,
+      phase: "live",
+      sequence: 1,
+    })
+    expect(handle.doc()?.count).toBeUndefined()
+    delegate.onEvent({
+      type: "records",
+      records: first,
+      phase: "live",
+      sequence: 2,
+    })
+    expect(handle.doc()?.count).toBe(1)
   })
 
   it("retains exact failed bytes even if a submitter modifies its copy", async () => {
