@@ -1,0 +1,15 @@
+{
+  "name": "@automerge/automerge-repo-node-benchmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "parity": "node parity.mjs"
+  },
+  "dependencies": {
+    "@automerge/automerge": "catalog:",
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-subduction": "workspace:*",
+    "@automerge/subduction": "0.23.0"
+  }
+}

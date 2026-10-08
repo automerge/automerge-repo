@@ -166,6 +166,21 @@ importers:
         specifier: 'catalog:'
         version: 3.6.0(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
 
+  examples/node-benchmark:
+    dependencies:
+      '@automerge/automerge':
+        specifier: 'catalog:'
+        version: 3.5.0
+      '@automerge/automerge-repo':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo
+      '@automerge/automerge-repo-subduction':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-subduction
+      '@automerge/subduction':
+        specifier: 0.23.0
+        version: 0.23.0
+
   examples/react-todo:
     dependencies:
       '@automerge/react':

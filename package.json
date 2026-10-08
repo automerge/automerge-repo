@@ -17,6 +17,7 @@
     "bench:browser": "node examples/browser-benchmark/browser.mjs",
     "bench:prepare": "node examples/browser-benchmark/prepare.mjs",
     "bench:compare": "node examples/browser-benchmark/compare.mjs",
+    "bench:node": "node examples/node-benchmark/compare.mjs",
     "dev": "pnpm watch",
     "pub": "pnpm publish -r",
     "preinstall": "npx only-allow pnpm",
