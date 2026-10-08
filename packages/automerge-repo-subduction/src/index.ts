@@ -6,13 +6,13 @@ import {
   equalRecords,
   recordBytes,
   recordHead,
-  recordKey,
   sedimentreeId,
   type BackendIdentity,
   type BackendOperation,
   type CollectionObservation,
   type CommitId,
   type HistoryCheckpoint,
+  type LooseCommitRecord,
   type SedimentreeRecord,
   type RecordBatch,
   type SedimentreeBackend,
@@ -1006,14 +1006,19 @@ export class SubductionBackend implements SedimentreeBackend {
               "conflict",
               "Different same-key representation is unsupported"
             )
-          const keys = new Map<string, SedimentreeRecord>()
-          for (const record of records) {
-            const old = keys.get(recordKey(record))
+          // Fragments are exempt: one head can have several valid
+          // representations, each stored under its own payload digest.
+          const commits = records.filter(
+            (r): r is LooseCommitRecord => r.kind === "commit"
+          )
+          const keys = new Map<string, LooseCommitRecord>()
+          for (const record of commits) {
+            const old = keys.get(record.id)
             if (old && !equalRecords(old, record)) throw conflict()
-            keys.set(recordKey(record), record)
+            keys.set(record.id, record)
           }
-          const stored = await this.bridge.lookup(native, records)
-          for (const [index, record] of records.entries()) {
+          const stored = await this.bridge.lookupCommits(native, commits)
+          for (const [index, record] of commits.entries()) {
             const old = stored[index]
             if (old && !equalRecords(old, record)) throw conflict()
           }

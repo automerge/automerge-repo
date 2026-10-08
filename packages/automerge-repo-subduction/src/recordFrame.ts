@@ -24,6 +24,17 @@ function digest(bytes: Uint8Array): Uint8Array {
   }
 }
 
+// Subduction's same-head tie-break hashes Fragment.encode(), not the signed
+// envelope. Fragment.encode() = schema(4) + fields; Signed<Fragment>.encode()
+// = schema(4) + issuer(32) + fields + signature(64).
+export function fragmentPayloadDigest(signed: Uint8Array): Uint8Array {
+  if (signed.length < 100) throw new Error("Signed fragment is too short")
+  const payload = new Uint8Array(signed.length - 96)
+  payload.set(signed.subarray(0, 4))
+  payload.set(signed.subarray(36, signed.length - 64), 4)
+  return digest(payload)
+}
+
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, index) => byte === b[index])
 }

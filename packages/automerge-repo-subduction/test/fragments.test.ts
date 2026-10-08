@@ -1,5 +1,6 @@
 // Fullfat initializes the runtime used by the backend's slim imports.
 import * as N from "@automerge/subduction"
+import * as A from "@automerge/automerge"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -20,7 +21,8 @@ import {
   type LocalByteStore,
   type SubductionBackendOptions,
 } from "../src/index.js"
-import { nativeId } from "../src/storage.js"
+import { nativeId, type StorageBridge } from "../src/storage.js"
+import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
 import { DiskStore, deferred } from "./storage.js"
 import { corruptFrame, signedBytes } from "./frame.js"
 
@@ -39,6 +41,27 @@ const fragment = (n: number): FragmentRecord => ({
   checkpoints: [checkpointForCommit(cid(2)), checkpointForCommit(cid(3))],
   blob: new Uint8Array([n, 255, 128, 0]),
 })
+
+function sameHeadVariants(): [FragmentRecord, FragmentRecord] {
+  // Raw Automerge changes: F, then concurrent children K and H. F, K and H
+  // hashes all start with a zero byte, so each heads a fragment. Applying K
+  // before H changes H's boundary, without changing H's commit hash.
+  const encoded = [
+    "856f4a8300779194010a0001aa0101b002000000",
+    "856f4a8300001334012b01007791944ed174f20cb0268401fab1528d20835916d604b0a0fe591eb690ad2201bb0101de8a01000000",
+    "856f4a8300619aad012a01007791944ed174f20cb0268401fab1528d20835916d604b0a0fe591eb690ad2201cc0101fd02000000",
+  ].map(value => new Uint8Array(Buffer.from(value, "hex")))
+  const head = commitId(A.decodeChange(encoded[2]).hash)
+  const variant = (order: number[]) => {
+    let doc = A.init()
+    for (const index of order) [doc] = A.applyChanges(doc, [encoded[index]])
+    return extractRecords(doc).find(
+      (record): record is FragmentRecord =>
+        record.kind === "fragment" && record.head === head
+    )!
+  }
+  return [variant([0, 2, 1]), variant([0, 1, 2])]
+}
 async function next(iterator: AsyncIterator<SedimentreeEvent>) {
   const result = await iterator.next()
   if (result.done) throw new Error("Unexpected end")
@@ -138,6 +161,90 @@ describe("local Subduction fragments", () => {
     }
   })
 
+  it.each([
+    [false, false],
+    [true, false],
+    [false, true],
+  ])(
+    "retains same-head fragment variants across restart (reverse=%s, oneBatch=%s)",
+    async (reverse, oneBatch) => {
+      const variants = sameHeadVariants()
+      expect(variants[0].boundary).not.toEqual(variants[1].boundary)
+      const ordered = reverse ? variants.reverse() : variants
+      const backend = create()
+      if (oneBatch) await backend.store(tree, ordered)
+      else {
+        await backend.store(tree, [ordered[0]])
+        await backend.store(tree, [ordered[1]])
+      }
+      await backend.close()
+      const reopened = create()
+      const loaded = await initial(reopened)
+      expect(loaded.records).toHaveLength(2)
+      expect(loaded.records).toEqual(expect.arrayContaining(ordered))
+      const { engine, bridge } = reopened as unknown as {
+        engine: N.Subduction
+        bridge: StorageBridge
+      }
+      const native = nativeId(tree)
+      const head = N.CommitId.fromHexString(ordered[0].head)
+      try {
+        const bulk = await bridge.loadAllFragments(native)
+        const loadPrefix = storage.loadPrefix.bind(storage)
+        vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix =>
+          prefix.endsWith(`${ordered[0].head}.`)
+            ? (await loadPrefix(prefix)).reverse()
+            : loadPrefix(prefix)
+        )
+        const point = await bridge.loadFragment(native, head)
+        const chosen = (await engine.getFragments(native)) ?? []
+        try {
+          expect(bulk).toHaveLength(2)
+          expect(point).not.toBeNull()
+          expect(
+            bulk.some(value =>
+              Buffer.from(value.blob).equals(Buffer.from(point!.blob))
+            )
+          ).toBe(true)
+          expect(chosen).toHaveLength(1)
+          const winner = ordered.find(record =>
+            Buffer.from(record.blob).equals(Buffer.from(point!.blob))
+          )!
+          const boundary = chosen[0].boundary
+          expect(boundary.map(value => value.toHexString())).toEqual(
+            winner.boundary
+          )
+          boundary.forEach(value => value.free())
+        } finally {
+          bulk.forEach(value => value.free())
+          point?.free()
+          chosen.forEach(value => value.free())
+        }
+      } finally {
+        head.free()
+        native.free()
+      }
+      await reopened.store(tree, ordered)
+      expect((await initial(reopened)).records).toHaveLength(2)
+    }
+  )
+
+  it("deletes every variant of a fragment head", async () => {
+    const backend = create()
+    const variants = sameHeadVariants()
+    await backend.store(tree, [...variants, loose(1)])
+    const { bridge } = backend as unknown as { bridge: StorageBridge }
+    const native = nativeId(tree)
+    const head = N.CommitId.fromHexString(variants[0].head)
+    try {
+      await bridge.deleteFragment(native, head)
+    } finally {
+      head.free()
+      native.free()
+    }
+    expect((await initial(backend)).records).toEqual([loose(1)])
+  })
+
   it("copies mutable fragment inputs and isolates observer buffers; empty checkpoints also roundtrip", async () => {
     const backend = create()
     const a = await initial(backend),
@@ -161,7 +268,7 @@ describe("local Subduction fragments", () => {
   })
 
   it.each(["blob", "boundary", "checkpoints"] as const)(
-    "rejects conflicting fragment %s without losing the original",
+    "retains a distinct same-head fragment %s representation",
     async field => {
       const backend = create()
       const original = fragment(4)
@@ -170,10 +277,10 @@ describe("local Subduction fragments", () => {
       if (field === "blob") conflict.blob = new Uint8Array([42])
       if (field === "boundary") conflict.boundary = []
       if (field === "checkpoints") conflict.checkpoints = []
-      await expect(backend.store(tree, [conflict])).rejects.toMatchObject({
-        code: "conflict",
-      })
-      expect((await initial(backend)).records).toEqual([original])
+      await backend.store(tree, [conflict])
+      const records = (await initial(backend)).records
+      expect(records).toHaveLength(2)
+      expect(records).toEqual(expect.arrayContaining([original, conflict]))
     }
   )
 
@@ -216,6 +323,38 @@ describe("local Subduction fragments", () => {
     await backend.flush()
     expect((await initial(backend)).records).toEqual(records)
   })
+
+  it.each([1, 2, 3])(
+    "keeps acknowledged records after a batch fails at record save %s",
+    async failurePosition => {
+      const backend = create()
+      const acknowledged = loose(9)
+      await backend.store(tree, [acknowledged])
+      await backend.close()
+
+      const pending = [loose(1), fragment(4), fragment(5)]
+      let saves = 0
+      storage.beforeSave = async key => {
+        if (!key.includes("/commits/") && !key.includes("/fragments/")) return
+        if (++saves === failurePosition)
+          throw new Error("injected save failure")
+      }
+      const interrupted = create()
+      await expect(interrupted.store(tree, pending)).rejects.toThrow()
+      expect(saves).toBe(failurePosition)
+      await interrupted.close().catch(() => {})
+      storage.beforeSave = undefined
+
+      const reopened = create()
+      const { records } = await initial(reopened)
+      expect(records).toContainEqual(acknowledged)
+      await reopened.store(tree, pending)
+      const recovered = (await initial(reopened)).records
+      expect(recovered).toEqual(
+        expect.arrayContaining([acknowledged, ...pending])
+      )
+    }
+  )
 
   it("rescans ambiguous fragment saves for document and collection observers", async () => {
     const backend = create()

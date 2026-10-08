@@ -212,8 +212,10 @@ acknowledgment; messages have no receipts, retries, or replay after reconnection
 Records are saved atomically **per record**, not as a batch transaction. A
 partially failed batch may already be observable. Malformed records fail rather
 than appearing absent; the checksum detects damage, not malicious tampering.
-Conflicting representations of the same tree/kind/head are rejected; variant
-equivalence and compaction are not supported.
+A different representation of an existing commit ID is rejected. As in native
+Subduction storage, fragments are keyed by head plus payload digest: valid
+same-head variants coexist, and a head lookup returns the one native keeps
+(lowest payload digest). Compaction is not supported.
 
 Observers must handle duplicate durable deliveries. A watch that exceeds its
 replay budget ends with `rescan-required`. `flush()` drains accepted local work
