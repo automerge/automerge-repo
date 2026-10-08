@@ -13,6 +13,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SubductionBackend } from "../src/index.js"
 import { DiskStore, deferred } from "./storage.js"
+import { corruptFrame } from "./frame.js"
 import { repoFragmentFixture } from "./repoFixture.js"
 import { RepoTransport } from "./repoTransport.js"
 
@@ -352,13 +353,10 @@ describe("public Repo with native Subduction", () => {
     const key = (await p.storage.list("subduction-v1/")).find(k =>
       k.includes("/commits/")
     )!
-    const frame = JSON.parse(
-      new TextDecoder().decode(await p.storage.load(key))
+    await p.storage.save(
+      key,
+      corruptFrame((await p.storage.load(key))!, "blob")
     )
-    const last = frame.blob.length - 2
-    frame.blob =
-      frame.blob.slice(0, last) + (frame.blob.endsWith("00") ? "ff" : "00")
-    await p.storage.save(key, new TextEncoder().encode(JSON.stringify(frame)))
     const restarted = peer(p.storage)
     // applyRecords rejects the record, so the only local source is unusable.
     await expect(restarted.repo.find(handle.url)).rejects.toThrow(/unavailable/)

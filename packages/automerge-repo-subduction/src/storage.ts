@@ -1,4 +1,5 @@
 import * as N from "@automerge/subduction/slim"
+import { decodeRecordFrame, encodeRecordFrame } from "./recordFrame.js"
 import {
   BackendError,
   checkpointId,
@@ -37,16 +38,6 @@ export interface ReadLimits {
 const ROOT = "subduction-v1/"
 export const hex = (bytes: Uint8Array): string =>
   Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")
-function digest(bytes: Uint8Array): string {
-  const meta = new N.BlobMeta(bytes)
-  const hash = meta.digest()
-  try {
-    return hash.toHexString()
-  } finally {
-    hash.free()
-    meta.free()
-  }
-}
 function bytes(value: unknown): Uint8Array {
   if (typeof value !== "string" || !/^(?:[0-9a-f]{2})+$/.test(value))
     throw new Error("Invalid encoded bytes")
@@ -324,72 +315,34 @@ export class StorageBridge implements N.SedimentreeStorage {
     return [...new Set(keys)].sort()
   }
 
-  private encode(
-    tree: string,
-    record: SedimentreeRecord,
-    signed: Uint8Array
-  ): Uint8Array {
-    return new TextEncoder().encode(
-      JSON.stringify({
-        v: 1,
-        tree,
-        // Keep the existing commit schema byte-for-byte compatible. Fragments
-        // have an explicit kind/head and their own namespace, even at one head.
-        ...(record.kind === "commit"
-          ? { commit: record.id }
-          : { kind: "fragment", head: record.head }),
-        signed: hex(signed),
-        signedDigest: digest(signed),
-        blob: hex(record.blob),
-      })
-    )
-  }
-
   private async read(
     tree: string,
     kind: Kind,
     key: string
   ): Promise<Stored | undefined> {
     const value = await this.storage.load(recordPath(tree, kind, key))
-    return value === undefined ? undefined : this.decode(tree, kind, key, value)
+    return value === undefined
+      ? undefined
+      : this.decode(idBytes(sedimentreeId(tree)), kind, key, value)
   }
 
   /** Validate and decode one stored compound record. Every read path, single
    * key or bulk, goes through here so the checks are identical. */
   private decode(
-    tree: string,
+    treeBytes: Uint8Array,
     kind: Kind,
     key: string,
     value: Uint8Array
   ): Stored {
-    if (value.byteLength > this.limits.maxRecordBytes * 4 + 4096)
-      throw new Error("Compound record too large")
-    const frame = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(value)
+    const { encoded, blob } = decodeRecordFrame(
+      treeBytes,
+      kind,
+      key,
+      value,
+      this.limits.maxRecordBytes
     )
-    if (
-      !frame ||
-      frame.v !== 1 ||
-      frame.tree !== tree ||
-      (kind === "commit"
-        ? frame.commit !== key ||
-          frame.kind !== undefined ||
-          frame.head !== undefined
-        : frame.kind !== "fragment" ||
-          frame.head !== key ||
-          frame.commit !== undefined)
-    )
-      throw new Error("Invalid compound record version/tree/key/kind")
-    const blob = bytes(frame.blob)
-    const encoded = bytes(frame.signed)
-    // Native hydration trusts stored signatures; detect damaged envelope bytes
-    // too. This checksum is corruption detection, NOT signature authentication.
-    if (digest(encoded) !== frame.signedDigest)
-      throw new Error("Signed envelope checksum mismatch")
-    if (blob.length + encoded.length > this.limits.maxRecordBytes)
-      throw new Error("Record limit exceeded")
-    // Tree, key and blob were checked when this record was written; the
-    // checksum above and Repo's record validation cover damage since.
+    // Tree, key and blob were checked when written; the frame checksum and
+    // Repo's record validation cover damage since.
     if (kind === "fragment") {
       const signed = N.SignedFragment.tryDecode(encoded)
       try {
@@ -442,6 +395,7 @@ export class StorageBridge implements N.SedimentreeStorage {
 
   private decodeAll(tree: string, entries: [string, Uint8Array][]): Stored[] {
     const p = prefix(tree)
+    const treeBytes = idBytes(sedimentreeId(tree))
     const values: Stored[] = []
     try {
       for (const [fullKey, value] of entries) {
@@ -456,7 +410,7 @@ export class StorageBridge implements N.SedimentreeStorage {
         const match = /^(commits|fragments)\/([0-9a-f]{64})$/.exec(relative)
         if (!match) throw new Error("Malformed storage key")
         const kind = match[1] === "commits" ? "commit" : "fragment"
-        values.push(this.decode(tree, kind, match[2], value))
+        values.push(this.decode(treeBytes, kind, match[2], value))
       }
       return values
     } catch (error) {
@@ -572,8 +526,8 @@ export class StorageBridge implements N.SedimentreeStorage {
     blob: Uint8Array
   ): Prepared {
     const cid = key.toHexString()
-    const record = plain(signed, new Uint8Array(blob), id)
-    return this.prepare(id, cid, record, new Uint8Array(signed.encode()))
+    const record = plain(signed, blob, id)
+    return this.prepare(id, cid, key.toBytes(), record, signed.encode())
   }
   private prepareFragment(
     id: N.SedimentreeId,
@@ -582,24 +536,27 @@ export class StorageBridge implements N.SedimentreeStorage {
     blob: Uint8Array
   ): Prepared {
     const head = key.toHexString()
-    const record = plainFragment(signed, new Uint8Array(blob), treeHex(id))
-    return this.prepare(id, head, record, new Uint8Array(signed.encode()))
+    const record = plainFragment(signed, blob, treeHex(id))
+    return this.prepare(id, head, key.toBytes(), record, signed.encode())
   }
   private prepare(
     id: N.SedimentreeId,
     key: string,
+    keyBytes: Uint8Array,
     record: SedimentreeRecord,
     encoded: Uint8Array
   ): Prepared {
     if (encoded.length + record.blob.length > this.limits.maxRecordBytes)
       throw new Error("Record limit exceeded")
+    if ((record.kind === "commit" ? record.id : record.head) !== key)
+      throw new Error("Signed record key does not match storage key")
     const tree = treeHex(id)
     return {
       tree,
       sid: logicalId(id),
       key,
       record,
-      frame: this.encode(tree, record, encoded),
+      frame: encodeRecordFrame(id.toBytes(), keyBytes, record, encoded),
     }
   }
   private async savePrepared(value: Prepared): Promise<void> {

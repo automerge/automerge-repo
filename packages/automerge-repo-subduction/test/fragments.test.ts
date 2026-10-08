@@ -22,6 +22,7 @@ import {
 } from "../src/index.js"
 import { nativeId } from "../src/storage.js"
 import { DiskStore, deferred } from "./storage.js"
+import { corruptFrame, signedBytes } from "./frame.js"
 
 const tree = sedimentreeId("ab".repeat(16))
 const cid = (n: number) => commitId(n.toString(16).padStart(2, "0").repeat(32))
@@ -116,8 +117,9 @@ describe("local Subduction fragments", () => {
     const key = (await storage.list("subduction-v1/")).find(k =>
       k.includes("/fragments/")
     )!
-    const frame = JSON.parse(new TextDecoder().decode(await storage.load(key)))
-    const signed = N.SignedFragment.tryDecode(Buffer.from(frame.signed, "hex"))
+    const signed = N.SignedFragment.tryDecode(
+      signedBytes((await storage.load(key))!)
+    )
     const payload = signed.payload
     const checkpoints = payload.checkpoints
     const id = payload.sedimentreeId
@@ -186,15 +188,7 @@ describe("local Subduction fragments", () => {
       const key = (await storage.list("subduction-v1/")).find(k =>
         k.includes("/fragments/")
       )!
-      const frame = JSON.parse(
-        new TextDecoder().decode(await storage.load(key))
-      )
-      if (field === "signed")
-        frame.signed =
-          frame.signed.slice(0, -2) +
-          (frame.signed.endsWith("00") ? "ff" : "00")
-      if (field === "kind") frame.kind = "commit"
-      await storage.save(key, new TextEncoder().encode(JSON.stringify(frame)))
+      await storage.save(key, corruptFrame((await storage.load(key))!, field))
       const reloaded = create()
       const stream = reloaded.open(tree).events[Symbol.asyncIterator]()
       expect(await next(stream)).toMatchObject({ type: "failure" })
@@ -268,13 +262,8 @@ describe("local Subduction fragments", () => {
       const key = (await storage.list("subduction-v1/")).find(k =>
         k.includes(`/${kind}/`)
       )!
-      const frame = JSON.parse(
-        new TextDecoder().decode(await storage.load(key))
-      )
       // Same size, different digest: only the blob content check can catch it.
-      frame.blob =
-        frame.blob.slice(0, -2) + (frame.blob.endsWith("00") ? "ff" : "00")
-      await storage.save(key, new TextEncoder().encode(JSON.stringify(frame)))
+      await storage.save(key, corruptFrame((await storage.load(key))!, "blob"))
       const reopened = create()
       expect((await initial(reopened)).records).toHaveLength(2)
       // The first local write hydrates native, which verifies every blob.
@@ -311,11 +300,10 @@ describe("local Subduction fragments", () => {
       const key = (await storage.list("subduction-v1/")).find(k =>
         k.includes(`/${kind}/`)
       )!
-      const frame = JSON.parse(
-        new TextDecoder().decode(await storage.load(key))
+      await storage.save(
+        key,
+        corruptFrame((await storage.load(key))!, "digest")
       )
-      frame.signedDigest = "00".repeat(32)
-      await storage.save(key, new TextEncoder().encode(JSON.stringify(frame)))
       // The first local write hydrates native, which reads both kinds.
       await expect(reopened.store(tree, [loose(5, [4])])).rejects.toThrow()
       await expect(reopened.flush()).rejects.toBeInstanceOf(AggregateError)

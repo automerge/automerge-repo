@@ -17,6 +17,7 @@ import {
   type LocalByteStore,
 } from "../src/storage.js"
 import { deferred } from "./storage.js"
+import { signedBytes } from "./frame.js"
 
 const tree = sedimentreeId("ab".repeat(16))
 const other = sedimentreeId("cd".repeat(16))
@@ -108,8 +109,7 @@ beforeAll(async () => {
         const value = [...storage.values.entries()].find(
           ([k]) => !k.endsWith("/id")
         )![1]
-        const frame = JSON.parse(new TextDecoder().decode(value))
-        signed.set(record, Uint8Array.from(Buffer.from(frame.signed, "hex")))
+        signed.set(record, signedBytes(value))
       } finally {
         await engine.disconnectAll()
         await bridge.drain()
@@ -216,6 +216,22 @@ function dispose(value: unknown): void {
 }
 
 describe("StorageBridge native transaction serialization", () => {
+  it("rejects a signed record under a different storage key", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, limits, () => {})
+    const wrong = N.CommitId.fromHexString(second.id)
+    const value = N.SignedLooseCommit.tryDecode(signed.get(first)!)
+    try {
+      await expect(
+        withId(id => bridge.saveCommit(id, wrong, value, first.blob))
+      ).rejects.toThrow(/key/)
+      expect(storage.values.size).toBe(0)
+    } finally {
+      wrong.free()
+      value.free()
+    }
+  })
+
   it.each([
     ["commit", "single save"],
     ["commit", "batch"],
@@ -284,6 +300,16 @@ describe("StorageBridge native transaction serialization", () => {
     expect(await withId(id => bridge.records(id))).toEqual([first, fragment])
     expect(storage.calls.filter(c => c.startsWith("save:"))).toHaveLength(2)
     expect(storage.maxActive).toBe(1)
+  })
+
+  it("owns decoded blobs after the stored frame changes", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, limits, () => {})
+    await save(bridge, first)
+    const [record] = await withId(id => bridge.records(id))
+    const frame = [...storage.values.values()][0]
+    frame[frame.length - 1] ^= 0xff
+    expect(record.blob).toEqual(first.blob)
   })
 
   it("bounds single records but never the total history of a tree", async () => {

@@ -17,6 +17,7 @@ import {
 } from "../src/index.js"
 import { nativeId, logicalId } from "../src/storage.js"
 import { DiskStore, deferred } from "./storage.js"
+import { corruptFrame, signedBytes } from "./frame.js"
 
 const tree = sedimentreeId("ab".repeat(16))
 const cid = (n: number) => commitId(n.toString(16).padStart(64, "0"))
@@ -147,9 +148,8 @@ describe("real local Subduction", () => {
     await backend.store(tree, [record(2, [1]), record(1)])
     const keys = await storage.list("subduction-v1/")
     const key = keys.find(k => k.endsWith(`/commits/${cid(2)}`))!
-    const frame = JSON.parse(new TextDecoder().decode(await storage.load(key)))
     const signed = N.SignedLooseCommit.tryDecode(
-      Uint8Array.from(Buffer.from(frame.signed, "hex"))
+      signedBytes((await storage.load(key))!)
     )
     const payload = signed.payload
     const commit = payload.commitId,
@@ -554,34 +554,32 @@ describe("real local Subduction", () => {
 
   // Tree/key relocation and blob damage are not re-checked on read: writes
   // check the tree, native checks blobs, and Repo validates records.
-  it.each(["malformed", "key", "signed"])(
-    "fails loudly on persisted %s corruption",
-    async kind => {
-      const backend = create()
-      await backend.store(tree, [record(1)])
-      await backend.close()
-      const key = (await storage.list("subduction-v1/")).find(k =>
-        k.includes("/commits/")
-      )!
-      const frame = JSON.parse(
-        new TextDecoder().decode(await storage.load(key))
-      )
-      if (kind === "signed")
-        frame.signed =
-          frame.signed.slice(0, -2) +
-          (frame.signed.endsWith("00") ? "ff" : "00")
-      if (kind === "key") frame.commit = cid(2)
-      await storage.save(
-        key,
-        new TextEncoder().encode(
-          kind === "malformed" ? "not JSON" : JSON.stringify(frame)
-        )
-      )
-      const iterator = create().open(tree).events[Symbol.asyncIterator]()
-      expect(await next(iterator)).toMatchObject({ type: "failure" })
-      expect((await iterator.next()).done).toBe(true)
-    }
-  )
+  it.each([
+    "malformed",
+    "version",
+    "tree",
+    "kind",
+    "key",
+    "length",
+    "signed",
+    "digest",
+  ] as const)("fails loudly on persisted %s corruption", async kind => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    await backend.close()
+    const key = (await storage.list("subduction-v1/")).find(k =>
+      k.includes("/commits/")
+    )!
+    await storage.save(
+      key,
+      kind === "malformed"
+        ? new Uint8Array([1])
+        : corruptFrame((await storage.load(key))!, kind)
+    )
+    const iterator = create().open(tree).events[Symbol.asyncIterator]()
+    expect(await next(iterator)).toMatchObject({ type: "failure" })
+    expect((await iterator.next()).done).toBe(true)
+  })
 
   it("rescans partial persisted saves, reports historical failure to flush, and retries safely", async () => {
     const backend = create()
